@@ -62,6 +62,55 @@ impl CommandStatus {
 }
 
 #[derive(Debug, Copy, Clone)]
+
+pub struct PanSpeed(u8);
+
+impl PanSpeed {
+    // Constructor to ensure the value is either 0x00 (stop) or within the range 0x01 (low speed) ~ 0x18 (high speed)
+    pub fn new(value: u8) -> Result<Self, &'static str> {
+        if (0x00..=0x18).contains(&value) {
+            Ok(PanSpeed(value))
+        } else {
+            Err("Value must be in the range 0x00..=0x18")
+        }
+    }
+
+    // Getter method to access the value
+    pub fn get_value(&self) -> u8 {
+        self.0
+    }
+
+    // Method to convert back to u8
+    pub fn to_u8(self) -> u8 {
+        self.0
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct TiltSpeed(u8);
+
+impl TiltSpeed {
+    // Constructor to ensure the value is either 0x00 (stop) or within the range 0x01 (low speed) ~ 0x14 (high speed)
+    pub fn new(value: u8) -> Result<Self, &'static str> {
+        if (0x00..=0x14).contains(&value) {
+            Ok(TiltSpeed(value))
+        } else {
+            Err("Value must be in the range 0x00..=0x14")
+        }
+    }
+
+    // Getter method to access the value
+    pub fn get_value(&self) -> u8 {
+        self.0
+    }
+
+    // Method to convert back to u8
+    pub fn to_u8(self) -> u8 {
+        self.0
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub enum PanTiltDirection {
     Up,
     Down,
@@ -158,7 +207,7 @@ pub enum ViscaCommand {
     HueDirect(u8),
 
     // Pan Tilt Commands
-    PanTiltDrive(PanTiltDirection, u8, u8),
+    PanTiltDrive(PanTiltDirection, PanSpeed, TiltSpeed),
     PanTiltAbsolutePosition(u8, u8, u8, u8, u8, u8, u8, u8),
     PanTiltRelativePosition(u8, u8, u8, u8, u8, u8, u8, u8),
     PanTiltHome,
@@ -320,8 +369,8 @@ impl ViscaCommand {
                     0x01,
                     0x06,
                     0x01,
-                    *pan_speed,
-                    *tilt_speed,
+                    pan_speed.to_u8(),
+                    tilt_speed.to_u8(),
                     dir_byte1,
                     dir_byte2,
                     0xFF,
