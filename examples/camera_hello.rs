@@ -158,14 +158,20 @@ fn main() -> io::Result<()> {
         Box::new(TcpTransport::new(tcp_address)?)
     };
 
-    let pan_tilt_up_command = ViscaCommand::PanTiltDrive(PanTiltDirection::Up, 0x01, 0x01);
+    let pan_tilt_home_command = ViscaCommand::PanTiltHome;
+    match transport.send_command(&pan_tilt_home_command) {
+        Ok(_) => info!("Pan tilt home command sent successfully."),
+        Err(e) => error!("Failed to send pan tilt home command: {}", e),
+    }
+
+    let pan_tilt_up_command = ViscaCommand::PanTiltDrive(PanTiltDirection::Down, 0x10, 0x10);
     let start_time = std::time::Instant::now();
     while start_time.elapsed() < Duration::from_secs(3) {
         match transport.send_command(&pan_tilt_up_command) {
-            Ok(_) => info!("Pan up command sent successfully."),
-            Err(e) => error!("Failed to send pan up command: {}", e),
+            Ok(_) => info!("Command sent successfully."),
+            Err(e) => error!("Failed to send command: {}", e),
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(500));
     }
 
     let stop_command = ViscaCommand::PanTiltDrive(PanTiltDirection::Stop, 0x00, 0x00);

@@ -75,17 +75,17 @@ pub enum PanTiltDirection {
 }
 
 impl PanTiltDirection {
-    pub fn to_byte(self) -> u8 {
+    pub fn to_bytes(self) -> (u8, u8) {
         match self {
-            PanTiltDirection::Up => 0x03,
-            PanTiltDirection::Down => 0x04,
-            PanTiltDirection::Left => 0x01,
-            PanTiltDirection::Right => 0x02,
-            PanTiltDirection::UpLeft => 0x01,
-            PanTiltDirection::UpRight => 0x02,
-            PanTiltDirection::DownLeft => 0x01,
-            PanTiltDirection::DownRight => 0x02,
-            PanTiltDirection::Stop => 0x03,
+            PanTiltDirection::Up => (0x03, 0x01),
+            PanTiltDirection::Down => (0x03, 0x02),
+            PanTiltDirection::Left => (0x01, 0x03),
+            PanTiltDirection::Right => (0x02, 0x03),
+            PanTiltDirection::UpLeft => (0x01, 0x01),
+            PanTiltDirection::UpRight => (0x02, 0x01),
+            PanTiltDirection::DownLeft => (0x01, 0x02),
+            PanTiltDirection::DownRight => (0x02, 0x02),
+            PanTiltDirection::Stop => (0x03, 0x03),
         }
     }
 }
@@ -314,7 +314,7 @@ impl ViscaCommand {
 
             // Pan Tilt Commands
             ViscaCommand::PanTiltDrive(dir, pan_speed, tilt_speed) => {
-                let direction_byte = dir.to_byte();
+                let (dir_byte1, dir_byte2) = dir.to_bytes();
                 vec![
                     0x81,
                     0x01,
@@ -322,8 +322,8 @@ impl ViscaCommand {
                     0x01,
                     *pan_speed,
                     *tilt_speed,
-                    direction_byte,
-                    0x03,
+                    dir_byte1,
+                    dir_byte2,
                     0xFF,
                 ]
             }
