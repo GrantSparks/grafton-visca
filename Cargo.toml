@@ -13,6 +13,6 @@ keywords = ["ptz", "camera", "visca"]
 include = ["Cargo.toml", "src/**/*"]
 readme = "READNE.md"
 
-[dev-dependencies]
+[dependencies]
 log = "*"
 env_logger = "*"
