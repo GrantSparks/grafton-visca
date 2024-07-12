@@ -32,11 +32,12 @@ fn main() -> io::Result<()> {
         PanSpeed::new(0x4).unwrap(),
         TiltSpeed::new(0x4).unwrap(),
     );
-    let start_time = std::time::Instant::now();
-    while start_time.elapsed() < Duration::from_secs(3) {
-        debug!("Sending Pan/Tilt up command");
-        send_command_and_wait(&mut transport, &pan_tilt_up_command)?;
-    }
+
+    debug!("Sending Pan/Tilt up command");
+    send_command_and_wait(&mut transport, &pan_tilt_up_command)?;
+
+    // Sleep for 3 seconds
+    std::thread::sleep(Duration::from_secs(3));
 
     let stop_command = ViscaCommand::PanTiltDrive(
         PanTiltDirection::Stop,
