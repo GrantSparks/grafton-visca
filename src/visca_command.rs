@@ -66,22 +66,26 @@ impl CommandStatus {
 pub struct PanSpeed(u8);
 
 impl PanSpeed {
-    // Constructor to ensure the value is either 0x00 (stop) or within the range 0x01 (low speed) ~ 0x18 (high speed)
+    pub const STOP: PanSpeed = PanSpeed(0x00);
+    pub const LOW_SPEED: PanSpeed = PanSpeed(0x01);
+    pub const HIGH_SPEED: PanSpeed = PanSpeed(0x18);
+
+    // Constructor to ensure the value is either STOP or within the range 0x01 (low speed) ~ 0x18 (high speed)
     pub fn new(value: u8) -> Result<Self, &'static str> {
-        if (0x00..=0x18).contains(&value) {
+        if Self::is_valid_value(value) {
             Ok(PanSpeed(value))
         } else {
             Err("Value must be in the range 0x00..=0x18")
         }
     }
 
-    // Getter method to access the value
-    pub fn get_value(&self) -> u8 {
-        self.0
+    // Internal function to check if the value is valid
+    fn is_valid_value(value: u8) -> bool {
+        value == Self::STOP.0 || (0x01..=Self::HIGH_SPEED.0).contains(&value)
     }
 
-    // Method to convert back to u8
-    pub fn to_u8(self) -> u8 {
+    // Getter method to access the value
+    pub fn get_value(&self) -> u8 {
         self.0
     }
 }
@@ -90,22 +94,26 @@ impl PanSpeed {
 pub struct TiltSpeed(u8);
 
 impl TiltSpeed {
-    // Constructor to ensure the value is either 0x00 (stop) or within the range 0x01 (low speed) ~ 0x14 (high speed)
+    pub const STOP: PanSpeed = PanSpeed(0x00);
+    pub const LOW_SPEED: PanSpeed = PanSpeed(0x01);
+    pub const HIGH_SPEED: PanSpeed = PanSpeed(0x14);
+
+    // Constructor to ensure the value is either STOP or within the range 0x01 (low speed) ~ 0x14 (high speed)
     pub fn new(value: u8) -> Result<Self, &'static str> {
-        if (0x00..=0x14).contains(&value) {
+        if Self::is_valid_value(value) {
             Ok(TiltSpeed(value))
         } else {
-            Err("Value must be in the range 0x00..=0x14")
+            Err("Value must be in the range 0x00..=0x18")
         }
+    }
+
+    // Internal function to check if the value is valid
+    fn is_valid_value(value: u8) -> bool {
+        value == Self::STOP.0 || (0x01..=Self::HIGH_SPEED.0).contains(&value)
     }
 
     // Getter method to access the value
     pub fn get_value(&self) -> u8 {
-        self.0
-    }
-
-    // Method to convert back to u8
-    pub fn to_u8(self) -> u8 {
         self.0
     }
 }
@@ -369,8 +377,8 @@ impl ViscaCommand {
                     0x01,
                     0x06,
                     0x01,
-                    pan_speed.to_u8(),
-                    tilt_speed.to_u8(),
+                    pan_speed.get_value(),
+                    tilt_speed.get_value(),
                     dir_byte1,
                     dir_byte2,
                     0xFF,
