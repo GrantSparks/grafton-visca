@@ -1,0 +1,18 @@
+[package]
+name = "grafton-visca"
+version = "0.1.0"
+edition = "2021"
+authors = ["Grant Sparks <grant@grafton.ai>"]
+description = "Rust based VISCA over IP implementation for controlling PTZ Cameras"
+license = "Apache-2.0"
+repository = "https://github.com/GrantSparks/grafton-visca"
+homepage = "https://www.grafton.ai"
+publish = false
+categories = ["computer-vision", "network-programming"]
+keywords = ["ptz", "camera", "visca"]
+include = ["Cargo.toml", "src/**/*"]
+readme = "READNE.md"
+
+[dev-dependencies]
+log = "*"
+env_logger = "*"
