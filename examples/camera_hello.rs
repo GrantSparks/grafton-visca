@@ -36,8 +36,6 @@ fn main() -> io::Result<()> {
     while start_time.elapsed() < Duration::from_secs(3) {
         debug!("Sending Pan/Tilt up command");
         send_command_and_wait(&mut transport, &pan_tilt_up_command)?;
-        // Sleep for 10 ms
-        std::thread::sleep(Duration::from_millis(10));
     }
 
     let stop_command = ViscaCommand::PanTiltDrive(
