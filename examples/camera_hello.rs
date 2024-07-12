@@ -54,8 +54,8 @@ fn main() -> io::Result<()> {
     // Send Pan/Tilt up command
     let pan_tilt_up_command = ViscaCommand::PanTiltDrive(
         PanTiltDirection::Up,
-        PanSpeed::new(0x4).expect("Invalid Pan Speed"),
-        TiltSpeed::new(0x4).expect("Invalid Tilt Speed"),
+        PanSpeed::new(0x8).expect("Invalid Pan Speed"),
+        TiltSpeed::new(0x8).expect("Invalid Tilt Speed"),
     );
 
     debug!("Sending Pan/Tilt up command");
