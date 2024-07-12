@@ -9,7 +9,7 @@ use visca_command::ViscaCommand;
 
 pub trait ViscaTransport {
     fn send_command(&mut self, command: &ViscaCommand) -> io::Result<()>;
-    fn receive_response(&mut self) -> io::Result<Vec<u8>>;
+    fn receive_response(&mut self) -> io::Result<Vec<Vec<u8>>>;
 }
 
 pub struct UdpTransport {
@@ -38,7 +38,7 @@ impl ViscaTransport for UdpTransport {
         Ok(())
     }
 
-    fn receive_response(&mut self) -> io::Result<Vec<u8>> {
+    fn receive_response(&mut self) -> io::Result<Vec<Vec<u8>>> {
         let mut buffer = [0u8; 1024];
         match self.socket.recv_from(&mut buffer) {
             Ok((bytes_received, src)) => {
@@ -48,7 +48,35 @@ impl ViscaTransport for UdpTransport {
                     src,
                     &buffer[..bytes_received]
                 );
-                Ok(buffer[..bytes_received].to_vec())
+
+                let mut responses = Vec::new();
+                let mut start_index = None;
+                let mut response = Vec::new();
+
+                for &byte in &buffer[..bytes_received] {
+                    if byte == 0x90 {
+                        if let Some(start) = start_index {
+                            responses.push(response.split_off(start));
+                        }
+                        start_index = Some(response.len());
+                    }
+                    response.push(byte);
+                    if byte == 0xFF {
+                        if let Some(start) = start_index {
+                            responses.push(response.split_off(start));
+                            start_index = None;
+                        }
+                    }
+                }
+
+                if start_index.is_some() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Incomplete response received",
+                    ));
+                }
+
+                Ok(responses)
             }
             Err(e) => {
                 error!("Failed to receive response: {}", e);
@@ -65,8 +93,8 @@ pub struct TcpTransport {
 impl TcpTransport {
     pub fn new(address: &str) -> io::Result<Self> {
         let stream = TcpStream::connect(address)?;
-        stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+        stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(30)))?;
         Ok(Self { stream })
     }
 }
@@ -80,7 +108,7 @@ impl ViscaTransport for TcpTransport {
         Ok(())
     }
 
-    fn receive_response(&mut self) -> io::Result<Vec<u8>> {
+    fn receive_response(&mut self) -> io::Result<Vec<Vec<u8>>> {
         let mut buffer = [0u8; 1024];
         match self.stream.read(&mut buffer) {
             Ok(bytes_received) => {
@@ -89,7 +117,35 @@ impl ViscaTransport for TcpTransport {
                     bytes_received,
                     &buffer[..bytes_received]
                 );
-                Ok(buffer[..bytes_received].to_vec())
+
+                let mut responses = Vec::new();
+                let mut start_index = None;
+                let mut response = Vec::new();
+
+                for &byte in &buffer[..bytes_received] {
+                    if byte == 0x90 {
+                        if let Some(start) = start_index {
+                            responses.push(response.split_off(start));
+                        }
+                        start_index = Some(response.len());
+                    }
+                    response.push(byte);
+                    if byte == 0xFF {
+                        if let Some(start) = start_index {
+                            responses.push(response.split_off(start));
+                            start_index = None;
+                        }
+                    }
+                }
+
+                if start_index.is_some() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Incomplete response received",
+                    ));
+                }
+
+                Ok(responses)
             }
             Err(e) => {
                 error!("Failed to receive response: {}", e);
@@ -107,13 +163,15 @@ pub fn send_command_and_wait(
 
     loop {
         match transport.receive_response() {
-            Ok(response) => {
-                display_camera_response(&response);
-                // Check if the response is 4 bytes or, if it has 3 bytes, check whether the second byte is in the range 0x50 to 0x5F
-                if response.len() == 4
-                    || (response.len() == 3 && (0x50..=0x5F).contains(&response[1]))
-                {
-                    break;
+            Ok(responses) => {
+                for response in responses {
+                    display_camera_response(&response);
+                    // Check if the response is 4 bytes or, if it has 3 bytes, check whether the second byte is in the range 0x50 to 0x5F
+                    if response.len() == 4
+                        || (response.len() == 3 && (0x50..=0x5F).contains(&response[1]))
+                    {
+                        return Ok(());
+                    }
                 }
             }
             Err(e) => {
@@ -122,7 +180,6 @@ pub fn send_command_and_wait(
             }
         }
     }
-    Ok(())
 }
 
 pub fn display_camera_response(response: &[u8]) {

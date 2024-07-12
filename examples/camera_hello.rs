@@ -29,14 +29,15 @@ fn main() -> io::Result<()> {
 
     let pan_tilt_up_command = ViscaCommand::PanTiltDrive(
         PanTiltDirection::Down,
-        PanSpeed::new(0x10).unwrap(),
-        TiltSpeed::new(0x10).unwrap(),
+        PanSpeed::new(0x4).unwrap(),
+        TiltSpeed::new(0x4).unwrap(),
     );
     let start_time = std::time::Instant::now();
     while start_time.elapsed() < Duration::from_secs(3) {
         debug!("Sending Pan/Tilt up command");
         send_command_and_wait(&mut transport, &pan_tilt_up_command)?;
-        std::thread::sleep(Duration::from_millis(1000));
+        // Sleep for 10 ms
+        std::thread::sleep(Duration::from_millis(10));
     }
 
     let stop_command = ViscaCommand::PanTiltDrive(
