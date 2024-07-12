@@ -46,6 +46,21 @@ pub enum CommandStatus {
     CommandNotExecutable = 0x41,
 }
 
+impl CommandStatus {
+    pub fn from_u8(value: u8) -> Option<CommandStatus> {
+        match value {
+            0x04 => Some(CommandStatus::Ack),
+            0x05 => Some(CommandStatus::Completion),
+            0x60 => Some(CommandStatus::SyntaxError),
+            0x61 => Some(CommandStatus::CommandBufferFull),
+            0x63 => Some(CommandStatus::CommandCanceled),
+            0x65 => Some(CommandStatus::NoSocket),
+            0x41 => Some(CommandStatus::CommandNotExecutable),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum PanTiltDirection {
     Up,
