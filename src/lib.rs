@@ -1,7 +1,7 @@
 pub mod visca_command;
 use log::{debug, error, info};
 use std::{
-    io::{self, Read as _, Write as _},
+    io::{self, Read, Write},
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
@@ -49,34 +49,7 @@ impl ViscaTransport for UdpTransport {
                     &buffer[..bytes_received]
                 );
 
-                let mut responses = Vec::new();
-                let mut start_index = None;
-                let mut response = Vec::new();
-
-                for &byte in &buffer[..bytes_received] {
-                    if byte == 0x90 {
-                        if let Some(start) = start_index {
-                            responses.push(response.split_off(start));
-                        }
-                        start_index = Some(response.len());
-                    }
-                    response.push(byte);
-                    if byte == 0xFF {
-                        if let Some(start) = start_index {
-                            responses.push(response.split_off(start));
-                            start_index = None;
-                        }
-                    }
-                }
-
-                if start_index.is_some() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "Incomplete response received",
-                    ));
-                }
-
-                Ok(responses)
+                parse_response(&buffer[..bytes_received])
             }
             Err(e) => {
                 error!("Failed to receive response: {}", e);
@@ -118,34 +91,7 @@ impl ViscaTransport for TcpTransport {
                     &buffer[..bytes_received]
                 );
 
-                let mut responses = Vec::new();
-                let mut start_index = None;
-                let mut response = Vec::new();
-
-                for &byte in &buffer[..bytes_received] {
-                    if byte == 0x90 {
-                        if let Some(start) = start_index {
-                            responses.push(response.split_off(start));
-                        }
-                        start_index = Some(response.len());
-                    }
-                    response.push(byte);
-                    if byte == 0xFF {
-                        if let Some(start) = start_index {
-                            responses.push(response.split_off(start));
-                            start_index = None;
-                        }
-                    }
-                }
-
-                if start_index.is_some() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "Incomplete response received",
-                    ));
-                }
-
-                Ok(responses)
+                parse_response(&buffer[..bytes_received])
             }
             Err(e) => {
                 error!("Failed to receive response: {}", e);
@@ -156,7 +102,7 @@ impl ViscaTransport for TcpTransport {
 }
 
 pub fn send_command_and_wait(
-    transport: &mut Box<dyn ViscaTransport>,
+    transport: &mut dyn ViscaTransport,
     command: &ViscaCommand,
 ) -> io::Result<()> {
     transport.send_command(command)?;
@@ -166,7 +112,6 @@ pub fn send_command_and_wait(
             Ok(responses) => {
                 for response in responses {
                     display_camera_response(&response);
-                    // Check if the response is 4 bytes or, if it has 3 bytes, check whether the second byte is in the range 0x50 to 0x5F
                     if response.len() == 4
                         || (response.len() == 3 && (0x50..=0x5F).contains(&response[1]))
                     {
@@ -228,4 +173,35 @@ pub fn display_camera_response(response: &[u8]) {
             break;
         }
     }
+}
+
+fn parse_response(buffer: &[u8]) -> io::Result<Vec<Vec<u8>>> {
+    let mut responses = Vec::new();
+    let mut start_index = None;
+    let mut response = Vec::new();
+
+    for &byte in buffer {
+        if byte == 0x90 {
+            if let Some(start) = start_index {
+                responses.push(response.split_off(start));
+            }
+            start_index = Some(response.len());
+        }
+        response.push(byte);
+        if byte == 0xFF {
+            if let Some(start) = start_index {
+                responses.push(response.split_off(start));
+                start_index = None;
+            }
+        }
+    }
+
+    if start_index.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Incomplete response received",
+        ));
+    }
+
+    Ok(responses)
 }
