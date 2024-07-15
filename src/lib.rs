@@ -154,20 +154,10 @@ pub fn send_command_and_wait(
         match transport.receive_response() {
             Ok(responses) => {
                 for response in responses {
+                    debug!("Received response: {:02X?}", response);
                     display_camera_response(&response, command);
 
-                    // Handle the Pan/Tilt position inquiry response explicitly
-                    if command.response_type() == Some(ViscaResponseType::PanTiltPosition) {
-                        if response.len() == 11
-                            && response[0] == 0x90
-                            && response[1] == 0x50
-                            && response[10] == 0xFF
-                        {
-                            return Ok(());
-                        }
-                    } else if response.len() == 4
-                        || (response.len() == 3 && (0x50..=0x5F).contains(&response[1]))
-                    {
+                    if response.ends_with(&[0xFF]) {
                         return Ok(());
                     }
                 }
@@ -231,7 +221,9 @@ fn display_camera_response(response: &[u8], command: &ViscaCommand) {
             | ViscaResponseType::FocusPosition
             | ViscaResponseType::FocusRange
             | ViscaResponseType::MotionSyncSpeed
-            | ViscaResponseType::ZoomPosition => {
+            | ViscaResponseType::ZoomPosition
+            | ViscaResponseType::ZoomWideStandard
+            | ViscaResponseType::ZoomTeleStandard => {
                 handle_response(response, 7, &response_type_str, &[4, 5])
             }
 

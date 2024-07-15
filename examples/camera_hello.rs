@@ -6,15 +6,12 @@ use std::io;
 use std::time::Duration;
 
 fn main() -> io::Result<()> {
-    // Initialize logger
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     info!("Starting application");
 
-    // Default values
     let default_protocol = "udp";
     let default_ip_address = "192.168.0.110";
 
-    // Collect command-line arguments
     let args: Vec<String> = env::args().collect();
     let protocol = if args.len() > 1 {
         &args[1]
@@ -31,68 +28,82 @@ fn main() -> io::Result<()> {
     let tcp_port = "5678";
 
     let use_udp = protocol.eq_ignore_ascii_case("udp");
-
-    // Determine the full address based on the protocol
     let address = if use_udp {
         format!("{}:{}", ip_address, udp_port)
     } else {
         format!("{}:{}", ip_address, tcp_port)
     };
 
-    // Initialize the appropriate transport
     let mut transport: Box<dyn ViscaTransport> = if use_udp {
         Box::new(UdpTransport::new(&address)?)
     } else {
         Box::new(TcpTransport::new(&address)?)
     };
 
-    // Send Pan/Tilt home command
     debug!("Sending Pan/Tilt home command");
     let pan_tilt_home_command = ViscaCommand::PanTiltHome;
     send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
 
-    // Sleep for 1 second
     std::thread::sleep(Duration::from_secs(1));
-
-    // Inquire Pan/Tilt position
     debug!("Inquiring Pan/Tilt position");
-    let inquire_pan_tilt_position_command = ViscaCommand::InquiryPanTiltPosition;
-    send_command_and_wait(&mut *transport, &inquire_pan_tilt_position_command)?;    
+    send_command_and_wait(&mut *transport, &ViscaCommand::InquiryPanTiltPosition)?;
 
-    // Send Pan/Tilt up command
-    let pan_tilt_up_command = ViscaCommand::PanTiltDrive(
-        PanTiltDirection::Up,
-        PanSpeed::new(0x8).expect("Invalid Pan Speed"),
-        TiltSpeed::new(0x8).expect("Invalid Tilt Speed"),
-    );
+    let complex_movements = [
+        (PanTiltDirection::Up, 5, 3),
+        (PanTiltDirection::Right, 4, 3),
+        (PanTiltDirection::Down, 4, 2),
+        (PanTiltDirection::Left, 4, 3),
+        (PanTiltDirection::UpLeft, 3, 3),
+        (PanTiltDirection::DownRight, 3, 3),
+    ];
 
-    debug!("Sending Pan/Tilt up command");
-    send_command_and_wait(&mut *transport, &pan_tilt_up_command)?;
+    for (direction, pan_speed, tilt_speed) in complex_movements.iter() {
+        debug!("Sending Pan/Tilt {:?} command", direction);
+        let pan_tilt_command = ViscaCommand::PanTiltDrive(
+            *direction,
+            PanSpeed::new(*pan_speed).expect("Invalid Pan Speed"),
+            TiltSpeed::new(*tilt_speed).expect("Invalid Tilt Speed"),
+        );
+        send_command_and_wait(&mut *transport, &pan_tilt_command)?;
 
-    // Sleep for 3 seconds
-    std::thread::sleep(Duration::from_secs(3));
+        std::thread::sleep(Duration::from_secs(3));
+        debug!("Sending Pan/Tilt stop command");
+        let pan_tilt_stop_command =
+            ViscaCommand::PanTiltDrive(PanTiltDirection::Stop, PanSpeed::STOP, TiltSpeed::STOP);
+        send_command_and_wait(&mut *transport, &pan_tilt_stop_command)?;
+        std::thread::sleep(Duration::from_secs(1));
+    }
 
-    // Send Pan/Tilt stop command
-    let stop_command = ViscaCommand::PanTiltDrive(
-        PanTiltDirection::Stop,
-        PanSpeed::new(0x00).expect("Invalid Pan Speed"),
-        TiltSpeed::new(0x00).expect("Invalid Tilt Speed"),
-    );
-    debug!("Sending Pan/Tilt stop command");
-    send_command_and_wait(&mut *transport, &stop_command)?;
-
-    // Sleep for 1 second
-    std::thread::sleep(Duration::from_secs(1));
-
-    // Inquire Pan/Tilt position
     debug!("Inquiring Pan/Tilt position");
-    let inquire_pan_tilt_position_command = ViscaCommand::InquiryPanTiltPosition;
-    send_command_and_wait(&mut *transport, &inquire_pan_tilt_position_command)?;    
+    send_command_and_wait(&mut *transport, &ViscaCommand::InquiryPanTiltPosition)?;
 
+    debug!("Inquiring Zoom position");
+    send_command_and_wait(&mut *transport, &ViscaCommand::InquiryZoomPosition)?;
 
-    // Send Pan/Tilt home command
+    let zoom_movements = [
+        ViscaCommand::ZoomTeleStandard,
+        ViscaCommand::ZoomWideStandard,
+        ViscaCommand::ZoomTeleAdjustableSpeed(5),
+        ViscaCommand::ZoomWideAdjustableSpeed(5),
+    ];
+
+    for command in zoom_movements.iter() {
+        debug!("Sending {:?} command", command);
+        send_command_and_wait(&mut *transport, command)?;
+        std::thread::sleep(Duration::from_secs(3));
+    }
+
+    debug!("Sending Zoom stop command");
+    send_command_and_wait(&mut *transport, &ViscaCommand::ZoomStop)?;
+
+    debug!("Inquiring Zoom position");
+    send_command_and_wait(&mut *transport, &ViscaCommand::InquiryZoomPosition)?;
+
     debug!("Sending Pan/Tilt home command");
     send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
+
+    debug!("Sending Zoom home command");
+    send_command_and_wait(&mut *transport, &ViscaCommand::ZoomWideStandard)?;
 
     Ok(())
 }
