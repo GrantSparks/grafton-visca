@@ -93,9 +93,9 @@ impl PanSpeed {
 pub struct TiltSpeed(u8);
 
 impl TiltSpeed {
-    pub const STOP: PanSpeed = PanSpeed(0x00);
-    pub const LOW_SPEED: PanSpeed = PanSpeed(0x01);
-    pub const HIGH_SPEED: PanSpeed = PanSpeed(0x14);
+    pub const STOP: TiltSpeed = TiltSpeed(0x00);
+    pub const LOW_SPEED: TiltSpeed = TiltSpeed(0x01);
+    pub const HIGH_SPEED: TiltSpeed = TiltSpeed(0x14);
 
     // Constructor to ensure the value is either STOP or within the range 0x01 (low speed) ~ 0x14 (high speed)
     pub fn new(value: u8) -> Result<Self, &'static str> {
@@ -661,6 +661,8 @@ impl ViscaCommand {
                 Some(ViscaResponseType::BlockPowerImageEffect)
             }
             ViscaCommand::InquiryBlockImage => Some(ViscaResponseType::BlockImage),
+            ViscaCommand::ZoomWideStandard => Some(ViscaResponseType::ZoomWideStandard),
+            ViscaCommand::ZoomTeleStandard => Some(ViscaResponseType::ZoomTeleStandard),
             _ => None,
         }
     }
@@ -708,4 +710,6 @@ pub enum ViscaResponseType {
     BlockColorExposure,
     BlockPowerImageEffect,
     BlockImage,
+    ZoomWideStandard,
+    ZoomTeleStandard,
 }
