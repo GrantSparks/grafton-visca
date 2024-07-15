@@ -154,7 +154,7 @@ pub fn send_command_and_wait(
         match transport.receive_response() {
             Ok(responses) => {
                 for response in responses {
-                    display_camera_response(&response);
+                    display_camera_response(&response, command);
 
                     // Handle the Pan/Tilt position inquiry response explicitly
                     if command.response_type() == Some(ViscaResponseType::PanTiltPosition) {
@@ -180,249 +180,239 @@ pub fn send_command_and_wait(
     }
 }
 
-pub fn display_camera_response(response: &[u8]) {
-    if response.len() < 3 {
-        error!("Unexpected response format: {:02X?}", response);
+fn display_camera_response(response: &[u8], command: &ViscaCommand) {
+    debug!("Received response: {:02X?}", response);
+
+    if response.len() == 3 && response[0] == 0x90 {
+        match response[1] {
+            0x41..=0x5F => {
+                debug!("Handling ACK/Completion response: {:02X?}", response);
+                if response[1] & 0x10 == 0x10 {
+                    info!(
+                        "Completion: Command executed with status code: {:02X}",
+                        response[1]
+                    );
+                } else {
+                    info!(
+                        "ACK: Command accepted with status code: {:02X}",
+                        response[1]
+                    );
+                }
+            }
+            _ => {
+                error!("Unexpected response format: {:02X?}", response);
+            }
+        }
         return;
     }
 
-    match response {
-        // Handle ACK/Completion and Error Messages
-        [0x90, code, 0xFF] if (0x40..=0x4F).contains(code) => {
-            info!("ACK: Command accepted with status code: {:02X?}", code);
-        }
-        [0x90, code, 0xFF] if (0x50..=0x5F).contains(code) => {
-            info!(
-                "Completion: Command executed with status code: {:02X?}",
-                code
-            );
-        }
-        [0x90, 0x60, 0x02, 0xFF] => {
-            error!("Error: Syntax Error.");
-        }
-        [0x90, 0x60, 0x03, 0xFF] => {
-            error!("Error: Command Buffer Full.");
-        }
-        [0x90, code, 0x04, 0xFF] if (0x60..=0x6F).contains(code) => {
-            error!("Error: Command Canceled.");
-        }
-        [0x90, code, 0x05, 0xFF] if (0x60..=0x6F).contains(code) => {
-            error!("Error: No Socket.");
-        }
-        [0x90, code, 0x41, 0xFF] if (0x60..=0x6F).contains(code) => {
-            error!("Error: Command Not Executable.");
-        }
-        // Handle Inquiry Responses
-        [0x90, 0x50, rest @ .., 0xFF] => {
-            if let Some((&cmd, data)) = rest.split_first() {
-                let response_type = ViscaResponseType::from_bytes(cmd, None);
-
-                match response_type {
-                    Some(ViscaResponseType::Luminance) => {
-                        if let [p, q] = data {
-                            info!("Luminance Position: {:02X?} {:02X?}", p, q);
-                        }
-                    }
-                    Some(ViscaResponseType::Contrast) => {
-                        if let [p, q] = data {
-                            info!("Contrast Position: {:02X?} {:02X?}", p, q);
-                        }
-                    }
-                    Some(ViscaResponseType::SharpnessMode) => {
-                        if let [p] = data {
-                            info!("Sharpness Mode: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::SharpnessPosition) => {
-                        if let [p] = data {
-                            info!("Sharpness Position: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::HorizontalFlip) => {
-                        if let [p] = data {
-                            info!("Horizontal Flip: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::VerticalFlip) => {
-                        if let [p] = data {
-                            info!("Vertical Flip: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::ImageFlip) => {
-                        if let [p] = data {
-                            info!("Image Flip: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::BlackWhiteMode) => {
-                        if let [p] = data {
-                            info!("Black & White Mode: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::ExposureCompensationMode) => {
-                        if let [p] = data {
-                            info!("Exposure Compensation Mode: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::ExposureCompensationPosition) => {
-                        if let [p, q] = data {
-                            info!("Exposure Compensation Position: {:02X?} {:02X?}", p, q);
-                        }
-                    }
-                    Some(ViscaResponseType::Backlight) => {
-                        if let [p] = data {
-                            info!("Backlight: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::Iris) => {
-                        if let [p] = data {
-                            info!("Iris Position: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::Shutter) => {
-                        if let [p, q] = data {
-                            info!("Shutter Position: {:02X?} {:02X?}", p, q);
-                        }
-                    }
-                    Some(ViscaResponseType::GainLimit) => {
-                        if let [p] = data {
-                            info!("Gain Limit Position: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::AntiFlicker) => {
-                        if let [p] = data {
-                            info!("Anti-Flicker: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::WhiteBalanceMode) => {
-                        if let [p] = data {
-                            info!("White Balance Mode: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::RedTuning) => {
-                        if let [p, q] = data {
-                            info!("Red Tuning: {:02X?} {:02X?}", p, q);
-                        }
-                    }
-                    Some(ViscaResponseType::BlueTuning) => {
-                        if let [p, q] = data {
-                            info!("Blue Tuning: {:02X?} {:02X?}", p, q);
-                        }
-                    }
-                    Some(ViscaResponseType::Saturation) => {
-                        if let [p] = data {
-                            info!("Saturation: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::Hue) => {
-                        if let [p] = data {
-                            info!("Hue: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::RedGain) => {
-                        if let [p] = data {
-                            info!("Red Gain: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::BlueGain) => {
-                        if let [p] = data {
-                            info!("Blue Gain: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::ColorTemperature) => {
-                        if let [p, q] = data {
-                            info!("Color Temperature: {:02X?} {:02X?}", p, q);
-                        }
-                    }
-                    Some(ViscaResponseType::AutoWhiteBalanceSensitivity) => {
-                        if let [p] = data {
-                            info!("Auto White Balance Sensitivity: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::ThreeDNoiseReduction) => {
-                        if let [p] = data {
-                            info!("3D Noise Reduction: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::TwoDNoiseReduction) => {
-                        if let [p] = data {
-                            info!("2D Noise Reduction: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::PanTiltPosition) => {
-                        if data.len() == 8 {
-                            info!(
-                                "Pan Tilt Position: Pan={:02X?}{:02X?}{:02X?}{:02X?}, Tilt={:02X?}{:02X?}{:02X?}{:02X?}",
-                                data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]
-                            );
-                        }
-                    }
-                    Some(ViscaResponseType::ZoomPosition) => {
-                        if let [p] = data {
-                            info!("Zoom Position: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::MotionSyncSpeed) => {
-                        if let [p] = data {
-                            info!("Motion Sync Speed: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::FocusPosition) => {
-                        if let [p1, p2] = data {
-                            info!("Focus Position: {:02X?} {:02X?}", p1, p2);
-                        }
-                    }
-                    Some(ViscaResponseType::FocusZone) => {
-                        if let [p] = data {
-                            info!("Focus Zone: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::AutoFocusSensitivity) => {
-                        if let [p] = data {
-                            info!("Auto Focus Sensitivity: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::FocusRange) => {
-                        if let [p, q] = data {
-                            info!("Focus Range: {:02X?} {:02X?}", p, q);
-                        }
-                    }
-                    Some(ViscaResponseType::MenuOpenClose) => {
-                        if let [p] = data {
-                            info!("Menu Open/Close: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::UsbAudio) => {
-                        if let [p] = data {
-                            info!("USB Audio: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::Rtmp) => {
-                        if let [p] = data {
-                            info!("RTMP: {:02X?}", p);
-                        }
-                    }
-                    Some(ViscaResponseType::BlockLens) => {
-                        info!("Block Lens Inquiry: {:02X?}", data);
-                    }
-                    Some(ViscaResponseType::BlockColorExposure) => {
-                        info!("Block Color & Exposure Inquiry: {:02X?}", data);
-                    }
-                    Some(ViscaResponseType::BlockPowerImageEffect) => {
-                        info!("Block Power & Image Effect Inquiry: {:02X?}", data);
-                    }
-                    Some(ViscaResponseType::BlockImage) => {
-                        info!("Block Image Inquiry: {:02X?}", data);
-                    }
-                    _ => {
-                        error!("Unknown inquiry response command: {:02X?} {:?}", cmd, data);
-                    }
+    match command.response_type() {
+        Some(response_type) => match response_type {
+            ViscaResponseType::PanTiltPosition => {
+                if response.len() == 11
+                    && response[0] == 0x90
+                    && response[1] == 0x50
+                    && response[10] == 0xFF
+                {
+                    info!(
+                            "Pan Tilt Position: Pan={:02X?}{:02X?}{:02X?}{:02X?}, Tilt={:02X?}{:02X?}{:02X?}{:02X?}",
+                            response[2], response[3], response[4], response[5], response[6], response[7], response[8], response[9]
+                        );
+                } else {
+                    error!(
+                        "Invalid Pan/Tilt position response length: {}",
+                        response.len()
+                    );
                 }
-            } else {
-                error!("Unknown inquiry response format: {:02X?}", response);
             }
-        }
-        _ => {
-            error!("Unexpected response format: {:02X?}", response);
-        }
+            ViscaResponseType::Luminance => {
+                if let [_, _, p, q, ..] = response {
+                    info!("Luminance Position: {:02X} {:02X}", p, q);
+                }
+            }
+            ViscaResponseType::Contrast => {
+                if let [_, _, p, q, ..] = response {
+                    info!("Contrast Position: {:02X} {:02X}", p, q);
+                }
+            }
+            ViscaResponseType::SharpnessMode => {
+                if let [_, _, p, ..] = response {
+                    info!("Sharpness Mode: {:02X}", p);
+                }
+            }
+            ViscaResponseType::SharpnessPosition => {
+                if let [_, _, p, q, ..] = response {
+                    info!("Sharpness Position: {:02X} {:02X}", p, q);
+                }
+            }
+            ViscaResponseType::HorizontalFlip => {
+                if let [_, _, p, ..] = response {
+                    info!("Horizontal Flip: {:02X}", p);
+                }
+            }
+            ViscaResponseType::VerticalFlip => {
+                if let [_, _, p, ..] = response {
+                    info!("Vertical Flip: {:02X}", p);
+                }
+            }
+            ViscaResponseType::ImageFlip => {
+                if let [_, _, p, ..] = response {
+                    info!("Image Flip: {:02X}", p);
+                }
+            }
+            ViscaResponseType::BlackWhiteMode => {
+                if let [_, _, p, ..] = response {
+                    info!("Black & White Mode: {:02X}", p);
+                }
+            }
+            ViscaResponseType::ExposureCompensationMode => {
+                if let [_, _, p, ..] = response {
+                    info!("Exposure Compensation Mode: {:02X}", p);
+                }
+            }
+            ViscaResponseType::ExposureCompensationPosition => {
+                if let [_, _, p, q, ..] = response {
+                    info!("Exposure Compensation Position: {:02X} {:02X}", p, q);
+                }
+            }
+            ViscaResponseType::Backlight => {
+                if let [_, _, p, ..] = response {
+                    info!("Backlight: {:02X}", p);
+                }
+            }
+            ViscaResponseType::Iris => {
+                if let [_, _, p, ..] = response {
+                    info!("Iris Position: {:02X}", p);
+                }
+            }
+            ViscaResponseType::Shutter => {
+                if let [_, _, p, q, ..] = response {
+                    info!("Shutter Position: {:02X} {:02X}", p, q);
+                }
+            }
+            ViscaResponseType::GainLimit => {
+                if let [_, _, p, ..] = response {
+                    info!("Gain Limit Position: {:02X}", p);
+                }
+            }
+            ViscaResponseType::AntiFlicker => {
+                if let [_, _, p, ..] = response {
+                    info!("Anti-Flicker: {:02X}", p);
+                }
+            }
+            ViscaResponseType::WhiteBalanceMode => {
+                if let [_, _, p, ..] = response {
+                    info!("White Balance Mode: {:02X}", p);
+                }
+            }
+            ViscaResponseType::RedTuning => {
+                if let [_, _, p, q, ..] = response {
+                    info!("Red Tuning: {:02X} {:02X}", p, q);
+                }
+            }
+            ViscaResponseType::BlueTuning => {
+                if let [_, _, p, q, ..] = response {
+                    info!("Blue Tuning: {:02X} {:02X}", p, q);
+                }
+            }
+            ViscaResponseType::Saturation => {
+                if let [_, _, p, ..] = response {
+                    info!("Saturation: {:02X}", p);
+                }
+            }
+            ViscaResponseType::Hue => {
+                if let [_, _, p, ..] = response {
+                    info!("Hue: {:02X}", p);
+                }
+            }
+            ViscaResponseType::RedGain => {
+                if let [_, _, p, ..] = response {
+                    info!("Red Gain: {:02X}", p);
+                }
+            }
+            ViscaResponseType::BlueGain => {
+                if let [_, _, p, ..] = response {
+                    info!("Blue Gain: {:02X}", p);
+                }
+            }
+            ViscaResponseType::ColorTemperature => {
+                if let [_, _, p, q, ..] = response {
+                    info!("Color Temperature: {:02X} {:02X}", p, q);
+                }
+            }
+            ViscaResponseType::AutoWhiteBalanceSensitivity => {
+                if let [_, _, p, ..] = response {
+                    info!("Auto White Balance Sensitivity: {:02X}", p);
+                }
+            }
+            ViscaResponseType::ThreeDNoiseReduction => {
+                if let [_, _, p, ..] = response {
+                    info!("3D Noise Reduction: {:02X}", p);
+                }
+            }
+            ViscaResponseType::TwoDNoiseReduction => {
+                if let [_, _, p, ..] = response {
+                    info!("2D Noise Reduction: {:02X}", p);
+                }
+            }
+            ViscaResponseType::ZoomPosition => {
+                if let [_, _, p, q, r, s, ..] = response {
+                    info!("Zoom Position: {:02X} {:02X} {:02X} {:02X}", p, q, r, s);
+                }
+            }
+            ViscaResponseType::MotionSyncSpeed => {
+                if let [_, _, p, ..] = response {
+                    info!("Motion Sync Speed: {:02X}", p);
+                }
+            }
+            ViscaResponseType::FocusPosition => {
+                if let [_, _, p, q, r, s, ..] = response {
+                    info!("Focus Position: {:02X} {:02X} {:02X} {:02X}", p, q, r, s);
+                }
+            }
+            ViscaResponseType::FocusZone => {
+                if let [_, _, p, ..] = response {
+                    info!("Focus Zone: {:02X}", p);
+                }
+            }
+            ViscaResponseType::AutoFocusSensitivity => {
+                if let [_, _, p, ..] = response {
+                    info!("Auto Focus Sensitivity: {:02X}", p);
+                }
+            }
+            ViscaResponseType::FocusRange => {
+                if let [_, _, p, q, ..] = response {
+                    info!("Focus Range: {:02X} {:02X}", p, q);
+                }
+            }
+            ViscaResponseType::MenuOpenClose => {
+                if let [_, _, p, ..] = response {
+                    info!("Menu Open/Close: {:02X}", p);
+                }
+            }
+            ViscaResponseType::UsbAudio => {
+                if let [_, _, p, ..] = response {
+                    info!("USB Audio: {:02X}", p);
+                }
+            }
+            ViscaResponseType::Rtmp => {
+                if let [_, _, p, ..] = response {
+                    info!("RTMP: {:02X}", p);
+                }
+            }
+            ViscaResponseType::BlockLens => {
+                info!("Block Lens Inquiry: {:02X?}", response);
+            }
+            ViscaResponseType::BlockColorExposure => {
+                info!("Block Color & Exposure Inquiry: {:02X?}", response);
+            }
+            ViscaResponseType::BlockPowerImageEffect => {
+                info!("Block Power & Image Effect Inquiry: {:02X?}", response);
+            }
+            ViscaResponseType::BlockImage => {
+                info!("Block Image Inquiry: {:02X?}", response);
+            }
+        },
+        None => error!("Unknown response command for the given command"),
     }
 }
