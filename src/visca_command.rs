@@ -62,7 +62,6 @@ impl CommandStatus {
 }
 
 #[derive(Debug, Copy, Clone)]
-
 pub struct PanSpeed(u8);
 
 impl PanSpeed {
@@ -277,6 +276,48 @@ pub enum ViscaCommand {
     SystemUsbAudio(Flip),
     SystemPauseVideo(Flip),
     SystemSave,
+
+    // Inquiry Commands
+    InquiryLuminance,
+    InquiryContrast,
+    InquirySharpnessMode,
+    InquirySharpnessPosition,
+    InquiryHorizontalFlip,
+    InquiryVerticalFlip,
+    InquiryImageFlip,
+    InquiryBlackWhiteMode,
+    InquiryExposureCompensationMode,
+    InquiryExposureCompensationPosition,
+    InquiryBacklight,
+    InquiryIris,
+    InquiryShutter,
+    InquiryGainLimit,
+    InquiryAntiFlicker,
+    InquiryWhiteBalanceMode,
+    InquiryRedTuning,
+    InquiryBlueTuning,
+    InquirySaturation,
+    InquiryHue,
+    InquiryRedGain,
+    InquiryBlueGain,
+    InquiryColorTemperature,
+    InquiryAutoWhiteBalanceSensitivity,
+    InquiryThreeDNoiseReduction,
+    InquiryTwoDNoiseReduction,
+    InquiryPanTiltPosition,
+    InquiryZoomPosition,
+    InquiryMotionSyncSpeed,
+    InquiryFocusPosition,
+    InquiryFocusZone,
+    InquiryAutoFocusSensitivity,
+    InquiryFocusRange,
+    InquiryMenuOpenClose,
+    InquiryUsbAudio,
+    InquiryRtmp,
+    InquiryBlockLens,
+    InquiryBlockColorExposure,
+    InquiryBlockPowerImageEffect,
+    InquiryBlockImage,
 }
 
 impl ViscaCommand {
@@ -521,6 +562,198 @@ impl ViscaCommand {
             }
             ViscaCommand::SystemPauseVideo(flip) => vec![0x81, 0x01, 0x04, 0x62, *flip as u8, 0xFF],
             ViscaCommand::SystemSave => vec![0x81, 0x01, 0x04, 0xA5, 0x10, 0xFF],
+
+            // Inquiry Commands
+            ViscaCommand::InquiryLuminance => vec![0x81, 0x09, 0x04, 0x47, 0xFF],
+            ViscaCommand::InquiryContrast => vec![0x81, 0x09, 0x04, 0x48, 0xFF],
+            ViscaCommand::InquirySharpnessMode => vec![0x81, 0x09, 0x04, 0x49, 0xFF],
+            ViscaCommand::InquirySharpnessPosition => vec![0x81, 0x09, 0x04, 0x4A, 0xFF],
+            ViscaCommand::InquiryHorizontalFlip => vec![0x81, 0x09, 0x04, 0x66, 0xFF],
+            ViscaCommand::InquiryVerticalFlip => vec![0x81, 0x09, 0x04, 0x67, 0xFF],
+            ViscaCommand::InquiryImageFlip => vec![0x81, 0x09, 0x04, 0x68, 0xFF],
+            ViscaCommand::InquiryBlackWhiteMode => vec![0x81, 0x09, 0x04, 0x53, 0xFF],
+            ViscaCommand::InquiryExposureCompensationMode => vec![0x81, 0x09, 0x04, 0x3E, 0xFF],
+            ViscaCommand::InquiryExposureCompensationPosition => vec![0x81, 0x09, 0x04, 0x4E, 0xFF],
+            ViscaCommand::InquiryBacklight => vec![0x81, 0x09, 0x04, 0x33, 0xFF],
+            ViscaCommand::InquiryIris => vec![0x81, 0x09, 0x04, 0x4B, 0xFF],
+            ViscaCommand::InquiryShutter => vec![0x81, 0x09, 0x04, 0x4A, 0xFF],
+            ViscaCommand::InquiryGainLimit => vec![0x81, 0x09, 0x04, 0x2C, 0xFF],
+            ViscaCommand::InquiryAntiFlicker => vec![0x81, 0x09, 0x04, 0x35, 0xFF],
+            ViscaCommand::InquiryWhiteBalanceMode => vec![0x81, 0x09, 0x04, 0x35, 0xFF],
+            ViscaCommand::InquiryRedTuning => vec![0x81, 0x09, 0x04, 0x42, 0xFF],
+            ViscaCommand::InquiryBlueTuning => vec![0x81, 0x09, 0x04, 0x43, 0xFF],
+            ViscaCommand::InquirySaturation => vec![0x81, 0x09, 0x04, 0x49, 0xFF],
+            ViscaCommand::InquiryHue => vec![0x81, 0x09, 0x04, 0x4F, 0xFF],
+            ViscaCommand::InquiryRedGain => vec![0x81, 0x09, 0x04, 0x44, 0xFF],
+            ViscaCommand::InquiryBlueGain => vec![0x81, 0x09, 0x04, 0x45, 0xFF],
+            ViscaCommand::InquiryColorTemperature => vec![0x81, 0x09, 0x04, 0x43, 0xFF],
+            ViscaCommand::InquiryAutoWhiteBalanceSensitivity => vec![0x81, 0x09, 0x04, 0x38, 0xFF],
+            ViscaCommand::InquiryThreeDNoiseReduction => vec![0x81, 0x09, 0x04, 0x52, 0xFF],
+            ViscaCommand::InquiryTwoDNoiseReduction => vec![0x81, 0x09, 0x04, 0x53, 0xFF],
+            ViscaCommand::InquiryPanTiltPosition => vec![0x81, 0x09, 0x06, 0x12, 0xFF],
+            ViscaCommand::InquiryZoomPosition => vec![0x81, 0x09, 0x04, 0x47, 0xFF],
+            ViscaCommand::InquiryMotionSyncSpeed => vec![0x81, 0x09, 0x04, 0x38, 0xFF],
+            ViscaCommand::InquiryFocusPosition => vec![0x81, 0x09, 0x04, 0x48, 0xFF],
+            ViscaCommand::InquiryFocusZone => vec![0x81, 0x09, 0x04, 0x4B, 0xFF],
+            ViscaCommand::InquiryAutoFocusSensitivity => vec![0x81, 0x09, 0x04, 0x38, 0xFF],
+            ViscaCommand::InquiryFocusRange => vec![0x81, 0x09, 0x04, 0x4C, 0xFF],
+            ViscaCommand::InquiryMenuOpenClose => vec![0x81, 0x09, 0x04, 0x62, 0xFF],
+            ViscaCommand::InquiryUsbAudio => vec![0x81, 0x09, 0x04, 0x61, 0xFF],
+            ViscaCommand::InquiryRtmp => vec![0x81, 0x09, 0x11, 0x53, 0xFF],
+            ViscaCommand::InquiryBlockLens => vec![0x81, 0x09, 0x7E, 0x7E, 0x00, 0xFF],
+            ViscaCommand::InquiryBlockColorExposure => vec![0x81, 0x09, 0x7E, 0x7E, 0x01, 0xFF],
+            ViscaCommand::InquiryBlockPowerImageEffect => vec![0x81, 0x09, 0x7E, 0x7E, 0x02, 0xFF],
+            ViscaCommand::InquiryBlockImage => vec![0x81, 0x09, 0x7E, 0x7E, 0x03, 0xFF],
+        }
+    }
+
+    pub fn response_type(&self) -> Option<ViscaResponseType> {
+        match self {
+            ViscaCommand::InquiryLuminance => Some(ViscaResponseType::Luminance),
+            ViscaCommand::InquiryContrast => Some(ViscaResponseType::Contrast),
+            ViscaCommand::InquirySharpnessMode => Some(ViscaResponseType::SharpnessMode),
+            ViscaCommand::InquirySharpnessPosition => Some(ViscaResponseType::SharpnessPosition),
+            ViscaCommand::InquiryHorizontalFlip => Some(ViscaResponseType::HorizontalFlip),
+            ViscaCommand::InquiryVerticalFlip => Some(ViscaResponseType::VerticalFlip),
+            ViscaCommand::InquiryImageFlip => Some(ViscaResponseType::ImageFlip),
+            ViscaCommand::InquiryBlackWhiteMode => Some(ViscaResponseType::BlackWhiteMode),
+            ViscaCommand::InquiryExposureCompensationMode => {
+                Some(ViscaResponseType::ExposureCompensationMode)
+            }
+            ViscaCommand::InquiryExposureCompensationPosition => {
+                Some(ViscaResponseType::ExposureCompensationPosition)
+            }
+            ViscaCommand::InquiryBacklight => Some(ViscaResponseType::Backlight),
+            ViscaCommand::InquiryIris => Some(ViscaResponseType::Iris),
+            ViscaCommand::InquiryShutter => Some(ViscaResponseType::Shutter),
+            ViscaCommand::InquiryGainLimit => Some(ViscaResponseType::GainLimit),
+            ViscaCommand::InquiryAntiFlicker => Some(ViscaResponseType::AntiFlicker),
+            ViscaCommand::InquiryWhiteBalanceMode => Some(ViscaResponseType::WhiteBalanceMode),
+            ViscaCommand::InquiryRedTuning => Some(ViscaResponseType::RedTuning),
+            ViscaCommand::InquiryBlueTuning => Some(ViscaResponseType::BlueTuning),
+            ViscaCommand::InquirySaturation => Some(ViscaResponseType::Saturation),
+            ViscaCommand::InquiryHue => Some(ViscaResponseType::Hue),
+            ViscaCommand::InquiryRedGain => Some(ViscaResponseType::RedGain),
+            ViscaCommand::InquiryBlueGain => Some(ViscaResponseType::BlueGain),
+            ViscaCommand::InquiryColorTemperature => Some(ViscaResponseType::ColorTemperature),
+            ViscaCommand::InquiryAutoWhiteBalanceSensitivity => {
+                Some(ViscaResponseType::AutoWhiteBalanceSensitivity)
+            }
+            ViscaCommand::InquiryThreeDNoiseReduction => {
+                Some(ViscaResponseType::ThreeDNoiseReduction)
+            }
+            ViscaCommand::InquiryTwoDNoiseReduction => Some(ViscaResponseType::TwoDNoiseReduction),
+            ViscaCommand::InquiryPanTiltPosition => Some(ViscaResponseType::PanTiltPosition),
+            ViscaCommand::InquiryZoomPosition => Some(ViscaResponseType::ZoomPosition),
+            ViscaCommand::InquiryMotionSyncSpeed => Some(ViscaResponseType::MotionSyncSpeed),
+            ViscaCommand::InquiryFocusPosition => Some(ViscaResponseType::FocusPosition),
+            ViscaCommand::InquiryFocusZone => Some(ViscaResponseType::FocusZone),
+            ViscaCommand::InquiryAutoFocusSensitivity => {
+                Some(ViscaResponseType::AutoFocusSensitivity)
+            }
+            ViscaCommand::InquiryFocusRange => Some(ViscaResponseType::FocusRange),
+            ViscaCommand::InquiryMenuOpenClose => Some(ViscaResponseType::MenuOpenClose),
+            ViscaCommand::InquiryUsbAudio => Some(ViscaResponseType::UsbAudio),
+            ViscaCommand::InquiryRtmp => Some(ViscaResponseType::Rtmp),
+            ViscaCommand::InquiryBlockLens => Some(ViscaResponseType::BlockLens),
+            ViscaCommand::InquiryBlockColorExposure => Some(ViscaResponseType::BlockColorExposure),
+            ViscaCommand::InquiryBlockPowerImageEffect => {
+                Some(ViscaResponseType::BlockPowerImageEffect)
+            }
+            ViscaCommand::InquiryBlockImage => Some(ViscaResponseType::BlockImage),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ViscaResponseType {
+    Luminance,
+    Contrast,
+    SharpnessMode,
+    SharpnessPosition,
+    HorizontalFlip,
+    VerticalFlip,
+    ImageFlip,
+    BlackWhiteMode,
+    ExposureCompensationMode,
+    ExposureCompensationPosition,
+    Backlight,
+    Iris,
+    Shutter,
+    GainLimit,
+    AntiFlicker,
+    WhiteBalanceMode,
+    RedTuning,
+    BlueTuning,
+    Saturation,
+    Hue,
+    RedGain,
+    BlueGain,
+    ColorTemperature,
+    AutoWhiteBalanceSensitivity,
+    ThreeDNoiseReduction,
+    TwoDNoiseReduction,
+    PanTiltPosition,
+    ZoomPosition,
+    MotionSyncSpeed,
+    FocusPosition,
+    FocusZone,
+    AutoFocusSensitivity,
+    FocusRange,
+    MenuOpenClose,
+    UsbAudio,
+    Rtmp,
+    BlockLens,
+    BlockColorExposure,
+    BlockPowerImageEffect,
+    BlockImage,
+}
+
+impl ViscaResponseType {
+    pub fn from_bytes(cmd: u8, block_cmd: Option<u8>) -> Option<ViscaResponseType> {
+        match (cmd, block_cmd) {
+            (0x00, None) => Some(ViscaResponseType::Luminance),
+            (0x01, None) => Some(ViscaResponseType::Contrast),
+            (0x02, None) => Some(ViscaResponseType::SharpnessMode),
+            (0x03, None) => Some(ViscaResponseType::SharpnessPosition),
+            (0x04, None) => Some(ViscaResponseType::HorizontalFlip),
+            (0x05, None) => Some(ViscaResponseType::VerticalFlip),
+            (0x06, None) => Some(ViscaResponseType::ImageFlip),
+            (0x07, None) => Some(ViscaResponseType::BlackWhiteMode),
+            (0x08, None) => Some(ViscaResponseType::ExposureCompensationMode),
+            (0x09, None) => Some(ViscaResponseType::ExposureCompensationPosition),
+            (0x0A, None) => Some(ViscaResponseType::Backlight),
+            (0x0B, None) => Some(ViscaResponseType::Iris),
+            (0x0C, None) => Some(ViscaResponseType::Shutter),
+            (0x0D, None) => Some(ViscaResponseType::GainLimit),
+            (0x0E, None) => Some(ViscaResponseType::AntiFlicker),
+            (0x0F, None) => Some(ViscaResponseType::WhiteBalanceMode),
+            (0x10, None) => Some(ViscaResponseType::RedTuning),
+            (0x11, None) => Some(ViscaResponseType::BlueTuning),
+            (0x12, None) => Some(ViscaResponseType::Saturation),
+            (0x13, None) => Some(ViscaResponseType::Hue),
+            (0x14, None) => Some(ViscaResponseType::RedGain),
+            (0x15, None) => Some(ViscaResponseType::BlueGain),
+            (0x16, None) => Some(ViscaResponseType::ColorTemperature),
+            (0x17, None) => Some(ViscaResponseType::AutoWhiteBalanceSensitivity),
+            (0x18, None) => Some(ViscaResponseType::ThreeDNoiseReduction),
+            (0x19, None) => Some(ViscaResponseType::TwoDNoiseReduction),
+            (0x1A, None) => Some(ViscaResponseType::PanTiltPosition),
+            (0x1B, None) => Some(ViscaResponseType::ZoomPosition),
+            (0x1C, None) => Some(ViscaResponseType::MotionSyncSpeed),
+            (0x1D, None) => Some(ViscaResponseType::FocusPosition),
+            (0x1E, None) => Some(ViscaResponseType::FocusZone),
+            (0x1F, None) => Some(ViscaResponseType::AutoFocusSensitivity),
+            (0x20, None) => Some(ViscaResponseType::FocusRange),
+            (0x21, None) => Some(ViscaResponseType::MenuOpenClose),
+            (0x22, None) => Some(ViscaResponseType::UsbAudio),
+            (0x23, None) => Some(ViscaResponseType::Rtmp),
+            (0x7E, Some(0x00)) => Some(ViscaResponseType::BlockLens),
+            (0x7E, Some(0x01)) => Some(ViscaResponseType::BlockColorExposure),
+            (0x7E, Some(0x02)) => Some(ViscaResponseType::BlockPowerImageEffect),
+            (0x7E, Some(0x03)) => Some(ViscaResponseType::BlockImage),
+            _ => None,
         }
     }
 }

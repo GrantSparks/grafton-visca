@@ -54,6 +54,11 @@ fn main() -> io::Result<()> {
     // Sleep for 1 second
     std::thread::sleep(Duration::from_secs(1));
 
+    // Inquire Pan/Tilt position
+    debug!("Inquiring Pan/Tilt position");
+    let inquire_pan_tilt_position_command = ViscaCommand::InquiryPanTiltPosition;
+    send_command_and_wait(&mut *transport, &inquire_pan_tilt_position_command)?;    
+
     // Send Pan/Tilt up command
     let pan_tilt_up_command = ViscaCommand::PanTiltDrive(
         PanTiltDirection::Up,
@@ -78,6 +83,12 @@ fn main() -> io::Result<()> {
 
     // Sleep for 1 second
     std::thread::sleep(Duration::from_secs(1));
+
+    // Inquire Pan/Tilt position
+    debug!("Inquiring Pan/Tilt position");
+    let inquire_pan_tilt_position_command = ViscaCommand::InquiryPanTiltPosition;
+    send_command_and_wait(&mut *transport, &inquire_pan_tilt_position_command)?;    
+
 
     // Send Pan/Tilt home command
     debug!("Sending Pan/Tilt home command");
