@@ -1,9 +1,12 @@
-use grafton_visca::visca_command::{PanSpeed, PanTiltDirection, TiltSpeed, ViscaCommand};
-use grafton_visca::{send_command_and_wait, TcpTransport, UdpTransport, ViscaTransport};
+use std::{env, io, time::Duration};
+
 use log::{debug, info};
-use std::env;
-use std::io;
-use std::time::Duration;
+
+use grafton_visca::{
+    send_command_and_wait,
+    visca_command::{PanSpeed, PanTiltDirection, TiltSpeed, ViscaCommand},
+    TcpTransport, UdpTransport, ViscaTransport,
+};
 
 fn main() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
