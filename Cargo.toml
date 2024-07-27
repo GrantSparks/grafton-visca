@@ -8,9 +8,9 @@ license = "Apache-2.0"
 repository = "https://github.com/GrantSparks/grafton-visca"
 homepage = "https://www.grafton.ai"
 publish = false
-categories = ["computer-vision", "network-programming"]
-keywords = ["ptz", "camera", "visca"]
-include = ["Cargo.toml", "src/**/*"]
+categories = ["multimedia"]
+keywords = ["ptz", "camera", "visca", "video"]
+include = ["Cargo.toml", "src/**/*", "examples/**/*"]
 readme = "READNE.md"
 
 [dependencies]
