@@ -7,12 +7,16 @@ description = "Rust based VISCA over IP implementation for controlling PTZ Camer
 license = "Apache-2.0"
 repository = "https://github.com/GrantSparks/grafton-visca"
 homepage = "https://www.grafton.ai"
-publish = false
 categories = ["multimedia"]
 keywords = ["ptz", "camera", "visca", "video"]
-include = ["Cargo.toml", "src/**/*", "examples/**/*"]
+include = [
+    "Cargo.toml",
+    "src/**/*",
+    "examples/**/*",
+] # TODO: Use excludes instead
 readme = "READNE.md"
+publish = false
 
 [dependencies]
-log = "*"
-env_logger = "*"
+log = "0.4"
+env_logger = "0.11"
