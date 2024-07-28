@@ -9,11 +9,7 @@ repository = "https://github.com/GrantSparks/grafton-visca"
 homepage = "https://www.grafton.ai"
 categories = ["multimedia"]
 keywords = ["ptz", "camera", "visca", "video"]
-include = [
-    "Cargo.toml",
-    "src/**/*",
-    "examples/**/*",
-] # TODO: Use excludes instead
+exclude = ["target/", ".gitignore", ".github/", ".vscode/"]
 readme = "READNE.md"
 publish = false
 
