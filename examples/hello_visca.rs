@@ -1,12 +1,10 @@
-use std::{env, io, time::Duration};
-
-use log::{debug, info};
-
 use grafton_visca::{
     send_command_and_wait,
     visca_command::{PanSpeed, PanTiltDirection, TiltSpeed, ViscaCommand},
-    TcpTransport, UdpTransport, ViscaTransport,
+    TcpTransport, UdpTransport, ViscaInquiryResponse, ViscaResponse, ViscaTransport,
 };
+use log::{debug, error, info};
+use std::{env, io, time::Duration};
 
 fn main() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -43,13 +41,19 @@ fn main() -> io::Result<()> {
         Box::new(TcpTransport::new(&address)?)
     };
 
-    debug!("Sending Pan/Tilt home command");
+    //    debug!("Sending Pan/Tilt home command");
     let pan_tilt_home_command = ViscaCommand::PanTiltHome;
-    send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
+    //    send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
 
     std::thread::sleep(Duration::from_secs(1));
     debug!("Inquiring Pan/Tilt position");
-    send_command_and_wait(&mut *transport, &ViscaCommand::InquiryPanTiltPosition)?;
+    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
+        send_command_and_wait(&mut *transport, &ViscaCommand::InquiryPanTiltPosition)
+    {
+        info!("Pan position: {}, Tilt position: {}", pan, tilt);
+    } else {
+        error!("Failed to get Pan/Tilt position");
+    }
 
     let complex_movements = [
         (PanTiltDirection::Up, 5, 3),
@@ -78,10 +82,22 @@ fn main() -> io::Result<()> {
     }
 
     debug!("Inquiring Pan/Tilt position");
-    send_command_and_wait(&mut *transport, &ViscaCommand::InquiryPanTiltPosition)?;
+    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
+        send_command_and_wait(&mut *transport, &ViscaCommand::InquiryPanTiltPosition)
+    {
+        info!("Pan position: {}, Tilt position: {}", pan, tilt);
+    } else {
+        error!("Failed to get Pan/Tilt position");
+    }
 
     debug!("Inquiring Zoom position");
-    send_command_and_wait(&mut *transport, &ViscaCommand::InquiryZoomPosition)?;
+    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
+        send_command_and_wait(&mut *transport, &ViscaCommand::InquiryZoomPosition)
+    {
+        info!("Zoom position: {}", position);
+    } else {
+        error!("Failed to get Zoom position");
+    }
 
     let zoom_movements = [
         ViscaCommand::ZoomTeleStandard,
@@ -100,7 +116,13 @@ fn main() -> io::Result<()> {
     send_command_and_wait(&mut *transport, &ViscaCommand::ZoomStop)?;
 
     debug!("Inquiring Zoom position");
-    send_command_and_wait(&mut *transport, &ViscaCommand::InquiryZoomPosition)?;
+    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
+        send_command_and_wait(&mut *transport, &ViscaCommand::InquiryZoomPosition)
+    {
+        info!("Zoom position: {}", position);
+    } else {
+        error!("Failed to get Zoom position");
+    }
 
     debug!("Sending Pan/Tilt home command");
     send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
