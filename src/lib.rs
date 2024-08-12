@@ -1,4 +1,4 @@
-use log::{debug, error, info};
+use log::{debug, error};
 use std::{
     io::{self, Read, Write},
     net::{TcpStream, UdpSocket},
@@ -96,7 +96,7 @@ impl ViscaTransport for UdpTransport {
         loop {
             match self.socket.recv_from(&mut buffer) {
                 Ok((bytes_received, src)) => {
-                    info!(
+                    debug!(
                         "Received {} bytes from {}: {:02X?}",
                         bytes_received,
                         src,
@@ -124,7 +124,7 @@ impl ViscaTransport for TcpTransport {
         self.stream
             .write_all(&command_bytes)
             .map_err(ViscaError::Io)?;
-        info!("Sent {} bytes", command_bytes.len());
+        debug!("Sent {} bytes", command_bytes.len());
         Ok(())
     }
 
@@ -135,7 +135,7 @@ impl ViscaTransport for TcpTransport {
         loop {
             match self.stream.read(&mut buffer) {
                 Ok(bytes_received) => {
-                    info!(
+                    debug!(
                         "Received {} bytes: {:02X?}",
                         bytes_received,
                         &buffer[..bytes_received]
@@ -229,40 +229,40 @@ fn handle_ack_completion_response(response: &[u8]) -> Result<ViscaResponse, Visc
 fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
     match inquiry_response {
         ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
-            info!("Pan: {}, Tilt: {}", pan, tilt);
+            debug!("Pan: {}, Tilt: {}", pan, tilt);
         }
         ViscaInquiryResponse::Luminance(luminance) => {
-            info!("Luminance: {}", luminance);
+            debug!("Luminance: {}", luminance);
         }
         ViscaInquiryResponse::Contrast(contrast) => {
-            info!("Contrast: {}", contrast);
+            debug!("Contrast: {}", contrast);
         }
         ViscaInquiryResponse::ZoomPosition { position } => {
-            info!("Zoom Position: {:02X?}", position);
+            debug!("Zoom Position: {:02X?}", position);
         }
         ViscaInquiryResponse::FocusPosition { position } => {
-            info!("Focus Position: {:02X?}", position);
+            debug!("Focus Position: {:02X?}", position);
         }
         ViscaInquiryResponse::Gain { gain } => {
-            info!("Gain: {}", gain);
+            debug!("Gain: {}", gain);
         }
         ViscaInquiryResponse::WhiteBalance { mode } => {
-            info!("White Balance Mode: {:?}", mode);
+            debug!("White Balance Mode: {:?}", mode);
         }
         ViscaInquiryResponse::ExposureMode { mode } => {
-            info!("Exposure Mode: {:?}", mode);
+            debug!("Exposure Mode: {:?}", mode);
         }
         ViscaInquiryResponse::ExposureCompensation { value } => {
-            info!("Exposure Compensation Value: {}", value);
+            debug!("Exposure Compensation Value: {}", value);
         }
         ViscaInquiryResponse::Backlight { status } => {
-            info!("Backlight Status: {}", status);
+            debug!("Backlight Status: {}", status);
         }
         ViscaInquiryResponse::ColorTemperature { temperature } => {
-            info!("Color Temperature: {}", temperature);
+            debug!("Color Temperature: {}", temperature);
         }
         ViscaInquiryResponse::Hue { hue } => {
-            info!("Hue: {}", hue);
+            debug!("Hue: {}", hue);
         }
         // Wildcard pattern to handle any future additions to the enum
         _ => {
@@ -274,7 +274,7 @@ fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
 fn log_response(response: &ViscaResponse) {
     match response {
         ViscaResponse::Ack => debug!("ACK received"),
-        ViscaResponse::Completion => info!("Completion received"),
+        ViscaResponse::Completion => debug!("Completion received"),
         ViscaResponse::Error(err) => error!("Error received: {:?}", err),
         ViscaResponse::InquiryResponse(inquiry_response) => {
             debug!("Inquiry response: {:?}", inquiry_response);
