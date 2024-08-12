@@ -6,6 +6,8 @@ Currently only PTZOptics G2 VISCA over IP Commands are implemented but it might 
 
 ** Impotant Note: This is a work in progress and is not yet ready for production use. I am only validating the byte sequences as I use the commands so many have not been checked against the documentation. **
 
+Make sure to check out our blog article introducing this library: [Controlling PTZ Cameras with Rust](https://blog.grafton.ai/using-the-grafton-visca-rust-crate-to-control-ptz-cameras-7545f3b4a5e4)
+
 ## Installation
 
 Add the following to `Cargo.toml` under `[dependencies]`:
