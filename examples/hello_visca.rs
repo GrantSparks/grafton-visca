@@ -41,9 +41,9 @@ fn main() -> io::Result<()> {
         Box::new(TcpTransport::new(&address)?)
     };
 
-    //    debug!("Sending Pan/Tilt home command");
+    debug!("Sending Pan/Tilt home command");
     let pan_tilt_home_command = ViscaCommand::PanTiltHome;
-    //    send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
+    send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
 
     std::thread::sleep(Duration::from_secs(1));
     debug!("Inquiring Pan/Tilt position");
@@ -90,13 +90,13 @@ fn main() -> io::Result<()> {
         error!("Failed to get Pan/Tilt position");
     }
 
-    debug!("Inquiring Zoom position");
+    debug!("Inquiring initial Zoom position");
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
         send_command_and_wait(&mut *transport, &ViscaCommand::InquiryZoomPosition)
     {
-        info!("Zoom position: {}", position);
+        info!("Initial Zoom position: {}", position);
     } else {
-        error!("Failed to get Zoom position");
+        error!("Failed to get initial Zoom position");
     }
 
     let zoom_movements = [
@@ -110,18 +110,27 @@ fn main() -> io::Result<()> {
         debug!("Sending {:?} command", command);
         send_command_and_wait(&mut *transport, command)?;
         std::thread::sleep(Duration::from_secs(3));
+
+        debug!("Inquiring Zoom position after {:?}", command);
+        if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
+            send_command_and_wait(&mut *transport, &ViscaCommand::InquiryZoomPosition)
+        {
+            info!("Zoom position after {:?}: {}", command, position);
+        } else {
+            error!("Failed to get Zoom position after {:?}", command);
+        }
     }
 
     debug!("Sending Zoom stop command");
     send_command_and_wait(&mut *transport, &ViscaCommand::ZoomStop)?;
 
-    debug!("Inquiring Zoom position");
+    debug!("Inquiring final Zoom position");
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
         send_command_and_wait(&mut *transport, &ViscaCommand::InquiryZoomPosition)
     {
-        info!("Zoom position: {}", position);
+        info!("Final Zoom position: {}", position);
     } else {
-        error!("Failed to get Zoom position");
+        error!("Failed to get final Zoom position");
     }
 
     debug!("Sending Pan/Tilt home command");
