@@ -1,13 +1,14 @@
-pub mod visca_command;
-
 use log::{debug, error, info};
 use std::{
     io::{self, Read, Write},
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
-pub use visca_command::{
-    parse_visca_response, ViscaCommand, ViscaInquiryResponse, ViscaResponse, ViscaResponseType,
+
+pub mod command;
+pub use command::{
+    response::{parse_visca_response, ViscaResponse},
+    ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
 };
 
 mod error;
