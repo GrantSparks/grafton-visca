@@ -1,9 +1,10 @@
 use grafton_visca::{
-    send_command_and_wait,
-    visca_command::{
-        InquiryCommand, PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed, ZoomCommand,
+    command::{
+        pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
+        InquiryCommand, PanTiltCommand, ZoomCommand,
     },
-    AppError, TcpTransport, UdpTransport, ViscaInquiryResponse, ViscaResponse, ViscaTransport,
+    send_command_and_wait, AppError, TcpTransport, UdpTransport, ViscaInquiryResponse,
+    ViscaResponse, ViscaTransport,
 };
 use log::{debug, error, info};
 use std::{env, time::Duration};
