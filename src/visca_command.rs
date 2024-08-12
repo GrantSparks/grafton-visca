@@ -1,3 +1,11 @@
+use nom::{
+    bytes::complete::tag,
+    combinator::{map, map_res},
+    number::complete::{be_u16, be_u32, u8},
+    sequence::{preceded, tuple},
+    IResult,
+};
+
 #[derive(Debug, Copy, Clone)]
 pub enum Power {
     On = 0x02,
@@ -798,61 +806,43 @@ impl ViscaResponse {
         response: &[u8],
         response_type: &ViscaResponseType,
     ) -> Result<Self, ViscaError> {
-        if response.len() < 3 || response[0] != 0x90 || response[response.len() - 1] != 0xFF {
-            return Err(ViscaError::InvalidResponseFormat);
+        // Define parsers
+        fn parse_header(input: &[u8]) -> IResult<&[u8], ()> {
+            map(tag(&[0x90]), |_| ())(input)
         }
 
-        match response.len() {
-            3 => {
-                // Handle short ACK, Completion, and Error messages
-                match response[1] {
+        fn parse_footer(input: &[u8]) -> IResult<&[u8], ()> {
+            map(tag(&[0xFF]), |_| ())(input)
+        }
+
+        fn parse_short_message(input: &[u8]) -> IResult<&[u8], ViscaResponse> {
+            map_res(
+                tuple((parse_header, u8, parse_footer)),
+                |(_, code, _)| match code {
                     0x40..=0x4F => Ok(ViscaResponse::Ack),
                     0x50..=0x5F => Ok(ViscaResponse::Completion),
-                    0x60..=0x6F => Err(ViscaError::from_code(response[1])),
-                    _ => Err(ViscaError::Unknown(response[1])),
+                    0x60..=0x6F => Err(ViscaError::from_code(code)),
+                    _ => Err(ViscaError::Unknown(code)),
+                },
+            )(input)
+        }
+
+        fn parse_inquiry_response<'a>(
+            input: &'a [u8],
+            response_type: &'a ViscaResponseType,
+        ) -> IResult<&'a [u8], ViscaResponse> {
+            let (input, _) = parse_header(input)?;
+            let (input, _) = tag(&[0x50])(input)?;
+            let (input, result) = match response_type {
+                ViscaResponseType::PanTiltPosition => {
+                    let (input, (pan, tilt)) = tuple((be_u32, be_u32))(input)?;
+                    (input, ViscaInquiryResponse::PanTiltPosition { pan, tilt })
                 }
-            }
-            _ => {
-                // Handle inquiry responses
-                if response[1] != 0x50 {
-                    return Err(ViscaError::UnexpectedResponseType);
-                }
-
-                match response_type {
-                    ViscaResponseType::PanTiltPosition => {
-                        if response.len() == 11
-                            && response[0] == 0x90
-                            && response[1] == 0x50
-                            && response[10] == 0xFF
-                        {
-                            let pan = ((response[2] as u32) << 24)
-                                | ((response[3] as u32) << 16)
-                                | ((response[4] as u32) << 8)
-                                | (response[5] as u32);
-
-                            let tilt = ((response[6] as u32) << 24)
-                                | ((response[7] as u32) << 16)
-                                | ((response[8] as u32) << 8)
-                                | (response[9] as u32);
-
-                            Ok(ViscaResponse::InquiryResponse(
-                                ViscaInquiryResponse::PanTiltPosition { pan, tilt },
-                            ))
-                        } else {
-                            Err(ViscaError::InvalidResponseFormat)
-                        }
-                    }
-                    ViscaResponseType::ZoomPosition | ViscaResponseType::FocusPosition => {
-                        if response.len() != 7 {
-                            return Err(ViscaError::InvalidResponseLength);
-                        }
-                        let position = u32::from_be_bytes([
-                            response[2],
-                            response[3],
-                            response[4],
-                            response[5],
-                        ]);
-                        Ok(ViscaResponse::InquiryResponse(match response_type {
+                ViscaResponseType::ZoomPosition | ViscaResponseType::FocusPosition => {
+                    let (input, position) = be_u32(input)?;
+                    (
+                        input,
+                        match response_type {
                             ViscaResponseType::ZoomPosition => {
                                 ViscaInquiryResponse::ZoomPosition { position }
                             }
@@ -860,29 +850,29 @@ impl ViscaResponse {
                                 ViscaInquiryResponse::FocusPosition { position }
                             }
                             _ => unreachable!(),
-                        }))
-                    }
-                    ViscaResponseType::Luminance | ViscaResponseType::Contrast => {
-                        if response.len() != 7 {
-                            return Err(ViscaError::InvalidResponseLength);
-                        }
-                        let value = response[5];
-                        Ok(ViscaResponse::InquiryResponse(match response_type {
+                        },
+                    )
+                }
+                ViscaResponseType::Luminance | ViscaResponseType::Contrast => {
+                    let (input, value) = preceded(tag(&[0x00, 0x00, 0x00]), u8)(input)?;
+                    (
+                        input,
+                        match response_type {
                             ViscaResponseType::Luminance => ViscaInquiryResponse::Luminance(value),
                             ViscaResponseType::Contrast => ViscaInquiryResponse::Contrast(value),
                             _ => unreachable!(),
-                        }))
-                    }
-                    ViscaResponseType::GainLimit
-                    | ViscaResponseType::WhiteBalanceMode
-                    | ViscaResponseType::ExposureCompensationMode
-                    | ViscaResponseType::Backlight
-                    | ViscaResponseType::Hue => {
-                        if response.len() != 6 {
-                            return Err(ViscaError::InvalidResponseLength);
-                        }
-                        let value = response[4];
-                        Ok(ViscaResponse::InquiryResponse(match response_type {
+                        },
+                    )
+                }
+                ViscaResponseType::GainLimit
+                | ViscaResponseType::WhiteBalanceMode
+                | ViscaResponseType::ExposureCompensationMode
+                | ViscaResponseType::Backlight
+                | ViscaResponseType::Hue => {
+                    let (input, value) = preceded(tag(&[0x00, 0x00]), u8)(input)?;
+                    (
+                        input,
+                        match response_type {
                             ViscaResponseType::GainLimit => {
                                 ViscaInquiryResponse::Gain { gain: value }
                             }
@@ -897,20 +887,34 @@ impl ViscaResponse {
                             }
                             ViscaResponseType::Hue => ViscaInquiryResponse::Hue { hue: value },
                             _ => unreachable!(),
-                        }))
-                    }
-                    ViscaResponseType::ColorTemperature => {
-                        if response.len() != 6 {
-                            return Err(ViscaError::InvalidResponseLength);
-                        }
-                        let temperature = u16::from_be_bytes([response[3], response[4]]);
-                        Ok(ViscaResponse::InquiryResponse(
-                            ViscaInquiryResponse::ColorTemperature { temperature },
-                        ))
-                    }
-                    _ => Err(ViscaError::UnexpectedResponseType),
+                        },
+                    )
                 }
-            }
+                ViscaResponseType::ColorTemperature => {
+                    let (input, temperature) = preceded(tag(&[0x00]), be_u16)(input)?;
+                    (
+                        input,
+                        ViscaInquiryResponse::ColorTemperature { temperature },
+                    )
+                }
+                _ => {
+                    return Err(nom::Err::Failure(nom::error::Error::new(
+                        input,
+                        nom::error::ErrorKind::Switch,
+                    )))
+                }
+            };
+            let (input, _) = parse_footer(input)?;
+            Ok((input, ViscaResponse::InquiryResponse(result)))
+        }
+
+        // Try parsing as a short message first, then as an inquiry response
+        match parse_short_message(response) {
+            Ok((_, result)) => Ok(result),
+            Err(_) => match parse_inquiry_response(response, response_type) {
+                Ok((_, result)) => Ok(result),
+                Err(_) => Err(ViscaError::InvalidResponseFormat),
+            },
         }
     }
 }
