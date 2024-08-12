@@ -10,11 +10,10 @@ homepage = "https://www.grafton.ai"
 categories = ["multimedia"]
 keywords = ["ptz", "camera", "visca", "video"]
 exclude = ["target/", ".gitignore", ".github/", ".vscode/"]
-readme = "READNE.md"
-publish = false
+readme = "README.md"
 
 [dependencies]
-log = "0.4"
-env_logger = "0.11"
-nom = "7.1"
-thiserror = "1.0"
+log = "0.4.22"
+env_logger = "0.11.5"
+nom = "7.1.3"
+thiserror = "1.0.63"
