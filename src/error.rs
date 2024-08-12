@@ -38,6 +38,9 @@ pub enum ViscaError {
 
     #[error("Transport error: {0}")]
     TransportError(String),
+
+    #[error("Invalid parameter: {0}")]
+    InvalidParameter(String),
 }
 
 impl ViscaError {
