@@ -6,12 +6,15 @@ use std::{
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
-use visca_command::ViscaError;
+
 pub use visca_command::{ViscaCommand, ViscaInquiryResponse, ViscaResponse, ViscaResponseType};
 
+mod error;
+pub use error::{AppError, ViscaError};
+
 pub trait ViscaTransport {
-    fn send_command(&mut self, command: &ViscaCommand) -> io::Result<()>;
-    fn receive_response(&mut self) -> io::Result<Vec<Vec<u8>>>;
+    fn send_command(&mut self, command: &ViscaCommand) -> Result<(), ViscaError>;
+    fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
 }
 
 pub struct UdpTransport {
@@ -44,7 +47,7 @@ impl TcpTransport {
     }
 }
 
-fn parse_response(buffer: &[u8]) -> io::Result<Vec<Vec<u8>>> {
+fn parse_response(buffer: &[u8]) -> Result<Vec<Vec<u8>>, ViscaError> {
     let mut responses = Vec::new();
     let mut response = Vec::new();
     let mut start_index = false;
@@ -61,25 +64,22 @@ fn parse_response(buffer: &[u8]) -> io::Result<Vec<Vec<u8>>> {
     }
 
     if start_index {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Incomplete response received",
-        ));
+        return Err(ViscaError::InvalidResponseFormat);
     }
 
     Ok(responses)
 }
 
 impl ViscaTransport for UdpTransport {
-    fn send_command(&mut self, command: &ViscaCommand) -> io::Result<()> {
-        let command_bytes = command.to_bytes();
-        debug!("Command bytes: {:02X?}", command_bytes);
-        self.socket.send_to(&command_bytes, &self.address)?;
-        info!("Sent {} bytes to {}", command_bytes.len(), self.address);
+    fn send_command(&mut self, command: &ViscaCommand) -> Result<(), ViscaError> {
+        let command_bytes = command.to_bytes()?;
+        self.socket
+            .send_to(&command_bytes, &self.address)
+            .map_err(ViscaError::Io)?;
         Ok(())
     }
 
-    fn receive_response(&mut self) -> io::Result<Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
         let mut buffer = [0u8; 1024];
         let mut received_data = Vec::new();
 
@@ -99,7 +99,7 @@ impl ViscaTransport for UdpTransport {
                 }
                 Err(e) => {
                     error!("Failed to receive response: {}", e);
-                    return Err(e);
+                    return Err(ViscaError::Io(e));
                 }
             }
         }
@@ -109,15 +109,16 @@ impl ViscaTransport for UdpTransport {
 }
 
 impl ViscaTransport for TcpTransport {
-    fn send_command(&mut self, command: &ViscaCommand) -> io::Result<()> {
-        let command_bytes = command.to_bytes();
-        debug!("Command bytes: {:02X?}", command_bytes);
-        self.stream.write_all(&command_bytes)?;
+    fn send_command(&mut self, command: &ViscaCommand) -> Result<(), ViscaError> {
+        let command_bytes = command.to_bytes()?;
+        self.stream
+            .write_all(&command_bytes)
+            .map_err(ViscaError::Io)?;
         info!("Sent {} bytes", command_bytes.len());
         Ok(())
     }
 
-    fn receive_response(&mut self) -> io::Result<Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
         let mut buffer = [0u8; 1024];
         let mut received_data = Vec::new();
 
@@ -136,7 +137,7 @@ impl ViscaTransport for TcpTransport {
                 }
                 Err(e) => {
                     error!("Failed to receive response: {}", e);
-                    return Err(e);
+                    return Err(ViscaError::Io(e));
                 }
             }
         }
@@ -148,34 +149,23 @@ impl ViscaTransport for TcpTransport {
 pub fn send_command_and_wait(
     transport: &mut dyn ViscaTransport,
     command: &ViscaCommand,
-) -> io::Result<ViscaResponse> {
+) -> Result<ViscaResponse, ViscaError> {
     transport.send_command(command)?;
 
     loop {
         match transport.receive_response() {
             Ok(responses) => {
                 for response in responses {
-                    debug!("Received response: {:02X?}", response);
-                    let parsed_response = parse_and_handle_response(&response, command);
-
+                    let parsed_response = parse_and_handle_response(&response, command)?;
                     match parsed_response {
-                        Ok(visca_response) => match visca_response {
-                            ViscaResponse::Completion | ViscaResponse::InquiryResponse(_) => {
-                                return Ok(visca_response);
-                            }
-                            _ => continue,
-                        },
-                        Err(err) => {
-                            error!("Error processing response: {:?}", err);
-                            return Err(io::Error::new(io::ErrorKind::Other, format!("{:?}", err)));
+                        ViscaResponse::Completion | ViscaResponse::InquiryResponse(_) => {
+                            return Ok(parsed_response);
                         }
+                        _ => continue,
                     }
                 }
             }
-            Err(e) => {
-                error!("Failed to receive response: {}", e);
-                return Err(e);
-            }
+            Err(e) => return Err(e),
         }
     }
 }

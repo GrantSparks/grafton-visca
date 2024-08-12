@@ -6,6 +6,8 @@ use nom::{
     IResult,
 };
 
+use crate::error::ViscaError;
+
 #[derive(Debug, Copy, Clone)]
 pub enum Power {
     On = 0x02,
@@ -329,8 +331,8 @@ pub enum ViscaCommand {
 }
 
 impl ViscaCommand {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        match self {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+        let bytes = match self {
             // Image Commands
             ViscaCommand::LuminanceDirect(p) => {
                 vec![0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, *p, 0xFF]
@@ -618,7 +620,9 @@ impl ViscaCommand {
                 vec![0x81, 0x09, 0x7E, 0x7E, 0x02, 0xFF]
             }
             ViscaCommand::InquiryBlockImage => vec![0x81, 0x09, 0x7E, 0x7E, 0x03, 0xFF],
-        }
+        };
+
+        Ok(bytes)
     }
 
     pub fn response_type(&self) -> Option<ViscaResponseType> {
@@ -747,50 +751,6 @@ pub enum ViscaInquiryResponse {
     Hue { hue: u8 },
     // Add other specific inquiry responses as needed.
 }
-
-#[derive(Debug)]
-pub enum ViscaError {
-    SyntaxError,
-    CommandBufferFull,
-    CommandCanceled,
-    NoSocket,
-    CommandNotExecutable,
-    InvalidResponseFormat,
-    InvalidResponseLength,
-    UnexpectedResponseType,
-    Unknown(u8),
-}
-
-impl ViscaError {
-    pub fn from_code(code: u8) -> Self {
-        match code {
-            0x02 => ViscaError::SyntaxError,
-            0x03 => ViscaError::CommandBufferFull,
-            0x04 => ViscaError::CommandCanceled,
-            0x05 => ViscaError::NoSocket,
-            0x41 => ViscaError::CommandNotExecutable,
-            _ => ViscaError::Unknown(code),
-        }
-    }
-}
-
-impl std::fmt::Display for ViscaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ViscaError::SyntaxError => write!(f, "Syntax Error"),
-            ViscaError::CommandBufferFull => write!(f, "Command Buffer Full"),
-            ViscaError::CommandCanceled => write!(f, "Command Canceled"),
-            ViscaError::NoSocket => write!(f, "No Socket Available"),
-            ViscaError::CommandNotExecutable => write!(f, "Command Not Executable"),
-            ViscaError::InvalidResponseFormat => write!(f, "Invalid Response Format"),
-            ViscaError::InvalidResponseLength => write!(f, "Invalid Response Length"),
-            ViscaError::UnexpectedResponseType => write!(f, "Unexpected Response Type"),
-            ViscaError::Unknown(code) => write!(f, "Unknown Error with code: {:02X}", code),
-        }
-    }
-}
-
-impl std::error::Error for ViscaError {}
 
 #[derive(Debug)]
 pub enum ViscaResponse {
