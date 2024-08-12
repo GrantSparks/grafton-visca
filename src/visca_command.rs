@@ -587,7 +587,9 @@ impl ViscaCommand {
             ViscaCommand::InquiryRedGain => vec![0x81, 0x09, 0x04, 0x44, 0xFF],
             ViscaCommand::InquiryBlueGain => vec![0x81, 0x09, 0x04, 0x45, 0xFF],
             ViscaCommand::InquiryColorTemperature => vec![0x81, 0x09, 0x04, 0x43, 0xFF],
-            ViscaCommand::InquiryAutoWhiteBalanceSensitivity => vec![0x81, 0x09, 0x04, 0x38, 0xFF],
+            ViscaCommand::InquiryAutoWhiteBalanceSensitivity => {
+                vec![0x81, 0x09, 0x04, 0x38, 0xFF]
+            }
             ViscaCommand::InquiryThreeDNoiseReduction => vec![0x81, 0x09, 0x04, 0x52, 0xFF],
             ViscaCommand::InquiryTwoDNoiseReduction => vec![0x81, 0x09, 0x04, 0x53, 0xFF],
             ViscaCommand::InquiryPanTiltPosition => vec![0x81, 0x09, 0x06, 0x12, 0xFF],
@@ -595,14 +597,18 @@ impl ViscaCommand {
             ViscaCommand::InquiryMotionSyncSpeed => vec![0x81, 0x09, 0x04, 0x38, 0xFF],
             ViscaCommand::InquiryFocusPosition => vec![0x81, 0x09, 0x04, 0x48, 0xFF],
             ViscaCommand::InquiryFocusZone => vec![0x81, 0x09, 0x04, 0x4B, 0xFF],
-            ViscaCommand::InquiryAutoFocusSensitivity => vec![0x81, 0x09, 0x04, 0x38, 0xFF],
+            ViscaCommand::InquiryAutoFocusSensitivity => {
+                vec![0x81, 0x09, 0x04, 0x38, 0xFF]
+            }
             ViscaCommand::InquiryFocusRange => vec![0x81, 0x09, 0x04, 0x4C, 0xFF],
             ViscaCommand::InquiryMenuOpenClose => vec![0x81, 0x09, 0x04, 0x62, 0xFF],
             ViscaCommand::InquiryUsbAudio => vec![0x81, 0x09, 0x04, 0x61, 0xFF],
             ViscaCommand::InquiryRtmp => vec![0x81, 0x09, 0x11, 0x53, 0xFF],
             ViscaCommand::InquiryBlockLens => vec![0x81, 0x09, 0x7E, 0x7E, 0x00, 0xFF],
             ViscaCommand::InquiryBlockColorExposure => vec![0x81, 0x09, 0x7E, 0x7E, 0x01, 0xFF],
-            ViscaCommand::InquiryBlockPowerImageEffect => vec![0x81, 0x09, 0x7E, 0x7E, 0x02, 0xFF],
+            ViscaCommand::InquiryBlockPowerImageEffect => {
+                vec![0x81, 0x09, 0x7E, 0x7E, 0x02, 0xFF]
+            }
             ViscaCommand::InquiryBlockImage => vec![0x81, 0x09, 0x7E, 0x7E, 0x03, 0xFF],
         }
     }
@@ -678,6 +684,7 @@ pub enum ViscaResponseType {
     VerticalFlip,
     ImageFlip,
     BlackWhiteMode,
+    ExposureMode,
     ExposureCompensationMode,
     ExposureCompensationPosition,
     Backlight,
@@ -698,7 +705,9 @@ pub enum ViscaResponseType {
     TwoDNoiseReduction,
     PanTiltPosition,
     ZoomPosition,
+    MotionSyncMode,
     MotionSyncSpeed,
+    FocusMode,
     FocusPosition,
     FocusZone,
     AutoFocusSensitivity,
@@ -712,4 +721,196 @@ pub enum ViscaResponseType {
     BlockImage,
     ZoomWideStandard,
     ZoomTeleStandard,
+}
+
+// Define ViscaInquiryResponse to capture various inquiry responses.
+#[derive(Debug)]
+pub enum ViscaInquiryResponse {
+    PanTiltPosition { pan: u32, tilt: u32 },
+    Luminance(u8),
+    Contrast(u8),
+    ZoomPosition { position: u32 },
+    FocusPosition { position: u32 },
+    Gain { gain: u8 },
+    WhiteBalance { mode: u8 },
+    ExposureCompensation { value: u8 },
+    Backlight { status: bool },
+    ColorTemperature { temperature: u16 },
+    Hue { hue: u8 },
+    // Add other specific inquiry responses as needed.
+}
+
+#[derive(Debug)]
+pub enum ViscaError {
+    SyntaxError,
+    CommandBufferFull,
+    CommandCanceled,
+    NoSocket,
+    CommandNotExecutable,
+    InvalidResponseFormat,
+    InvalidResponseLength,
+    UnexpectedResponseType,
+    Unknown(u8),
+}
+
+impl ViscaError {
+    pub fn from_code(code: u8) -> Self {
+        match code {
+            0x02 => ViscaError::SyntaxError,
+            0x03 => ViscaError::CommandBufferFull,
+            0x04 => ViscaError::CommandCanceled,
+            0x05 => ViscaError::NoSocket,
+            0x41 => ViscaError::CommandNotExecutable,
+            _ => ViscaError::Unknown(code),
+        }
+    }
+}
+
+impl std::fmt::Display for ViscaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ViscaError::SyntaxError => write!(f, "Syntax Error"),
+            ViscaError::CommandBufferFull => write!(f, "Command Buffer Full"),
+            ViscaError::CommandCanceled => write!(f, "Command Canceled"),
+            ViscaError::NoSocket => write!(f, "No Socket Available"),
+            ViscaError::CommandNotExecutable => write!(f, "Command Not Executable"),
+            ViscaError::InvalidResponseFormat => write!(f, "Invalid Response Format"),
+            ViscaError::InvalidResponseLength => write!(f, "Invalid Response Length"),
+            ViscaError::UnexpectedResponseType => write!(f, "Unexpected Response Type"),
+            ViscaError::Unknown(code) => write!(f, "Unknown Error with code: {:02X}", code),
+        }
+    }
+}
+
+impl std::error::Error for ViscaError {}
+
+#[derive(Debug)]
+pub enum ViscaResponse {
+    Ack,
+    Completion,
+    Error(ViscaError),
+    InquiryResponse(ViscaInquiryResponse),
+    Unknown(Vec<u8>),
+}
+
+impl ViscaResponse {
+    pub fn from_bytes(
+        response: &[u8],
+        response_type: &ViscaResponseType,
+    ) -> Result<Self, ViscaError> {
+        if response.len() < 3 || response[0] != 0x90 || response[response.len() - 1] != 0xFF {
+            return Err(ViscaError::InvalidResponseFormat);
+        }
+
+        match response.len() {
+            3 => {
+                // Handle short ACK, Completion, and Error messages
+                match response[1] {
+                    0x40..=0x4F => Ok(ViscaResponse::Ack),
+                    0x50..=0x5F => Ok(ViscaResponse::Completion),
+                    0x60..=0x6F => Err(ViscaError::from_code(response[1])),
+                    _ => Err(ViscaError::Unknown(response[1])),
+                }
+            }
+            _ => {
+                // Handle inquiry responses
+                if response[1] != 0x50 {
+                    return Err(ViscaError::UnexpectedResponseType);
+                }
+
+                match response_type {
+                    ViscaResponseType::PanTiltPosition => {
+                        if response.len() == 11
+                            && response[0] == 0x90
+                            && response[1] == 0x50
+                            && response[10] == 0xFF
+                        {
+                            let pan = ((response[2] as u32) << 24)
+                                | ((response[3] as u32) << 16)
+                                | ((response[4] as u32) << 8)
+                                | (response[5] as u32);
+
+                            let tilt = ((response[6] as u32) << 24)
+                                | ((response[7] as u32) << 16)
+                                | ((response[8] as u32) << 8)
+                                | (response[9] as u32);
+
+                            Ok(ViscaResponse::InquiryResponse(
+                                ViscaInquiryResponse::PanTiltPosition { pan, tilt },
+                            ))
+                        } else {
+                            Err(ViscaError::InvalidResponseFormat)
+                        }
+                    }
+                    ViscaResponseType::ZoomPosition | ViscaResponseType::FocusPosition => {
+                        if response.len() != 7 {
+                            return Err(ViscaError::InvalidResponseLength);
+                        }
+                        let position = u32::from_be_bytes([
+                            response[2],
+                            response[3],
+                            response[4],
+                            response[5],
+                        ]);
+                        Ok(ViscaResponse::InquiryResponse(match response_type {
+                            ViscaResponseType::ZoomPosition => {
+                                ViscaInquiryResponse::ZoomPosition { position }
+                            }
+                            ViscaResponseType::FocusPosition => {
+                                ViscaInquiryResponse::FocusPosition { position }
+                            }
+                            _ => unreachable!(),
+                        }))
+                    }
+                    ViscaResponseType::Luminance | ViscaResponseType::Contrast => {
+                        if response.len() != 7 {
+                            return Err(ViscaError::InvalidResponseLength);
+                        }
+                        let value = response[5];
+                        Ok(ViscaResponse::InquiryResponse(match response_type {
+                            ViscaResponseType::Luminance => ViscaInquiryResponse::Luminance(value),
+                            ViscaResponseType::Contrast => ViscaInquiryResponse::Contrast(value),
+                            _ => unreachable!(),
+                        }))
+                    }
+                    ViscaResponseType::GainLimit
+                    | ViscaResponseType::WhiteBalanceMode
+                    | ViscaResponseType::ExposureCompensationMode
+                    | ViscaResponseType::Backlight
+                    | ViscaResponseType::Hue => {
+                        if response.len() != 6 {
+                            return Err(ViscaError::InvalidResponseLength);
+                        }
+                        let value = response[4];
+                        Ok(ViscaResponse::InquiryResponse(match response_type {
+                            ViscaResponseType::GainLimit => {
+                                ViscaInquiryResponse::Gain { gain: value }
+                            }
+                            ViscaResponseType::WhiteBalanceMode => {
+                                ViscaInquiryResponse::WhiteBalance { mode: value }
+                            }
+                            ViscaResponseType::ExposureCompensationMode => {
+                                ViscaInquiryResponse::ExposureCompensation { value }
+                            }
+                            ViscaResponseType::Backlight => {
+                                ViscaInquiryResponse::Backlight { status: value != 0 }
+                            }
+                            ViscaResponseType::Hue => ViscaInquiryResponse::Hue { hue: value },
+                            _ => unreachable!(),
+                        }))
+                    }
+                    ViscaResponseType::ColorTemperature => {
+                        if response.len() != 6 {
+                            return Err(ViscaError::InvalidResponseLength);
+                        }
+                        let temperature = u16::from_be_bytes([response[3], response[4]]);
+                        Ok(ViscaResponse::InquiryResponse(
+                            ViscaInquiryResponse::ColorTemperature { temperature },
+                        ))
+                    }
+                    _ => Err(ViscaError::UnexpectedResponseType),
+                }
+            }
+        }
+    }
 }

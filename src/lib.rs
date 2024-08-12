@@ -6,7 +6,8 @@ use std::{
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
-use visca_command::{ViscaCommand, ViscaResponseType};
+use visca_command::ViscaError;
+pub use visca_command::{ViscaCommand, ViscaInquiryResponse, ViscaResponse, ViscaResponseType};
 
 pub trait ViscaTransport {
     fn send_command(&mut self, command: &ViscaCommand) -> io::Result<()>;
@@ -147,7 +148,7 @@ impl ViscaTransport for TcpTransport {
 pub fn send_command_and_wait(
     transport: &mut dyn ViscaTransport,
     command: &ViscaCommand,
-) -> io::Result<()> {
+) -> io::Result<ViscaResponse> {
     transport.send_command(command)?;
 
     loop {
@@ -155,10 +156,19 @@ pub fn send_command_and_wait(
             Ok(responses) => {
                 for response in responses {
                     debug!("Received response: {:02X?}", response);
-                    display_camera_response(&response, command);
+                    let parsed_response = parse_and_handle_response(&response, command);
 
-                    if response.ends_with(&[0xFF]) {
-                        return Ok(());
+                    match parsed_response {
+                        Ok(visca_response) => match visca_response {
+                            ViscaResponse::Completion | ViscaResponse::InquiryResponse(_) => {
+                                return Ok(visca_response);
+                            }
+                            _ => continue,
+                        },
+                        Err(err) => {
+                            error!("Error processing response: {:?}", err);
+                            return Err(io::Error::new(io::ErrorKind::Other, format!("{:?}", err)));
+                        }
                     }
                 }
             }
@@ -170,134 +180,96 @@ pub fn send_command_and_wait(
     }
 }
 
-fn display_camera_response(response: &[u8], command: &ViscaCommand) {
+fn parse_and_handle_response(
+    response: &[u8],
+    command: &ViscaCommand,
+) -> Result<ViscaResponse, ViscaError> {
     debug!("Received response: {:02X?}", response);
 
-    if response.len() == 3 && response[0] == 0x90 {
-        handle_ack_completion_response(response);
-        return;
-    }
-
     if let Some(response_type) = command.response_type() {
-        let response_type_str = format!("{:?}", response_type);
-        match response_type {
-            ViscaResponseType::Luminance
-            | ViscaResponseType::Contrast
-            | ViscaResponseType::SharpnessPosition
-            | ViscaResponseType::RedTuning
-            | ViscaResponseType::BlueTuning
-            | ViscaResponseType::ExposureCompensationPosition
-            | ViscaResponseType::RedGain
-            | ViscaResponseType::BlueGain => {
-                handle_response(response, 11, &response_type_str, &[8, 9])
+        match ViscaResponse::from_bytes(response, &response_type) {
+            Ok(visca_response) => {
+                if let ViscaResponse::InquiryResponse(inquiry_response) = &visca_response {
+                    log_inquiry_response(inquiry_response);
+                }
+                log_response(&visca_response);
+                Ok(visca_response)
             }
-
-            ViscaResponseType::SharpnessMode
-            | ViscaResponseType::HorizontalFlip
-            | ViscaResponseType::VerticalFlip
-            | ViscaResponseType::ImageFlip
-            | ViscaResponseType::BlackWhiteMode
-            | ViscaResponseType::ExposureCompensationMode
-            | ViscaResponseType::Backlight
-            | ViscaResponseType::GainLimit
-            | ViscaResponseType::AntiFlicker
-            | ViscaResponseType::WhiteBalanceMode
-            | ViscaResponseType::FocusZone
-            | ViscaResponseType::AutoWhiteBalanceSensitivity
-            | ViscaResponseType::ThreeDNoiseReduction
-            | ViscaResponseType::TwoDNoiseReduction
-            | ViscaResponseType::MenuOpenClose
-            | ViscaResponseType::UsbAudio
-            | ViscaResponseType::Rtmp
-            | ViscaResponseType::AutoFocusSensitivity => {
-                handle_response(response, 5, &response_type_str, &[3])
-            }
-
-            ViscaResponseType::Iris
-            | ViscaResponseType::Shutter
-            | ViscaResponseType::Saturation
-            | ViscaResponseType::Hue
-            | ViscaResponseType::ColorTemperature
-            | ViscaResponseType::FocusPosition
-            | ViscaResponseType::FocusRange
-            | ViscaResponseType::MotionSyncSpeed
-            | ViscaResponseType::ZoomPosition
-            | ViscaResponseType::ZoomWideStandard
-            | ViscaResponseType::ZoomTeleStandard => {
-                handle_response(response, 7, &response_type_str, &[4, 5])
-            }
-
-            ViscaResponseType::PanTiltPosition => handle_pan_tilt_position_response(response),
-
-            ViscaResponseType::BlockLens
-            | ViscaResponseType::BlockColorExposure
-            | ViscaResponseType::BlockPowerImageEffect
-            | ViscaResponseType::BlockImage => handle_block_response(response, &response_type_str),
-        }
-    } else {
-        error!("Unknown command response type: {:02X?}", command);
-    }
-}
-
-fn handle_ack_completion_response(response: &[u8]) {
-    match response[1] {
-        0x41..=0x5F => {
-            debug!("Handling ACK/Completion response: {:02X?}", response);
-            if response[1] & 0x10 == 0x10 {
-                info!(
-                    "Completion: Command executed with status code: {:02X}",
-                    response[1]
-                );
-            } else {
-                info!(
-                    "ACK: Command accepted with status code: {:02X}",
-                    response[1]
-                );
+            Err(e) => {
+                error!("Error processing response: {}", e);
+                Err(e)
             }
         }
-        _ => error!("Unexpected response format: {:02X?}", response),
+    } else {
+        handle_ack_completion_response(response)
     }
 }
 
-fn handle_response(response: &[u8], expected_len: usize, response_type: &str, indices: &[usize]) {
-    if response.len() == expected_len
-        && response[0] == 0x90
-        && response[1] == 0x50
-        && response[expected_len - 1] == 0xFF
-    {
-        let values: Vec<u8> = indices.iter().map(|&i| response[i]).collect();
-        info!("{}: {:02X?}", response_type, values);
+fn handle_ack_completion_response(response: &[u8]) -> Result<ViscaResponse, ViscaError> {
+    if response.len() == 3 && response[0] == 0x90 && response[2] == 0xFF {
+        match response[1] {
+            0x40..=0x4F => {
+                debug!("Handling ACK response: {:02X?}", response);
+                Ok(ViscaResponse::Ack)
+            }
+            0x50..=0x5F => {
+                debug!("Handling Completion response: {:02X?}", response);
+                Ok(ViscaResponse::Completion)
+            }
+            0x60..=0x6F => Err(ViscaError::from_code(response[1])),
+            _ => Err(ViscaError::Unknown(response[1])),
+        }
     } else {
-        error!(
-            "Invalid {} response format: {:02X?}",
-            response_type, response
-        );
+        Err(ViscaError::Unknown(response[1]))
     }
 }
 
-fn handle_pan_tilt_position_response(response: &[u8]) {
-    if response.len() == 11 && response[0] == 0x90 && response[1] == 0x50 && response[10] == 0xFF {
-        let w = &response[4..8];
-        let z = &response[8..10];
-        info!(
-            "Pan Tilt Position: Pan={:02X}{:02X}{:02X}{:02X}, Tilt={:02X}{:02X}",
-            w[0], w[1], w[2], w[3], z[0], z[1]
-        );
-    } else {
-        error!(
-            "Invalid Pan Tilt Position response format: {:02X?}",
-            response
-        );
+fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
+    match inquiry_response {
+        ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
+            info!("Pan: {}, Tilt: {}", pan, tilt);
+        }
+        ViscaInquiryResponse::Luminance(luminance) => {
+            info!("Luminance: {}", luminance);
+        }
+        ViscaInquiryResponse::Contrast(contrast) => {
+            info!("Contrast: {}", contrast);
+        }
+        ViscaInquiryResponse::ZoomPosition { position } => {
+            info!("Zoom Position: {:02X?}", position);
+        }
+        ViscaInquiryResponse::FocusPosition { position } => {
+            info!("Focus Position: {:02X?}", position);
+        }
+        ViscaInquiryResponse::Gain { gain } => {
+            info!("Gain: {}", gain);
+        }
+        ViscaInquiryResponse::WhiteBalance { mode } => {
+            info!("White Balance Mode: {}", mode);
+        }
+        ViscaInquiryResponse::ExposureCompensation { value } => {
+            info!("Exposure Compensation Value: {}", value);
+        }
+        ViscaInquiryResponse::Backlight { status } => {
+            info!("Backlight Status: {}", status);
+        }
+        ViscaInquiryResponse::ColorTemperature { temperature } => {
+            info!("Color Temperature: {}", temperature);
+        }
+        ViscaInquiryResponse::Hue { hue } => {
+            info!("Hue: {}", hue);
+        } // Add additional inquiry responses as needed
     }
 }
 
-fn handle_block_response(response: &[u8], response_type: &str) {
-    if response.len() == 11 && response[0] == 0x90 && response[1] == 0x50 && response[10] == 0xFF {
-        info!("{} Inquiry: {:02X?}", response_type, response);
-    } else {
-        error!(
-            "Invalid {} response format: {:02X?}",
-            response_type, response
-        );
+fn log_response(response: &ViscaResponse) {
+    match response {
+        ViscaResponse::Ack => debug!("ACK received"),
+        ViscaResponse::Completion => info!("Completion received"),
+        ViscaResponse::Error(err) => error!("Error received: {:?}", err),
+        ViscaResponse::InquiryResponse(inquiry_response) => {
+            debug!("Inquiry response: {:?}", inquiry_response);
+        }
+        _ => (),
     }
 }
