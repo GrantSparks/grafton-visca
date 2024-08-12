@@ -1,12 +1,12 @@
 use grafton_visca::{
     send_command_and_wait,
     visca_command::{PanSpeed, PanTiltDirection, TiltSpeed, ViscaCommand},
-    TcpTransport, UdpTransport, ViscaInquiryResponse, ViscaResponse, ViscaTransport,
+    AppError, TcpTransport, UdpTransport, ViscaInquiryResponse, ViscaResponse, ViscaTransport,
 };
 use log::{debug, error, info};
-use std::{env, io, time::Duration};
+use std::{env, time::Duration};
 
-fn main() -> io::Result<()> {
+fn main() -> Result<(), AppError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     info!("Starting application");
 
