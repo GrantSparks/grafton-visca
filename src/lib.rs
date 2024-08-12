@@ -6,14 +6,15 @@ use std::{
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
-
-pub use visca_command::{ViscaCommand, ViscaInquiryResponse, ViscaResponse, ViscaResponseType};
+pub use visca_command::{
+    parse_visca_response, ViscaCommand, ViscaInquiryResponse, ViscaResponse, ViscaResponseType,
+};
 
 mod error;
 pub use error::{AppError, ViscaError};
 
 pub trait ViscaTransport {
-    fn send_command(&mut self, command: &ViscaCommand) -> Result<(), ViscaError>;
+    fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
 }
 
@@ -63,15 +64,23 @@ fn parse_response(buffer: &[u8]) -> Result<Vec<Vec<u8>>, ViscaError> {
         }
     }
 
+    // Log the entire response buffer for debugging
+    debug!("Full response buffer: {:02X?}", buffer);
+
     if start_index {
+        // Log an error if the response format is invalid
+        error!("Invalid response format detected: {:02X?}", response);
         return Err(ViscaError::InvalidResponseFormat);
     }
+
+    // Log the number of responses parsed
+    debug!("Parsed {} responses from buffer", responses.len());
 
     Ok(responses)
 }
 
 impl ViscaTransport for UdpTransport {
-    fn send_command(&mut self, command: &ViscaCommand) -> Result<(), ViscaError> {
+    fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let command_bytes = command.to_bytes()?;
         self.socket
             .send_to(&command_bytes, &self.address)
@@ -109,7 +118,7 @@ impl ViscaTransport for UdpTransport {
 }
 
 impl ViscaTransport for TcpTransport {
-    fn send_command(&mut self, command: &ViscaCommand) -> Result<(), ViscaError> {
+    fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let command_bytes = command.to_bytes()?;
         self.stream
             .write_all(&command_bytes)
@@ -148,7 +157,7 @@ impl ViscaTransport for TcpTransport {
 
 pub fn send_command_and_wait(
     transport: &mut dyn ViscaTransport,
-    command: &ViscaCommand,
+    command: &dyn ViscaCommand,
 ) -> Result<ViscaResponse, ViscaError> {
     transport.send_command(command)?;
 
@@ -156,7 +165,8 @@ pub fn send_command_and_wait(
         match transport.receive_response() {
             Ok(responses) => {
                 for response in responses {
-                    let parsed_response = parse_and_handle_response(&response, command)?;
+                    let parsed_response =
+                        parse_and_handle_response(&response, command.response_type())?;
                     match parsed_response {
                         ViscaResponse::Completion | ViscaResponse::InquiryResponse(_) => {
                             return Ok(parsed_response);
@@ -172,12 +182,12 @@ pub fn send_command_and_wait(
 
 fn parse_and_handle_response(
     response: &[u8],
-    command: &ViscaCommand,
+    response_type: Option<ViscaResponseType>,
 ) -> Result<ViscaResponse, ViscaError> {
     debug!("Received response: {:02X?}", response);
 
-    if let Some(response_type) = command.response_type() {
-        match ViscaResponse::from_bytes(response, &response_type) {
+    if let Some(response_type) = response_type {
+        match parse_visca_response(response, &response_type) {
             Ok(visca_response) => {
                 if let ViscaResponse::InquiryResponse(inquiry_response) = &visca_response {
                     log_inquiry_response(inquiry_response);
@@ -214,6 +224,7 @@ fn handle_ack_completion_response(response: &[u8]) -> Result<ViscaResponse, Visc
     }
 }
 
+#[allow(unreachable_patterns)]
 fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
     match inquiry_response {
         ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
@@ -235,7 +246,10 @@ fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
             info!("Gain: {}", gain);
         }
         ViscaInquiryResponse::WhiteBalance { mode } => {
-            info!("White Balance Mode: {}", mode);
+            info!("White Balance Mode: {:?}", mode);
+        }
+        ViscaInquiryResponse::ExposureMode { mode } => {
+            info!("Exposure Mode: {:?}", mode);
         }
         ViscaInquiryResponse::ExposureCompensation { value } => {
             info!("Exposure Compensation Value: {}", value);
@@ -248,7 +262,11 @@ fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
         }
         ViscaInquiryResponse::Hue { hue } => {
             info!("Hue: {}", hue);
-        } // Add additional inquiry responses as needed
+        }
+        // Wildcard pattern to handle any future additions to the enum
+        _ => {
+            debug!("Unhandled inquiry response: {:?}", inquiry_response);
+        }
     }
 }
 
