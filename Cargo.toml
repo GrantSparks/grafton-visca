@@ -1,6 +1,6 @@
 [package]
 name = "grafton-visca"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Grant Sparks <grant@grafton.ai>"]
 description = "Rust based VISCA over IP implementation for controlling PTZ Cameras"
@@ -17,3 +17,4 @@ log = "0.4.22"
 env_logger = "0.11.5"
 nom = "7.1.3"
 thiserror = "1.0.63"
+

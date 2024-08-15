@@ -81,10 +81,17 @@ pub fn parse_visca_response(
                     if response.len() != 11 {
                         return Err(ViscaError::InvalidResponseLength);
                     }
-                    let pan =
-                        u32::from_be_bytes([response[2], response[3], response[4], response[5]]);
-                    let tilt =
-                        u32::from_be_bytes([response[6], response[7], response[8], response[9]]);
+
+                    let mut pan = (response[2] as i16) << 12;
+                    pan |= (response[3] as i16) << 8;
+                    pan |= (response[4] as i16) << 4;
+                    pan |= response[5] as i16;
+
+                    let mut tilt = (response[6] as i16) << 12;
+                    tilt |= (response[7] as i16) << 8;
+                    tilt |= (response[8] as i16) << 4;
+                    tilt |= response[9] as i16;
+
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::PanTiltPosition { pan, tilt },
                     ))
@@ -93,7 +100,12 @@ pub fn parse_visca_response(
                     if response.len() != 7 {
                         return Err(ViscaError::InvalidResponseLength);
                     }
-                    let position = u32::from_be_bytes([0, response[2], response[3], response[4]]);
+
+                    let mut position = (response[2] as u16) << 12;
+                    position |= (response[3] as u16) << 8;
+                    position |= (response[4] as u16) << 4;
+                    position |= response[5] as u16;
+
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::ZoomPosition { position },
                     ))
@@ -102,7 +114,12 @@ pub fn parse_visca_response(
                     if response.len() != 7 {
                         return Err(ViscaError::InvalidResponseLength);
                     }
-                    let position = u32::from_be_bytes([0, response[2], response[3], response[4]]);
+
+                    let mut position = (response[2] as u16) << 12;
+                    position |= (response[3] as u16) << 8;
+                    position |= (response[4] as u16) << 4;
+                    position |= response[5] as u16;
+
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::FocusPosition { position },
                     ))

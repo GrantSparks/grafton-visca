@@ -12,12 +12,12 @@ pub enum PresetAction {
 
 pub struct PresetCommand {
     pub action: PresetAction,
-    pub preset_number: u8, // 0x00 to 0xFE (0 to 254)
+    pub preset_number: u8, // 0x00 to 0x59 (0 to 89)
 }
 
 impl ViscaCommand for PresetCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        if self.preset_number <= 0xFE {
+        if self.preset_number <= 0x59 {
             Ok(vec![
                 0x81,
                 0x01,
@@ -29,7 +29,7 @@ impl ViscaCommand for PresetCommand {
             ])
         } else {
             Err(ViscaError::InvalidParameter(
-                "Preset number must be in the range 0x00..=0xFE".into(),
+                "Preset number must be in the range 0x00..=0x59 (0-89)".into(),
             ))
         }
     }
