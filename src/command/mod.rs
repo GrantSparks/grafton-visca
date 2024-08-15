@@ -36,11 +36,11 @@ pub trait ViscaCommand {
 // ViscaInquiryResponse defines various response types for inquiry commands.
 #[derive(Debug)]
 pub enum ViscaInquiryResponse {
-    PanTiltPosition { pan: u32, tilt: u32 },
+    PanTiltPosition { pan: i16, tilt: i16 },
     Luminance(u8),
     Contrast(u8),
-    ZoomPosition { position: u32 },
-    FocusPosition { position: u32 },
+    ZoomPosition { position: u16 },
+    FocusPosition { position: u16 },
     Gain { gain: u8 },
     WhiteBalance { mode: WhiteBalanceMode },
     ExposureMode { mode: ExposureMode },
