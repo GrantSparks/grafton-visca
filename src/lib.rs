@@ -217,7 +217,7 @@ fn handle_ack_completion_response(response: &[u8]) -> Result<ViscaResponse, Visc
                 debug!("Handling Completion response: {:02X?}", response);
                 Ok(ViscaResponse::Completion)
             }
-            0x60..=0x6F => Err(ViscaError::from_code(response[1])),
+            0x60..=0x6F => Err(ViscaError::from_code(response[2])),
             _ => Err(ViscaError::Unknown(response[1])),
         }
     } else {
