@@ -65,9 +65,6 @@ fn parse_response(buffer: &[u8]) -> Result<Vec<Vec<u8>>, ViscaError> {
         }
     }
 
-    // Log the entire response buffer for debugging
-    debug!("Full response buffer: {:02X?}", buffer);
-
     if start_index {
         // Log an error if the response format is invalid
         error!("Invalid response format detected: {:02X?}", response);
@@ -124,7 +121,7 @@ impl ViscaTransport for TcpTransport {
         self.stream
             .write_all(&command_bytes)
             .map_err(ViscaError::Io)?;
-        debug!("Sent {} bytes", command_bytes.len());
+        debug!("Sent {} bytes: {:02X?}", command_bytes.len(), command_bytes);
         Ok(())
     }
 
