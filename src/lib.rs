@@ -199,26 +199,8 @@ fn parse_and_handle_response(
             }
         }
     } else {
-        handle_ack_completion_response(response)
-    }
-}
-
-fn handle_ack_completion_response(response: &[u8]) -> Result<ViscaResponse, ViscaError> {
-    if response.len() == 3 && response[0] == 0x90 && response[2] == 0xFF {
-        match response[1] {
-            0x40..=0x4F => {
-                debug!("Handling ACK response: {:02X?}", response);
-                Ok(ViscaResponse::Ack)
-            }
-            0x50..=0x5F => {
-                debug!("Handling Completion response: {:02X?}", response);
-                Ok(ViscaResponse::Completion)
-            }
-            0x60..=0x6F => Err(ViscaError::from_code(response[2])),
-            _ => Err(ViscaError::Unknown(response[1])),
-        }
-    } else {
-        Err(ViscaError::Unknown(response[1]))
+        error!("No response type provided for response: {:02X?}", response);
+        Err(ViscaError::UnexpectedResponseType)
     }
 }
 
