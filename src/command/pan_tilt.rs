@@ -1,7 +1,7 @@
+use super::ViscaResponseType;
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
-
-use super::ViscaResponseType;
+use std::convert::TryFrom;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PanTiltDirection {
@@ -14,7 +14,6 @@ pub enum PanTiltDirection {
     DownLeft,
     DownRight,
     Stop,
-    Home,
 }
 
 impl PanTiltDirection {
@@ -29,34 +28,42 @@ impl PanTiltDirection {
             PanTiltDirection::DownLeft => (0x01, 0x02),
             PanTiltDirection::DownRight => (0x02, 0x02),
             PanTiltDirection::Stop => (0x03, 0x03),
-            PanTiltDirection::Home => (0x04, 0x04), // Special case for the Home command
         }
     }
 }
 
-pub struct PanTiltCommand {
-    pub direction: PanTiltDirection,
-    pub pan_speed: PanSpeed,
-    pub tilt_speed: TiltSpeed,
+#[derive(Debug)]
+pub enum PanTiltCommand {
+    Home,
+    Move {
+        direction: PanTiltDirection,
+        pan_speed: PanSpeed,
+        tilt_speed: TiltSpeed,
+    },
 }
 
 impl ViscaCommand for PanTiltCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        let (dir_byte1, dir_byte2) = self.direction.to_bytes();
-        if self.direction == PanTiltDirection::Home {
-            Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF])
-        } else {
-            Ok(vec![
-                0x81,
-                0x01,
-                0x06,
-                0x01,
-                self.pan_speed.get_value(),
-                self.tilt_speed.get_value(),
-                dir_byte1,
-                dir_byte2,
-                0xFF,
-            ])
+        match self {
+            PanTiltCommand::Home => Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]),
+            PanTiltCommand::Move {
+                direction,
+                pan_speed,
+                tilt_speed,
+            } => {
+                let (dir_byte1, dir_byte2) = direction.to_bytes();
+                Ok(vec![
+                    0x81,
+                    0x01,
+                    0x06,
+                    0x01,
+                    (*pan_speed).into(),
+                    (*tilt_speed).into(),
+                    dir_byte1,
+                    dir_byte2,
+                    0xFF,
+                ])
+            }
         }
     }
 
@@ -65,56 +72,66 @@ impl ViscaCommand for PanTiltCommand {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PanSpeed(u8);
 
 impl PanSpeed {
-    pub const STOP: PanSpeed = PanSpeed(0x00);
-    pub const LOW_SPEED: PanSpeed = PanSpeed(0x01);
-    pub const HIGH_SPEED: PanSpeed = PanSpeed(0x18);
+    pub const MAX: u8 = 0x18; // Maximum pan speed
 
     pub fn new(value: u8) -> Result<Self, ViscaError> {
-        if Self::is_valid_value(value) {
+        if value <= Self::MAX {
             Ok(PanSpeed(value))
         } else {
-            Err(ViscaError::InvalidParameter(
-                "Pan speed must be in the range 0x00..=0x18".into(),
-            ))
+            Err(ViscaError::InvalidParameter(format!(
+                "Pan speed must be in the range 0x00..=0x{:02X}",
+                Self::MAX
+            )))
         }
-    }
-
-    fn is_valid_value(value: u8) -> bool {
-        value == Self::STOP.0 || (0x01..=Self::HIGH_SPEED.0).contains(&value)
-    }
-
-    pub fn get_value(&self) -> u8 {
-        self.0
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+impl TryFrom<u8> for PanSpeed {
+    type Error = ViscaError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        PanSpeed::new(value)
+    }
+}
+
+impl From<PanSpeed> for u8 {
+    fn from(speed: PanSpeed) -> Self {
+        speed.0
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TiltSpeed(u8);
 
 impl TiltSpeed {
-    pub const STOP: TiltSpeed = TiltSpeed(0x00);
-    pub const LOW_SPEED: TiltSpeed = TiltSpeed(0x01);
-    pub const HIGH_SPEED: TiltSpeed = TiltSpeed(0x14);
+    pub const MAX: u8 = 0x14; // Maximum tilt speed
 
     pub fn new(value: u8) -> Result<Self, ViscaError> {
-        if Self::is_valid_value(value) {
+        if value <= Self::MAX {
             Ok(TiltSpeed(value))
         } else {
-            Err(ViscaError::InvalidParameter(
-                "Tilt speed must be in the range 0x00..=0x14".into(),
-            ))
+            Err(ViscaError::InvalidParameter(format!(
+                "Tilt speed must be in the range 0x00..=0x{:02X}",
+                Self::MAX
+            )))
         }
     }
+}
 
-    fn is_valid_value(value: u8) -> bool {
-        value == Self::STOP.0 || (0x01..=Self::HIGH_SPEED.0).contains(&value)
+impl TryFrom<u8> for TiltSpeed {
+    type Error = ViscaError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        TiltSpeed::new(value)
     }
+}
 
-    pub fn get_value(&self) -> u8 {
-        self.0
+impl From<TiltSpeed> for u8 {
+    fn from(speed: TiltSpeed) -> Self {
+        speed.0
     }
 }
