@@ -1,7 +1,4 @@
-use crate::command::ViscaCommand;
-use crate::error::ViscaError;
-
-use super::ViscaResponseType;
+use crate::{command::ViscaCommand, error::ViscaError, ViscaResponseType};
 
 pub struct BacklightCommand {
     pub status: bool,

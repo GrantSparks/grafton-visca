@@ -45,11 +45,7 @@ fn main() -> Result<(), AppError> {
     };
 
     debug!("Sending Pan/Tilt home command");
-    let pan_tilt_home_command = PanTiltCommand {
-        direction: PanTiltDirection::Home,
-        pan_speed: PanSpeed::STOP,
-        tilt_speed: TiltSpeed::STOP,
-    };
+    let pan_tilt_home_command = PanTiltCommand::Home;
     send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
 
     std::thread::sleep(Duration::from_secs(1));
@@ -73,21 +69,23 @@ fn main() -> Result<(), AppError> {
 
     for (direction, pan_speed, tilt_speed) in complex_movements.iter() {
         debug!("Sending Pan/Tilt {:?} command", direction);
-        let pan_tilt_command = PanTiltCommand {
+        let pan_tilt_command = PanTiltCommand::Move {
             direction: *direction,
-            pan_speed: PanSpeed::new(*pan_speed).expect("Invalid Pan Speed"),
-            tilt_speed: TiltSpeed::new(*tilt_speed).expect("Invalid Tilt Speed"),
+            pan_speed: PanSpeed::new(*pan_speed)?,
+            tilt_speed: TiltSpeed::new(*tilt_speed)?,
         };
         send_command_and_wait(&mut *transport, &pan_tilt_command)?;
 
         std::thread::sleep(Duration::from_secs(3));
+
         debug!("Sending Pan/Tilt stop command");
-        let pan_tilt_stop_command = PanTiltCommand {
+        let pan_tilt_stop_command = PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::STOP,
-            tilt_speed: TiltSpeed::STOP,
+            pan_speed: PanSpeed::new(0x00)?,
+            tilt_speed: TiltSpeed::new(0x00)?,
         };
         send_command_and_wait(&mut *transport, &pan_tilt_stop_command)?;
+
         std::thread::sleep(Duration::from_secs(1));
     }
 
@@ -148,7 +146,7 @@ fn main() -> Result<(), AppError> {
     }
 
     debug!("Sending Pan/Tilt home command");
-    send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
+    send_command_and_wait(&mut *transport, &PanTiltCommand::Home)?;
 
     debug!("Sending Zoom home command");
     send_command_and_wait(&mut *transport, &ZoomCommand::WideStandard)?;
