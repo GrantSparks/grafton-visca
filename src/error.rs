@@ -52,6 +52,9 @@ pub enum ViscaError {
 
     #[error("Operation timed out")]
     Timeout,
+
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
 }
 
 impl ViscaError {
