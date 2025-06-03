@@ -1,3 +1,52 @@
+//! # grafton-visca
+//!
+//! A Rust library for controlling PTZ cameras using the VISCA over IP protocol.
+//!
+//! ## Features
+//!
+//! - Full support for PTZOptics G2 VISCA commands
+//! - Pan/Tilt/Zoom control with absolute and relative positioning
+//! - Exposure control (iris, shutter, gain, brightness)
+//! - Color adjustments (white balance, saturation, hue)
+//! - Focus control with auto/manual modes
+//! - Preset positions
+//! - Command inquiry support
+//! - TCP and UDP transport support
+//!
+//! ## Example Usage
+//!
+//! ```no_run
+//! use grafton_visca::{UdpTransport, ViscaCommand, ViscaTransport};
+//! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
+//! 
+//! // Connect to camera
+//! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//! 
+//! // Send Pan/Tilt Home command
+//! transport.send_command(&PanTiltCommand::Home).unwrap();
+//! 
+//! // Zoom in
+//! transport.send_command(&ZoomCommand::TeleStandard).unwrap();
+//! ```
+//!
+//! ## Advanced Camera Control
+//!
+//! ```no_run
+//! use grafton_visca::command::*;
+//! use grafton_visca::{UdpTransport, ViscaTransport};
+//! 
+//! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//! 
+//! // Adjust exposure compensation
+//! transport.send_command(&ExposureCompensationCommand::Direct(3)).unwrap();
+//! 
+//! // Set iris to F4.0
+//! transport.send_command(&IrisCommand::Direct(0x06)).unwrap();
+//! 
+//! // Adjust color saturation to 150%
+//! transport.send_command(&SaturationCommand { level: 0x0A }).unwrap();
+//! ```
+
 use log::{debug, error};
 use std::{
     io::{self, Read, Write},

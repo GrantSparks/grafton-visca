@@ -1,6 +1,8 @@
+pub mod color;
 pub mod exposure;
 pub mod flip;
 pub mod focus;
+pub mod gain;
 pub mod image;
 pub mod inquiry;
 pub mod luminance_contrast_sharpness;
@@ -11,14 +13,15 @@ pub mod response;
 pub mod white_balance;
 pub mod zoom;
 
-pub use exposure::ExposureCommand;
-pub use exposure::ExposureMode;
+pub use color::{BlueTuningCommand, HueCommand, OnePushTriggerCommand, RedTuningCommand, SaturationCommand, ColorTemperatureCommand, RedGainCommand, BlueGainCommand};
+pub use exposure::{BrightCommand, DynamicRangeCommand, ExposureCommand, ExposureCompensationCommand, ExposureMode, IrisCommand, ShutterCommand};
 pub use flip::ImageFlipCommand;
-pub use focus::FocusCommand;
-pub use image::BacklightCommand;
+pub use focus::{FocusCommand, FocusZoneCommand, FocusZone, AFSensitivityCommand, AFSensitivity, FocusNearLimitCommand};
+pub use gain::{AntiFlickerCommand, AntiFlickerMode, GainCommand, GainLimitCommand};
+pub use image::{BacklightCommand, NoiseReduction2DCommand, NoiseReduction3DCommand, BlackWhiteCommand, ImageFlipCombinedCommand, ImageFlipMode};
 pub use inquiry::InquiryCommand;
-pub use luminance_contrast_sharpness::{ContrastCommand, LuminanceCommand, SharpnessCommand};
-pub use pan_tilt::PanTiltCommand;
+pub use luminance_contrast_sharpness::{ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode};
+pub use pan_tilt::{LimitCorner, PanTiltCommand, PanTiltLimitCommand};
 pub use power::PowerCommand;
 pub use preset::PresetCommand;
 pub use response::{ViscaResponse, ViscaResponseType};
@@ -48,5 +51,25 @@ pub enum ViscaInquiryResponse {
     Backlight { status: bool },
     ColorTemperature { temperature: u16 },
     Hue { hue: u8 },
-    // Add other specific inquiry responses as needed.
+    // New inquiry responses for Sprint 1 features
+    Sharpness { value: u8 },
+    ExposureCompensationMode { on: bool },
+    Iris { position: u8 },
+    Shutter { position: u16 },
+    Bright { position: u16 },
+    GainLimit { limit: u8 },
+    AntiFlicker { mode: AntiFlickerMode },
+    Saturation { level: u8 },
+    RedGain { gain: i8 },
+    BlueGain { gain: i8 },
+    ImageFlip { vertical: bool, horizontal: bool },
+    // Additional inquiry responses for new features
+    SharpnessMode { mode: SharpnessMode },
+    NoiseReduction2D { level: u8 },
+    NoiseReduction3D { level: u8 },
+    BlackWhite { on: bool },
+    FocusZone { zone: FocusZone },
+    AFSensitivity { sensitivity: AFSensitivity },
+    FocusNearLimit { position: u16 },
+    DynamicRange { level: u8 },
 }
