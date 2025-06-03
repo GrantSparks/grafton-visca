@@ -81,10 +81,10 @@ impl AsyncViscaTransport for AsyncTcpTransport {
                         log::error!("TCP buffer exceeded maximum size, clearing buffer");
                         self.buffer.clear();
                         return Err(ViscaError::Io(std::io::Error::other(
-                            "Buffer overflow - too much unparseable data"
+                            "Buffer overflow - too much unparseable data",
                         )));
                     }
-                    
+
                     self.buffer.extend_from_slice(&self.read_buffer[..n]);
 
                     // Try to parse complete responses from the buffer
