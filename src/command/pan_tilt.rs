@@ -168,6 +168,184 @@ impl ViscaCommand for PanTiltCommand {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pan_tilt_direction_to_bytes() {
+        assert_eq!(PanTiltDirection::Up.to_bytes(), (0x03, 0x01));
+        assert_eq!(PanTiltDirection::Down.to_bytes(), (0x03, 0x02));
+        assert_eq!(PanTiltDirection::Left.to_bytes(), (0x01, 0x03));
+        assert_eq!(PanTiltDirection::Right.to_bytes(), (0x02, 0x03));
+        assert_eq!(PanTiltDirection::UpLeft.to_bytes(), (0x01, 0x01));
+        assert_eq!(PanTiltDirection::UpRight.to_bytes(), (0x02, 0x01));
+        assert_eq!(PanTiltDirection::DownLeft.to_bytes(), (0x01, 0x02));
+        assert_eq!(PanTiltDirection::DownRight.to_bytes(), (0x02, 0x02));
+        assert_eq!(PanTiltDirection::Stop.to_bytes(), (0x03, 0x03));
+    }
+
+    #[test]
+    fn test_pan_speed_validation() {
+        // Valid speeds
+        assert!(PanSpeed::new(0x00).is_ok());
+        assert!(PanSpeed::new(0x18).is_ok());
+
+        // Invalid speed
+        assert!(matches!(
+            PanSpeed::new(0x19),
+            Err(ViscaError::InvalidParameter(_))
+        ));
+
+        // From trait
+        assert!(PanSpeed::try_from(0x10).is_ok());
+        assert!(PanSpeed::try_from(0x20).is_err());
+
+        // Into trait
+        let speed = PanSpeed::new(0x10).unwrap();
+        let value: u8 = speed.into();
+        assert_eq!(value, 0x10);
+    }
+
+    #[test]
+    fn test_tilt_speed_validation() {
+        // Valid speeds
+        assert!(TiltSpeed::new(0x00).is_ok());
+        assert!(TiltSpeed::new(0x14).is_ok());
+
+        // Invalid speed
+        assert!(matches!(
+            TiltSpeed::new(0x15),
+            Err(ViscaError::InvalidParameter(_))
+        ));
+
+        // From trait
+        assert!(TiltSpeed::try_from(0x10).is_ok());
+        assert!(TiltSpeed::try_from(0x15).is_err());
+
+        // Into trait
+        let speed = TiltSpeed::new(0x10).unwrap();
+        let value: u8 = speed.into();
+        assert_eq!(value, 0x10);
+    }
+
+    #[test]
+    fn test_position_to_bytes() {
+        // Test positive values
+        assert_eq!(position_to_bytes(0x1234), [0x01, 0x02, 0x03, 0x04]);
+
+        // Test negative values (two's complement)
+        assert_eq!(position_to_bytes(-1), [0x0F, 0x0F, 0x0F, 0x0F]);
+        assert_eq!(position_to_bytes(-0x1234), [0x0E, 0x0D, 0x0C, 0x0C]);
+
+        // Test zero
+        assert_eq!(position_to_bytes(0), [0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn test_pan_tilt_command_to_bytes() {
+        // Test Home command
+        let home = PanTiltCommand::Home;
+        assert_eq!(home.to_bytes().unwrap(), vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
+
+        // Test Reset command
+        let reset = PanTiltCommand::Reset;
+        assert_eq!(
+            reset.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x06, 0x05, 0xFF]
+        );
+
+        // Test Move command
+        let move_cmd = PanTiltCommand::Move {
+            direction: PanTiltDirection::UpRight,
+            pan_speed: PanSpeed::new(0x10).unwrap(),
+            tilt_speed: TiltSpeed::new(0x10).unwrap(),
+        };
+        assert_eq!(
+            move_cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x06, 0x01, 0x10, 0x10, 0x02, 0x01, 0xFF]
+        );
+
+        // Test AbsolutePosition command
+        let abs_pos = PanTiltCommand::AbsolutePosition {
+            pan: 0x1234,
+            tilt: 0x5678,
+            pan_speed: 0x10,
+            tilt_speed: 0x10,
+        };
+        assert_eq!(
+            abs_pos.to_bytes().unwrap(),
+            vec![
+                0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                0xFF
+            ]
+        );
+
+        // Test RelativePosition command
+        let rel_pos = PanTiltCommand::RelativePosition {
+            pan: -0x100,
+            tilt: 0x200,
+            pan_speed: 0x10,
+            tilt_speed: 0x10,
+        };
+        assert_eq!(
+            rel_pos.to_bytes().unwrap(),
+            vec![
+                0x81, 0x01, 0x06, 0x03, 0x10, 0x10, 0x0F, 0x0F, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+                0xFF
+            ]
+        );
+    }
+
+    #[test]
+    fn test_pan_tilt_limit_command_to_bytes() {
+        // Test Set command
+        let set_limit = PanTiltLimitCommand::Set {
+            corner: LimitCorner::DownLeft,
+            pan: 0x1000,
+            tilt: 0x2000,
+        };
+        assert_eq!(
+            set_limit.to_bytes().unwrap(),
+            vec![
+                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+                0xFF
+            ]
+        );
+
+        // Test Clear command
+        let clear_limit = PanTiltLimitCommand::Clear {
+            corner: LimitCorner::UpRight,
+        };
+        assert_eq!(
+            clear_limit.to_bytes().unwrap(),
+            vec![
+                0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
+                0xFF
+            ]
+        );
+    }
+
+    #[test]
+    fn test_response_type() {
+        // All pan/tilt commands should return None for response_type
+        assert!(PanTiltCommand::Home.response_type().is_none());
+        assert!(PanTiltCommand::Reset.response_type().is_none());
+
+        let move_cmd = PanTiltCommand::Move {
+            direction: PanTiltDirection::Stop,
+            pan_speed: PanSpeed::new(0).unwrap(),
+            tilt_speed: TiltSpeed::new(0).unwrap(),
+        };
+        assert!(move_cmd.response_type().is_none());
+
+        let limit_cmd = PanTiltLimitCommand::Clear {
+            corner: LimitCorner::DownLeft,
+        };
+        assert!(limit_cmd.response_type().is_none());
+    }
+}
+
 // Helper function to convert a 15-bit signed position to 4 nibbles
 fn position_to_bytes(position: i16) -> [u8; 4] {
     // VISCA uses 15-bit signed values represented as 4 nibbles
@@ -311,3 +489,4 @@ impl ViscaCommand for PanTiltLimitCommand {
         None
     }
 }
+

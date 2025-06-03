@@ -46,29 +46,30 @@
 //! // Adjust color saturation to 150%
 //! transport.send_command(&SaturationCommand { level: 0x0A }).unwrap();
 //! ```
-//! 
+//!
 //! ## Async Usage (with `async` feature)
-//! 
+//!
 //! The library provides async support for non-blocking camera control:
-//! 
+//!
 //! ```no_run
 //! # #[cfg(feature = "async")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! use grafton_visca::{AsyncViscaClient, ViscaResponse};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //! use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
-//! 
+//!
 //! // Connect to camera
 //! let camera = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
-//! 
+//!
 //! // Send multiple commands concurrently
-//! let pan_tilt = camera.send(&PanTiltCommand::Move {
+//! let pan_tilt_cmd = PanTiltCommand::Move {
 //!     direction: PanTiltDirection::UpRight,
 //!     pan_speed: PanSpeed::new(0x10)?,
 //!     tilt_speed: TiltSpeed::new(0x10)?,
-//! });
+//! };
+//! let pan_tilt = camera.send(&pan_tilt_cmd);
 //! let zoom = camera.send(&ZoomCommand::TeleStandard);
-//! 
+//!
 //! // Both commands execute concurrently (respecting the 2-socket limit)
 //! let (pan_result, zoom_result) = tokio::join!(pan_tilt, zoom);
 //! # Ok(())
@@ -95,39 +96,83 @@ mod session;
 pub use session::ViscaSession;
 
 #[cfg(feature = "async")]
-mod async_transport;
-#[cfg(feature = "async")]
-mod async_udp_transport;
+mod async_client;
 #[cfg(feature = "async")]
 mod async_tcp_transport;
 #[cfg(feature = "async")]
-mod async_client;
+pub mod async_transport;
+#[cfg(feature = "async")]
+mod async_udp_transport;
 
 #[cfg(feature = "async")]
-pub use async_transport::AsyncViscaTransport;
-#[cfg(feature = "async")]
-pub use async_udp_transport::AsyncUdpTransport;
+pub use async_client::AsyncViscaClient;
 #[cfg(feature = "async")]
 pub use async_tcp_transport::AsyncTcpTransport;
 #[cfg(feature = "async")]
-pub use async_client::AsyncViscaClient;
+pub use async_transport::{AsyncViscaTransport, TransportFuture};
+#[cfg(feature = "async")]
+pub use async_udp_transport::AsyncUdpTransport;
 
 #[cfg(all(feature = "sync", feature = "async"))]
 mod sync_wrapper;
 #[cfg(all(feature = "sync", feature = "async"))]
-pub use sync_wrapper::{ViscaClient, send_command_and_wait_compat};
+pub use sync_wrapper::{send_command_and_wait_compat, ViscaClient};
 
+/// Transport trait for sending and receiving VISCA commands over a network connection.
+///
+/// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
+/// a uniform interface for VISCA communication.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::{ViscaTransport, UdpTransport, ViscaCommand, ViscaError};
+/// # use grafton_visca::command::PowerCommand;
+/// # use grafton_visca::command::power::Power;
+/// let mut transport = UdpTransport::new("192.168.1.100:5678")?;
+/// let command = PowerCommand { power: Power::On };
+/// transport.send_command(&command)?;
+/// let responses = transport.receive_response()?;
+/// # Ok::<(), ViscaError>(())
+/// ```
 pub trait ViscaTransport {
+    /// Sends a VISCA command to the camera.
+    ///
+    /// The command is serialized to bytes and transmitted over the transport.
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;
+
+    /// Receives response frames from the camera.
+    ///
+    /// Returns a vector of response frames, where each frame is a complete VISCA
+    /// response (starts with 0x90 and ends with 0xFF).
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
 }
 
+/// UDP transport for VISCA over IP communication.
+///
+/// This transport uses UDP sockets for communication with VISCA cameras.
+/// It binds to an ephemeral local port and sends commands to the specified camera address.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::UdpTransport;
+/// let transport = UdpTransport::new("192.168.1.100:5678")?;
+/// # Ok::<(), std::io::Error>(())
+/// ```
 pub struct UdpTransport {
     socket: UdpSocket,
     address: String,
 }
 
 impl UdpTransport {
+    /// Creates a new UDP transport connected to the specified camera address.
+    ///
+    /// Sets read and write timeouts of 10 seconds.
+    ///
+    /// # Arguments
+    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
+    ///
+    /// # Errors
+    /// Returns an error if the socket cannot be created or configured.
     pub fn new(address: &str) -> io::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         socket.set_read_timeout(Some(Duration::from_secs(10)))?;
@@ -139,11 +184,31 @@ impl UdpTransport {
     }
 }
 
+/// TCP transport for VISCA over IP communication.
+///
+/// This transport uses TCP sockets for reliable communication with VISCA cameras.
+/// It maintains a persistent connection to the camera.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::TcpTransport;
+/// let transport = TcpTransport::new("192.168.1.100:5678")?;
+/// # Ok::<(), std::io::Error>(())
+/// ```
 pub struct TcpTransport {
     stream: TcpStream,
 }
 
 impl TcpTransport {
+    /// Creates a new TCP transport connected to the specified camera address.
+    ///
+    /// Establishes a TCP connection and sets read/write timeouts of 30 seconds.
+    ///
+    /// # Arguments
+    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
+    ///
+    /// # Errors
+    /// Returns an error if the connection cannot be established or configured.
     pub fn new(address: &str) -> io::Result<Self> {
         let stream = TcpStream::connect(address)?;
         stream.set_read_timeout(Some(Duration::from_secs(30)))?;
@@ -256,6 +321,36 @@ impl ViscaTransport for TcpTransport {
     }
 }
 
+/// Sends a VISCA command and waits for its completion response.\n///
+/// This is the main synchronous API for sending commands to a VISCA camera.
+/// It handles the complete command lifecycle including:
+/// - Sending the command
+/// - Receiving and processing ACK response
+/// - Waiting for and returning the completion response
+///
+/// # Arguments
+/// * `transport` - The transport to use for communication
+/// * `command` - The VISCA command to send
+///
+/// # Returns
+/// Returns the final response which can be:
+/// - `ViscaResponse::Completion` for commands with no data response
+/// - `ViscaResponse::InquiryResponse(...)` for inquiry commands
+/// - `ViscaResponse::Error(...)` if the camera reports an error
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::{UdpTransport, send_command_and_wait, ViscaResponse};
+/// # use grafton_visca::command::{PowerCommand, power::Power};
+/// # let mut transport = UdpTransport::new("192.168.1.100:5678")?;
+/// let command = PowerCommand { power: Power::On };
+/// match send_command_and_wait(&mut transport, &command)? {
+///     ViscaResponse::Completion => println!("Power on successful"),
+///     ViscaResponse::Error(e) => println!("Error: {:?}", e),
+///     _ => println!("Unexpected response"),
+/// }
+/// # Ok::<(), grafton_visca::ViscaError>(())
+/// ```
 pub fn send_command_and_wait(
     transport: &mut dyn ViscaTransport,
     command: &dyn ViscaCommand,

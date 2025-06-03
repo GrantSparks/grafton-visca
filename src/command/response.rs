@@ -3,15 +3,27 @@ use log::error;
 use super::{ExposureMode, ViscaInquiryResponse, WhiteBalanceMode};
 use crate::error::ViscaError;
 
+/// Response from a VISCA command.
+///
+/// Represents all possible responses from the camera including acknowledgments,
+/// completions, errors, and inquiry data.
 #[derive(Debug)]
 pub enum ViscaResponse {
+    /// Acknowledgment that the command was received and is being processed
     Ack,
+    /// Command completed successfully (no data returned)
     Completion,
+    /// Command failed with an error
     Error(ViscaError),
+    /// Inquiry command response containing requested data
     InquiryResponse(ViscaInquiryResponse),
+    /// Unknown response format (raw bytes provided for debugging)
     Unknown(Vec<u8>),
 }
 
+/// Type of expected response for inquiry commands.
+///
+/// Used to indicate what kind of data parser should expect in the response payload.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ViscaResponseType {
     PanTiltPosition,

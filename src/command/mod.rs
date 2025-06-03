@@ -45,12 +45,48 @@ pub use zoom::ZoomCommand;
 
 use crate::ViscaError;
 
+/// Trait for all VISCA commands.
+///
+/// This trait must be implemented by all command types to provide:
+/// - Serialization to VISCA protocol bytes
+/// - Response type information for inquiry commands
+///
+/// # Example Implementation
+/// ```no_run
+/// # use grafton_visca::command::{ViscaCommand, ViscaResponseType};
+/// # use grafton_visca::ViscaError;
+/// struct MyCommand;
+///
+/// impl ViscaCommand for MyCommand {
+///     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+///         // Return VISCA command bytes
+///         Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+///     }
+///     
+///     fn response_type(&self) -> Option<ViscaResponseType> {
+///         // Return None for action commands, Some(...) for inquiries
+///         None
+///     }
+/// }
+/// ```
 pub trait ViscaCommand: Send + Sync {
+    /// Converts the command to VISCA protocol bytes.
+    ///
+    /// The returned bytes should be a complete VISCA command packet,
+    /// typically starting with 0x81 and ending with 0xFF.
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError>;
+
+    /// Returns the expected response type for this command.
+    ///
+    /// - Returns `None` for action commands that only receive ACK/Completion
+    /// - Returns `Some(ViscaResponseType::...)` for inquiry commands that receive data
     fn response_type(&self) -> Option<ViscaResponseType>;
 }
 
-// ViscaInquiryResponse defines various response types for inquiry commands.
+/// Response data from VISCA inquiry commands.
+///
+/// Each variant represents a different type of inquiry response with its associated data.
+/// These are returned wrapped in `ViscaResponse::InquiryResponse(...)`.
 #[derive(Debug)]
 pub enum ViscaInquiryResponse {
     PanTiltPosition { pan: i16, tilt: i16 },

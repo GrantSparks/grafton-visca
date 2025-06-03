@@ -1,57 +1,4 @@
-use grafton_visca::command::{PanTiltCommand, ZoomCommand};
-use grafton_visca::{ViscaCommand, ViscaError, ViscaResponse, ViscaSession, ViscaTransport};
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-
-/// Mock transport that can simulate responses for multiple commands
-struct ConcurrentMockTransport {
-    responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
-    sent_commands: Arc<Mutex<Vec<Vec<u8>>>>,
-}
-
-impl ConcurrentMockTransport {
-    fn new(responses: Vec<Vec<u8>>) -> Self {
-        Self {
-            responses: Arc::new(Mutex::new(responses.into_iter().collect())),
-            sent_commands: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    fn get_sent_commands(&self) -> Vec<Vec<u8>> {
-        self.sent_commands.lock().unwrap().clone()
-    }
-}
-
-impl ViscaTransport for ConcurrentMockTransport {
-    fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
-        let bytes = command.to_bytes()?;
-        self.sent_commands.lock().unwrap().push(bytes);
-        Ok(())
-    }
-
-    fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
-        let mut responses = self.responses.lock().unwrap();
-        let mut batch = Vec::new();
-
-        // Return up to 2 responses at a time to simulate batched responses
-        for _ in 0..2 {
-            if let Some(response) = responses.pop_front() {
-                batch.push(response);
-            } else {
-                break;
-            }
-        }
-
-        if batch.is_empty() {
-            Err(ViscaError::Io(std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "No more responses",
-            )))
-        } else {
-            Ok(batch)
-        }
-    }
-}
+use grafton_visca::{ViscaError, ViscaResponse, ViscaSession};
 
 #[test]
 fn test_session_socket_management() {
@@ -85,7 +32,7 @@ fn test_interleaved_responses() {
     let socket_b = session.assign_socket(None).unwrap();
 
     // Simulate interleaved ACKs and completions
-    let responses = vec![
+    let responses = [
         vec![0x90, 0x40 | socket_b, 0xFF], // ACK for B
         vec![0x90, 0x40 | socket_a, 0xFF], // ACK for A
         vec![0x90, 0x50 | socket_b, 0xFF], // Completion for B
@@ -203,8 +150,8 @@ fn test_socket_reuse_after_completion() {
     assert_eq!(socket1, 0);
 
     // Process ACK and completion
-    session.process_response(&vec![0x90, 0x40, 0xFF]).unwrap();
-    session.process_response(&vec![0x90, 0x50, 0xFF]).unwrap();
+    session.process_response(&[0x90, 0x40, 0xFF]).unwrap();
+    session.process_response(&[0x90, 0x50, 0xFF]).unwrap();
 
     // Release socket 0
     session.release_socket(0);

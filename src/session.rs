@@ -166,6 +166,16 @@ impl ViscaSession {
     pub fn is_full(&self) -> bool {
         self.pending_commands.len() >= 2
     }
+
+    /// Checks if a socket is complete (not in use)
+    pub fn is_complete(&self, socket_id: u8) -> bool {
+        !self.pending_commands.contains_key(&socket_id)
+    }
+
+    /// Gets a list of currently pending socket IDs
+    pub fn get_pending_sockets(&self) -> Vec<u8> {
+        self.pending_commands.keys().copied().collect()
+    }
 }
 
 #[cfg(test)]
@@ -279,5 +289,127 @@ mod tests {
         let result_a = session.process_response(&completion_a).unwrap().unwrap();
         assert_eq!(result_a.0, socket_a);
         assert!(matches!(result_a.1, ViscaResponse::Completion));
+    }
+
+    #[test]
+    fn test_release_socket() {
+        let mut session = ViscaSession::new();
+
+        // Assign both sockets
+        let socket_0 = session.assign_socket(None).unwrap();
+        let socket_1 = session.assign_socket(None).unwrap();
+        assert_eq!(socket_0, 0);
+        assert_eq!(socket_1, 1);
+        assert!(session.is_full());
+
+        // Release a non-existent socket (should do nothing)
+        session.release_socket(2);
+        assert!(session.is_full());
+
+        // Release socket 0
+        session.release_socket(0);
+        assert!(!session.is_full());
+        assert_eq!(session.pending_count(), 1);
+
+        // Should be able to assign socket 0 again
+        let new_socket = session.assign_socket(None).unwrap();
+        assert_eq!(new_socket, 0);
+    }
+
+    #[test]
+    fn test_is_complete() {
+        let mut session = ViscaSession::new();
+
+        // No pending commands should be complete
+        assert!(session.is_complete(0));
+        assert!(session.is_complete(1));
+
+        // Assign a socket
+        session.assign_socket(None).unwrap();
+        assert!(!session.is_complete(0));
+        assert!(session.is_complete(1)); // Socket 1 not assigned
+
+        // Release socket 0
+        session.release_socket(0);
+        assert!(session.is_complete(0));
+    }
+
+    #[test]
+    fn test_get_pending_sockets() {
+        let mut session = ViscaSession::new();
+
+        // Initially no pending sockets
+        assert_eq!(session.get_pending_sockets(), vec![]);
+
+        // Assign socket 0
+        session.assign_socket(None).unwrap();
+        assert_eq!(session.get_pending_sockets(), vec![0]);
+
+        // Assign socket 1
+        session.assign_socket(None).unwrap();
+        let mut pending = session.get_pending_sockets();
+        pending.sort();
+        assert_eq!(pending, vec![0, 1]);
+
+        // Release socket 0
+        session.release_socket(0);
+        assert_eq!(session.get_pending_sockets(), vec![1]);
+    }
+
+    #[test]
+    fn test_response_for_unknown_socket() {
+        let mut session = ViscaSession::new();
+
+        // Process response for a socket that was never assigned
+        let response = vec![0x90, 0x50, 0xFF]; // Completion for socket 0
+        let result = session.process_response(&response).unwrap();
+
+        // Should return None since socket 0 was never assigned
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_inquiry_response_processing() {
+        let mut session = ViscaSession::new();
+
+        // Assign socket with inquiry response type
+        session
+            .assign_socket(Some(ViscaResponseType::ZoomPosition))
+            .unwrap();
+
+        // Process inquiry response
+        let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x04, 0xFF];
+        let result = session.process_response(&response).unwrap();
+
+        assert!(result.is_some());
+        let (socket_id, response) = result.unwrap();
+        assert_eq!(socket_id, 0);
+
+        if let ViscaResponse::InquiryResponse(inquiry) = response {
+            assert!(matches!(
+                inquiry,
+                crate::command::ViscaInquiryResponse::ZoomPosition { .. }
+            ));
+        } else {
+            panic!("Expected inquiry response");
+        }
+    }
+
+    #[test]
+    fn test_invalid_response_format() {
+        let mut session = ViscaSession::new();
+        session.assign_socket(None).unwrap();
+
+        // Invalid response (doesn't start with 0x90)
+        let invalid_response = vec![0x80, 0x50, 0xFF];
+        let result = session.process_response(&invalid_response);
+
+        assert!(matches!(result, Err(ViscaError::InvalidResponseFormat)));
+
+        // Empty response
+        let empty_response = vec![];
+        let result = session.process_response(&empty_response);
+
+        assert!(matches!(result, Err(ViscaError::InvalidResponseFormat)));
     }
 }

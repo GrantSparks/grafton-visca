@@ -2,7 +2,7 @@ use grafton_visca::command::gain::AntiFlickerMode;
 use grafton_visca::command::response::{parse_visca_response, ViscaResponse};
 use grafton_visca::command::{AFSensitivity, FocusZone, SharpnessMode};
 use grafton_visca::command::{ViscaInquiryResponse, ViscaResponseType};
-use grafton_visca::{ViscaError, ViscaTransport};
+use grafton_visca::ViscaError;
 
 #[cfg(test)]
 mod response_parsing_tests {
@@ -695,44 +695,7 @@ mod response_parsing_tests {
 
 #[cfg(test)]
 mod transport_response_parsing_tests {
-    use super::*;
 
-    // Mock transport for testing
-    struct MockTransport {
-        responses: Vec<Vec<u8>>,
-        current_index: usize,
-    }
-
-    impl MockTransport {
-        fn new(responses: Vec<Vec<u8>>) -> Self {
-            Self {
-                responses,
-                current_index: 0,
-            }
-        }
-    }
-
-    impl ViscaTransport for MockTransport {
-        fn send_command(
-            &mut self,
-            _command: &dyn grafton_visca::ViscaCommand,
-        ) -> Result<(), ViscaError> {
-            Ok(())
-        }
-
-        fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
-            if self.current_index < self.responses.len() {
-                let response = vec![self.responses[self.current_index].clone()];
-                self.current_index += 1;
-                Ok(response)
-            } else {
-                Err(ViscaError::Io(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "No more responses",
-                )))
-            }
-        }
-    }
 
     #[test]
     fn test_multiple_responses_in_buffer() {

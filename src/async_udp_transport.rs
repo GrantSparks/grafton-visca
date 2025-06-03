@@ -1,9 +1,7 @@
-use crate::{async_transport::AsyncViscaTransport, parse_response, ViscaCommand, ViscaError};
+use crate::{async_transport::{AsyncViscaTransport, TransportFuture}, parse_response, ViscaCommand, ViscaError};
+use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::future::Future;
 
 /// Async UDP transport for VISCA over IP communication.
 #[cfg(feature = "async")]
@@ -18,9 +16,10 @@ pub struct AsyncUdpTransport {
 impl AsyncUdpTransport {
     /// Create a new async UDP transport.
     pub async fn new(camera_addr: SocketAddr) -> Result<Self, ViscaError> {
-        let socket = UdpSocket::bind("0.0.0.0:0").await
-            .map_err(|e| ViscaError::Io(e))?;
-        
+        let socket = UdpSocket::bind("0.0.0.0:0")
+            .await
+            .map_err(ViscaError::Io)?;
+
         Ok(Self {
             socket,
             camera_addr,
@@ -28,7 +27,7 @@ impl AsyncUdpTransport {
             timeout_duration: Duration::from_secs(10),
         })
     }
-    
+
     /// Set the timeout duration for receive operations.
     pub fn set_timeout(&mut self, duration: Duration) {
         self.timeout_duration = duration;
@@ -37,35 +36,44 @@ impl AsyncUdpTransport {
 
 #[cfg(feature = "async")]
 impl AsyncViscaTransport for AsyncUdpTransport {
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) 
-        -> Pin<Box<dyn Future<Output = Result<(), ViscaError>> + Send + 'a>> 
-    {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn ViscaCommand,
+    ) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
-            
+
             log::debug!("Sending command: {:02X?}", bytes);
-            
-            self.socket.send_to(&bytes, self.camera_addr).await
-                .map_err(|e| ViscaError::Io(e))?;
-            
+
+            self.socket
+                .send_to(&bytes, self.camera_addr)
+                .await
+                .map_err(ViscaError::Io)?;
+
             Ok(())
         })
     }
-    
-    fn receive_response<'a>(&'a mut self) 
-        -> Pin<Box<dyn Future<Output = Result<Vec<Vec<u8>>, ViscaError>> + Send + 'a>> 
-    {
+
+    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
         Box::pin(async move {
-            match timeout(self.timeout_duration, self.socket.recv_from(&mut self.buffer)).await {
+            match timeout(
+                self.timeout_duration,
+                self.socket.recv_from(&mut self.buffer),
+            )
+            .await
+            {
                 Ok(Ok((len, _addr))) => {
                     let received_data = &self.buffer[..len];
                     log::debug!("Received data: {:02X?}", received_data);
-                    
+
                     match parse_response(received_data) {
                         Ok(responses) => Ok(responses),
                         Err(e) => {
                             log::error!("Failed to parse response: {:?}", e);
-                            Err(ViscaError::ParseError(format!("Failed to parse response: {:?}", e)))
+                            Err(ViscaError::ParseError(format!(
+                                "Failed to parse response: {:?}",
+                                e
+                            )))
                         }
                     }
                 }
