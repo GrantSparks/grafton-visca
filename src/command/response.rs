@@ -3,15 +3,27 @@ use log::error;
 use super::{ExposureMode, ViscaInquiryResponse, WhiteBalanceMode};
 use crate::error::ViscaError;
 
+/// Response from a VISCA command.
+///
+/// Represents all possible responses from the camera including acknowledgments,
+/// completions, errors, and inquiry data.
 #[derive(Debug)]
 pub enum ViscaResponse {
+    /// Acknowledgment that the command was received and is being processed
     Ack,
+    /// Command completed successfully (no data returned)
     Completion,
+    /// Command failed with an error
     Error(ViscaError),
+    /// Inquiry command response containing requested data
     InquiryResponse(ViscaInquiryResponse),
+    /// Unknown response format (raw bytes provided for debugging)
     Unknown(Vec<u8>),
 }
 
+/// Type of expected response for inquiry commands.
+///
+/// Used to indicate what kind of data parser should expect in the response payload.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ViscaResponseType {
     PanTiltPosition,
@@ -21,17 +33,21 @@ pub enum ViscaResponseType {
     WhiteBalanceMode,
     Luminance,
     Contrast,
+    Sharpness,
     SharpnessMode,
     SharpnessPosition,
     HorizontalFlip,
     VerticalFlip,
     ImageFlip,
     BlackWhiteMode,
+    ExposureCompensation,
     ExposureCompensationMode,
     ExposureCompensationPosition,
     Backlight,
     Iris,
     Shutter,
+    Bright,
+    Gain,
     GainLimit,
     AntiFlicker,
     RedTuning,
@@ -59,6 +75,12 @@ pub enum ViscaResponseType {
     BlockImage,
     ZoomWideStandard,
     ZoomTeleStandard,
+    NoiseReduction2D,
+    NoiseReduction3D,
+    BlackWhite,
+    AFSensitivity,
+    FocusNearLimit,
+    DynamicRange,
 }
 
 pub fn parse_visca_response(
@@ -142,6 +164,245 @@ pub fn parse_visca_response(
                         .map_err(|_| ViscaError::UnexpectedResponseType)?;
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::WhiteBalance { mode },
+                    ))
+                }
+                // New inquiry response parsers
+                ViscaResponseType::Sharpness => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let value = (response[4] << 4) | response[5];
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::Sharpness { value },
+                    ))
+                }
+                ViscaResponseType::ExposureCompensation => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let raw_value = response[5];
+                    let value = (raw_value as i8) - 7; // Convert 0x0..0xE to -7..+7
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::ExposureCompensation { value },
+                    ))
+                }
+                ViscaResponseType::ExposureCompensationMode => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let on = response[2] == 0x02;
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::ExposureCompensationMode { on },
+                    ))
+                }
+                ViscaResponseType::Iris => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let position = response[5];
+                    Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Iris {
+                        position,
+                    }))
+                }
+                ViscaResponseType::Shutter => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let position = ((response[4] as u16) << 4) | (response[5] as u16);
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::Shutter { position },
+                    ))
+                }
+                ViscaResponseType::Bright => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let position = ((response[4] as u16) << 4) | (response[5] as u16);
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::Bright { position },
+                    ))
+                }
+                ViscaResponseType::Gain => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let gain = (response[4] << 4) | response[5];
+                    Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Gain {
+                        gain,
+                    }))
+                }
+                ViscaResponseType::GainLimit => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let limit = response[2];
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::GainLimit { limit },
+                    ))
+                }
+                ViscaResponseType::AntiFlicker => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    use crate::command::gain::AntiFlickerMode;
+                    let mode = match response[2] {
+                        0x00 => AntiFlickerMode::Off,
+                        0x01 => AntiFlickerMode::Hz50,
+                        0x02 => AntiFlickerMode::Hz60,
+                        _ => return Err(ViscaError::UnexpectedResponseType),
+                    };
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::AntiFlicker { mode },
+                    ))
+                }
+                ViscaResponseType::Saturation => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let level = response[5];
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::Saturation { level },
+                    ))
+                }
+                ViscaResponseType::Hue => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let hue = response[5];
+                    Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Hue {
+                        hue,
+                    }))
+                }
+                ViscaResponseType::RedGain => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let gain = (response[2] as i8) - 10; // Convert 0x00..0x14 to -10..+10
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::RedGain { gain },
+                    ))
+                }
+                ViscaResponseType::BlueGain => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let gain = (response[2] as i8) - 10; // Convert 0x00..0x14 to -10..+10
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::BlueGain { gain },
+                    ))
+                }
+                ViscaResponseType::ImageFlip => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let vertical = (response[2] & 0x02) != 0;
+                    let horizontal = (response[2] & 0x01) != 0;
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::ImageFlip {
+                            vertical,
+                            horizontal,
+                        },
+                    ))
+                }
+                ViscaResponseType::SharpnessMode => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    use super::SharpnessMode;
+                    let mode = match response[2] {
+                        0x02 => SharpnessMode::Auto,
+                        0x03 => SharpnessMode::Manual,
+                        _ => return Err(ViscaError::UnexpectedResponseType),
+                    };
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::SharpnessMode { mode },
+                    ))
+                }
+                ViscaResponseType::ColorTemperature => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let temperature = ((response[4] as u16) << 4) | (response[5] as u16);
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::ColorTemperature { temperature },
+                    ))
+                }
+                ViscaResponseType::NoiseReduction2D => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let level = response[2];
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::NoiseReduction2D { level },
+                    ))
+                }
+                ViscaResponseType::NoiseReduction3D => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let level = response[2];
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::NoiseReduction3D { level },
+                    ))
+                }
+                ViscaResponseType::BlackWhite => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let on = response[2] == 0x04;
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::BlackWhite { on },
+                    ))
+                }
+                ViscaResponseType::FocusZone => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    use super::FocusZone;
+                    let zone = match response[2] {
+                        0x00 => FocusZone::Top,
+                        0x01 => FocusZone::Center,
+                        0x02 => FocusZone::Bottom,
+                        _ => return Err(ViscaError::UnexpectedResponseType),
+                    };
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::FocusZone { zone },
+                    ))
+                }
+                ViscaResponseType::AFSensitivity => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    use super::AFSensitivity;
+                    let sensitivity = match response[2] {
+                        0x02 => AFSensitivity::High,
+                        0x01 => AFSensitivity::Normal,
+                        0x00 => AFSensitivity::Low,
+                        _ => return Err(ViscaError::UnexpectedResponseType),
+                    };
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::AFSensitivity { sensitivity },
+                    ))
+                }
+                ViscaResponseType::FocusNearLimit => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let mut position = (response[2] as u16) << 12;
+                    position |= (response[3] as u16) << 8;
+                    position |= (response[4] as u16) << 4;
+                    position |= response[5] as u16;
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::FocusNearLimit { position },
+                    ))
+                }
+                ViscaResponseType::DynamicRange => {
+                    if response.len() != 7 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let level = response[5];
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::DynamicRange { level },
                     ))
                 }
                 _ => Ok(ViscaResponse::Completion),
