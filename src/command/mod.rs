@@ -13,14 +13,28 @@ pub mod response;
 pub mod white_balance;
 pub mod zoom;
 
-pub use color::{BlueTuningCommand, HueCommand, OnePushTriggerCommand, RedTuningCommand, SaturationCommand, ColorTemperatureCommand, RedGainCommand, BlueGainCommand};
-pub use exposure::{BrightCommand, DynamicRangeCommand, ExposureCommand, ExposureCompensationCommand, ExposureMode, IrisCommand, ShutterCommand};
+pub use color::{
+    BlueGainCommand, BlueTuningCommand, ColorTemperatureCommand, HueCommand, OnePushTriggerCommand,
+    RedGainCommand, RedTuningCommand, SaturationCommand,
+};
+pub use exposure::{
+    BrightCommand, DynamicRangeCommand, ExposureCommand, ExposureCompensationCommand, ExposureMode,
+    IrisCommand, ShutterCommand,
+};
 pub use flip::ImageFlipCommand;
-pub use focus::{FocusCommand, FocusZoneCommand, FocusZone, AFSensitivityCommand, AFSensitivity, FocusNearLimitCommand};
+pub use focus::{
+    AFSensitivity, AFSensitivityCommand, FocusCommand, FocusNearLimitCommand, FocusZone,
+    FocusZoneCommand,
+};
 pub use gain::{AntiFlickerCommand, AntiFlickerMode, GainCommand, GainLimitCommand};
-pub use image::{BacklightCommand, NoiseReduction2DCommand, NoiseReduction3DCommand, BlackWhiteCommand, ImageFlipCombinedCommand, ImageFlipMode};
+pub use image::{
+    BacklightCommand, BlackWhiteCommand, ImageFlipCombinedCommand, ImageFlipMode,
+    NoiseReduction2DCommand, NoiseReduction3DCommand,
+};
 pub use inquiry::InquiryCommand;
-pub use luminance_contrast_sharpness::{ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode};
+pub use luminance_contrast_sharpness::{
+    ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode,
+};
 pub use pan_tilt::{LimitCorner, PanTiltCommand, PanTiltLimitCommand};
 pub use power::PowerCommand;
 pub use preset::PresetCommand;

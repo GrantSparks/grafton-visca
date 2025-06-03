@@ -188,9 +188,9 @@ pub fn parse_visca_response(
                         return Err(ViscaError::InvalidResponseLength);
                     }
                     let position = response[5];
-                    Ok(ViscaResponse::InquiryResponse(
-                        ViscaInquiryResponse::Iris { position },
-                    ))
+                    Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Iris {
+                        position,
+                    }))
                 }
                 ViscaResponseType::Shutter => {
                     if response.len() != 7 {
@@ -215,9 +215,9 @@ pub fn parse_visca_response(
                         return Err(ViscaError::InvalidResponseLength);
                     }
                     let gain = (response[4] << 4) | response[5];
-                    Ok(ViscaResponse::InquiryResponse(
-                        ViscaInquiryResponse::Gain { gain },
-                    ))
+                    Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Gain {
+                        gain,
+                    }))
                 }
                 ViscaResponseType::GainLimit => {
                     if response.len() != 4 {
@@ -257,9 +257,9 @@ pub fn parse_visca_response(
                         return Err(ViscaError::InvalidResponseLength);
                     }
                     let hue = response[5];
-                    Ok(ViscaResponse::InquiryResponse(
-                        ViscaInquiryResponse::Hue { hue },
-                    ))
+                    Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Hue {
+                        hue,
+                    }))
                 }
                 ViscaResponseType::RedGain => {
                     if response.len() != 4 {
@@ -286,7 +286,10 @@ pub fn parse_visca_response(
                     let vertical = (response[2] & 0x02) != 0;
                     let horizontal = (response[2] & 0x01) != 0;
                     Ok(ViscaResponse::InquiryResponse(
-                        ViscaInquiryResponse::ImageFlip { vertical, horizontal },
+                        ViscaInquiryResponse::ImageFlip {
+                            vertical,
+                            horizontal,
+                        },
                     ))
                 }
                 ViscaResponseType::SharpnessMode => {

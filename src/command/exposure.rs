@@ -55,7 +55,7 @@ impl TryFrom<u8> for ExposureMode {
 ///
 /// // Enable exposure compensation
 /// let enable = ExposureCompensationCommand::On;
-/// 
+///
 /// // Set exposure compensation to +3
 /// let set_value = ExposureCompensationCommand::Direct(3);
 /// ```
@@ -114,9 +114,7 @@ impl ViscaCommand for DynamicRangeCommand {
                         "Dynamic range level must be between 0 and 8".into(),
                     ));
                 }
-                Ok(vec![
-                    0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, *level, 0xFF,
-                ])
+                Ok(vec![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, *level, 0xFF])
             }
         }
     }

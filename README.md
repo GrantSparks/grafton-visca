@@ -6,6 +6,12 @@ This library provides comprehensive support for PTZOptics G2 VISCA over IP comma
 
 Make sure to check out our blog article introducing this library: [Controlling PTZ Cameras with Rust](https://blog.grafton.ai/using-the-grafton-visca-rust-crate-to-control-ptz-cameras-7545f3b4a5e4)
 
+## Recent Improvements (v0.2.2)
+
+- **Correct ACK/Completion Handling:** The library now properly distinguishes between ACK (acknowledgment) and Completion responses from the camera, implementing a robust state machine that tracks command execution through its full lifecycle.
+- **Socket Management:** Proper handling of VISCA's two-socket limitation, preventing command buffer full errors through internal state tracking.
+- **Error Response Classification:** All VISCA error responses (Syntax Error, Command Buffer Full, Command Not Executable, etc.) are now properly parsed and returned as specific error types.
+
 ## Features
 
 ### Supported Commands

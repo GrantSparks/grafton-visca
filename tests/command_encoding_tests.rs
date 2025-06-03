@@ -584,8 +584,10 @@ mod golden_vector_tests {
         };
         assert_eq!(
             abs_pos.to_bytes().unwrap(),
-            vec![0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 
-                 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xFF],
+            vec![
+                0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                0xFF
+            ],
             "Absolute Position should produce correct byte sequence"
         );
 
@@ -600,16 +602,23 @@ mod golden_vector_tests {
         let tilt_bytes = 200u16;
         assert_eq!(
             rel_pos.to_bytes().unwrap(),
-            vec![0x81, 0x01, 0x06, 0x03, 0x08, 0x08,
-                 ((pan_bytes >> 12) & 0x0F) as u8,
-                 ((pan_bytes >> 8) & 0x0F) as u8,
-                 ((pan_bytes >> 4) & 0x0F) as u8,
-                 (pan_bytes & 0x0F) as u8,
-                 ((tilt_bytes >> 12) & 0x0F) as u8,
-                 ((tilt_bytes >> 8) & 0x0F) as u8,
-                 ((tilt_bytes >> 4) & 0x0F) as u8,
-                 (tilt_bytes & 0x0F) as u8,
-                 0xFF],
+            vec![
+                0x81,
+                0x01,
+                0x06,
+                0x03,
+                0x08,
+                0x08,
+                ((pan_bytes >> 12) & 0x0F) as u8,
+                ((pan_bytes >> 8) & 0x0F) as u8,
+                ((pan_bytes >> 4) & 0x0F) as u8,
+                (pan_bytes & 0x0F) as u8,
+                ((tilt_bytes >> 12) & 0x0F) as u8,
+                ((tilt_bytes >> 8) & 0x0F) as u8,
+                ((tilt_bytes >> 4) & 0x0F) as u8,
+                (tilt_bytes & 0x0F) as u8,
+                0xFF
+            ],
             "Relative Position should produce correct byte sequence"
         );
     }
@@ -626,8 +635,10 @@ mod golden_vector_tests {
         };
         assert_eq!(
             limit_set.to_bytes().unwrap(),
-            vec![0x81, 0x01, 0x06, 0x07, 0x00, 0x00,
-                 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0xFF],
+            vec![
+                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00,
+                0xFF
+            ],
             "Pan/Tilt Limit Set should produce correct byte sequence"
         );
 
@@ -637,8 +648,10 @@ mod golden_vector_tests {
         };
         assert_eq!(
             limit_clear.to_bytes().unwrap(),
-            vec![0x81, 0x01, 0x06, 0x07, 0x01, 0x01,
-                 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F, 0xFF],
+            vec![
+                0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
+                0xFF
+            ],
             "Pan/Tilt Limit Clear should produce correct byte sequence"
         );
     }
@@ -840,7 +853,9 @@ mod golden_vector_tests {
     #[test]
     fn test_image_flip_combined() {
         // Image Flip Off
-        let flip_off = ImageFlipCombinedCommand { mode: ImageFlipMode::Off };
+        let flip_off = ImageFlipCombinedCommand {
+            mode: ImageFlipMode::Off,
+        };
         assert_eq!(
             flip_off.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x61, 0x00, 0xFF],
@@ -848,7 +863,9 @@ mod golden_vector_tests {
         );
 
         // Image Flip Both
-        let flip_both = ImageFlipCombinedCommand { mode: ImageFlipMode::Both };
+        let flip_both = ImageFlipCombinedCommand {
+            mode: ImageFlipMode::Both,
+        };
         assert_eq!(
             flip_both.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x61, 0x03, 0xFF],
@@ -859,7 +876,9 @@ mod golden_vector_tests {
     #[test]
     fn test_focus_advanced_commands() {
         // Focus Zone Center
-        let fz_center = FocusZoneCommand { zone: FocusZone::Center };
+        let fz_center = FocusZoneCommand {
+            zone: FocusZone::Center,
+        };
         assert_eq!(
             fz_center.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x3C, 0x01, 0xFF],
@@ -867,7 +886,9 @@ mod golden_vector_tests {
         );
 
         // AF Sensitivity High
-        let af_high = AFSensitivityCommand { sensitivity: AFSensitivity::High };
+        let af_high = AFSensitivityCommand {
+            sensitivity: AFSensitivity::High,
+        };
         assert_eq!(
             af_high.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x58, 0x02, 0xFF],

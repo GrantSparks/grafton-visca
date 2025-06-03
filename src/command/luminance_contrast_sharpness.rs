@@ -91,4 +91,3 @@ impl ViscaCommand for ContrastCommand {
         None
     }
 }
-

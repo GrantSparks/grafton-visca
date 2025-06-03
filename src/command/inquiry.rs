@@ -92,7 +92,9 @@ impl ViscaCommand for InquiryCommand {
             // New response types
             InquiryCommand::Sharpness => Some(ViscaResponseType::Sharpness),
             InquiryCommand::ExposureCompensation => Some(ViscaResponseType::ExposureCompensation),
-            InquiryCommand::ExposureCompensationMode => Some(ViscaResponseType::ExposureCompensationMode),
+            InquiryCommand::ExposureCompensationMode => {
+                Some(ViscaResponseType::ExposureCompensationMode)
+            }
             InquiryCommand::Iris => Some(ViscaResponseType::Iris),
             InquiryCommand::Shutter => Some(ViscaResponseType::Shutter),
             InquiryCommand::Bright => Some(ViscaResponseType::Bright),

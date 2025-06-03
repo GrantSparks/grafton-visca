@@ -18,13 +18,13 @@
 //! ```no_run
 //! use grafton_visca::{UdpTransport, ViscaCommand, ViscaTransport};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
-//! 
+//!
 //! // Connect to camera
 //! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
-//! 
+//!
 //! // Send Pan/Tilt Home command
 //! transport.send_command(&PanTiltCommand::Home).unwrap();
-//! 
+//!
 //! // Zoom in
 //! transport.send_command(&ZoomCommand::TeleStandard).unwrap();
 //! ```
@@ -34,15 +34,15 @@
 //! ```no_run
 //! use grafton_visca::command::*;
 //! use grafton_visca::{UdpTransport, ViscaTransport};
-//! 
+//!
 //! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
-//! 
+//!
 //! // Adjust exposure compensation
 //! transport.send_command(&ExposureCompensationCommand::Direct(3)).unwrap();
-//! 
+//!
 //! // Set iris to F4.0
 //! transport.send_command(&IrisCommand::Direct(0x06)).unwrap();
-//! 
+//!
 //! // Adjust color saturation to 150%
 //! transport.send_command(&SaturationCommand { level: 0x0A }).unwrap();
 //! ```
@@ -62,6 +62,9 @@ pub use command::{
 
 mod error;
 pub use error::{AppError, ViscaError};
+
+mod session;
+pub use session::ViscaSession;
 
 pub trait ViscaTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;
@@ -206,50 +209,79 @@ pub fn send_command_and_wait(
     transport: &mut dyn ViscaTransport,
     command: &dyn ViscaCommand,
 ) -> Result<ViscaResponse, ViscaError> {
+    // Create a session to manage command state
+    let mut session = ViscaSession::new();
+
+    // Assign a socket for this command
+    let socket_id = session.assign_socket(command.response_type())?;
+    debug!("Sending command on socket {}", socket_id);
+
+    // Send the command
     transport.send_command(command)?;
 
+    // Wait for completion
     loop {
         match transport.receive_response() {
             Ok(responses) => {
                 for response in responses {
-                    let parsed_response =
-                        parse_and_handle_response(&response, command.response_type())?;
-                    match parsed_response {
-                        ViscaResponse::Completion | ViscaResponse::InquiryResponse(_) => {
-                            return Ok(parsed_response);
+                    match session.process_response(&response) {
+                        Ok(Some((resp_socket_id, parsed_response))) => {
+                            // Check if this response is for our command
+                            if resp_socket_id == socket_id {
+                                match parsed_response {
+                                    ViscaResponse::Ack => {
+                                        debug!("Command acknowledged on socket {}", socket_id);
+                                        // Continue waiting for completion
+                                    }
+                                    ViscaResponse::Completion => {
+                                        debug!("Command completed on socket {}", socket_id);
+                                        session.release_socket(socket_id);
+                                        return Ok(ViscaResponse::Completion);
+                                    }
+                                    ViscaResponse::InquiryResponse(inquiry) => {
+                                        debug!("Inquiry response received on socket {}", socket_id);
+                                        log_inquiry_response(&inquiry);
+                                        session.release_socket(socket_id);
+                                        return Ok(ViscaResponse::InquiryResponse(inquiry));
+                                    }
+                                    ViscaResponse::Error(err) => {
+                                        error!("Command error on socket {}: {:?}", socket_id, err);
+                                        session.release_socket(socket_id);
+                                        return Err(err);
+                                    }
+                                    _ => {
+                                        debug!(
+                                            "Unexpected response on socket {}: {:?}",
+                                            socket_id, parsed_response
+                                        );
+                                    }
+                                }
+                            } else {
+                                // Response for a different command, log and continue
+                                debug!(
+                                    "Received response for socket {} (not our socket {})",
+                                    resp_socket_id, socket_id
+                                );
+                            }
                         }
-                        _ => continue,
+                        Ok(None) => {
+                            // Response for unknown socket, ignore
+                            debug!("Received response for unknown socket");
+                        }
+                        Err(e) => {
+                            error!("Error processing response: {}", e);
+                            session.release_socket(socket_id);
+                            return Err(e);
+                        }
                     }
                 }
             }
-            Err(e) => return Err(e),
-        }
-    }
-}
-
-fn parse_and_handle_response(
-    response: &[u8],
-    response_type: Option<ViscaResponseType>,
-) -> Result<ViscaResponse, ViscaError> {
-    debug!("Received response: {:02X?}", response);
-
-    if let Some(response_type) = response_type {
-        match parse_visca_response(response, &response_type) {
-            Ok(visca_response) => {
-                if let ViscaResponse::InquiryResponse(inquiry_response) = &visca_response {
-                    log_inquiry_response(inquiry_response);
-                }
-                log_response(&visca_response);
-                Ok(visca_response)
-            }
             Err(e) => {
-                error!("Error processing response: {}", e);
-                Err(e)
+                error!("Transport error: {}", e);
+                session.release_socket(socket_id);
+                return Err(e);
             }
         }
-    } else {
-        error!("No response type provided for response: {:02X?}", response);
-        Err(ViscaError::UnexpectedResponseType)
     }
 }
 
@@ -296,17 +328,5 @@ fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
         _ => {
             debug!("Unhandled inquiry response: {:?}", inquiry_response);
         }
-    }
-}
-
-fn log_response(response: &ViscaResponse) {
-    match response {
-        ViscaResponse::Ack => debug!("ACK received"),
-        ViscaResponse::Completion => debug!("Completion received"),
-        ViscaResponse::Error(err) => error!("Error received: {:?}", err),
-        ViscaResponse::InquiryResponse(inquiry_response) => {
-            debug!("Inquiry response: {:?}", inquiry_response);
-        }
-        _ => (),
     }
 }
