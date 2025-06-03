@@ -12,9 +12,27 @@ keywords = ["ptz", "camera", "visca", "video"]
 exclude = ["target/", ".gitignore", ".github/", ".vscode/"]
 readme = "README.md"
 
+[features]
+default = ["sync"]
+sync = []
+async = ["tokio", "futures"]
+full = ["sync", "async"]
+
 [dependencies]
 log = "0.4.22"
 env_logger = "0.11.5"
 nom = "7.1.3"
 thiserror = "1.0"
+
+# Async dependencies (optional)
+tokio = { version = "1.38", features = ["net", "sync", "time", "rt", "rt-multi-thread", "macros", "io-util"], optional = true }
+futures = { version = "0.3", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.38", features = ["full", "test-util"] }
+tokio-test = "0.4"
+
+[[example]]
+name = "async_concurrent"
+required-features = ["async"]
 

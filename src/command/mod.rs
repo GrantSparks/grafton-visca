@@ -45,7 +45,7 @@ pub use zoom::ZoomCommand;
 
 use crate::ViscaError;
 
-pub trait ViscaCommand {
+pub trait ViscaCommand: Send + Sync {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError>;
     fn response_type(&self) -> Option<ViscaResponseType>;
 }

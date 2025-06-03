@@ -46,6 +46,34 @@
 //! // Adjust color saturation to 150%
 //! transport.send_command(&SaturationCommand { level: 0x0A }).unwrap();
 //! ```
+//! 
+//! ## Async Usage (with `async` feature)
+//! 
+//! The library provides async support for non-blocking camera control:
+//! 
+//! ```no_run
+//! # #[cfg(feature = "async")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! use grafton_visca::{AsyncViscaClient, ViscaResponse};
+//! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
+//! use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
+//! 
+//! // Connect to camera
+//! let camera = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+//! 
+//! // Send multiple commands concurrently
+//! let pan_tilt = camera.send(&PanTiltCommand::Move {
+//!     direction: PanTiltDirection::UpRight,
+//!     pan_speed: PanSpeed::new(0x10)?,
+//!     tilt_speed: TiltSpeed::new(0x10)?,
+//! });
+//! let zoom = camera.send(&ZoomCommand::TeleStandard);
+//! 
+//! // Both commands execute concurrently (respecting the 2-socket limit)
+//! let (pan_result, zoom_result) = tokio::join!(pan_tilt, zoom);
+//! # Ok(())
+//! # }
+//! ```
 
 use log::{debug, error};
 use std::{
@@ -65,6 +93,29 @@ pub use error::{AppError, ViscaError};
 
 mod session;
 pub use session::ViscaSession;
+
+#[cfg(feature = "async")]
+mod async_transport;
+#[cfg(feature = "async")]
+mod async_udp_transport;
+#[cfg(feature = "async")]
+mod async_tcp_transport;
+#[cfg(feature = "async")]
+mod async_client;
+
+#[cfg(feature = "async")]
+pub use async_transport::AsyncViscaTransport;
+#[cfg(feature = "async")]
+pub use async_udp_transport::AsyncUdpTransport;
+#[cfg(feature = "async")]
+pub use async_tcp_transport::AsyncTcpTransport;
+#[cfg(feature = "async")]
+pub use async_client::AsyncViscaClient;
+
+#[cfg(all(feature = "sync", feature = "async"))]
+mod sync_wrapper;
+#[cfg(all(feature = "sync", feature = "async"))]
+pub use sync_wrapper::{ViscaClient, send_command_and_wait_compat};
 
 pub trait ViscaTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;

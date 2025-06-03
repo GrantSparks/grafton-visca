@@ -41,6 +41,9 @@ pub enum ViscaError {
 
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
+    
+    #[error("Operation timed out")]
+    Timeout,
 }
 
 impl ViscaError {

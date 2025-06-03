@@ -6,8 +6,16 @@ This library provides comprehensive support for PTZOptics G2 VISCA over IP comma
 
 Make sure to check out our blog article introducing this library: [Controlling PTZ Cameras with Rust](https://blog.grafton.ai/using-the-grafton-visca-rust-crate-to-control-ptz-cameras-7545f3b4a5e4)
 
-## Recent Improvements (v0.2.2)
+## Recent Improvements
 
+### v0.3.0 (Sprint 3 - Async Support)
+- **Async/Await Support:** Added full async support with `AsyncViscaClient` for non-blocking camera control
+- **Concurrent Command Execution:** Send up to 2 commands simultaneously with automatic socket management
+- **Background Response Handling:** Responses are processed in a background task for optimal performance
+- **Thread-Safe Design:** The async client can be cloned and shared safely across tasks
+- **Backward Compatibility:** Sync API remains unchanged; async is opt-in via the `async` feature flag
+
+### v0.2.2 (Sprint 2)
 - **Correct ACK/Completion Handling:** The library now properly distinguishes between ACK (acknowledgment) and Completion responses from the camera, implementing a robust state machine that tracks command execution through its full lifecycle.
 - **Socket Management:** Proper handling of VISCA's two-socket limitation, preventing command buffer full errors through internal state tracking.
 - **Error Response Classification:** All VISCA error responses (Syntax Error, Command Buffer Full, Command Not Executable, etc.) are now properly parsed and returned as specific error types.
@@ -89,6 +97,11 @@ All set commands have corresponding inquiry commands to read current values:
 ### Transport Support
 - ✅ UDP Transport
 - ✅ TCP Transport
+- ✅ Async Support (with `async` feature)
+  - Non-blocking I/O using Tokio
+  - Concurrent command execution (respecting VISCA's 2-socket limit)
+  - Background response handling
+  - Thread-safe client (can be cloned and shared across tasks)
 
 ## Installation
 
@@ -96,6 +109,12 @@ Add the following to `Cargo.toml` under `[dependencies]`:
 
 ```toml
 grafton-visca = "0.2"
+
+# For async support
+grafton-visca = { version = "0.2", features = ["async"] }
+
+# For both sync and async
+grafton-visca = { version = "0.2", features = ["full"] }
 ```
 
 ## Usage Examples
@@ -225,6 +244,72 @@ let response = send_command_and_wait(&mut camera, &InquiryCommand::ExposureMode)
 if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) = response {
     println!("Exposure mode: {:?}", mode);
 }
+```
+
+### Async Usage (with `async` feature)
+
+The library supports asynchronous operation for non-blocking camera control:
+
+```rust
+use grafton_visca::{AsyncViscaClient, ViscaResponse};
+use grafton_visca::command::*;
+use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Connect to camera asynchronously
+    let camera = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+    
+    // Send multiple commands concurrently
+    let pan_tilt = camera.send(&PanTiltCommand::Move {
+        direction: PanTiltDirection::UpRight,
+        pan_speed: PanSpeed::new(0x10)?,
+        tilt_speed: TiltSpeed::new(0x10)?,
+    });
+    let zoom = camera.send(&ZoomCommand::TeleStandard);
+    
+    // Both commands execute concurrently (respecting the 2-socket limit)
+    let (pan_result, zoom_result) = tokio::join!(pan_tilt, zoom);
+    
+    println!("Pan/Tilt: {:?}, Zoom: {:?}", pan_result?, zoom_result?);
+    
+    Ok(())
+}
+```
+
+#### Concurrent Commands with Socket Limiting
+
+The async client automatically manages the VISCA two-socket limitation:
+
+```rust
+// Send three commands - the third will wait for a socket to become available
+let cmd1 = camera.send(&PresetCommand { preset: Preset::Set { preset_number: 1 } });
+let cmd2 = camera.send(&FocusCommand { focus: Focus::Near });
+let cmd3 = camera.send(&ZoomCommand::WideStandard);
+
+// The first two commands will execute immediately,
+// the third will wait until one of them completes
+let results = tokio::join!(cmd1, cmd2, cmd3);
+```
+
+#### Clone and Share Across Tasks
+
+The async client is thread-safe and can be cloned:
+
+```rust
+let camera_clone = camera.clone();
+
+// Use in multiple tasks
+let task1 = tokio::spawn(async move {
+    camera_clone.send(&PowerCommand { power: Power::On }).await
+});
+
+let camera_clone2 = camera.clone();
+let task2 = tokio::spawn(async move {
+    camera_clone2.send(&InquiryCommand::ZoomPosition).await
+});
+
+let (res1, res2) = tokio::join!(task1, task2);
 ```
 
 ## Contributing
