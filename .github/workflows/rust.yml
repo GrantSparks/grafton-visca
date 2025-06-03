@@ -2,76 +2,191 @@ name: Rust CI/CD
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "feature/*"]
     tags: ["*"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  RUST_BACKTRACE: 1
+  CACHE_VERSION: v1
 
 jobs:
-  test:
-    name: Test
-    runs-on: windows-latest
+  # Quick format check (no dependencies needed)
+  format:
+    name: Format Check
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: stable
+          components: rustfmt
+      - run: cargo fmt --all -- --check
 
+  # Test on multiple platforms and Rust versions
+  test:
+    name: Test (${{ matrix.os }} / ${{ matrix.rust }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, beta]
+        include:
+          # Add MSRV testing on Linux only
+          - os: ubuntu-latest
+            rust: "1.75.0"  # Minimum supported Rust version
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      
       - uses: Swatinem/rust-cache@v2
-
-      - name: Run tests
+        with:
+          # Use a shared cache key per OS to optimize storage
+          shared-key: "rust-cache-${{ matrix.os }}-${{ matrix.rust }}"
+          # Only save cache on main branch to avoid cache thrashing
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      
+      # Test default features
+      - name: Test default features
         run: cargo test --verbose
         env:
           TMPDIR: ${{ runner.temp }}
+      
+      # Test no default features
+      - name: Test no-default-features
+        run: cargo test --no-default-features --verbose
+      
+      # Test all features
+      - name: Test all-features
+        run: cargo test --all-features --verbose
+      
+      # Test individual features
+      - name: Test sync feature only
+        run: cargo test --no-default-features --features sync --verbose
+      
+      - name: Test async feature only
+        run: cargo test --no-default-features --features async --verbose
+      
+      # Build examples (only on stable)
+      - name: Build examples
+        if: matrix.rust == 'stable'
+        run: |
+          cargo build --example hello_visca
+          cargo build --example demo
+          cargo build --example async_concurrent --features async
 
-  format:
-    name: Format
-    runs-on: windows-latest
+  # Combined lint and doc check
+  lint-and-docs:
+    name: Lint & Docs
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-  lint:
-    name: Lint
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-ubuntu-latest-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      
+      # Run Clippy on all feature combinations
+      - name: Clippy (default features)
+        run: cargo clippy --all-targets -- -D warnings
+      
+      - name: Clippy (all features)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      
+      - name: Clippy (no default features)
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
+      
+      # Check documentation
+      - name: Check documentation
+        run: |
+          cargo doc --no-deps --all-features
+          cargo doc --document-private-items --no-deps --all-features
+      
+      # Check for broken doc links
+      - name: Check doc links
+        run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
 
-      - name: Run Clippy
-        run: cargo clippy -- -D warnings
-
-  publish:
-    name: Publish
-    needs: [test, format, lint]
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: windows-latest
+  # Semver compatibility check
+  semver:
+    name: Check semver
+    runs-on: ubuntu-latest
+    # Only run on PRs to avoid checking on the initial commit
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-ubuntu-latest-stable"
+          save-if: false  # Don't save cache in semver job
+      
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
 
+  # Check package metadata and dependencies
+  package-check:
+    name: Package Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-ubuntu-latest-stable"
+          save-if: false
+      
+      # Verify the package can be built for publishing
+      - name: Check package
+        run: cargo package --no-verify
+      
+      # Check for security vulnerabilities
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      
+      - name: Security audit
+        run: cargo audit
+
+  # Publish job
+  publish:
+    name: Publish
+    needs: [format, test, lint-and-docs, package-check]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-ubuntu-latest-stable"
+          save-if: false  # Don't save cache in publish job
+      
+      # Dry run first to catch any issues
+      - name: Publish dry run
+        run: cargo publish --dry-run
+      
       - name: Publish to crates.io
         run: cargo publish
         env:

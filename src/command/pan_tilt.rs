@@ -1,8 +1,34 @@
+//! Pan/Tilt control commands for VISCA cameras.
+//!
+//! This module provides commands for controlling camera pan (horizontal) and tilt (vertical)
+//! movement, including directional movement, absolute positioning, and relative positioning.
+//!
+//! # Speed Limits
+//! - Pan speed: 0x00 to 0x18 (0-24 decimal)
+//! - Tilt speed: 0x00 to 0x14 (0-20 decimal)
+//!
+//! # Example
+//! ```no_run
+//! # use grafton_visca::command::pan_tilt::{PanTiltCommand, PanTiltDirection, PanSpeed, TiltSpeed};
+//! # use grafton_visca::{UdpTransport, ViscaTransport};
+//! # let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//! // Move camera diagonally up-right
+//! let command = PanTiltCommand::Move {
+//!     direction: PanTiltDirection::UpRight,
+//!     pan_speed: PanSpeed::new(0x10).unwrap(),
+//!     tilt_speed: TiltSpeed::new(0x10).unwrap(),
+//! };
+//! transport.send_command(&command).unwrap();
+//! ```
+
 use super::ViscaResponseType;
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
 use std::convert::TryFrom;
 
+/// Direction for pan/tilt movement commands.
+///
+/// Represents the 8 directional movements plus stop.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PanTiltDirection {
     Up,
@@ -32,10 +58,21 @@ impl PanTiltDirection {
     }
 }
 
+/// Pan/Tilt movement commands.
+///
+/// Provides various ways to control camera pan and tilt:
+/// - `Home` - Return to home position
+/// - `Reset` - Reset pan/tilt mechanism
+/// - `Move` - Directional movement with speed control
+/// - `AbsolutePosition` - Move to exact coordinates
+/// - `RelativePosition` - Move relative to current position
 #[derive(Debug)]
 pub enum PanTiltCommand {
+    /// Return camera to home position.
     Home,
+    /// Reset pan/tilt mechanism.
     Reset,
+    /// Move camera in specified direction with given speeds.
     Move {
         direction: PanTiltDirection,
         pan_speed: PanSpeed,
@@ -358,12 +395,21 @@ fn position_to_bytes(position: i16) -> [u8; 4] {
     ]
 }
 
+/// Pan (horizontal) movement speed.
+///
+/// Valid range: 0x00 to 0x18 (0-24 decimal).
+/// Higher values result in faster movement.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PanSpeed(u8);
 
 impl PanSpeed {
-    pub const MAX: u8 = 0x18; // Maximum pan speed
+    /// Maximum allowed pan speed (0x18 = 24 decimal).
+    pub const MAX: u8 = 0x18;
 
+    /// Creates a new PanSpeed with validation.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if value > 0x18.
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
             Ok(PanSpeed(value))
@@ -390,12 +436,21 @@ impl From<PanSpeed> for u8 {
     }
 }
 
+/// Tilt (vertical) movement speed.
+///
+/// Valid range: 0x00 to 0x14 (0-20 decimal).
+/// Higher values result in faster movement.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TiltSpeed(u8);
 
 impl TiltSpeed {
-    pub const MAX: u8 = 0x14; // Maximum tilt speed
+    /// Maximum allowed tilt speed (0x14 = 20 decimal).
+    pub const MAX: u8 = 0x14;
 
+    /// Creates a new TiltSpeed with validation.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if value > 0x14.
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
             Ok(TiltSpeed(value))
@@ -422,12 +477,19 @@ impl From<TiltSpeed> for u8 {
     }
 }
 
+/// Corner position for pan/tilt limits.
+///
+/// Used to define the movement boundaries of the camera.
 #[derive(Debug, Copy, Clone)]
 pub enum LimitCorner {
     DownLeft = 0,
     UpRight = 1,
 }
 
+/// Pan/Tilt limit commands.
+///
+/// Used to set or clear movement boundaries for the camera.
+/// This prevents the camera from moving beyond specified positions.
 #[derive(Debug)]
 pub enum PanTiltLimitCommand {
     Set {

@@ -1,8 +1,16 @@
+//! Focus control commands for VISCA cameras.
+//!
+//! This module provides commands for controlling camera focus functionality,
+//! including auto/manual modes, directional focus, and direct position control.
+
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
 
 use super::ViscaResponseType;
 
+/// Focus control commands.
+///
+/// Provides various ways to control camera focus.
 #[derive(Debug)]
 pub enum FocusCommand {
     Stop,

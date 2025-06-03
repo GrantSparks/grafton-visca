@@ -327,9 +327,15 @@ let task2 = tokio::spawn(async move {
 let (res1, res2) = tokio::join!(task1, task2);
 ```
 
+## Documentation
+
+- [User Guide](docs/USER_GUIDE.md) - Comprehensive guide for using the library
+- [API Documentation](https://docs.rs/grafton-visca) - Full API reference
+- [Contributing Guide](CONTRIBUTING.md) - How to contribute to the project
+
 ## Contributing
 
-Contributions are welcome! Please submit a pull request or open an issue to discuss what you would like to change.
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
 ## About
 

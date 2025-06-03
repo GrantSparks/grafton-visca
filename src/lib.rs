@@ -1,17 +1,42 @@
 //! # grafton-visca
 //!
-//! A Rust library for controlling PTZ cameras using the VISCA over IP protocol.
+//! A production-ready Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
+//!
+//! ## What is VISCA?
+//!
+//! VISCA (Video System Control Architecture) is a protocol developed by Sony for controlling PTZ cameras
+//! commonly used in robotics, broadcasting, video conferencing, and surveillance applications. This crate
+//! implements VISCA over IP, allowing you to control networked PTZ cameras from Rust applications.
 //!
 //! ## Features
 //!
-//! - Full support for PTZOptics G2 VISCA commands
+//! - **Complete Command Coverage**: Full support for PTZOptics G2 VISCA commands
+//! - **Robust Protocol Handling**: Proper ACK/Completion state machine with socket management
+//! - **Multiple Transports**: Both UDP (port 1259 default) and TCP (port 5678 default) support
+//! - **Async Support**: Modern async/await API with Tokio (enable with `async` feature)
+//! - **Thread Safety**: Safe concurrent access from multiple tasks
+//! - **Comprehensive Inquiry**: Query camera state for all supported features
+//! - **Error Handling**: Detailed error types for all VISCA error conditions
+//!
+//! ## Supported Commands
+//!
+//! ### Camera Movement
 //! - Pan/Tilt/Zoom control with absolute and relative positioning
-//! - Exposure control (iris, shutter, gain, brightness)
-//! - Color adjustments (white balance, saturation, hue)
-//! - Focus control with auto/manual modes
-//! - Preset positions
-//! - Command inquiry support
-//! - TCP and UDP transport support
+//! - Variable speed control for smooth movements
+//! - Home position and preset management (up to 90 presets)
+//!
+//! ### Exposure & Color
+//! - Exposure modes: Auto, Manual, Shutter Priority, Iris Priority, Bright
+//! - Iris, shutter speed, gain, and brightness control
+//! - White balance modes including manual color temperature
+//! - Color adjustments: saturation, hue, RGB gain tuning
+//!
+//! ### Image Control
+//! - Focus control with auto/manual modes and zone selection
+//! - Sharpness adjustment with auto/manual modes
+//! - Noise reduction (2D and 3D)
+//! - Image flip (horizontal/vertical)
+//! - Black & white mode
 //!
 //! ## Example Usage
 //!
@@ -75,6 +100,73 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## API Overview
+//!
+//! The crate provides several levels of API for different use cases:
+//!
+//! ### Transport Layer
+//! - [`ViscaTransport`] trait - The core abstraction for sending/receiving commands
+//! - [`UdpTransport`] - UDP transport (default port 1259 for VISCA over IP)
+//! - [`TcpTransport`] - TCP transport (default port 5678 for VISCA over IP)
+//!
+//! ### Command Layer
+//! - [`ViscaCommand`] trait - Implemented by all command types
+//! - Command modules in [`command`] - Organized by functionality
+//! - [`send_command_and_wait`] - Main synchronous API for sending commands
+//!
+//! ### Response Handling
+//! - [`ViscaResponse`] - Enum for all response types (ACK, Completion, Inquiry, Error)
+//! - [`ViscaInquiryResponse`] - Specific inquiry response variants
+//! - [`ViscaError`] - Comprehensive error types for all failure modes
+//!
+//! ### Async Support (with `async` feature)
+//! - [`AsyncViscaClient`] - High-level async client with automatic socket management
+//! - [`AsyncViscaTransport`] trait - Async version of the transport trait
+//!
+//! ## Connection Setup
+//!
+//! Cameras typically listen on standard ports:
+//! - **UDP**: Port 1259 (PTZOptics default for VISCA over IP)
+//! - **TCP**: Port 5678 (Alternative port, check your camera's configuration)
+//!
+//! Ensure your camera is configured for VISCA over IP and note its IP address.
+//!
+//! ## Troubleshooting
+//!
+//! ### Common Errors
+//!
+//! - **CommandBufferFull**: The camera can only process 2 commands simultaneously.
+//!   Solution: Wait for previous commands to complete before sending new ones.
+//!
+//! - **NoSocket**: No command is currently executing in the requested socket.
+//!   This usually indicates a protocol synchronization issue.
+//!
+//! - **CommandNotExecutable**: The command cannot be executed in the current camera state.
+//!   Example: Trying to zoom while the camera is powered off.
+//!
+//! - **SyntaxError**: The command format is incorrect or parameters are out of range.
+//!   Check that speed values and positions are within valid ranges.
+//!
+//! ### Best Practices
+//!
+//! 1. **Connection Management**: Reuse transport instances when possible rather than
+//!    creating new connections for each command.
+//!
+//! 2. **Error Handling**: Always handle errors appropriately - cameras may reject
+//!    commands due to mechanical limits or current state.
+//!
+//! 3. **Timing**: Allow time for mechanical movements to complete. The library handles
+//!    protocol-level completion, but physical movement takes time.
+//!
+//! 4. **Concurrent Commands**: When using async, the library automatically manages
+//!    the 2-socket limitation, but be aware that commands may queue.
+//!
+//! ## Feature Flags
+//!
+//! - `async` - Enables async/await support with Tokio
+//! - `sync` - Enables synchronous API (default)
+//! - `full` - Enables both sync and async APIs
 
 use log::{debug, error};
 use std::{
