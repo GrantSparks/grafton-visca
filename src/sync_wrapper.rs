@@ -61,6 +61,17 @@ impl ViscaClient {
     }
 }
 
+#[cfg(all(feature = "sync", feature = "async"))]
+impl Drop for ViscaClient {
+    fn drop(&mut self) {
+        // The runtime will be dropped automatically, which will:
+        // 1. Wait for all spawned tasks to complete
+        // 2. Drop the async client (triggering its Drop impl)
+        // 3. Clean up all runtime resources
+        log::debug!("Dropping ViscaClient and its runtime");
+    }
+}
+
 /// Helper function to maintain backward compatibility with existing sync API.
 ///
 /// This function provides the same interface as the original `send_command_and_wait`

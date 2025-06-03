@@ -39,6 +39,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinHandle;
+use tokio::sync::oneshot;
 
 /// Async VISCA client for non-blocking camera control.
 ///
@@ -81,8 +82,9 @@ struct AsyncViscaClientInner {
     transport: Arc<Mutex<Box<dyn AsyncViscaTransport>>>,
     session: Arc<Mutex<ViscaSession>>,
     semaphore: Arc<Semaphore>,
-    results: Arc<Mutex<HashMap<u8, Result<ViscaResponse, ViscaError>>>>,
-    _background_task: JoinHandle<()>,
+    pending_commands: Arc<Mutex<HashMap<u8, oneshot::Sender<Result<ViscaResponse, ViscaError>>>>>,
+    background_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    shutdown_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
 }
 
 #[cfg(feature = "async")]
@@ -112,24 +114,28 @@ impl AsyncViscaClient {
         let transport = Arc::new(Mutex::new(transport));
         let session = Arc::new(Mutex::new(ViscaSession::new()));
         let semaphore = Arc::new(Semaphore::new(2)); // VISCA allows max 2 concurrent commands
-        let results = Arc::new(Mutex::new(HashMap::new()));
+        let pending_commands = Arc::new(Mutex::new(HashMap::new()));
+
+        // Create shutdown channel
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         // Clone for background task
         let transport_clone = Arc::clone(&transport);
         let session_clone = Arc::clone(&session);
-        let results_clone = Arc::clone(&results);
+        let pending_commands_clone = Arc::clone(&pending_commands);
 
         // Spawn background response handler
         let background_task = tokio::spawn(async move {
-            Self::response_handler(transport_clone, session_clone, results_clone).await;
+            Self::response_handler(transport_clone, session_clone, pending_commands_clone, shutdown_rx).await;
         });
 
         let inner = Arc::new(AsyncViscaClientInner {
             transport,
             session,
             semaphore,
-            results,
-            _background_task: background_task,
+            pending_commands,
+            background_task: Arc::new(Mutex::new(Some(background_task))),
+            shutdown_tx: Arc::new(Mutex::new(Some(shutdown_tx))),
         });
 
         Ok(Self { inner })
@@ -148,22 +154,52 @@ impl AsyncViscaClient {
         // Get response type
         let response_type = command.response_type();
 
-        // Send command through transport
-        {
-            let mut transport = self.inner.transport.lock().await;
-            transport.send_command(command).await?;
-        }
+        // Create channel for response
+        let (tx, rx) = oneshot::channel();
 
-        // Register command with session and get socket ID
+        // Register command with session and get socket ID BEFORE sending
         let socket_id = {
             let mut session = self.inner.session.lock().await;
-            session.assign_socket(response_type)?
+            let socket_id = session.assign_socket(response_type)?;
+            
+            // Register the response channel
+            let mut pending = self.inner.pending_commands.lock().await;
+            pending.insert(socket_id, tx);
+            
+            socket_id
         };
+
+        // Send command through transport
+        if let Err(e) = async {
+            let mut transport = self.inner.transport.lock().await;
+            transport.send_command(command).await
+        }.await {
+            // Clean up on send error
+            let mut pending = self.inner.pending_commands.lock().await;
+            pending.remove(&socket_id);
+            
+            let mut session = self.inner.session.lock().await;
+            session.release_socket(socket_id);
+            
+            return Err(e);
+        }
 
         log::debug!("Command assigned to socket {}", socket_id);
 
-        // Wait for completion
-        let result = self.wait_for_completion(socket_id).await;
+        // Wait for response with timeout
+        let result = match tokio::time::timeout(Duration::from_secs(30), rx).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) => {
+                // Channel was closed without sending a response
+                Err(ViscaError::Io(std::io::Error::other("Response channel closed")))
+            }
+            Err(_) => {
+                // Timeout - clean up pending command
+                let mut pending = self.inner.pending_commands.lock().await;
+                pending.remove(&socket_id);
+                Err(ViscaError::Timeout)
+            }
+        };
 
         // Release socket
         {
@@ -177,51 +213,31 @@ impl AsyncViscaClient {
         result
     }
 
-    /// Wait for a command to complete.
-    async fn wait_for_completion(&self, socket_id: u8) -> Result<ViscaResponse, ViscaError> {
-        let mut interval = tokio::time::interval(Duration::from_millis(10));
-        let timeout = Duration::from_secs(30);
-        let start = tokio::time::Instant::now();
-
-        loop {
-            interval.tick().await;
-
-            if start.elapsed() > timeout {
-                // Clean up on timeout
-                let mut session = self.inner.session.lock().await;
-                session.release_socket(socket_id);
-                return Err(ViscaError::Timeout);
-            }
-
-            // Check if result is available
-            {
-                let mut results = self.inner.results.lock().await;
-                if let Some(result) = results.remove(&socket_id) {
-                    return result;
-                }
-            }
-
-            // Yield to allow other tasks to run
-            tokio::task::yield_now().await;
-        }
-    }
 
     /// Background task that continuously reads responses from the transport.
     async fn response_handler(
         transport: Arc<Mutex<Box<dyn AsyncViscaTransport>>>,
         session: Arc<Mutex<ViscaSession>>,
-        results: Arc<Mutex<HashMap<u8, Result<ViscaResponse, ViscaError>>>>,
+        pending_commands: Arc<Mutex<HashMap<u8, oneshot::Sender<Result<ViscaResponse, ViscaError>>>>>,
+        mut shutdown_rx: oneshot::Receiver<()>,
     ) {
         let mut consecutive_errors = 0;
 
         loop {
-            let result = {
+            // Check for shutdown signal
+            if shutdown_rx.try_recv().is_ok() {
+                log::debug!("Background task shutting down");
+                break;
+            }
+            // Use timeout to prevent indefinite blocking
+            let result = tokio::time::timeout(Duration::from_millis(100), async {
                 let mut transport = transport.lock().await;
                 transport.receive_response().await
-            };
+            })
+            .await;
 
             match result {
-                Ok(responses) => {
+                Ok(Ok(responses)) => {
                     consecutive_errors = 0;
 
                     if !responses.is_empty() {
@@ -235,39 +251,31 @@ impl AsyncViscaClient {
                                         visca_response
                                     );
 
-                                    // Store result for the waiting command
+                                    // Send result to the waiting command (except for ACK)
                                     match visca_response {
-                                        ViscaResponse::Completion => {
-                                            let mut results = results.lock().await;
-                                            results
-                                                .insert(socket_id, Ok(ViscaResponse::Completion));
-                                        }
-                                        ViscaResponse::Error(e) => {
-                                            let mut results = results.lock().await;
-                                            results.insert(socket_id, Err(e));
-                                        }
-                                        ViscaResponse::InquiryResponse(resp) => {
-                                            let mut results = results.lock().await;
-                                            results.insert(
-                                                socket_id,
-                                                Ok(ViscaResponse::InquiryResponse(resp)),
-                                            );
-                                        }
                                         ViscaResponse::Ack => {
                                             // ACK is handled internally by session, continue waiting
                                             log::debug!("ACK received for socket {}", socket_id);
                                         }
-                                        ViscaResponse::Unknown(data) => {
-                                            log::warn!(
-                                                "Unknown response for socket {}: {:02X?}",
-                                                socket_id,
-                                                data
-                                            );
-                                            let mut results = results.lock().await;
-                                            results.insert(
-                                                socket_id,
-                                                Ok(ViscaResponse::Unknown(data)),
-                                            );
+                                        response => {
+                                            // Get the response channel
+                                            let mut pending = pending_commands.lock().await;
+                                            if let Some(tx) = pending.remove(&socket_id) {
+                                                // Convert response to result
+                                                let result = match response {
+                                                    ViscaResponse::Error(e) => Err(e),
+                                                    other => Ok(other),
+                                                };
+                                                
+                                                // Send response (ignore if receiver dropped)
+                                                let _ = tx.send(result);
+                                            } else {
+                                                log::warn!(
+                                                    "Received response for unknown socket {}: {:?}",
+                                                    socket_id,
+                                                    response
+                                                );
+                                            }
                                         }
                                     }
                                 }
@@ -281,19 +289,38 @@ impl AsyncViscaClient {
                         }
                     }
                 }
-                Err(ViscaError::Timeout) => {
+                Ok(Err(ViscaError::Timeout)) => {
                     // Timeout is normal in async context, continue
                     consecutive_errors = 0;
                     continue;
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     log::error!("Transport error: {:?}", e);
                     consecutive_errors += 1;
 
-                    // If we get too many consecutive errors, slow down
-                    if consecutive_errors > 5 {
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    // Circuit breaker - if too many errors, exit the task
+                    if consecutive_errors > 10 {
+                        log::error!("Too many consecutive transport errors, shutting down background task");
+                        
+                        // Notify all pending commands of the error
+                        let mut pending = pending_commands.lock().await;
+                        for (_socket_id, tx) in pending.drain() {
+                            let _ = tx.send(Err(ViscaError::Io(std::io::Error::other(
+                                "Background task shut down due to repeated errors"
+                            ))));
+                        }
+                        
+                        break;
                     }
+                    
+                    // Progressive backoff
+                    let backoff = Duration::from_millis(100 * consecutive_errors as u64);
+                    tokio::time::sleep(backoff.min(Duration::from_secs(5))).await;
+                }
+                Err(_) => {
+                    // Timeout on receive - this is normal, continue
+                    consecutive_errors = 0;
+                    continue;
                 }
             }
         }
@@ -305,6 +332,37 @@ impl Clone for AsyncViscaClient {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl Drop for AsyncViscaClient {
+    fn drop(&mut self) {
+        // Only perform cleanup if this is the last reference
+        if Arc::strong_count(&self.inner) == 1 {
+            // Create a runtime handle to perform async cleanup
+            let handle = tokio::runtime::Handle::try_current();
+            if let Ok(handle) = handle {
+                let inner = Arc::clone(&self.inner);
+                handle.spawn(async move {
+                    // Send shutdown signal
+                    if let Some(tx) = inner.shutdown_tx.lock().await.take() {
+                        let _ = tx.send(());
+                        log::debug!("Shutdown signal sent to background task");
+                    }
+                    
+                    // Wait for background task to complete with timeout
+                    if let Some(task) = inner.background_task.lock().await.take() {
+                        match tokio::time::timeout(Duration::from_secs(5), task).await {
+                            Ok(_) => log::debug!("Background task completed"),
+                            Err(_) => {
+                                log::warn!("Background task did not complete within timeout");
+                            }
+                        }
+                    }
+                });
+            }
         }
     }
 }
