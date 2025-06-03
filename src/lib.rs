@@ -187,6 +187,9 @@ pub use error::{AppError, ViscaError};
 mod session;
 pub use session::ViscaSession;
 
+pub mod camera_constants;
+pub mod conversions;
+
 #[cfg(feature = "async")]
 mod async_client;
 #[cfg(feature = "async")]
