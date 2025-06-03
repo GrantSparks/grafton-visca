@@ -41,37 +41,35 @@
 //! ## Example Usage
 //!
 //! ```no_run
-//! use grafton_visca::{UdpTransport, ViscaCommand, ViscaClient};
+//! use grafton_visca::{UdpTransport, ViscaCommand, ViscaTransport};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //!
-//! // Create a thread-safe client from a transport
-//! let transport = UdpTransport::new("192.168.1.100:5678").unwrap();
-//! let client = ViscaClient::new(Box::new(transport));
+//! // Connect to camera
+//! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
 //!
 //! // Send Pan/Tilt Home command
-//! client.send(&PanTiltCommand::Home).unwrap();
+//! transport.send_command(&PanTiltCommand::Home).unwrap();
 //!
 //! // Zoom in
-//! client.send(&ZoomCommand::TeleStandard).unwrap();
+//! transport.send_command(&ZoomCommand::TeleStandard).unwrap();
 //! ```
 //!
 //! ## Advanced Camera Control
 //!
 //! ```no_run
 //! use grafton_visca::command::*;
-//! use grafton_visca::{UdpTransport, ViscaClient};
+//! use grafton_visca::{UdpTransport, ViscaTransport};
 //!
-//! let transport = UdpTransport::new("192.168.1.100:5678").unwrap();
-//! let client = ViscaClient::new(Box::new(transport));
+//! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
 //!
 //! // Adjust exposure compensation
-//! client.send(&ExposureCompensationCommand::Direct(3)).unwrap();
+//! transport.send_command(&ExposureCompensationCommand::Direct(3)).unwrap();
 //!
 //! // Set iris to F4.0
-//! client.send(&IrisCommand::Direct(0x06)).unwrap();
+//! transport.send_command(&IrisCommand::Direct(0x06)).unwrap();
 //!
 //! // Adjust color saturation to 150%
-//! client.send(&SaturationCommand { level: 0x0A }).unwrap();
+//! transport.send_command(&SaturationCommand { level: 0x0A }).unwrap();
 //! ```
 //!
 //! ## Async Usage (with `async` feature)
@@ -176,13 +174,6 @@ use std::{
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
-use std::sync::Arc;
-use std::ops::DerefMut;
-// Use parking_lot if available, else fallback to std
-#[cfg(feature = "parking_lot")] 
-use parking_lot::Mutex;
-#[cfg(not(feature = "parking_lot"))]
-use std::sync::Mutex;
 
 pub mod command;
 pub use command::{
@@ -235,7 +226,7 @@ pub use sync_wrapper::{send_command_and_wait_compat, ViscaClient};
 /// let responses = transport.receive_response()?;
 /// # Ok::<(), ViscaError>(())
 /// ```
-pub trait ViscaTransport: Send {
+pub trait ViscaTransport {
     /// Sends a VISCA command to the camera.
     ///
     /// The command is serialized to bytes and transmitted over the transport.
@@ -574,46 +565,6 @@ fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
         // Wildcard pattern to handle any future additions to the enum
         _ => {
             debug!("Unhandled inquiry response: {:?}", inquiry_response);
-        }
-    }
-}
-
-// Ensure UdpTransport and TcpTransport are Send
-unsafe impl Send for UdpTransport {}
-unsafe impl Send for TcpTransport {}
-
-use std::sync::Arc;
-use std::ops::DerefMut;
-// Use parking_lot if available, else fallback to std
-#[cfg(feature = "parking_lot")] 
-use parking_lot::Mutex;
-#[cfg(not(feature = "parking_lot"))]
-use std::sync::Mutex;
-
-/// Thread-safe VISCA client for sharing across threads and ergonomic API.
-pub struct ViscaClient {
-    transport: Arc<Mutex<Box<dyn ViscaTransport + Send>>>,
-}
-
-impl ViscaClient {
-    /// Create a new ViscaClient from a transport
-    pub fn new(transport: Box<dyn ViscaTransport + Send>) -> Self {
-        Self {
-            transport: Arc::new(Mutex::new(transport)),
-        }
-    }
-
-    /// Send a command and wait for the response
-    pub fn send(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
-        let mut guard = self.transport.lock().unwrap();
-        let transport = guard.deref_mut();
-        crate::send_command_and_wait(transport, command)
-    }
-
-    /// Clone the client (shares the same transport)
-    pub fn clone(&self) -> Self {
-        Self {
-            transport: Arc::clone(&self.transport),
         }
     }
 }
