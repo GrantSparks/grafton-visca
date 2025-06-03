@@ -696,7 +696,6 @@ mod response_parsing_tests {
 #[cfg(test)]
 mod transport_response_parsing_tests {
 
-
     #[test]
     fn test_multiple_responses_in_buffer() {
         // Test the parse_response function from lib.rs

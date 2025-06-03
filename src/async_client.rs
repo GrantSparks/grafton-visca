@@ -138,12 +138,12 @@ impl AsyncViscaClient {
     /// Send a command and wait for the response.
     pub async fn send(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
         // Acquire permit (blocks if 2 commands already in flight)
-        let permit = self.inner.semaphore.acquire().await.map_err(|_| {
-            ViscaError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Semaphore closed",
-            ))
-        })?;
+        let permit = self
+            .inner
+            .semaphore
+            .acquire()
+            .await
+            .map_err(|_| ViscaError::Io(std::io::Error::other("Semaphore closed")))?;
 
         // Get response type
         let response_type = command.response_type();

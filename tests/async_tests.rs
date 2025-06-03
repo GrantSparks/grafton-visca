@@ -29,10 +29,7 @@ impl MockTransport {
 }
 
 impl AsyncViscaTransport for MockTransport {
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn ViscaCommand,
-    ) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
             let mut sent = self.sent_commands.lock().await;

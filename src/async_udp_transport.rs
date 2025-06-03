@@ -1,4 +1,7 @@
-use crate::{async_transport::{AsyncViscaTransport, TransportFuture}, parse_response, ViscaCommand, ViscaError};
+use crate::{
+    async_transport::{AsyncViscaTransport, TransportFuture},
+    parse_response, ViscaCommand, ViscaError,
+};
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
@@ -16,9 +19,7 @@ pub struct AsyncUdpTransport {
 impl AsyncUdpTransport {
     /// Create a new async UDP transport.
     pub async fn new(camera_addr: SocketAddr) -> Result<Self, ViscaError> {
-        let socket = UdpSocket::bind("0.0.0.0:0")
-            .await
-            .map_err(ViscaError::Io)?;
+        let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(ViscaError::Io)?;
 
         Ok(Self {
             socket,
@@ -36,10 +37,7 @@ impl AsyncUdpTransport {
 
 #[cfg(feature = "async")]
 impl AsyncViscaTransport for AsyncUdpTransport {
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn ViscaCommand,
-    ) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
 

@@ -12,10 +12,7 @@ pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaErr
 #[cfg(feature = "async")]
 pub trait AsyncViscaTransport: Send + Sync {
     /// Send a VISCA command to the camera asynchronously.
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn ViscaCommand,
-    ) -> TransportFuture<'a, ()>;
+    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()>;
 
     /// Receive response frames from the camera asynchronously.
     ///

@@ -1,4 +1,7 @@
-use crate::{async_transport::{AsyncViscaTransport, TransportFuture}, parse_response, ViscaCommand, ViscaError};
+use crate::{
+    async_transport::{AsyncViscaTransport, TransportFuture},
+    parse_response, ViscaCommand, ViscaError,
+};
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -37,10 +40,7 @@ impl AsyncTcpTransport {
 
 #[cfg(feature = "async")]
 impl AsyncViscaTransport for AsyncTcpTransport {
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn ViscaCommand,
-    ) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
 
