@@ -1,14 +1,49 @@
+//! Zoom control commands for VISCA cameras.
+//!
+//! This module provides commands for controlling camera zoom functionality,
+//! including standard speed, variable speed, and direct position control.
+//!
+//! # Variable Speed Range
+//! Variable zoom speed ranges from 0 (slowest) to 7 (fastest).
+//!
+//! # Example
+//! ```no_run
+//! # use grafton_visca::command::ZoomCommand;
+//! # use grafton_visca::{UdpTransport, ViscaTransport};
+//! # let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//! // Zoom in at standard speed
+//! transport.send_command(&ZoomCommand::TeleStandard).unwrap();
+//!
+//! // Zoom out at variable speed
+//! transport.send_command(&ZoomCommand::WideVariable(5)).unwrap();
+//! ```
+
 use super::ViscaResponseType;
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
 
+/// Zoom control commands.
+///
+/// Provides various ways to control camera zoom:
+/// - `Stop` - Stop zoom movement
+/// - `TeleStandard` - Zoom in at standard speed
+/// - `WideStandard` - Zoom out at standard speed
+/// - `TeleVariable` - Zoom in at specified speed (0-7)
+/// - `WideVariable` - Zoom out at specified speed (0-7)
+/// - `Direct` - Set zoom to specific position
 #[derive(Debug)]
 pub enum ZoomCommand {
+    /// Stop zoom movement.
     Stop,
+    /// Zoom in (telephoto) at standard speed.
     TeleStandard,
+    /// Zoom out (wide) at standard speed.
     WideStandard,
+    /// Zoom in at variable speed (0=slowest, 7=fastest).
     TeleVariable(u8),
+    /// Zoom out at variable speed (0=slowest, 7=fastest).
     WideVariable(u8),
+    /// Set zoom to direct position (0x0000 to 0xFFFF).
     Direct(u16),
 }
 

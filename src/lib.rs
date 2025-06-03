@@ -1,3 +1,173 @@
+//! # grafton-visca
+//!
+//! A production-ready Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
+//!
+//! ## What is VISCA?
+//!
+//! VISCA (Video System Control Architecture) is a protocol developed by Sony for controlling PTZ cameras
+//! commonly used in robotics, broadcasting, video conferencing, and surveillance applications. This crate
+//! implements VISCA over IP, allowing you to control networked PTZ cameras from Rust applications.
+//!
+//! ## Features
+//!
+//! - **Complete Command Coverage**: Full support for PTZOptics G2 VISCA commands
+//! - **Robust Protocol Handling**: Proper ACK/Completion state machine with socket management
+//! - **Multiple Transports**: Both UDP (port 1259 default) and TCP (port 5678 default) support
+//! - **Async Support**: Modern async/await API with Tokio (enable with `async` feature)
+//! - **Thread Safety**: Safe concurrent access from multiple tasks
+//! - **Comprehensive Inquiry**: Query camera state for all supported features
+//! - **Error Handling**: Detailed error types for all VISCA error conditions
+//!
+//! ## Supported Commands
+//!
+//! ### Camera Movement
+//! - Pan/Tilt/Zoom control with absolute and relative positioning
+//! - Variable speed control for smooth movements
+//! - Home position and preset management (up to 90 presets)
+//!
+//! ### Exposure & Color
+//! - Exposure modes: Auto, Manual, Shutter Priority, Iris Priority, Bright
+//! - Iris, shutter speed, gain, and brightness control
+//! - White balance modes including manual color temperature
+//! - Color adjustments: saturation, hue, RGB gain tuning
+//!
+//! ### Image Control
+//! - Focus control with auto/manual modes and zone selection
+//! - Sharpness adjustment with auto/manual modes
+//! - Noise reduction (2D and 3D)
+//! - Image flip (horizontal/vertical)
+//! - Black & white mode
+//!
+//! ## Example Usage
+//!
+//! ```no_run
+//! use grafton_visca::{UdpTransport, ViscaCommand, ViscaTransport};
+//! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
+//!
+//! // Connect to camera
+//! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//!
+//! // Send Pan/Tilt Home command
+//! transport.send_command(&PanTiltCommand::Home).unwrap();
+//!
+//! // Zoom in
+//! transport.send_command(&ZoomCommand::TeleStandard).unwrap();
+//! ```
+//!
+//! ## Advanced Camera Control
+//!
+//! ```no_run
+//! use grafton_visca::command::*;
+//! use grafton_visca::{UdpTransport, ViscaTransport};
+//!
+//! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//!
+//! // Adjust exposure compensation
+//! transport.send_command(&ExposureCompensationCommand::Direct(3)).unwrap();
+//!
+//! // Set iris to F4.0
+//! transport.send_command(&IrisCommand::Direct(0x06)).unwrap();
+//!
+//! // Adjust color saturation to 150%
+//! transport.send_command(&SaturationCommand { level: 0x0A }).unwrap();
+//! ```
+//!
+//! ## Async Usage (with `async` feature)
+//!
+//! The library provides async support for non-blocking camera control:
+//!
+//! ```no_run
+//! # #[cfg(feature = "async")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! use grafton_visca::{AsyncViscaClient, ViscaResponse};
+//! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
+//! use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
+//!
+//! // Connect to camera
+//! let camera = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+//!
+//! // Send multiple commands concurrently
+//! let pan_tilt_cmd = PanTiltCommand::Move {
+//!     direction: PanTiltDirection::UpRight,
+//!     pan_speed: PanSpeed::new(0x10)?,
+//!     tilt_speed: TiltSpeed::new(0x10)?,
+//! };
+//! let pan_tilt = camera.send(&pan_tilt_cmd);
+//! let zoom = camera.send(&ZoomCommand::TeleStandard);
+//!
+//! // Both commands execute concurrently (respecting the 2-socket limit)
+//! let (pan_result, zoom_result) = tokio::join!(pan_tilt, zoom);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## API Overview
+//!
+//! The crate provides several levels of API for different use cases:
+//!
+//! ### Transport Layer
+//! - [`ViscaTransport`] trait - The core abstraction for sending/receiving commands
+//! - [`UdpTransport`] - UDP transport (default port 1259 for VISCA over IP)
+//! - [`TcpTransport`] - TCP transport (default port 5678 for VISCA over IP)
+//!
+//! ### Command Layer
+//! - [`ViscaCommand`] trait - Implemented by all command types
+//! - Command modules in [`command`] - Organized by functionality
+//! - [`send_command_and_wait`] - Main synchronous API for sending commands
+//!
+//! ### Response Handling
+//! - [`ViscaResponse`] - Enum for all response types (ACK, Completion, Inquiry, Error)
+//! - [`ViscaInquiryResponse`] - Specific inquiry response variants
+//! - [`ViscaError`] - Comprehensive error types for all failure modes
+//!
+//! ### Async Support (with `async` feature)
+//! - [`AsyncViscaClient`] - High-level async client with automatic socket management
+//! - [`AsyncViscaTransport`] trait - Async version of the transport trait
+//!
+//! ## Connection Setup
+//!
+//! Cameras typically listen on standard ports:
+//! - **UDP**: Port 1259 (PTZOptics default for VISCA over IP)
+//! - **TCP**: Port 5678 (Alternative port, check your camera's configuration)
+//!
+//! Ensure your camera is configured for VISCA over IP and note its IP address.
+//!
+//! ## Troubleshooting
+//!
+//! ### Common Errors
+//!
+//! - **CommandBufferFull**: The camera can only process 2 commands simultaneously.
+//!   Solution: Wait for previous commands to complete before sending new ones.
+//!
+//! - **NoSocket**: No command is currently executing in the requested socket.
+//!   This usually indicates a protocol synchronization issue.
+//!
+//! - **CommandNotExecutable**: The command cannot be executed in the current camera state.
+//!   Example: Trying to zoom while the camera is powered off.
+//!
+//! - **SyntaxError**: The command format is incorrect or parameters are out of range.
+//!   Check that speed values and positions are within valid ranges.
+//!
+//! ### Best Practices
+//!
+//! 1. **Connection Management**: Reuse transport instances when possible rather than
+//!    creating new connections for each command.
+//!
+//! 2. **Error Handling**: Always handle errors appropriately - cameras may reject
+//!    commands due to mechanical limits or current state.
+//!
+//! 3. **Timing**: Allow time for mechanical movements to complete. The library handles
+//!    protocol-level completion, but physical movement takes time.
+//!
+//! 4. **Concurrent Commands**: When using async, the library automatically manages
+//!    the 2-socket limitation, but be aware that commands may queue.
+//!
+//! ## Feature Flags
+//!
+//! - `async` - Enables async/await support with Tokio
+//! - `sync` - Enables synchronous API (default)
+//! - `full` - Enables both sync and async APIs
+
 use log::{debug, error};
 use std::{
     io::{self, Read, Write},
@@ -14,17 +184,87 @@ pub use command::{
 mod error;
 pub use error::{AppError, ViscaError};
 
+mod session;
+pub use session::ViscaSession;
+
+#[cfg(feature = "async")]
+mod async_client;
+#[cfg(feature = "async")]
+mod async_tcp_transport;
+#[cfg(feature = "async")]
+pub mod async_transport;
+#[cfg(feature = "async")]
+mod async_udp_transport;
+
+#[cfg(feature = "async")]
+pub use async_client::AsyncViscaClient;
+#[cfg(feature = "async")]
+pub use async_tcp_transport::AsyncTcpTransport;
+#[cfg(feature = "async")]
+pub use async_transport::{AsyncViscaTransport, TransportFuture};
+#[cfg(feature = "async")]
+pub use async_udp_transport::AsyncUdpTransport;
+
+#[cfg(all(feature = "sync", feature = "async"))]
+mod sync_wrapper;
+#[cfg(all(feature = "sync", feature = "async"))]
+pub use sync_wrapper::{send_command_and_wait_compat, ViscaClient};
+
+/// Transport trait for sending and receiving VISCA commands over a network connection.
+///
+/// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
+/// a uniform interface for VISCA communication.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::{ViscaTransport, UdpTransport, ViscaCommand, ViscaError};
+/// # use grafton_visca::command::PowerCommand;
+/// # use grafton_visca::command::power::Power;
+/// let mut transport = UdpTransport::new("192.168.1.100:5678")?;
+/// let command = PowerCommand { power: Power::On };
+/// transport.send_command(&command)?;
+/// let responses = transport.receive_response()?;
+/// # Ok::<(), ViscaError>(())
+/// ```
 pub trait ViscaTransport {
+    /// Sends a VISCA command to the camera.
+    ///
+    /// The command is serialized to bytes and transmitted over the transport.
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;
+
+    /// Receives response frames from the camera.
+    ///
+    /// Returns a vector of response frames, where each frame is a complete VISCA
+    /// response (starts with 0x90 and ends with 0xFF).
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
 }
 
+/// UDP transport for VISCA over IP communication.
+///
+/// This transport uses UDP sockets for communication with VISCA cameras.
+/// It binds to an ephemeral local port and sends commands to the specified camera address.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::UdpTransport;
+/// let transport = UdpTransport::new("192.168.1.100:5678")?;
+/// # Ok::<(), std::io::Error>(())
+/// ```
 pub struct UdpTransport {
     socket: UdpSocket,
     address: String,
 }
 
 impl UdpTransport {
+    /// Creates a new UDP transport connected to the specified camera address.
+    ///
+    /// Sets read and write timeouts of 10 seconds.
+    ///
+    /// # Arguments
+    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
+    ///
+    /// # Errors
+    /// Returns an error if the socket cannot be created or configured.
     pub fn new(address: &str) -> io::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         socket.set_read_timeout(Some(Duration::from_secs(10)))?;
@@ -36,11 +276,31 @@ impl UdpTransport {
     }
 }
 
+/// TCP transport for VISCA over IP communication.
+///
+/// This transport uses TCP sockets for reliable communication with VISCA cameras.
+/// It maintains a persistent connection to the camera.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::TcpTransport;
+/// let transport = TcpTransport::new("192.168.1.100:5678")?;
+/// # Ok::<(), std::io::Error>(())
+/// ```
 pub struct TcpTransport {
     stream: TcpStream,
 }
 
 impl TcpTransport {
+    /// Creates a new TCP transport connected to the specified camera address.
+    ///
+    /// Establishes a TCP connection and sets read/write timeouts of 30 seconds.
+    ///
+    /// # Arguments
+    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
+    ///
+    /// # Errors
+    /// Returns an error if the connection cannot be established or configured.
     pub fn new(address: &str) -> io::Result<Self> {
         let stream = TcpStream::connect(address)?;
         stream.set_read_timeout(Some(Duration::from_secs(30)))?;
@@ -153,54 +413,113 @@ impl ViscaTransport for TcpTransport {
     }
 }
 
+/// Sends a VISCA command and waits for its completion response.\n///
+/// This is the main synchronous API for sending commands to a VISCA camera.
+/// It handles the complete command lifecycle including:
+/// - Sending the command
+/// - Receiving and processing ACK response
+/// - Waiting for and returning the completion response
+///
+/// # Arguments
+/// * `transport` - The transport to use for communication
+/// * `command` - The VISCA command to send
+///
+/// # Returns
+/// Returns the final response which can be:
+/// - `ViscaResponse::Completion` for commands with no data response
+/// - `ViscaResponse::InquiryResponse(...)` for inquiry commands
+/// - `ViscaResponse::Error(...)` if the camera reports an error
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::{UdpTransport, send_command_and_wait, ViscaResponse};
+/// # use grafton_visca::command::{PowerCommand, power::Power};
+/// # let mut transport = UdpTransport::new("192.168.1.100:5678")?;
+/// let command = PowerCommand { power: Power::On };
+/// match send_command_and_wait(&mut transport, &command)? {
+///     ViscaResponse::Completion => println!("Power on successful"),
+///     ViscaResponse::Error(e) => println!("Error: {:?}", e),
+///     _ => println!("Unexpected response"),
+/// }
+/// # Ok::<(), grafton_visca::ViscaError>(())
+/// ```
 pub fn send_command_and_wait(
     transport: &mut dyn ViscaTransport,
     command: &dyn ViscaCommand,
 ) -> Result<ViscaResponse, ViscaError> {
+    // Create a session to manage command state
+    let mut session = ViscaSession::new();
+
+    // Assign a socket for this command
+    let socket_id = session.assign_socket(command.response_type())?;
+    debug!("Sending command on socket {}", socket_id);
+
+    // Send the command
     transport.send_command(command)?;
 
+    // Wait for completion
     loop {
         match transport.receive_response() {
             Ok(responses) => {
                 for response in responses {
-                    let parsed_response =
-                        parse_and_handle_response(&response, command.response_type())?;
-                    match parsed_response {
-                        ViscaResponse::Completion | ViscaResponse::InquiryResponse(_) => {
-                            return Ok(parsed_response);
+                    match session.process_response(&response) {
+                        Ok(Some((resp_socket_id, parsed_response))) => {
+                            // Check if this response is for our command
+                            if resp_socket_id == socket_id {
+                                match parsed_response {
+                                    ViscaResponse::Ack => {
+                                        debug!("Command acknowledged on socket {}", socket_id);
+                                        // Continue waiting for completion
+                                    }
+                                    ViscaResponse::Completion => {
+                                        debug!("Command completed on socket {}", socket_id);
+                                        session.release_socket(socket_id);
+                                        return Ok(ViscaResponse::Completion);
+                                    }
+                                    ViscaResponse::InquiryResponse(inquiry) => {
+                                        debug!("Inquiry response received on socket {}", socket_id);
+                                        log_inquiry_response(&inquiry);
+                                        session.release_socket(socket_id);
+                                        return Ok(ViscaResponse::InquiryResponse(inquiry));
+                                    }
+                                    ViscaResponse::Error(err) => {
+                                        error!("Command error on socket {}: {:?}", socket_id, err);
+                                        session.release_socket(socket_id);
+                                        return Err(err);
+                                    }
+                                    _ => {
+                                        debug!(
+                                            "Unexpected response on socket {}: {:?}",
+                                            socket_id, parsed_response
+                                        );
+                                    }
+                                }
+                            } else {
+                                // Response for a different command, log and continue
+                                debug!(
+                                    "Received response for socket {} (not our socket {})",
+                                    resp_socket_id, socket_id
+                                );
+                            }
                         }
-                        _ => continue,
+                        Ok(None) => {
+                            // Response for unknown socket, ignore
+                            debug!("Received response for unknown socket");
+                        }
+                        Err(e) => {
+                            error!("Error processing response: {}", e);
+                            session.release_socket(socket_id);
+                            return Err(e);
+                        }
                     }
                 }
             }
-            Err(e) => return Err(e),
-        }
-    }
-}
-
-fn parse_and_handle_response(
-    response: &[u8],
-    response_type: Option<ViscaResponseType>,
-) -> Result<ViscaResponse, ViscaError> {
-    debug!("Received response: {:02X?}", response);
-
-    if let Some(response_type) = response_type {
-        match parse_visca_response(response, &response_type) {
-            Ok(visca_response) => {
-                if let ViscaResponse::InquiryResponse(inquiry_response) = &visca_response {
-                    log_inquiry_response(inquiry_response);
-                }
-                log_response(&visca_response);
-                Ok(visca_response)
-            }
             Err(e) => {
-                error!("Error processing response: {}", e);
-                Err(e)
+                error!("Transport error: {}", e);
+                session.release_socket(socket_id);
+                return Err(e);
             }
         }
-    } else {
-        error!("No response type provided for response: {:02X?}", response);
-        Err(ViscaError::UnexpectedResponseType)
     }
 }
 
@@ -247,17 +566,5 @@ fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
         _ => {
             debug!("Unhandled inquiry response: {:?}", inquiry_response);
         }
-    }
-}
-
-fn log_response(response: &ViscaResponse) {
-    match response {
-        ViscaResponse::Ack => debug!("ACK received"),
-        ViscaResponse::Completion => debug!("Completion received"),
-        ViscaResponse::Error(err) => error!("Error received: {:?}", err),
-        ViscaResponse::InquiryResponse(inquiry_response) => {
-            debug!("Inquiry response: {:?}", inquiry_response);
-        }
-        _ => (),
     }
 }
