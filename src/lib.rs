@@ -181,6 +181,11 @@ pub use command::{
     ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
 };
 
+pub mod constants;
+
+mod camera_detection;
+pub use camera_detection::{detect_camera_model, CameraDetection};
+
 mod error;
 pub use error::{AppError, ViscaError};
 

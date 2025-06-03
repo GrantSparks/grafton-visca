@@ -42,6 +42,14 @@ pub enum ViscaError {
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
 
+    #[error("Parameter out of range: {parameter} = {value} (valid range: {min}..{max})")]
+    ParameterOutOfRange {
+        parameter: String,
+        value: i32,
+        min: i32,
+        max: i32,
+    },
+
     #[error("Operation timed out")]
     Timeout,
 }
