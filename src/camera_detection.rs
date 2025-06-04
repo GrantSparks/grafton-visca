@@ -65,4 +65,3 @@ mod tests {
     // Note: These would be integration tests that require a real camera
     // For unit tests, you'd need to mock the ViscaTransport trait
 }
-
