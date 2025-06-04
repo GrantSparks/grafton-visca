@@ -192,6 +192,9 @@ pub use error::{AppError, ViscaError};
 mod session;
 pub use session::ViscaSession;
 
+mod transport_ext;
+pub use transport_ext::ViscaTransportExt;
+
 #[cfg(feature = "async")]
 mod async_client;
 #[cfg(feature = "async")]
@@ -242,6 +245,17 @@ pub trait ViscaTransport {
     /// Returns a vector of response frames, where each frame is a complete VISCA
     /// response (starts with 0x90 and ends with 0xFF).
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
+
+    /// Convenience method that sends a command and waits for completion.
+    ///
+    /// This method combines `send_command` and the response handling logic
+    /// to provide a simpler API for common use cases.
+    fn send_and_wait(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError>
+    where
+        Self: Sized,
+    {
+        send_command_and_wait(self, command)
+    }
 }
 
 /// UDP transport for VISCA over IP communication.
