@@ -88,7 +88,7 @@ fn demo_basic_pool() -> Result<(), Box<dyn std::error::Error>> {
         match pool.get_connection(&camera_id) {
             Ok(conn) => {
                 let mut transport = conn.transport();
-                
+
                 // Power on
                 match transport.send_and_wait(&PowerCommand { power: Power::On }) {
                     Ok(_) => println!("  ✓ {} powered on", camera_id),
@@ -108,10 +108,20 @@ fn demo_basic_pool() -> Result<(), Box<dyn std::error::Error>> {
     // Get pool statistics
     println!("\nPool Statistics:");
     for stats in pool.get_all_stats() {
-        println!("\n  Camera: {} ({})", stats.info.id, stats.info.name.as_deref().unwrap_or("Unknown"));
+        println!(
+            "\n  Camera: {} ({})",
+            stats.info.id,
+            stats.info.name.as_deref().unwrap_or("Unknown")
+        );
         println!("    Healthy: {}", stats.is_healthy);
-        println!("    Commands sent: {}", stats.connection_stats.snapshot().commands_sent);
-        println!("    Errors: {}", stats.connection_stats.snapshot().error_count);
+        println!(
+            "    Commands sent: {}",
+            stats.connection_stats.snapshot().commands_sent
+        );
+        println!(
+            "    Errors: {}",
+            stats.connection_stats.snapshot().error_count
+        );
     }
 
     Ok(())
@@ -150,12 +160,12 @@ fn demo_tcp_pool() -> Result<(), Box<dyn std::error::Error>> {
 
     // Perform preset operations
     println!("Saving presets on TCP cameras:");
-    
+
     for (idx, camera_id) in pool.list_cameras().iter().enumerate() {
         match pool.get_connection(camera_id) {
             Ok(conn) => {
                 let mut transport = conn.transport();
-                
+
                 // Save current position as preset
                 let preset_num = (idx + 1) as u8;
                 match transport.save_preset(preset_num) {
@@ -181,7 +191,9 @@ fn demo_health_management() -> Result<(), Box<dyn std::error::Error>> {
     let pool = ViscaConnectionPool::new(pool_config, |addr| {
         // Simulate some cameras failing to connect
         if addr.contains("103") || addr.contains("104") {
-            Err(ViscaError::InvalidParameter("Simulated connection failure".to_string()))
+            Err(ViscaError::InvalidParameter(
+                "Simulated connection failure".to_string(),
+            ))
         } else {
             UdpTransport::new(addr).map_err(ViscaError::Io)
         }
@@ -213,7 +225,15 @@ fn demo_health_management() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nHealth Check Results:");
     let health_results = pool.health_check_all();
     for (camera_id, is_healthy) in &health_results {
-        println!("  {}: {}", camera_id, if *is_healthy { "✓ Healthy" } else { "✗ Unhealthy" });
+        println!(
+            "  {}: {}",
+            camera_id,
+            if *is_healthy {
+                "✓ Healthy"
+            } else {
+                "✗ Unhealthy"
+            }
+        );
     }
 
     // Remove unhealthy cameras
@@ -245,7 +265,11 @@ fn demo_concurrent_control() -> Result<(), Box<dyn std::error::Error>> {
             model: None,
             location: None,
         };
-        pool.add_camera(format!("cam{}", i), &format!("192.168.1.10{}:1259", i), info)?;
+        pool.add_camera(
+            format!("cam{}", i),
+            &format!("192.168.1.10{}:1259", i),
+            info,
+        )?;
     }
 
     println!("Controlling multiple cameras concurrently...\n");
@@ -257,22 +281,22 @@ fn demo_concurrent_control() -> Result<(), Box<dyn std::error::Error>> {
     for camera_id in ["cam1", "cam2", "cam3"] {
         let pool_clone = pool_arc.clone();
         let cam_id = camera_id.to_string();
-        
+
         let handle = thread::spawn(move || {
             println!("[{}] Starting control sequence", cam_id);
-            
+
             match pool_clone.get_connection(&cam_id) {
                 Ok(conn) => {
                     let mut transport = conn.transport();
-                    
+
                     // Power on
                     match transport.power_on() {
                         Ok(_) => println!("[{}] ✓ Powered on", cam_id),
                         Err(e) => println!("[{}] ✗ Power on failed: {}", cam_id, e),
                     }
-                    
+
                     thread::sleep(Duration::from_millis(500));
-                    
+
                     // Pan left and right
                     for direction in [PanTiltDirection::Left, PanTiltDirection::Right] {
                         match transport.send_and_wait(&PanTiltCommand::Move {
@@ -283,30 +307,30 @@ fn demo_concurrent_control() -> Result<(), Box<dyn std::error::Error>> {
                             Ok(_) => println!("[{}] ✓ Panned {:?}", cam_id, direction),
                             Err(e) => println!("[{}] ✗ Pan failed: {}", cam_id, e),
                         }
-                        
+
                         thread::sleep(Duration::from_secs(1));
                     }
-                    
+
                     // Zoom
                     match transport.send_and_wait(&ZoomCommand::TeleStandard) {
                         Ok(_) => println!("[{}] ✓ Zoomed in", cam_id),
                         Err(e) => println!("[{}] ✗ Zoom failed: {}", cam_id, e),
                     }
-                    
+
                     thread::sleep(Duration::from_secs(1));
-                    
+
                     // Return home
                     match transport.home() {
                         Ok(_) => println!("[{}] ✓ Returned home", cam_id),
                         Err(e) => println!("[{}] ✗ Home failed: {}", cam_id, e),
                     }
-                    
+
                     println!("[{}] Control sequence complete", cam_id);
                 }
                 Err(e) => println!("[{}] ✗ Failed to get connection: {}", cam_id, e),
             }
         });
-        
+
         handles.push(handle);
     }
 
@@ -321,10 +345,9 @@ fn demo_concurrent_control() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nFinal Pool Statistics:");
     for stats in pool_arc.get_all_stats() {
         let snapshot = stats.connection_stats.snapshot();
-        println!("\n  {}: {} commands, {} errors",
-            stats.info.id,
-            snapshot.commands_sent,
-            snapshot.error_count
+        println!(
+            "\n  {}: {} commands, {} errors",
+            stats.info.id, snapshot.commands_sent, snapshot.error_count
         );
     }
 
