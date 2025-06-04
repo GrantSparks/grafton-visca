@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_visca_error_from_io_error() {
-        let io_err = io::Error::new(io::ErrorKind::ConnectionRefused, "test error");
+        let io_err = io::Error::other("test error");
         let visca_err = ViscaError::from(io_err);
         assert!(matches!(visca_err, ViscaError::Io(_)));
     }
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_app_error_from_io() {
-        let io_err = io::Error::new(io::ErrorKind::NotFound, "file not found");
+        let io_err = io::Error::other("file not found");
         let app_err = AppError::from(io_err);
         assert!(matches!(app_err, AppError::Io(_)));
     }

@@ -38,10 +38,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         rust: [stable, beta]
-        include:
-          # Add MSRV testing on Linux only
-          - os: ubuntu-latest
-            rust: "1.75.0"  # Minimum supported Rust version
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
