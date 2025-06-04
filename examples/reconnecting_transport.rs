@@ -47,7 +47,7 @@ fn demo_udp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the reconnecting transport
     let mut transport = ReconnectingTransport::new(
-        || UdpTransport::new(camera_addr).map_err(|e| ViscaError::Io(e)),
+        || UdpTransport::new(camera_addr).map_err(ViscaError::Io),
         reconnect_config,
     )?;
 
@@ -128,7 +128,7 @@ fn demo_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the reconnecting transport
     let mut transport = ReconnectingTransport::new(
-        || TcpTransport::new(camera_addr).map_err(|e| ViscaError::Io(e)),
+        || TcpTransport::new(camera_addr).map_err(ViscaError::Io),
         reconnect_config,
     )?;
 
@@ -220,7 +220,7 @@ fn demo_connection_events() -> Result<(), Box<dyn std::error::Error>> {
                     "Simulated connection failure for demo",
                 )))
             } else {
-                UdpTransport::new(camera_addr).map_err(|e| ViscaError::Io(e))
+                UdpTransport::new(camera_addr).map_err(ViscaError::Io)
             }
         },
         reconnect_config,
