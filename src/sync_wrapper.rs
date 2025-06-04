@@ -21,7 +21,7 @@ impl ViscaClient {
             .enable_all()
             .build()
             .map_err(|e| {
-                ViscaError::Io(std::io::Error::other(format!(
+                ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!(
                     "Failed to create tokio runtime: {}",
                     e
                 )))
@@ -41,7 +41,7 @@ impl ViscaClient {
             .enable_all()
             .build()
             .map_err(|e| {
-                ViscaError::Io(std::io::Error::other(format!(
+                ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!(
                     "Failed to create tokio runtime: {}",
                     e
                 )))
