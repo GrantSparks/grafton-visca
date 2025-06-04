@@ -22,10 +22,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut udp_transport = AsyncUdpTransport::new(addr).await?;
 
     // Check initial health
-    if udp_transport.is_healthy().await? {
-        println!("✓ UDP connection is healthy");
-    } else {
-        println!("✗ UDP connection is not healthy");
+    match udp_transport.is_healthy().await? {
+        Ok(true) => println!("✓ UDP connection is healthy"),
+        Ok(false) => println!("✗ UDP connection is not healthy"),
+        Err(e) => println!("✗ Error checking UDP health: {}", e),
     }
 
     // Send a command
@@ -35,15 +35,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = udp_transport.receive_response().await;
 
     // Check stats
-    let stats = udp_transport.connection_stats();
+    let stats = udp_transport.connection_stats().snapshot();
     println!("\nAsync UDP Connection Statistics:");
-    println!("  Connected for: {:?}", stats.uptime());
+    println!(
+        "  Connected for: {:?}",
+        stats.connected_since.map(|t| t.elapsed())
+    );
     println!("  Commands sent: {}", stats.commands_sent);
     println!("  Responses received: {}", stats.responses_received);
     println!("  Bytes sent: {}", stats.bytes_sent);
     println!("  Bytes received: {}", stats.bytes_received);
     println!("  Errors: {}", stats.error_count);
-    println!("  Idle time: {:?}", stats.idle_time());
+    println!(
+        "  Idle time: {:?}",
+        stats.last_activity.map(|t| t.elapsed())
+    );
 
     // Example using async TCP transport
     println!("\n\nTesting async TCP transport health check...");
@@ -51,10 +57,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tcp_transport = AsyncTcpTransport::new(tcp_addr).await?;
 
     // Check health
-    if tcp_transport.is_healthy().await? {
-        println!("✓ TCP connection is healthy");
-    } else {
-        println!("✗ TCP connection is not healthy");
+    match tcp_transport.is_healthy().await? {
+        Ok(true) => println!("✓ TCP connection is healthy"),
+        Ok(false) => println!("✗ TCP connection is not healthy"),
+        Err(e) => println!("✗ Error checking TCP health: {}", e),
     }
 
     // Send some commands
@@ -63,9 +69,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = tcp_transport.receive_response().await;
 
     // Check stats again
-    let stats = tcp_transport.connection_stats();
+    let stats = tcp_transport.connection_stats().snapshot();
     println!("\nAsync TCP Connection Statistics:");
-    println!("  Connected for: {:?}", stats.uptime());
+    println!(
+        "  Connected for: {:?}",
+        stats.connected_since.map(|t| t.elapsed())
+    );
     println!("  Commands sent: {}", stats.commands_sent);
     println!("  Responses received: {}", stats.responses_received);
     println!("  Bytes sent: {}", stats.bytes_sent);
@@ -81,18 +90,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "UDP: {}",
-        if udp_health? {
-            "✓ Healthy"
-        } else {
-            "✗ Not healthy"
+        match udp_health? {
+            Ok(true) => "✓ Healthy",
+            Ok(false) => "✗ Not healthy",
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                "✗ Error"
+            }
         }
     );
     println!(
         "TCP: {}",
-        if tcp_health? {
-            "✓ Healthy"
-        } else {
-            "✗ Not healthy"
+        match tcp_health? {
+            Ok(true) => "✓ Healthy",
+            Ok(false) => "✗ Not healthy",
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                "✗ Error"
+            }
         }
     );
 
@@ -101,10 +116,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 1..=5 {
         sleep(Duration::from_secs(2)).await;
         print!("Health check {}: ", i);
-        if tcp_transport.is_healthy().await? {
-            println!("✓ Healthy");
-        } else {
-            println!("✗ Not healthy");
+        match tcp_transport.is_healthy().await? {
+            Ok(true) => println!("✓ Healthy"),
+            Ok(false) => println!("✗ Not healthy"),
+            Err(e) => println!("✗ Error: {}", e),
         }
     }
 

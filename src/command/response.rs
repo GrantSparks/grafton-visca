@@ -100,6 +100,15 @@ pub fn parse_visca_response(
             }
 
             match response_type {
+                ViscaResponseType::Power => {
+                    if response.len() != 4 {
+                        return Err(ViscaError::InvalidResponseLength);
+                    }
+                    let on = response[2] == 0x02;
+                    Ok(ViscaResponse::InquiryResponse(
+                        ViscaInquiryResponse::Power { on },
+                    ))
+                }
                 ViscaResponseType::PanTiltPosition => {
                     if response.len() != 11 {
                         return Err(ViscaError::InvalidResponseLength);

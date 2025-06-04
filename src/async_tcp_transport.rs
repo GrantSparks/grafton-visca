@@ -50,14 +50,22 @@ impl AsyncViscaTransport for AsyncTcpTransport {
 
             log::debug!("Sending command: {:02X?}", bytes);
 
-            self.stream
-                .write_all(&bytes)
-                .await
-                .map_err(ViscaError::Io)?;
-
-            self.stream.flush().await.map_err(ViscaError::Io)?;
-
-            Ok(())
+            match self.stream.write_all(&bytes).await {
+                Ok(_) => match self.stream.flush().await {
+                    Ok(_) => {
+                        self.stats.record_sent(bytes.len());
+                        Ok(())
+                    }
+                    Err(e) => {
+                        self.stats.record_error();
+                        Err(ViscaError::Io(e))
+                    }
+                },
+                Err(e) => {
+                    self.stats.record_error();
+                    Err(ViscaError::Io(e))
+                }
+            }
         })
     }
 
@@ -82,12 +90,14 @@ impl AsyncViscaTransport for AsyncTcpTransport {
                         // Clear buffer if it's getting too large
                         log::error!("TCP buffer exceeded maximum size, clearing buffer");
                         self.buffer.clear();
+                        self.stats.record_error();
                         return Err(ViscaError::Io(std::io::Error::other(
                             "Buffer overflow - too much unparseable data",
                         )));
                     }
 
                     self.buffer.extend_from_slice(&self.read_buffer[..n]);
+                    self.stats.record_received(n);
 
                     // Try to parse complete responses from the buffer
                     match parse_response(&self.buffer) {
@@ -143,32 +153,36 @@ impl Drop for AsyncTcpTransport {
 
 #[cfg(feature = "async")]
 impl crate::AsyncConnectionManagement for AsyncTcpTransport {
-    fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
+    fn is_healthy(&mut self) -> TransportFuture<'_, Result<bool, ViscaError>> {
         Box::pin(async move {
             use crate::command::InquiryCommand;
+            use tokio::time::timeout;
 
-            // Temporarily reduce timeout for health check
-            let original_timeout = self.timeout_duration;
-            self.timeout_duration = Duration::from_secs(1);
+            // Check cached health result first
+            if let Some(cached_healthy) = self.stats.get_cached_health() {
+                return Ok(Ok(cached_healthy));
+            }
 
-            let result = self.send_command(&InquiryCommand::Power).await.is_ok()
-                && match self.receive_response().await {
-                    Ok(responses) => !responses.is_empty(),
-                    Err(_) => false,
-                };
+            // Send the power inquiry command
+            self.send_command(&InquiryCommand::Power).await?;
 
-            // Restore original timeout
-            self.timeout_duration = original_timeout;
-
-            Ok(result)
+            // Try to receive response with a short timeout
+            match timeout(Duration::from_secs(1), self.receive_response()).await {
+                Ok(Ok(responses)) => {
+                    let healthy = !responses.is_empty();
+                    self.stats.record_health_check(healthy);
+                    Ok(Ok(healthy))
+                }
+                Ok(Err(e)) => Ok(Err(e)),
+                Err(_) => {
+                    self.stats.record_health_check(false);
+                    Ok(Ok(false)) // Timeout means unhealthy but not an error
+                }
+            }
         })
     }
 
     fn connection_stats(&self) -> &ConnectionStats {
         &self.stats
-    }
-
-    fn connection_stats_mut(&mut self) -> &mut ConnectionStats {
-        &mut self.stats
     }
 }
