@@ -469,7 +469,7 @@ mod tests {
         // 0 degrees pan should map to VISCA 0
         assert_eq!(visca.pan, 0);
         // 0 degrees tilt should map to middle of the range
-        let tilt_middle = ((position::TILT_MAX + position::TILT_MIN) / 2) as i16;
+        let tilt_middle = (position::TILT_MAX + position::TILT_MIN) / 2;
         assert!((visca.tilt - tilt_middle).abs() < 100);
     }
 
