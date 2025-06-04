@@ -1,7 +1,10 @@
 use std::io;
 use thiserror::Error;
 
-#[non_exhaustive]
+// Using traditional exhaustive enum approach for ViscaError
+// This provides better ergonomics for library users who need to handle specific errors
+// The VISCA protocol has a well-defined set of error conditions that are unlikely to change frequently
+// Adding new variants will require a major version bump, which is acceptable for this use case
 #[derive(Error, Debug)]
 pub enum ViscaError {
     #[error("IO error: {0}")]
