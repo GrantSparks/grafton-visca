@@ -252,7 +252,7 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
                 let count = fail_count.fetch_add(1, Ordering::SeqCst);
 
                 // Simulate failures on attempts 2-4
-                if count >= 2 && count <= 4 {
+                if (2..=4).contains(&count) {
                     Err(ViscaError::Io(std::io::Error::new(
                         std::io::ErrorKind::ConnectionRefused,
                         "Simulated async connection failure",

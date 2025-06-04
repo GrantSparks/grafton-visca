@@ -214,7 +214,7 @@ fn demo_connection_events() -> Result<(), Box<dyn std::error::Error>> {
             *count += 1;
 
             // Simulate connection failures on attempts 2-4
-            if *count >= 2 && *count <= 4 {
+            if (2..=4).contains(&*count) {
                 Err(ViscaError::Io(io::Error::new(
                     io::ErrorKind::ConnectionRefused,
                     "Simulated connection failure for demo",
