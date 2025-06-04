@@ -1,6 +1,6 @@
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
-    parse_response, ViscaCommand, ViscaError,
+    parse_response, ConnectionStats, ViscaCommand, ViscaError,
 };
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -16,6 +16,7 @@ pub struct AsyncTcpTransport {
     buffer: Vec<u8>,
     read_buffer: Vec<u8>,
     timeout_duration: Duration,
+    stats: ConnectionStats,
 }
 
 #[cfg(feature = "async")]
@@ -31,7 +32,13 @@ impl AsyncTcpTransport {
             buffer: Vec::with_capacity(1024),
             read_buffer: vec![0; 1024],
             timeout_duration: Duration::from_secs(30),
+            stats: ConnectionStats::new(),
         })
+    }
+
+    /// Get connection statistics
+    pub fn stats(&self) -> &ConnectionStats {
+        &self.stats
     }
 
     /// Set the timeout duration for receive operations.
@@ -48,14 +55,22 @@ impl AsyncViscaTransport for AsyncTcpTransport {
 
             log::debug!("Sending command: {:02X?}", bytes);
 
-            self.stream
-                .write_all(&bytes)
-                .await
-                .map_err(ViscaError::Io)?;
-
-            self.stream.flush().await.map_err(ViscaError::Io)?;
-
-            Ok(())
+            match self.stream.write_all(&bytes).await {
+                Ok(_) => match self.stream.flush().await {
+                    Ok(_) => {
+                        self.stats.record_sent(bytes.len());
+                        Ok(())
+                    }
+                    Err(e) => {
+                        self.stats.record_error();
+                        Err(ViscaError::Io(e))
+                    }
+                },
+                Err(e) => {
+                    self.stats.record_error();
+                    Err(ViscaError::Io(e))
+                }
+            }
         })
     }
 
@@ -69,23 +84,37 @@ impl AsyncViscaTransport for AsyncTcpTransport {
             {
                 Ok(Ok(0)) => {
                     // Connection closed
-                    Err(ViscaError::Io(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "Connection closed",
-                    )))
+                    Err(ViscaError::Io(std::io::Error::other("Connection closed")))
                 }
                 Ok(Ok(n)) => {
                     // Check buffer size before appending
                     if self.buffer.len() + n > MAX_BUFFER_SIZE {
-                        // Clear buffer if it's getting too large
-                        log::error!("TCP buffer exceeded maximum size, clearing buffer");
-                        self.buffer.clear();
-                        return Err(ViscaError::Io(std::io::Error::other(
-                            "Buffer overflow - too much unparseable data",
-                        )));
+                        // Try to parse what we have before clearing
+                        if let Ok(responses) = parse_response(&self.buffer) {
+                            if !responses.is_empty() {
+                                // We have some valid responses, return them
+                                let consumed_bytes: usize = responses.iter().map(|r| r.len()).sum();
+                                self.buffer.drain(..consumed_bytes);
+                                // Add new data if there's room now
+                                if self.buffer.len() + n <= MAX_BUFFER_SIZE {
+                                    self.buffer.extend_from_slice(&self.read_buffer[..n]);
+                                    self.stats.record_received(n);
+                                }
+                                return Ok(responses);
+                            }
+                        }
+
+                        // No valid responses found, clear oldest data to make room
+                        log::warn!(
+                            "TCP buffer near capacity, removing oldest {} bytes",
+                            self.buffer.len() / 2
+                        );
+                        self.buffer.drain(..self.buffer.len() / 2);
+                        self.stats.record_error();
                     }
 
                     self.buffer.extend_from_slice(&self.read_buffer[..n]);
+                    self.stats.record_received(n);
 
                     // Try to parse complete responses from the buffer
                     match parse_response(&self.buffer) {
@@ -116,10 +145,12 @@ impl AsyncViscaTransport for AsyncTcpTransport {
                 }
                 Ok(Err(e)) => {
                     log::error!("Socket read error: {:?}", e);
+                    self.stats.record_error();
                     Err(ViscaError::Io(e))
                 }
                 Err(_) => {
                     log::debug!("Receive timeout");
+                    self.stats.record_error();
                     Err(ViscaError::Timeout)
                 }
             }
@@ -134,5 +165,60 @@ impl Drop for AsyncTcpTransport {
         // We can't do async operations in drop, so we just rely on the OS
         // to clean up the socket when the TcpStream is dropped
         log::debug!("Dropping AsyncTcpTransport");
+    }
+}
+
+#[cfg(feature = "async")]
+impl crate::AsyncConnectionManagement for AsyncTcpTransport {
+    fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
+        Box::pin(async move {
+            use crate::command::InquiryCommand;
+            use tokio::time::timeout;
+
+            // Check cached health result first
+            if let Some(cached_healthy) = self.stats.get_cached_health() {
+                return Ok(cached_healthy);
+            }
+
+            // Save original timeout
+            let original_timeout = self.timeout_duration;
+            self.timeout_duration = Duration::from_secs(1);
+
+            // Send the power inquiry command
+            let send_result = self.send_command(&InquiryCommand::Power).await;
+
+            // Always restore timeout
+            self.timeout_duration = original_timeout;
+
+            if send_result.is_err() {
+                self.stats.record_health_check(false);
+                return Ok(false);
+            }
+
+            // Try to receive response with a short timeout
+            match timeout(Duration::from_secs(1), self.receive_response()).await {
+                Ok(Ok(responses)) => {
+                    // Validate that we got a power inquiry response
+                    let healthy = responses.iter().any(|response| {
+                        // Power inquiry response format: 0x90 0x50 0x0{2,3} 0xFF
+                        response.len() == 4
+                            && response[0] == 0x90
+                            && response[1] == 0x50
+                            && (response[2] == 0x02 || response[2] == 0x03)
+                            && response[3] == 0xFF
+                    });
+                    self.stats.record_health_check(healthy);
+                    Ok(healthy)
+                }
+                Ok(Err(_)) | Err(_) => {
+                    self.stats.record_health_check(false);
+                    Ok(false) // Any error means unhealthy
+                }
+            }
+        })
+    }
+
+    fn connection_stats(&self) -> &ConnectionStats {
+        &self.stats
     }
 }
