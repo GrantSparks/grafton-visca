@@ -7,6 +7,7 @@ use crate::{
     connection::{ConnectionManagement, ConnectionStats},
     ViscaCommand, ViscaError, ViscaResponse, ViscaTransport,
 };
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -37,6 +38,24 @@ impl Default for ReconnectionConfig {
     }
 }
 
+/// Connection/disconnection event callback
+pub type ConnectionEventCallback = Arc<dyn Fn(ConnectionEvent) + Send + Sync>;
+
+/// Events that can occur during connection management
+#[derive(Debug, Clone)]
+pub enum ConnectionEvent {
+    /// Connection established successfully
+    Connected,
+    /// Connection lost
+    Disconnected { reason: String },
+    /// Reconnection attempt started
+    ReconnectingStarted { attempt: usize, max_attempts: usize },
+    /// Reconnection attempt failed
+    ReconnectingFailed { attempt: usize, error: String },
+    /// All reconnection attempts exhausted
+    ReconnectionExhausted,
+}
+
 /// A transport wrapper that automatically reconnects on connection failures.
 ///
 /// This wrapper can be used with any transport that implements both `ViscaTransport`
@@ -54,6 +73,8 @@ pub struct ReconnectingTransport<T> {
     current_retry_count: usize,
     /// Connection statistics
     stats: ConnectionStats,
+    /// Optional connection event callback
+    event_callback: Option<ConnectionEventCallback>,
 }
 
 impl<T> ReconnectingTransport<T>
@@ -77,7 +98,20 @@ where
             last_successful_operation: Some(Instant::now()),
             current_retry_count: 0,
             stats: ConnectionStats::new(),
+            event_callback: None,
         })
+    }
+
+    /// Sets a callback to be notified of connection events.
+    pub fn set_event_callback(&mut self, callback: ConnectionEventCallback) {
+        self.event_callback = Some(callback);
+    }
+
+    /// Notifies the event callback if set
+    fn notify_event(&self, event: ConnectionEvent) {
+        if let Some(ref callback) = self.event_callback {
+            callback(event);
+        }
     }
 
     /// Ensures that we have a healthy connection, reconnecting if necessary.
@@ -91,11 +125,16 @@ where
                         match transport.is_healthy() {
                             Ok(true) => {
                                 self.last_successful_operation = Some(Instant::now());
+                                self.stats.record_health_check(true);
                                 return Ok(());
                             }
                             Ok(false) | Err(_) => {
                                 log::warn!("Health check failed, reconnecting...");
+                                self.stats.record_health_check(false);
                                 self.inner = None;
+                                self.notify_event(ConnectionEvent::Disconnected {
+                                    reason: "Health check failed".to_string(),
+                                });
                             }
                         }
                     }
@@ -124,20 +163,33 @@ where
                 self.config.max_retries
             );
 
+            self.notify_event(ConnectionEvent::ReconnectingStarted {
+                attempt: self.current_retry_count + 1,
+                max_attempts: self.config.max_retries,
+            });
+
             match (self.create_transport)() {
                 Ok(transport) => {
                     log::info!("Successfully reconnected");
                     self.inner = Some(transport);
                     self.last_successful_operation = Some(Instant::now());
                     self.current_retry_count = 0;
-                    self.stats.record_error(); // Count the reconnection as an error recovered from
+                    self.stats.reset();
+                    self.notify_event(ConnectionEvent::Connected);
                     return Ok(());
                 }
                 Err(e) => {
                     self.current_retry_count += 1;
+                    self.stats.record_error();
+
+                    self.notify_event(ConnectionEvent::ReconnectingFailed {
+                        attempt: self.current_retry_count,
+                        error: e.to_string(),
+                    });
 
                     if self.current_retry_count >= self.config.max_retries {
                         log::error!("Max reconnection attempts reached");
+                        self.notify_event(ConnectionEvent::ReconnectionExhausted);
                         return Err(ViscaError::ConnectionLost {
                             reason: "Max reconnection attempts reached".to_string(),
                         });
@@ -189,6 +241,9 @@ where
                             log::warn!("Connection error during operation: {}", e);
                             self.inner = None;
                             self.stats.record_error();
+                            self.notify_event(ConnectionEvent::Disconnected {
+                                reason: e.to_string(),
+                            });
 
                             if attempt < self.config.max_retries - 1 {
                                 continue;
@@ -203,6 +258,51 @@ where
         Err(ViscaError::ConnectionLost {
             reason: "Failed to reconnect after multiple attempts".to_string(),
         })
+    }
+
+    /// Gets a snapshot of the current connection statistics.
+    pub fn stats_snapshot(&self) -> ConnectionStats {
+        self.stats.clone()
+    }
+
+    /// Combines statistics from both the wrapper and inner transport.
+    pub fn combined_stats(&self) -> ConnectionStats {
+        // Get wrapper stats
+        let wrapper_stats = self.stats.snapshot();
+
+        // If we have an inner transport, combine its stats
+        if let Some(ref transport) = self.inner {
+            let inner_stats = transport.connection_stats().snapshot();
+
+            // Create a new ConnectionStats with combined values
+            let combined = ConnectionStats::new();
+
+            // Add wrapper stats
+            for _ in 0..wrapper_stats.commands_sent {
+                combined.record_sent(0);
+            }
+            for _ in 0..wrapper_stats.responses_received {
+                combined.record_received(0);
+            }
+            for _ in 0..wrapper_stats.error_count {
+                combined.record_error();
+            }
+
+            // Add inner transport stats
+            for _ in 0..inner_stats.commands_sent {
+                combined.record_sent(0);
+            }
+            for _ in 0..inner_stats.responses_received {
+                combined.record_received(0);
+            }
+            for _ in 0..inner_stats.error_count {
+                combined.record_error();
+            }
+
+            combined
+        } else {
+            self.stats.clone()
+        }
     }
 }
 
@@ -234,7 +334,16 @@ where
         match self.ensure_connected() {
             Ok(()) => {
                 if let Some(ref mut transport) = self.inner {
-                    transport.is_healthy()
+                    match transport.is_healthy() {
+                        Ok(healthy) => {
+                            self.stats.record_health_check(healthy);
+                            Ok(healthy)
+                        }
+                        Err(e) => {
+                            self.stats.record_health_check(false);
+                            Err(e)
+                        }
+                    }
                 } else {
                     Ok(false)
                 }
@@ -244,12 +353,7 @@ where
     }
 
     fn connection_stats(&self) -> &ConnectionStats {
-        // Return our wrapper's stats combined with inner transport stats
-        if let Some(ref transport) = self.inner {
-            // In a real implementation, we might want to combine stats
-            transport.connection_stats()
-        } else {
-            &self.stats
-        }
+        // Return wrapper stats - use combined_stats() method for full statistics
+        &self.stats
     }
 }
