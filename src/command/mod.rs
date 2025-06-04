@@ -43,8 +43,8 @@ pub use white_balance::WhiteBalanceCommand;
 pub use white_balance::WhiteBalanceMode;
 pub use zoom::ZoomCommand;
 
-use crate::ViscaError;
 use crate::timeout::CommandCategory;
+use crate::ViscaError;
 
 /// Trait for all VISCA commands.
 ///

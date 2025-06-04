@@ -5,15 +5,14 @@
 //! allowing fine-tuned control over command execution timeouts.
 
 use grafton_visca::{
+    async_transport::AsyncViscaTransport,
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         preset::{PresetAction, PresetCommand},
         response::parse_visca_response,
         InquiryCommand,
     },
-    async_transport::AsyncViscaTransport,
-    AsyncUdpTransport, TimeoutConfigBuilder,
-    ViscaCommand, ViscaError, ViscaResponse,
+    AsyncUdpTransport, TimeoutConfigBuilder, ViscaCommand, ViscaError, ViscaResponse,
 };
 use std::error::Error;
 use std::net::ToSocketAddrs;
@@ -27,11 +26,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Create a custom timeout configuration
     let timeout_config = TimeoutConfigBuilder::default()
-        .quick_timeout(Duration::from_secs(1))      // Fast for inquiries
-        .movement_timeout(Duration::from_secs(5))    // Medium for pan/tilt/zoom
-        .preset_timeout(Duration::from_secs(30))     // Long for preset operations
-        .long_timeout(Duration::from_secs(120))      // Very long for complex operations
-        .default_timeout(Duration::from_secs(10))    // Default for everything else
+        .quick_timeout(Duration::from_secs(1)) // Fast for inquiries
+        .movement_timeout(Duration::from_secs(5)) // Medium for pan/tilt/zoom
+        .preset_timeout(Duration::from_secs(30)) // Long for preset operations
+        .long_timeout(Duration::from_secs(120)) // Very long for complex operations
+        .default_timeout(Duration::from_secs(10)) // Default for everything else
         .build();
 
     // Display the configured timeouts
@@ -160,10 +159,10 @@ async fn send_and_wait_async(
     command: &dyn ViscaCommand,
 ) -> Result<ViscaResponse, ViscaError> {
     let response_type = command.response_type();
-    
+
     // Send the command
     transport.send_command(command).await?;
-    
+
     // Handle different response types
     if let Some(expected_type) = response_type {
         // This is an inquiry command, wait for the specific response
@@ -179,7 +178,7 @@ async fn send_and_wait_async(
     } else {
         // This is an action command, wait for ACK then completion
         let mut _got_ack = false;
-        
+
         loop {
             let responses = transport.receive_response().await?;
             for response_data in &responses {
@@ -208,7 +207,7 @@ async fn send_and_wait_async(
                     }
                 }
             }
-            
+
             // Continue looping until we get a response
         }
     }

@@ -1,4 +1,6 @@
-use crate::{command::ViscaCommand, error::ViscaError, timeout::CommandCategory, ViscaResponseType};
+use crate::{
+    command::ViscaCommand, error::ViscaError, timeout::CommandCategory, ViscaResponseType,
+};
 
 pub struct BacklightCommand {
     pub status: bool,
