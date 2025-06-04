@@ -184,7 +184,7 @@ pub use command::{
 pub mod constants;
 
 mod camera_detection;
-pub use camera_detection::{detect_camera_model, CameraDetection};
+pub use camera_detection::detect_camera_model;
 
 mod error;
 pub use error::{AppError, ViscaError};
