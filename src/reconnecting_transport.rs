@@ -66,7 +66,7 @@ pub struct ReconnectingTransport<T> {
     /// Configuration for reconnection behavior
     config: ReconnectionConfig,
     /// Function to create a new transport instance
-    create_transport: Box<dyn Fn() -> Result<T, ViscaError>>,
+    create_transport: Box<dyn Fn() -> Result<T, ViscaError> + Send>,
     /// Last successful operation time (for health checks)
     last_successful_operation: Option<Instant>,
     /// Current retry count
@@ -88,7 +88,7 @@ where
     /// * `config` - Configuration for reconnection behavior
     pub fn new<F>(create_transport: F, config: ReconnectionConfig) -> Result<Self, ViscaError>
     where
-        F: Fn() -> Result<T, ViscaError> + 'static,
+        F: Fn() -> Result<T, ViscaError> + Send + 'static,
     {
         let transport = create_transport()?;
         Ok(Self {
