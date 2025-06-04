@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - Unreleased
+
+### Added
+- **Camera Constants Module**: Comprehensive constants for camera control
+  - Camera model definitions (PTZOpticsG2, G3, 30X)
+  - Position constants (pan/tilt ranges, degrees)
+  - Zoom and focus ranges
+  - Speed limits and defaults
+  - Network and timing constants
+- **Position Conversion System**: Convert between different unit systems
+  - VISCA units, degrees, and normalized values (-1.0 to 1.0)
+  - Trait-based conversion system with implementations for each type
+- **Validation Functions**: Parameter validation with detailed error messages
+- **Camera Detection**: Basic camera model detection function
+
+### Changed
+- **Breaking Change**: Added new error variant `ParameterOutOfRange`
+  - Provides detailed validation errors with parameter name and valid range
+  - Required for the new validation functions
+
 ## [0.3.0] - 2025-01-06
 
 ### Added
