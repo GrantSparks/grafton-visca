@@ -11,7 +11,7 @@ use grafton_visca::{
     constants::{
         self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
-    send_command_and_wait, CameraDetection, UdpTransport, ViscaInquiryResponse, ViscaResponse,
+    detect_camera_model, send_command_and_wait, UdpTransport, ViscaInquiryResponse, ViscaResponse,
 };
 use log::{error, info};
 use std::env;
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Connected to camera at {}", address);
 
     // Try to detect camera model (currently returns Unknown)
-    let model = transport.detect_camera_model()?;
+    let model = detect_camera_model(&mut transport)?;
     info!("Detected camera model: {:?}", model);
 
     // For this example, we'll assume PTZOptics G2
