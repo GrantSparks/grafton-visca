@@ -201,8 +201,24 @@ pub use inquiry_ext::{
     WhiteBalanceState,
 };
 
+mod pan_tilt_ext;
+pub use command::pan_tilt::PanTiltDirection;
+pub use pan_tilt_ext::ViscaPanTiltExt;
+
+mod zoom_ext;
+pub use zoom_ext::ViscaZoomExt;
+
+mod focus_ext;
+pub use focus_ext::ViscaFocusExt;
+
+mod preset_ext;
+pub use preset_ext::ViscaPresetExt;
+
 #[cfg(feature = "async")]
 mod async_inquiry_ext;
+
+#[cfg(feature = "async")]
+mod async_control_ext;
 
 pub mod connection;
 #[cfg(feature = "async")]
