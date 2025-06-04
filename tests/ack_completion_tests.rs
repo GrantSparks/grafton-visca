@@ -28,7 +28,10 @@ impl ViscaTransport for MockTransport {
         if let Some(response) = responses.pop_front() {
             Ok(vec![response])
         } else {
-            Err(ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, "No more responses")))
+            Err(ViscaError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "No more responses",
+            )))
         }
     }
 }
