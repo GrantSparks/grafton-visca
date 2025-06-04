@@ -1,5 +1,6 @@
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
+use crate::timeout::CommandCategory;
 
 use super::ViscaResponseType;
 
@@ -20,5 +21,9 @@ impl ViscaCommand for ImageFlipCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }

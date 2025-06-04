@@ -4,6 +4,7 @@
 //! including white balance tuning, saturation, and hue adjustments.
 
 use crate::error::ViscaError;
+use crate::timeout::CommandCategory;
 
 use super::{response::ViscaResponseType, ViscaCommand};
 
@@ -18,6 +19,10 @@ impl ViscaCommand for OnePushTriggerCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
@@ -41,6 +46,10 @@ impl ViscaCommand for RedTuningCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
 }
 
 /// Blue Gain Tuning command
@@ -62,6 +71,10 @@ impl ViscaCommand for BlueTuningCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
@@ -86,6 +99,10 @@ impl ViscaCommand for SaturationCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
 }
 
 /// Hue command
@@ -108,6 +125,10 @@ impl ViscaCommand for HueCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
@@ -142,6 +163,10 @@ impl ViscaCommand for ColorTemperatureCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
 }
 
 /// Red Gain Direct command (different from tuning)
@@ -170,6 +195,10 @@ impl ViscaCommand for RedGainCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
 }
 
 /// Blue Gain Direct command (different from tuning)
@@ -197,5 +226,9 @@ impl ViscaCommand for BlueGainCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }

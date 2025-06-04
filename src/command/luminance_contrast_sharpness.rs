@@ -1,5 +1,6 @@
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
+use crate::timeout::CommandCategory;
 
 use super::ViscaResponseType;
 
@@ -46,6 +47,10 @@ impl ViscaCommand for SharpnessCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Custom
+    }
 }
 
 pub struct LuminanceCommand {
@@ -68,6 +73,10 @@ impl ViscaCommand for LuminanceCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Custom
+    }
 }
 
 pub struct ContrastCommand {
@@ -89,5 +98,9 @@ impl ViscaCommand for ContrastCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Custom
     }
 }
