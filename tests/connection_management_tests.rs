@@ -172,12 +172,12 @@ mod tests {
         assert_eq!(snapshot1.bytes_sent, snapshot2.bytes_sent);
         assert_eq!(snapshot1.error_count, snapshot2.error_count);
 
-        // Modifying one shouldn't affect the other
+        // Modifying one SHOULD affect the other (they share state)
         stats1.record_sent(50);
         let snapshot1_new = stats1.snapshot();
         let snapshot2_new = stats2.snapshot();
         assert_eq!(snapshot1_new.bytes_sent, 150);
-        assert_eq!(snapshot2_new.bytes_sent, 100);
+        assert_eq!(snapshot2_new.bytes_sent, 150); // Both should be 150
     }
 }
 
@@ -341,13 +341,19 @@ mod async_health_tests {
     }
 
     impl AsyncConnectionManagement for MockAsyncTransport {
-        fn is_healthy(&mut self) -> TransportFuture<'_, Result<bool, ViscaError>> {
+        fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
             Box::pin(async move {
                 // Simple mock implementation
-                self.send_command(&grafton_visca::command::InquiryCommand::Power)
-                    .await?;
-                let responses = self.receive_response().await?;
-                Ok(Ok(!responses.is_empty()))
+                if let Err(_) = self
+                    .send_command(&grafton_visca::command::InquiryCommand::Power)
+                    .await
+                {
+                    return Ok(false);
+                }
+                match self.receive_response().await {
+                    Ok(responses) => Ok(!responses.is_empty()),
+                    Err(_) => Ok(false),
+                }
             })
         }
 
@@ -361,9 +367,7 @@ mod async_health_tests {
         let mut transport = MockAsyncTransport::new();
         let result = transport.is_healthy().await;
         assert!(result.is_ok());
-        let inner_result = result.unwrap();
-        assert!(inner_result.is_ok());
-        assert!(inner_result.unwrap());
+        assert!(result.unwrap());
     }
 
     #[tokio::test]
@@ -371,7 +375,8 @@ mod async_health_tests {
         let mut transport = MockAsyncTransport::new();
         transport.fail_send = true;
         let result = transport.is_healthy().await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Should be unhealthy
     }
 
     #[tokio::test]
@@ -379,7 +384,8 @@ mod async_health_tests {
         let mut transport = MockAsyncTransport::new();
         transport.fail_receive = true;
         let result = transport.is_healthy().await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Should be unhealthy
     }
 
     #[tokio::test]
@@ -388,8 +394,6 @@ mod async_health_tests {
         transport.empty_response = true;
         let result = transport.is_healthy().await;
         assert!(result.is_ok());
-        let inner_result = result.unwrap();
-        assert!(inner_result.is_ok());
-        assert!(!inner_result.unwrap());
+        assert!(!result.unwrap());
     }
 }

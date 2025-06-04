@@ -1,12 +1,18 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 /// Statistics about a VISCA transport connection
 #[derive(Debug)]
 pub struct ConnectionStats {
+    /// Shared state between clones
+    inner: Arc<ConnectionStatsInner>,
+}
+
+#[derive(Debug)]
+struct ConnectionStatsInner {
     /// When the connection was established
-    connected_since: Arc<RwLock<Option<Instant>>>,
+    connected_since: RwLock<Option<Instant>>,
     /// Total bytes sent
     bytes_sent: AtomicU64,
     /// Total bytes received
@@ -18,13 +24,15 @@ pub struct ConnectionStats {
     /// Total errors encountered
     error_count: AtomicU64,
     /// Last successful activity timestamp
-    last_activity: Arc<RwLock<Option<Instant>>>,
+    last_activity: RwLock<Option<Instant>>,
     /// Last error timestamp
-    last_error: Arc<RwLock<Option<Instant>>>,
+    last_error: RwLock<Option<Instant>>,
     /// Last health check timestamp
-    last_health_check: Arc<RwLock<Option<Instant>>>,
+    last_health_check: Mutex<Option<Instant>>,
     /// Last health check result
-    last_health_result: Arc<RwLock<Option<bool>>>,
+    last_health_result: Mutex<Option<bool>>,
+    /// Cache validity flag
+    cache_valid: AtomicBool,
 }
 
 /// A snapshot of connection statistics at a point in time
@@ -52,142 +60,161 @@ impl ConnectionStats {
     /// Create new connection statistics starting now
     pub fn new() -> Self {
         Self {
-            connected_since: Arc::new(RwLock::new(Some(Instant::now()))),
-            bytes_sent: AtomicU64::new(0),
-            bytes_received: AtomicU64::new(0),
-            commands_sent: AtomicU64::new(0),
-            responses_received: AtomicU64::new(0),
-            error_count: AtomicU64::new(0),
-            last_activity: Arc::new(RwLock::new(None)),
-            last_error: Arc::new(RwLock::new(None)),
-            last_health_check: Arc::new(RwLock::new(None)),
-            last_health_result: Arc::new(RwLock::new(None)),
+            inner: Arc::new(ConnectionStatsInner {
+                connected_since: RwLock::new(Some(Instant::now())),
+                bytes_sent: AtomicU64::new(0),
+                bytes_received: AtomicU64::new(0),
+                commands_sent: AtomicU64::new(0),
+                responses_received: AtomicU64::new(0),
+                error_count: AtomicU64::new(0),
+                last_activity: RwLock::new(None),
+                last_error: RwLock::new(None),
+                last_health_check: Mutex::new(None),
+                last_health_result: Mutex::new(None),
+                cache_valid: AtomicBool::new(false),
+            }),
         }
     }
 
     /// Get the connection uptime
     pub fn uptime(&self) -> Option<Duration> {
-        self.connected_since
-            .read()
-            .ok()?
-            .as_ref()
+        self.read_instant(&self.inner.connected_since)
             .map(|since| since.elapsed())
     }
 
     /// Get the time since last activity
     pub fn idle_time(&self) -> Option<Duration> {
-        self.last_activity
-            .read()
-            .ok()?
-            .as_ref()
+        self.read_instant(&self.inner.last_activity)
             .map(|last| last.elapsed())
     }
 
     /// Record a sent command
     pub fn record_sent(&self, bytes: usize) {
-        self.bytes_sent.fetch_add(bytes as u64, Ordering::Relaxed);
-        self.commands_sent.fetch_add(1, Ordering::Relaxed);
-        if let Ok(mut last_activity) = self.last_activity.write() {
-            *last_activity = Some(Instant::now());
-        }
+        self.inner
+            .bytes_sent
+            .fetch_add(bytes as u64, Ordering::Relaxed);
+        self.inner.commands_sent.fetch_add(1, Ordering::Relaxed);
+        self.write_instant(&self.inner.last_activity, Some(Instant::now()));
     }
 
     /// Record a received response
     pub fn record_received(&self, bytes: usize) {
-        self.bytes_received
+        self.inner
+            .bytes_received
             .fetch_add(bytes as u64, Ordering::Relaxed);
-        self.responses_received.fetch_add(1, Ordering::Relaxed);
-        if let Ok(mut last_activity) = self.last_activity.write() {
-            *last_activity = Some(Instant::now());
-        }
+        self.inner
+            .responses_received
+            .fetch_add(1, Ordering::Relaxed);
+        self.write_instant(&self.inner.last_activity, Some(Instant::now()));
     }
 
     /// Record an error
     pub fn record_error(&self) {
-        self.error_count.fetch_add(1, Ordering::Relaxed);
-        if let Ok(mut last_error) = self.last_error.write() {
-            *last_error = Some(Instant::now());
-        }
+        self.inner.error_count.fetch_add(1, Ordering::Relaxed);
+        self.write_instant(&self.inner.last_error, Some(Instant::now()));
     }
 
     /// Reset statistics (useful after reconnection)
     pub fn reset(&self) {
-        if let Ok(mut connected_since) = self.connected_since.write() {
-            *connected_since = Some(Instant::now());
-        }
-        self.bytes_sent.store(0, Ordering::Relaxed);
-        self.bytes_received.store(0, Ordering::Relaxed);
-        self.commands_sent.store(0, Ordering::Relaxed);
-        self.responses_received.store(0, Ordering::Relaxed);
-        self.error_count.store(0, Ordering::Relaxed);
-        if let Ok(mut last_activity) = self.last_activity.write() {
-            *last_activity = None;
-        }
-        if let Ok(mut last_error) = self.last_error.write() {
-            *last_error = None;
-        }
-        if let Ok(mut last_health_check) = self.last_health_check.write() {
+        self.write_instant(&self.inner.connected_since, Some(Instant::now()));
+        self.inner.bytes_sent.store(0, Ordering::Relaxed);
+        self.inner.bytes_received.store(0, Ordering::Relaxed);
+        self.inner.commands_sent.store(0, Ordering::Relaxed);
+        self.inner.responses_received.store(0, Ordering::Relaxed);
+        self.inner.error_count.store(0, Ordering::Relaxed);
+        self.write_instant(&self.inner.last_activity, None);
+        self.write_instant(&self.inner.last_error, None);
+        if let Ok(mut last_health_check) = self.inner.last_health_check.lock() {
             *last_health_check = None;
         }
-        if let Ok(mut last_health_result) = self.last_health_result.write() {
+        if let Ok(mut last_health_result) = self.inner.last_health_result.lock() {
             *last_health_result = None;
         }
+        self.inner.cache_valid.store(false, Ordering::Release);
     }
 
     /// Get a consistent snapshot of all statistics
     pub fn snapshot(&self) -> ConnectionStatsSnapshot {
         ConnectionStatsSnapshot {
-            connected_since: self.connected_since.read().ok().and_then(|g| *g),
-            bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
-            bytes_received: self.bytes_received.load(Ordering::Relaxed),
-            commands_sent: self.commands_sent.load(Ordering::Relaxed),
-            responses_received: self.responses_received.load(Ordering::Relaxed),
-            error_count: self.error_count.load(Ordering::Relaxed),
-            last_activity: self.last_activity.read().ok().and_then(|g| *g),
-            last_error: self.last_error.read().ok().and_then(|g| *g),
+            connected_since: self.read_instant(&self.inner.connected_since),
+            bytes_sent: self.inner.bytes_sent.load(Ordering::Relaxed),
+            bytes_received: self.inner.bytes_received.load(Ordering::Relaxed),
+            commands_sent: self.inner.commands_sent.load(Ordering::Relaxed),
+            responses_received: self.inner.responses_received.load(Ordering::Relaxed),
+            error_count: self.inner.error_count.load(Ordering::Relaxed),
+            last_activity: self.read_instant(&self.inner.last_activity),
+            last_error: self.read_instant(&self.inner.last_error),
         }
     }
 
     /// Record a health check result
     pub fn record_health_check(&self, healthy: bool) {
-        if let Ok(mut last_health_check) = self.last_health_check.write() {
-            *last_health_check = Some(Instant::now());
+        let now = Instant::now();
+        if let Ok(mut last_health_check) = self.inner.last_health_check.lock() {
+            *last_health_check = Some(now);
         }
-        if let Ok(mut last_health_result) = self.last_health_result.write() {
+        if let Ok(mut last_health_result) = self.inner.last_health_result.lock() {
             *last_health_result = Some(healthy);
         }
+        self.inner.cache_valid.store(true, Ordering::Release);
     }
 
     /// Get the last health check result if still valid (within 5 seconds)
     pub fn get_cached_health(&self) -> Option<bool> {
-        if let (Ok(last_check), Ok(last_result)) = (
-            self.last_health_check.read(),
-            self.last_health_result.read(),
-        ) {
-            if let (Some(check_time), Some(result)) = (last_check.as_ref(), last_result.as_ref()) {
-                if check_time.elapsed() < Duration::from_secs(5) {
-                    return Some(*result);
-                }
+        // Check cache validity flag first for fast path
+        if !self.inner.cache_valid.load(Ordering::Acquire) {
+            return None;
+        }
+
+        // Lock both values together to ensure consistency
+        let (check_time, result) = {
+            let last_check = self.inner.last_health_check.lock().ok()?;
+            let last_result = self.inner.last_health_result.lock().ok()?;
+            match (last_check.as_ref(), last_result.as_ref()) {
+                (Some(time), Some(res)) => (*time, *res),
+                _ => return None,
+            }
+        };
+
+        // Check if still within validity period
+        if check_time.elapsed() < Duration::from_secs(5) {
+            Some(result)
+        } else {
+            // Invalidate cache for next check
+            self.inner.cache_valid.store(false, Ordering::Release);
+            None
+        }
+    }
+
+    /// Helper method to read instant from RwLock with poison recovery
+    fn read_instant(&self, lock: &RwLock<Option<Instant>>) -> Option<Instant> {
+        match lock.read() {
+            Ok(guard) => *guard,
+            Err(poisoned) => {
+                // Recover from poison by reading the data anyway
+                *poisoned.into_inner()
             }
         }
-        None
+    }
+
+    /// Helper method to write instant to RwLock with poison recovery
+    fn write_instant(&self, lock: &RwLock<Option<Instant>>, value: Option<Instant>) {
+        match lock.write() {
+            Ok(mut guard) => *guard = value,
+            Err(poisoned) => {
+                // Recover from poison by writing the data anyway
+                let mut guard = poisoned.into_inner();
+                *guard = value;
+            }
+        }
     }
 }
 
-// Implement Clone manually due to Arc<RwLock<>> fields
+// Clone is now trivial since all state is shared via Arc
 impl Clone for ConnectionStats {
     fn clone(&self) -> Self {
         Self {
-            connected_since: Arc::clone(&self.connected_since),
-            bytes_sent: AtomicU64::new(self.bytes_sent.load(Ordering::Relaxed)),
-            bytes_received: AtomicU64::new(self.bytes_received.load(Ordering::Relaxed)),
-            commands_sent: AtomicU64::new(self.commands_sent.load(Ordering::Relaxed)),
-            responses_received: AtomicU64::new(self.responses_received.load(Ordering::Relaxed)),
-            error_count: AtomicU64::new(self.error_count.load(Ordering::Relaxed)),
-            last_activity: Arc::clone(&self.last_activity),
-            last_error: Arc::clone(&self.last_error),
-            last_health_check: Arc::clone(&self.last_health_check),
-            last_health_result: Arc::clone(&self.last_health_result),
+            inner: Arc::clone(&self.inner),
         }
     }
 }
@@ -215,7 +242,7 @@ use crate::async_transport::TransportFuture;
 #[cfg(feature = "async")]
 pub trait AsyncConnectionManagement: Send + Sync {
     /// Check if the connection is healthy by sending a simple inquiry
-    fn is_healthy(&mut self) -> TransportFuture<'_, Result<bool, crate::ViscaError>>;
+    fn is_healthy(&mut self) -> TransportFuture<'_, bool>;
 
     /// Get connection statistics
     fn connection_stats(&self) -> &ConnectionStats;
