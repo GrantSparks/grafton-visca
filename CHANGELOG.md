@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - Unreleased
+
+### Added
+- **Standalone Conversion Functions**: Added easy-to-use conversion utilities
+  - Direct function calls for position conversions (pan/tilt/zoom)
+  - Conversion between VISCA units, degrees, and normalized values
+  - Support for zoom magnification (1x to 20x)
+  - Speed conversion utilities for pan/tilt/zoom operations
+
+### Changed
+- **Breaking Change**: Added new error variants `ParameterOutOfRange` and `InvalidState`
+  - Kept traditional exhaustive enum approach for better ergonomics
+  - Users can handle all error cases with compile-time guarantees
+
 ## [0.3.0] - 2025-01-06
 
 ### Added
