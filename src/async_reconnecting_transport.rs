@@ -424,7 +424,7 @@ where
     /// Gets a mutable reference to the connection statistics.
     ///
     /// This is the preferred way to access stats for the async transport,
-    /// as it properly handles the Arc<RwLock> wrapping.
+    /// as it properly handles the `Arc<RwLock>` wrapping.
     pub async fn connection_stats_mut(&self) -> ConnectionStats {
         let state = self.inner.read().await;
         state.stats.clone()
