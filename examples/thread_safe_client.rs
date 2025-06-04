@@ -3,20 +3,19 @@
 //! This example shows how to use ViscaClient to control a camera
 //! from multiple threads without needing RefCell or manual locking.
 
-use grafton_visca::{
-    command::{
-        pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-        power::Power,
-        PanTiltCommand, PowerCommand, ZoomCommand,
-    },
-    UdpTransport, ViscaClient, ViscaError,
-};
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
-
 #[cfg(not(all(feature = "sync", feature = "async")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use grafton_visca::{
+        command::{
+            pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
+            power::Power,
+            PanTiltCommand, PowerCommand, ZoomCommand,
+        },
+        UdpTransport, ViscaClient, ViscaError,
+    };
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
     env_logger::init();
 
     // Get camera address from command line or use default
