@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - Unreleased
 
 ### Added
+- **Improved Error Types**: Enhanced error handling with more specific error variants
+  - Added `ConnectionFailed`, `ConnectionLost`, and `CommandTimeout` for network issues
+  - Added `CameraBusy`, `CameraMoving`, and `CameraNotReady` for camera state errors
+  - Added `InvalidResponse` and `CommandRejected` for protocol errors
+  - Added `OutOfRange` and `PresetNotFound` for value validation
+  - Added `FeatureNotSupported` for camera capability detection
+  - Includes helper methods `is_retryable()` and `suggested_retry_delay()`
 - **Camera Constants Module**: Comprehensive constants for camera control
   - Camera model definitions (PTZOpticsG2, G3, 30X)
   - Position constants (pan/tilt ranges, degrees)
@@ -21,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Camera Detection**: Basic camera model detection function
 
 ### Changed
+- **Breaking Change**: Reorganized `ViscaError` enum with new variants
+  - Kept traditional exhaustive enum approach for better ergonomics
+  - Users can handle all error cases with compile-time guarantees
+  - Accepted that new error variants require major version bumps
 - **Breaking Change**: Added new error variant `ParameterOutOfRange`
   - Provides detailed validation errors with parameter name and valid range
   - Required for the new validation functions
