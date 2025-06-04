@@ -2,12 +2,16 @@
 
 #[cfg(feature = "async")]
 use grafton_visca::{
-    command::{PanTiltCommand, PowerCommand, ZoomCommand},
-    AsyncConnectionManagement, AsyncReconnectingTransport, AsyncTcpTransport, AsyncUdpTransport,
-    AsyncViscaTransport, ConnectionEvent, ConnectionEventCallback, ReconnectionConfig, ViscaError,
+    command::{
+        pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+        power::{Power, PowerCommand},
+        ZoomCommand,
+    },
+    AsyncConnectionEvent, AsyncConnectionManagement, AsyncReconnectingTransport, AsyncTcpTransport,
+    AsyncUdpTransport, AsyncViscaTransport, ReconnectionConfig, ViscaError,
 };
 #[cfg(feature = "async")]
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "async")]
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "async")]
@@ -65,9 +69,15 @@ async fn demo_async_udp_reconnection() -> Result<(), Box<dyn std::error::Error>>
     // Test basic operations
     println!("\n1. Testing basic operations with auto-reconnection:");
 
-    let power_cmd = PowerCommand::on();
-    match transport.send_and_wait(&power_cmd).await {
-        Ok(_) => println!("✓ Power on successful"),
+    // Power on
+    let power_cmd = PowerCommand { power: Power::On };
+    transport.send_command(&power_cmd).await?;
+    match transport.receive_response().await {
+        Ok(responses) => {
+            if !responses.is_empty() {
+                println!("✓ Power on successful");
+            }
+        }
         Err(e) => println!("✗ Power on failed: {}", e),
     }
 
@@ -78,7 +88,13 @@ async fn demo_async_udp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         println!("\nMovement cycle {}:", i + 1);
 
         // Move right
-        match transport.send_and_wait(&PanTiltCommand::Right(8, 8)).await {
+        let cmd = PanTiltCommand::Move {
+            direction: PanTiltDirection::Right,
+            pan_speed: PanSpeed::new(8).unwrap(),
+            tilt_speed: TiltSpeed::new(8).unwrap(),
+        };
+        transport.send_command(&cmd).await?;
+        match transport.receive_response().await {
             Ok(_) => println!("  ✓ Pan right successful"),
             Err(e) => println!("  ✗ Pan right failed: {}", e),
         }
@@ -86,7 +102,13 @@ async fn demo_async_udp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         sleep(Duration::from_secs(2)).await;
 
         // Move left
-        match transport.send_and_wait(&PanTiltCommand::Left(8, 8)).await {
+        let cmd = PanTiltCommand::Move {
+            direction: PanTiltDirection::Left,
+            pan_speed: PanSpeed::new(8).unwrap(),
+            tilt_speed: TiltSpeed::new(8).unwrap(),
+        };
+        transport.send_command(&cmd).await?;
+        match transport.receive_response().await {
             Ok(_) => println!("  ✓ Pan left successful"),
             Err(e) => println!("  ✗ Pan left failed: {}", e),
         }
@@ -101,7 +123,7 @@ async fn demo_async_udp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         Err(e) => println!("\n✗ Error checking health: {}", e),
     }
 
-    // Get statistics using the new async methods
+    // Get statistics
     let stats = transport.connection_stats_mut().await;
     let snapshot = stats.snapshot();
     println!("\n3. Connection Statistics:");
@@ -151,7 +173,8 @@ async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         println!("\nZoom cycle {}:", i + 1);
 
         // Zoom in
-        match transport.send_and_wait(&ZoomCommand::TeleStandard).await {
+        transport.send_command(&ZoomCommand::TeleStandard).await?;
+        match transport.receive_response().await {
             Ok(_) => println!("  ✓ Zoom in successful"),
             Err(e) => println!("  ✗ Zoom in failed: {}", e),
         }
@@ -159,7 +182,8 @@ async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         sleep(Duration::from_millis(500)).await;
 
         // Stop zoom
-        match transport.send_and_wait(&ZoomCommand::Stop).await {
+        transport.send_command(&ZoomCommand::Stop).await?;
+        match transport.receive_response().await {
             Ok(_) => println!("  ✓ Zoom stop successful"),
             Err(e) => println!("  ✗ Zoom stop failed: {}", e),
         }
@@ -167,7 +191,8 @@ async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         sleep(Duration::from_secs(1)).await;
 
         // Zoom out
-        match transport.send_and_wait(&ZoomCommand::WideStandard).await {
+        transport.send_command(&ZoomCommand::WideStandard).await?;
+        match transport.receive_response().await {
             Ok(_) => println!("  ✓ Zoom out successful"),
             Err(e) => println!("  ✗ Zoom out failed: {}", e),
         }
@@ -175,7 +200,8 @@ async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         sleep(Duration::from_millis(500)).await;
 
         // Stop zoom
-        match transport.send_and_wait(&ZoomCommand::Stop).await {
+        transport.send_command(&ZoomCommand::Stop).await?;
+        match transport.receive_response().await {
             Ok(_) => println!("  ✓ Zoom stop successful"),
             Err(e) => println!("  ✗ Zoom stop failed: {}", e),
         }
@@ -202,7 +228,7 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
     let camera_addr: SocketAddr = "192.168.1.100:1259".parse()?;
 
     // Track connection events
-    let events = Arc::new(Mutex::new(Vec::<ConnectionEvent>::new()));
+    let events = Arc::new(Mutex::new(Vec::<AsyncConnectionEvent>::new()));
     let events_clone = events.clone();
 
     // Configure reconnection with shorter delays for demo
@@ -216,14 +242,11 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
 
     // Create transport with simulated failures
     let fail_count = Arc::new(AtomicUsize::new(0));
-    let should_fail = Arc::new(AtomicBool::new(false));
     let fail_count_clone = fail_count.clone();
-    let should_fail_clone = should_fail.clone();
 
     let mut transport = AsyncReconnectingTransport::new(
         move || {
             let fail_count = fail_count_clone.clone();
-            let should_fail = should_fail_clone.clone();
 
             async move {
                 let count = fail_count.fetch_add(1, Ordering::SeqCst);
@@ -249,13 +272,13 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
 
         // Print event with emoji indicators
         match &event {
-            ConnectionEvent::Connected => {
+            AsyncConnectionEvent::Connected => {
                 println!("🟢 ASYNC EVENT: Connection established");
             }
-            ConnectionEvent::Disconnected { reason } => {
+            AsyncConnectionEvent::Disconnected { reason } => {
                 println!("🔴 ASYNC EVENT: Connection lost - {}", reason);
             }
-            ConnectionEvent::ReconnectingStarted {
+            AsyncConnectionEvent::ReconnectingStarted {
                 attempt,
                 max_attempts,
             } => {
@@ -264,10 +287,10 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
                     attempt, max_attempts
                 );
             }
-            ConnectionEvent::ReconnectingFailed { attempt, error } => {
+            AsyncConnectionEvent::ReconnectingFailed { attempt, error } => {
                 println!("❌ ASYNC EVENT: Attempt {} failed - {}", attempt, error);
             }
-            ConnectionEvent::ReconnectionExhausted => {
+            AsyncConnectionEvent::ReconnectionExhausted => {
                 println!("⛔ ASYNC EVENT: All attempts exhausted");
             }
         }
@@ -278,17 +301,19 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
     println!("\nSending commands to trigger connection events...\n");
 
     // First command should work
-    match transport.send_and_wait(&PowerCommand::on()).await {
+    let power_cmd = PowerCommand { power: Power::On };
+    transport.send_command(&power_cmd).await?;
+    match transport.receive_response().await {
         Ok(_) => println!("✓ Initial command successful"),
         Err(e) => println!("✗ Initial command failed: {}", e),
     }
 
     // Force connection failures
     fail_count.store(1, Ordering::SeqCst);
-    should_fail.store(true, Ordering::SeqCst);
 
     // This will trigger reconnection
-    match transport.send_and_wait(&ZoomCommand::TeleStandard).await {
+    transport.send_command(&ZoomCommand::TeleStandard).await?;
+    match transport.receive_response().await {
         Ok(_) => println!("✓ Command after failure successful"),
         Err(e) => println!("✗ Command after failure failed: {}", e),
     }
@@ -297,7 +322,8 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
     sleep(Duration::from_secs(1)).await;
 
     // Try one more command
-    match transport.send_and_wait(&PanTiltCommand::Home).await {
+    transport.send_command(&PanTiltCommand::Home).await?;
+    match transport.receive_response().await {
         Ok(_) => println!("✓ Final command successful"),
         Err(e) => println!("✗ Final command failed: {}", e),
     }
@@ -310,18 +336,18 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
     for (i, event) in event_list.iter().enumerate() {
         print!("  {}. ", i + 1);
         match event {
-            ConnectionEvent::Connected => println!("Connected"),
-            ConnectionEvent::Disconnected { .. } => println!("Disconnected"),
-            ConnectionEvent::ReconnectingStarted {
+            AsyncConnectionEvent::Connected => println!("Connected"),
+            AsyncConnectionEvent::Disconnected { .. } => println!("Disconnected"),
+            AsyncConnectionEvent::ReconnectingStarted {
                 attempt,
                 max_attempts,
             } => {
                 println!("Reconnecting {}/{}", attempt, max_attempts)
             }
-            ConnectionEvent::ReconnectingFailed { attempt, .. } => {
+            AsyncConnectionEvent::ReconnectingFailed { attempt, .. } => {
                 println!("Attempt {} failed", attempt)
             }
-            ConnectionEvent::ReconnectionExhausted => println!("Exhausted"),
+            AsyncConnectionEvent::ReconnectionExhausted => println!("Exhausted"),
         }
     }
 
