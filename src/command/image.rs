@@ -1,4 +1,6 @@
-use crate::{command::ViscaCommand, error::ViscaError, ViscaResponseType};
+use crate::{
+    command::ViscaCommand, error::ViscaError, timeout::CommandCategory, ViscaResponseType,
+};
 
 pub struct BacklightCommand {
     pub status: bool,
@@ -12,6 +14,10 @@ impl ViscaCommand for BacklightCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Custom
     }
 }
 
@@ -40,6 +46,10 @@ impl ViscaCommand for NoiseReduction2DCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Custom
+    }
 }
 
 /// 3D Noise Reduction command
@@ -67,6 +77,10 @@ impl ViscaCommand for NoiseReduction3DCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Custom
+    }
 }
 
 /// Black and White Mode command
@@ -83,6 +97,10 @@ impl ViscaCommand for BlackWhiteCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Custom
     }
 }
 
@@ -112,5 +130,9 @@ impl ViscaCommand for ImageFlipCombinedCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Custom
     }
 }

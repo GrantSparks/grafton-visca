@@ -1,5 +1,6 @@
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
+use crate::timeout::CommandCategory;
 
 use super::ViscaResponseType;
 
@@ -121,5 +122,9 @@ impl ViscaCommand for InquiryCommand {
             InquiryCommand::FocusNearLimit => Some(ViscaResponseType::FocusNearLimit),
             InquiryCommand::DynamicRange => Some(ViscaResponseType::DynamicRange),
         }
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }

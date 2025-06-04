@@ -24,6 +24,7 @@
 use super::ViscaResponseType;
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
+use crate::timeout::CommandCategory;
 use std::convert::TryFrom;
 
 /// Direction for pan/tilt movement commands.
@@ -202,6 +203,13 @@ impl ViscaCommand for PanTiltCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        match self {
+            PanTiltCommand::Home | PanTiltCommand::Reset => CommandCategory::Movement,
+            _ => CommandCategory::Movement,
+        }
     }
 }
 
@@ -549,5 +557,9 @@ impl ViscaCommand for PanTiltLimitCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Movement
     }
 }

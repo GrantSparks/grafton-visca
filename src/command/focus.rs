@@ -5,6 +5,7 @@
 
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
+use crate::timeout::CommandCategory;
 
 use super::ViscaResponseType;
 
@@ -66,6 +67,10 @@ impl ViscaCommand for FocusCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Movement
+    }
 }
 
 /// Focus Zone selection
@@ -92,6 +97,10 @@ impl ViscaCommand for FocusZoneCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
@@ -120,6 +129,10 @@ impl ViscaCommand for AFSensitivityCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
 }
 
 /// Focus Near Limit
@@ -138,5 +151,9 @@ impl ViscaCommand for FocusNearLimitCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
