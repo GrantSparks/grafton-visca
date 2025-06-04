@@ -1,9 +1,18 @@
 //! Example demonstrating configurable timeouts for different command types with async transports.
 //!
+//! Run with: cargo run --example async_configurable_timeouts --features async
+//!
 //! This example shows how to use the TimeoutConfig to set different timeout
 //! durations for various categories of VISCA commands when using async transports,
 //! allowing fine-tuned control over command execution timeouts.
 
+#[cfg(not(feature = "async"))]
+fn main() {
+    eprintln!("This example requires the 'async' feature. Run with:");
+    eprintln!("cargo run --example async_configurable_timeouts --features async");
+}
+
+#[cfg(feature = "async")]
 use grafton_visca::{
     async_transport::AsyncViscaTransport,
     command::{
@@ -14,10 +23,14 @@ use grafton_visca::{
     },
     AsyncUdpTransport, TimeoutConfigBuilder, ViscaCommand, ViscaError, ViscaResponse,
 };
+#[cfg(feature = "async")]
 use std::error::Error;
+#[cfg(feature = "async")]
 use std::net::ToSocketAddrs;
+#[cfg(feature = "async")]
 use std::time::Duration;
 
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -62,6 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[cfg(feature = "async")]
 async fn demonstrate_quick_command(
     transport: &mut dyn AsyncViscaTransport,
 ) -> Result<(), Box<dyn Error>> {
@@ -88,6 +102,7 @@ async fn demonstrate_quick_command(
     Ok(())
 }
 
+#[cfg(feature = "async")]
 async fn demonstrate_movement_command(
     transport: &mut dyn AsyncViscaTransport,
 ) -> Result<(), Box<dyn Error>> {
@@ -125,6 +140,7 @@ async fn demonstrate_movement_command(
     Ok(())
 }
 
+#[cfg(feature = "async")]
 async fn demonstrate_preset_command(
     transport: &mut dyn AsyncViscaTransport,
 ) -> Result<(), Box<dyn Error>> {
@@ -154,6 +170,7 @@ async fn demonstrate_preset_command(
 }
 
 /// Helper function to send a command and wait for the appropriate response
+#[cfg(feature = "async")]
 async fn send_and_wait_async(
     transport: &mut dyn AsyncViscaTransport,
     command: &dyn ViscaCommand,
@@ -213,10 +230,11 @@ async fn send_and_wait_async(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "async"))]
 mod tests {
     use super::*;
-    use grafton_visca::{CommandCategory, TimeoutConfig};
+    use grafton_visca::{CommandCategory, TimeoutConfigBuilder};
+    use std::time::Duration;
 
     #[test]
     fn test_timeout_configuration() {
