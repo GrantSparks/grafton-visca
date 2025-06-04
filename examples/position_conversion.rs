@@ -9,10 +9,9 @@
 use grafton_visca::{
     command::{InquiryCommand, PanTiltCommand},
     constants::{
-        self, CameraConstants, CameraModel, DegreePosition, PositionConversion,
-        ViscaPosition,
+        self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
-    send_command_and_wait, CameraDetection, UdpTransport, ViscaInquiryResponse, ViscaResponse,
+    detect_camera_model, send_command_and_wait, UdpTransport, ViscaInquiryResponse, ViscaResponse,
 };
 use log::{error, info};
 use std::env;
@@ -35,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Connected to camera at {}", address);
 
     // Try to detect camera model (currently returns Unknown)
-    let model = transport.detect_camera_model()?;
+    let model = detect_camera_model(&mut transport)?;
     info!("Detected camera model: {:?}", model);
 
     // For this example, we'll assume PTZOptics G2
@@ -55,8 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get current position
     info!("\nQuerying current camera position...");
     let response = send_command_and_wait(&mut transport, &InquiryCommand::PanTiltPosition)?;
-    
-    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) = response {
+
+    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) =
+        response
+    {
         let visca_pos = ViscaPosition { pan, tilt };
         info!("Current VISCA position: pan={}, tilt={}", pan, tilt);
 
@@ -65,42 +66,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let normalized = visca_pos.to_normalized(model);
 
         info!("\nPosition conversions:");
-        info!("  VISCA units: pan={}, tilt={}", visca_pos.pan, visca_pos.tilt);
-        info!("  Degrees: pan={:.1}°, tilt={:.1}°", degrees.pan, degrees.tilt);
-        info!("  Normalized: pan={:.3}, tilt={:.3}", normalized.pan, normalized.tilt);
+        info!(
+            "  VISCA units: pan={}, tilt={}",
+            visca_pos.pan, visca_pos.tilt
+        );
+        info!(
+            "  Degrees: pan={:.1}°, tilt={:.1}°",
+            degrees.pan, degrees.tilt
+        );
+        info!(
+            "  Normalized: pan={:.3}, tilt={:.3}",
+            normalized.pan, normalized.tilt
+        );
 
         // Demonstrate reverse conversions
         info!("\nReverse conversions:");
         let from_degrees = degrees.to_visca(model);
-        info!("  Degrees -> VISCA: pan={}, tilt={}", from_degrees.pan, from_degrees.tilt);
-        
+        info!(
+            "  Degrees -> VISCA: pan={}, tilt={}",
+            from_degrees.pan, from_degrees.tilt
+        );
+
         let from_normalized = normalized.to_visca(model);
-        info!("  Normalized -> VISCA: pan={}, tilt={}", from_normalized.pan, from_normalized.tilt);
+        info!(
+            "  Normalized -> VISCA: pan={}, tilt={}",
+            from_normalized.pan, from_normalized.tilt
+        );
     } else {
         error!("Failed to get current position");
     }
 
     // Demonstrate validation
     info!("\nValidation examples:");
-    
+
     // Valid pan position
     match constants::validate_pan_position(1000, model) {
         Ok(pos) => info!("  Pan position {} is valid", pos),
         Err(e) => error!("  Pan validation error: {}", e),
     }
-    
+
     // Invalid pan position
     match constants::validate_pan_position(5000, model) {
         Ok(pos) => info!("  Pan position {} is valid", pos),
         Err(e) => info!("  Pan validation error (expected): {}", e),
     }
-    
+
     // Valid preset ID
     match constants::validate_preset_id(50) {
         Ok(id) => info!("  Preset ID {} is valid", id),
         Err(e) => error!("  Preset validation error: {}", e),
     }
-    
+
     // Invalid preset ID
     match constants::validate_preset_id(150) {
         Ok(id) => info!("  Preset ID {} is valid", id),
@@ -109,12 +125,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate moving to a position specified in degrees
     info!("\nMoving to position specified in degrees...");
-    let target_degrees = DegreePosition { pan: 45.0, tilt: 15.0 };
+    let target_degrees = DegreePosition {
+        pan: 45.0,
+        tilt: 15.0,
+    };
     let target_visca = target_degrees.to_visca(model);
-    
-    info!("Target position: {:.1}° pan, {:.1}° tilt", target_degrees.pan, target_degrees.tilt);
-    info!("Converted to VISCA: {} pan, {} tilt", target_visca.pan, target_visca.tilt);
-    
+
+    info!(
+        "Target position: {:.1}° pan, {:.1}° tilt",
+        target_degrees.pan, target_degrees.tilt
+    );
+    info!(
+        "Converted to VISCA: {} pan, {} tilt",
+        target_visca.pan, target_visca.tilt
+    );
+
     // Validate before sending
     if let (Ok(_), Ok(_)) = (
         constants::validate_pan_position(target_visca.pan, model),
@@ -126,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pan_speed: constants::speed::PAN_SPEED_DEFAULT,
             tilt_speed: constants::speed::TILT_SPEED_DEFAULT,
         };
-        
+
         match send_command_and_wait(&mut transport, &command) {
             Ok(_) => info!("Successfully moved to target position"),
             Err(e) => error!("Failed to move: {}", e),
@@ -137,10 +162,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Using constants for network and timing
     info!("\nOther useful constants:");
-    info!("  Default VISCA port: {}", constants::network::VISCA_DEFAULT_PORT);
-    info!("  Command timeout: {} ms", constants::timing::COMMAND_TIMEOUT_MS);
-    info!("  Preset recall timeout: {} ms", constants::timing::PRESET_RECALL_TIMEOUT_MS);
+    info!(
+        "  Default VISCA port: {}",
+        constants::network::VISCA_DEFAULT_PORT
+    );
+    info!(
+        "  Command timeout: {} ms",
+        constants::timing::COMMAND_TIMEOUT_MS
+    );
+    info!(
+        "  Preset recall timeout: {} ms",
+        constants::timing::PRESET_RECALL_TIMEOUT_MS
+    );
     info!("  Max preset ID: {}", constants::preset::PRESET_ID_MAX);
 
     Ok(())
 }
+
