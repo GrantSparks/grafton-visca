@@ -2,47 +2,48 @@ use std::io;
 use std::time::Duration;
 use thiserror::Error;
 
+#[non_exhaustive]
 #[derive(Error, Debug)]
 pub enum ViscaError {
     // Connection errors
     #[error("Connection failed to {addr}: {source}")]
     ConnectionFailed { addr: String, source: io::Error },
-    
+
     #[error("Connection lost: {reason}")]
     ConnectionLost { reason: String },
-    
+
     #[error("Command timeout after {duration:?} for command: {command}")]
     CommandTimeout { duration: Duration, command: String },
-    
+
     // Camera state errors
     #[error("Camera is busy executing another command")]
     CameraBusy,
-    
+
     #[error("Camera is still moving, position: pan={pan}, tilt={tilt}")]
     CameraMoving { pan: i16, tilt: i16 },
-    
+
     #[error("Camera not initialized")]
     CameraNotReady,
-    
+
     // Protocol errors
     #[error("Invalid response: expected {expected}, got {actual:?}")]
     InvalidResponse { expected: String, actual: Vec<u8> },
-    
+
     #[error("Command rejected by camera: {reason}")]
     CommandRejected { reason: String },
-    
+
     // Value errors
     #[error("Value {value} out of range [{min}, {max}] for {parameter}")]
-    OutOfRange { 
-        value: i32, 
-        min: i32, 
-        max: i32, 
-        parameter: String 
+    OutOfRange {
+        value: i32,
+        min: i32,
+        max: i32,
+        parameter: String,
     },
-    
+
     #[error("Preset {id} not found")]
     PresetNotFound { id: u8 },
-    
+
     // Feature errors
     #[error("Feature '{feature}' not supported by this camera model")]
     FeatureNotSupported { feature: String },
@@ -104,15 +105,16 @@ impl ViscaError {
     }
 
     pub fn is_retryable(&self) -> bool {
-        matches!(self, 
-            ViscaError::CameraBusy | 
-            ViscaError::CameraMoving { .. } |
-            ViscaError::CommandTimeout { .. } |
-            ViscaError::CommandBufferFull |
-            ViscaError::Timeout
+        matches!(
+            self,
+            ViscaError::CameraBusy
+                | ViscaError::CameraMoving { .. }
+                | ViscaError::CommandTimeout { .. }
+                | ViscaError::CommandBufferFull
+                | ViscaError::Timeout
         )
     }
-    
+
     pub fn suggested_retry_delay(&self) -> Option<Duration> {
         match self {
             ViscaError::CameraBusy => Some(Duration::from_millis(100)),
@@ -233,10 +235,11 @@ mod tests {
         // Retryable errors
         assert!(ViscaError::CameraBusy.is_retryable());
         assert!(ViscaError::CameraMoving { pan: 100, tilt: 50 }.is_retryable());
-        assert!(ViscaError::CommandTimeout { 
-            duration: Duration::from_secs(5), 
-            command: "test".to_string() 
-        }.is_retryable());
+        assert!(ViscaError::CommandTimeout {
+            duration: Duration::from_secs(5),
+            command: "test".to_string()
+        }
+        .is_retryable());
         assert!(ViscaError::CommandBufferFull.is_retryable());
         assert!(ViscaError::Timeout.is_retryable());
 
@@ -259,10 +262,11 @@ mod tests {
             Some(Duration::from_millis(500))
         );
         assert_eq!(
-            ViscaError::CommandTimeout { 
-                duration: Duration::from_secs(5), 
-                command: "test".to_string() 
-            }.suggested_retry_delay(),
+            ViscaError::CommandTimeout {
+                duration: Duration::from_secs(5),
+                command: "test".to_string()
+            }
+            .suggested_retry_delay(),
             Some(Duration::from_secs(1))
         );
         assert_eq!(
@@ -276,6 +280,9 @@ mod tests {
 
         // Errors without retry delays
         assert_eq!(ViscaError::SyntaxError.suggested_retry_delay(), None);
-        assert_eq!(ViscaError::InvalidParameter("test".to_string()).suggested_retry_delay(), None);
+        assert_eq!(
+            ViscaError::InvalidParameter("test".to_string()).suggested_retry_delay(),
+            None
+        );
     }
 }
