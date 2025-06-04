@@ -227,4 +227,3 @@ impl AsyncViscaClient {
         // Background task will exit on next iteration
     }
 }
-
