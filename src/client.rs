@@ -4,6 +4,8 @@
 //! eliminating the need for RefCell in user code and enabling safe
 //! concurrent access from multiple threads.
 
+#![cfg(not(all(feature = "sync", feature = "async")))]
+
 use crate::{send_command_and_wait, ViscaCommand, ViscaError, ViscaResponse, ViscaTransport};
 use std::sync::{Arc, Mutex};
 
@@ -29,7 +31,7 @@ use std::sync::{Arc, Mutex};
 ///
 /// // Clone the client for use in another thread
 /// let client_clone = client.clone();
-/// 
+///
 /// // Use the client from multiple threads
 /// let handle = thread::spawn(move || {
 ///     let command = PowerCommand { power: Power::On };
@@ -104,7 +106,7 @@ impl ViscaClient {
             .transport
             .lock()
             .map_err(|_| ViscaError::InvalidParameter("Mutex poisoned".into()))?;
-        
+
         send_command_and_wait(&mut **transport, command)
     }
 
@@ -142,7 +144,7 @@ impl ViscaClient {
             .transport
             .try_lock()
             .map_err(|_| ViscaError::InvalidParameter("Transport is busy".into()))?;
-        
+
         send_command_and_wait(&mut **transport, command)
     }
 
@@ -194,7 +196,7 @@ mod tests {
     fn test_client_is_send_and_sync() {
         fn assert_send<T: Send>() {}
         fn assert_sync<T: Sync>() {}
-        
+
         assert_send::<ViscaClient>();
         assert_sync::<ViscaClient>();
     }
@@ -204,32 +206,32 @@ mod tests {
         // We can't easily test the full functionality without a proper mock,
         // but we can verify that the client can be created and cloned
         use crate::UdpTransport;
-        
+
         // This will fail to connect, but that's OK for this test
         let transport = UdpTransport::new("127.0.0.1:1259").unwrap();
         let client = ViscaClient::new(Box::new(transport));
         let _client_clone = client.clone();
-        
+
         // If we got here, the client was successfully created and cloned
     }
 
     #[test]
     fn test_client_arc_usage() {
         use crate::UdpTransport;
-        
+
         // Demonstrate the pattern users would use
         let transport = UdpTransport::new("127.0.0.1:1259").unwrap();
         let client = Arc::new(ViscaClient::new(Box::new(transport)));
-        
+
         // Clone the Arc for use in another thread
         let client_clone = Arc::clone(&client);
-        
+
         let handle = thread::spawn(move || {
             // In a real scenario, this would send a command
             // For the test, we just verify the client can be moved into the thread
             let _local_ref = client_clone;
         });
-        
+
         handle.join().unwrap();
     }
 }

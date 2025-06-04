@@ -237,7 +237,9 @@ pub use focus_ext::ViscaFocusExt;
 mod preset_ext;
 pub use preset_ext::ViscaPresetExt;
 
+#[cfg(not(all(feature = "sync", feature = "async")))]
 mod client;
+#[cfg(not(all(feature = "sync", feature = "async")))]
 pub use client::ViscaClient;
 
 #[cfg(feature = "async")]
