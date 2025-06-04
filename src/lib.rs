@@ -196,7 +196,10 @@ mod transport_ext;
 pub use transport_ext::ViscaTransportExt;
 
 mod inquiry_ext;
-pub use inquiry_ext::{ViscaInquiryExt, CameraState, CameraPosition, OpticsState, ExposureState, WhiteBalanceState, ImageState};
+pub use inquiry_ext::{
+    CameraPosition, CameraState, ExposureState, ImageState, OpticsState, ViscaInquiryExt,
+    WhiteBalanceState,
+};
 
 #[cfg(feature = "async")]
 mod async_inquiry_ext;

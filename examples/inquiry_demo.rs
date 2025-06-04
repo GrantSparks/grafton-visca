@@ -1,6 +1,6 @@
 //! Example demonstrating the high-level inquiry API for querying camera state.
 
-use grafton_visca::{UdpTransport, ViscaInquiryExt, ViscaError};
+use grafton_visca::{UdpTransport, ViscaError, ViscaInquiryExt};
 use std::env;
 
 fn main() -> Result<(), ViscaError> {
@@ -22,7 +22,7 @@ fn main() -> Result<(), ViscaError> {
 
     // Query individual camera settings
     println!("\n=== Individual Camera Queries ===");
-    
+
     // Power state
     let power = transport.get_power_state()?;
     println!("Power: {}", if power { "ON" } else { "OFF" });
@@ -78,10 +78,16 @@ fn main() -> Result<(), ViscaError> {
     // Advanced Settings
     println!("\n=== Advanced Settings ===");
     let (vertical_flip, horizontal_flip) = transport.get_image_flip()?;
-    println!("Image Flip: Vertical={}, Horizontal={}", vertical_flip, horizontal_flip);
+    println!(
+        "Image Flip: Vertical={}, Horizontal={}",
+        vertical_flip, horizontal_flip
+    );
 
     let backlight = transport.get_backlight_status()?;
-    println!("Backlight Compensation: {}", if backlight { "ON" } else { "OFF" });
+    println!(
+        "Backlight Compensation: {}",
+        if backlight { "ON" } else { "OFF" }
+    );
 
     let bw_mode = transport.get_black_white_mode()?;
     println!("Black & White Mode: {}", if bw_mode { "ON" } else { "OFF" });
@@ -90,14 +96,20 @@ fn main() -> Result<(), ViscaError> {
     println!("\n=== Complete Camera State ===");
     println!("Querying all camera settings...");
     let state = transport.get_camera_state()?;
-    
+
     println!("\nCamera State Summary:");
     println!("  Power: {}", if state.power { "ON" } else { "OFF" });
-    println!("  Position: pan={}, tilt={}", state.position.pan, state.position.tilt);
-    println!("  Optics: zoom=0x{:04X}, focus=0x{:04X}", state.optics.zoom, state.optics.focus);
-    println!("  Exposure: mode={:?}, compensation={:?}", 
-        state.exposure.mode, 
-        state.exposure.compensation
+    println!(
+        "  Position: pan={}, tilt={}",
+        state.position.pan, state.position.tilt
+    );
+    println!(
+        "  Optics: zoom=0x{:04X}, focus=0x{:04X}",
+        state.optics.zoom, state.optics.focus
+    );
+    println!(
+        "  Exposure: mode={:?}, compensation={:?}",
+        state.exposure.mode, state.exposure.compensation
     );
     println!("  White Balance: {:?}", state.white_balance.mode);
     println!("  Image Quality:");

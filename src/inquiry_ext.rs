@@ -2,10 +2,10 @@
 
 use crate::{
     command::{
-        inquiry::InquiryCommand,
+        exposure::ExposureMode,
         focus::{AFSensitivity, FocusZone},
         gain::AntiFlickerMode,
-        exposure::ExposureMode,
+        inquiry::InquiryCommand,
         luminance_contrast_sharpness::SharpnessMode,
         white_balance::WhiteBalanceMode,
         ViscaInquiryResponse,
@@ -150,9 +150,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::ExposureCompensation)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensation { value }) => {
-                Ok(value)
-            }
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensation {
+                value,
+            }) => Ok(value),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -164,9 +164,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::ExposureCompensationMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode { on }) => {
-                Ok(on)
-            }
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode {
+                on,
+            }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -190,7 +190,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::Shutter)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => Ok(position),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => {
+                Ok(position)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -202,7 +204,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::Bright)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Bright { position }) => Ok(position),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Bright { position }) => {
+                Ok(position)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -298,7 +302,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::Backlight)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => Ok(status),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => {
+                Ok(status)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -310,9 +316,10 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::ImageFlip)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ImageFlip { vertical, horizontal }) => {
-                Ok((vertical, horizontal))
-            }
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            }) => Ok((vertical, horizontal)),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -324,7 +331,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::SharpnessMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => {
+                Ok(mode)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -336,9 +345,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::ColorTemperature)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ColorTemperature { temperature }) => {
-                Ok(temperature)
-            }
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ColorTemperature {
+                temperature,
+            }) => Ok(temperature),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -350,7 +359,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::NoiseReduction2D)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D { level }) => Ok(level),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D { level }) => {
+                Ok(level)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -362,7 +373,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::NoiseReduction3D)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D { level }) => Ok(level),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D { level }) => {
+                Ok(level)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -426,7 +439,9 @@ pub trait ViscaInquiryExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&InquiryCommand::DynamicRange)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => Ok(level),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => {
+                Ok(level)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }

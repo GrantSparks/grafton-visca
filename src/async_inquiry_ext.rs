@@ -1,17 +1,19 @@
 //! Async extension trait providing convenience methods for camera state inquiries.
 
 use crate::{
+    async_client::AsyncViscaClient,
     command::{
-        inquiry::InquiryCommand,
+        exposure::ExposureMode,
         focus::{AFSensitivity, FocusZone},
         gain::AntiFlickerMode,
-        exposure::ExposureMode,
+        inquiry::InquiryCommand,
         luminance_contrast_sharpness::SharpnessMode,
         white_balance::WhiteBalanceMode,
         ViscaInquiryResponse,
     },
-    inquiry_ext::{CameraState, CameraPosition, OpticsState, ExposureState, WhiteBalanceState, ImageState},
-    async_client::AsyncViscaClient,
+    inquiry_ext::{
+        CameraPosition, CameraState, ExposureState, ImageState, OpticsState, WhiteBalanceState,
+    },
     ViscaError, ViscaResponse,
 };
 
@@ -106,9 +108,9 @@ impl AsyncViscaClient {
     /// Get current exposure compensation value (-7 to +7).
     pub async fn get_exposure_compensation(&self) -> Result<i8, ViscaError> {
         match self.send(&InquiryCommand::ExposureCompensation).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensation { value }) => {
-                Ok(value)
-            }
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensation {
+                value,
+            }) => Ok(value),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -117,9 +119,9 @@ impl AsyncViscaClient {
     /// Get whether exposure compensation is enabled.
     pub async fn get_exposure_compensation_enabled(&self) -> Result<bool, ViscaError> {
         match self.send(&InquiryCommand::ExposureCompensationMode).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode { on }) => {
-                Ok(on)
-            }
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode {
+                on,
+            }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -137,7 +139,9 @@ impl AsyncViscaClient {
     /// Get current shutter position.
     pub async fn get_shutter_position(&self) -> Result<u16, ViscaError> {
         match self.send(&InquiryCommand::Shutter).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => Ok(position),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => {
+                Ok(position)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -146,7 +150,9 @@ impl AsyncViscaClient {
     /// Get current brightness position.
     pub async fn get_brightness_position(&self) -> Result<u16, ViscaError> {
         match self.send(&InquiryCommand::Bright).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Bright { position }) => Ok(position),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Bright { position }) => {
+                Ok(position)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -218,7 +224,9 @@ impl AsyncViscaClient {
     /// Get current backlight compensation status.
     pub async fn get_backlight_status(&self) -> Result<bool, ViscaError> {
         match self.send(&InquiryCommand::Backlight).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => Ok(status),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => {
+                Ok(status)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -227,9 +235,10 @@ impl AsyncViscaClient {
     /// Get current image flip settings (vertical and horizontal).
     pub async fn get_image_flip(&self) -> Result<(bool, bool), ViscaError> {
         match self.send(&InquiryCommand::ImageFlip).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ImageFlip { vertical, horizontal }) => {
-                Ok((vertical, horizontal))
-            }
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            }) => Ok((vertical, horizontal)),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -238,7 +247,9 @@ impl AsyncViscaClient {
     /// Get current sharpness mode.
     pub async fn get_sharpness_mode(&self) -> Result<SharpnessMode, ViscaError> {
         match self.send(&InquiryCommand::SharpnessMode).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => {
+                Ok(mode)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -247,9 +258,9 @@ impl AsyncViscaClient {
     /// Get current color temperature.
     pub async fn get_color_temperature(&self) -> Result<u16, ViscaError> {
         match self.send(&InquiryCommand::ColorTemperature).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ColorTemperature { temperature }) => {
-                Ok(temperature)
-            }
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ColorTemperature {
+                temperature,
+            }) => Ok(temperature),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -258,7 +269,9 @@ impl AsyncViscaClient {
     /// Get current 2D noise reduction level.
     pub async fn get_noise_reduction_2d(&self) -> Result<u8, ViscaError> {
         match self.send(&InquiryCommand::NoiseReduction2D).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D { level }) => Ok(level),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D { level }) => {
+                Ok(level)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -267,7 +280,9 @@ impl AsyncViscaClient {
     /// Get current 3D noise reduction level.
     pub async fn get_noise_reduction_3d(&self) -> Result<u8, ViscaError> {
         match self.send(&InquiryCommand::NoiseReduction3D).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D { level }) => Ok(level),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D { level }) => {
+                Ok(level)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -316,7 +331,9 @@ impl AsyncViscaClient {
     /// Get current dynamic range level.
     pub async fn get_dynamic_range(&self) -> Result<u8, ViscaError> {
         match self.send(&InquiryCommand::DynamicRange).await? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => Ok(level),
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => {
+                Ok(level)
+            }
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }

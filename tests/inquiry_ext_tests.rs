@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use grafton_visca::{ViscaInquiryExt, ViscaTransport, ViscaCommand, ViscaError};
     use grafton_visca::command::exposure::ExposureMode;
     use grafton_visca::command::white_balance::WhiteBalanceMode;
+    use grafton_visca::{ViscaCommand, ViscaError, ViscaInquiryExt, ViscaTransport};
     use std::collections::VecDeque;
 
     /// Mock transport for testing inquiry extension methods
@@ -63,7 +63,9 @@ mod tests {
         let mut transport = MockTransport::new();
         // Queue ACK and Pan/Tilt position response
         transport.queue_response(vec![0x90, 0x41, 0xFF]); // ACK
-        transport.queue_response(vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xFF]);
+        transport.queue_response(vec![
+            0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xFF,
+        ]);
 
         let (pan, tilt) = transport.get_pan_tilt_position().unwrap();
         assert_eq!(pan, 0x1234);
@@ -132,7 +134,7 @@ mod tests {
     // for Luminance and Contrast commands is not fully implemented in the
     // current version of the library. The high-level inquiry API is designed
     // to work once these parsers are added.
-    
+
     // #[test]
     // fn test_get_camera_state() {
     //     // Full camera state test would go here
