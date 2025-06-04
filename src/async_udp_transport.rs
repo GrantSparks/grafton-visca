@@ -1,6 +1,6 @@
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
-    parse_response, ViscaCommand, ViscaError,
+    parse_response, ConnectionStats, ViscaCommand, ViscaError,
 };
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
@@ -13,6 +13,7 @@ pub struct AsyncUdpTransport {
     camera_addr: SocketAddr,
     buffer: Vec<u8>,
     timeout_duration: Duration,
+    stats: ConnectionStats,
 }
 
 #[cfg(feature = "async")]
@@ -26,7 +27,13 @@ impl AsyncUdpTransport {
             camera_addr,
             buffer: vec![0; 1024],
             timeout_duration: Duration::from_secs(10),
+            stats: ConnectionStats::new(),
         })
+    }
+
+    /// Get connection statistics
+    pub fn stats(&self) -> &ConnectionStats {
+        &self.stats
     }
 
     /// Set the timeout duration for receive operations.
@@ -43,12 +50,21 @@ impl AsyncViscaTransport for AsyncUdpTransport {
 
             log::debug!("Sending command: {:02X?}", bytes);
 
-            self.socket
+            match self
+                .socket
                 .send_to(&bytes, self.camera_addr)
                 .await
-                .map_err(ViscaError::Io)?;
-
-            Ok(())
+                .map_err(ViscaError::Io)
+            {
+                Ok(_) => {
+                    self.stats.record_sent(bytes.len());
+                    Ok(())
+                }
+                Err(e) => {
+                    self.stats.record_error();
+                    Err(e)
+                }
+            }
         })
     }
 
@@ -65,9 +81,13 @@ impl AsyncViscaTransport for AsyncUdpTransport {
                     log::debug!("Received data: {:02X?}", received_data);
 
                     match parse_response(received_data) {
-                        Ok(responses) => Ok(responses),
+                        Ok(responses) => {
+                            self.stats.record_received(len);
+                            Ok(responses)
+                        }
                         Err(e) => {
                             log::error!("Failed to parse response: {:?}", e);
+                            self.stats.record_error();
                             Err(ViscaError::ParseError(format!(
                                 "Failed to parse response: {:?}",
                                 e
@@ -77,10 +97,12 @@ impl AsyncViscaTransport for AsyncUdpTransport {
                 }
                 Ok(Err(e)) => {
                     log::error!("Socket receive error: {:?}", e);
+                    self.stats.record_error();
                     Err(ViscaError::Io(e))
                 }
                 Err(_) => {
                     log::debug!("Receive timeout");
+                    self.stats.record_error();
                     Err(ViscaError::Timeout)
                 }
             }
@@ -94,5 +116,60 @@ impl Drop for AsyncUdpTransport {
         // UDP sockets don't require explicit shutdown
         // The OS will clean up when the UdpSocket is dropped
         log::debug!("Dropping AsyncUdpTransport");
+    }
+}
+
+#[cfg(feature = "async")]
+impl crate::AsyncConnectionManagement for AsyncUdpTransport {
+    fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
+        Box::pin(async move {
+            use crate::command::InquiryCommand;
+            use tokio::time::timeout;
+
+            // Check cached health result first
+            if let Some(cached_healthy) = self.stats.get_cached_health() {
+                return Ok(cached_healthy);
+            }
+
+            // Save original timeout
+            let original_timeout = self.timeout_duration;
+            self.timeout_duration = Duration::from_secs(1);
+
+            // Send the power inquiry command
+            let send_result = self.send_command(&InquiryCommand::Power).await;
+
+            // Always restore timeout
+            self.timeout_duration = original_timeout;
+
+            if send_result.is_err() {
+                self.stats.record_health_check(false);
+                return Ok(false);
+            }
+
+            // Try to receive response with a short timeout
+            match timeout(Duration::from_secs(1), self.receive_response()).await {
+                Ok(Ok(responses)) => {
+                    // Validate that we got a power inquiry response
+                    let healthy = responses.iter().any(|response| {
+                        // Power inquiry response format: 0x90 0x50 0x0{2,3} 0xFF
+                        response.len() == 4
+                            && response[0] == 0x90
+                            && response[1] == 0x50
+                            && (response[2] == 0x02 || response[2] == 0x03)
+                            && response[3] == 0xFF
+                    });
+                    self.stats.record_health_check(healthy);
+                    Ok(healthy)
+                }
+                Ok(Err(_)) | Err(_) => {
+                    self.stats.record_health_check(false);
+                    Ok(false) // Any error means unhealthy
+                }
+            }
+        })
+    }
+
+    fn connection_stats(&self) -> &ConnectionStats {
+        &self.stats
     }
 }

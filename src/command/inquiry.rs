@@ -5,6 +5,7 @@ use super::ViscaResponseType;
 
 #[derive(Debug)]
 pub enum InquiryCommand {
+    Power,
     PanTiltPosition,
     ZoomPosition,
     FocusPosition,
@@ -43,6 +44,7 @@ pub enum InquiryCommand {
 impl ViscaCommand for InquiryCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         let bytes = match self {
+            InquiryCommand::Power => vec![0x81, 0x09, 0x04, 0x00, 0xFF],
             InquiryCommand::PanTiltPosition => vec![0x81, 0x09, 0x06, 0x12, 0xFF],
             InquiryCommand::ZoomPosition => vec![0x81, 0x09, 0x04, 0x47, 0xFF],
             InquiryCommand::FocusPosition => vec![0x81, 0x09, 0x04, 0x48, 0xFF],
@@ -82,6 +84,7 @@ impl ViscaCommand for InquiryCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         match self {
+            InquiryCommand::Power => Some(ViscaResponseType::Power),
             InquiryCommand::PanTiltPosition => Some(ViscaResponseType::PanTiltPosition),
             InquiryCommand::ZoomPosition => Some(ViscaResponseType::ZoomPosition),
             InquiryCommand::FocusPosition => Some(ViscaResponseType::FocusPosition),
