@@ -91,17 +91,9 @@ impl TimeoutConfig {
 }
 
 /// Builder for creating custom timeout configurations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TimeoutConfigBuilder {
     config: TimeoutConfig,
-}
-
-impl Default for TimeoutConfigBuilder {
-    fn default() -> Self {
-        Self {
-            config: TimeoutConfig::default(),
-        }
-    }
 }
 
 impl TimeoutConfigBuilder {
@@ -147,11 +139,26 @@ mod tests {
 
     #[test]
     fn test_command_category_defaults() {
-        assert_eq!(CommandCategory::Quick.default_timeout(), Duration::from_secs(2));
-        assert_eq!(CommandCategory::Movement.default_timeout(), Duration::from_secs(10));
-        assert_eq!(CommandCategory::Preset.default_timeout(), Duration::from_secs(60));
-        assert_eq!(CommandCategory::LongRunning.default_timeout(), Duration::from_secs(300));
-        assert_eq!(CommandCategory::Custom.default_timeout(), Duration::from_secs(30));
+        assert_eq!(
+            CommandCategory::Quick.default_timeout(),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            CommandCategory::Movement.default_timeout(),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            CommandCategory::Preset.default_timeout(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            CommandCategory::LongRunning.default_timeout(),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            CommandCategory::Custom.default_timeout(),
+            Duration::from_secs(30)
+        );
     }
 
     #[test]
@@ -178,11 +185,26 @@ mod tests {
     #[test]
     fn test_get_timeout() {
         let config = TimeoutConfig::default();
-        assert_eq!(config.get_timeout(CommandCategory::Quick), Duration::from_secs(2));
-        assert_eq!(config.get_timeout(CommandCategory::Movement), Duration::from_secs(10));
-        assert_eq!(config.get_timeout(CommandCategory::Preset), Duration::from_secs(60));
-        assert_eq!(config.get_timeout(CommandCategory::LongRunning), Duration::from_secs(300));
-        assert_eq!(config.get_timeout(CommandCategory::Custom), Duration::from_secs(30));
+        assert_eq!(
+            config.get_timeout(CommandCategory::Quick),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            config.get_timeout(CommandCategory::Movement),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            config.get_timeout(CommandCategory::Preset),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            config.get_timeout(CommandCategory::LongRunning),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            config.get_timeout(CommandCategory::Custom),
+            Duration::from_secs(30)
+        );
     }
 
     #[test]

@@ -10,8 +10,7 @@ use grafton_visca::{
         preset::{PresetAction, PresetCommand},
         InquiryCommand,
     },
-    TimeoutConfigBuilder, UdpTransport, ViscaCommand,
-    ViscaTransport,
+    TimeoutConfigBuilder, UdpTransport, ViscaCommand, ViscaTransport,
 };
 use std::error::Error;
 use std::time::Duration;
@@ -23,11 +22,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Create a custom timeout configuration
     let timeout_config = TimeoutConfigBuilder::default()
-        .quick_timeout(Duration::from_secs(1))      // Fast for inquiries
-        .movement_timeout(Duration::from_secs(5))    // Medium for pan/tilt/zoom
-        .preset_timeout(Duration::from_secs(30))     // Long for preset operations
-        .long_timeout(Duration::from_secs(120))      // Very long for complex operations
-        .default_timeout(Duration::from_secs(10))    // Default for everything else
+        .quick_timeout(Duration::from_secs(1)) // Fast for inquiries
+        .movement_timeout(Duration::from_secs(5)) // Medium for pan/tilt/zoom
+        .preset_timeout(Duration::from_secs(30)) // Long for preset operations
+        .long_timeout(Duration::from_secs(120)) // Very long for complex operations
+        .default_timeout(Duration::from_secs(10)) // Default for everything else
         .build();
 
     // Display the configured timeouts
@@ -55,11 +54,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn demonstrate_quick_command(transport: &mut UdpTransport) -> Result<(), Box<dyn Error>> {
     println!("1. Quick Command (Power Inquiry):");
-    
+
     let command = InquiryCommand::Power;
     println!("   Command category: {:?}", command.command_category());
     println!("   Expected timeout: Quick (1 second)");
-    
+
     let start = std::time::Instant::now();
     match transport.send_and_wait(&command) {
         Ok(response) => {
@@ -73,13 +72,13 @@ fn demonstrate_quick_command(transport: &mut UdpTransport) -> Result<(), Box<dyn
         }
     }
     println!();
-    
+
     Ok(())
 }
 
 fn demonstrate_movement_command(transport: &mut UdpTransport) -> Result<(), Box<dyn Error>> {
     println!("2. Movement Command (Pan/Tilt):");
-    
+
     let command = PanTiltCommand::Move {
         direction: PanTiltDirection::Right,
         pan_speed: PanSpeed::new(10)?,
@@ -87,13 +86,13 @@ fn demonstrate_movement_command(transport: &mut UdpTransport) -> Result<(), Box<
     };
     println!("   Command category: {:?}", command.command_category());
     println!("   Expected timeout: Movement (5 seconds)");
-    
+
     let start = std::time::Instant::now();
     match transport.send_and_wait(&command) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Command completed in {:?}", elapsed);
-            
+
             // Stop movement
             let stop = PanTiltCommand::Move {
                 direction: PanTiltDirection::Stop,
@@ -108,20 +107,20 @@ fn demonstrate_movement_command(transport: &mut UdpTransport) -> Result<(), Box<
         }
     }
     println!();
-    
+
     Ok(())
 }
 
 fn demonstrate_preset_command(transport: &mut UdpTransport) -> Result<(), Box<dyn Error>> {
     println!("3. Preset Command (Recall Preset):");
-    
+
     let command = PresetCommand {
         action: PresetAction::Recall,
         preset_number: 1,
     };
     println!("   Command category: {:?}", command.command_category());
     println!("   Expected timeout: Preset (30 seconds)");
-    
+
     let start = std::time::Instant::now();
     match transport.send_and_wait(&command) {
         Ok(_) => {
@@ -134,14 +133,14 @@ fn demonstrate_preset_command(transport: &mut UdpTransport) -> Result<(), Box<dy
         }
     }
     println!();
-    
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_timeout_configuration() {
         // Test that we can create a timeout configuration
@@ -150,21 +149,21 @@ mod tests {
             .movement_timeout(Duration::from_secs(3))
             .preset_timeout(Duration::from_secs(20))
             .build();
-        
+
         assert_eq!(config.quick_timeout, Duration::from_millis(500));
         assert_eq!(config.movement_timeout, Duration::from_secs(3));
         assert_eq!(config.preset_timeout, Duration::from_secs(20));
     }
-    
+
     #[test]
     fn test_command_categories() {
         // Test that commands report the correct categories
         let power_inquiry = InquiryCommand::Power;
         assert_eq!(power_inquiry.command_category(), CommandCategory::Quick);
-        
+
         let pan_tilt = PanTiltCommand::Home;
         assert_eq!(pan_tilt.command_category(), CommandCategory::Movement);
-        
+
         let preset = PresetCommand {
             action: PresetAction::Recall,
             preset_number: 1,

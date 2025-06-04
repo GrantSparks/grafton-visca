@@ -475,11 +475,15 @@ impl ViscaTransport for UdpTransport {
         // Set timeout based on command category if timeout config is available
         if let Some(ref config) = self.timeout_config {
             let timeout = config.get_timeout(command.command_category());
-            self.socket.set_read_timeout(Some(timeout)).map_err(ViscaError::Io)?;
-            self.socket.set_write_timeout(Some(timeout)).map_err(ViscaError::Io)?;
+            self.socket
+                .set_read_timeout(Some(timeout))
+                .map_err(ViscaError::Io)?;
+            self.socket
+                .set_write_timeout(Some(timeout))
+                .map_err(ViscaError::Io)?;
             self.timeout_duration = Some(timeout);
         }
-        
+
         let command_bytes = command.to_bytes()?;
         match self
             .socket
@@ -541,11 +545,15 @@ impl ViscaTransport for TcpTransport {
         // Set timeout based on command category if timeout config is available
         if let Some(ref config) = self.timeout_config {
             let timeout = config.get_timeout(command.command_category());
-            self.stream.set_read_timeout(Some(timeout)).map_err(ViscaError::Io)?;
-            self.stream.set_write_timeout(Some(timeout)).map_err(ViscaError::Io)?;
+            self.stream
+                .set_read_timeout(Some(timeout))
+                .map_err(ViscaError::Io)?;
+            self.stream
+                .set_write_timeout(Some(timeout))
+                .map_err(ViscaError::Io)?;
             self.timeout_duration = Some(timeout);
         }
-        
+
         let command_bytes = command.to_bytes()?;
         match self
             .stream
