@@ -84,10 +84,7 @@ impl AsyncViscaTransport for AsyncTcpTransport {
             {
                 Ok(Ok(0)) => {
                     // Connection closed
-                    Err(ViscaError::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Connection closed",
-                    )))
+                    Err(ViscaError::Io(std::io::Error::other("Connection closed")))
                 }
                 Ok(Ok(n)) => {
                     // Check buffer size before appending
