@@ -36,7 +36,8 @@ async fn main() -> Result<(), ViscaError> {
     let (power, position, zoom) = tokio::join!(power_future, position_future, zoom_future);
 
     println!("   - Power: {}", if power? { "ON" } else { "OFF" });
-    println!("   - Position: pan={}, tilt={}", position?.0, position?.1);
+    let (pan, tilt) = position?;
+    println!("   - Position: pan={}, tilt={}", pan, tilt);
     println!("   - Zoom: 0x{:04X}", zoom?);
 
     // Sequential Control Operations
