@@ -211,7 +211,7 @@ async fn send_and_wait_async(
                             // Completion
                             return Ok(ViscaResponse::Completion);
                         }
-                        0x60 | 0x61 | 0x62 => {
+                        0x60..=0x62 => {
                             // Error
                             let error_code = if response_data.len() > 2 {
                                 response_data[2]
