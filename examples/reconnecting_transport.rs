@@ -4,7 +4,11 @@
 //! connection failures gracefully with automatic reconnection.
 
 use grafton_visca::{
-    command::{PanTiltCommand, PowerCommand, ZoomCommand},
+    command::{
+        pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+        power::{Power, PowerCommand},
+        ZoomCommand,
+    },
     ConnectionEvent, ConnectionManagement, ReconnectingTransport, ReconnectionConfig, TcpTransport,
     UdpTransport, ViscaError, ViscaTransport, ViscaTransportExt,
 };
@@ -78,7 +82,11 @@ fn demo_udp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
 
         thread::sleep(Duration::from_millis(500));
 
-        match transport.send_and_wait(&PanTiltCommand::Left(5, 5)) {
+        match transport.send_and_wait(&PanTiltCommand::Move {
+            direction: PanTiltDirection::Left,
+            pan_speed: PanSpeed::new(5).unwrap(),
+            tilt_speed: TiltSpeed::new(5).unwrap(),
+        }) {
             Ok(_) => println!("  ✓ Pan left command successful"),
             Err(e) => println!("  ✗ Pan command failed after retries: {}", e),
         }
@@ -136,7 +144,11 @@ fn demo_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Move camera
-    transport.send_and_wait(&PanTiltCommand::Right(10, 10))?;
+    transport.send_and_wait(&PanTiltCommand::Move {
+        direction: PanTiltDirection::Right,
+        pan_speed: PanSpeed::new(10).unwrap(),
+        tilt_speed: TiltSpeed::new(10).unwrap(),
+    })?;
     thread::sleep(Duration::from_secs(2));
 
     // Save as preset 2
@@ -255,7 +267,7 @@ fn demo_connection_events() -> Result<(), Box<dyn std::error::Error>> {
     println!("Sending commands (will trigger simulated failures):");
 
     // This should work
-    match transport.send_and_wait(&PowerCommand::On) {
+    match transport.send_and_wait(&PowerCommand { power: Power::On }) {
         Ok(_) => println!("✓ Power on successful"),
         Err(e) => println!("✗ Power on failed: {}", e),
     }
