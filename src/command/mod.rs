@@ -44,16 +44,19 @@ pub use white_balance::WhiteBalanceMode;
 pub use zoom::ZoomCommand;
 
 use crate::ViscaError;
+use crate::timeout::CommandCategory;
 
 /// Trait for all VISCA commands.
 ///
 /// This trait must be implemented by all command types to provide:
 /// - Serialization to VISCA protocol bytes
 /// - Response type information for inquiry commands
+/// - Command category for timeout configuration
 ///
 /// # Example Implementation
 /// ```no_run
 /// # use grafton_visca::command::{ViscaCommand, ViscaResponseType};
+/// # use grafton_visca::timeout::CommandCategory;
 /// # use grafton_visca::ViscaError;
 /// struct MyCommand;
 ///
@@ -66,6 +69,11 @@ use crate::ViscaError;
 ///     fn response_type(&self) -> Option<ViscaResponseType> {
 ///         // Return None for action commands, Some(...) for inquiries
 ///         None
+///     }
+///     
+///     fn command_category(&self) -> CommandCategory {
+///         // Return appropriate category for timeout configuration
+///         CommandCategory::Quick
 ///     }
 /// }
 /// ```
@@ -81,6 +89,15 @@ pub trait ViscaCommand: Send + Sync {
     /// - Returns `None` for action commands that only receive ACK/Completion
     /// - Returns `Some(ViscaResponseType::...)` for inquiry commands that receive data
     fn response_type(&self) -> Option<ViscaResponseType>;
+
+    /// Returns the command category for timeout configuration.
+    ///
+    /// This is used to determine the appropriate timeout duration for the command.
+    /// The default implementation returns `CommandCategory::Custom` which uses
+    /// the default timeout.
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Custom
+    }
 }
 
 /// Response data from VISCA inquiry commands.

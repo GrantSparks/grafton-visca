@@ -248,6 +248,9 @@ mod sync_wrapper;
 #[cfg(all(feature = "sync", feature = "async"))]
 pub use sync_wrapper::{send_command_and_wait_compat, ViscaClient};
 
+pub mod timeout;
+pub use timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder};
+
 /// Transport trait for sending and receiving VISCA commands over a network connection.
 ///
 /// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
@@ -304,6 +307,7 @@ pub struct UdpTransport {
     address: String,
     stats: ConnectionStats,
     timeout_duration: Option<Duration>,
+    timeout_config: Option<TimeoutConfig>,
 }
 
 impl UdpTransport {
@@ -326,12 +330,41 @@ impl UdpTransport {
             address: address.to_string(),
             stats: ConnectionStats::new(),
             timeout_duration: timeout,
+            timeout_config: None,
+        })
+    }
+
+    /// Creates a new UDP transport with custom timeout configuration.
+    ///
+    /// # Arguments
+    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
+    /// * `timeout_config` - Timeout configuration for different command types
+    ///
+    /// # Errors
+    /// Returns an error if the socket cannot be created or configured.
+    pub fn with_timeout_config(address: &str, timeout_config: TimeoutConfig) -> io::Result<Self> {
+        let socket = UdpSocket::bind("0.0.0.0:0")?;
+        // Set initial timeout to the default timeout
+        let timeout = Some(timeout_config.default_timeout);
+        socket.set_read_timeout(timeout)?;
+        socket.set_write_timeout(timeout)?;
+        Ok(Self {
+            socket,
+            address: address.to_string(),
+            stats: ConnectionStats::new(),
+            timeout_duration: timeout,
+            timeout_config: Some(timeout_config),
         })
     }
 
     /// Get connection statistics
     pub fn stats(&self) -> &ConnectionStats {
         &self.stats
+    }
+
+    /// Get the timeout configuration
+    pub fn timeout_config(&self) -> Option<&TimeoutConfig> {
+        self.timeout_config.as_ref()
     }
 }
 
@@ -350,6 +383,7 @@ pub struct TcpTransport {
     stream: TcpStream,
     stats: ConnectionStats,
     timeout_duration: Option<Duration>,
+    timeout_config: Option<TimeoutConfig>,
 }
 
 impl TcpTransport {
@@ -371,12 +405,40 @@ impl TcpTransport {
             stream,
             stats: ConnectionStats::new(),
             timeout_duration: timeout,
+            timeout_config: None,
+        })
+    }
+
+    /// Creates a new TCP transport with custom timeout configuration.
+    ///
+    /// # Arguments
+    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
+    /// * `timeout_config` - Timeout configuration for different command types
+    ///
+    /// # Errors
+    /// Returns an error if the connection cannot be established or configured.
+    pub fn with_timeout_config(address: &str, timeout_config: TimeoutConfig) -> io::Result<Self> {
+        let stream = TcpStream::connect(address)?;
+        // Set initial timeout to the default timeout
+        let timeout = Some(timeout_config.default_timeout);
+        stream.set_read_timeout(timeout)?;
+        stream.set_write_timeout(timeout)?;
+        Ok(Self {
+            stream,
+            stats: ConnectionStats::new(),
+            timeout_duration: timeout,
+            timeout_config: Some(timeout_config),
         })
     }
 
     /// Get connection statistics
     pub fn stats(&self) -> &ConnectionStats {
         &self.stats
+    }
+
+    /// Get the timeout configuration
+    pub fn timeout_config(&self) -> Option<&TimeoutConfig> {
+        self.timeout_config.as_ref()
     }
 }
 
@@ -410,6 +472,14 @@ fn parse_response(buffer: &[u8]) -> Result<Vec<Vec<u8>>, ViscaError> {
 
 impl ViscaTransport for UdpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+        // Set timeout based on command category if timeout config is available
+        if let Some(ref config) = self.timeout_config {
+            let timeout = config.get_timeout(command.command_category());
+            self.socket.set_read_timeout(Some(timeout)).map_err(ViscaError::Io)?;
+            self.socket.set_write_timeout(Some(timeout)).map_err(ViscaError::Io)?;
+            self.timeout_duration = Some(timeout);
+        }
+        
         let command_bytes = command.to_bytes()?;
         match self
             .socket
@@ -468,6 +538,14 @@ impl ViscaTransport for UdpTransport {
 
 impl ViscaTransport for TcpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+        // Set timeout based on command category if timeout config is available
+        if let Some(ref config) = self.timeout_config {
+            let timeout = config.get_timeout(command.command_category());
+            self.stream.set_read_timeout(Some(timeout)).map_err(ViscaError::Io)?;
+            self.stream.set_write_timeout(Some(timeout)).map_err(ViscaError::Io)?;
+            self.timeout_duration = Some(timeout);
+        }
+        
         let command_bytes = command.to_bytes()?;
         match self
             .stream

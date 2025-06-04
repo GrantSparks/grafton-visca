@@ -4,6 +4,7 @@
 //! including exposure mode, exposure compensation, iris, shutter, and brightness.
 
 use crate::error::ViscaError;
+use crate::timeout::CommandCategory;
 use std::convert::TryFrom;
 
 use super::{response::ViscaResponseType, ViscaCommand};
@@ -28,6 +29,10 @@ impl ViscaCommand for ExposureCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
@@ -98,6 +103,10 @@ impl ViscaCommand for ExposureCompensationCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -121,6 +130,10 @@ impl ViscaCommand for DynamicRangeCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
@@ -151,6 +164,10 @@ impl ViscaCommand for IrisCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
@@ -184,6 +201,10 @@ impl ViscaCommand for ShutterCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -215,5 +236,9 @@ impl ViscaCommand for BrightCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }

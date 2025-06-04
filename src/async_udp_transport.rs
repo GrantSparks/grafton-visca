@@ -1,6 +1,6 @@
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
-    parse_response, ConnectionStats, ViscaCommand, ViscaError,
+    parse_response, ConnectionStats, TimeoutConfig, ViscaCommand, ViscaError,
 };
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
@@ -13,6 +13,7 @@ pub struct AsyncUdpTransport {
     camera_addr: SocketAddr,
     buffer: Vec<u8>,
     timeout_duration: Duration,
+    timeout_config: Option<TimeoutConfig>,
     stats: ConnectionStats,
 }
 
@@ -27,6 +28,28 @@ impl AsyncUdpTransport {
             camera_addr,
             buffer: vec![0; 1024],
             timeout_duration: Duration::from_secs(10),
+            timeout_config: None,
+            stats: ConnectionStats::new(),
+        })
+    }
+
+    /// Creates a new async UDP transport with custom timeout configuration.
+    ///
+    /// # Arguments
+    /// * `camera_addr` - The camera's socket address
+    /// * `timeout_config` - Timeout configuration for different command types
+    pub async fn with_timeout_config(
+        camera_addr: SocketAddr,
+        timeout_config: TimeoutConfig,
+    ) -> Result<Self, ViscaError> {
+        let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(ViscaError::Io)?;
+
+        Ok(Self {
+            socket,
+            camera_addr,
+            buffer: vec![0; 1024],
+            timeout_duration: timeout_config.default_timeout,
+            timeout_config: Some(timeout_config),
             stats: ConnectionStats::new(),
         })
     }
@@ -40,12 +63,22 @@ impl AsyncUdpTransport {
     pub fn set_timeout(&mut self, duration: Duration) {
         self.timeout_duration = duration;
     }
+
+    /// Get the timeout configuration
+    pub fn timeout_config(&self) -> Option<&TimeoutConfig> {
+        self.timeout_config.as_ref()
+    }
 }
 
 #[cfg(feature = "async")]
 impl AsyncViscaTransport for AsyncUdpTransport {
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
+            // Set timeout based on command category if timeout config is available
+            if let Some(ref config) = self.timeout_config {
+                self.timeout_duration = config.get_timeout(command.command_category());
+            }
+
             let bytes = command.to_bytes()?;
 
             log::debug!("Sending command: {:02X?}", bytes);

@@ -1,4 +1,5 @@
 use crate::error::ViscaError;
+use crate::timeout::CommandCategory;
 
 use super::{response::ViscaResponseType, ViscaCommand};
 
@@ -32,6 +33,10 @@ impl ViscaCommand for GainCommand {
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -51,6 +56,10 @@ impl ViscaCommand for GainLimitCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
@@ -73,5 +82,9 @@ impl ViscaCommand for AntiFlickerCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
