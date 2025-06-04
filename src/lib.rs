@@ -472,7 +472,6 @@ impl ViscaTransport for TcpTransport {
 impl ConnectionManagement for UdpTransport {
     fn is_healthy(&mut self) -> bool {
         use crate::command::InquiryCommand;
-        use std::time::Duration;
 
         // Temporarily reduce timeout for health check
         let original_timeout = self.socket.read_timeout().ok().flatten();
@@ -499,7 +498,6 @@ impl ConnectionManagement for UdpTransport {
 impl ConnectionManagement for TcpTransport {
     fn is_healthy(&mut self) -> bool {
         use crate::command::InquiryCommand;
-        use std::time::Duration;
 
         // Temporarily reduce timeout for health check
         let original_timeout = self.stream.read_timeout().ok().flatten();
