@@ -26,6 +26,7 @@ pub enum ViscaResponse {
 /// Used to indicate what kind of data parser should expect in the response payload.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ViscaResponseType {
+    Power,
     PanTiltPosition,
     ZoomPosition,
     FocusPosition,

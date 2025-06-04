@@ -192,6 +192,11 @@ pub use error::{AppError, ViscaError};
 mod session;
 pub use session::ViscaSession;
 
+mod connection;
+#[cfg(feature = "async")]
+pub use connection::AsyncConnectionManagement;
+pub use connection::{ConnectionManagement, ConnectionStats};
+
 #[cfg(feature = "async")]
 mod async_client;
 #[cfg(feature = "async")]
@@ -258,6 +263,7 @@ pub trait ViscaTransport {
 pub struct UdpTransport {
     socket: UdpSocket,
     address: String,
+    stats: ConnectionStats,
 }
 
 impl UdpTransport {
@@ -277,6 +283,7 @@ impl UdpTransport {
         Ok(Self {
             socket,
             address: address.to_string(),
+            stats: ConnectionStats::new(),
         })
     }
 }
@@ -294,6 +301,7 @@ impl UdpTransport {
 /// ```
 pub struct TcpTransport {
     stream: TcpStream,
+    stats: ConnectionStats,
 }
 
 impl TcpTransport {
@@ -310,7 +318,10 @@ impl TcpTransport {
         let stream = TcpStream::connect(address)?;
         stream.set_read_timeout(Some(Duration::from_secs(30)))?;
         stream.set_write_timeout(Some(Duration::from_secs(30)))?;
-        Ok(Self { stream })
+        Ok(Self {
+            stream,
+            stats: ConnectionStats::new(),
+        })
     }
 }
 
@@ -345,10 +356,20 @@ fn parse_response(buffer: &[u8]) -> Result<Vec<Vec<u8>>, ViscaError> {
 impl ViscaTransport for UdpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let command_bytes = command.to_bytes()?;
-        self.socket
+        match self
+            .socket
             .send_to(&command_bytes, &self.address)
-            .map_err(ViscaError::Io)?;
-        Ok(())
+            .map_err(ViscaError::Io)
+        {
+            Ok(_) => {
+                self.stats.record_sent(command_bytes.len());
+                Ok(())
+            }
+            Err(e) => {
+                self.stats.record_error();
+                Err(e)
+            }
+        }
     }
 
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
@@ -371,23 +392,43 @@ impl ViscaTransport for UdpTransport {
                 }
                 Err(e) => {
                     error!("Failed to receive response: {}", e);
+                    self.stats.record_error();
                     return Err(ViscaError::Io(e));
                 }
             }
         }
 
-        parse_response(&received_data)
+        match parse_response(&received_data) {
+            Ok(responses) => {
+                self.stats.record_received(received_data.len());
+                Ok(responses)
+            }
+            Err(e) => {
+                self.stats.record_error();
+                Err(e)
+            }
+        }
     }
 }
 
 impl ViscaTransport for TcpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let command_bytes = command.to_bytes()?;
-        self.stream
+        match self
+            .stream
             .write_all(&command_bytes)
-            .map_err(ViscaError::Io)?;
-        debug!("Sent {} bytes: {:02X?}", command_bytes.len(), command_bytes);
-        Ok(())
+            .map_err(ViscaError::Io)
+        {
+            Ok(_) => {
+                debug!("Sent {} bytes: {:02X?}", command_bytes.len(), command_bytes);
+                self.stats.record_sent(command_bytes.len());
+                Ok(())
+            }
+            Err(e) => {
+                self.stats.record_error();
+                Err(e)
+            }
+        }
     }
 
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
@@ -409,12 +450,76 @@ impl ViscaTransport for TcpTransport {
                 }
                 Err(e) => {
                     error!("Failed to receive response: {}", e);
+                    self.stats.record_error();
                     return Err(ViscaError::Io(e));
                 }
             }
         }
 
-        parse_response(&received_data)
+        match parse_response(&received_data) {
+            Ok(responses) => {
+                self.stats.record_received(received_data.len());
+                Ok(responses)
+            }
+            Err(e) => {
+                self.stats.record_error();
+                Err(e)
+            }
+        }
+    }
+}
+
+impl ConnectionManagement for UdpTransport {
+    fn is_healthy(&mut self) -> bool {
+        use crate::command::InquiryCommand;
+        use std::time::Duration;
+
+        // Temporarily reduce timeout for health check
+        let original_timeout = self.socket.read_timeout().ok().flatten();
+        let _ = self.socket.set_read_timeout(Some(Duration::from_secs(1)));
+
+        let result =
+            self.send_command(&InquiryCommand::Power).is_ok() && self.receive_response().is_ok();
+
+        // Restore original timeout
+        let _ = self.socket.set_read_timeout(original_timeout);
+
+        result
+    }
+
+    fn connection_stats(&self) -> &ConnectionStats {
+        &self.stats
+    }
+
+    fn connection_stats_mut(&mut self) -> &mut ConnectionStats {
+        &mut self.stats
+    }
+}
+
+impl ConnectionManagement for TcpTransport {
+    fn is_healthy(&mut self) -> bool {
+        use crate::command::InquiryCommand;
+        use std::time::Duration;
+
+        // Temporarily reduce timeout for health check
+        let original_timeout = self.stream.read_timeout().ok().flatten();
+        let _ = self.stream.set_read_timeout(Some(Duration::from_secs(1)));
+
+        let result =
+            self.send_command(&InquiryCommand::Power).is_ok() && self.receive_response().is_ok();
+
+        // Restore original timeout
+        let _ = self.stream.set_read_timeout(original_timeout);
+
+        result
+    }
+
+    fn connection_stats(&self) -> &ConnectionStats {
+        &self.stats
+    }
+
+    fn connection_stats_mut(&mut self) -> &mut ConnectionStats {
+        &mut self.stats
     }
 }
 
