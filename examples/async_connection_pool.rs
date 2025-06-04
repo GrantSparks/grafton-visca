@@ -54,7 +54,8 @@ async fn demo_basic_async_pool() -> Result<(), Box<dyn std::error::Error>> {
         let addr = addr.to_string();
         async move {
             use std::net::ToSocketAddrs;
-            let socket_addr = addr.to_socket_addrs()
+            let socket_addr = addr
+                .to_socket_addrs()
                 .map_err(ViscaError::Io)?
                 .next()
                 .ok_or_else(|| ViscaError::InvalidParameter("Invalid address".to_string()))?;
@@ -95,9 +96,12 @@ async fn demo_basic_async_pool() -> Result<(), Box<dyn std::error::Error>> {
         match pool.get_connection(&camera_id).await {
             Ok(conn) => {
                 let mut transport = conn.transport().await;
-                
+
                 // Power on
-                match transport.send_command(&PowerCommand { power: Power::On }).await {
+                match transport
+                    .send_command(&PowerCommand { power: Power::On })
+                    .await
+                {
                     Ok(_) => println!("  ✓ {} powered on", camera_id),
                     Err(e) => println!("  ✗ {} power on failed: {}", camera_id, e),
                 }
@@ -115,8 +119,9 @@ async fn demo_basic_async_pool() -> Result<(), Box<dyn std::error::Error>> {
     // Get pool statistics
     println!("\nPool Statistics:");
     for stats in pool.get_all_stats().await {
-        println!("\n  Camera: {} ({})", 
-            stats.info.id, 
+        println!(
+            "\n  Camera: {} ({})",
+            stats.info.id,
             stats.info.name.as_deref().unwrap_or("Unknown")
         );
         println!("    Healthy: {}", stats.is_healthy);
@@ -141,7 +146,8 @@ async fn demo_maintenance_task() -> Result<(), Box<dyn std::error::Error>> {
         let addr = addr.to_string();
         async move {
             use std::net::ToSocketAddrs;
-            let socket_addr = addr.to_socket_addrs()
+            let socket_addr = addr
+                .to_socket_addrs()
                 .map_err(ViscaError::Io)?
                 .next()
                 .ok_or_else(|| ViscaError::InvalidParameter("Invalid address".to_string()))?;
@@ -178,9 +184,9 @@ async fn demo_maintenance_task() -> Result<(), Box<dyn std::error::Error>> {
             let _ = transport.send_command(&ZoomCommand::WideStandard).await;
             println!("  Used tcp_cam1");
         }
-        
+
         sleep(Duration::from_secs(3)).await;
-        
+
         // Check pool health
         let health = pool.health_check_all().await;
         println!("  Health check: {:?}", health);
@@ -209,7 +215,8 @@ async fn demo_concurrent_async_control() -> Result<(), Box<dyn std::error::Error
         let addr = addr.to_string();
         async move {
             use std::net::ToSocketAddrs;
-            let socket_addr = addr.to_socket_addrs()
+            let socket_addr = addr
+                .to_socket_addrs()
                 .map_err(ViscaError::Io)?
                 .next()
                 .ok_or_else(|| ViscaError::InvalidParameter("Invalid address".to_string()))?;
@@ -241,56 +248,62 @@ async fn demo_concurrent_async_control() -> Result<(), Box<dyn std::error::Error
     for camera_id in ["cam1", "cam2", "cam3"] {
         let pool_clone = pool.clone();
         let cam_id = camera_id.to_string();
-        
+
         let task = tokio::spawn(async move {
             println!("[{}] Starting control sequence", cam_id);
-            
+
             match pool_clone.get_connection(&cam_id).await {
                 Ok(conn) => {
                     let mut transport = conn.transport().await;
-                    
+
                     // Power on
-                    match transport.send_command(&PowerCommand { power: Power::On }).await {
+                    match transport
+                        .send_command(&PowerCommand { power: Power::On })
+                        .await
+                    {
                         Ok(_) => println!("[{}] ✓ Powered on", cam_id),
                         Err(e) => println!("[{}] ✗ Power on failed: {}", cam_id, e),
                     }
-                    
+
                     sleep(Duration::from_millis(500)).await;
-                    
+
                     // Pan left and right
                     for direction in [PanTiltDirection::Left, PanTiltDirection::Right] {
-                        match transport.send_command(&PanTiltCommand::Move {
-                            direction,
-                            pan_speed: PanSpeed::new(10).unwrap(),
-                            tilt_speed: TiltSpeed::new(0).unwrap(),
-                        }).await {
+                        match transport
+                            .send_command(&PanTiltCommand::Move {
+                                direction,
+                                pan_speed: PanSpeed::new(10).unwrap(),
+                                tilt_speed: TiltSpeed::new(0).unwrap(),
+                            })
+                            .await
+                        {
                             Ok(_) => println!("[{}] ✓ Panned {:?}", cam_id, direction),
                             Err(e) => println!("[{}] ✗ Pan failed: {}", cam_id, e),
                         }
-                        
+
                         sleep(Duration::from_secs(1)).await;
                     }
-                    
+
                     // Zoom
                     match transport.send_command(&ZoomCommand::TeleStandard).await {
                         Ok(_) => println!("[{}] ✓ Zoomed in", cam_id),
                         Err(e) => println!("[{}] ✗ Zoom failed: {}", cam_id, e),
                     }
-                    
+
                     sleep(Duration::from_secs(1)).await;
-                    
+
                     // Return home
                     match transport.send_command(&PanTiltCommand::Home).await {
                         Ok(_) => println!("[{}] ✓ Returned home", cam_id),
                         Err(e) => println!("[{}] ✗ Home failed: {}", cam_id, e),
                     }
-                    
+
                     println!("[{}] Control sequence complete", cam_id);
                 }
                 Err(e) => println!("[{}] ✗ Failed to get connection: {}", cam_id, e),
             }
         });
-        
+
         tasks.push(task);
     }
 
@@ -305,21 +318,20 @@ async fn demo_concurrent_async_control() -> Result<(), Box<dyn std::error::Error
     println!("\nFinal Pool Statistics:");
     for stats in pool.get_all_stats().await {
         let snapshot = stats.connection_stats.snapshot();
-        println!("\n  {}: {} commands, {} errors",
-            stats.info.id,
-            snapshot.commands_sent,
-            snapshot.error_count
+        println!(
+            "\n  {}: {} commands, {} errors",
+            stats.info.id, snapshot.commands_sent, snapshot.error_count
         );
     }
 
     // Demonstrate graceful shutdown
     println!("\nShutting down pool...");
-    
+
     // Remove all cameras
     for camera_id in pool.list_cameras().await {
         pool.remove_camera(&camera_id).await;
     }
-    
+
     println!("Pool shutdown complete");
 
     Ok(())

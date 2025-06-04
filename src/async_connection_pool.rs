@@ -70,7 +70,14 @@ pub struct AsyncPooledCameraStats {
 }
 
 /// Factory function type for creating async transports.
-type AsyncTransportFactory<T> = Arc<dyn Fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, ViscaError>> + Send>> + Send + Sync>;
+type AsyncTransportFactory<T> = Arc<
+    dyn Fn(
+            &str,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, ViscaError>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// An async pool of VISCA camera connections.
 pub struct AsyncViscaConnectionPool<T>
@@ -120,7 +127,7 @@ where
         let camera_id = camera_id.into();
         let address = address.to_string();
         let create_fn = self.create_transport.clone();
-        
+
         let transport = AsyncReconnectingTransport::new(
             move || {
                 let addr = address.clone();
@@ -139,7 +146,7 @@ where
 
         let mut connections = self.connections.write().await;
         connections.insert(camera_id, pooled);
-        
+
         Ok(())
     }
 
@@ -158,10 +165,10 @@ where
         camera_id: &str,
     ) -> Result<AsyncPooledConnectionGuard<T>, ViscaError> {
         let connections = self.connections.read().await;
-        
-        let pooled = connections
-            .get(camera_id)
-            .ok_or_else(|| ViscaError::InvalidParameter(format!("Camera '{}' not found in pool", camera_id)))?;
+
+        let pooled = connections.get(camera_id).ok_or_else(|| {
+            ViscaError::InvalidParameter(format!("Camera '{}' not found in pool", camera_id))
+        })?;
 
         Ok(AsyncPooledConnectionGuard {
             transport: pooled.transport.clone(),
@@ -180,13 +187,13 @@ where
     pub async fn get_all_stats(&self) -> Vec<AsyncPooledCameraStats> {
         let connections = self.connections.read().await;
         let mut stats = Vec::new();
-        
+
         for (_id, conn) in connections.iter() {
             let mut transport = conn.transport.lock().await;
             let is_healthy = transport.is_healthy().await.unwrap_or(false);
             let connection_stats = transport.combined_stats().await;
             let last_used = *conn.last_used.read().await;
-            
+
             stats.push(AsyncPooledCameraStats {
                 info: conn.camera_info.clone(),
                 is_healthy,
@@ -194,7 +201,7 @@ where
                 connection_stats,
             });
         }
-        
+
         stats
     }
 
@@ -204,13 +211,13 @@ where
     pub async fn health_check_all(&self) -> HashMap<String, bool> {
         let connections = self.connections.read().await;
         let mut results = HashMap::new();
-        
+
         for (id, conn) in connections.iter() {
             let mut transport = conn.transport.lock().await;
             let is_healthy = transport.is_healthy().await.unwrap_or(false);
             results.insert(id.clone(), is_healthy);
         }
-        
+
         results
     }
 
@@ -220,14 +227,14 @@ where
     pub async fn remove_unhealthy(&self) -> Vec<String> {
         let health_results = self.health_check_all().await;
         let mut removed = Vec::new();
-        
+
         let mut connections = self.connections.write().await;
         for (id, is_healthy) in health_results {
             if !is_healthy && connections.remove(&id).is_some() {
                 removed.push(id);
             }
         }
-        
+
         removed
     }
 
@@ -239,7 +246,7 @@ where
             let now = Instant::now();
             let mut connections = self.connections.write().await;
             let mut removed = Vec::new();
-            
+
             // Collect stale camera IDs first
             let mut stale_ids = Vec::new();
             for (id, conn) in connections.iter() {
@@ -248,14 +255,14 @@ where
                     stale_ids.push(id.clone());
                 }
             }
-            
+
             // Remove stale connections
             for id in stale_ids {
                 if connections.remove(&id).is_some() {
                     removed.push(id);
                 }
             }
-            
+
             removed
         } else {
             Vec::new()
@@ -268,13 +275,13 @@ where
     pub fn start_maintenance_task(&self) -> tokio::task::JoinHandle<()> {
         let pool = Arc::new(self.connections.clone());
         let config = self.config.clone();
-        
+
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(config.health_check_interval);
-            
+
             loop {
                 interval.tick().await;
-                
+
                 // Perform health checks
                 let connections = pool.read().await;
                 for (_id, conn) in connections.iter() {
@@ -282,7 +289,7 @@ where
                     let _ = transport.is_healthy().await;
                 }
                 drop(connections);
-                
+
                 // Remove stale connections if configured
                 if config.max_idle_time.is_some() {
                     let now = Instant::now();
@@ -331,7 +338,7 @@ impl<T> Drop for AsyncPooledConnectionGuard<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_async_pool_basic() {
         // Basic test to ensure the module compiles

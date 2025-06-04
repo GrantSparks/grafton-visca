@@ -118,7 +118,7 @@ where
         let camera_id = camera_id.into();
         let create_fn = self.create_transport.clone();
         let address = address.to_string();
-        
+
         let transport = ReconnectingTransport::new(
             move || create_fn(&address),
             self.config.reconnection_config.clone(),
@@ -132,7 +132,7 @@ where
 
         let mut connections = self.connections.lock().unwrap();
         connections.insert(camera_id, pooled);
-        
+
         Ok(())
     }
 
@@ -146,15 +146,12 @@ where
     ///
     /// Returns a guard that provides access to the transport and automatically
     /// updates the last_used timestamp when dropped.
-    pub fn get_connection(
-        &self,
-        camera_id: &str,
-    ) -> Result<PooledConnectionGuard<T>, ViscaError> {
+    pub fn get_connection(&self, camera_id: &str) -> Result<PooledConnectionGuard<T>, ViscaError> {
         let connections = self.connections.lock().unwrap();
-        
-        let pooled = connections
-            .get(camera_id)
-            .ok_or_else(|| ViscaError::InvalidParameter(format!("Camera '{}' not found in pool", camera_id)))?;
+
+        let pooled = connections.get(camera_id).ok_or_else(|| {
+            ViscaError::InvalidParameter(format!("Camera '{}' not found in pool", camera_id))
+        })?;
 
         Ok(PooledConnectionGuard {
             transport: pooled.transport.clone(),
@@ -172,14 +169,14 @@ where
     /// Gets statistics for all cameras in the pool.
     pub fn get_all_stats(&self) -> Vec<PooledCameraStats> {
         let connections = self.connections.lock().unwrap();
-        
+
         connections
             .iter()
             .map(|(_id, conn)| {
                 let mut transport = conn.transport.lock().unwrap();
                 let is_healthy = transport.is_healthy().unwrap_or(false);
                 let stats = transport.combined_stats();
-                
+
                 PooledCameraStats {
                     info: conn.camera_info.clone(),
                     is_healthy,
@@ -196,13 +193,13 @@ where
     pub fn health_check_all(&self) -> HashMap<String, bool> {
         let connections = self.connections.lock().unwrap();
         let mut results = HashMap::new();
-        
+
         for (id, conn) in connections.iter() {
             let mut transport = conn.transport.lock().unwrap();
             let is_healthy = transport.is_healthy().unwrap_or(false);
             results.insert(id.clone(), is_healthy);
         }
-        
+
         results
     }
 
@@ -212,14 +209,14 @@ where
     pub fn remove_unhealthy(&self) -> Vec<String> {
         let health_results = self.health_check_all();
         let mut removed = Vec::new();
-        
+
         let mut connections = self.connections.lock().unwrap();
         for (id, is_healthy) in health_results {
             if !is_healthy && connections.remove(&id).is_some() {
                 removed.push(id);
             }
         }
-        
+
         removed
     }
 
@@ -231,7 +228,7 @@ where
             let now = Instant::now();
             let mut connections = self.connections.lock().unwrap();
             let mut removed = Vec::new();
-            
+
             connections.retain(|id, conn| {
                 let is_stale = now.duration_since(conn.last_used) > max_idle;
                 if is_stale {
@@ -239,7 +236,7 @@ where
                 }
                 !is_stale
             });
-            
+
             removed
         } else {
             Vec::new()
@@ -289,8 +286,9 @@ mod tests {
     #[test]
     fn test_pool_creation() {
         let config = PoolConfig::default();
-        let pool: ViscaConnectionPool<UdpTransport> = ViscaConnectionPool::new(config, create_test_transport);
-        
+        let pool: ViscaConnectionPool<UdpTransport> =
+            ViscaConnectionPool::new(config, create_test_transport);
+
         assert_eq!(pool.list_cameras().len(), 0);
     }
 
@@ -298,18 +296,19 @@ mod tests {
     fn test_add_remove_camera() {
         let config = PoolConfig::default();
         let pool = ViscaConnectionPool::new(config, create_test_transport);
-        
+
         let info = CameraInfo {
             id: "cam1".to_string(),
             name: Some("Front Camera".to_string()),
             model: Some("PTZOptics G2".to_string()),
             location: Some("Main Stage".to_string()),
         };
-        
+
         // Add camera
-        pool.add_camera("cam1", "192.168.1.100:1259", info.clone()).unwrap();
+        pool.add_camera("cam1", "192.168.1.100:1259", info.clone())
+            .unwrap();
         assert_eq!(pool.list_cameras().len(), 1);
-        
+
         // Remove camera
         let removed_info = pool.remove_camera("cam1").unwrap();
         assert_eq!(removed_info.name, info.name);
@@ -320,23 +319,23 @@ mod tests {
     fn test_get_connection() {
         let config = PoolConfig::default();
         let pool = ViscaConnectionPool::new(config, create_test_transport);
-        
+
         let info = CameraInfo {
             id: "cam1".to_string(),
             name: None,
             model: None,
             location: None,
         };
-        
+
         pool.add_camera("cam1", "192.168.1.100:1259", info).unwrap();
-        
+
         // Get connection
         {
             let _guard = pool.get_connection("cam1").unwrap();
             // Connection is now in use
         }
         // Connection guard dropped, last_used updated
-        
+
         // Try to get non-existent camera
         assert!(pool.get_connection("cam2").is_err());
     }
@@ -345,7 +344,7 @@ mod tests {
     fn test_multiple_cameras() {
         let config = PoolConfig::default();
         let pool = ViscaConnectionPool::new(config, create_test_transport);
-        
+
         // Add multiple cameras
         for i in 1..=3 {
             let info = CameraInfo {
@@ -361,10 +360,10 @@ mod tests {
             )
             .unwrap();
         }
-        
+
         let cameras = pool.list_cameras();
         assert_eq!(cameras.len(), 3);
-        
+
         // Get stats for all
         let stats = pool.get_all_stats();
         assert_eq!(stats.len(), 3);
