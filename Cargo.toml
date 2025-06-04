@@ -49,3 +49,7 @@ required-features = ["async"]
 name = "async_reconnecting"
 required-features = ["async"]
 
+[[example]]
+name = "async_inquiry_demo"
+required-features = ["async"]
+

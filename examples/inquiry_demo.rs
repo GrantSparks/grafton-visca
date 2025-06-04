@@ -1,6 +1,6 @@
 //! Example demonstrating the high-level inquiry API for querying camera state.
 
-use grafton_visca::{UdpTransport, ViscaTransport, ViscaInquiryExt, ViscaError};
+use grafton_visca::{UdpTransport, ViscaInquiryExt, ViscaError};
 use std::env;
 
 fn main() -> Result<(), ViscaError> {
