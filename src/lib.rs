@@ -121,8 +121,8 @@
 //! - [`ViscaError`] - Comprehensive error types for all failure modes
 //!
 //! ### Async Support (with `async` feature)
-//! - [`AsyncViscaClient`] - High-level async client with automatic socket management
-//! - [`AsyncViscaTransport`] trait - Async version of the transport trait
+//! - `AsyncViscaClient` - High-level async client with automatic socket management
+//! - `AsyncViscaTransport` trait - Async version of the transport trait
 //!
 //! ## Connection Setup
 //!
@@ -180,6 +180,11 @@ pub use command::{
     response::{parse_visca_response, ViscaResponse},
     ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
 };
+
+pub mod constants;
+
+mod camera_detection;
+pub use camera_detection::detect_camera_model;
 
 mod error;
 pub use error::{AppError, ViscaError};
