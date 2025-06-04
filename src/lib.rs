@@ -43,6 +43,8 @@
 //! ### Using ViscaClient (Recommended for Thread Safety)
 //!
 //! ```no_run
+//! # #[cfg(not(all(feature = "sync", feature = "async")))]
+//! # {
 //! use grafton_visca::{ViscaClient, UdpTransport};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //!
@@ -53,6 +55,7 @@
 //! // Send commands through the client
 //! client.send(&PanTiltCommand::Home).unwrap();
 //! client.send(&ZoomCommand::TeleStandard).unwrap();
+//! # }
 //! ```
 //!
 //! ### Direct Transport Usage
