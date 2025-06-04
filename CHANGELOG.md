@@ -15,12 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `OutOfRange` and `PresetNotFound` for value validation
   - Added `FeatureNotSupported` for camera capability detection
   - Includes helper methods `is_retryable()` and `suggested_retry_delay()`
+- **Camera Constants Module**: Comprehensive constants for camera control
+  - Camera model definitions (PTZOpticsG2, G3, 30X)
+  - Position constants (pan/tilt ranges, degrees)
+  - Zoom and focus ranges
+  - Speed limits and defaults
+  - Network and timing constants
+- **Position Conversion System**: Convert between different unit systems
+  - VISCA units, degrees, and normalized values (-1.0 to 1.0)
+  - Trait-based conversion system with implementations for each type
+- **Validation Functions**: Parameter validation with detailed error messages
+- **Camera Detection**: Basic camera model detection function
 
 ### Changed
 - **Breaking Change**: Reorganized `ViscaError` enum with new variants
   - Kept traditional exhaustive enum approach for better ergonomics
   - Users can handle all error cases with compile-time guarantees
   - Accepted that new error variants require major version bumps
+- **Breaking Change**: Added new error variant `ParameterOutOfRange`
+  - Provides detailed validation errors with parameter name and valid range
+  - Required for the new validation functions
 
 ## [0.3.0] - 2025-01-06
 

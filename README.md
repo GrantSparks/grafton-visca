@@ -118,6 +118,12 @@ All set commands have corresponding inquiry commands to read current values:
   - Background response handling
   - Thread-safe client (can be cloned and shared across tasks)
 
+### Camera Constants & Utilities
+- ✅ **Camera-specific Constants** - Position limits, speed ranges, preset counts
+- ✅ **Position Conversions** - Convert between VISCA units, degrees, and normalized values
+- ✅ **Parameter Validation** - Validate positions, speeds, and IDs before sending
+- ✅ **Model Detection** - Detect camera model and use model-specific constants
+
 ## Installation
 
 Add the following to `Cargo.toml` under `[dependencies]`:
@@ -259,6 +265,39 @@ let response = send_command_and_wait(&mut camera, &InquiryCommand::ExposureMode)
 if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) = response {
     println!("Exposure mode: {:?}", mode);
 }
+```
+
+### Using Camera Constants and Position Conversion
+
+```rust
+use grafton_visca::constants::{CameraModel, CameraConstants, PositionConversion, DegreePosition};
+use grafton_visca::constants;
+
+// Use camera-specific constants
+let model = CameraModel::PTZOpticsG2;
+println!("Pan range: {:?} VISCA units", model.pan_range());
+println!("Pan degrees: {} degrees", model.pan_degrees());
+
+// Convert between units
+let degrees = DegreePosition { pan: 45.0, tilt: 15.0 };
+let visca_pos = degrees.to_visca(model);
+println!("45° pan = {} VISCA units", visca_pos.pan);
+
+// Validate parameters before sending
+match constants::validate_pan_position(2000, model) {
+    Ok(_) => println!("Position is valid"),
+    Err(e) => println!("Invalid: {}", e),
+}
+
+// Move to position specified in degrees
+let target = DegreePosition { pan: -90.0, tilt: 30.0 };
+let visca = target.to_visca(model);
+camera.send_command(&PanTiltCommand::AbsolutePosition {
+    pan: visca.pan,
+    tilt: visca.tilt,
+    pan_speed: constants::speed::PAN_SPEED_DEFAULT,
+    tilt_speed: constants::speed::TILT_SPEED_DEFAULT,
+})?;
 ```
 
 ### Async Usage (with `async` feature)
