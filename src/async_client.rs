@@ -1,32 +1,4 @@
 //! Async VISCA client implementation for non-blocking camera control.
-//!
-//! This module provides an asynchronous interface to control VISCA cameras,
-//! allowing concurrent command execution while respecting the VISCA protocol's
-//! two-socket limitation.
-//!
-//! # Example
-//!
-//! ```no_run
-//! # #[cfg(feature = "async")]
-//! # #[tokio::main]
-//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use grafton_visca::{AsyncViscaClient, ViscaResponse};
-//! use grafton_visca::command::{PowerCommand, power::Power};
-//!
-//! // Connect to camera
-//! let camera = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
-//!
-//! // Send command
-//! let response = camera.send(&PowerCommand { power: Power::On }).await?;
-//!
-//! match response {
-//!     ViscaResponse::Completion => println!("Camera powered on"),
-//!     ViscaResponse::Error(e) => println!("Error: {:?}", e),
-//!     _ => println!("Unexpected response"),
-//! }
-//! # Ok(())
-//! # }
-//! ```
 
 use crate::{
     async_tcp_transport::AsyncTcpTransport, async_transport::AsyncViscaTransport,
@@ -37,60 +9,29 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, Semaphore};
-use tokio::task::JoinHandle;
+use tokio::sync::{oneshot, watch, Mutex, Semaphore};
+
+// Type aliases for clarity
+type ResponseSender = oneshot::Sender<Result<ViscaResponse, ViscaError>>;
+type PendingCommands = HashMap<u8, ResponseSender>;
 
 /// Async VISCA client for non-blocking camera control.
-///
-/// This client manages concurrent command execution with proper socket management
-/// and response correlation. It enforces the VISCA two-socket limitation.
-///
-/// # Features
-///
-/// - Concurrent command execution (up to 2 simultaneous commands)
-/// - Automatic socket management and response correlation
-/// - Background response handling
-/// - Thread-safe (can be cloned and shared across tasks)
-///
-/// # Example
-///
-/// ```no_run
-/// # #[cfg(feature = "async")]
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use grafton_visca::{AsyncViscaClient, ViscaResponse};
-/// use grafton_visca::command::InquiryCommand;
-///
-/// let camera = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
-///
-/// // Query camera status
-/// match camera.send(&InquiryCommand::ZoomPosition).await? {
-///     ViscaResponse::InquiryResponse(resp) => println!("Status: {:?}", resp),
-///     _ => println!("Unexpected response"),
-/// }
-/// # Ok(())
-/// # }
-/// ```
 #[cfg(feature = "async")]
+#[derive(Clone)]
 pub struct AsyncViscaClient {
-    inner: Arc<AsyncViscaClientInner>,
-}
-
-#[cfg(feature = "async")]
-struct AsyncViscaClientInner {
     transport: Arc<Mutex<Box<dyn AsyncViscaTransport>>>,
     session: Arc<Mutex<ViscaSession>>,
     semaphore: Arc<Semaphore>,
-    results: Arc<Mutex<HashMap<u8, Result<ViscaResponse, ViscaError>>>>,
-    _background_task: JoinHandle<()>,
+    pending_commands: Arc<Mutex<PendingCommands>>,
+    shutdown: Arc<watch::Sender<()>>,
 }
 
 #[cfg(feature = "async")]
 impl AsyncViscaClient {
     /// Connect to a camera using UDP transport.
     pub async fn connect_udp(camera_addr: &str) -> Result<Self, ViscaError> {
-        let addr: SocketAddr = camera_addr
-            .parse()
+        let addr = camera_addr
+            .parse::<SocketAddr>()
             .map_err(|_| ViscaError::InvalidParameter("Invalid socket address".into()))?;
 
         let transport = AsyncUdpTransport::new(addr).await?;
@@ -99,8 +40,8 @@ impl AsyncViscaClient {
 
     /// Connect to a camera using TCP transport.
     pub async fn connect_tcp(camera_addr: &str) -> Result<Self, ViscaError> {
-        let addr: SocketAddr = camera_addr
-            .parse()
+        let addr = camera_addr
+            .parse::<SocketAddr>()
             .map_err(|_| ViscaError::InvalidParameter("Invalid socket address".into()))?;
 
         let transport = AsyncTcpTransport::new(addr).await?;
@@ -109,202 +50,180 @@ impl AsyncViscaClient {
 
     /// Create a new client with a custom transport.
     fn new(transport: Box<dyn AsyncViscaTransport>) -> Result<Self, ViscaError> {
-        let transport = Arc::new(Mutex::new(transport));
-        let session = Arc::new(Mutex::new(ViscaSession::new()));
-        let semaphore = Arc::new(Semaphore::new(2)); // VISCA allows max 2 concurrent commands
-        let results = Arc::new(Mutex::new(HashMap::new()));
+        let (shutdown_tx, shutdown_rx) = watch::channel(());
 
-        // Clone for background task
-        let transport_clone = Arc::clone(&transport);
-        let session_clone = Arc::clone(&session);
-        let results_clone = Arc::clone(&results);
+        let client = Self {
+            transport: Arc::new(Mutex::new(transport)),
+            session: Arc::new(Mutex::new(ViscaSession::new())),
+            semaphore: Arc::new(Semaphore::new(2)), // VISCA allows max 2 concurrent commands
+            pending_commands: Arc::new(Mutex::new(HashMap::new())),
+            shutdown: Arc::new(shutdown_tx),
+        };
 
         // Spawn background response handler
-        let background_task = tokio::spawn(async move {
-            Self::response_handler(transport_clone, session_clone, results_clone).await;
+        let client_clone = client.clone();
+        tokio::spawn(async move {
+            client_clone.response_handler(shutdown_rx).await;
         });
 
-        let inner = Arc::new(AsyncViscaClientInner {
-            transport,
-            session,
-            semaphore,
-            results,
-            _background_task: background_task,
-        });
-
-        Ok(Self { inner })
+        Ok(client)
     }
 
     /// Send a command and wait for the response.
     pub async fn send(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
         // Acquire permit (blocks if 2 commands already in flight)
-        let permit = self
-            .inner
+        let _permit = self
             .semaphore
             .acquire()
             .await
-            .map_err(|_| ViscaError::Io(std::io::Error::other("Semaphore closed")))?;
+            .map_err(|_| ViscaError::InvalidState("Semaphore closed".into()))?;
 
-        // Get response type
         let response_type = command.response_type();
+        let (tx, rx) = oneshot::channel();
 
-        // Send command through transport
-        {
-            let mut transport = self.inner.transport.lock().await;
-            transport.send_command(command).await?;
-        }
-
-        // Register command with session and get socket ID
+        // Register command before sending to avoid race condition
         let socket_id = {
-            let mut session = self.inner.session.lock().await;
-            session.assign_socket(response_type)?
+            let mut session = self.session.lock().await;
+            let socket_id = session.assign_socket(response_type)?;
+
+            let mut pending = self.pending_commands.lock().await;
+            pending.insert(socket_id, tx);
+
+            socket_id
         };
 
-        log::debug!("Command assigned to socket {}", socket_id);
+        // Send command
+        let send_result = {
+            let mut transport = self.transport.lock().await;
+            transport.send_command(command).await
+        };
 
-        // Wait for completion
-        let result = self.wait_for_completion(socket_id).await;
-
-        // Release socket
-        {
-            let mut session = self.inner.session.lock().await;
-            session.release_socket(socket_id);
+        if let Err(e) = send_result {
+            // Clean up on error
+            self.cleanup_socket(socket_id).await;
+            return Err(e);
         }
 
-        // Permit is automatically released when dropped
-        drop(permit);
+        log::debug!("Command sent on socket {}", socket_id);
+
+        // Wait for response
+        let result = match tokio::time::timeout(Duration::from_secs(30), rx).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) => Err(ViscaError::InvalidState("Response channel closed".into())),
+            Err(_) => {
+                self.pending_commands.lock().await.remove(&socket_id);
+                Err(ViscaError::Timeout)
+            }
+        };
+
+        // Always release socket
+        self.session.lock().await.release_socket(socket_id);
 
         result
     }
 
-    /// Wait for a command to complete.
-    async fn wait_for_completion(&self, socket_id: u8) -> Result<ViscaResponse, ViscaError> {
-        let mut interval = tokio::time::interval(Duration::from_millis(10));
-        let timeout = Duration::from_secs(30);
-        let start = tokio::time::Instant::now();
-
-        loop {
-            interval.tick().await;
-
-            if start.elapsed() > timeout {
-                // Clean up on timeout
-                let mut session = self.inner.session.lock().await;
-                session.release_socket(socket_id);
-                return Err(ViscaError::Timeout);
-            }
-
-            // Check if result is available
-            {
-                let mut results = self.inner.results.lock().await;
-                if let Some(result) = results.remove(&socket_id) {
-                    return result;
-                }
-            }
-
-            // Yield to allow other tasks to run
-            tokio::task::yield_now().await;
-        }
+    /// Clean up socket on error
+    async fn cleanup_socket(&self, socket_id: u8) {
+        self.pending_commands.lock().await.remove(&socket_id);
+        self.session.lock().await.release_socket(socket_id);
     }
 
-    /// Background task that continuously reads responses from the transport.
-    async fn response_handler(
-        transport: Arc<Mutex<Box<dyn AsyncViscaTransport>>>,
-        session: Arc<Mutex<ViscaSession>>,
-        results: Arc<Mutex<HashMap<u8, Result<ViscaResponse, ViscaError>>>>,
-    ) {
+    /// Background task that reads responses
+    async fn response_handler(&self, mut shutdown: watch::Receiver<()>) {
         let mut consecutive_errors = 0;
 
         loop {
-            let result = {
-                let mut transport = transport.lock().await;
-                transport.receive_response().await
-            };
+            // Check shutdown signal
+            tokio::select! {
+                _ = shutdown.changed() => {
+                    log::debug!("Shutdown signal received");
+                    break;
+                }
+                result = self.receive_and_process() => {
+                    match result {
+                        Ok(_) => consecutive_errors = 0,
+                        Err(ViscaError::Timeout) => consecutive_errors = 0,
+                        Err(e) => {
+                            log::error!("Transport error: {:?}", e);
+                            consecutive_errors += 1;
 
-            match result {
-                Ok(responses) => {
-                    consecutive_errors = 0;
-
-                    if !responses.is_empty() {
-                        let mut session = session.lock().await;
-                        for response in responses {
-                            match session.process_response(&response) {
-                                Ok(Some((socket_id, visca_response))) => {
-                                    log::debug!(
-                                        "Response for socket {}: {:?}",
-                                        socket_id,
-                                        visca_response
-                                    );
-
-                                    // Store result for the waiting command
-                                    match visca_response {
-                                        ViscaResponse::Completion => {
-                                            let mut results = results.lock().await;
-                                            results
-                                                .insert(socket_id, Ok(ViscaResponse::Completion));
-                                        }
-                                        ViscaResponse::Error(e) => {
-                                            let mut results = results.lock().await;
-                                            results.insert(socket_id, Err(e));
-                                        }
-                                        ViscaResponse::InquiryResponse(resp) => {
-                                            let mut results = results.lock().await;
-                                            results.insert(
-                                                socket_id,
-                                                Ok(ViscaResponse::InquiryResponse(resp)),
-                                            );
-                                        }
-                                        ViscaResponse::Ack => {
-                                            // ACK is handled internally by session, continue waiting
-                                            log::debug!("ACK received for socket {}", socket_id);
-                                        }
-                                        ViscaResponse::Unknown(data) => {
-                                            log::warn!(
-                                                "Unknown response for socket {}: {:02X?}",
-                                                socket_id,
-                                                data
-                                            );
-                                            let mut results = results.lock().await;
-                                            results.insert(
-                                                socket_id,
-                                                Ok(ViscaResponse::Unknown(data)),
-                                            );
-                                        }
-                                    }
-                                }
-                                Ok(None) => {
-                                    // Response processed but no result yet (e.g., ACK)
-                                }
-                                Err(e) => {
-                                    log::error!("Error processing response: {:?}", e);
-                                }
+                            if consecutive_errors > 10 {
+                                log::error!("Too many errors, shutting down");
+                                self.notify_all_pending_error().await;
+                                break;
                             }
-                        }
-                    }
-                }
-                Err(ViscaError::Timeout) => {
-                    // Timeout is normal in async context, continue
-                    consecutive_errors = 0;
-                    continue;
-                }
-                Err(e) => {
-                    log::error!("Transport error: {:?}", e);
-                    consecutive_errors += 1;
 
-                    // If we get too many consecutive errors, slow down
-                    if consecutive_errors > 5 {
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                            // Backoff on errors
+                            tokio::time::sleep(
+                                Duration::from_millis(100 * consecutive_errors.min(50))
+                            ).await;
+                        }
                     }
                 }
             }
         }
     }
-}
 
-#[cfg(feature = "async")]
-impl Clone for AsyncViscaClient {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
+    /// Receive and process one batch of responses
+    async fn receive_and_process(&self) -> Result<(), ViscaError> {
+        // Short timeout to keep the loop responsive
+        let responses = tokio::time::timeout(Duration::from_millis(500), async {
+            let mut transport = self.transport.lock().await;
+            transport.receive_response().await
+        })
+        .await
+        .map_err(|_| ViscaError::Timeout)??;
+
+        if responses.is_empty() {
+            return Ok(());
         }
+
+        let mut session = self.session.lock().await;
+
+        for response in responses {
+            match session.process_response(&response) {
+                Ok(Some((socket_id, visca_response))) => {
+                    log::debug!("Response for socket {}: {:?}", socket_id, visca_response);
+
+                    // Skip ACK responses
+                    if matches!(visca_response, ViscaResponse::Ack) {
+                        continue;
+                    }
+
+                    // Send to waiting command
+                    if let Some(tx) = self.pending_commands.lock().await.remove(&socket_id) {
+                        let result = match visca_response {
+                            ViscaResponse::Error(e) => Err(e),
+                            other => Ok(other),
+                        };
+                        let _ = tx.send(result);
+                    }
+                }
+                Ok(None) => {
+                    // Intermediate response (e.g., ACK)
+                }
+                Err(e) => {
+                    log::error!("Error processing response: {:?}", e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Notify all pending commands of error
+    async fn notify_all_pending_error(&self) {
+        let mut pending = self.pending_commands.lock().await;
+        for (_, tx) in pending.drain() {
+            let _ = tx.send(Err(ViscaError::InvalidState(
+                "Background task shutdown".into(),
+            )));
+        }
+    }
+
+    /// Gracefully shutdown the client
+    pub async fn shutdown(self) {
+        let _ = self.shutdown.send(());
+        // Background task will exit on next iteration
     }
 }

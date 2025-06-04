@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Trait-based conversion system with implementations for each type
 - **Validation Functions**: Parameter validation with detailed error messages
 - **Camera Detection**: Basic camera model detection function
+- **Standalone Conversion Functions**: Added easy-to-use conversion utilities
+  - Direct function calls for position conversions (pan/tilt/zoom)
+  - Conversion between VISCA units, degrees, and normalized values
+  - Support for zoom magnification (1x to 20x)
+  - Speed conversion utilities for pan/tilt/zoom operations
 
 ### Changed
 - **Breaking Change**: Reorganized `ViscaError` enum with new variants
@@ -35,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking Change**: Added new error variant `ParameterOutOfRange`
   - Provides detailed validation errors with parameter name and valid range
   - Required for the new validation functions
+- **Breaking Change**: Added new error variant `InvalidState`
+  - Used for async client state management errors
 
 ## [0.3.0] - 2025-01-06
 
