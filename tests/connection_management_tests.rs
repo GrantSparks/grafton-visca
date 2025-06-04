@@ -208,7 +208,7 @@ mod sync_health_tests {
     impl ViscaTransport for MockTransport {
         fn send_command(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
             if self.fail_send {
-                Err(ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Mock send error")))
+                Err(ViscaError::Io(std::io::Error::other("Mock send error")))
             } else {
                 self.stats.record_sent(10);
                 Ok(())
@@ -217,7 +217,7 @@ mod sync_health_tests {
 
         fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
             if self.fail_receive {
-                Err(ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Mock receive error")))
+                Err(ViscaError::Io(std::io::Error::other("Mock receive error")))
             } else if self.empty_response {
                 Ok(vec![])
             } else {
@@ -306,7 +306,7 @@ mod async_health_tests {
         ) -> TransportFuture<'a, ()> {
             Box::pin(async move {
                 if self.fail_send {
-                    Err(ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Mock send error")))
+                    Err(ViscaError::Io(std::io::Error::other("Mock send error")))
                 } else {
                     self.stats.record_sent(10);
                     Ok(())
@@ -317,7 +317,7 @@ mod async_health_tests {
         fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
             Box::pin(async move {
                 if self.fail_receive {
-                    Err(ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Mock receive error")))
+                    Err(ViscaError::Io(std::io::Error::other("Mock receive error")))
                 } else if self.empty_response {
                     Ok(vec![])
                 } else {
