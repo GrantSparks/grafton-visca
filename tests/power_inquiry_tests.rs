@@ -1,0 +1,76 @@
+#[cfg(test)]
+mod tests {
+    use grafton_visca::command::response::{
+        parse_visca_response, ViscaResponse, ViscaResponseType,
+    };
+    use grafton_visca::command::{InquiryCommand, ViscaCommand};
+    use grafton_visca::ViscaInquiryResponse;
+
+    #[test]
+    fn test_power_inquiry_command_bytes() {
+        let cmd = InquiryCommand::Power;
+        let bytes = cmd.to_bytes().unwrap();
+        assert_eq!(bytes, vec![0x81, 0x09, 0x04, 0x00, 0xFF]);
+    }
+
+    #[test]
+    fn test_power_inquiry_response_type() {
+        let cmd = InquiryCommand::Power;
+        assert_eq!(cmd.response_type(), Some(ViscaResponseType::Power));
+    }
+
+    #[test]
+    fn test_power_response_parsing_on() {
+        let response = vec![0x90, 0x50, 0x02, 0xFF];
+        let parsed = parse_visca_response(&response, &ViscaResponseType::Power).unwrap();
+
+        match parsed {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => {
+                assert!(on);
+            }
+            _ => panic!("Expected Power inquiry response"),
+        }
+    }
+
+    #[test]
+    fn test_power_response_parsing_off() {
+        let response = vec![0x90, 0x50, 0x03, 0xFF];
+        let parsed = parse_visca_response(&response, &ViscaResponseType::Power).unwrap();
+
+        match parsed {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => {
+                assert!(!on);
+            }
+            _ => panic!("Expected Power inquiry response"),
+        }
+    }
+
+    #[test]
+    fn test_power_response_invalid_length() {
+        let response = vec![0x90, 0x50, 0x02, 0x03, 0xFF]; // Too long
+        let result = parse_visca_response(&response, &ViscaResponseType::Power);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_power_response_ack() {
+        let response = vec![0x90, 0x41, 0xFF];
+        let parsed = parse_visca_response(&response, &ViscaResponseType::Power).unwrap();
+
+        match parsed {
+            ViscaResponse::Ack => (),
+            _ => panic!("Expected ACK response"),
+        }
+    }
+
+    #[test]
+    fn test_power_response_completion() {
+        let response = vec![0x90, 0x51, 0xFF];
+        let parsed = parse_visca_response(&response, &ViscaResponseType::Power).unwrap();
+
+        match parsed {
+            ViscaResponse::Completion => (),
+            _ => panic!("Expected Completion response"),
+        }
+    }
+}

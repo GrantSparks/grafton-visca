@@ -195,6 +195,19 @@ pub use session::ViscaSession;
 mod transport_ext;
 pub use transport_ext::ViscaTransportExt;
 
+pub mod connection;
+#[cfg(feature = "async")]
+pub use connection::AsyncConnectionManagement;
+pub use connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot};
+
+mod reconnecting_transport;
+pub use reconnecting_transport::{ReconnectingTransport, ReconnectionConfig};
+
+#[cfg(feature = "async")]
+mod async_reconnecting_transport;
+#[cfg(feature = "async")]
+pub use async_reconnecting_transport::AsyncReconnectingTransport;
+
 #[cfg(feature = "async")]
 mod async_client;
 #[cfg(feature = "async")]
@@ -272,6 +285,8 @@ pub trait ViscaTransport {
 pub struct UdpTransport {
     socket: UdpSocket,
     address: String,
+    stats: ConnectionStats,
+    timeout_duration: Option<Duration>,
 }
 
 impl UdpTransport {
@@ -286,12 +301,20 @@ impl UdpTransport {
     /// Returns an error if the socket cannot be created or configured.
     pub fn new(address: &str) -> io::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
-        socket.set_read_timeout(Some(Duration::from_secs(10)))?;
-        socket.set_write_timeout(Some(Duration::from_secs(10)))?;
+        let timeout = Some(Duration::from_secs(10));
+        socket.set_read_timeout(timeout)?;
+        socket.set_write_timeout(timeout)?;
         Ok(Self {
             socket,
             address: address.to_string(),
+            stats: ConnectionStats::new(),
+            timeout_duration: timeout,
         })
+    }
+
+    /// Get connection statistics
+    pub fn stats(&self) -> &ConnectionStats {
+        &self.stats
     }
 }
 
@@ -308,6 +331,8 @@ impl UdpTransport {
 /// ```
 pub struct TcpTransport {
     stream: TcpStream,
+    stats: ConnectionStats,
+    timeout_duration: Option<Duration>,
 }
 
 impl TcpTransport {
@@ -322,9 +347,19 @@ impl TcpTransport {
     /// Returns an error if the connection cannot be established or configured.
     pub fn new(address: &str) -> io::Result<Self> {
         let stream = TcpStream::connect(address)?;
-        stream.set_read_timeout(Some(Duration::from_secs(30)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(30)))?;
-        Ok(Self { stream })
+        let timeout = Some(Duration::from_secs(30));
+        stream.set_read_timeout(timeout)?;
+        stream.set_write_timeout(timeout)?;
+        Ok(Self {
+            stream,
+            stats: ConnectionStats::new(),
+            timeout_duration: timeout,
+        })
+    }
+
+    /// Get connection statistics
+    pub fn stats(&self) -> &ConnectionStats {
+        &self.stats
     }
 }
 
@@ -359,10 +394,20 @@ fn parse_response(buffer: &[u8]) -> Result<Vec<Vec<u8>>, ViscaError> {
 impl ViscaTransport for UdpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let command_bytes = command.to_bytes()?;
-        self.socket
+        match self
+            .socket
             .send_to(&command_bytes, &self.address)
-            .map_err(ViscaError::Io)?;
-        Ok(())
+            .map_err(ViscaError::Io)
+        {
+            Ok(_) => {
+                self.stats.record_sent(command_bytes.len());
+                Ok(())
+            }
+            Err(e) => {
+                self.stats.record_error();
+                Err(e)
+            }
+        }
     }
 
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
@@ -385,23 +430,43 @@ impl ViscaTransport for UdpTransport {
                 }
                 Err(e) => {
                     error!("Failed to receive response: {}", e);
+                    self.stats.record_error();
                     return Err(ViscaError::Io(e));
                 }
             }
         }
 
-        parse_response(&received_data)
+        match parse_response(&received_data) {
+            Ok(responses) => {
+                self.stats.record_received(received_data.len());
+                Ok(responses)
+            }
+            Err(e) => {
+                self.stats.record_error();
+                Err(e)
+            }
+        }
     }
 }
 
 impl ViscaTransport for TcpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let command_bytes = command.to_bytes()?;
-        self.stream
+        match self
+            .stream
             .write_all(&command_bytes)
-            .map_err(ViscaError::Io)?;
-        debug!("Sent {} bytes: {:02X?}", command_bytes.len(), command_bytes);
-        Ok(())
+            .map_err(ViscaError::Io)
+        {
+            Ok(_) => {
+                debug!("Sent {} bytes: {:02X?}", command_bytes.len(), command_bytes);
+                self.stats.record_sent(command_bytes.len());
+                Ok(())
+            }
+            Err(e) => {
+                self.stats.record_error();
+                Err(e)
+            }
+        }
     }
 
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
@@ -423,12 +488,142 @@ impl ViscaTransport for TcpTransport {
                 }
                 Err(e) => {
                     error!("Failed to receive response: {}", e);
+                    self.stats.record_error();
                     return Err(ViscaError::Io(e));
                 }
             }
         }
 
-        parse_response(&received_data)
+        match parse_response(&received_data) {
+            Ok(responses) => {
+                self.stats.record_received(received_data.len());
+                Ok(responses)
+            }
+            Err(e) => {
+                self.stats.record_error();
+                Err(e)
+            }
+        }
+    }
+}
+
+impl ConnectionManagement for UdpTransport {
+    fn is_healthy(&mut self) -> Result<bool, ViscaError> {
+        use crate::command::InquiryCommand;
+
+        // Check cached health result first
+        if let Some(cached_healthy) = self.stats.get_cached_health() {
+            return Ok(cached_healthy);
+        }
+
+        // Save the current timeout and set a short one for health check
+        let original_timeout = self.timeout_duration;
+        let health_check_timeout = Some(Duration::from_secs(1));
+
+        // Set temporary timeout for health check
+        if let Err(e) = self.socket.set_read_timeout(health_check_timeout) {
+            return Err(ViscaError::Io(e));
+        }
+
+        // Send the power inquiry command
+        let send_result = self.send_command(&InquiryCommand::Power);
+
+        // Restore original timeout regardless of send result
+        if let Err(e) = self.socket.set_read_timeout(original_timeout) {
+            // Log error but don't fail the health check for this
+            log::warn!("Failed to restore socket timeout: {}", e);
+        }
+
+        send_result?;
+
+        // Try to receive response
+        match self.receive_response() {
+            Ok(responses) => {
+                // Validate that we got a power inquiry response
+                let healthy = responses.iter().any(|response| {
+                    // Power inquiry response format: 0x90 0x50 0x0{2,3} 0xFF
+                    response.len() == 4
+                        && response[0] == 0x90
+                        && response[1] == 0x50
+                        && (response[2] == 0x02 || response[2] == 0x03)
+                        && response[3] == 0xFF
+                });
+                self.stats.record_health_check(healthy);
+                Ok(healthy)
+            }
+            Err(ViscaError::Timeout) => {
+                self.stats.record_health_check(false);
+                Ok(false)
+            }
+            Err(e) => {
+                self.stats.record_health_check(false);
+                Err(e)
+            }
+        }
+    }
+
+    fn connection_stats(&self) -> &ConnectionStats {
+        &self.stats
+    }
+}
+
+impl ConnectionManagement for TcpTransport {
+    fn is_healthy(&mut self) -> Result<bool, ViscaError> {
+        use crate::command::InquiryCommand;
+
+        // Check cached health result first
+        if let Some(cached_healthy) = self.stats.get_cached_health() {
+            return Ok(cached_healthy);
+        }
+
+        // Save the current timeout and set a short one for health check
+        let original_timeout = self.timeout_duration;
+        let health_check_timeout = Some(Duration::from_secs(1));
+
+        // Set temporary timeout for health check
+        if let Err(e) = self.stream.set_read_timeout(health_check_timeout) {
+            return Err(ViscaError::Io(e));
+        }
+
+        // Send the power inquiry command
+        let send_result = self.send_command(&InquiryCommand::Power);
+
+        // Restore original timeout regardless of send result
+        if let Err(e) = self.stream.set_read_timeout(original_timeout) {
+            // Log error but don't fail the health check for this
+            log::warn!("Failed to restore stream timeout: {}", e);
+        }
+
+        send_result?;
+
+        // Try to receive response
+        match self.receive_response() {
+            Ok(responses) => {
+                // Validate that we got a power inquiry response
+                let healthy = responses.iter().any(|response| {
+                    // Power inquiry response format: 0x90 0x50 0x0{2,3} 0xFF
+                    response.len() == 4
+                        && response[0] == 0x90
+                        && response[1] == 0x50
+                        && (response[2] == 0x02 || response[2] == 0x03)
+                        && response[3] == 0xFF
+                });
+                self.stats.record_health_check(healthy);
+                Ok(healthy)
+            }
+            Err(ViscaError::Timeout) => {
+                self.stats.record_health_check(false);
+                Ok(false)
+            }
+            Err(e) => {
+                self.stats.record_health_check(false);
+                Err(e)
+            }
+        }
+    }
+
+    fn connection_stats(&self) -> &ConnectionStats {
+        &self.stats
     }
 }
 
@@ -545,6 +740,9 @@ pub fn send_command_and_wait(
 #[allow(unreachable_patterns)]
 fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
     match inquiry_response {
+        ViscaInquiryResponse::Power { on } => {
+            debug!("Power: {}", if *on { "On" } else { "Off" });
+        }
         ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
             debug!("Pan: {}, Tilt: {}", pan, tilt);
         }
