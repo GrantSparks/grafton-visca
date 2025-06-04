@@ -205,11 +205,24 @@ pub use reconnecting_transport::{
     ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
 };
 
+mod connection_pool;
+pub use connection_pool::{
+    CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
+};
+
 #[cfg(feature = "async")]
 mod async_reconnecting_transport;
 #[cfg(feature = "async")]
 pub use async_reconnecting_transport::{
     AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
+};
+
+#[cfg(feature = "async")]
+mod async_connection_pool;
+#[cfg(feature = "async")]
+pub use async_connection_pool::{
+    AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard, AsyncViscaConnectionPool,
+    CameraInfo as AsyncCameraInfo,
 };
 
 #[cfg(feature = "async")]
