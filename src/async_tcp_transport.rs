@@ -7,6 +7,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
 
+const MAX_BUFFER_SIZE: usize = 64 * 1024; // 64KB max buffer size
+
 /// Async TCP transport for VISCA over IP communication.
 #[cfg(feature = "async")]
 pub struct AsyncTcpTransport {
@@ -73,6 +75,16 @@ impl AsyncViscaTransport for AsyncTcpTransport {
                     )))
                 }
                 Ok(Ok(n)) => {
+                    // Check buffer size before appending
+                    if self.buffer.len() + n > MAX_BUFFER_SIZE {
+                        // Clear buffer if it's getting too large
+                        log::error!("TCP buffer exceeded maximum size, clearing buffer");
+                        self.buffer.clear();
+                        return Err(ViscaError::Io(std::io::Error::other(
+                            "Buffer overflow - too much unparseable data",
+                        )));
+                    }
+
                     self.buffer.extend_from_slice(&self.read_buffer[..n]);
 
                     // Try to parse complete responses from the buffer
@@ -112,5 +124,15 @@ impl AsyncViscaTransport for AsyncTcpTransport {
                 }
             }
         })
+    }
+}
+
+#[cfg(feature = "async")]
+impl Drop for AsyncTcpTransport {
+    fn drop(&mut self) {
+        // Best effort to shutdown the TCP connection gracefully
+        // We can't do async operations in drop, so we just rely on the OS
+        // to clean up the socket when the TcpStream is dropped
+        log::debug!("Dropping AsyncTcpTransport");
     }
 }

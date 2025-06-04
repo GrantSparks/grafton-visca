@@ -431,6 +431,120 @@ pub fn validate_preset_id(id: u8) -> Result<u8, ViscaError> {
     }
 }
 
+// Standalone conversion functions for ease of use
+// These provide a simpler API without requiring CameraModel
+
+/// Convert normalized pan value (-1.0 to 1.0) to VISCA units
+#[inline]
+pub fn pan_normalized_to_visca(normalized: f32) -> i16 {
+    (normalized.clamp(-1.0, 1.0) * position::PAN_MAX as f32) as i16
+}
+
+/// Convert VISCA pan units to normalized value (-1.0 to 1.0)
+#[inline]
+pub fn pan_visca_to_normalized(visca: i16) -> f32 {
+    visca as f32 / position::PAN_MAX as f32
+}
+
+/// Convert pan degrees to VISCA units (assumes G2 camera)
+#[inline]
+pub fn pan_degrees_to_visca(degrees: f32) -> i16 {
+    let normalized = degrees / (position::PAN_DEGREES_G2 / 2.0);
+    pan_normalized_to_visca(normalized)
+}
+
+/// Convert VISCA pan units to degrees (assumes G2 camera)
+#[inline]
+pub fn pan_visca_to_degrees(visca: i16) -> f32 {
+    let normalized = pan_visca_to_normalized(visca);
+    normalized * (position::PAN_DEGREES_G2 / 2.0)
+}
+
+/// Convert tilt normalized value (-1.0 to 1.0) to VISCA units
+#[inline]
+pub fn tilt_normalized_to_visca(normalized: f32) -> i16 {
+    (normalized.clamp(-1.0, 1.0) * position::TILT_MAX as f32) as i16
+}
+
+/// Convert VISCA tilt units to normalized value (-1.0 to 1.0)
+#[inline]
+pub fn tilt_visca_to_normalized(visca: i16) -> f32 {
+    visca as f32 / position::TILT_MAX as f32
+}
+
+/// Convert tilt degrees to VISCA units (assumes G2 camera)
+#[inline]
+pub fn tilt_degrees_to_visca(degrees: f32) -> i16 {
+    let normalized = degrees / (position::TILT_DEGREES_G2 / 2.0);
+    tilt_normalized_to_visca(normalized)
+}
+
+/// Convert VISCA tilt units to degrees (assumes G2 camera)
+#[inline]
+pub fn tilt_visca_to_degrees(visca: i16) -> f32 {
+    let normalized = tilt_visca_to_normalized(visca);
+    normalized * (position::TILT_DEGREES_G2 / 2.0)
+}
+
+/// Convert zoom normalized value (0.0 to 1.0) to VISCA units
+#[inline]
+pub fn zoom_normalized_to_visca(normalized: f32) -> u16 {
+    (normalized.clamp(0.0, 1.0) * zoom::ZOOM_MAX_20X as f32) as u16
+}
+
+/// Convert VISCA zoom units to normalized value (0.0 to 1.0)
+#[inline]
+pub fn zoom_visca_to_normalized(visca: u16) -> f32 {
+    visca as f32 / zoom::ZOOM_MAX_20X as f32
+}
+
+/// Convert zoom magnification (1x to 20x) to VISCA units
+#[inline]
+pub fn zoom_magnification_to_visca(magnification: f32) -> u16 {
+    let normalized = (magnification.clamp(1.0, 20.0) - 1.0) / 19.0;
+    zoom_normalized_to_visca(normalized)
+}
+
+/// Convert VISCA zoom units to magnification (1x to 20x)
+#[inline]
+pub fn zoom_visca_to_magnification(visca: u16) -> f32 {
+    let normalized = zoom_visca_to_normalized(visca);
+    1.0 + (normalized * 19.0)
+}
+
+/// Convert focus normalized value (0.0 to 1.0) to VISCA units
+#[inline]
+pub fn focus_normalized_to_visca(normalized: f32) -> u16 {
+    let range = (focus::FOCUS_MAX - focus::FOCUS_MIN) as f32;
+    focus::FOCUS_MIN + (normalized.clamp(0.0, 1.0) * range) as u16
+}
+
+/// Convert VISCA focus units to normalized value (0.0 to 1.0)
+#[inline]
+pub fn focus_visca_to_normalized(visca: u16) -> f32 {
+    let clamped = visca.clamp(focus::FOCUS_MIN, focus::FOCUS_MAX);
+    let range = (focus::FOCUS_MAX - focus::FOCUS_MIN) as f32;
+    (clamped - focus::FOCUS_MIN) as f32 / range
+}
+
+/// Convert speed normalized value (0.0 to 1.0) to VISCA pan speed units
+#[inline]
+pub fn pan_speed_normalized_to_visca(normalized: f32) -> u8 {
+    (normalized.clamp(0.0, 1.0) * speed::PAN_SPEED_MAX as f32) as u8
+}
+
+/// Convert speed normalized value (0.0 to 1.0) to VISCA tilt speed units
+#[inline]
+pub fn tilt_speed_normalized_to_visca(normalized: f32) -> u8 {
+    (normalized.clamp(0.0, 1.0) * speed::TILT_SPEED_MAX as f32) as u8
+}
+
+/// Convert speed normalized value (0.0 to 1.0) to VISCA zoom speed units
+#[inline]
+pub fn zoom_speed_normalized_to_visca(normalized: f32) -> u8 {
+    (normalized.clamp(0.0, 1.0) * speed::ZOOM_SPEED_MAX as f32) as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -507,5 +621,90 @@ mod tests {
 
         assert!(validate_preset_id(50).is_ok());
         assert!(validate_preset_id(150).is_err());
+    }
+
+    #[test]
+    fn test_standalone_pan_conversions() {
+        // Test normalized to VISCA
+        assert_eq!(pan_normalized_to_visca(1.0), position::PAN_MAX);
+        assert_eq!(pan_normalized_to_visca(-1.0), -position::PAN_MAX);
+        assert_eq!(pan_normalized_to_visca(0.0), 0);
+        assert_eq!(pan_normalized_to_visca(0.5), position::PAN_MAX / 2);
+
+        // Test VISCA to normalized
+        assert_eq!(pan_visca_to_normalized(position::PAN_MAX), 1.0);
+        assert_eq!(pan_visca_to_normalized(-position::PAN_MAX), -1.0);
+        assert_eq!(pan_visca_to_normalized(0), 0.0);
+
+        // Test degrees to VISCA
+        assert_eq!(pan_degrees_to_visca(0.0), 0);
+        assert_eq!(pan_degrees_to_visca(170.0), position::PAN_MAX);
+        assert_eq!(pan_degrees_to_visca(-170.0), -position::PAN_MAX);
+
+        // Test VISCA to degrees
+        assert!((pan_visca_to_degrees(0) - 0.0).abs() < 0.1);
+        assert!((pan_visca_to_degrees(position::PAN_MAX) - 170.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_standalone_tilt_conversions() {
+        // Test normalized to VISCA
+        assert_eq!(tilt_normalized_to_visca(1.0), position::TILT_MAX);
+        assert_eq!(tilt_normalized_to_visca(-1.0), -position::TILT_MAX);
+        assert_eq!(tilt_normalized_to_visca(0.0), 0);
+
+        // Test VISCA to normalized
+        assert_eq!(tilt_visca_to_normalized(position::TILT_MAX), 1.0);
+        assert_eq!(tilt_visca_to_normalized(0), 0.0);
+
+        // Test degrees to VISCA
+        assert_eq!(tilt_degrees_to_visca(0.0), 0);
+        assert_eq!(tilt_degrees_to_visca(60.0), position::TILT_MAX);
+        assert_eq!(tilt_degrees_to_visca(-60.0), -position::TILT_MAX);
+    }
+
+    #[test]
+    fn test_standalone_zoom_conversions() {
+        // Test normalized to VISCA
+        assert_eq!(zoom_normalized_to_visca(0.0), 0);
+        assert_eq!(zoom_normalized_to_visca(1.0), zoom::ZOOM_MAX_20X);
+        assert_eq!(zoom_normalized_to_visca(0.5), zoom::ZOOM_MAX_20X / 2);
+
+        // Test VISCA to normalized
+        assert_eq!(zoom_visca_to_normalized(0), 0.0);
+        assert_eq!(zoom_visca_to_normalized(zoom::ZOOM_MAX_20X), 1.0);
+
+        // Test magnification conversions
+        assert_eq!(zoom_magnification_to_visca(1.0), 0); // 1x = minimum zoom
+        assert_eq!(zoom_magnification_to_visca(20.0), zoom::ZOOM_MAX_20X); // 20x = maximum
+        assert!((zoom_visca_to_magnification(0) - 1.0).abs() < 0.1);
+        assert!((zoom_visca_to_magnification(zoom::ZOOM_MAX_20X) - 20.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_standalone_focus_conversions() {
+        // Test normalized to VISCA
+        assert_eq!(focus_normalized_to_visca(0.0), focus::FOCUS_MIN);
+        assert_eq!(focus_normalized_to_visca(1.0), focus::FOCUS_MAX);
+
+        // Test VISCA to normalized
+        assert_eq!(focus_visca_to_normalized(focus::FOCUS_MIN), 0.0);
+        assert_eq!(focus_visca_to_normalized(focus::FOCUS_MAX), 1.0);
+    }
+
+    #[test]
+    fn test_speed_conversions() {
+        // Test pan speed
+        assert_eq!(pan_speed_normalized_to_visca(0.0), 0);
+        assert_eq!(pan_speed_normalized_to_visca(1.0), speed::PAN_SPEED_MAX);
+        assert_eq!(pan_speed_normalized_to_visca(0.5), speed::PAN_SPEED_MAX / 2);
+
+        // Test tilt speed
+        assert_eq!(tilt_speed_normalized_to_visca(0.0), 0);
+        assert_eq!(tilt_speed_normalized_to_visca(1.0), speed::TILT_SPEED_MAX);
+
+        // Test zoom speed
+        assert_eq!(zoom_speed_normalized_to_visca(0.0), 0);
+        assert_eq!(zoom_speed_normalized_to_visca(1.0), speed::ZOOM_SPEED_MAX);
     }
 }

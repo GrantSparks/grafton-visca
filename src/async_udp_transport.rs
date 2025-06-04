@@ -87,3 +87,12 @@ impl AsyncViscaTransport for AsyncUdpTransport {
         })
     }
 }
+
+#[cfg(feature = "async")]
+impl Drop for AsyncUdpTransport {
+    fn drop(&mut self) {
+        // UDP sockets don't require explicit shutdown
+        // The OS will clean up when the UdpSocket is dropped
+        log::debug!("Dropping AsyncUdpTransport");
+    }
+}
