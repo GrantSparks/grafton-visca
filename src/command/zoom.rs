@@ -21,6 +21,7 @@
 use super::ViscaResponseType;
 use crate::command::ViscaCommand;
 use crate::error::ViscaError;
+use crate::timeout::CommandCategory;
 
 /// Zoom control commands.
 ///
@@ -93,5 +94,9 @@ impl ViscaCommand for ZoomCommand {
             ZoomCommand::WideStandard => Some(ViscaResponseType::ZoomWideStandard),
             _ => None,
         }
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Movement
     }
 }
