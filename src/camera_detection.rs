@@ -60,18 +60,6 @@ pub fn detect_camera_model(transport: &mut dyn ViscaTransport) -> Result<CameraM
     }
 }
 
-/// Extension trait for ViscaTransport to add camera detection
-pub trait CameraDetection {
-    /// Detect the connected camera model
-    fn detect_camera_model(&mut self) -> Result<CameraModel, ViscaError>;
-}
-
-impl<T: ViscaTransport> CameraDetection for T {
-    fn detect_camera_model(&mut self) -> Result<CameraModel, ViscaError> {
-        detect_camera_model(self)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     // Note: These would be integration tests that require a real camera
