@@ -1,0 +1,544 @@
+//! Extension trait providing convenience methods for camera state inquiries.
+
+use crate::{
+    command::{
+        inquiry::InquiryCommand,
+        focus::{AFSensitivity, FocusZone},
+        gain::AntiFlickerMode,
+        exposure::ExposureMode,
+        luminance_contrast_sharpness::SharpnessMode,
+        white_balance::WhiteBalanceMode,
+        ViscaInquiryResponse,
+    },
+    ViscaError, ViscaResponse, ViscaTransport,
+};
+
+/// Extension trait providing convenient inquiry methods for camera state.
+///
+/// This trait is automatically implemented for all types that implement `ViscaTransport`,
+/// providing a more ergonomic API for querying camera state.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::{UdpTransport, ViscaInquiryExt, ViscaError};
+/// let mut transport = UdpTransport::new("192.168.1.100:5678")?;
+///
+/// // Simple one-line state queries
+/// let (pan, tilt) = transport.get_pan_tilt_position()?;
+/// let zoom = transport.get_zoom_position()?;
+/// let is_powered_on = transport.get_power_state()?;
+/// # Ok::<(), ViscaError>(())
+/// ```
+pub trait ViscaInquiryExt: ViscaTransport {
+    /// Get current power state.
+    fn get_power_state(&mut self) -> Result<bool, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Power)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current pan/tilt position in VISCA units.
+    fn get_pan_tilt_position(&mut self) -> Result<(i16, i16), ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::PanTiltPosition)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
+                Ok((pan, tilt))
+            }
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current zoom position (0x0000-0x4000 for most cameras).
+    fn get_zoom_position(&mut self) -> Result<u16, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::ZoomPosition)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
+                Ok(position)
+            }
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current focus position.
+    fn get_focus_position(&mut self) -> Result<u16, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::FocusPosition)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusPosition { position }) => {
+                Ok(position)
+            }
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current exposure mode.
+    fn get_exposure_mode(&mut self) -> Result<ExposureMode, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::ExposureMode)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current white balance mode.
+    fn get_white_balance_mode(&mut self) -> Result<WhiteBalanceMode, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::WhiteBalanceMode)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current luminance level.
+    fn get_luminance(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Luminance)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Luminance(value)) => Ok(value),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current contrast level.
+    fn get_contrast(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Contrast)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Contrast(value)) => Ok(value),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current sharpness value.
+    fn get_sharpness(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Sharpness)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Sharpness { value }) => Ok(value),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current exposure compensation value (-7 to +7).
+    fn get_exposure_compensation(&mut self) -> Result<i8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::ExposureCompensation)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensation { value }) => {
+                Ok(value)
+            }
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get whether exposure compensation is enabled.
+    fn get_exposure_compensation_enabled(&mut self) -> Result<bool, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::ExposureCompensationMode)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode { on }) => {
+                Ok(on)
+            }
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current iris position.
+    fn get_iris_position(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Iris)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Iris { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current shutter position.
+    fn get_shutter_position(&mut self) -> Result<u16, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Shutter)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current brightness position.
+    fn get_brightness_position(&mut self) -> Result<u16, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Bright)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Bright { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current gain value.
+    fn get_gain(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Gain)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Gain { gain }) => Ok(gain),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current gain limit.
+    fn get_gain_limit(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::GainLimit)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::GainLimit { limit }) => Ok(limit),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current anti-flicker mode.
+    fn get_anti_flicker_mode(&mut self) -> Result<AntiFlickerMode, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::AntiFlicker)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::AntiFlicker { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current saturation level.
+    fn get_saturation(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Saturation)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Saturation { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current hue value.
+    fn get_hue(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Hue)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Hue { hue }) => Ok(hue),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current red gain value (-10 to +10).
+    fn get_red_gain(&mut self) -> Result<i8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::RedGain)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::RedGain { gain }) => Ok(gain),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current blue gain value (-10 to +10).
+    fn get_blue_gain(&mut self) -> Result<i8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::BlueGain)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::BlueGain { gain }) => Ok(gain),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current backlight compensation status.
+    fn get_backlight_status(&mut self) -> Result<bool, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::Backlight)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => Ok(status),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current image flip settings (vertical and horizontal).
+    fn get_image_flip(&mut self) -> Result<(bool, bool), ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::ImageFlip)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ImageFlip { vertical, horizontal }) => {
+                Ok((vertical, horizontal))
+            }
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current sharpness mode.
+    fn get_sharpness_mode(&mut self) -> Result<SharpnessMode, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::SharpnessMode)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current color temperature.
+    fn get_color_temperature(&mut self) -> Result<u16, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::ColorTemperature)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ColorTemperature { temperature }) => {
+                Ok(temperature)
+            }
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current 2D noise reduction level.
+    fn get_noise_reduction_2d(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::NoiseReduction2D)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current 3D noise reduction level.
+    fn get_noise_reduction_3d(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::NoiseReduction3D)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get whether black & white mode is enabled.
+    fn get_black_white_mode(&mut self) -> Result<bool, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::BlackWhite)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::BlackWhite { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current focus zone.
+    fn get_focus_zone(&mut self) -> Result<FocusZone, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::FocusZone)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusZone { zone }) => Ok(zone),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current AF sensitivity.
+    fn get_af_sensitivity(&mut self) -> Result<AFSensitivity, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::AFSensitivity)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::AFSensitivity { sensitivity }) => {
+                Ok(sensitivity)
+            }
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current focus near limit position.
+    fn get_focus_near_limit(&mut self) -> Result<u16, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::FocusNearLimit)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusNearLimit { position }) => {
+                Ok(position)
+            }
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get current dynamic range level.
+    fn get_dynamic_range(&mut self) -> Result<u8, ViscaError>
+    where
+        Self: Sized,
+    {
+        match self.send_and_wait(&InquiryCommand::DynamicRange)? {
+            ViscaResponse::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Get complete camera state with multiple queries.
+    ///
+    /// This method performs multiple inquiry commands to gather comprehensive
+    /// camera state information. Note that these are sequential due to VISCA's
+    /// command limitations.
+    fn get_camera_state(&mut self) -> Result<CameraState, ViscaError>
+    where
+        Self: Sized,
+    {
+        let power = self.get_power_state()?;
+        let (pan, tilt) = self.get_pan_tilt_position()?;
+        let zoom = self.get_zoom_position()?;
+        let focus = self.get_focus_position()?;
+        let exposure_mode = self.get_exposure_mode()?;
+        let white_balance_mode = self.get_white_balance_mode()?;
+
+        Ok(CameraState {
+            power,
+            position: CameraPosition { pan, tilt },
+            optics: OpticsState { zoom, focus },
+            exposure: ExposureState {
+                mode: exposure_mode,
+                compensation: if self.get_exposure_compensation_enabled()? {
+                    Some(self.get_exposure_compensation()?)
+                } else {
+                    None
+                },
+            },
+            white_balance: WhiteBalanceState {
+                mode: white_balance_mode,
+            },
+            image: ImageState {
+                luminance: self.get_luminance()?,
+                contrast: self.get_contrast()?,
+                sharpness: self.get_sharpness()?,
+                saturation: self.get_saturation()?,
+                hue: self.get_hue()?,
+            },
+        })
+    }
+}
+
+// Blanket implementation for all types that implement ViscaTransport
+impl<T: ViscaTransport + ?Sized> ViscaInquiryExt for T {}
+
+/// Complete camera state snapshot.
+#[derive(Debug, Clone)]
+pub struct CameraState {
+    /// Power state (on/off)
+    pub power: bool,
+    /// Pan/tilt position
+    pub position: CameraPosition,
+    /// Optical settings (zoom, focus)
+    pub optics: OpticsState,
+    /// Exposure settings
+    pub exposure: ExposureState,
+    /// White balance settings
+    pub white_balance: WhiteBalanceState,
+    /// Image quality settings
+    pub image: ImageState,
+}
+
+/// Camera position information.
+#[derive(Debug, Clone)]
+pub struct CameraPosition {
+    /// Pan position in VISCA units
+    pub pan: i16,
+    /// Tilt position in VISCA units
+    pub tilt: i16,
+}
+
+/// Optical settings state.
+#[derive(Debug, Clone)]
+pub struct OpticsState {
+    /// Zoom position (0x0000-0x4000 for most cameras)
+    pub zoom: u16,
+    /// Focus position
+    pub focus: u16,
+}
+
+/// Exposure settings state.
+#[derive(Debug, Clone)]
+pub struct ExposureState {
+    /// Exposure mode
+    pub mode: ExposureMode,
+    /// Exposure compensation value (-7 to +7) if enabled
+    pub compensation: Option<i8>,
+}
+
+/// White balance settings state.
+#[derive(Debug, Clone)]
+pub struct WhiteBalanceState {
+    /// White balance mode
+    pub mode: WhiteBalanceMode,
+}
+
+/// Image quality settings state.
+#[derive(Debug, Clone)]
+pub struct ImageState {
+    /// Luminance level
+    pub luminance: u8,
+    /// Contrast level
+    pub contrast: u8,
+    /// Sharpness value
+    pub sharpness: u8,
+    /// Saturation level
+    pub saturation: u8,
+    /// Hue value
+    pub hue: u8,
+}
