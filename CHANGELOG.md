@@ -5,12 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - Unreleased
+
+### Added
+- **Improved Error Types**: Enhanced error handling with more specific error variants
+  - Added `ConnectionFailed`, `ConnectionLost`, and `CommandTimeout` for network issues
+  - Added `CameraBusy`, `CameraMoving`, and `CameraNotReady` for camera state errors
+  - Added `InvalidResponse` and `CommandRejected` for protocol errors
+  - Added `OutOfRange` and `PresetNotFound` for value validation
+  - Added `FeatureNotSupported` for camera capability detection
+  - Includes helper methods `is_retryable()` and `suggested_retry_delay()`
 
 ### Changed
-- **Breaking Change**: Made `ViscaError` enum non-exhaustive to allow adding new error variants in minor releases without breaking semver compatibility
-  - Users must now include a wildcard `_` pattern when matching on `ViscaError` variants
-  - This change allows the library to evolve with new error types without requiring major version bumps
+- **Breaking Change**: Reorganized `ViscaError` enum with new variants
+  - Kept traditional exhaustive enum approach for better ergonomics
+  - Users can handle all error cases with compile-time guarantees
+  - Accepted that new error variants require major version bumps
 
 ## [0.3.0] - 2025-01-06
 
