@@ -21,10 +21,10 @@ impl ViscaClient {
             .enable_all()
             .build()
             .map_err(|e| {
-                ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!(
-                    "Failed to create tokio runtime: {}",
-                    e
-                )))
+                ViscaError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create tokio runtime: {}", e),
+                ))
             })?;
 
         let async_client = runtime.block_on(AsyncViscaClient::connect_udp(camera_addr))?;
@@ -41,10 +41,10 @@ impl ViscaClient {
             .enable_all()
             .build()
             .map_err(|e| {
-                ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!(
-                    "Failed to create tokio runtime: {}",
-                    e
-                )))
+                ViscaError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create tokio runtime: {}", e),
+                ))
             })?;
 
         let async_client = runtime.block_on(AsyncViscaClient::connect_tcp(camera_addr))?;
