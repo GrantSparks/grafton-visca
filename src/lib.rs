@@ -201,12 +201,16 @@ pub use connection::AsyncConnectionManagement;
 pub use connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot};
 
 mod reconnecting_transport;
-pub use reconnecting_transport::{ReconnectingTransport, ReconnectionConfig};
+pub use reconnecting_transport::{
+    ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
+};
 
 #[cfg(feature = "async")]
 mod async_reconnecting_transport;
 #[cfg(feature = "async")]
-pub use async_reconnecting_transport::AsyncReconnectingTransport;
+pub use async_reconnecting_transport::{
+    AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
+};
 
 #[cfg(feature = "async")]
 mod async_client;

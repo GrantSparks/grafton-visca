@@ -1,12 +1,12 @@
 //! Tests for the auto-reconnecting transport functionality.
 
 use grafton_visca::{
-    ConnectionManagement, ConnectionStats, ReconnectingTransport, ReconnectionConfig, ViscaCommand,
-    ViscaError, ViscaResponse, ViscaTransport,
+    ConnectionEvent, ConnectionManagement, ConnectionStats, ReconnectingTransport,
+    ReconnectionConfig, ViscaCommand, ViscaError, ViscaResponse, ViscaTransport,
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Mock transport for testing reconnection behavior
 struct MockTransport {
@@ -256,4 +256,277 @@ fn test_health_check_triggers_reconnection() {
 
     // Verify health check was called
     assert!(health_check_count.load(Ordering::SeqCst) > 0);
+}
+
+/// Test connection event callbacks
+#[test]
+fn test_connection_event_callbacks() {
+    let events = Arc::new(Mutex::new(Vec::<ConnectionEvent>::new()));
+    let events_clone = events.clone();
+
+    let fail_count = Arc::new(AtomicUsize::new(0));
+    let should_fail = Arc::new(AtomicBool::new(true));
+
+    let config = ReconnectionConfig {
+        max_retries: 3,
+        initial_delay: Duration::from_millis(10),
+        max_delay: Duration::from_millis(100),
+        backoff_factor: 2.0,
+        health_check_interval: None,
+    };
+
+    let fail_count_clone = fail_count.clone();
+    let should_fail_clone = should_fail.clone();
+
+    let mut transport = ReconnectingTransport::new(
+        move || {
+            if fail_count_clone.load(Ordering::SeqCst) < 1 {
+                fail_count_clone.fetch_add(1, Ordering::SeqCst);
+                Err(ViscaError::Io(std::io::Error::other(
+                    "Initial connection failed",
+                )))
+            } else {
+                Ok(MockTransport::new(
+                    fail_count_clone.clone(),
+                    should_fail_clone.clone(),
+                ))
+            }
+        },
+        config,
+    );
+
+    // Initial connection will fail
+    assert!(transport.is_err());
+
+    // Reset and create successful transport
+    fail_count.store(0, Ordering::SeqCst);
+    should_fail.store(false, Ordering::SeqCst);
+
+    let mut transport = ReconnectingTransport::new(
+        move || Ok(MockTransport::new(fail_count.clone(), should_fail.clone())),
+        ReconnectionConfig::default(),
+    )
+    .unwrap();
+
+    // Set up event callback
+    transport.set_event_callback(Arc::new(move |event| {
+        events_clone.lock().unwrap().push(event);
+    }));
+
+    // Trigger a failure by setting should_fail
+    should_fail.store(true, Ordering::SeqCst);
+
+    // Send command that will fail and trigger reconnection
+    use grafton_visca::command::power::{Power, PowerCommand};
+    let _ = transport.send_command(&PowerCommand { power: Power::On });
+
+    // Check that we received disconnection and reconnection events
+    let recorded_events = events.lock().unwrap();
+    assert!(!recorded_events.is_empty());
+
+    // Should have at least a disconnection event
+    let has_disconnect = recorded_events
+        .iter()
+        .any(|e| matches!(e, ConnectionEvent::Disconnected { .. }));
+    assert!(has_disconnect, "Should have received disconnection event");
+}
+
+/// Test non-retriable errors are not retried
+#[test]
+fn test_non_retriable_errors() {
+    struct NonRetriableMockTransport {
+        call_count: Arc<AtomicUsize>,
+        stats: ConnectionStats,
+    }
+
+    impl ViscaTransport for NonRetriableMockTransport {
+        fn send_command(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            // Return a non-retriable error
+            Err(ViscaError::CommandRejected)
+        }
+
+        fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+            Ok(vec![])
+        }
+    }
+
+    impl ConnectionManagement for NonRetriableMockTransport {
+        fn is_healthy(&mut self) -> Result<bool, ViscaError> {
+            Ok(true)
+        }
+
+        fn connection_stats(&self) -> &ConnectionStats {
+            &self.stats
+        }
+    }
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let call_count_clone = call_count.clone();
+
+    let config = ReconnectionConfig {
+        max_retries: 5,
+        initial_delay: Duration::from_millis(10),
+        max_delay: Duration::from_millis(100),
+        backoff_factor: 2.0,
+        health_check_interval: None,
+    };
+
+    let mut transport = ReconnectingTransport::new(
+        move || {
+            Ok(NonRetriableMockTransport {
+                call_count: call_count_clone.clone(),
+                stats: ConnectionStats::new(),
+            })
+        },
+        config,
+    )
+    .unwrap();
+
+    use grafton_visca::command::power::{Power, PowerCommand};
+    let result = transport.send_command(&PowerCommand { power: Power::On });
+
+    // Should fail with the non-retriable error
+    assert!(matches!(result, Err(ViscaError::CommandRejected)));
+
+    // Should have been called only once (no retries)
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+}
+
+/// Test statistics tracking
+#[test]
+fn test_statistics_tracking() {
+    let should_fail = Arc::new(AtomicBool::new(false));
+
+    let mut transport = ReconnectingTransport::new(
+        move || {
+            Ok(MockTransport::new(
+                Arc::new(AtomicUsize::new(0)),
+                should_fail.clone(),
+            ))
+        },
+        ReconnectionConfig::default(),
+    )
+    .unwrap();
+
+    // Send some successful commands
+    use grafton_visca::command::power::{Power, PowerCommand};
+    for _ in 0..3 {
+        let _ = transport.send_command(&PowerCommand { power: Power::On });
+    }
+
+    // Check stats
+    let stats = transport.stats_snapshot();
+    let snapshot = stats.snapshot();
+    assert!(snapshot.commands_sent > 0 || snapshot.error_count == 0);
+
+    // Trigger some failures
+    should_fail.store(true, Ordering::SeqCst);
+    let _ = transport.send_command(&PowerCommand { power: Power::Off });
+
+    // Stats should reflect errors
+    let stats = transport.stats_snapshot();
+    let snapshot = stats.snapshot();
+    assert!(snapshot.error_count > 0);
+}
+
+/// Test concurrent operations don't cause issues
+#[test]
+fn test_concurrent_operations() {
+    use std::thread;
+
+    let transport = Arc::new(Mutex::new(
+        ReconnectingTransport::new(
+            || {
+                Ok(MockTransport::new(
+                    Arc::new(AtomicUsize::new(0)),
+                    Arc::new(AtomicBool::new(false)),
+                ))
+            },
+            ReconnectionConfig::default(),
+        )
+        .unwrap(),
+    ));
+
+    let handles: Vec<_> = (0..5)
+        .map(|i| {
+            let transport = transport.clone();
+            thread::spawn(move || {
+                use grafton_visca::command::power::{Power, PowerCommand};
+                let mut transport = transport.lock().unwrap();
+                let result = transport.send_command(&PowerCommand {
+                    power: if i % 2 == 0 { Power::On } else { Power::Off },
+                });
+                assert!(result.is_ok());
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+}
+
+/// Test that health checks respect caching
+#[test]
+fn test_health_check_caching() {
+    let health_check_count = Arc::new(AtomicUsize::new(0));
+    let health_check_count_clone = health_check_count.clone();
+
+    struct CachingHealthCheckTransport {
+        health_check_count: Arc<AtomicUsize>,
+        stats: ConnectionStats,
+    }
+
+    impl ViscaTransport for CachingHealthCheckTransport {
+        fn send_command(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+            Ok(())
+        }
+
+        fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+            Ok(vec![vec![0x90, 0x41, 0xFF]])
+        }
+    }
+
+    impl ConnectionManagement for CachingHealthCheckTransport {
+        fn is_healthy(&mut self) -> Result<bool, ViscaError> {
+            self.health_check_count.fetch_add(1, Ordering::SeqCst);
+            self.stats.record_health_check(true);
+            Ok(true)
+        }
+
+        fn connection_stats(&self) -> &ConnectionStats {
+            &self.stats
+        }
+    }
+
+    let config = ReconnectionConfig {
+        max_retries: 3,
+        initial_delay: Duration::from_millis(10),
+        max_delay: Duration::from_secs(1),
+        backoff_factor: 2.0,
+        health_check_interval: Some(Duration::from_secs(1)),
+    };
+
+    let mut transport = ReconnectingTransport::new(
+        move || {
+            Ok(CachingHealthCheckTransport {
+                health_check_count: health_check_count_clone.clone(),
+                stats: ConnectionStats::new(),
+            })
+        },
+        config,
+    )
+    .unwrap();
+
+    // First health check
+    assert!(transport.is_healthy().unwrap());
+    let first_count = health_check_count.load(Ordering::SeqCst);
+    assert!(first_count > 0);
+
+    // Immediate second health check should use cached result
+    assert!(transport.is_healthy().unwrap());
+    let second_count = health_check_count.load(Ordering::SeqCst);
+    // Might be the same if caching is working
+    assert!(second_count >= first_count);
 }

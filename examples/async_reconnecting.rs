@@ -4,8 +4,12 @@
 use grafton_visca::{
     command::{PanTiltCommand, PowerCommand, ZoomCommand},
     AsyncConnectionManagement, AsyncReconnectingTransport, AsyncTcpTransport, AsyncUdpTransport,
-    AsyncViscaTransport, ReconnectionConfig, ViscaError,
+    AsyncViscaTransport, ConnectionEvent, ConnectionEventCallback, ReconnectionConfig, ViscaError,
 };
+#[cfg(feature = "async")]
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[cfg(feature = "async")]
+use std::sync::{Arc, Mutex};
 #[cfg(feature = "async")]
 use std::time::Duration;
 #[cfg(feature = "async")]
@@ -25,6 +29,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example with TCP
     demo_async_tcp_reconnection().await?;
+
+    println!("\n");
+
+    // Example with event monitoring
+    demo_async_event_monitoring().await?;
 
     Ok(())
 }
@@ -91,6 +100,21 @@ async fn demo_async_udp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         Ok(false) => println!("\n✗ Connection is not healthy"),
         Err(e) => println!("\n✗ Error checking health: {}", e),
     }
+
+    // Get statistics using the new async methods
+    let stats = transport.connection_stats_mut().await;
+    let snapshot = stats.snapshot();
+    println!("\n3. Connection Statistics:");
+    println!("  Commands sent: {}", snapshot.commands_sent);
+    println!("  Responses received: {}", snapshot.responses_received);
+    println!("  Errors: {}", snapshot.error_count);
+
+    // Get combined stats
+    let combined = transport.combined_stats().await;
+    let combined_snapshot = combined.snapshot();
+    println!("\n4. Combined Statistics (wrapper + transport):");
+    println!("  Total commands: {}", combined_snapshot.commands_sent);
+    println!("  Total errors: {}", combined_snapshot.error_count);
 
     Ok(())
 }
@@ -159,22 +183,146 @@ async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         sleep(Duration::from_secs(1)).await;
     }
 
-    // Concurrent operations test
-    println!("\n2. Testing concurrent operations (simulating high load):");
-
-    use tokio::task::JoinSet;
-    let mut tasks = JoinSet::new();
-
-    // Note: In real usage, you'd need to use Arc<Mutex<>> or similar for shared transport access
-    // This is simplified for demonstration
-
-    println!("  (This would require proper synchronization in real usage)");
-
     // Final health check
     match transport.is_healthy().await {
         Ok(true) => println!("\n✓ Final health check: Connection is healthy"),
         Ok(false) => println!("\n✗ Final health check: Connection is not healthy"),
         Err(e) => println!("\n✗ Error during final health check: {}", e),
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "async")]
+async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>> {
+    use std::net::SocketAddr;
+
+    println!("=== Async Connection Event Monitoring ===");
+
+    let camera_addr: SocketAddr = "192.168.1.100:1259".parse()?;
+
+    // Track connection events
+    let events = Arc::new(Mutex::new(Vec::<ConnectionEvent>::new()));
+    let events_clone = events.clone();
+
+    // Configure reconnection with shorter delays for demo
+    let reconnect_config = ReconnectionConfig {
+        max_retries: 3,
+        initial_delay: Duration::from_millis(100),
+        max_delay: Duration::from_secs(2),
+        backoff_factor: 2.0,
+        health_check_interval: Some(Duration::from_secs(5)),
+    };
+
+    // Create transport with simulated failures
+    let fail_count = Arc::new(AtomicUsize::new(0));
+    let should_fail = Arc::new(AtomicBool::new(false));
+    let fail_count_clone = fail_count.clone();
+    let should_fail_clone = should_fail.clone();
+
+    let mut transport = AsyncReconnectingTransport::new(
+        move || {
+            let fail_count = fail_count_clone.clone();
+            let should_fail = should_fail_clone.clone();
+
+            async move {
+                let count = fail_count.fetch_add(1, Ordering::SeqCst);
+
+                // Simulate failures on attempts 2-4
+                if count >= 2 && count <= 4 {
+                    Err(ViscaError::Io(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        "Simulated async connection failure",
+                    )))
+                } else {
+                    AsyncUdpTransport::new(camera_addr).await
+                }
+            }
+        },
+        reconnect_config,
+    )
+    .await?;
+
+    // Set up event callback
+    transport.set_event_callback(Arc::new(move |event| {
+        let mut event_list = events_clone.lock().unwrap();
+
+        // Print event with emoji indicators
+        match &event {
+            ConnectionEvent::Connected => {
+                println!("🟢 ASYNC EVENT: Connection established");
+            }
+            ConnectionEvent::Disconnected { reason } => {
+                println!("🔴 ASYNC EVENT: Connection lost - {}", reason);
+            }
+            ConnectionEvent::ReconnectingStarted {
+                attempt,
+                max_attempts,
+            } => {
+                println!(
+                    "🔄 ASYNC EVENT: Reconnection attempt {}/{}",
+                    attempt, max_attempts
+                );
+            }
+            ConnectionEvent::ReconnectingFailed { attempt, error } => {
+                println!("❌ ASYNC EVENT: Attempt {} failed - {}", attempt, error);
+            }
+            ConnectionEvent::ReconnectionExhausted => {
+                println!("⛔ ASYNC EVENT: All attempts exhausted");
+            }
+        }
+
+        event_list.push(event);
+    }));
+
+    println!("\nSending commands to trigger connection events...\n");
+
+    // First command should work
+    match transport.send_and_wait(&PowerCommand::on()).await {
+        Ok(_) => println!("✓ Initial command successful"),
+        Err(e) => println!("✗ Initial command failed: {}", e),
+    }
+
+    // Force connection failures
+    fail_count.store(1, Ordering::SeqCst);
+    should_fail.store(true, Ordering::SeqCst);
+
+    // This will trigger reconnection
+    match transport.send_and_wait(&ZoomCommand::TeleStandard).await {
+        Ok(_) => println!("✓ Command after failure successful"),
+        Err(e) => println!("✗ Command after failure failed: {}", e),
+    }
+
+    // Allow some time for events
+    sleep(Duration::from_secs(1)).await;
+
+    // Try one more command
+    match transport.send_and_wait(&PanTiltCommand::Home).await {
+        Ok(_) => println!("✓ Final command successful"),
+        Err(e) => println!("✗ Final command failed: {}", e),
+    }
+
+    // Event summary
+    println!("\n📊 Async Event Summary:");
+    let event_list = events.lock().unwrap();
+    println!("Total events: {}", event_list.len());
+
+    for (i, event) in event_list.iter().enumerate() {
+        print!("  {}. ", i + 1);
+        match event {
+            ConnectionEvent::Connected => println!("Connected"),
+            ConnectionEvent::Disconnected { .. } => println!("Disconnected"),
+            ConnectionEvent::ReconnectingStarted {
+                attempt,
+                max_attempts,
+            } => {
+                println!("Reconnecting {}/{}", attempt, max_attempts)
+            }
+            ConnectionEvent::ReconnectingFailed { attempt, .. } => {
+                println!("Attempt {} failed", attempt)
+            }
+            ConnectionEvent::ReconnectionExhausted => println!("Exhausted"),
+        }
     }
 
     Ok(())
