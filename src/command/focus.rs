@@ -51,9 +51,9 @@ impl ViscaCommand for FocusCommand {
                 }
             }
             FocusCommand::Direct(position) => {
-                let p = (*position >> 12) as u8;
-                let q = (*position >> 8) as u8;
-                let r = (*position >> 4) as u8;
+                let p = ((*position >> 12) & 0x0F) as u8;
+                let q = ((*position >> 8) & 0x0F) as u8;
+                let r = ((*position >> 4) & 0x0F) as u8;
                 let s = (*position & 0x0F) as u8;
                 Ok(vec![0x81, 0x01, 0x04, 0x48, p, q, r, s, 0xFF])
             }
