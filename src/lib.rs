@@ -264,6 +264,7 @@ pub struct UdpTransport {
     socket: UdpSocket,
     address: String,
     stats: ConnectionStats,
+    timeout_duration: Option<Duration>,
 }
 
 impl UdpTransport {
@@ -278,13 +279,20 @@ impl UdpTransport {
     /// Returns an error if the socket cannot be created or configured.
     pub fn new(address: &str) -> io::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
-        socket.set_read_timeout(Some(Duration::from_secs(10)))?;
-        socket.set_write_timeout(Some(Duration::from_secs(10)))?;
+        let timeout = Some(Duration::from_secs(10));
+        socket.set_read_timeout(timeout)?;
+        socket.set_write_timeout(timeout)?;
         Ok(Self {
             socket,
             address: address.to_string(),
             stats: ConnectionStats::new(),
+            timeout_duration: timeout,
         })
+    }
+
+    /// Get connection statistics
+    pub fn stats(&self) -> &ConnectionStats {
+        &self.stats
     }
 }
 
@@ -302,6 +310,7 @@ impl UdpTransport {
 pub struct TcpTransport {
     stream: TcpStream,
     stats: ConnectionStats,
+    timeout_duration: Option<Duration>,
 }
 
 impl TcpTransport {
@@ -316,12 +325,19 @@ impl TcpTransport {
     /// Returns an error if the connection cannot be established or configured.
     pub fn new(address: &str) -> io::Result<Self> {
         let stream = TcpStream::connect(address)?;
-        stream.set_read_timeout(Some(Duration::from_secs(30)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(30)))?;
+        let timeout = Some(Duration::from_secs(30));
+        stream.set_read_timeout(timeout)?;
+        stream.set_write_timeout(timeout)?;
         Ok(Self {
             stream,
             stats: ConnectionStats::new(),
+            timeout_duration: timeout,
         })
+    }
+
+    /// Get connection statistics
+    pub fn stats(&self) -> &ConnectionStats {
+        &self.stats
     }
 }
 
@@ -472,46 +488,54 @@ impl ViscaTransport for TcpTransport {
 impl ConnectionManagement for UdpTransport {
     fn is_healthy(&mut self) -> Result<bool, ViscaError> {
         use crate::command::InquiryCommand;
-        use std::time::Instant;
 
         // Check cached health result first
         if let Some(cached_healthy) = self.stats.get_cached_health() {
             return Ok(cached_healthy);
         }
 
+        // Save the current timeout and set a short one for health check
+        let original_timeout = self.timeout_duration;
+        let health_check_timeout = Some(Duration::from_secs(1));
+
+        // Set temporary timeout for health check
+        if let Err(e) = self.socket.set_read_timeout(health_check_timeout) {
+            return Err(ViscaError::Io(e));
+        }
+
         // Send the power inquiry command
-        self.send_command(&InquiryCommand::Power)?;
+        let send_result = self.send_command(&InquiryCommand::Power);
 
-        // Try to receive response with a short timeout
-        let start = Instant::now();
-        let timeout = Duration::from_secs(1);
+        // Restore original timeout regardless of send result
+        if let Err(e) = self.socket.set_read_timeout(original_timeout) {
+            // Log error but don't fail the health check for this
+            log::warn!("Failed to restore socket timeout: {}", e);
+        }
 
-        // Save the current socket to restore if needed
-        loop {
-            if start.elapsed() > timeout {
-                self.stats.record_health_check(false);
-                return Ok(false);
+        send_result?;
+
+        // Try to receive response
+        match self.receive_response() {
+            Ok(responses) => {
+                // Validate that we got a power inquiry response
+                let healthy = responses.iter().any(|response| {
+                    // Power inquiry response format: 0x90 0x50 0x0{2,3} 0xFF
+                    response.len() == 4
+                        && response[0] == 0x90
+                        && response[1] == 0x50
+                        && (response[2] == 0x02 || response[2] == 0x03)
+                        && response[3] == 0xFF
+                });
+                self.stats.record_health_check(healthy);
+                Ok(healthy)
             }
-
-            // Use peek to check if data is available without blocking
-            let mut peek_buf = [0u8; 1];
-            match self.socket.peek(&mut peek_buf) {
-                Ok(_) => {
-                    // Data is available, try to receive it
-                    match self.receive_response() {
-                        Ok(responses) => {
-                            let healthy = !responses.is_empty();
-                            self.stats.record_health_check(healthy);
-                            return Ok(healthy);
-                        }
-                        Err(e) => return Err(e),
-                    }
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    // No data yet, continue waiting
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(e) => return Err(ViscaError::Io(e)),
+            Err(ViscaError::Timeout) => {
+                self.stats.record_health_check(false);
+                Ok(false)
+            }
+            Err(e) => {
+                self.stats.record_health_check(false);
+                Err(e)
             }
         }
     }
@@ -524,45 +548,54 @@ impl ConnectionManagement for UdpTransport {
 impl ConnectionManagement for TcpTransport {
     fn is_healthy(&mut self) -> Result<bool, ViscaError> {
         use crate::command::InquiryCommand;
-        use std::time::Instant;
 
         // Check cached health result first
         if let Some(cached_healthy) = self.stats.get_cached_health() {
             return Ok(cached_healthy);
         }
 
+        // Save the current timeout and set a short one for health check
+        let original_timeout = self.timeout_duration;
+        let health_check_timeout = Some(Duration::from_secs(1));
+
+        // Set temporary timeout for health check
+        if let Err(e) = self.stream.set_read_timeout(health_check_timeout) {
+            return Err(ViscaError::Io(e));
+        }
+
         // Send the power inquiry command
-        self.send_command(&InquiryCommand::Power)?;
+        let send_result = self.send_command(&InquiryCommand::Power);
 
-        // Try to receive response with a short timeout
-        let start = Instant::now();
-        let timeout = Duration::from_secs(1);
+        // Restore original timeout regardless of send result
+        if let Err(e) = self.stream.set_read_timeout(original_timeout) {
+            // Log error but don't fail the health check for this
+            log::warn!("Failed to restore stream timeout: {}", e);
+        }
 
-        loop {
-            if start.elapsed() > timeout {
-                self.stats.record_health_check(false);
-                return Ok(false);
+        send_result?;
+
+        // Try to receive response
+        match self.receive_response() {
+            Ok(responses) => {
+                // Validate that we got a power inquiry response
+                let healthy = responses.iter().any(|response| {
+                    // Power inquiry response format: 0x90 0x50 0x0{2,3} 0xFF
+                    response.len() == 4
+                        && response[0] == 0x90
+                        && response[1] == 0x50
+                        && (response[2] == 0x02 || response[2] == 0x03)
+                        && response[3] == 0xFF
+                });
+                self.stats.record_health_check(healthy);
+                Ok(healthy)
             }
-
-            // Use peek to check if data is available without blocking
-            let mut peek_buf = [0u8; 1];
-            match self.stream.peek(&mut peek_buf) {
-                Ok(_) => {
-                    // Data is available, try to receive it
-                    match self.receive_response() {
-                        Ok(responses) => {
-                            let healthy = !responses.is_empty();
-                            self.stats.record_health_check(healthy);
-                            return Ok(healthy);
-                        }
-                        Err(e) => return Err(e),
-                    }
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    // No data yet, continue waiting
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(e) => return Err(ViscaError::Io(e)),
+            Err(ViscaError::Timeout) => {
+                self.stats.record_health_check(false);
+                Ok(false)
+            }
+            Err(e) => {
+                self.stats.record_health_check(false);
+                Err(e)
             }
         }
     }

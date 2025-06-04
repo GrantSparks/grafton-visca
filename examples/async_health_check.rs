@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut udp_transport = AsyncUdpTransport::new(addr).await?;
 
     // Check initial health
-    match udp_transport.is_healthy().await? {
+    match udp_transport.is_healthy().await {
         Ok(true) => println!("✓ UDP connection is healthy"),
         Ok(false) => println!("✗ UDP connection is not healthy"),
         Err(e) => println!("✗ Error checking UDP health: {}", e),
@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tcp_transport = AsyncTcpTransport::new(tcp_addr).await?;
 
     // Check health
-    match tcp_transport.is_healthy().await? {
+    match tcp_transport.is_healthy().await {
         Ok(true) => println!("✓ TCP connection is healthy"),
         Ok(false) => println!("✗ TCP connection is not healthy"),
         Err(e) => println!("✗ Error checking TCP health: {}", e),
@@ -90,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "UDP: {}",
-        match udp_health? {
+        match udp_health {
             Ok(true) => "✓ Healthy",
             Ok(false) => "✗ Not healthy",
             Err(e) => {
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!(
         "TCP: {}",
-        match tcp_health? {
+        match tcp_health {
             Ok(true) => "✓ Healthy",
             Ok(false) => "✗ Not healthy",
             Err(e) => {
@@ -116,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 1..=5 {
         sleep(Duration::from_secs(2)).await;
         print!("Health check {}: ", i);
-        match tcp_transport.is_healthy().await? {
+        match tcp_transport.is_healthy().await {
             Ok(true) => println!("✓ Healthy"),
             Ok(false) => println!("✗ Not healthy"),
             Err(e) => println!("✗ Error: {}", e),

@@ -31,6 +31,11 @@ impl AsyncUdpTransport {
         })
     }
 
+    /// Get connection statistics
+    pub fn stats(&self) -> &ConnectionStats {
+        &self.stats
+    }
+
     /// Set the timeout duration for receive operations.
     pub fn set_timeout(&mut self, duration: Duration) {
         self.timeout_duration = duration;
@@ -116,30 +121,49 @@ impl Drop for AsyncUdpTransport {
 
 #[cfg(feature = "async")]
 impl crate::AsyncConnectionManagement for AsyncUdpTransport {
-    fn is_healthy(&mut self) -> TransportFuture<'_, Result<bool, ViscaError>> {
+    fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
         Box::pin(async move {
             use crate::command::InquiryCommand;
             use tokio::time::timeout;
 
             // Check cached health result first
             if let Some(cached_healthy) = self.stats.get_cached_health() {
-                return Ok(Ok(cached_healthy));
+                return Ok(cached_healthy);
             }
 
+            // Save original timeout
+            let original_timeout = self.timeout_duration;
+            self.timeout_duration = Duration::from_secs(1);
+
             // Send the power inquiry command
-            self.send_command(&InquiryCommand::Power).await?;
+            let send_result = self.send_command(&InquiryCommand::Power).await;
+
+            // Always restore timeout
+            self.timeout_duration = original_timeout;
+
+            if send_result.is_err() {
+                self.stats.record_health_check(false);
+                return Ok(false);
+            }
 
             // Try to receive response with a short timeout
             match timeout(Duration::from_secs(1), self.receive_response()).await {
                 Ok(Ok(responses)) => {
-                    let healthy = !responses.is_empty();
+                    // Validate that we got a power inquiry response
+                    let healthy = responses.iter().any(|response| {
+                        // Power inquiry response format: 0x90 0x50 0x0{2,3} 0xFF
+                        response.len() == 4
+                            && response[0] == 0x90
+                            && response[1] == 0x50
+                            && (response[2] == 0x02 || response[2] == 0x03)
+                            && response[3] == 0xFF
+                    });
                     self.stats.record_health_check(healthy);
-                    Ok(Ok(healthy))
+                    Ok(healthy)
                 }
-                Ok(Err(e)) => Ok(Err(e)),
-                Err(_) => {
+                Ok(Err(_)) | Err(_) => {
                     self.stats.record_health_check(false);
-                    Ok(Ok(false)) // Timeout means unhealthy but not an error
+                    Ok(false) // Any error means unhealthy
                 }
             }
         })
