@@ -121,8 +121,8 @@
 //! - [`ViscaError`] - Comprehensive error types for all failure modes
 //!
 //! ### Async Support (with `async` feature)
-//! - [`AsyncViscaClient`] - High-level async client with automatic socket management
-//! - [`AsyncViscaTransport`] trait - Async version of the transport trait
+//! - `AsyncViscaClient` - High-level async client with automatic socket management
+//! - `AsyncViscaTransport` trait - Async version of the transport trait
 //!
 //! ## Connection Setup
 //!
