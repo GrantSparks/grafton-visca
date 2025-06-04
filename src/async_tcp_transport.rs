@@ -1,6 +1,6 @@
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
-    parse_response, ViscaCommand, ViscaError,
+    parse_response, ConnectionStats, ViscaCommand, ViscaError,
 };
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -16,6 +16,7 @@ pub struct AsyncTcpTransport {
     buffer: Vec<u8>,
     read_buffer: Vec<u8>,
     timeout_duration: Duration,
+    stats: ConnectionStats,
 }
 
 #[cfg(feature = "async")]
@@ -31,6 +32,7 @@ impl AsyncTcpTransport {
             buffer: Vec::with_capacity(1024),
             read_buffer: vec![0; 1024],
             timeout_duration: Duration::from_secs(30),
+            stats: ConnectionStats::new(),
         })
     }
 
@@ -116,10 +118,12 @@ impl AsyncViscaTransport for AsyncTcpTransport {
                 }
                 Ok(Err(e)) => {
                     log::error!("Socket read error: {:?}", e);
+                    self.stats.record_error();
                     Err(ViscaError::Io(e))
                 }
                 Err(_) => {
                     log::debug!("Receive timeout");
+                    self.stats.record_error();
                     Err(ViscaError::Timeout)
                 }
             }
@@ -134,5 +138,37 @@ impl Drop for AsyncTcpTransport {
         // We can't do async operations in drop, so we just rely on the OS
         // to clean up the socket when the TcpStream is dropped
         log::debug!("Dropping AsyncTcpTransport");
+    }
+}
+
+#[cfg(feature = "async")]
+impl crate::AsyncConnectionManagement for AsyncTcpTransport {
+    fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
+        Box::pin(async move {
+            use crate::command::InquiryCommand;
+
+            // Temporarily reduce timeout for health check
+            let original_timeout = self.timeout_duration;
+            self.timeout_duration = Duration::from_secs(1);
+
+            let result = self.send_command(&InquiryCommand::Power).await.is_ok()
+                && match self.receive_response().await {
+                    Ok(responses) => !responses.is_empty(),
+                    Err(_) => false,
+                };
+
+            // Restore original timeout
+            self.timeout_duration = original_timeout;
+
+            Ok(result)
+        })
+    }
+
+    fn connection_stats(&self) -> &ConnectionStats {
+        &self.stats
+    }
+
+    fn connection_stats_mut(&mut self) -> &mut ConnectionStats {
+        &mut self.stats
     }
 }
