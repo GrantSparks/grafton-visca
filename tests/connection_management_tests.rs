@@ -208,8 +208,7 @@ mod sync_health_tests {
     impl ViscaTransport for MockTransport {
         fn send_command(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
             if self.fail_send {
-                Err(ViscaError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(ViscaError::Io(std::io::Error::other(
                     "Mock send error",
                 )))
             } else {
@@ -220,8 +219,7 @@ mod sync_health_tests {
 
         fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
             if self.fail_receive {
-                Err(ViscaError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(ViscaError::Io(std::io::Error::other(
                     "Mock receive error",
                 )))
             } else if self.empty_response {
