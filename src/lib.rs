@@ -192,10 +192,10 @@ pub use error::{AppError, ViscaError};
 mod session;
 pub use session::ViscaSession;
 
-mod connection;
+pub mod connection;
 #[cfg(feature = "async")]
 pub use connection::AsyncConnectionManagement;
-pub use connection::{ConnectionManagement, ConnectionStats};
+pub use connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot};
 
 #[cfg(feature = "async")]
 mod async_client;
@@ -470,54 +470,105 @@ impl ViscaTransport for TcpTransport {
 }
 
 impl ConnectionManagement for UdpTransport {
-    fn is_healthy(&mut self) -> bool {
+    fn is_healthy(&mut self) -> Result<bool, ViscaError> {
         use crate::command::InquiryCommand;
+        use std::time::Instant;
 
-        // Temporarily reduce timeout for health check
-        let original_timeout = self.socket.read_timeout().ok().flatten();
-        let _ = self.socket.set_read_timeout(Some(Duration::from_secs(1)));
+        // Check cached health result first
+        if let Some(cached_healthy) = self.stats.get_cached_health() {
+            return Ok(cached_healthy);
+        }
 
-        let result =
-            self.send_command(&InquiryCommand::Power).is_ok() && self.receive_response().is_ok();
+        // Send the power inquiry command
+        self.send_command(&InquiryCommand::Power)?;
 
-        // Restore original timeout
-        let _ = self.socket.set_read_timeout(original_timeout);
+        // Try to receive response with a short timeout
+        let start = Instant::now();
+        let timeout = Duration::from_secs(1);
 
-        result
+        // Save the current socket to restore if needed
+        loop {
+            if start.elapsed() > timeout {
+                self.stats.record_health_check(false);
+                return Ok(false);
+            }
+
+            // Use peek to check if data is available without blocking
+            let mut peek_buf = [0u8; 1];
+            match self.socket.peek(&mut peek_buf) {
+                Ok(_) => {
+                    // Data is available, try to receive it
+                    match self.receive_response() {
+                        Ok(responses) => {
+                            let healthy = !responses.is_empty();
+                            self.stats.record_health_check(healthy);
+                            return Ok(healthy);
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // No data yet, continue waiting
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) => return Err(ViscaError::Io(e)),
+            }
+        }
     }
 
     fn connection_stats(&self) -> &ConnectionStats {
         &self.stats
-    }
-
-    fn connection_stats_mut(&mut self) -> &mut ConnectionStats {
-        &mut self.stats
     }
 }
 
 impl ConnectionManagement for TcpTransport {
-    fn is_healthy(&mut self) -> bool {
+    fn is_healthy(&mut self) -> Result<bool, ViscaError> {
         use crate::command::InquiryCommand;
+        use std::time::Instant;
 
-        // Temporarily reduce timeout for health check
-        let original_timeout = self.stream.read_timeout().ok().flatten();
-        let _ = self.stream.set_read_timeout(Some(Duration::from_secs(1)));
+        // Check cached health result first
+        if let Some(cached_healthy) = self.stats.get_cached_health() {
+            return Ok(cached_healthy);
+        }
 
-        let result =
-            self.send_command(&InquiryCommand::Power).is_ok() && self.receive_response().is_ok();
+        // Send the power inquiry command
+        self.send_command(&InquiryCommand::Power)?;
 
-        // Restore original timeout
-        let _ = self.stream.set_read_timeout(original_timeout);
+        // Try to receive response with a short timeout
+        let start = Instant::now();
+        let timeout = Duration::from_secs(1);
 
-        result
+        loop {
+            if start.elapsed() > timeout {
+                self.stats.record_health_check(false);
+                return Ok(false);
+            }
+
+            // Use peek to check if data is available without blocking
+            let mut peek_buf = [0u8; 1];
+            match self.stream.peek(&mut peek_buf) {
+                Ok(_) => {
+                    // Data is available, try to receive it
+                    match self.receive_response() {
+                        Ok(responses) => {
+                            let healthy = !responses.is_empty();
+                            self.stats.record_health_check(healthy);
+                            return Ok(healthy);
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // No data yet, continue waiting
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) => return Err(ViscaError::Io(e)),
+            }
+        }
     }
 
     fn connection_stats(&self) -> &ConnectionStats {
         &self.stats
-    }
-
-    fn connection_stats_mut(&mut self) -> &mut ConnectionStats {
-        &mut self.stats
     }
 }
 
@@ -634,6 +685,9 @@ pub fn send_command_and_wait(
 #[allow(unreachable_patterns)]
 fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
     match inquiry_response {
+        ViscaInquiryResponse::Power { on } => {
+            debug!("Power: {}", if *on { "On" } else { "Off" });
+        }
         ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
             debug!("Pan: {}, Tilt: {}", pan, tilt);
         }

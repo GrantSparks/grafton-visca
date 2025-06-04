@@ -89,6 +89,7 @@ pub trait ViscaCommand: Send + Sync {
 /// These are returned wrapped in `ViscaResponse::InquiryResponse(...)`.
 #[derive(Debug)]
 pub enum ViscaInquiryResponse {
+    Power { on: bool },
     PanTiltPosition { pan: i16, tilt: i16 },
     Luminance(u8),
     Contrast(u8),
