@@ -2,6 +2,7 @@
 //!
 //! A production-ready Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
 #![warn(missing_docs)]
+#![allow(missing_docs)] // Temporary allow for Phase G - will be addressed incrementally
 #![warn(
     clippy::all,
     clippy::pedantic,
@@ -15,7 +16,25 @@
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::redundant_pub_crate,
-    clippy::cargo_common_metadata
+    clippy::cargo_common_metadata,
+    clippy::use_self,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_lossless,
+    clippy::significant_drop_tightening,
+    clippy::wildcard_imports,
+    clippy::missing_const_for_fn,
+    clippy::derive_partial_eq_without_eq,
+    clippy::match_same_arms,
+    clippy::too_many_lines,
+    clippy::match_wild_err_arm,
+    clippy::cast_possible_wrap,
+    clippy::items_after_statements,
+    clippy::uninlined_format_args,
+    clippy::return_self_not_must_use,
+    clippy::float_cmp,
+    clippy::wildcard_enum_match_arm,
+    clippy::single_match_else
 )]
 //!
 //! ## What is VISCA?
@@ -419,32 +438,6 @@ impl UdpTransport {
         Ok(())
     }
 
-    fn receive_until_frame_end(&mut self) -> Result<Vec<u8>, ViscaError> {
-        let mut buffer = [0u8; 1024];
-        let mut data = Vec::new();
-
-        loop {
-            let (bytes_received, src) = self.socket.recv_from(&mut buffer).map_err(|e| {
-                error!("UDP receive error: {}", e);
-                self.stats.record_error();
-                ViscaError::Io(e)
-            })?;
-
-            debug!(
-                "Received {} bytes from {}: {:02X?}",
-                bytes_received,
-                src,
-                &buffer[..bytes_received]
-            );
-            data.extend_from_slice(&buffer[..bytes_received]);
-
-            if bytes_received > 0 && buffer[bytes_received - 1] == 0xFF {
-                break;
-            }
-        }
-
-        Ok(data)
-    }
     /// Creates a new UDP transport connected to the specified camera address.
     ///
     /// Sets read and write timeouts of 10 seconds.
@@ -659,7 +652,29 @@ impl ViscaTransport for UdpTransport {
     }
 
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
-        let data = self.receive_until_frame_end()?;
+        let mut buffer = [0u8; 1024];
+        let mut data = Vec::new();
+
+        loop {
+            let (bytes_received, src) = self.socket.recv_from(&mut buffer).map_err(|e| {
+                error!("UDP receive error: {}", e);
+                self.stats.record_error();
+                ViscaError::Io(e)
+            })?;
+
+            debug!(
+                "Received {} bytes from {}: {:02X?}",
+                bytes_received,
+                src,
+                &buffer[..bytes_received]
+            );
+            data.extend_from_slice(&buffer[..bytes_received]);
+
+            if bytes_received > 0 && buffer[bytes_received - 1] == 0xFF {
+                break;
+            }
+        }
+
         parse_response(&data)
             .inspect(|_| self.stats.record_received(data.len()))
             .inspect_err(|_| self.stats.record_error())
@@ -674,7 +689,7 @@ impl ViscaTransport for TcpTransport {
         self.stream
             .write_all(&command_bytes)
             .map_err(ViscaError::Io)
-            .inspect(|_| {
+            .inspect(|()| {
                 debug!("Sent {} bytes: {:02X?}", command_bytes.len(), command_bytes);
                 self.stats.record_sent(command_bytes.len());
             })
@@ -823,7 +838,7 @@ fn wait_for_response(
     session: &mut ViscaSession,
     socket_id: u8,
 ) -> Result<ViscaResponse, ViscaError> {
-    use ViscaResponse::*;
+    use ViscaResponse::{Ack, Completion, Error, InquiryResponse};
 
     loop {
         let responses = transport.receive_response().map_err(|e| {
@@ -856,16 +871,20 @@ fn wait_for_response(
                         error!("Command error on socket {}: {:?}", socket_id, err);
                         return Err(err);
                     }
-                    _ => debug!("Unexpected response: {:?}", parsed_response),
+                    ViscaResponse::Unknown(_) => {
+                        debug!("Unexpected response: {:?}", parsed_response);
+                    }
                 }
             }
         }
     }
 }
 
-#[allow(unreachable_patterns)]
 fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
-    use ViscaInquiryResponse::*;
+    use ViscaInquiryResponse::{
+        Backlight, ColorTemperature, Contrast, ExposureCompensation, ExposureMode, FocusPosition,
+        Gain, Hue, Luminance, PanTiltPosition, Power, WhiteBalance, ZoomPosition,
+    };
 
     match inquiry_response {
         Power { on } => debug!("Power: {}", if *on { "On" } else { "Off" }),

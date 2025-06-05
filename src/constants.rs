@@ -1,24 +1,24 @@
 //! Camera-specific constants and conversion utilities for VISCA protocol.
 //!
-//! This module provides constants for PTZOptics cameras including position ranges,
+//! This module provides constants for `PTZOptics` cameras including position ranges,
 //! speed limits, and utilities for converting between different unit systems.
 
 use crate::error::ViscaError;
 
-/// PTZOptics camera models with their specific capabilities
+/// `PTZOptics` camera models with their specific capabilities
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CameraModel {
-    /// PTZOptics G2 series camera
+    /// `PTZOptics` G2 series camera
     PTZOpticsG2,
-    /// PTZOptics G3 series camera
+    /// `PTZOptics` G3 series camera
     PTZOpticsG3,
-    /// PTZOptics 30X optical zoom camera
+    /// `PTZOptics` 30X optical zoom camera
     PTZOptics30X,
     /// Unknown or generic VISCA camera
     Unknown,
 }
 
-/// Pan/Tilt position constants for PTZOptics cameras
+/// Pan/Tilt position constants for `PTZOptics` cameras
 pub mod position {
     /// Maximum pan position (right) in VISCA units
     pub const PAN_MAX: i16 = 2448;
@@ -34,14 +34,14 @@ pub mod position {
     /// Center tilt position
     pub const TILT_CENTER: i16 = 0;
 
-    /// Total pan range in degrees for PTZOptics G2 (340°)
+    /// Total pan range in degrees for `PTZOptics` G2 (340°)
     pub const PAN_DEGREES_G2: f32 = 340.0;
-    /// Total tilt range in degrees for PTZOptics G2 (120°)
+    /// Total tilt range in degrees for `PTZOptics` G2 (120°)
     pub const TILT_DEGREES_G2: f32 = 120.0;
 
-    /// Total pan range in degrees for PTZOptics 30X (340°)
+    /// Total pan range in degrees for `PTZOptics` 30X (340°)
     pub const PAN_DEGREES_30X: f32 = 340.0;
-    /// Total tilt range in degrees for PTZOptics 30X (120°)
+    /// Total tilt range in degrees for `PTZOptics` 30X (120°)
     pub const TILT_DEGREES_30X: f32 = 120.0;
 }
 
@@ -95,7 +95,7 @@ pub mod speed {
 pub mod preset {
     /// Minimum preset ID
     pub const PRESET_ID_MIN: u8 = 0;
-    /// Maximum preset ID for PTZOptics cameras
+    /// Maximum preset ID for `PTZOptics` cameras
     pub const PRESET_ID_MAX: u8 = 100;
     /// Home preset ID (usually 0)
     pub const PRESET_HOME: u8 = 0;
@@ -264,8 +264,8 @@ impl PositionConversion for ViscaPosition {
         let tilt_degrees = model.tilt_degrees();
 
         DegreePosition {
-            pan: (pan_ratio * pan_degrees) - (pan_degrees / 2.0),
-            tilt: (tilt_ratio * tilt_degrees) - (tilt_degrees / 2.0),
+            pan: pan_ratio.mul_add(pan_degrees, -(pan_degrees / 2.0)),
+            tilt: tilt_ratio.mul_add(tilt_degrees, -(tilt_degrees / 2.0)),
         }
     }
 
@@ -303,8 +303,8 @@ impl PositionConversion for DegreePosition {
         let tilt_range = (tilt_max - tilt_min) as f32;
 
         ViscaPosition {
-            pan: (pan_min as f32 + (pan_ratio * pan_range)) as i16,
-            tilt: (tilt_min as f32 + (tilt_ratio * tilt_range)) as i16,
+            pan: pan_ratio.mul_add(pan_range, pan_min as f32) as i16,
+            tilt: tilt_ratio.mul_add(tilt_range, tilt_min as f32) as i16,
         }
     }
 }
@@ -509,7 +509,7 @@ pub fn zoom_magnification_to_visca(magnification: f32) -> u16 {
 #[inline]
 pub fn zoom_visca_to_magnification(visca: u16) -> f32 {
     let normalized = zoom_visca_to_normalized(visca);
-    1.0 + (normalized * 19.0)
+    normalized.mul_add(19.0, 1.0)
 }
 
 /// Convert focus normalized value (0.0 to 1.0) to VISCA units

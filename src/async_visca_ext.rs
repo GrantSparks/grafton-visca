@@ -1,7 +1,7 @@
 //! Async extension trait providing high-level camera operations.
 //!
 //! This module provides the `AsyncViscaExt` trait which adds ergonomic
-//! high-level methods to the ViscaClient for common camera operations.
+//! high-level methods to the `ViscaClient` for common camera operations.
 //!
 //! # Example
 //! ```no_run
@@ -37,7 +37,7 @@ use crate::{
 /// This trait provides ergonomic methods for common camera operations
 /// that typically involve multiple VISCA commands.
 #[cfg(feature = "async-client")]
-#[allow(async_fn_in_trait)]
+#[allow(async_fn_in_trait)] // Acceptable for ergonomics in application-specific trait
 pub trait AsyncViscaExt {
     /// Set up a shot with relative pan/tilt position and zoom level.
     ///

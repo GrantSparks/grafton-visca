@@ -96,8 +96,8 @@ impl AsyncViscaTransport for AsyncTcpTransport {
             log::debug!("Sending command: {:02X?}", bytes);
 
             match self.stream.write_all(&bytes).await {
-                Ok(_) => match self.stream.flush().await {
-                    Ok(_) => {
+                Ok(()) => match self.stream.flush().await {
+                    Ok(()) => {
                         self.stats.record_sent(bytes.len());
                         Ok(())
                     }
@@ -133,7 +133,7 @@ impl AsyncViscaTransport for AsyncTcpTransport {
                         if let Ok(responses) = parse_response(&self.buffer) {
                             if !responses.is_empty() {
                                 // We have some valid responses, return them
-                                let consumed_bytes: usize = responses.iter().map(|r| r.len()).sum();
+                                let consumed_bytes: usize = responses.iter().map(Vec::len).sum();
                                 self.buffer.drain(..consumed_bytes);
                                 // Add new data if there's room now
                                 if self.buffer.len() + n <= MAX_BUFFER_SIZE {
@@ -160,7 +160,7 @@ impl AsyncViscaTransport for AsyncTcpTransport {
                     match parse_response(&self.buffer) {
                         Ok(responses) => {
                             // Calculate how many bytes were consumed
-                            let consumed_bytes: usize = responses.iter().map(|r| r.len()).sum();
+                            let consumed_bytes: usize = responses.iter().map(Vec::len).sum();
 
                             // Remove consumed bytes from buffer
                             self.buffer.drain(..consumed_bytes);

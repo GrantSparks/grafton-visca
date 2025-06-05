@@ -214,7 +214,7 @@ impl PtzBuilder {
 
     /// Add a custom command to the sequence.
     ///
-    /// This allows adding any command that implements ViscaCommand + Send + Sync.
+    /// This allows adding any command that implements `ViscaCommand` + Send + Sync.
     pub fn custom_command(mut self, command: Box<dyn ViscaCommand + Send + Sync>) -> Self {
         self.commands.push(command);
         self
@@ -255,7 +255,7 @@ impl PtzBuilder {
     /// Execute all commands concurrently (async only).
     ///
     /// All commands are sent concurrently, respecting the camera's
-    /// concurrent command limit (2 for PTZOptics G2).
+    /// concurrent command limit (2 for `PTZOptics` G2).
     #[cfg(feature = "async-client")]
     pub async fn execute_concurrent(self) -> Result<Vec<ViscaResponse>, ViscaError> {
         use futures_util::future::try_join_all;
@@ -293,13 +293,13 @@ impl std::fmt::Debug for PtzBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PtzBuilder")
             .field("command_count", &self.commands.len())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // Note: PtzBuilder tests would require actual ViscaClient instances
 
     // Note: These tests would require actual ViscaClient instances
     // For now, we'll test the builder structure
@@ -310,7 +310,7 @@ mod tests {
         // But we can test that the builder methods chain correctly
 
         // Test that method chaining works (compilation test)
-        fn _test_method_chaining() -> Result<(), ViscaError> {
+        fn _test_method_chaining() {
             // This won't compile unless the method signatures are correct
             // let client = ViscaClient::connect_udp("test")?;
             // let _builder = client.ptz()
@@ -318,7 +318,6 @@ mod tests {
             //     .zoom_in(5)
             //     .focus_auto()
             //     .clear();
-            Ok(())
         }
     }
 }

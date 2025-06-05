@@ -167,5 +167,5 @@ pub trait ViscaFocusExt: ViscaTransportExt {
     }
 }
 
-/// Implement the trait for all types that implement ViscaTransportExt
+/// Implement the trait for all types that implement `ViscaTransportExt`
 impl<T: ViscaTransportExt> ViscaFocusExt for T {}

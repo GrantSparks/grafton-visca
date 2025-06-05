@@ -83,14 +83,12 @@ impl ConnectionStats {
 
     /// Get the connection uptime
     pub fn uptime(&self) -> Option<Duration> {
-        self.read_instant(&self.inner.connected_since)
-            .map(|since| since.elapsed())
+        Self::read_instant(&self.inner.connected_since).map(|since| since.elapsed())
     }
 
     /// Get the time since last activity
     pub fn idle_time(&self) -> Option<Duration> {
-        self.read_instant(&self.inner.last_activity)
-            .map(|last| last.elapsed())
+        Self::read_instant(&self.inner.last_activity).map(|last| last.elapsed())
     }
 
     /// Record a sent command
@@ -99,7 +97,7 @@ impl ConnectionStats {
             .bytes_sent
             .fetch_add(bytes as u64, Ordering::Relaxed);
         self.inner.commands_sent.fetch_add(1, Ordering::Relaxed);
-        self.write_instant(&self.inner.last_activity, Some(Instant::now()));
+        Self::write_instant(&self.inner.last_activity, Some(Instant::now()));
     }
 
     /// Record a received response
@@ -110,25 +108,25 @@ impl ConnectionStats {
         self.inner
             .responses_received
             .fetch_add(1, Ordering::Relaxed);
-        self.write_instant(&self.inner.last_activity, Some(Instant::now()));
+        Self::write_instant(&self.inner.last_activity, Some(Instant::now()));
     }
 
     /// Record an error
     pub fn record_error(&self) {
         self.inner.error_count.fetch_add(1, Ordering::Relaxed);
-        self.write_instant(&self.inner.last_error, Some(Instant::now()));
+        Self::write_instant(&self.inner.last_error, Some(Instant::now()));
     }
 
     /// Reset statistics (useful after reconnection)
     pub fn reset(&self) {
-        self.write_instant(&self.inner.connected_since, Some(Instant::now()));
+        Self::write_instant(&self.inner.connected_since, Some(Instant::now()));
         self.inner.bytes_sent.store(0, Ordering::Relaxed);
         self.inner.bytes_received.store(0, Ordering::Relaxed);
         self.inner.commands_sent.store(0, Ordering::Relaxed);
         self.inner.responses_received.store(0, Ordering::Relaxed);
         self.inner.error_count.store(0, Ordering::Relaxed);
-        self.write_instant(&self.inner.last_activity, None);
-        self.write_instant(&self.inner.last_error, None);
+        Self::write_instant(&self.inner.last_activity, None);
+        Self::write_instant(&self.inner.last_error, None);
         if let Ok(mut last_health_check) = self.inner.last_health_check.lock() {
             *last_health_check = None;
         }
@@ -141,14 +139,14 @@ impl ConnectionStats {
     /// Get a consistent snapshot of all statistics
     pub fn snapshot(&self) -> ConnectionStatsSnapshot {
         ConnectionStatsSnapshot {
-            connected_since: self.read_instant(&self.inner.connected_since),
+            connected_since: Self::read_instant(&self.inner.connected_since),
             bytes_sent: self.inner.bytes_sent.load(Ordering::Relaxed),
             bytes_received: self.inner.bytes_received.load(Ordering::Relaxed),
             commands_sent: self.inner.commands_sent.load(Ordering::Relaxed),
             responses_received: self.inner.responses_received.load(Ordering::Relaxed),
             error_count: self.inner.error_count.load(Ordering::Relaxed),
-            last_activity: self.read_instant(&self.inner.last_activity),
-            last_error: self.read_instant(&self.inner.last_error),
+            last_activity: Self::read_instant(&self.inner.last_activity),
+            last_error: Self::read_instant(&self.inner.last_error),
         }
     }
 
@@ -191,8 +189,8 @@ impl ConnectionStats {
         }
     }
 
-    /// Helper method to read instant from RwLock with poison recovery
-    fn read_instant(&self, lock: &RwLock<Option<Instant>>) -> Option<Instant> {
+    /// Helper method to read instant from `RwLock` with poison recovery
+    fn read_instant(lock: &RwLock<Option<Instant>>) -> Option<Instant> {
         match lock.read() {
             Ok(guard) => *guard,
             Err(poisoned) => {
@@ -202,8 +200,8 @@ impl ConnectionStats {
         }
     }
 
-    /// Helper method to write instant to RwLock with poison recovery
-    fn write_instant(&self, lock: &RwLock<Option<Instant>>, value: Option<Instant>) {
+    /// Helper method to write instant to `RwLock` with poison recovery
+    fn write_instant(lock: &RwLock<Option<Instant>>, value: Option<Instant>) {
         match lock.write() {
             Ok(mut guard) => *guard = value,
             Err(poisoned) => {

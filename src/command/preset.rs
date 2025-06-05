@@ -1,7 +1,7 @@
 //! Preset position commands for VISCA cameras.
 //!
 //! This module provides commands for storing and recalling camera positions.
-//! PTZOptics G2 cameras support up to 90 presets (0-89).
+//! `PTZOptics` G2 cameras support up to 90 presets (0-89).
 
 // Standard library imports
 use std::convert::TryFrom;
@@ -37,7 +37,7 @@ impl PresetNumber {
     /// Maximum allowed preset number (89).
     pub const MAX: u8 = 89;
 
-    /// Creates a new PresetNumber with validation.
+    /// Creates a new `PresetNumber` with validation.
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 89.

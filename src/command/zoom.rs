@@ -41,7 +41,7 @@ impl ZoomSpeed {
     /// Maximum allowed zoom speed.
     pub const MAX: u8 = 7;
 
-    /// Creates a new ZoomSpeed with validation.
+    /// Creates a new `ZoomSpeed` with validation.
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 7.

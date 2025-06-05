@@ -70,7 +70,7 @@ impl ExposureCompensationLevel {
     /// Maximum exposure compensation level.
     pub const MAX: i8 = 7;
 
-    /// Creates a new ExposureCompensationLevel with validation.
+    /// Creates a new `ExposureCompensationLevel` with validation.
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value is outside -7 to +7 range.
@@ -168,7 +168,7 @@ impl DynamicRangeLevel {
     /// Maximum allowed dynamic range level.
     pub const MAX: u8 = 8;
 
-    /// Creates a new DynamicRangeLevel with validation.
+    /// Creates a new `DynamicRangeLevel` with validation.
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 8.
