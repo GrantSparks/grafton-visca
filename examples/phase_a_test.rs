@@ -33,7 +33,7 @@ async fn main() -> Result<(), ViscaError> {
     {
         use grafton_visca::command::power::Power;
         use grafton_visca::command::PowerCommand;
-        use grafton_visca::transport::AsyncUdpTransport;
+        use grafton_visca::transport::{AsyncUdpTransport, Transport};
 
         println!("\nTesting async UDP transport...");
         let mut async_udp = AsyncUdpTransport::new("127.0.0.1:1234")
