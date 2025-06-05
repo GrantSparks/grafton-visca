@@ -1,17 +1,17 @@
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use grafton_visca::command::power::Power;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use grafton_visca::command::{PanTiltCommand, PowerCommand};
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use grafton_visca::{
     AsyncConnectionManagement, AsyncTcpTransport, AsyncUdpTransport, AsyncViscaTransport,
 };
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::net::SocketAddr;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use tokio::time::{sleep, Duration};
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -126,8 +126,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "async-client"))]
 fn main() {
     eprintln!("This example requires the 'async' feature to be enabled.");
-    eprintln!("Try running with: cargo run --example async_health_check --features async");
+    eprintln!("Try running with: cargo run --example async_health_check --features async-client");
 }

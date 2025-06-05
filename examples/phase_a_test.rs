@@ -11,7 +11,7 @@ async fn main() -> Result<(), ViscaError> {
 
     // Test blocking UDP transport through adapter
     println!("Testing UDP transport with blocking adapter...");
-    let udp = UdpTransport::new("127.0.0.1:1234").map_err(|e| ViscaError::Io(e))?;
+    let udp = UdpTransport::new("127.0.0.1:1234").map_err(ViscaError::Io)?;
     let mut udp_adapter = BlockingAdapter(udp);
 
     let cmd = PowerCommand { power: Power::On };
@@ -30,7 +30,7 @@ async fn main() -> Result<(), ViscaError> {
         println!("\nTesting async UDP transport...");
         let mut async_udp = AsyncUdpTransport::new("127.0.0.1:1234")
             .await
-            .map_err(|e| ViscaError::Io(e))?;
+            .map_err(ViscaError::Io)?;
 
         match async_udp.send_command(&cmd).await {
             Ok(_) => println!("Command sent successfully"),
