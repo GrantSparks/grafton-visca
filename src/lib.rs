@@ -43,7 +43,7 @@
 //! ### Using ViscaClient (Recommended for Thread Safety)
 //!
 //! ```no_run
-//! # #[cfg(feature = "blocking-client")]
+//! # #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 //! # {
 //! use grafton_visca::{ViscaClient, UdpTransport};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};

@@ -56,6 +56,7 @@ pub trait Transport: Send + Sync {
 ///
 /// This trait provides the blocking interface that can be adapted to the async Transport trait.
 #[doc(hidden)]
+#[cfg(feature = "blocking-client")]
 pub trait BlockingTransport {
     /// Send a VISCA command to the camera synchronously.
     fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;
@@ -68,8 +69,10 @@ pub trait BlockingTransport {
 ///
 /// This allows blocking implementations to be used through the async interface.
 #[doc(hidden)]
+#[cfg(feature = "blocking-client")]
 pub struct BlockingAdapter<T: BlockingTransport>(pub T);
 
+#[cfg(feature = "blocking-client")]
 impl<T: BlockingTransport + Send + Sync> Transport for BlockingAdapter<T> {
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move { self.0.send_command_blocking(command) })
@@ -80,7 +83,7 @@ impl<T: BlockingTransport + Send + Sync> Transport for BlockingAdapter<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "blocking-client"))]
 mod tests {
     use super::*;
 
