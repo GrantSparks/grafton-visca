@@ -1,4 +1,4 @@
-#![cfg(feature = "async")]
+#![cfg(feature = "async-client")]
 
 use grafton_visca::{ViscaError, ViscaInquiryResponse, ViscaResponse, ViscaSession};
 use std::sync::Arc;

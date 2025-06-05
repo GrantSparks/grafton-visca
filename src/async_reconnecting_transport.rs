@@ -1,35 +1,35 @@
 //! Async auto-reconnecting transport wrapper.
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
     connection::{AsyncConnectionManagement, ConnectionStats},
     reconnecting_transport::ReconnectionConfig,
     ViscaCommand, ViscaError,
 };
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::future::Future;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::pin::Pin;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::sync::Arc;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::time::Instant;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use tokio::sync::RwLock;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use tokio::time::{sleep, Duration};
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 type CreateTransportFn<T> =
     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send>> + Send + Sync>;
 
 /// Connection/disconnection event callback
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub type ConnectionEventCallback = Arc<dyn Fn(ConnectionEvent) + Send + Sync>;
 
 /// Events that can occur during connection management
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 #[derive(Debug, Clone)]
 pub enum ConnectionEvent {
     /// Connection established successfully
@@ -45,7 +45,7 @@ pub enum ConnectionEvent {
 }
 
 /// Inner state for the async reconnecting transport
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 struct AsyncInnerState<T> {
     /// The underlying transport (None when disconnected)
     transport: Option<T>,
@@ -58,7 +58,7 @@ struct AsyncInnerState<T> {
 }
 
 /// Async version of the reconnecting transport wrapper.
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub struct AsyncReconnectingTransport<T> {
     /// All mutable state in a single RwLock for better performance
     inner: Arc<RwLock<AsyncInnerState<T>>>,
@@ -70,7 +70,7 @@ pub struct AsyncReconnectingTransport<T> {
     event_callback: Option<ConnectionEventCallback>,
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl<T> AsyncReconnectingTransport<T>
 where
     T: AsyncViscaTransport + AsyncConnectionManagement + Send + 'static,
@@ -264,7 +264,7 @@ where
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl<T> AsyncViscaTransport for AsyncReconnectingTransport<T>
 where
     T: AsyncViscaTransport + AsyncConnectionManagement + Send + Sync + 'static,
@@ -374,7 +374,7 @@ where
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl<T> AsyncConnectionManagement for AsyncReconnectingTransport<T>
 where
     T: AsyncViscaTransport + AsyncConnectionManagement + Send + Sync + 'static,
@@ -416,7 +416,7 @@ where
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl<T> AsyncReconnectingTransport<T>
 where
     T: AsyncViscaTransport + AsyncConnectionManagement + Send + 'static,
