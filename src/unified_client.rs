@@ -184,7 +184,9 @@ impl ViscaClient {
                         t.0.send_command_blocking(command)?;
                     }
                     #[cfg(feature = "async-client")]
-                    _ => unreachable!("Async transports should not be present in blocking-only builds"),
+                    _ => unreachable!(
+                        "Async transports should not be present in blocking-only builds"
+                    ),
                 }
             }
 
@@ -221,17 +223,22 @@ impl ViscaClient {
                         t.0.receive_response_blocking()?
                     }
                     #[cfg(feature = "async-client")]
-                    _ => unreachable!("Async transports should not be present in blocking-only builds"),
+                    _ => unreachable!(
+                        "Async transports should not be present in blocking-only builds"
+                    ),
                 }
             };
 
             for response in responses {
                 let mut session = self.session.lock();
-                if let Some((resp_socket_id, parsed_response)) = session.process_response(&response)? {
+                if let Some((resp_socket_id, parsed_response)) =
+                    session.process_response(&response)?
+                {
                     if resp_socket_id != socket_id {
                         log::debug!(
                             "Response for socket {} (expected {})",
-                            resp_socket_id, socket_id
+                            resp_socket_id,
+                            socket_id
                         );
                         continue;
                     }
@@ -310,7 +317,8 @@ impl ViscaClient {
 
             // Wait for response with proper session management
             self.wait_for_response_async(socket_id).await
-        }.await;
+        }
+        .await;
 
         // Always release socket
         {
@@ -332,31 +340,26 @@ impl ViscaClient {
                 use TransportVariant::{AsyncTcp, AsyncUdp, BlockingTcp, BlockingUdp};
                 match &mut *transport {
                     #[cfg(feature = "blocking-client")]
-                    BlockingUdp(t) => {
-                        t.receive_response().await?
-                    }
+                    BlockingUdp(t) => t.receive_response().await?,
                     #[cfg(feature = "blocking-client")]
-                    BlockingTcp(t) => {
-                        t.receive_response().await?
-                    }
+                    BlockingTcp(t) => t.receive_response().await?,
                     #[cfg(feature = "async-client")]
-                    AsyncUdp(t) => {
-                        t.receive_response().await?
-                    }
+                    AsyncUdp(t) => t.receive_response().await?,
                     #[cfg(feature = "async-client")]
-                    AsyncTcp(t) => {
-                        t.receive_response().await?
-                    }
+                    AsyncTcp(t) => t.receive_response().await?,
                 }
             };
 
             for response in responses {
                 let mut session = self.session.lock().await;
-                if let Some((resp_socket_id, parsed_response)) = session.process_response(&response)? {
+                if let Some((resp_socket_id, parsed_response)) =
+                    session.process_response(&response)?
+                {
                     if resp_socket_id != socket_id {
                         log::debug!(
                             "Response for socket {} (expected {})",
-                            resp_socket_id, socket_id
+                            resp_socket_id,
+                            socket_id
                         );
                         continue;
                     }
