@@ -122,7 +122,9 @@ pub trait AsyncViscaExt {
 /// Direction for pan scanning operations.
 #[derive(Debug, Copy, Clone)]
 pub enum PanScanDirection {
+    /// Pan camera to the left
     Left,
+    /// Pan camera to the right
     Right,
 }
 
