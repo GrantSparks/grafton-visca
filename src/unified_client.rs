@@ -294,22 +294,21 @@ impl ViscaClient {
             // Send command
             {
                 let mut transport = self.transport.lock().await;
-                use TransportVariant::{AsyncTcp, AsyncUdp, BlockingTcp, BlockingUdp};
                 match &mut *transport {
                     #[cfg(feature = "blocking-client")]
-                    BlockingUdp(t) => {
+                    TransportVariant::BlockingUdp(t) => {
                         t.send_command(command).await?;
                     }
                     #[cfg(feature = "blocking-client")]
-                    BlockingTcp(t) => {
+                    TransportVariant::BlockingTcp(t) => {
                         t.send_command(command).await?;
                     }
                     #[cfg(feature = "async-client")]
-                    AsyncUdp(t) => {
+                    TransportVariant::AsyncUdp(t) => {
                         t.send_command(command).await?;
                     }
                     #[cfg(feature = "async-client")]
-                    AsyncTcp(t) => {
+                    TransportVariant::AsyncTcp(t) => {
                         t.send_command(command).await?;
                     }
                 }
@@ -337,16 +336,15 @@ impl ViscaClient {
         loop {
             let responses = {
                 let mut transport = self.transport.lock().await;
-                use TransportVariant::{AsyncTcp, AsyncUdp, BlockingTcp, BlockingUdp};
                 match &mut *transport {
                     #[cfg(feature = "blocking-client")]
-                    BlockingUdp(t) => t.receive_response().await?,
+                    TransportVariant::BlockingUdp(t) => t.receive_response().await?,
                     #[cfg(feature = "blocking-client")]
-                    BlockingTcp(t) => t.receive_response().await?,
+                    TransportVariant::BlockingTcp(t) => t.receive_response().await?,
                     #[cfg(feature = "async-client")]
-                    AsyncUdp(t) => t.receive_response().await?,
+                    TransportVariant::AsyncUdp(t) => t.receive_response().await?,
                     #[cfg(feature = "async-client")]
-                    AsyncTcp(t) => t.receive_response().await?,
+                    TransportVariant::AsyncTcp(t) => t.receive_response().await?,
                 }
             };
 
