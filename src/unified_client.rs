@@ -147,9 +147,7 @@ impl ViscaClient {
                         let rt = tokio::runtime::Builder::new_current_thread()
                             .enable_all()
                             .build()
-                            .map_err(|e| {
-                                ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e))
-                            })?;
+                            .map_err(|e| ViscaError::Io(std::io::Error::other(e)))?;
                         rt.block_on(client.send_async(command))
                     })
                 }
@@ -158,9 +156,7 @@ impl ViscaClient {
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
-                        .map_err(|e| {
-                            ViscaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e))
-                        })?;
+                        .map_err(|e| ViscaError::Io(std::io::Error::other(e)))?;
                     rt.block_on(client.send_async(command))
                 }
             }
