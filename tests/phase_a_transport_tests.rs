@@ -2,7 +2,14 @@
 
 #[cfg(test)]
 mod tests {
-    use grafton_visca::transport::*;
+    #[cfg(not(feature = "blocking-client"))]
+    use grafton_visca::transport::Transport;
+    #[cfg(feature = "async-client")]
+    use grafton_visca::transport::{AsyncTcpTransport, AsyncUdpTransport};
+    #[cfg(feature = "blocking-client")]
+    use grafton_visca::transport::{
+        BlockingAdapter, BlockingTransport, TcpTransport, Transport, UdpTransport,
+    };
     use grafton_visca::{ViscaCommand, ViscaError};
 
     // Mock command for testing
@@ -32,6 +39,7 @@ mod tests {
         // The test passes if this compiles
     }
 
+    #[cfg(feature = "blocking-client")]
     #[test]
     fn test_blocking_transport_exists() {
         // This test verifies that BlockingTransport can be used

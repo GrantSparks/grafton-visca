@@ -1,11 +1,18 @@
 //! TCP transport implementation for VISCA over IP.
 
+#[cfg(feature = "blocking-client")]
 use super::BlockingTransport;
 #[cfg(feature = "async-client")]
 use super::{Transport, TransportFuture};
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{ConnectionStats, ViscaCommand, ViscaError};
-use std::io::{self, Read, Write};
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use std::io;
+#[cfg(feature = "blocking-client")]
+use std::io::{Read, Write};
+#[cfg(feature = "blocking-client")]
 use std::net::TcpStream;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::time::Duration;
 
 #[cfg(feature = "async-client")]
@@ -14,11 +21,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream as TokioTcpStream;
 
 /// Blocking TCP transport for VISCA communication.
+#[cfg(feature = "blocking-client")]
 pub struct TcpTransport {
     stream: TcpStream,
     stats: ConnectionStats,
 }
 
+#[cfg(feature = "blocking-client")]
 impl TcpTransport {
     /// Creates a new TCP transport connected to the specified camera address.
     ///
@@ -56,6 +65,7 @@ impl TcpTransport {
     }
 }
 
+#[cfg(feature = "blocking-client")]
 impl BlockingTransport for TcpTransport {
     fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let bytes = command.to_bytes()?;
