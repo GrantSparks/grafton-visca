@@ -3,11 +3,15 @@
 //! This module provides commands for controlling various exposure-related settings
 //! including exposure mode, exposure compensation, iris, shutter, and brightness.
 
-use crate::error::ViscaError;
-use crate::timeout::CommandCategory;
+// Standard library imports
 use std::convert::TryFrom;
 
-use super::{response::ViscaResponseType, ViscaCommand};
+// Crate imports
+use crate::{
+    command::{response::ViscaResponseType, ViscaCommand},
+    error::ViscaError,
+    timeout::CommandCategory,
+};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ExposureMode {

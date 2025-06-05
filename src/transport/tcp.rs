@@ -1,24 +1,28 @@
 //! TCP transport implementation for VISCA over IP.
 
+// Standard library imports
+use std::{io, time::Duration};
+
+// Crate imports
+use crate::{ConnectionStats, ViscaCommand, ViscaError};
+
+#[cfg(feature = "blocking-client")]
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+};
+
 #[cfg(feature = "blocking-client")]
 use super::BlockingTransport;
-#[cfg(feature = "async-client")]
-use super::{Transport, TransportFuture};
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{ConnectionStats, ViscaCommand, ViscaError};
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use std::io;
-#[cfg(feature = "blocking-client")]
-use std::io::{Read, Write};
-#[cfg(feature = "blocking-client")]
-use std::net::TcpStream;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use std::time::Duration;
 
 #[cfg(feature = "async-client")]
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream as TokioTcpStream,
+};
+
 #[cfg(feature = "async-client")]
-use tokio::net::TcpStream as TokioTcpStream;
+use super::{Transport, TransportFuture};
 
 /// Blocking TCP transport for VISCA communication.
 #[cfg(feature = "blocking-client")]

@@ -1,8 +1,7 @@
 //! High-level extension trait for zoom control operations.
 
-use crate::command::zoom::ZoomCommand;
-use crate::error::ViscaError;
-use crate::transport_ext::ViscaTransportExt;
+// Crate imports
+use crate::{command::zoom::ZoomCommand, error::ViscaError, transport_ext::ViscaTransportExt};
 
 /// Extension trait providing high-level zoom control methods.
 pub trait ViscaZoomExt: ViscaTransportExt {

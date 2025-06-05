@@ -3,10 +3,12 @@
 //! This module provides commands for controlling color-related settings
 //! including white balance tuning, saturation, and hue adjustments.
 
-use crate::error::ViscaError;
-use crate::timeout::CommandCategory;
-
-use super::{response::ViscaResponseType, ViscaCommand};
+// Crate imports
+use crate::{
+    command::{response::ViscaResponseType, ViscaCommand},
+    error::ViscaError,
+    timeout::CommandCategory,
+};
 
 /// One-Push White Balance Trigger command
 #[derive(Debug, Copy, Clone)]

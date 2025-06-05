@@ -1,11 +1,16 @@
+// Standard library imports
+use std::net::SocketAddr;
+
+// Third-party imports
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::time::{timeout, Duration};
+
+// Crate imports
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
     parse_response, ConnectionStats, TimeoutConfig, ViscaCommand, ViscaError,
 };
-use std::net::SocketAddr;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::time::{timeout, Duration};
 
 const MAX_BUFFER_SIZE: usize = 64 * 1024; // 64KB max buffer size
 

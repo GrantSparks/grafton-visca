@@ -6,8 +6,11 @@
 
 #![cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 
-use crate::{send_command_and_wait, ViscaCommand, ViscaError, ViscaResponse, ViscaTransport};
+// Standard library
 use std::sync::{Arc, Mutex};
+
+// Crate imports
+use crate::{send_command_and_wait, ViscaCommand, ViscaError, ViscaResponse, ViscaTransport};
 
 /// Thread-safe VISCA client that can be safely shared across threads.
 ///
@@ -178,8 +181,7 @@ impl ViscaClient {
     }
 }
 
-// Mark ViscaClient as Send and Sync
-// This is safe because:
+// Safety: ViscaClient can be safely sent between threads because:
 // 1. Arc<Mutex<T>> is Send and Sync when T is Send
 // 2. Box<dyn ViscaTransport + Send> explicitly requires Send
 // 3. Mutex provides thread-safe interior mutability
@@ -203,32 +205,22 @@ mod tests {
 
     #[test]
     fn test_client_can_be_cloned() {
-        // We can't easily test the full functionality without a proper mock,
-        // but we can verify that the client can be created and cloned
         use crate::UdpTransport;
 
-        // This will fail to connect, but that's OK for this test
         let transport = UdpTransport::new("127.0.0.1:1259").unwrap();
         let client = ViscaClient::new(Box::new(transport));
         let _client_clone = client.clone();
-
-        // If we got here, the client was successfully created and cloned
     }
 
     #[test]
     fn test_client_arc_usage() {
         use crate::UdpTransport;
 
-        // Demonstrate the pattern users would use
         let transport = UdpTransport::new("127.0.0.1:1259").unwrap();
         let client = Arc::new(ViscaClient::new(Box::new(transport)));
-
-        // Clone the Arc for use in another thread
         let client_clone = Arc::clone(&client);
 
         let handle = thread::spawn(move || {
-            // In a real scenario, this would send a command
-            // For the test, we just verify the client can be moved into the thread
             let _local_ref = client_clone;
         });
 

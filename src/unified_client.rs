@@ -3,6 +3,10 @@
 //! This module provides a single `ViscaClient` that works in both blocking
 //! and async contexts, replacing the previous split-brain approach.
 
+// Standard library imports
+use std::sync::Arc;
+
+// Crate imports
 use crate::{
     session::ViscaSession,
     sync_primitives::{Mutex, Semaphore, SemaphoreExt},
@@ -10,18 +14,12 @@ use crate::{
 };
 
 #[cfg(feature = "blocking-client")]
-use crate::transport::BlockingAdapter;
-
-#[cfg(feature = "async-client")]
-use crate::transport::Transport;
-use std::sync::Arc;
-
-#[cfg(feature = "async-client")]
-use crate::transport::{AsyncTcpTransport, AsyncUdpTransport};
-#[cfg(feature = "blocking-client")]
 use crate::transport::{
-    TcpTransport as BlockingTcpTransport, UdpTransport as BlockingUdpTransport,
+    BlockingAdapter, TcpTransport as BlockingTcpTransport, UdpTransport as BlockingUdpTransport,
 };
+
+#[cfg(feature = "async-client")]
+use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, Transport};
 
 /// Maximum number of concurrent commands (PTZOptics G2 limitation).
 const MAX_CONCURRENT_COMMANDS: usize = 2;
@@ -56,7 +54,7 @@ pub struct ViscaClient {
     transport: Arc<Mutex<TransportVariant>>,
 
     /// Session management for command sequencing
-    #[allow(dead_code)] // Will be used in Phase C for command sequencing
+    #[allow(dead_code)]
     session: Arc<Mutex<ViscaSession>>,
 
     /// Concurrency control (max 2 concurrent commands)
@@ -72,8 +70,6 @@ impl ViscaClient {
             semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_COMMANDS)),
         }
     }
-
-    // B2: Unified constructors
 
     /// Connect to a camera using UDP transport.
     ///
@@ -119,10 +115,6 @@ impl ViscaClient {
         )))
     }
 
-    // B3: Concurrency control is handled by the semaphore field
-
-    // B4: Blocking façade with smart runtime handling
-
     /// Send a command and wait for the response (blocking).
     ///
     /// This method provides a blocking interface that works in both sync and async contexts:
@@ -140,19 +132,14 @@ impl ViscaClient {
 
             // Try to use existing Tokio runtime if available
             match tokio::runtime::Handle::try_current() {
-                Ok(_) => {
-                    // We're inside a Tokio runtime, use block_in_place to avoid blocking it
-                    tokio::task::block_in_place(move || {
-                        // Create a new runtime for the blocking operation
-                        let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .map_err(|e| ViscaError::Io(std::io::Error::other(e)))?;
-                        rt.block_on(client.send_async(command))
-                    })
-                }
+                Ok(_) => tokio::task::block_in_place(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| ViscaError::Io(std::io::Error::other(e)))?;
+                    rt.block_on(client.send_async(command))
+                }),
                 Err(_) => {
-                    // No runtime available, create a temporary one
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
@@ -164,17 +151,14 @@ impl ViscaClient {
 
         #[cfg(not(feature = "async-client"))]
         {
-            // For blocking-only builds, implement synchronous sending
             self.send_blocking(command)
         }
     }
 
     #[cfg(not(feature = "async-client"))]
     fn send_blocking(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
-        // Acquire permit for concurrency control
         let _permit = self.semaphore.acquire_permit()?;
 
-        // Lock transport and send command
         let mut transport = self.transport.lock();
         let responses = match &mut *transport {
             #[cfg(feature = "blocking-client")]
@@ -196,8 +180,6 @@ impl ViscaClient {
         parse_response(responses)
     }
 
-    // B5: Async façade
-
     /// Send a command and wait for the response (async).
     ///
     /// This method:
@@ -209,31 +191,32 @@ impl ViscaClient {
         &self,
         command: &dyn ViscaCommand,
     ) -> Result<ViscaResponse, ViscaError> {
-        // Acquire permit for concurrency control
         let _permit = self.semaphore.acquire_permit().await?;
 
-        // Lock transport and send command
-        let mut transport = self.transport.lock().await;
-        let responses = match &mut *transport {
-            #[cfg(feature = "blocking-client")]
-            TransportVariant::BlockingUdp(t) => {
-                t.send_command(command).await?;
-                t.receive_response().await?
-            }
-            #[cfg(feature = "blocking-client")]
-            TransportVariant::BlockingTcp(t) => {
-                t.send_command(command).await?;
-                t.receive_response().await?
-            }
-            #[cfg(feature = "async-client")]
-            TransportVariant::AsyncUdp(t) => {
-                t.send_command(command).await?;
-                t.receive_response().await?
-            }
-            #[cfg(feature = "async-client")]
-            TransportVariant::AsyncTcp(t) => {
-                t.send_command(command).await?;
-                t.receive_response().await?
+        let responses = {
+            let mut transport = self.transport.lock().await;
+            use TransportVariant::*;
+            match &mut *transport {
+                #[cfg(feature = "blocking-client")]
+                BlockingUdp(t) => {
+                    t.send_command(command).await?;
+                    t.receive_response().await?
+                }
+                #[cfg(feature = "blocking-client")]
+                BlockingTcp(t) => {
+                    t.send_command(command).await?;
+                    t.receive_response().await?
+                }
+                #[cfg(feature = "async-client")]
+                AsyncUdp(t) => {
+                    t.send_command(command).await?;
+                    t.receive_response().await?
+                }
+                #[cfg(feature = "async-client")]
+                AsyncTcp(t) => {
+                    t.send_command(command).await?;
+                    t.receive_response().await?
+                }
             }
         };
 
@@ -265,29 +248,22 @@ impl ViscaClient {
 
 /// Parse response frames into a ViscaResponse.
 fn parse_response(frames: Vec<Vec<u8>>) -> Result<ViscaResponse, ViscaError> {
-    // For now, just parse the last frame
-    // TODO: Handle multi-frame responses and response types properly in Phase C
-    if let Some(frame) = frames.last() {
-        // Check if it's an ACK/completion (no data) or an inquiry response
-        if frame.len() == 3 && frame[0] == 0x90 && frame[1] == 0x50 && frame[2] == 0xFF {
-            // ACK/Completion response
-            Ok(ViscaResponse::Ack)
-        } else if frame.len() == 3 && frame[0] == 0x90 && frame[1] == 0x51 && frame[2] == 0xFF {
-            // Completion response
-            Ok(ViscaResponse::Completion)
-        } else if frame.len() >= 3 && frame[0] == 0x90 && (frame[1] & 0x60) == 0x60 {
-            // Error response - extract error code
-            let error_code = frame[1] & 0x0F;
-            Ok(ViscaResponse::Error(ViscaError::from_code(error_code)))
-        } else {
-            // For now, just return completion for other responses
-            // TODO: Properly parse based on command type
-            Ok(ViscaResponse::Completion)
-        }
-    } else {
-        Err(ViscaError::Io(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
+    use std::io::{Error, ErrorKind};
+    use ViscaResponse::*;
+
+    let frame = frames.last().ok_or_else(|| {
+        ViscaError::Io(Error::new(
+            ErrorKind::UnexpectedEof,
             "No response frames received",
-        )))
+        ))
+    })?;
+
+    match (frame.len(), frame.get(0..3)) {
+        (3, Some(&[0x90, 0x50, 0xFF])) => Ok(Ack),
+        (3, Some(&[0x90, 0x51, 0xFF])) => Ok(Completion),
+        (len, Some(&[0x90, b2, _])) if len >= 3 && (b2 & 0x60) == 0x60 => {
+            Ok(Error(ViscaError::from_code(b2 & 0x0F)))
+        }
+        _ => Ok(Completion),
     }
 }

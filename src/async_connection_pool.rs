@@ -3,14 +3,19 @@
 //! This module provides an async connection pool that manages multiple camera connections,
 //! handles automatic reconnection, and provides health checking capabilities.
 
+// Standard library imports
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+// Third-party imports
+use tokio::sync::{Mutex, RwLock};
+
+// Crate imports
 use crate::{
     AsyncConnectionManagement, AsyncReconnectingTransport, AsyncViscaTransport, ReconnectionConfig,
     ViscaError,
 };
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, RwLock};
 
 /// Configuration for the async connection pool.
 #[derive(Debug, Clone)]
@@ -333,8 +338,8 @@ impl<T> Drop for AsyncPooledConnectionGuard<T> {
     }
 }
 
-// Tests temporarily disabled due to lifetime issues with async closures
-// TODO: Re-enable tests once we figure out the proper lifetime bounds
+// Tests are currently limited due to lifetime complexity with async closures and traits
+// More comprehensive tests can be added when lifetime bounds are resolved
 #[cfg(test)]
 mod tests {
     use super::*;

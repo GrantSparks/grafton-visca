@@ -1,5 +1,8 @@
+// Crate imports
 use crate::{
-    command::ViscaCommand, error::ViscaError, timeout::CommandCategory, ViscaResponseType,
+    command::{ViscaCommand, ViscaResponseType},
+    error::ViscaError,
+    timeout::CommandCategory,
 };
 
 pub struct BacklightCommand {

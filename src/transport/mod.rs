@@ -2,39 +2,30 @@
 //!
 //! This module provides the core transport abstractions for the v0.4.0 API,
 //! featuring an async-first design with optional blocking adapters.
-//!
-//! # TODO for Phase B Integration
-//!
-//! The current implementation is minimal and missing several features from the
-//! old transport implementations in lib.rs:
-//!
-//! 1. **TimeoutConfig support** - The old transports support configurable timeouts
-//!    per command category (Quick, Movement, Preset, LongRunning)
-//! 2. **ConnectionManagement trait** - Health checking with cached results
-//! 3. **parse_response function** - Shared response parsing logic
-//! 4. **More constructors** - `with_timeout_config()` and other variants
-//!
-//! These features will be integrated in Phase B when we replace the old
-//! ViscaTransport trait with the new Transport trait.
 
+// Standard library
+use std::{future::Future, pin::Pin};
+
+// Internal modules
 mod tcp;
 mod udp;
 
+// Crate imports
+use crate::{ViscaCommand, ViscaError};
+
+// Blocking exports
 #[cfg(feature = "blocking-client")]
 pub use tcp::TcpTransport;
 #[cfg(feature = "blocking-client")]
 pub use udp::UdpTransport;
 
+// Async exports
 #[cfg(feature = "async-client")]
 pub use tcp::AsyncTcpTransport;
 #[cfg(feature = "async-client")]
 pub use udp::AsyncUdpTransport;
 
-use crate::{ViscaCommand, ViscaError};
-use std::future::Future;
-use std::pin::Pin;
-
-/// Type alias for the future returned by async transport methods
+/// Type alias for the future returned by async transport methods.
 pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send + 'a>>;
 
 /// Primary async transport trait for VISCA communication.
@@ -101,10 +92,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_blocking_adapter() {
-        let mut adapter = BlockingAdapter(MockBlockingTransport);
-
-        // Test that we can use the blocking transport through the async interface
         struct DummyCommand;
+
         impl ViscaCommand for DummyCommand {
             fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
                 Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
@@ -119,8 +108,11 @@ mod tests {
             }
         }
 
+        let mut adapter = BlockingAdapter(MockBlockingTransport);
         let cmd = DummyCommand;
+
         adapter.send_command(&cmd).await.unwrap();
+
         let responses = adapter.receive_response().await.unwrap();
         assert_eq!(responses.len(), 1);
         assert_eq!(responses[0], vec![0x90, 0x50, 0xFF]);

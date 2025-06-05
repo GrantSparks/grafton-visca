@@ -1,20 +1,25 @@
 //! UDP transport implementation for VISCA over IP.
 
-#[cfg(feature = "blocking-client")]
-use super::BlockingTransport;
-#[cfg(feature = "async-client")]
-use super::{Transport, TransportFuture};
+// Standard library imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{ConnectionStats, ViscaCommand, ViscaError};
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use std::io;
+use std::{io, time::Duration};
+
 #[cfg(feature = "blocking-client")]
 use std::net::UdpSocket;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use std::time::Duration;
 
+// Third-party imports
 #[cfg(feature = "async-client")]
 use tokio::net::UdpSocket as TokioUdpSocket;
+
+// Crate imports
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use crate::{ConnectionStats, ViscaCommand, ViscaError};
+
+#[cfg(feature = "blocking-client")]
+use super::BlockingTransport;
+
+#[cfg(feature = "async-client")]
+use super::{Transport, TransportFuture};
 
 /// Blocking UDP transport for VISCA communication.
 #[cfg(feature = "blocking-client")]
@@ -83,7 +88,6 @@ impl BlockingTransport for UdpTransport {
         let mut buffer = [0u8; 1024];
         let mut responses = Vec::new();
 
-        // Keep receiving until we get a completion or error response
         loop {
             match self.socket.recv_from(&mut buffer) {
                 Ok((size, _)) => {
@@ -92,11 +96,9 @@ impl BlockingTransport for UdpTransport {
 
                     self.stats.record_received(data.len());
 
-                    // Check if this is a complete VISCA response
                     if data.len() >= 3 && data[0] == 0x90 && data[data.len() - 1] == 0xFF {
                         responses.push(data.clone());
 
-                        // Check for completion or error
                         if data.len() >= 3
                             && (data[1] == 0x50 || data[1] == 0x51 || (data[1] & 0x60) == 0x60)
                         {
