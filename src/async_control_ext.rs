@@ -6,8 +6,8 @@ use crate::{
     command::{
         focus::FocusCommand,
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        preset::{PresetAction, PresetCommand},
-        zoom::ZoomCommand,
+        preset::{PresetAction, PresetCommand, PresetNumber},
+        zoom::{ZoomCommand, ZoomSpeed},
     },
     ViscaError,
 };
@@ -24,8 +24,8 @@ impl AsyncViscaClient {
     ) -> Result<(), ViscaError> {
         let (pan_speed, tilt_speed) = speed.unwrap_or((18, 14));
         let command = PanTiltCommand::AbsolutePosition {
-            pan_speed,
-            tilt_speed,
+            pan_speed: PanSpeed::new(pan_speed)?,
+            tilt_speed: TiltSpeed::new(tilt_speed)?,
             pan,
             tilt,
         };
@@ -42,8 +42,8 @@ impl AsyncViscaClient {
     ) -> Result<(), ViscaError> {
         let (pan_speed, tilt_speed) = speed.unwrap_or((18, 14));
         let command = PanTiltCommand::RelativePosition {
-            pan_speed,
-            tilt_speed,
+            pan_speed: PanSpeed::new(pan_speed)?,
+            tilt_speed: TiltSpeed::new(tilt_speed)?,
             pan: pan_delta,
             tilt: tilt_delta,
         };
@@ -108,7 +108,7 @@ impl AsyncViscaClient {
                     "Zoom speed must be 0-7".into(),
                 ));
             }
-            ZoomCommand::TeleVariable(s)
+            ZoomCommand::TeleVariable(ZoomSpeed::new(s)?)
         } else {
             ZoomCommand::TeleStandard
         };
@@ -124,7 +124,7 @@ impl AsyncViscaClient {
                     "Zoom speed must be 0-7".into(),
                 ));
             }
-            ZoomCommand::WideVariable(s)
+            ZoomCommand::WideVariable(ZoomSpeed::new(s)?)
         } else {
             ZoomCommand::WideStandard
         };
@@ -211,7 +211,7 @@ impl AsyncViscaClient {
     pub async fn save_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Set,
-            preset_number,
+            preset_number: PresetNumber::new(preset_number)?,
         };
         self.send(&command).await?;
         Ok(())
@@ -221,7 +221,7 @@ impl AsyncViscaClient {
     pub async fn recall_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Recall,
-            preset_number,
+            preset_number: PresetNumber::new(preset_number)?,
         };
         self.send(&command).await?;
         Ok(())
@@ -231,7 +231,7 @@ impl AsyncViscaClient {
     pub async fn reset_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Reset,
-            preset_number,
+            preset_number: PresetNumber::new(preset_number)?,
         };
         self.send(&command).await?;
         Ok(())

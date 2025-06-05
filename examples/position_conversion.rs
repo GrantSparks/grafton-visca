@@ -7,7 +7,10 @@
 //! - Detect camera model (placeholder functionality)
 
 use grafton_visca::{
-    command::{InquiryCommand, PanTiltCommand},
+    command::{
+        pan_tilt::{PanSpeed, TiltSpeed},
+        InquiryCommand, PanTiltCommand,
+    },
     constants::{
         self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
@@ -148,8 +151,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let command = PanTiltCommand::AbsolutePosition {
             pan: target_visca.pan,
             tilt: target_visca.tilt,
-            pan_speed: constants::speed::PAN_SPEED_DEFAULT,
-            tilt_speed: constants::speed::TILT_SPEED_DEFAULT,
+            pan_speed: PanSpeed::new(constants::speed::PAN_SPEED_DEFAULT).unwrap(),
+            tilt_speed: TiltSpeed::new(constants::speed::TILT_SPEED_DEFAULT).unwrap(),
         };
 
         match send_command_and_wait(&mut transport, &command) {

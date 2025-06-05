@@ -14,20 +14,25 @@
 //! // Build a complex PTZ sequence
 //! client.ptz()
 //!     .pan_tilt_move(PanTiltDirection::UpRight, PanSpeed::new(10).unwrap(), TiltSpeed::new(10).unwrap())
-//!     .zoom_in(5)
+//!     .zoom_in(5).unwrap()
 //!     .focus_far()
 //!     .execute_sequential()
 //!     .unwrap();
 //! # }
 //! ```
 
+// Standard library imports
 use std::sync::Arc;
 
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::{
     command::{
         focus::FocusCommand,
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        zoom::ZoomCommand,
+        zoom::{ZoomCommand, ZoomSpeed},
     },
     unified_client::ViscaClient,
     ViscaCommand, ViscaError, ViscaResponse,
@@ -87,7 +92,20 @@ impl PtzBuilder {
     }
 
     /// Add a pan/tilt absolute position command.
-    pub fn pan_tilt_absolute(mut self, pan: i16, tilt: i16, pan_speed: u8, tilt_speed: u8) -> Self {
+    pub fn pan_tilt_absolute(
+        mut self,
+        pan: i16,
+        tilt: i16,
+        pan_speed: impl TryInto<PanSpeed>,
+        tilt_speed: impl TryInto<TiltSpeed>,
+    ) -> Result<Self, ViscaError> {
+        let pan_speed = pan_speed
+            .try_into()
+            .map_err(|_| ViscaError::InvalidParameter("Invalid pan speed".into()))?;
+        let tilt_speed = tilt_speed
+            .try_into()
+            .map_err(|_| ViscaError::InvalidParameter("Invalid tilt speed".into()))?;
+
         let command = PanTiltCommand::AbsolutePosition {
             pan,
             tilt,
@@ -95,11 +113,24 @@ impl PtzBuilder {
             tilt_speed,
         };
         self.commands.push(Box::new(command));
-        self
+        Ok(self)
     }
 
     /// Add a pan/tilt relative position command.
-    pub fn pan_tilt_relative(mut self, pan: i16, tilt: i16, pan_speed: u8, tilt_speed: u8) -> Self {
+    pub fn pan_tilt_relative(
+        mut self,
+        pan: i16,
+        tilt: i16,
+        pan_speed: impl TryInto<PanSpeed>,
+        tilt_speed: impl TryInto<TiltSpeed>,
+    ) -> Result<Self, ViscaError> {
+        let pan_speed = pan_speed
+            .try_into()
+            .map_err(|_| ViscaError::InvalidParameter("Invalid pan speed".into()))?;
+        let tilt_speed = tilt_speed
+            .try_into()
+            .map_err(|_| ViscaError::InvalidParameter("Invalid tilt speed".into()))?;
+
         let command = PanTiltCommand::RelativePosition {
             pan,
             tilt,
@@ -107,7 +138,7 @@ impl PtzBuilder {
             tilt_speed,
         };
         self.commands.push(Box::new(command));
-        self
+        Ok(self)
     }
 
     /// Add a zoom stop command.
@@ -120,20 +151,26 @@ impl PtzBuilder {
     ///
     /// # Arguments
     /// * `speed` - Zoom speed (0=slowest, 7=fastest)
-    pub fn zoom_in(mut self, speed: u8) -> Self {
+    pub fn zoom_in(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, ViscaError> {
+        let speed = speed
+            .try_into()
+            .map_err(|_| ViscaError::InvalidParameter("Invalid zoom speed".into()))?;
         self.commands
             .push(Box::new(ZoomCommand::TeleVariable(speed)));
-        self
+        Ok(self)
     }
 
     /// Add a zoom out command at variable speed.
     ///
     /// # Arguments
     /// * `speed` - Zoom speed (0=slowest, 7=fastest)
-    pub fn zoom_out(mut self, speed: u8) -> Self {
+    pub fn zoom_out(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, ViscaError> {
+        let speed = speed
+            .try_into()
+            .map_err(|_| ViscaError::InvalidParameter("Invalid zoom speed".into()))?;
         self.commands
             .push(Box::new(ZoomCommand::WideVariable(speed)));
-        self
+        Ok(self)
     }
 
     /// Add a direct zoom position command.

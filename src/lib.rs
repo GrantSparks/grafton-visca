@@ -76,13 +76,14 @@
 //! ## Advanced Camera Control
 //!
 //! ```no_run
-//! use grafton_visca::command::*;
+//! use grafton_visca::command::{ExposureCompensationCommand, IrisCommand, SaturationCommand};
+//! use grafton_visca::command::exposure::ExposureCompensationLevel;
 //! use grafton_visca::{UdpTransport, ViscaTransport};
 //!
 //! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
 //!
 //! // Adjust exposure compensation
-//! transport.send_command(&ExposureCompensationCommand::Direct(3)).unwrap();
+//! transport.send_command(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(3).unwrap())).unwrap();
 //!
 //! // Set iris to F4.0
 //! transport.send_command(&IrisCommand::Direct(0x06)).unwrap();
@@ -216,10 +217,10 @@ use std::{
     time::Duration,
 };
 
-// Third-party imports
+// Third-party crate imports
 use log::{debug, error};
 
-// Module declarations - Public
+// Module declarations
 pub mod command;
 pub mod connection;
 pub mod connection_pool;
@@ -229,7 +230,6 @@ pub mod reconnecting_transport;
 pub mod timeout;
 pub mod transport;
 
-// Module declarations - Private
 mod camera_detection;
 mod error;
 mod focus_ext;
@@ -240,7 +240,6 @@ mod session;
 mod transport_ext;
 mod zoom_ext;
 
-// Module declarations - Feature-gated
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod sync_primitives;
 
@@ -277,38 +276,19 @@ mod async_udp_transport;
 #[cfg(feature = "async-client")]
 mod async_visca_ext;
 
-// Core re-exports
+// Public re-exports
 pub use crate::{
     camera_detection::detect_camera_model,
-    error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
-    session::ViscaSession,
-};
-
-// Command system re-exports
-pub use crate::command::{
-    pan_tilt::PanTiltDirection,
-    response::{parse_visca_response, ViscaResponse},
-    ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
-};
-
-// Connection and transport re-exports
-pub use crate::{
+    command::{
+        pan_tilt::PanTiltDirection,
+        response::{parse_visca_response, ViscaResponse},
+        ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
+    },
     connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
-    timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
-};
-
-// Connection pool re-exports
-pub use crate::connection_pool::{
-    CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
-};
-
-// Reconnecting transport re-exports
-pub use crate::reconnecting_transport::{
-    ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
-};
-
-// Extension trait re-exports
-pub use crate::{
+    connection_pool::{
+        CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
+    },
+    error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
     focus_ext::ViscaFocusExt,
     inquiry_ext::{
         CameraPosition, CameraState, ExposureState, ImageState, OpticsState, ViscaInquiryExt,
@@ -316,39 +296,35 @@ pub use crate::{
     },
     pan_tilt_ext::ViscaPanTiltExt,
     preset_ext::ViscaPresetExt,
+    reconnecting_transport::{
+        ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
+    },
+    session::ViscaSession,
+    timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
     transport_ext::ViscaTransportExt,
     zoom_ext::ViscaZoomExt,
 };
 
-// Feature-gated re-exports - Unified client
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::unified_client::{ViscaClient, ViscaClientPtzExt};
-
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::ptz_builder::PtzBuilder;
-
-// Feature-gated re-exports - Async functionality
+pub use crate::{
+    ptz_builder::PtzBuilder,
+    unified_client::{ViscaClient, ViscaClientPtzExt},
+};
 #[cfg(feature = "async-client")]
 pub use crate::{
     async_client::AsyncViscaClient,
+    async_connection_pool::{
+        AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard,
+        AsyncViscaConnectionPool, CameraInfo as AsyncCameraInfo,
+    },
+    async_reconnecting_transport::{
+        AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
+    },
     async_tcp_transport::AsyncTcpTransport,
     async_transport::{AsyncViscaTransport, TransportFuture},
     async_udp_transport::AsyncUdpTransport,
     async_visca_ext::{AsyncViscaExt, PanScanDirection},
     connection::AsyncConnectionManagement,
-};
-
-// Feature-gated re-exports - Async connection pool
-#[cfg(feature = "async-client")]
-pub use crate::async_connection_pool::{
-    AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard, AsyncViscaConnectionPool,
-    CameraInfo as AsyncCameraInfo,
-};
-
-// Feature-gated re-exports - Async reconnecting transport
-#[cfg(feature = "async-client")]
-pub use crate::async_reconnecting_transport::{
-    AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
 };
 
 /// Transport trait for sending and receiving VISCA commands over a network connection.
@@ -411,7 +387,6 @@ pub struct UdpTransport {
 }
 
 impl UdpTransport {
-    /// Apply timeout configuration for a specific command.
     fn apply_command_timeout(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         if let Some(ref config) = self.timeout_config {
             let timeout = config.get_timeout(command.command_category());
@@ -426,7 +401,6 @@ impl UdpTransport {
         Ok(())
     }
 
-    /// Receive data until a VISCA frame end (0xFF) is detected.
     fn receive_until_frame_end(&mut self) -> Result<Vec<u8>, ViscaError> {
         let mut buffer = [0u8; 1024];
         let mut data = Vec::new();
@@ -529,7 +503,6 @@ pub struct TcpTransport {
 }
 
 impl TcpTransport {
-    /// Apply timeout configuration for a specific command.
     fn apply_command_timeout(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         if let Some(ref config) = self.timeout_config {
             let timeout = config.get_timeout(command.command_category());
@@ -544,7 +517,6 @@ impl TcpTransport {
         Ok(())
     }
 
-    /// Receive data until a VISCA frame end (0xFF) is detected.
     fn receive_until_frame_end(&mut self) -> Result<Vec<u8>, ViscaError> {
         let mut buffer = [0u8; 1024];
         let mut data = Vec::new();

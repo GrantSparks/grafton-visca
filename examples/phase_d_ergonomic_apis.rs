@@ -38,7 +38,7 @@ fn main() -> Result<(), ViscaError> {
     Arc::clone(&client)
         .ptz()
         .pan_tilt_home()
-        .zoom_in(3)
+        .zoom_in(3)?
         .focus_auto()
         .execute_sequential()?;
     println!("   ✓ Executed: Home → Zoom In → Auto Focus");
@@ -61,7 +61,7 @@ fn main() -> Result<(), ViscaError> {
     println!("\n3. PTZ Builder - Absolute positioning");
     Arc::clone(&client)
         .ptz()
-        .pan_tilt_absolute(1000, -500, 0x18, 0x14)
+        .pan_tilt_absolute(1000, -500, 0x18, 0x14)?
         .zoom_direct(0x8000)
         .execute_sequential()?;
     println!("   ✓ Executed: Absolute position + zoom");
@@ -94,7 +94,7 @@ async fn main() -> Result<(), ViscaError> {
     Arc::clone(&client)
         .ptz()
         .pan_tilt_home()
-        .zoom_in(3)
+        .zoom_in(3)?
         .focus_auto()
         .execute_sequential_async()
         .await?;
@@ -190,7 +190,7 @@ async fn main() -> Result<(), ViscaError> {
     Arc::clone(&client)
         .ptz()
         .pan_tilt_home()
-        .zoom_in(2)
+        .zoom_in(2)?
         .execute_sequential()?;
     println!("   ✓ Blocking execution completed");
 
@@ -203,7 +203,7 @@ async fn main() -> Result<(), ViscaError> {
             PanSpeed::new(8).unwrap(),
             TiltSpeed::new(0).unwrap(),
         )
-        .zoom_out(3)
+        .zoom_out(3)?
         .execute_sequential_async()
         .await?;
     println!("   ✓ Async execution completed");

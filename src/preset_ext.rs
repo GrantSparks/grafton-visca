@@ -2,7 +2,7 @@
 
 // Crate imports
 use crate::{
-    command::preset::{PresetAction, PresetCommand},
+    command::preset::{PresetAction, PresetCommand, PresetNumber},
     error::ViscaError,
     transport_ext::ViscaTransportExt,
 };
@@ -29,7 +29,7 @@ pub trait ViscaPresetExt: ViscaTransportExt {
     fn save_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Set,
-            preset_number,
+            preset_number: PresetNumber::new(preset_number)?,
         };
         self.send_command(&command)?;
         Ok(())
@@ -57,7 +57,7 @@ pub trait ViscaPresetExt: ViscaTransportExt {
     fn recall_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Recall,
-            preset_number,
+            preset_number: PresetNumber::new(preset_number)?,
         };
         self.send_command(&command)?;
         Ok(())
@@ -83,7 +83,7 @@ pub trait ViscaPresetExt: ViscaTransportExt {
     fn reset_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Reset,
-            preset_number,
+            preset_number: PresetNumber::new(preset_number)?,
         };
         self.send_command(&command)?;
         Ok(())

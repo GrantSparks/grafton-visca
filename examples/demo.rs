@@ -10,6 +10,7 @@
 //! - Inquiry commands
 
 use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed};
+use grafton_visca::command::preset::PresetNumber;
 use grafton_visca::command::*;
 use grafton_visca::{send_command_and_wait, UdpTransport, ViscaResponse};
 use std::thread;
@@ -93,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Saving current position as preset 1...");
     let preset_set = PresetCommand {
         action: PresetAction::Set,
-        preset_number: 1,
+        preset_number: PresetNumber::new(1)?,
     };
     send_command_and_wait(&mut transport, &preset_set)?;
 
@@ -112,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Recalling preset 1...");
     let preset_recall = PresetCommand {
         action: PresetAction::Recall,
-        preset_number: 1,
+        preset_number: PresetNumber::new(1)?,
     };
     send_command_and_wait(&mut transport, &preset_recall)?;
     thread::sleep(Duration::from_secs(2));

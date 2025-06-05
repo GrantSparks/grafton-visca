@@ -1,7 +1,11 @@
 //! High-level extension trait for zoom control operations.
 
 // Crate imports
-use crate::{command::zoom::ZoomCommand, error::ViscaError, transport_ext::ViscaTransportExt};
+use crate::{
+    command::zoom::{ZoomCommand, ZoomSpeed},
+    error::ViscaError,
+    transport_ext::ViscaTransportExt,
+};
 
 /// Extension trait providing high-level zoom control methods.
 pub trait ViscaZoomExt: ViscaTransportExt {
@@ -55,7 +59,7 @@ pub trait ViscaZoomExt: ViscaTransportExt {
                     "Zoom speed must be 0-7".into(),
                 ));
             }
-            ZoomCommand::TeleVariable(s)
+            ZoomCommand::TeleVariable(ZoomSpeed::new(s)?)
         } else {
             ZoomCommand::TeleStandard
         };
@@ -87,7 +91,7 @@ pub trait ViscaZoomExt: ViscaTransportExt {
                     "Zoom speed must be 0-7".into(),
                 ));
             }
-            ZoomCommand::WideVariable(s)
+            ZoomCommand::WideVariable(ZoomSpeed::new(s)?)
         } else {
             ZoomCommand::WideStandard
         };

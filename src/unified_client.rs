@@ -268,7 +268,7 @@ pub trait ViscaClientPtzExt {
     /// // Build and execute a PTZ sequence
     /// client.ptz()
     ///     .pan_tilt_home()
-    ///     .zoom_in(5)
+    ///     .zoom_in(5).unwrap()
     ///     .focus_auto()
     ///     .execute_sequential()
     ///     .unwrap();

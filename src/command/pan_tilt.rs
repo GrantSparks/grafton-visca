@@ -24,7 +24,10 @@
 // Standard library imports
 use std::convert::TryFrom;
 
-// Crate imports
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},
     error::ViscaError,
@@ -86,14 +89,14 @@ pub enum PanTiltCommand {
     AbsolutePosition {
         pan: i16,
         tilt: i16,
-        pan_speed: u8,
-        tilt_speed: u8,
+        pan_speed: PanSpeed,
+        tilt_speed: TiltSpeed,
     },
     RelativePosition {
         pan: i16,
         tilt: i16,
-        pan_speed: u8,
-        tilt_speed: u8,
+        pan_speed: PanSpeed,
+        tilt_speed: TiltSpeed,
     },
 }
 
@@ -126,30 +129,16 @@ impl ViscaCommand for PanTiltCommand {
                 pan_speed,
                 tilt_speed,
             } => {
-                // Convert pan and tilt positions to 4 nibbles each
                 let pan_bytes = position_to_bytes(*pan);
                 let tilt_bytes = position_to_bytes(*tilt);
-
-                if *pan_speed > PanSpeed::MAX {
-                    return Err(ViscaError::InvalidParameter(format!(
-                        "Pan speed must be <= 0x{:02X}",
-                        PanSpeed::MAX
-                    )));
-                }
-                if *tilt_speed > TiltSpeed::MAX {
-                    return Err(ViscaError::InvalidParameter(format!(
-                        "Tilt speed must be <= 0x{:02X}",
-                        TiltSpeed::MAX
-                    )));
-                }
 
                 Ok(vec![
                     0x81,
                     0x01,
                     0x06,
                     0x02,
-                    *pan_speed,
-                    *tilt_speed,
+                    (*pan_speed).into(),
+                    (*tilt_speed).into(),
                     pan_bytes[0],
                     pan_bytes[1],
                     pan_bytes[2],
@@ -167,30 +156,16 @@ impl ViscaCommand for PanTiltCommand {
                 pan_speed,
                 tilt_speed,
             } => {
-                // Convert pan and tilt positions to 4 nibbles each
                 let pan_bytes = position_to_bytes(*pan);
                 let tilt_bytes = position_to_bytes(*tilt);
-
-                if *pan_speed > PanSpeed::MAX {
-                    return Err(ViscaError::InvalidParameter(format!(
-                        "Pan speed must be <= 0x{:02X}",
-                        PanSpeed::MAX
-                    )));
-                }
-                if *tilt_speed > TiltSpeed::MAX {
-                    return Err(ViscaError::InvalidParameter(format!(
-                        "Tilt speed must be <= 0x{:02X}",
-                        TiltSpeed::MAX
-                    )));
-                }
 
                 Ok(vec![
                     0x81,
                     0x01,
                     0x06,
                     0x03,
-                    *pan_speed,
-                    *tilt_speed,
+                    (*pan_speed).into(),
+                    (*tilt_speed).into(),
                     pan_bytes[0],
                     pan_bytes[1],
                     pan_bytes[2],
@@ -319,8 +294,8 @@ mod tests {
         let abs_pos = PanTiltCommand::AbsolutePosition {
             pan: 0x1234,
             tilt: 0x5678,
-            pan_speed: 0x10,
-            tilt_speed: 0x10,
+            pan_speed: PanSpeed::new(0x10).unwrap(),
+            tilt_speed: TiltSpeed::new(0x10).unwrap(),
         };
         assert_eq!(
             abs_pos.to_bytes().unwrap(),
@@ -334,8 +309,8 @@ mod tests {
         let rel_pos = PanTiltCommand::RelativePosition {
             pan: -0x100,
             tilt: 0x200,
-            pan_speed: 0x10,
-            tilt_speed: 0x10,
+            pan_speed: PanSpeed::new(0x10).unwrap(),
+            tilt_speed: TiltSpeed::new(0x10).unwrap(),
         };
         assert_eq!(
             rel_pos.to_bytes().unwrap(),
