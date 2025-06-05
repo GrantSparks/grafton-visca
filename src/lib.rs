@@ -268,12 +268,17 @@ pub mod transport;
 
 mod camera_detection;
 mod error;
+mod exposure_ext;
 mod focus_ext;
+mod image_ext;
 mod inquiry_ext;
 mod pan_tilt_ext;
+mod position_ext;
+mod power_ext;
 mod preset_ext;
 mod session;
 mod transport_ext;
+mod white_balance_ext;
 mod zoom_ext;
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -326,12 +331,16 @@ pub use crate::{
         CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
     },
     error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
+    exposure_ext::ViscaExposureExt,
     focus_ext::ViscaFocusExt,
+    image_ext::{ImagePreset, ViscaImageExt},
     inquiry_ext::{
         CameraPosition, CameraState, ExposureState, ImageState, OpticsState, ViscaInquiryExt,
         WhiteBalanceState,
     },
     pan_tilt_ext::ViscaPanTiltExt,
+    position_ext::ViscaPositionExt,
+    power_ext::ViscaPowerExt,
     preset_ext::ViscaPresetExt,
     reconnecting_transport::{
         ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
@@ -339,6 +348,7 @@ pub use crate::{
     session::ViscaSession,
     timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
     transport_ext::ViscaTransportExt,
+    white_balance_ext::{ViscaWhiteBalanceExt, WhiteBalancePreset},
     zoom_ext::ViscaZoomExt,
 };
 
