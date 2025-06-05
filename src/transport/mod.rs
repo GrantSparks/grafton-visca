@@ -2,6 +2,20 @@
 //!
 //! This module provides the core transport abstractions for the v0.4.0 API,
 //! featuring an async-first design with optional blocking adapters.
+//!
+//! # TODO for Phase B Integration
+//!
+//! The current implementation is minimal and missing several features from the 
+//! old transport implementations in lib.rs:
+//!
+//! 1. **TimeoutConfig support** - The old transports support configurable timeouts
+//!    per command category (Quick, Movement, Preset, LongRunning)
+//! 2. **ConnectionManagement trait** - Health checking with cached results
+//! 3. **parse_response function** - Shared response parsing logic
+//! 4. **More constructors** - `with_timeout_config()` and other variants
+//!
+//! These features will be integrated in Phase B when we replace the old
+//! ViscaTransport trait with the new Transport trait.
 
 mod tcp;
 mod udp;

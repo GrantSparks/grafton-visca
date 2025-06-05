@@ -209,13 +209,11 @@ pub use command::{
 
 pub mod constants;
 
+// New v0.4.0 transport module - will replace the implementations below in Phase B
 pub mod transport;
-// Temporarily commenting out to avoid naming conflicts with old transport impls
-// #[cfg(feature = "blocking-client")]
-// pub use transport::{TcpTransport, UdpTransport};
-// #[cfg(feature = "async-client")]
-// pub use transport::{AsyncTcpTransport, AsyncUdpTransport};
-// pub use transport::Transport;
+// NOTE: Not exporting new transports yet to avoid breaking changes.
+// The old UdpTransport and TcpTransport below are still in use throughout
+// the codebase. They will be replaced with the new transport module in Phase B.
 
 mod camera_detection;
 pub use camera_detection::detect_camera_model;
@@ -320,6 +318,9 @@ pub use timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder};
 /// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
 /// a uniform interface for VISCA communication.
 ///
+/// **Note**: This trait will be replaced by `transport::Transport` in v0.4.0.
+/// New code should prepare for the migration.
+///
 /// # Example
 /// ```no_run
 /// # use grafton_visca::{ViscaTransport, UdpTransport, ViscaCommand, ViscaError};
@@ -359,6 +360,8 @@ pub trait ViscaTransport {
 ///
 /// This transport uses UDP sockets for communication with VISCA cameras.
 /// It binds to an ephemeral local port and sends commands to the specified camera address.
+///
+/// **Note**: This implementation will be replaced by `transport::UdpTransport` in v0.4.0.
 ///
 /// # Example
 /// ```no_run
@@ -436,6 +439,8 @@ impl UdpTransport {
 ///
 /// This transport uses TCP sockets for reliable communication with VISCA cameras.
 /// It maintains a persistent connection to the camera.
+///
+/// **Note**: This implementation will be replaced by `transport::TcpTransport` in v0.4.0.
 ///
 /// # Example
 /// ```no_run
