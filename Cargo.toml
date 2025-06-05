@@ -19,7 +19,6 @@ blocking-client = ["parking_lot"]
 async-client = ["tokio", "futures"]
 reconnect = []
 pool = []
-macros = []
 
 [dependencies]
 log = "0.4.22"
@@ -33,6 +32,7 @@ parking_lot = { version = "0.12", optional = true }
 # Async dependencies (optional)
 tokio = { version = "1.38", features = ["net", "sync", "time", "rt", "rt-multi-thread", "macros", "io-util"], optional = true }
 futures = { version = "0.3", optional = true }
+
 
 [dev-dependencies]
 tokio = { version = "1.38", features = ["full", "test-util"] }
@@ -111,3 +111,6 @@ name = "position_conversion"
 [[example]]
 name = "reconnecting_transport"
 required-features = ["blocking-client", "reconnect"]
+
+[[example]]
+name = "declarative_macro_test"

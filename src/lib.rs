@@ -91,6 +91,22 @@
 //! transport.send_command(&SaturationCommand { level: 0x0A }).unwrap();
 //! ```
 //!
+//! ## Creating Custom Commands with Macro
+//!
+//! For simple commands, you can use the built-in macro to reduce boilerplate:
+//!
+//! ```no_run
+//! use grafton_visca::visca_command;
+//!
+//! visca_command! {
+//!     #[category = "Movement"]
+//!     enum CustomCommand {
+//!         Home => [0x81, 0x01, 0x06, 0x04, 0xFF],
+//!         Reset => [0x81, 0x01, 0x06, 0x05, 0xFF],
+//!     }
+//! }
+//! ```
+//!
 //! ## Async Usage (with `async` feature)
 //!
 //! The library provides async support for non-blocking camera control:
@@ -207,6 +223,7 @@ use log::{debug, error};
 pub mod command;
 pub mod connection;
 pub mod constants;
+pub mod macros;
 pub mod timeout;
 pub mod transport;
 
@@ -323,6 +340,7 @@ pub use crate::async_connection_pool::{
 pub use crate::async_reconnecting_transport::{
     AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
 };
+
 
 /// Transport trait for sending and receiving VISCA commands over a network connection.
 ///
