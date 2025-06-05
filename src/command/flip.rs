@@ -1,17 +1,35 @@
-// Crate imports
+//! Image flip commands for VISCA cameras.
+//!
+//! This module provides commands for controlling image orientation.
+
+// Standard library imports
+// (none)
+
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},
     error::ViscaError,
     timeout::CommandCategory,
 };
 
-#[derive(Debug, Copy, Clone)]
+/// Image flip state.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Flip {
+    /// Enable image flip.
     On = 0x02,
+    /// Disable image flip.
     Off = 0x03,
 }
 
+/// Command to control image flip.
+///
+/// This command flips the image vertically (upside down).
+#[derive(Debug)]
 pub struct ImageFlipCommand {
+    /// The desired flip state.
     pub flip: Flip,
 }
 

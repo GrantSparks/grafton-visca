@@ -1,17 +1,33 @@
-// Crate imports
+//! Power control commands for VISCA cameras.
+//!
+//! This module provides commands for controlling camera power state.
+
+// Standard library imports
+// (none)
+
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},
     error::ViscaError,
     timeout::CommandCategory,
 };
 
-#[derive(Debug, Copy, Clone)]
+/// Power state for the camera.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Power {
+    /// Camera is powered on and operational.
     On = 0x02,
+    /// Camera is in standby mode.
     Standby = 0x03,
 }
 
+/// Command to set camera power state.
+#[derive(Debug)]
 pub struct PowerCommand {
+    /// The desired power state.
     pub power: Power,
 }
 

@@ -8,22 +8,73 @@
 //!
 //! # Example
 //! ```no_run
-//! # use grafton_visca::command::ZoomCommand;
+//! # use grafton_visca::command::{ZoomCommand, zoom::ZoomSpeed};
 //! # use grafton_visca::{UdpTransport, ViscaTransport};
 //! # let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
 //! transport.send_command(&ZoomCommand::TeleStandard).unwrap();
 //!
 //! // Zoom out at variable speed
-//! transport.send_command(&ZoomCommand::WideVariable(5)).unwrap();
+//! transport.send_command(&ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
 //! ```
 
-// Crate imports
+// Standard library imports
+use std::convert::TryFrom;
+
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},
     error::ViscaError,
     timeout::CommandCategory,
 };
+
+/// Variable zoom speed.
+///
+/// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ZoomSpeed(u8);
+
+impl ZoomSpeed {
+    /// Maximum allowed zoom speed.
+    pub const MAX: u8 = 7;
+
+    /// Creates a new ZoomSpeed with validation.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if value > 7.
+    pub fn new(value: u8) -> Result<Self, ViscaError> {
+        if value <= Self::MAX {
+            Ok(ZoomSpeed(value))
+        } else {
+            Err(ViscaError::InvalidParameter(format!(
+                "Zoom speed must be in the range 0..={}",
+                Self::MAX
+            )))
+        }
+    }
+
+    /// Get the raw value.
+    pub fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for ZoomSpeed {
+    type Error = ViscaError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        ZoomSpeed::new(value)
+    }
+}
+
+impl From<ZoomSpeed> for u8 {
+    fn from(speed: ZoomSpeed) -> Self {
+        speed.0
+    }
+}
 
 /// Zoom control commands.
 ///
@@ -42,10 +93,10 @@ pub enum ZoomCommand {
     TeleStandard,
     /// Zoom out (wide) at standard speed.
     WideStandard,
-    /// Zoom in at variable speed (0=slowest, 7=fastest).
-    TeleVariable(u8),
-    /// Zoom out at variable speed (0=slowest, 7=fastest).
-    WideVariable(u8),
+    /// Zoom in at variable speed.
+    TeleVariable(ZoomSpeed),
+    /// Zoom out at variable speed.
+    WideVariable(ZoomSpeed),
     /// Set zoom to direct position (0x0000 to 0xFFFF).
     Direct(u16),
 }
@@ -62,20 +113,15 @@ impl ViscaCommand for ZoomCommand {
             // Wide standard zoom
             ZoomCommand::WideStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
 
-            // Tele variable zoom with valid speed (0..=7)
-            ZoomCommand::TeleVariable(speed) if *speed <= 7 => {
-                Ok(vec![0x81, 0x01, 0x04, 0x07, 0x20 | speed, 0xFF])
+            // Tele variable zoom
+            ZoomCommand::TeleVariable(speed) => {
+                Ok(vec![0x81, 0x01, 0x04, 0x07, 0x20 | speed.value(), 0xFF])
             }
 
-            // Wide variable zoom with valid speed (0..=7)
-            ZoomCommand::WideVariable(speed) if *speed <= 7 => {
-                Ok(vec![0x81, 0x01, 0x04, 0x07, 0x30 | speed, 0xFF])
+            // Wide variable zoom
+            ZoomCommand::WideVariable(speed) => {
+                Ok(vec![0x81, 0x01, 0x04, 0x07, 0x30 | speed.value(), 0xFF])
             }
-
-            // Handle invalid speed values for variable zoom commands
-            ZoomCommand::TeleVariable(_) | ZoomCommand::WideVariable(_) => Err(
-                ViscaError::InvalidParameter("Zoom speed must be in the range 0..=7".into()),
-            ),
 
             // Direct zoom to a specific position
             ZoomCommand::Direct(position) => {

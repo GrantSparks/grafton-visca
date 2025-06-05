@@ -4,9 +4,11 @@ use grafton_visca::ViscaCommand;
 #[cfg(test)]
 mod golden_vector_tests {
     use super::*;
+    use grafton_visca::command::exposure::{DynamicRangeLevel, ExposureCompensationLevel};
     use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
     use grafton_visca::command::power::Power;
-    use grafton_visca::command::PresetAction;
+    use grafton_visca::command::preset::{PresetAction, PresetNumber};
+    use grafton_visca::command::zoom::ZoomSpeed;
 
     #[test]
     fn test_power_commands() {
@@ -120,7 +122,7 @@ mod golden_vector_tests {
         );
 
         // Zoom Tele Variable with speed
-        let zoom_tele_var = ZoomCommand::TeleVariable(5);
+        let zoom_tele_var = ZoomCommand::TeleVariable(ZoomSpeed::new(5).unwrap());
         assert_eq!(
             zoom_tele_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF], // 0x20 | 5 = 0x25
@@ -128,7 +130,7 @@ mod golden_vector_tests {
         );
 
         // Zoom Wide Variable with max speed
-        let zoom_wide_var = ZoomCommand::WideVariable(7);
+        let zoom_wide_var = ZoomCommand::WideVariable(ZoomSpeed::new(7).unwrap());
         assert_eq!(
             zoom_wide_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF], // 0x30 | 7 = 0x37
@@ -139,9 +141,9 @@ mod golden_vector_tests {
     #[test]
     fn test_zoom_speed_validation() {
         // Test zoom speed out of range
-        let zoom_invalid = ZoomCommand::TeleVariable(8);
+        let zoom_result = ZoomSpeed::new(8);
         assert!(
-            zoom_invalid.to_bytes().is_err(),
+            zoom_result.is_err(),
             "Zoom speed above 7 should return error"
         );
     }
@@ -170,7 +172,7 @@ mod golden_vector_tests {
         // Preset Reset
         let preset_reset = PresetCommand {
             action: PresetAction::Reset,
-            preset_number: 0,
+            preset_number: PresetNumber::new(0).unwrap(),
         };
         assert_eq!(
             preset_reset.to_bytes().unwrap(),
@@ -181,7 +183,7 @@ mod golden_vector_tests {
         // Preset Set
         let preset_set = PresetCommand {
             action: PresetAction::Set,
-            preset_number: 5,
+            preset_number: PresetNumber::new(5).unwrap(),
         };
         assert_eq!(
             preset_set.to_bytes().unwrap(),
@@ -192,7 +194,7 @@ mod golden_vector_tests {
         // Preset Recall
         let preset_recall = PresetCommand {
             action: PresetAction::Recall,
-            preset_number: 89, // max preset number
+            preset_number: PresetNumber::new(89).unwrap(), // max preset number
         };
         assert_eq!(
             preset_recall.to_bytes().unwrap(),
@@ -204,12 +206,9 @@ mod golden_vector_tests {
     #[test]
     fn test_preset_number_validation() {
         // Test preset number out of range
-        let invalid_preset = PresetCommand {
-            action: PresetAction::Set,
-            preset_number: 90,
-        };
+        let preset_result = PresetNumber::new(90);
         assert!(
-            invalid_preset.to_bytes().is_err(),
+            preset_result.is_err(),
             "Preset number 90 should return error (max is 89)"
         );
     }
@@ -362,7 +361,8 @@ mod golden_vector_tests {
         );
 
         // Exposure Compensation Direct -7
-        let exp_comp_neg7 = ExposureCompensationCommand::Direct(-7);
+        let exp_comp_neg7 =
+            ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(-7).unwrap());
         assert_eq!(
             exp_comp_neg7.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x00, 0xFF],
@@ -370,7 +370,8 @@ mod golden_vector_tests {
         );
 
         // Exposure Compensation Direct +7
-        let exp_comp_pos7 = ExposureCompensationCommand::Direct(7);
+        let exp_comp_pos7 =
+            ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(7).unwrap());
         assert_eq!(
             exp_comp_pos7.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x0E, 0xFF],
@@ -381,7 +382,7 @@ mod golden_vector_tests {
     #[test]
     fn test_dynamic_range_command() {
         // Dynamic Range level 0
-        let dr_0 = DynamicRangeCommand::Direct(0);
+        let dr_0 = DynamicRangeCommand::Direct(DynamicRangeLevel::new(0).unwrap());
         assert_eq!(
             dr_0.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0xFF],
@@ -389,7 +390,7 @@ mod golden_vector_tests {
         );
 
         // Dynamic Range level 8
-        let dr_8 = DynamicRangeCommand::Direct(8);
+        let dr_8 = DynamicRangeCommand::Direct(DynamicRangeLevel::new(8).unwrap());
         assert_eq!(
             dr_8.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x08, 0xFF],
@@ -397,9 +398,9 @@ mod golden_vector_tests {
         );
 
         // Dynamic Range out of range
-        let dr_invalid = DynamicRangeCommand::Direct(9);
+        let dr_result = DynamicRangeLevel::new(9);
         assert!(
-            dr_invalid.to_bytes().is_err(),
+            dr_result.is_err(),
             "Dynamic Range level 9 should return error"
         );
     }
@@ -579,8 +580,8 @@ mod golden_vector_tests {
         let abs_pos = PanTiltCommand::AbsolutePosition {
             pan: 0x1234,
             tilt: 0x5678,
-            pan_speed: 0x10,
-            tilt_speed: 0x10,
+            pan_speed: PanSpeed::new(0x10).unwrap(),
+            tilt_speed: TiltSpeed::new(0x10).unwrap(),
         };
         assert_eq!(
             abs_pos.to_bytes().unwrap(),
@@ -595,8 +596,8 @@ mod golden_vector_tests {
         let rel_pos = PanTiltCommand::RelativePosition {
             pan: -100,
             tilt: 200,
-            pan_speed: 0x08,
-            tilt_speed: 0x08,
+            pan_speed: PanSpeed::new(0x08).unwrap(),
+            tilt_speed: TiltSpeed::new(0x08).unwrap(),
         };
         let pan_bytes = -100i16 as u16;
         let tilt_bytes = 200u16;

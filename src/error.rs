@@ -1,8 +1,11 @@
 // Standard library imports
-use std::{io, time::Duration};
+use std::{future::Future, io, pin::Pin, time::Duration};
 
-// Third-party imports
+// Third-party crate imports
 use thiserror::Error;
+
+// Workspace / local-crate imports
+// (none)
 
 /// VISCA protocol error type.
 ///
@@ -148,9 +151,6 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for ViscaError {
         ViscaError::ParseError(err.to_string())
     }
 }
-
-use std::future::Future;
-use std::pin::Pin;
 
 /// Type alias for a boxed future that is Send
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
