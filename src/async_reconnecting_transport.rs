@@ -310,7 +310,6 @@ where
                 }
                 // This shouldn't happen if ensure_connected worked
                 drop(state);
-                continue;
             }
 
             Err(ViscaError::ConnectionLost {
@@ -361,7 +360,6 @@ where
                 }
                 // This shouldn't happen if ensure_connected worked
                 drop(state);
-                continue;
             }
 
             Err(ViscaError::ConnectionLost {
