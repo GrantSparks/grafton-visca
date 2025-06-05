@@ -89,6 +89,8 @@ async fn main() -> Result<(), ViscaError> {
 
 #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
 fn main() {
-    println!("This example requires at least one of the 'blocking-client' or 'async-client' features.");
+    println!(
+        "This example requires at least one of the 'blocking-client' or 'async-client' features."
+    );
     println!("Try: cargo run --example phase_b_unified_demo --features blocking-client");
 }
