@@ -13,11 +13,13 @@ use crate::{
     ViscaCommand, ViscaError, ViscaResponse,
 };
 
+// Feature-gated imports - Blocking client
 #[cfg(feature = "blocking-client")]
 use crate::transport::{
     BlockingAdapter, TcpTransport as BlockingTcpTransport, UdpTransport as BlockingUdpTransport,
 };
 
+// Feature-gated imports - Async client
 #[cfg(feature = "async-client")]
 use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, Transport};
 
@@ -117,6 +119,8 @@ impl ViscaClient {
 
     /// Send a command and wait for the response (blocking).
     ///
+    /// Sends a command and waits for the response (blocking).
+    ///
     /// This method provides a blocking interface that works in both sync and async contexts:
     /// - For async-enabled builds:
     ///   - If called from within a Tokio runtime, uses block_in_place to avoid blocking the runtime
@@ -180,7 +184,7 @@ impl ViscaClient {
         parse_response(responses)
     }
 
-    /// Send a command and wait for the response (async).
+    /// Sends a command and waits for the response (async).
     ///
     /// This method:
     /// - Acquires a semaphore permit to enforce concurrency limits

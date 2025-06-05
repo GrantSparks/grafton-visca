@@ -1,10 +1,7 @@
 //! Async VISCA client implementation for non-blocking camera control.
 
 // Standard library imports
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 // Third-party imports
 use tokio::sync::{oneshot, watch, Mutex, Semaphore};
@@ -158,10 +155,9 @@ impl AsyncViscaClient {
                                 break;
                             }
 
-                            // Backoff on errors
-                            tokio::time::sleep(
-                                Duration::from_millis(100 * consecutive_errors.min(50))
-                            ).await;
+                            // Exponential backoff on errors
+                            let backoff_ms = 100 * consecutive_errors.min(50);
+                            tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                         }
                     }
                 }
