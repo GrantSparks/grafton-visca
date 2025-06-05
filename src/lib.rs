@@ -43,7 +43,7 @@
 //! ### Using ViscaClient (Recommended for Thread Safety)
 //!
 //! ```no_run
-//! # #[cfg(not(all(feature = "sync", feature = "async")))]
+//! # #[cfg(feature = "blocking-client")]
 //! # {
 //! use grafton_visca::{ViscaClient, UdpTransport};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
@@ -97,7 +97,7 @@
 //! The library provides async support for non-blocking camera control:
 //!
 //! ```no_run
-//! # #[cfg(feature = "async")]
+//! # #[cfg(feature = "async-client")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! use grafton_visca::{AsyncViscaClient, ViscaResponse};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
@@ -209,6 +209,14 @@ pub use command::{
 
 pub mod constants;
 
+pub mod transport;
+// Temporarily commenting out to avoid naming conflicts with old transport impls
+// #[cfg(feature = "blocking-client")]
+// pub use transport::{TcpTransport, UdpTransport};
+// #[cfg(feature = "async-client")]
+// pub use transport::{AsyncTcpTransport, AsyncUdpTransport};
+// pub use transport::Transport;
+
 mod camera_detection;
 pub use camera_detection::detect_camera_model;
 
@@ -240,19 +248,19 @@ pub use focus_ext::ViscaFocusExt;
 mod preset_ext;
 pub use preset_ext::ViscaPresetExt;
 
-#[cfg(not(all(feature = "sync", feature = "async")))]
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 mod client;
-#[cfg(not(all(feature = "sync", feature = "async")))]
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 pub use client::ViscaClient;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_inquiry_ext;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_control_ext;
 
 pub mod connection;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use connection::AsyncConnectionManagement;
 pub use connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot};
 
@@ -266,42 +274,42 @@ pub use connection_pool::{
     CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_reconnecting_transport;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_reconnecting_transport::{
     AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_connection_pool;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_connection_pool::{
     AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard, AsyncViscaConnectionPool,
     CameraInfo as AsyncCameraInfo,
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_client;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_tcp_transport;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub mod async_transport;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_udp_transport;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_client::AsyncViscaClient;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_tcp_transport::AsyncTcpTransport;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_transport::{AsyncViscaTransport, TransportFuture};
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_udp_transport::AsyncUdpTransport;
 
-#[cfg(all(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "blocking-client", feature = "async-client"))]
 mod sync_wrapper;
-#[cfg(all(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "blocking-client", feature = "async-client"))]
 pub use sync_wrapper::{send_command_and_wait_compat, ViscaClient};
 
 pub mod timeout;

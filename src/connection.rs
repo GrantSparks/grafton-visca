@@ -235,11 +235,11 @@ pub trait ConnectionManagement {
     fn connection_stats(&self) -> &ConnectionStats;
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use crate::async_transport::TransportFuture;
 
 /// Async version of the connection management trait
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub trait AsyncConnectionManagement: Send + Sync {
     /// Check if the connection is healthy by sending a simple inquiry
     fn is_healthy(&mut self) -> TransportFuture<'_, bool>;
