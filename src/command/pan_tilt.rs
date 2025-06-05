@@ -391,7 +391,7 @@ impl PanSpeed {
     /// Maximum allowed pan speed (0x18 = 24 decimal).
     pub const MAX: u8 = 0x18;
 
-    /// Creates a new PanSpeed with validation.
+    /// Creates a new `PanSpeed` with validation.
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 0x18.
@@ -432,7 +432,7 @@ impl TiltSpeed {
     /// Maximum allowed tilt speed (0x14 = 20 decimal).
     pub const MAX: u8 = 0x14;
 
-    /// Creates a new TiltSpeed with validation.
+    /// Creates a new `TiltSpeed` with validation.
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 0x14.

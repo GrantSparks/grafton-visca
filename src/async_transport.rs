@@ -8,9 +8,9 @@ use crate::{ViscaCommand, ViscaError};
 /// Type alias for the future returned by async transport methods
 pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send + 'a>>;
 
-/// Async version of the ViscaTransport trait for non-blocking I/O operations.
+/// Async version of the `ViscaTransport` trait for non-blocking I/O operations.
 ///
-/// This trait provides the async equivalent of ViscaTransport, allowing for
+/// This trait provides the async equivalent of `ViscaTransport`, allowing for
 /// concurrent command execution and non-blocking network operations.
 #[cfg(feature = "async-client")]
 pub trait AsyncViscaTransport: Send + Sync {

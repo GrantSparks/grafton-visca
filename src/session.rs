@@ -99,40 +99,44 @@ impl ViscaSession {
             0x50..=0x5F => {
                 let socket_id = response[1] & 0x0F;
 
-                if let Some(pending) = self.pending_commands.get(&socket_id) {
-                    if response.len() == 3 {
-                        // Simple completion with no data
-                        debug!("Completion received for socket {}", socket_id);
-                        Ok(Some((socket_id, ViscaResponse::Completion)))
-                    } else {
-                        // Completion with data payload (inquiry response)
-                        if let Some(response_type) = pending.response_type {
-                            match parse_visca_response(response, &response_type) {
-                                Ok(parsed) => {
-                                    debug!(
-                                        "Inquiry response received for socket {}: {:?}",
-                                        socket_id, parsed
-                                    );
-                                    Ok(Some((socket_id, parsed)))
-                                }
-                                Err(e) => {
-                                    error!("Failed to parse inquiry response: {}", e);
-                                    Err(e)
-                                }
-                            }
+                self.pending_commands.get(&socket_id).map_or_else(
+                    || {
+                        error!("Received completion for unknown socket {}", socket_id);
+                        Ok(None)
+                    },
+                    |pending| {
+                        if response.len() == 3 {
+                            // Simple completion with no data
+                            debug!("Completion received for socket {}", socket_id);
+                            Ok(Some((socket_id, ViscaResponse::Completion)))
                         } else {
-                            // Unexpected data response for non-inquiry command
-                            error!(
-                                "Received data response for non-inquiry command on socket {}",
-                                socket_id
-                            );
-                            Err(ViscaError::UnexpectedResponseType)
+                            // Completion with data payload (inquiry response)
+                            pending.response_type.map_or_else(
+                                || {
+                                    // Unexpected data response for non-inquiry command
+                                    error!(
+                                        "Received data response for non-inquiry command on socket {}",
+                                        socket_id
+                                    );
+                                    Err(ViscaError::UnexpectedResponseType)
+                                },
+                                |response_type| match parse_visca_response(response, &response_type) {
+                                    Ok(parsed) => {
+                                        debug!(
+                                            "Inquiry response received for socket {}: {:?}",
+                                            socket_id, parsed
+                                        );
+                                        Ok(Some((socket_id, parsed)))
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to parse inquiry response: {}", e);
+                                        Err(e)
+                                    }
+                                },
+                            )
                         }
-                    }
-                } else {
-                    error!("Received completion for unknown socket {}", socket_id);
-                    Ok(None)
-                }
+                    },
+                )
             }
 
             // Error response
@@ -160,8 +164,7 @@ impl ViscaSession {
     pub fn is_acknowledged(&self, socket_id: u8) -> bool {
         self.pending_commands
             .get(&socket_id)
-            .map(|cmd| cmd.acknowledged)
-            .unwrap_or(false)
+            .is_some_and(|cmd| cmd.acknowledged)
     }
 
     /// Gets the number of pending commands
@@ -355,7 +358,7 @@ mod tests {
         // Assign socket 1
         session.assign_socket(None).unwrap();
         let mut pending = session.get_pending_sockets();
-        pending.sort();
+        pending.sort_unstable();
         assert_eq!(pending, vec![0, 1]);
 
         // Release socket 0

@@ -12,9 +12,6 @@ use grafton_visca::ViscaRetry;
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{ViscaClient, ViscaResultExt};
 
-#[cfg(feature = "async-client")]
-use grafton_visca::ViscaClient;
-
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 
@@ -284,9 +281,10 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
     println!("\n4. Real Async Camera Operations (if connected)");
 
     // Try to connect to a camera for real async operations
-    let client_result = match ViscaClient::connect_udp_async("127.0.0.1:1259").await {
+    let client_result = match grafton_visca::ViscaClient::connect_udp_async("127.0.0.1:1259").await
+    {
         Ok(client) => Ok(client),
-        Err(_) => ViscaClient::connect_udp_async("192.168.1.100:5678").await,
+        Err(_) => grafton_visca::ViscaClient::connect_udp_async("192.168.1.100:5678").await,
     };
 
     match client_result {

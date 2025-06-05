@@ -170,7 +170,7 @@ pub fn parse_visca_response(
                         return Err(ViscaError::InvalidResponseLength);
                     }
                     let mode = ExposureMode::try_from(response[2])
-                        .map_err(|_| ViscaError::UnexpectedResponseType)?;
+                        .map_err(|()| ViscaError::UnexpectedResponseType)?;
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::ExposureMode { mode },
                     ))
@@ -180,7 +180,7 @@ pub fn parse_visca_response(
                         return Err(ViscaError::InvalidResponseLength);
                     }
                     let mode = WhiteBalanceMode::try_from(response[2])
-                        .map_err(|_| ViscaError::UnexpectedResponseType)?;
+                        .map_err(|()| ViscaError::UnexpectedResponseType)?;
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::WhiteBalance { mode },
                     ))

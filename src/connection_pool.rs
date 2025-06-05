@@ -145,7 +145,7 @@ where
     /// Gets a connection from the pool.
     ///
     /// Returns a guard that provides access to the transport and automatically
-    /// updates the last_used timestamp when dropped.
+    /// updates the `last_used` timestamp when dropped.
     pub fn get_connection(&self, camera_id: &str) -> Result<PooledConnectionGuard<T>, ViscaError> {
         let connections = self.connections.lock().unwrap();
 
@@ -220,11 +220,11 @@ where
         removed
     }
 
-    /// Removes connections that have been idle longer than the configured max_idle_time.
+    /// Removes connections that have been idle longer than the configured `max_idle_time`.
     ///
     /// Returns the IDs of removed cameras.
     pub fn remove_stale(&self) -> Vec<String> {
-        if let Some(max_idle) = self.config.max_idle_time {
+        self.config.max_idle_time.map_or_else(Vec::new, |max_idle| {
             let now = Instant::now();
             let mut connections = self.connections.lock().unwrap();
             let mut removed = Vec::new();
@@ -238,15 +238,13 @@ where
             });
 
             removed
-        } else {
-            Vec::new()
-        }
+        })
     }
 }
 
 /// A guard that provides access to a pooled connection.
 ///
-/// Automatically updates the last_used timestamp when dropped.
+/// Automatically updates the `last_used` timestamp when dropped.
 pub struct PooledConnectionGuard<T> {
     transport: Arc<Mutex<ReconnectingTransport<T>>>,
     camera_id: String,

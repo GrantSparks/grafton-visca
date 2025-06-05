@@ -59,7 +59,7 @@ struct AsyncInnerState<T> {
 /// Async version of the reconnecting transport wrapper.
 #[cfg(feature = "async-client")]
 pub struct AsyncReconnectingTransport<T> {
-    /// All mutable state in a single RwLock for better performance
+    /// All mutable state in a single `RwLock` for better performance
     inner: Arc<RwLock<AsyncInnerState<T>>>,
     /// Configuration for reconnection behavior (immutable)
     config: ReconnectionConfig,
@@ -435,37 +435,38 @@ where
         let wrapper_stats = state.stats.snapshot();
 
         // If we have an inner transport, combine its stats
-        if let Some(ref transport) = state.transport {
-            let inner_stats = transport.connection_stats().snapshot();
+        state.transport.as_ref().map_or_else(
+            || state.stats.clone(),
+            |transport| {
+                let inner_stats = transport.connection_stats().snapshot();
 
-            // Create a new ConnectionStats with combined values
-            let combined = ConnectionStats::new();
+                // Create a new ConnectionStats with combined values
+                let combined = ConnectionStats::new();
 
-            // Add wrapper stats
-            for _ in 0..wrapper_stats.commands_sent {
-                combined.record_sent(0);
-            }
-            for _ in 0..wrapper_stats.responses_received {
-                combined.record_received(0);
-            }
-            for _ in 0..wrapper_stats.error_count {
-                combined.record_error();
-            }
+                // Add wrapper stats
+                for _ in 0..wrapper_stats.commands_sent {
+                    combined.record_sent(0);
+                }
+                for _ in 0..wrapper_stats.responses_received {
+                    combined.record_received(0);
+                }
+                for _ in 0..wrapper_stats.error_count {
+                    combined.record_error();
+                }
 
-            // Add inner transport stats
-            for _ in 0..inner_stats.commands_sent {
-                combined.record_sent(0);
-            }
-            for _ in 0..inner_stats.responses_received {
-                combined.record_received(0);
-            }
-            for _ in 0..inner_stats.error_count {
-                combined.record_error();
-            }
+                // Add inner transport stats
+                for _ in 0..inner_stats.commands_sent {
+                    combined.record_sent(0);
+                }
+                for _ in 0..inner_stats.responses_received {
+                    combined.record_received(0);
+                }
+                for _ in 0..inner_stats.error_count {
+                    combined.record_error();
+                }
 
-            combined
-        } else {
-            state.stats.clone()
-        }
+                combined
+            },
+        )
     }
 }
