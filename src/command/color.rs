@@ -3,6 +3,9 @@
 //! This module provides commands for controlling color-related settings
 //! including white balance tuning, saturation, and hue adjustments.
 
+// Standard library imports
+use std::convert::TryFrom;
+
 // Crate imports
 use crate::{
     command::{response::ViscaResponseType, ViscaCommand},
