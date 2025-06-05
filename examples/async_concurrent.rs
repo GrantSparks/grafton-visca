@@ -8,7 +8,7 @@
 
 use grafton_visca::command::{
     pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    preset::PresetAction,
+    preset::{PresetAction, PresetNumber},
     FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, ZoomCommand,
 };
 use grafton_visca::{AsyncViscaClient, ViscaResponse};
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Try to send three commands at once
     let preset_cmd = PresetCommand {
         action: PresetAction::Set,
-        preset_number: 1,
+        preset_number: PresetNumber::new(1).unwrap(),
     };
     let cmd1 = camera.send(&preset_cmd);
     let cmd2 = camera.send(&FocusCommand::NearStandard);

@@ -36,8 +36,8 @@ pub trait ViscaPanTiltExt: ViscaTransportExt {
     ) -> Result<(), ViscaError> {
         let (pan_speed, tilt_speed) = speed.unwrap_or((18, 14));
         let command = PanTiltCommand::AbsolutePosition {
-            pan_speed,
-            tilt_speed,
+            pan_speed: PanSpeed::new(pan_speed)?,
+            tilt_speed: TiltSpeed::new(tilt_speed)?,
             pan,
             tilt,
         };
@@ -72,8 +72,8 @@ pub trait ViscaPanTiltExt: ViscaTransportExt {
     ) -> Result<(), ViscaError> {
         let (pan_speed, tilt_speed) = speed.unwrap_or((18, 14));
         let command = PanTiltCommand::RelativePosition {
-            pan_speed,
-            tilt_speed,
+            pan_speed: PanSpeed::new(pan_speed)?,
+            tilt_speed: TiltSpeed::new(tilt_speed)?,
             pan: pan_delta,
             tilt: tilt_delta,
         };

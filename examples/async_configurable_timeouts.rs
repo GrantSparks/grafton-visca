@@ -17,7 +17,7 @@ use grafton_visca::{
     async_transport::AsyncViscaTransport,
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        preset::{PresetAction, PresetCommand},
+        preset::{PresetAction, PresetCommand, PresetNumber},
         response::parse_visca_response,
         InquiryCommand,
     },
@@ -148,7 +148,7 @@ async fn demonstrate_preset_command(
 
     let command = PresetCommand {
         action: PresetAction::Recall,
-        preset_number: 1,
+        preset_number: PresetNumber::new(1).unwrap(),
     };
     println!("   Command category: {:?}", command.command_category());
     println!("   Expected timeout: Preset (30 seconds)");
@@ -261,7 +261,7 @@ mod tests {
 
         let preset = PresetCommand {
             action: PresetAction::Recall,
-            preset_number: 1,
+            preset_number: PresetNumber::new(1).unwrap(),
         };
         assert_eq!(preset.command_category(), CommandCategory::Preset);
     }
