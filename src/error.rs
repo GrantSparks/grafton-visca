@@ -168,16 +168,18 @@ pub trait ViscaResultExt<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use grafton_visca::{ViscaClient, ViscaResultExt, ViscaError};
-    /// use grafton_visca::command::PanTiltCommand;
+    /// # #[cfg(feature = "async-client")]
+    /// # {
+    /// use grafton_visca::{ViscaResultExt, ViscaError};
     /// use std::time::Duration;
     ///
-    /// async fn example(client: &ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+    /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Retry up to 3 times with 100ms base delay
     ///     let result: Result<(), ViscaError> = Ok(());
     ///     result.retry_on_busy(3, Duration::from_millis(100)).await?;
     ///     Ok(())
     /// }
+    /// # }
     /// ```
     fn retry_on_busy(
         self,
@@ -195,14 +197,17 @@ pub trait ViscaResultExt<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use grafton_visca::{ViscaClient, ViscaResultExt, ViscaError};
+    /// # #[cfg(feature = "async-client")]
+    /// # {
+    /// use grafton_visca::{ViscaResultExt, ViscaError};
     ///
-    /// async fn example(client: &ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+    /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Retry up to 5 times using suggested delays
     ///     let result: Result<(), ViscaError> = Ok(());
     ///     result.retry_with_suggested_delay(5).await?;
     ///     Ok(())
     /// }
+    /// # }
     /// ```
     fn retry_with_suggested_delay(
         self,
@@ -220,10 +225,12 @@ pub trait ViscaResultExt<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use grafton_visca::{ViscaClient, ViscaResultExt, ViscaError};
+    /// # #[cfg(feature = "async-client")]
+    /// # {
+    /// use grafton_visca::{ViscaResultExt, ViscaError};
     /// use std::time::Duration;
     ///
-    /// async fn example(client: &ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+    /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Retry with exponential backoff: 50ms, 100ms, 200ms, 400ms, 800ms, 1s, 1s...
     ///     let result: Result<(), ViscaError> = Ok(());
     ///     result.retry_with_exponential_backoff(
@@ -233,6 +240,7 @@ pub trait ViscaResultExt<T> {
     ///     ).await?;
     ///     Ok(())
     /// }
+    /// # }
     /// ```
     fn retry_with_exponential_backoff(
         self,
@@ -319,18 +327,20 @@ impl ViscaRetry {
     ///
     /// # Example
     /// ```no_run
-    /// use grafton_visca::{ViscaClient, ViscaRetry, ViscaError};
+    /// # #[cfg(feature = "async-client")]
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use grafton_visca::{AsyncViscaClient, ViscaRetry, ViscaError};
     /// use grafton_visca::command::PanTiltCommand;
     /// use std::time::Duration;
     ///
-    /// async fn example(client: &ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
-    ///     ViscaRetry::retry_async(
-    ///         || async { client.send(&PanTiltCommand::Home) },
-    ///         3,
-    ///         Duration::from_millis(100)
-    ///     ).await?;
-    ///     Ok(())
-    /// }
+    /// let client = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+    /// ViscaRetry::retry_async(
+    ///     || async { client.send(&PanTiltCommand::Home).await },
+    ///     3,
+    ///     Duration::from_millis(100)
+    /// ).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn retry_async<T, F, Fut>(
         mut operation: F,
@@ -375,16 +385,18 @@ impl ViscaRetry {
     ///
     /// # Example
     /// ```no_run
-    /// use grafton_visca::{ViscaClient, ViscaRetry, ViscaError};
+    /// # #[cfg(feature = "async-client")]
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use grafton_visca::{AsyncViscaClient, ViscaRetry, ViscaError};
     /// use grafton_visca::command::ZoomCommand;
     ///
-    /// async fn example(client: &ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
-    ///     ViscaRetry::retry_with_suggested_delay_async(
-    ///         || async { client.send(&ZoomCommand::Stop) },
-    ///         5
-    ///     ).await?;
-    ///     Ok(())
-    /// }
+    /// let client = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+    /// ViscaRetry::retry_with_suggested_delay_async(
+    ///     || async { client.send(&ZoomCommand::Stop).await },
+    ///     5
+    /// ).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn retry_with_suggested_delay_async<T, F, Fut>(
         mut operation: F,
@@ -431,19 +443,21 @@ impl ViscaRetry {
     ///
     /// # Example
     /// ```no_run
-    /// use grafton_visca::{ViscaClient, ViscaRetry, ViscaError};
+    /// # #[cfg(feature = "async-client")]
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use grafton_visca::{AsyncViscaClient, ViscaRetry, ViscaError};
     /// use grafton_visca::command::FocusCommand;
     /// use std::time::Duration;
     ///
-    /// async fn example(client: &ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
-    ///     ViscaRetry::retry_with_exponential_backoff_async(
-    ///         || async { client.send(&FocusCommand::Auto) },
-    ///         7,
-    ///         Duration::from_millis(50),
-    ///         Duration::from_secs(1)
-    ///     ).await?;
-    ///     Ok(())
-    /// }
+    /// let client = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+    /// ViscaRetry::retry_with_exponential_backoff_async(
+    ///     || async { client.send(&FocusCommand::Auto).await },
+    ///     7,
+    ///     Duration::from_millis(50),
+    ///     Duration::from_secs(1)
+    /// ).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn retry_with_exponential_backoff_async<T, F, Fut>(
         mut operation: F,
@@ -491,6 +505,8 @@ impl ViscaRetry {
     ///
     /// # Example
     /// ```no_run
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
     /// use grafton_visca::{ViscaClient, ViscaRetry, ViscaError};
     /// use grafton_visca::command::PanTiltCommand;
     /// use std::time::Duration;
@@ -503,6 +519,7 @@ impl ViscaRetry {
     ///     )?;
     ///     Ok(())
     /// }
+    /// # }
     /// ```
     #[cfg(feature = "blocking-client")]
     pub fn retry_blocking<T, F>(
