@@ -41,7 +41,7 @@ impl ViscaCommand for RedTuningCommand {
                 "Red tuning level must be between -10 and +10".into(),
             ));
         }
-        let value = (self.level + 10) as u8; // Convert -10..+10 to 0x00..0x14
+        let value = u8::try_from(self.level + 10).expect("level already validated to be in range"); // Convert -10..+10 to 0x00..0x14
         Ok(vec![0x81, 0x0A, 0x01, 0x12, value, 0xFF])
     }
 
@@ -67,7 +67,7 @@ impl ViscaCommand for BlueTuningCommand {
                 "Blue tuning level must be between -10 and +10".into(),
             ));
         }
-        let value = (self.level + 10) as u8; // Convert -10..+10 to 0x00..0x14
+        let value = u8::try_from(self.level + 10).expect("level already validated to be in range"); // Convert -10..+10 to 0x00..0x14
         Ok(vec![0x81, 0x0A, 0x01, 0x13, value, 0xFF])
     }
 
@@ -146,10 +146,10 @@ pub enum ColorTemperatureCommand {
 impl ViscaCommand for ColorTemperatureCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(match self {
-            ColorTemperatureCommand::Reset => vec![0x81, 0x01, 0x04, 0x20, 0x00, 0xFF],
-            ColorTemperatureCommand::Up => vec![0x81, 0x01, 0x04, 0x20, 0x02, 0xFF],
-            ColorTemperatureCommand::Down => vec![0x81, 0x01, 0x04, 0x20, 0x03, 0xFF],
-            ColorTemperatureCommand::Direct(temp) => {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x20, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x20, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x20, 0x03, 0xFF],
+            Self::Direct(temp) => {
                 if *temp > 0x37 {
                     return Err(ViscaError::InvalidParameter(
                         "Color temperature must be between 0x00 (2500K) and 0x37 (8000K)".into(),
@@ -183,10 +183,10 @@ pub enum RedGainCommand {
 impl ViscaCommand for RedGainCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(match self {
-            RedGainCommand::Reset => vec![0x81, 0x01, 0x04, 0x03, 0x00, 0xFF],
-            RedGainCommand::Up => vec![0x81, 0x01, 0x04, 0x03, 0x02, 0xFF],
-            RedGainCommand::Down => vec![0x81, 0x01, 0x04, 0x03, 0x03, 0xFF],
-            RedGainCommand::Direct(gain) => {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x03, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x03, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x03, 0x03, 0xFF],
+            Self::Direct(gain) => {
                 let high = (*gain >> 4) & 0x0F;
                 let low = *gain & 0x0F;
                 vec![0x81, 0x01, 0x04, 0x43, 0x00, 0x00, high, low, 0xFF]
@@ -215,10 +215,10 @@ pub enum BlueGainCommand {
 impl ViscaCommand for BlueGainCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(match self {
-            BlueGainCommand::Reset => vec![0x81, 0x01, 0x04, 0x04, 0x00, 0xFF],
-            BlueGainCommand::Up => vec![0x81, 0x01, 0x04, 0x04, 0x02, 0xFF],
-            BlueGainCommand::Down => vec![0x81, 0x01, 0x04, 0x04, 0x03, 0xFF],
-            BlueGainCommand::Direct(gain) => {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x04, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x04, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x04, 0x03, 0xFF],
+            Self::Direct(gain) => {
                 let high = (*gain >> 4) & 0x0F;
                 let low = *gain & 0x0F;
                 vec![0x81, 0x01, 0x04, 0x44, 0x00, 0x00, high, low, 0xFF]

@@ -203,7 +203,7 @@
 //! - **`CommandNotExecutable`**: The command cannot be executed in the current camera state.
 //!   Example: Trying to zoom while the camera is powered off.
 //!
-//! - **SyntaxError**: The command format is incorrect or parameters are out of range.
+//! - **`SyntaxError`**: The command format is incorrect or parameters are out of range.
 //!   Check that speed values and positions are within valid ranges.
 //!
 //! ### Best Practices
