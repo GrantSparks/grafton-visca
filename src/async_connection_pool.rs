@@ -164,7 +164,7 @@ where
     /// Gets a connection from the pool.
     ///
     /// Returns a guard that provides access to the transport and automatically
-    /// updates the last_used timestamp when dropped.
+    /// updates the `last_used` timestamp when dropped.
     pub async fn get_connection(
         &self,
         camera_id: &str,
@@ -243,7 +243,7 @@ where
         removed
     }
 
-    /// Removes connections that have been idle longer than the configured max_idle_time.
+    /// Removes connections that have been idle longer than the configured `max_idle_time`.
     ///
     /// Returns the IDs of removed cameras.
     pub async fn remove_stale(&self) -> Vec<String> {
@@ -311,7 +311,7 @@ where
 
 /// A guard that provides access to an async pooled connection.
 ///
-/// Automatically updates the last_used timestamp when dropped.
+/// Automatically updates the `last_used` timestamp when dropped.
 pub struct AsyncPooledConnectionGuard<T> {
     transport: Arc<Mutex<AsyncReconnectingTransport<T>>>,
     last_used: Arc<RwLock<Instant>>,

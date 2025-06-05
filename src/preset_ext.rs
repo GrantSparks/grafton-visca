@@ -90,5 +90,5 @@ pub trait ViscaPresetExt: ViscaTransportExt {
     }
 }
 
-/// Implement the trait for all types that implement ViscaTransportExt
+/// Implement the trait for all types that implement `ViscaTransportExt`
 impl<T: ViscaTransportExt> ViscaPresetExt for T {}

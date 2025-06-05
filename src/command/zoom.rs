@@ -41,7 +41,7 @@ impl ZoomSpeed {
     /// Maximum allowed zoom speed.
     pub const MAX: u8 = 7;
 
-    /// Creates a new ZoomSpeed with validation.
+    /// Creates a new `ZoomSpeed` with validation.
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 7.
@@ -157,4 +157,133 @@ fn position_to_nibbles(position: u16) -> [u8; 4] {
         ((position >> 4) & 0x0F) as u8,
         (position & 0x0F) as u8,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_zoom_speed_new() {
+        // Valid speeds
+        for speed in 0..=7 {
+            let zoom_speed = ZoomSpeed::new(speed).unwrap();
+            assert_eq!(zoom_speed.value(), speed);
+        }
+
+        // Invalid speed
+        assert!(matches!(
+            ZoomSpeed::new(8),
+            Err(ViscaError::InvalidParameter(_))
+        ));
+        assert!(matches!(
+            ZoomSpeed::new(255),
+            Err(ViscaError::InvalidParameter(_))
+        ));
+    }
+
+    #[test]
+    fn test_zoom_speed_try_from() {
+        // Valid conversion
+        let speed = ZoomSpeed::try_from(5).unwrap();
+        assert_eq!(speed.value(), 5);
+
+        // Invalid conversion
+        assert!(ZoomSpeed::try_from(8).is_err());
+    }
+
+    #[test]
+    fn test_zoom_speed_into_u8() {
+        let speed = ZoomSpeed::new(3).unwrap();
+        let value: u8 = speed.into();
+        assert_eq!(value, 3);
+    }
+
+    #[test]
+    fn test_zoom_command_stop() {
+        let cmd = ZoomCommand::Stop;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_zoom_command_tele_standard() {
+        let cmd = ZoomCommand::TeleStandard;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
+        );
+        assert_eq!(
+            cmd.response_type(),
+            Some(ViscaResponseType::ZoomTeleStandard)
+        );
+    }
+
+    #[test]
+    fn test_zoom_command_wide_standard() {
+        let cmd = ZoomCommand::WideStandard;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
+        );
+        assert_eq!(
+            cmd.response_type(),
+            Some(ViscaResponseType::ZoomWideStandard)
+        );
+    }
+
+    #[test]
+    fn test_zoom_command_tele_variable() {
+        let speed = ZoomSpeed::new(5).unwrap();
+        let cmd = ZoomCommand::TeleVariable(speed);
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_zoom_command_wide_variable() {
+        let speed = ZoomSpeed::new(7).unwrap();
+        let cmd = ZoomCommand::WideVariable(speed);
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_zoom_command_direct() {
+        let cmd = ZoomCommand::Direct(0x1234);
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_position_to_nibbles() {
+        assert_eq!(position_to_nibbles(0x0000), [0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(position_to_nibbles(0x1234), [0x01, 0x02, 0x03, 0x04]);
+        assert_eq!(position_to_nibbles(0xABCD), [0x0A, 0x0B, 0x0C, 0x0D]);
+        assert_eq!(position_to_nibbles(0xFFFF), [0x0F, 0x0F, 0x0F, 0x0F]);
+    }
+
+    #[test]
+    fn test_command_category() {
+        assert_eq!(
+            ZoomCommand::Stop.command_category(),
+            CommandCategory::Movement
+        );
+        assert_eq!(
+            ZoomCommand::TeleStandard.command_category(),
+            CommandCategory::Movement
+        );
+        assert_eq!(
+            ZoomCommand::Direct(0).command_category(),
+            CommandCategory::Movement
+        );
+    }
 }

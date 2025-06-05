@@ -1,4 +1,4 @@
-//! Async implementations of control extension traits for AsyncViscaClient.
+//! Async implementations of control extension traits for `AsyncViscaClient`.
 
 // Crate imports
 use crate::{

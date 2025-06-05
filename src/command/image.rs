@@ -1,3 +1,8 @@
+//! Image adjustment commands for VISCA cameras.
+//!
+//! This module provides commands for controlling various image quality settings,
+//! including brightness, contrast, sharpness, saturation, and hue adjustments.
+
 // Crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},

@@ -158,3 +158,223 @@ impl ViscaCommand for FocusNearLimitCommand {
         CommandCategory::Quick
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_focus_command_stop() {
+        let cmd = FocusCommand::Stop;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_focus_command_far_standard() {
+        let cmd = FocusCommand::FarStandard;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_focus_command_near_standard() {
+        let cmd = FocusCommand::NearStandard;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_focus_command_far_variable() {
+        // Valid speeds
+        for speed in 0..=7 {
+            let cmd = FocusCommand::FarVariable(speed);
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed, 0xFF]
+            );
+        }
+
+        // Invalid speed
+        let cmd = FocusCommand::FarVariable(8);
+        assert!(matches!(
+            cmd.to_bytes(),
+            Err(ViscaError::InvalidParameter(_))
+        ));
+    }
+
+    #[test]
+    fn test_focus_command_near_variable() {
+        // Valid speeds
+        for speed in 0..=7 {
+            let cmd = FocusCommand::NearVariable(speed);
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed, 0xFF]
+            );
+        }
+
+        // Invalid speed
+        let cmd = FocusCommand::NearVariable(8);
+        assert!(matches!(
+            cmd.to_bytes(),
+            Err(ViscaError::InvalidParameter(_))
+        ));
+    }
+
+    #[test]
+    fn test_focus_command_direct() {
+        let cmd = FocusCommand::Direct(0x1234);
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x48, 0x01, 0x02, 0x03, 0x04, 0xFF]
+        );
+
+        let cmd = FocusCommand::Direct(0xFFFF);
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x48, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_focus_command_auto() {
+        let cmd = FocusCommand::Auto;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x38, 0x02, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_focus_command_manual() {
+        let cmd = FocusCommand::Manual;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x38, 0x03, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_focus_command_one_push_trigger() {
+        let cmd = FocusCommand::OnePushTrigger;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x18, 0x01, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_focus_command_infinity() {
+        let cmd = FocusCommand::Infinity;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x18, 0x02, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_focus_zone_command() {
+        let cmd = FocusZoneCommand {
+            zone: FocusZone::Top,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x3C, 0x00, 0xFF]
+        );
+
+        let cmd = FocusZoneCommand {
+            zone: FocusZone::Center,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x3C, 0x01, 0xFF]
+        );
+
+        let cmd = FocusZoneCommand {
+            zone: FocusZone::Bottom,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x3C, 0x02, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_af_sensitivity_command() {
+        let cmd = AFSensitivityCommand {
+            sensitivity: AFSensitivity::High,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x58, 0x02, 0xFF]
+        );
+
+        let cmd = AFSensitivityCommand {
+            sensitivity: AFSensitivity::Normal,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x58, 0x01, 0xFF]
+        );
+
+        let cmd = AFSensitivityCommand {
+            sensitivity: AFSensitivity::Low,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x58, 0x00, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_focus_near_limit_command() {
+        let cmd = FocusNearLimitCommand { position: 0x1234 };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x02, 0x03, 0x04, 0xFF]
+        );
+
+        let cmd = FocusNearLimitCommand { position: 0x0000 };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x28, 0x00, 0x00, 0x00, 0x00, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_command_categories() {
+        assert_eq!(
+            FocusCommand::Stop.command_category(),
+            CommandCategory::Movement
+        );
+        assert_eq!(
+            FocusCommand::Auto.command_category(),
+            CommandCategory::Movement
+        );
+        assert_eq!(
+            FocusZoneCommand {
+                zone: FocusZone::Top
+            }
+            .command_category(),
+            CommandCategory::Quick
+        );
+        assert_eq!(
+            AFSensitivityCommand {
+                sensitivity: AFSensitivity::High
+            }
+            .command_category(),
+            CommandCategory::Quick
+        );
+        assert_eq!(
+            FocusNearLimitCommand { position: 0 }.command_category(),
+            CommandCategory::Quick
+        );
+    }
+}

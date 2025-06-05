@@ -1,3 +1,8 @@
+//! Luminance, contrast, and sharpness control commands for VISCA cameras.
+//!
+//! This module provides commands for adjusting image quality parameters such as
+//! luminance (brightness), contrast levels, and sharpness settings.
+
 // Crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},

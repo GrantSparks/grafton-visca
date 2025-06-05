@@ -1,3 +1,8 @@
+//! Inquiry commands for VISCA cameras.
+//!
+//! This module provides commands for querying the current state of various camera settings,
+//! including power status, position, zoom, focus, and other camera parameters.
+
 // Crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},

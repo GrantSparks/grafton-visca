@@ -1,7 +1,9 @@
-//! Example demonstrating the async high-level inquiry API for querying camera state.
+//! Example demonstrating the async inquiry API with ViscaClient.
 
-use grafton_visca::{AsyncViscaClient, ViscaError};
+use grafton_visca::command::InquiryCommand;
+use grafton_visca::{ViscaClient, ViscaError, ViscaInquiryResponse, ViscaResponse};
 use std::env;
+use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() -> Result<(), ViscaError> {
@@ -19,99 +21,114 @@ async fn main() -> Result<(), ViscaError> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let client = AsyncViscaClient::connect_udp(camera_addr).await?;
+    let client = ViscaClient::connect_udp_async(camera_addr).await?;
 
-    // Query individual camera settings
-    println!("\n=== Individual Camera Queries (Async) ===");
+    println!("\n=== Camera Inquiry Demo ===\n");
 
-    // Power state
-    let power = client.get_power_state().await?;
-    println!("Power: {}", if power { "ON" } else { "OFF" });
+    // Basic camera status
+    println!("1. Basic Camera Status");
 
-    if !power {
-        println!("Camera is powered off. Some queries may not work.");
+    let power = client.send_async(&InquiryCommand::Power).await?;
+    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) = power {
+        println!("   - Power: {}", if on { "ON" } else { "OFF" });
     }
 
-    // Position
-    let (pan, tilt) = client.get_pan_tilt_position().await?;
-    println!("Pan/Tilt Position: pan={}, tilt={}", pan, tilt);
+    println!("\n2. Camera Position and Zoom");
 
-    // Zoom
-    let zoom = client.get_zoom_position().await?;
-    println!("Zoom Position: 0x{:04X}", zoom);
+    let position = client.send_async(&InquiryCommand::PanTiltPosition).await?;
+    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) =
+        position
+    {
+        println!("   - Pan/Tilt Position: pan={}, tilt={}", pan, tilt);
+    }
 
-    // Focus
-    let focus = client.get_focus_position().await?;
-    println!("Focus Position: 0x{:04X}", focus);
+    let zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
+    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) = zoom {
+        println!("   - Zoom Position: {:02X?}", position);
+    }
 
-    // Concurrent queries example
-    println!("\n=== Concurrent Queries ===");
-    println!("Querying multiple settings concurrently...");
+    let focus = client.send_async(&InquiryCommand::FocusPosition).await?;
+    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusPosition { position }) = focus
+    {
+        println!("   - Focus Position: {:02X?}", position);
+    }
 
-    let exposure_future = client.get_exposure_mode();
-    let wb_future = client.get_white_balance_mode();
-    let luminance_future = client.get_luminance();
-    let contrast_future = client.get_contrast();
+    println!("\n3. Image Settings");
 
-    // Execute all queries concurrently (respecting VISCA's 2-socket limit)
-    let (exposure_mode, wb_mode, luminance, contrast) = tokio::join!(
-        exposure_future,
-        wb_future,
-        luminance_future,
-        contrast_future
-    );
+    // Execute multiple inquiries concurrently for better performance
+    let exposure_future = client.send_async(&InquiryCommand::ExposureMode);
+    let wb_future = client.send_async(&InquiryCommand::WhiteBalanceMode);
+    let luminance_future = client.send_async(&InquiryCommand::Luminance);
 
-    println!("Exposure Mode: {:?}", exposure_mode?);
-    println!("White Balance Mode: {:?}", wb_mode?);
-    println!("Luminance: {}", luminance?);
-    println!("Contrast: {}", contrast?);
+    let (exposure_result, wb_result, luminance_result) =
+        tokio::join!(exposure_future, wb_future, luminance_future);
 
-    // Get complete camera state
-    println!("\n=== Complete Camera State (Async) ===");
-    println!("Querying all camera settings...");
-    let state = client.get_camera_state().await?;
+    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode })) =
+        exposure_result
+    {
+        println!("   - Exposure Mode: {:?}", mode);
+    }
 
-    println!("\nCamera State Summary:");
-    println!("  Power: {}", if state.power { "ON" } else { "OFF" });
-    println!(
-        "  Position: pan={}, tilt={}",
-        state.position.pan, state.position.tilt
-    );
-    println!(
-        "  Optics: zoom=0x{:04X}, focus=0x{:04X}",
-        state.optics.zoom, state.optics.focus
-    );
-    println!(
-        "  Exposure: mode={:?}, compensation={:?}",
-        state.exposure.mode, state.exposure.compensation
-    );
-    println!("  White Balance: {:?}", state.white_balance.mode);
-    println!("  Image Quality:");
-    println!("    - Luminance: {}", state.image.luminance);
-    println!("    - Contrast: {}", state.image.contrast);
-    println!("    - Sharpness: {}", state.image.sharpness);
-    println!("    - Saturation: {}", state.image.saturation);
-    println!("    - Hue: {}", state.image.hue);
+    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode })) =
+        wb_result
+    {
+        println!("   - White Balance: {:?}", mode);
+    }
 
-    // Demonstrate continuous monitoring
-    println!("\n=== Continuous Monitoring Example ===");
-    println!("Monitoring zoom position for 5 seconds...");
+    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Luminance(level))) =
+        luminance_result
+    {
+        println!("   - Luminance: {}", level);
+    }
 
-    let start = tokio::time::Instant::now();
-    let mut last_zoom = 0u16;
+    println!("\n4. Additional Image Parameters");
 
-    while start.elapsed() < tokio::time::Duration::from_secs(5) {
-        let current_zoom = client.get_zoom_position().await?;
-        if current_zoom != last_zoom {
-            println!(
-                "Zoom changed: 0x{:04X} -> 0x{:04X}",
-                last_zoom, current_zoom
-            );
-            last_zoom = current_zoom;
+    let contrast = client.send_async(&InquiryCommand::Contrast).await?;
+    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::Contrast(level)) = contrast {
+        println!("   - Contrast: {}", level);
+    }
+
+    let gain = client.send_async(&InquiryCommand::Gain).await?;
+    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::Gain { gain }) = gain {
+        println!("   - Gain: {}", gain);
+    }
+
+    println!("\n5. Comprehensive Status Report");
+
+    // Create a comprehensive status report
+    let status_futures = vec![
+        client.send_async(&InquiryCommand::Power),
+        client.send_async(&InquiryCommand::PanTiltPosition),
+        client.send_async(&InquiryCommand::ZoomPosition),
+        client.send_async(&InquiryCommand::FocusPosition),
+        client.send_async(&InquiryCommand::ExposureMode),
+        client.send_async(&InquiryCommand::WhiteBalanceMode),
+    ];
+
+    let results = futures_util::future::try_join_all(status_futures).await?;
+
+    println!("   Complete Camera Status:");
+    for result in results {
+        if let ViscaResponse::InquiryResponse(inquiry) = result {
+            println!("     - {:?}", inquiry);
         }
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
-    println!("\nAsync inquiry demo completed successfully!");
+    println!("\n6. Monitoring Example (5 readings)");
+
+    for i in 1..=5 {
+        println!("   Reading #{}", i);
+
+        let current_zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
+        if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) =
+            current_zoom
+        {
+            println!("     - Current Zoom: {:02X?}", position);
+        }
+
+        sleep(Duration::from_secs(1)).await;
+    }
+
+    println!("\nInquiry demo completed successfully!");
     Ok(())
 }

@@ -24,11 +24,10 @@ use crate::transport::{
 #[cfg(feature = "async-client")]
 use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, Transport};
 
-/// Maximum number of concurrent commands (PTZOptics G2 limitation).
+/// Maximum number of concurrent commands (`PTZOptics` G2 limitation).
 const MAX_CONCURRENT_COMMANDS: usize = 2;
 
 /// Internal transport variant that supports both blocking and async transports.
-#[allow(clippy::large_enum_variant)]
 enum TransportVariant {
     /// Blocking UDP transport wrapped in an adapter
     #[cfg(feature = "blocking-client")]
@@ -56,8 +55,7 @@ pub struct ViscaClient {
     /// The underlying transport (blocking or async)
     transport: Arc<Mutex<TransportVariant>>,
 
-    /// Session management for command sequencing
-    #[allow(dead_code)]
+    /// Session management for command sequencing and socket assignment
     session: Arc<Mutex<ViscaSession>>,
 
     /// Concurrency control (max 2 concurrent commands)
@@ -124,7 +122,7 @@ impl ViscaClient {
     ///
     /// This method provides a blocking interface that works in both sync and async contexts:
     /// - For async-enabled builds:
-    ///   - If called from within a Tokio runtime, uses block_in_place to avoid blocking the runtime
+    ///   - If called from within a Tokio runtime, uses `block_in_place` to avoid blocking the runtime
     ///   - If called from outside a runtime, creates a temporary runtime
     /// - For blocking-only builds:
     ///   - Directly calls the blocking implementation
@@ -162,35 +160,123 @@ impl ViscaClient {
 
     #[cfg(not(feature = "async-client"))]
     fn send_blocking(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
-        let _permit = self.semaphore.acquire_permit()?;
+        let _permit = self.semaphore.acquire_permit();
 
-        let mut transport = self.transport.lock();
-        let responses = match &mut *transport {
-            #[cfg(feature = "blocking-client")]
-            TransportVariant::BlockingUdp(t) => {
-                use crate::transport::BlockingTransport;
-                t.0.send_command_blocking(command)?;
-                t.0.receive_response_blocking()?
-            }
-            #[cfg(feature = "blocking-client")]
-            TransportVariant::BlockingTcp(t) => {
-                use crate::transport::BlockingTransport;
-                t.0.send_command_blocking(command)?;
-                t.0.receive_response_blocking()?
-            }
-            #[cfg(feature = "async-client")]
-            _ => unreachable!("Async transports should not be present in blocking-only builds"),
+        // Acquire session lock and assign socket
+        let socket_id = {
+            let mut session = self.session.lock();
+            session.assign_socket(command.response_type())?
         };
 
-        parse_response(responses)
+        let result = (|| {
+            // Send command
+            {
+                let mut transport = self.transport.lock();
+                match &mut *transport {
+                    #[cfg(feature = "blocking-client")]
+                    TransportVariant::BlockingUdp(t) => {
+                        use crate::transport::BlockingTransport;
+                        t.0.send_command_blocking(command)?;
+                    }
+                    #[cfg(feature = "blocking-client")]
+                    TransportVariant::BlockingTcp(t) => {
+                        use crate::transport::BlockingTransport;
+                        t.0.send_command_blocking(command)?;
+                    }
+                    #[cfg(feature = "async-client")]
+                    _ => unreachable!(
+                        "Async transports should not be present in blocking-only builds"
+                    ),
+                }
+            }
+
+            // Wait for response with proper session management
+            self.wait_for_response_blocking(socket_id)
+        })();
+
+        // Always release socket
+        {
+            let mut session = self.session.lock();
+            session.release_socket(socket_id);
+        }
+
+        result
+    }
+
+    /// Wait for a response on a specific socket with proper session management (blocking).
+    #[cfg(not(feature = "async-client"))]
+    fn wait_for_response_blocking(&self, socket_id: u8) -> Result<ViscaResponse, ViscaError> {
+        use ViscaResponse::{Ack, Completion, Error, InquiryResponse};
+
+        loop {
+            let responses = {
+                let mut transport = self.transport.lock();
+                match &mut *transport {
+                    #[cfg(feature = "blocking-client")]
+                    TransportVariant::BlockingUdp(t) => {
+                        use crate::transport::BlockingTransport;
+                        t.0.receive_response_blocking()?
+                    }
+                    #[cfg(feature = "blocking-client")]
+                    TransportVariant::BlockingTcp(t) => {
+                        use crate::transport::BlockingTransport;
+                        t.0.receive_response_blocking()?
+                    }
+                    #[cfg(feature = "async-client")]
+                    _ => unreachable!(
+                        "Async transports should not be present in blocking-only builds"
+                    ),
+                }
+            };
+
+            for response in responses {
+                let mut session = self.session.lock();
+                if let Some((resp_socket_id, parsed_response)) =
+                    session.process_response(&response)?
+                {
+                    if resp_socket_id != socket_id {
+                        log::debug!(
+                            "Response for socket {} (expected {})",
+                            resp_socket_id,
+                            socket_id
+                        );
+                        continue;
+                    }
+
+                    match parsed_response {
+                        Ack => {
+                            log::debug!("ACK received for socket {}", socket_id);
+                            // Continue waiting for completion
+                        }
+                        Completion => {
+                            log::debug!("Completion received for socket {}", socket_id);
+                            return Ok(Completion);
+                        }
+                        InquiryResponse(inquiry) => {
+                            log::debug!("Inquiry response received for socket {}", socket_id);
+                            crate::log_inquiry_response(&inquiry);
+                            return Ok(InquiryResponse(inquiry));
+                        }
+                        Error(err) => {
+                            log::error!("Command error on socket {}: {:?}", socket_id, err);
+                            return Err(err);
+                        }
+                        ViscaResponse::Unknown(_) => {
+                            log::debug!("Unexpected response: {:?}", parsed_response);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Sends a command and waits for the response (async).
     ///
     /// This method:
-    /// - Acquires a semaphore permit to enforce concurrency limits
+    /// - Acquires a semaphore permit to enforce concurrency limits  
+    /// - Uses session management for proper VISCA socket assignment
     /// - Sends the command through the transport
-    /// - Waits for and returns the response
+    /// - Waits for and returns the response with proper ACK/completion tracking
     #[cfg(feature = "async-client")]
     pub async fn send_async(
         &self,
@@ -198,34 +284,109 @@ impl ViscaClient {
     ) -> Result<ViscaResponse, ViscaError> {
         let _permit = self.semaphore.acquire_permit().await?;
 
-        let responses = {
-            let mut transport = self.transport.lock().await;
-            use TransportVariant::*;
-            match &mut *transport {
-                #[cfg(feature = "blocking-client")]
-                BlockingUdp(t) => {
-                    t.send_command(command).await?;
-                    t.receive_response().await?
-                }
-                #[cfg(feature = "blocking-client")]
-                BlockingTcp(t) => {
-                    t.send_command(command).await?;
-                    t.receive_response().await?
-                }
-                #[cfg(feature = "async-client")]
-                AsyncUdp(t) => {
-                    t.send_command(command).await?;
-                    t.receive_response().await?
-                }
-                #[cfg(feature = "async-client")]
-                AsyncTcp(t) => {
-                    t.send_command(command).await?;
-                    t.receive_response().await?
-                }
-            }
+        // Acquire session lock and assign socket
+        let socket_id = {
+            let mut session = self.session.lock().await;
+            session.assign_socket(command.response_type())?
         };
 
-        parse_response(responses)
+        let result = async {
+            // Send command
+            {
+                let mut transport = self.transport.lock().await;
+                match &mut *transport {
+                    #[cfg(feature = "blocking-client")]
+                    TransportVariant::BlockingUdp(t) => {
+                        t.send_command(command).await?;
+                    }
+                    #[cfg(feature = "blocking-client")]
+                    TransportVariant::BlockingTcp(t) => {
+                        t.send_command(command).await?;
+                    }
+                    #[cfg(feature = "async-client")]
+                    TransportVariant::AsyncUdp(t) => {
+                        t.send_command(command).await?;
+                    }
+                    #[cfg(feature = "async-client")]
+                    TransportVariant::AsyncTcp(t) => {
+                        t.send_command(command).await?;
+                    }
+                }
+            }
+
+            // Wait for response with proper session management
+            self.wait_for_response_async(socket_id).await
+        }
+        .await;
+
+        // Always release socket
+        {
+            let mut session = self.session.lock().await;
+            session.release_socket(socket_id);
+        }
+
+        result
+    }
+
+    /// Wait for a response on a specific socket with proper session management.
+    #[cfg(feature = "async-client")]
+    async fn wait_for_response_async(&self, socket_id: u8) -> Result<ViscaResponse, ViscaError> {
+        use ViscaResponse::{Ack, Completion, Error, InquiryResponse};
+
+        loop {
+            let responses = {
+                let mut transport = self.transport.lock().await;
+                match &mut *transport {
+                    #[cfg(feature = "blocking-client")]
+                    TransportVariant::BlockingUdp(t) => t.receive_response().await?,
+                    #[cfg(feature = "blocking-client")]
+                    TransportVariant::BlockingTcp(t) => t.receive_response().await?,
+                    #[cfg(feature = "async-client")]
+                    TransportVariant::AsyncUdp(t) => t.receive_response().await?,
+                    #[cfg(feature = "async-client")]
+                    TransportVariant::AsyncTcp(t) => t.receive_response().await?,
+                }
+            };
+
+            for response in responses {
+                let mut session = self.session.lock().await;
+                if let Some((resp_socket_id, parsed_response)) =
+                    session.process_response(&response)?
+                {
+                    if resp_socket_id != socket_id {
+                        log::debug!(
+                            "Response for socket {} (expected {})",
+                            resp_socket_id,
+                            socket_id
+                        );
+                        continue;
+                    }
+
+                    match parsed_response {
+                        Ack => {
+                            log::debug!("ACK received for socket {}", socket_id);
+                            // Continue waiting for completion
+                        }
+                        Completion => {
+                            log::debug!("Completion received for socket {}", socket_id);
+                            return Ok(Completion);
+                        }
+                        InquiryResponse(inquiry) => {
+                            log::debug!("Inquiry response received for socket {}", socket_id);
+                            crate::log_inquiry_response(&inquiry);
+                            return Ok(InquiryResponse(inquiry));
+                        }
+                        Error(err) => {
+                            log::error!("Command error on socket {}: {:?}", socket_id, err);
+                            return Err(err);
+                        }
+                        ViscaResponse::Unknown(_) => {
+                            log::debug!("Unexpected response: {:?}", parsed_response);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Check if the camera connection is healthy.
@@ -280,27 +441,5 @@ pub trait ViscaClientPtzExt {
 impl ViscaClientPtzExt for Arc<ViscaClient> {
     fn ptz(self) -> PtzBuilder {
         PtzBuilder::new(self)
-    }
-}
-
-/// Parse response frames into a ViscaResponse.
-fn parse_response(frames: Vec<Vec<u8>>) -> Result<ViscaResponse, ViscaError> {
-    use std::io::{Error, ErrorKind};
-    use ViscaResponse::*;
-
-    let frame = frames.last().ok_or_else(|| {
-        ViscaError::Io(Error::new(
-            ErrorKind::UnexpectedEof,
-            "No response frames received",
-        ))
-    })?;
-
-    match (frame.len(), frame.get(0..3)) {
-        (3, Some(&[0x90, 0x50, 0xFF])) => Ok(Ack),
-        (3, Some(&[0x90, 0x51, 0xFF])) => Ok(Completion),
-        (len, Some(&[0x90, b2, _])) if len >= 3 && (b2 & 0x60) == 0x60 => {
-            Ok(Error(ViscaError::from_code(b2 & 0x0F)))
-        }
-        _ => Ok(Completion),
     }
 }
