@@ -129,14 +129,17 @@ All set commands have corresponding inquiry commands to read current values:
 Add the following to `Cargo.toml` under `[dependencies]`:
 
 ```toml
-grafton-visca = "0.3"
+# Default includes blocking client with all features
+grafton-visca = "0.4"
 
-# For async support
-grafton-visca = { version = "0.3", features = ["async"] }
+# For async client support
+grafton-visca = { version = "0.4", features = ["async-client"] }
 
-# For both sync and async
-grafton-visca = { version = "0.3", features = ["full"] }
+# For both blocking and async clients
+grafton-visca = { version = "0.4", features = ["blocking-client", "async-client"] }
 ```
+
+The library includes connection pooling and automatic reconnection capabilities as standard features.
 
 ## Usage Examples
 
