@@ -40,6 +40,26 @@
 //!
 //! ## Example Usage
 //!
+//! ### Using ViscaClient (Recommended for Thread Safety)
+//!
+//! ```no_run
+//! # #[cfg(not(all(feature = "sync", feature = "async")))]
+//! # {
+//! use grafton_visca::{ViscaClient, UdpTransport};
+//! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
+//!
+//! // Create a thread-safe client
+//! let transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//! let client = ViscaClient::new(Box::new(transport));
+//!
+//! // Send commands through the client
+//! client.send(&PanTiltCommand::Home).unwrap();
+//! client.send(&ZoomCommand::TeleStandard).unwrap();
+//! # }
+//! ```
+//!
+//! ### Direct Transport Usage
+//!
 //! ```no_run
 //! use grafton_visca::{UdpTransport, ViscaCommand, ViscaTransport};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
@@ -104,6 +124,12 @@
 //! ## API Overview
 //!
 //! The crate provides several levels of API for different use cases:
+//!
+//! ### High-Level Client
+//! - [`ViscaClient`] - Thread-safe wrapper for concurrent camera control (recommended)
+//!   - Eliminates need for RefCell in user code
+//!   - Supports Clone for sharing between threads
+//!   - Provides send(), try_send(), and send_with_timeout() methods
 //!
 //! ### Transport Layer
 //! - [`ViscaTransport`] trait - The core abstraction for sending/receiving commands
@@ -213,6 +239,11 @@ pub use focus_ext::ViscaFocusExt;
 
 mod preset_ext;
 pub use preset_ext::ViscaPresetExt;
+
+#[cfg(not(all(feature = "sync", feature = "async")))]
+mod client;
+#[cfg(not(all(feature = "sync", feature = "async")))]
+pub use client::ViscaClient;
 
 #[cfg(feature = "async")]
 mod async_inquiry_ext;
