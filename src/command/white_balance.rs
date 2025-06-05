@@ -1,3 +1,8 @@
+//! White balance control commands for VISCA cameras.
+//!
+//! This module provides commands for controlling camera white balance settings,
+//! including auto, manual, and preset modes like indoor/outdoor/one-push/color temperature.
+
 // Standard library imports
 use std::convert::TryFrom;
 

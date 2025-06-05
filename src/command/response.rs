@@ -1,3 +1,8 @@
+//! VISCA response parsing and handling.
+//!
+//! This module provides response parsing functionality for VISCA protocol responses,
+//! including ACK/completion messages, error responses, and inquiry data parsing.
+
 // Third-party imports
 use log::error;
 

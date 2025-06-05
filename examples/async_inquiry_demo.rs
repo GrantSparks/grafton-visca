@@ -1,6 +1,6 @@
 //! Example demonstrating the async high-level inquiry API for querying camera state.
 
-use grafton_visca::{AsyncViscaClient, ViscaError};
+use grafton_visca::{ViscaClient, ViscaError};
 use std::env;
 
 #[tokio::main]
@@ -19,7 +19,7 @@ async fn main() -> Result<(), ViscaError> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let client = AsyncViscaClient::connect_udp(camera_addr).await?;
+    let client = ViscaClient::connect_udp_async(camera_addr).await?;
 
     // Query individual camera settings
     println!("\n=== Individual Camera Queries (Async) ===");

@@ -1,6 +1,6 @@
 //! Example demonstrating the async high-level control API for camera operations.
 
-use grafton_visca::{AsyncViscaClient, PanTiltDirection, ViscaError};
+use grafton_visca::{PanTiltDirection, ViscaClient, ViscaError};
 use std::env;
 use tokio::time::{sleep, Duration};
 
@@ -20,7 +20,7 @@ async fn main() -> Result<(), ViscaError> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let client = AsyncViscaClient::connect_udp(camera_addr).await?;
+    let client = ViscaClient::connect_udp_async(camera_addr).await?;
 
     println!("\n=== Async Camera Control Demo ===\n");
 

@@ -1,6 +1,22 @@
 //! # grafton-visca
 //!
 //! A production-ready Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
+#![warn(missing_docs)]
+#![warn(
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+    rust_2018_idioms
+)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::redundant_pub_crate,
+    clippy::cargo_common_metadata
+)]
 //!
 //! ## What is VISCA?
 //!
@@ -10,7 +26,7 @@
 //!
 //! ## Features
 //!
-//! - **Complete Command Coverage**: Full support for PTZOptics G2 VISCA commands
+//! - **Complete Command Coverage**: Full support for `PTZOptics` G2 VISCA commands
 //! - **Robust Protocol Handling**: Proper ACK/Completion state machine with socket management
 //! - **Multiple Transports**: Both UDP (port 1259 default) and TCP (port 5678 default) support
 //! - **Async Support**: Modern async/await API with Tokio (enable with `async` feature)
@@ -40,7 +56,7 @@
 //!
 //! ## Example Usage
 //!
-//! ### Using ViscaClient (Recommended for Thread Safety)
+//! ### Using `ViscaClient` (Recommended for Thread Safety)
 //!
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
@@ -143,9 +159,9 @@
 //!
 //! ### High-Level Client
 //! - [`ViscaClient`] - Thread-safe wrapper for concurrent camera control (recommended)
-//!   - Eliminates need for RefCell in user code
+//!   - Eliminates need for `RefCell` in user code
 //!   - Supports Clone for sharing between threads
-//!   - Provides send(), try_send(), and send_with_timeout() methods
+//!   - Provides `send()`, `try_send()`, and `send_with_timeout()` methods
 //!
 //! ### Transport Layer
 //! - [`ViscaTransport`] trait - The core abstraction for sending/receiving commands
@@ -169,7 +185,7 @@
 //! ## Connection Setup
 //!
 //! Cameras typically listen on standard ports:
-//! - **UDP**: Port 1259 (PTZOptics default for VISCA over IP)
+//! - **UDP**: Port 1259 (`PTZOptics` default for VISCA over IP)
 //! - **TCP**: Port 5678 (Alternative port, check your camera's configuration)
 //!
 //! Ensure your camera is configured for VISCA over IP and note its IP address.
@@ -178,13 +194,13 @@
 //!
 //! ### Common Errors
 //!
-//! - **CommandBufferFull**: The camera can only process 2 commands simultaneously.
+//! - **`CommandBufferFull`**: The camera can only process 2 commands simultaneously.
 //!   Solution: Wait for previous commands to complete before sending new ones.
 //!
-//! - **NoSocket**: No command is currently executing in the requested socket.
+//! - **`NoSocket`**: No command is currently executing in the requested socket.
 //!   This usually indicates a protocol synchronization issue.
 //!
-//! - **CommandNotExecutable**: The command cannot be executed in the current camera state.
+//! - **`CommandNotExecutable`**: The command cannot be executed in the current camera state.
 //!   Example: Trying to zoom while the camera is powered off.
 //!
 //! - **SyntaxError**: The command format is incorrect or parameters are out of range.
@@ -222,6 +238,7 @@ use log::{debug, error};
 
 // Module declarations
 pub mod command;
+/// Connection management for VISCA communications.
 pub mod connection;
 pub mod connection_pool;
 pub mod constants;
@@ -268,6 +285,7 @@ mod async_reconnecting_transport;
 mod async_tcp_transport;
 
 #[cfg(feature = "async-client")]
+/// Asynchronous transport implementations for VISCA protocol.
 pub mod async_transport;
 
 #[cfg(feature = "async-client")]
@@ -305,11 +323,6 @@ pub use crate::{
     zoom_ext::ViscaZoomExt,
 };
 
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::{
-    ptz_builder::PtzBuilder,
-    unified_client::{ViscaClient, ViscaClientPtzExt},
-};
 #[cfg(feature = "async-client")]
 pub use crate::{
     async_client::AsyncViscaClient,
@@ -325,6 +338,11 @@ pub use crate::{
     async_udp_transport::AsyncUdpTransport,
     async_visca_ext::{AsyncViscaExt, PanScanDirection},
     connection::AsyncConnectionManagement,
+};
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub use crate::{
+    ptz_builder::PtzBuilder,
+    unified_client::{ViscaClient, ViscaClientPtzExt},
 };
 
 /// Transport trait for sending and receiving VISCA commands over a network connection.
