@@ -3,8 +3,10 @@
 //! This example shows the new PTZ builder pattern and AsyncViscaExt trait
 //! introduced in Phase D of the v0.4.0 refactoring.
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::sync::Arc;
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
     ViscaClient, ViscaClientPtzExt, ViscaError,
