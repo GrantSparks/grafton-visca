@@ -246,16 +246,15 @@ mod preset_ext;
 pub use preset_ext::ViscaPresetExt;
 
 // Synchronization primitives for unified client
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod sync_primitives;
 
 // New unified client for v0.4.0
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod unified_client;
 
 // Export ViscaClient based on features
-#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
-compile_error!("At least one of 'blocking-client' or 'async-client' features must be enabled");
-
-// Use the new unified client for all feature combinations
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use unified_client::ViscaClient;
 
 #[cfg(feature = "async-client")]
