@@ -1,8 +1,7 @@
 //! Test example for Phase A transport implementation.
 
-// Access internal transport module for testing
-use grafton_visca::transport;
-use grafton_visca::{ViscaCommand, ViscaError};
+use grafton_visca::transport::{Transport, BlockingAdapter, UdpTransport};
+use grafton_visca::ViscaError;
 use grafton_visca::command::PowerCommand;
 use grafton_visca::command::power::Power;
 

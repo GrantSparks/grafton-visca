@@ -112,7 +112,7 @@ mod tests {
             }
             
             fn command_category(&self) -> crate::timeout::CommandCategory {
-                crate::timeout::CommandCategory::Regular
+                crate::timeout::CommandCategory::Quick
             }
         }
         
