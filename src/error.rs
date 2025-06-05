@@ -149,6 +149,12 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for ViscaError {
     }
 }
 
+use std::future::Future;
+use std::pin::Pin;
+
+/// Type alias for a boxed future that is Send
+type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
 /// Extension trait providing convenient retry helpers for VISCA operations.
 ///
 /// This trait adds retry functionality to `Result<T, ViscaError>`, making it easy
@@ -173,11 +179,7 @@ pub trait ViscaResultExt<T> {
     ///     Ok(())
     /// }
     /// ```
-    fn retry_on_busy(
-        self,
-        max_attempts: u32,
-        base_delay: Duration,
-    ) -> impl std::future::Future<Output = Result<T, ViscaError>> + Send;
+    fn retry_on_busy(self, max_attempts: u32, base_delay: Duration) -> BoxFuture<'static, Result<T, ViscaError>>;
 
     /// Retry the operation using the error's suggested delay.
     ///
@@ -198,10 +200,7 @@ pub trait ViscaResultExt<T> {
     ///     Ok(())
     /// }
     /// ```
-    fn retry_with_suggested_delay(
-        self,
-        max_attempts: u32,
-    ) -> impl std::future::Future<Output = Result<T, ViscaError>> + Send;
+    fn retry_with_suggested_delay(self, max_attempts: u32) -> BoxFuture<'static, Result<T, ViscaError>>;
 
     /// Retry the operation with exponential backoff.
     ///
@@ -233,7 +232,7 @@ pub trait ViscaResultExt<T> {
         max_attempts: u32,
         initial_delay: Duration,
         max_delay: Duration,
-    ) -> impl std::future::Future<Output = Result<T, ViscaError>> + Send;
+    ) -> BoxFuture<'static, Result<T, ViscaError>>;
 
     /// Convert retryable errors to a more user-friendly format.
     ///
@@ -244,29 +243,22 @@ pub trait ViscaResultExt<T> {
 
 impl<T> ViscaResultExt<T> for Result<T, ViscaError>
 where
-    T: Send,
+    T: Send + 'static,
 {
-    fn retry_on_busy(
-        self,
-        _max_attempts: u32,
-        _base_delay: Duration,
-    ) -> impl std::future::Future<Output = Result<T, ViscaError>> + Send {
-        async move {
+    fn retry_on_busy(self, _max_attempts: u32, _base_delay: Duration) -> BoxFuture<'static, Result<T, ViscaError>> {
+        Box::pin(async move {
             // This implementation is a placeholder since we can't re-execute from just a Result
             // The real retry functionality should use the utility functions below
             self.with_retry_context()
-        }
+        })
     }
 
-    fn retry_with_suggested_delay(
-        self,
-        _max_attempts: u32,
-    ) -> impl std::future::Future<Output = Result<T, ViscaError>> + Send {
-        async move {
+    fn retry_with_suggested_delay(self, _max_attempts: u32) -> BoxFuture<'static, Result<T, ViscaError>> {
+        Box::pin(async move {
             // This implementation is a placeholder since we can't re-execute from just a Result
             // The real retry functionality should use the utility functions below
             self.with_retry_context()
-        }
+        })
     }
 
     fn retry_with_exponential_backoff(
@@ -274,12 +266,12 @@ where
         _max_attempts: u32,
         _initial_delay: Duration,
         _max_delay: Duration,
-    ) -> impl std::future::Future<Output = Result<T, ViscaError>> + Send {
-        async move {
+    ) -> BoxFuture<'static, Result<T, ViscaError>> {
+        Box::pin(async move {
             // This implementation is a placeholder since we can't re-execute from just a Result
             // The real retry functionality should use the utility functions below
             self.with_retry_context()
-        }
+        })
     }
 
     fn with_retry_context(self) -> Result<T, ViscaError> {
