@@ -15,7 +15,7 @@ readme = "README.md"
 
 [features]
 default = ["blocking-client"]
-blocking-client = []
+blocking-client = ["parking_lot"]
 async-client = ["tokio", "futures"]
 reconnect = []
 pool = []
@@ -26,6 +26,9 @@ log = "0.4.22"
 env_logger = "0.11.5"
 nom = "7.1.3"
 thiserror = "1.0"
+
+# Synchronization for blocking mode
+parking_lot = { version = "0.12", optional = true }
 
 # Async dependencies (optional)
 tokio = { version = "1.38", features = ["net", "sync", "time", "rt", "rt-multi-thread", "macros", "io-util"], optional = true }
@@ -98,6 +101,9 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "phase_a_test"
+
+[[example]]
+name = "phase_b_unified_demo"
 
 [[example]]
 name = "position_conversion"

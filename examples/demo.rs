@@ -9,9 +9,7 @@
 //! - Color adjustments
 //! - Inquiry commands
 
-use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
-use grafton_visca::command::power::Power;
-use grafton_visca::command::preset::PresetAction;
+use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed};
 use grafton_visca::command::*;
 use grafton_visca::{send_command_and_wait, UdpTransport, ViscaResponse};
 use std::thread;
