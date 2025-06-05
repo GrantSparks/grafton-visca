@@ -6,7 +6,7 @@ mod golden_vector_tests {
     use super::*;
     use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
     use grafton_visca::command::power::Power;
-    use grafton_visca::command::preset::PresetAction;
+    use grafton_visca::command::PresetAction;
 
     #[test]
     fn test_power_commands() {

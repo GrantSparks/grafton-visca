@@ -43,14 +43,13 @@
 //! ### Using ViscaClient (Recommended for Thread Safety)
 //!
 //! ```no_run
-//! # #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+//! # #[cfg(feature = "blocking-client")]
 //! # {
-//! use grafton_visca::{ViscaClient, UdpTransport};
+//! use grafton_visca::ViscaClient;
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //!
-//! // Create a thread-safe client
-//! let transport = UdpTransport::new("192.168.1.100:5678").unwrap();
-//! let client = ViscaClient::new(Box::new(transport));
+//! // Create a client using the v0.4.0 unified API
+//! let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // Send commands through the client
 //! client.send(&PanTiltCommand::Home).unwrap();
@@ -245,6 +244,9 @@ pub use focus_ext::ViscaFocusExt;
 
 mod preset_ext;
 pub use preset_ext::ViscaPresetExt;
+
+// Synchronization primitives for unified client
+mod sync_primitives;
 
 // New unified client for v0.4.0
 mod unified_client;

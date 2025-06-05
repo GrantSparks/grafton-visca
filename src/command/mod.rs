@@ -21,7 +21,7 @@ pub use exposure::{
     BrightCommand, DynamicRangeCommand, ExposureCommand, ExposureCompensationCommand, ExposureMode,
     IrisCommand, ShutterCommand,
 };
-pub use flip::ImageFlipCommand;
+pub use flip::{Flip, ImageFlipCommand};
 pub use focus::{
     AFSensitivity, AFSensitivityCommand, FocusCommand, FocusNearLimitCommand, FocusZone,
     FocusZoneCommand,
@@ -35,9 +35,9 @@ pub use inquiry::InquiryCommand;
 pub use luminance_contrast_sharpness::{
     ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode,
 };
-pub use pan_tilt::{LimitCorner, PanTiltCommand, PanTiltLimitCommand};
-pub use power::PowerCommand;
-pub use preset::PresetCommand;
+pub use pan_tilt::{LimitCorner, PanTiltCommand, PanTiltDirection, PanTiltLimitCommand};
+pub use power::{Power, PowerCommand};
+pub use preset::{PresetAction, PresetCommand};
 pub use response::{ViscaResponse, ViscaResponseType};
 pub use white_balance::WhiteBalanceCommand;
 pub use white_balance::WhiteBalanceMode;
