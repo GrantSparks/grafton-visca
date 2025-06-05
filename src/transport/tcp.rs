@@ -63,9 +63,9 @@ impl BlockingTransport for TcpTransport {
         
         self.stream
             .write_all(&bytes)
-            .map_err(|e| ViscaError::Io(e))?;
+            .map_err(ViscaError::Io)?;
         
-        self.stream.flush().map_err(|e| ViscaError::Io(e))?;
+        self.stream.flush().map_err(ViscaError::Io)?;
         
         self.stats.record_sent(bytes.len());
         Ok(())
@@ -171,9 +171,9 @@ impl Transport for AsyncTcpTransport {
             self.stream
                 .write_all(&bytes)
                 .await
-                .map_err(|e| ViscaError::Io(e))?;
+                .map_err(ViscaError::Io)?;
             
-            self.stream.flush().await.map_err(|e| ViscaError::Io(e))?;
+            self.stream.flush().await.map_err(ViscaError::Io)?;
             
             self.stats.record_sent(bytes.len());
             Ok(())

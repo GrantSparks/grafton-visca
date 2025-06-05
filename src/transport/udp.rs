@@ -16,7 +16,6 @@ pub struct UdpTransport {
     socket: UdpSocket,
     address: String,
     stats: ConnectionStats,
-    timeout: Option<Duration>,
 }
 
 impl UdpTransport {
@@ -38,7 +37,6 @@ impl UdpTransport {
             socket,
             address: address.to_string(),
             stats: ConnectionStats::new(),
-            timeout,
         })
     }
 
@@ -51,7 +49,6 @@ impl UdpTransport {
             socket,
             address: address.to_string(),
             stats: ConnectionStats::new(),
-            timeout: Some(timeout),
         })
     }
 
@@ -68,7 +65,7 @@ impl BlockingTransport for UdpTransport {
         
         self.socket
             .send_to(&bytes, &self.address)
-            .map_err(|e| ViscaError::Io(e))?;
+            .map_err(ViscaError::Io)?;
         
         self.stats.record_sent(bytes.len());
         Ok(())
@@ -155,7 +152,7 @@ impl Transport for AsyncUdpTransport {
             self.socket
                 .send_to(&bytes, &self.address)
                 .await
-                .map_err(|e| ViscaError::Io(e))?;
+                .map_err(ViscaError::Io)?;
             
             self.stats.record_sent(bytes.len());
             Ok(())
