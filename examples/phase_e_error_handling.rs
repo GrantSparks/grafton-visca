@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Show message when no features are enabled
-    #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]    
+    #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
     {
         println!("\n⚠️  No client features enabled");
         println!("💡 Enable with one of:");
@@ -129,12 +129,12 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
     }
 
     println!("\n3. Real Camera Operation Examples (if connected)");
-    
+
     // Try to connect to a camera
     match ViscaClient::connect_udp("127.0.0.1:1259") {
         Ok(client) => {
             info!("   📹 Connected to camera, testing real operations");
-            
+
             // Try actual camera operations with retry
             let pan_tilt_result = ViscaRetry::retry_blocking(
                 || client.send(&PanTiltCommand::Home),
@@ -356,4 +356,3 @@ fn demonstrate_error_classification() {
         println!();
     }
 }
-
