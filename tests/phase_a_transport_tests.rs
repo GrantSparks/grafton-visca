@@ -69,4 +69,21 @@ mod tests {
         // We expect this to fail since there's no server
         assert!(result.is_err(), "Expected connection to fail");
     }
+    
+    #[cfg(feature = "async-client")]
+    #[tokio::test]
+    async fn test_async_udp_transport_creation() {
+        // Test that AsyncUdpTransport can be created
+        let result = AsyncUdpTransport::new("127.0.0.1:1234").await;
+        assert!(result.is_ok(), "Failed to create async UDP transport");
+    }
+    
+    #[cfg(feature = "async-client")]
+    #[tokio::test]
+    async fn test_async_tcp_transport_creation() {
+        // Test that AsyncTcpTransport can be created (will fail to connect but that's OK)
+        let result = AsyncTcpTransport::new("127.0.0.1:1234").await;
+        // We expect this to fail since there's no server
+        assert!(result.is_err(), "Expected async TCP connection to fail");
+    }
 }
