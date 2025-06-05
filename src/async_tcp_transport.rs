@@ -10,7 +10,7 @@ use tokio::time::{timeout, Duration};
 const MAX_BUFFER_SIZE: usize = 64 * 1024; // 64KB max buffer size
 
 /// Async TCP transport for VISCA over IP communication.
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub struct AsyncTcpTransport {
     stream: TcpStream,
     buffer: Vec<u8>,
@@ -20,7 +20,7 @@ pub struct AsyncTcpTransport {
     stats: ConnectionStats,
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl AsyncTcpTransport {
     /// Create a new async TCP transport.
     pub async fn new(camera_addr: SocketAddr) -> Result<Self, ViscaError> {
@@ -77,7 +77,7 @@ impl AsyncTcpTransport {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl AsyncViscaTransport for AsyncTcpTransport {
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
@@ -193,7 +193,7 @@ impl AsyncViscaTransport for AsyncTcpTransport {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl Drop for AsyncTcpTransport {
     fn drop(&mut self) {
         // Best effort to shutdown the TCP connection gracefully
@@ -203,7 +203,7 @@ impl Drop for AsyncTcpTransport {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl crate::AsyncConnectionManagement for AsyncTcpTransport {
     fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
         Box::pin(async move {

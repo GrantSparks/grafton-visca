@@ -16,7 +16,7 @@ type ResponseSender = oneshot::Sender<Result<ViscaResponse, ViscaError>>;
 type PendingCommands = HashMap<u8, ResponseSender>;
 
 /// Async VISCA client for non-blocking camera control.
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 #[derive(Clone)]
 pub struct AsyncViscaClient {
     transport: Arc<Mutex<Box<dyn AsyncViscaTransport>>>,
@@ -26,7 +26,7 @@ pub struct AsyncViscaClient {
     shutdown: Arc<watch::Sender<()>>,
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl AsyncViscaClient {
     /// Connect to a camera using UDP transport.
     pub async fn connect_udp(camera_addr: &str) -> Result<Self, ViscaError> {

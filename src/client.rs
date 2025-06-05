@@ -4,7 +4,7 @@
 //! eliminating the need for RefCell in user code and enabling safe
 //! concurrent access from multiple threads.
 
-#![cfg(not(all(feature = "sync", feature = "async")))]
+#![cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 
 use crate::{send_command_and_wait, ViscaCommand, ViscaError, ViscaResponse, ViscaTransport};
 use std::sync::{Arc, Mutex};
