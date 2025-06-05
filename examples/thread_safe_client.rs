@@ -3,7 +3,7 @@
 //! This example shows how to use ViscaClient to control a camera
 //! from multiple threads without needing RefCell or manual locking.
 
-#[cfg(not(all(feature = "sync", feature = "async")))]
+#[cfg(not(all(feature = "blocking-client", feature = "async-client")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         command::{
@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(all(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "blocking-client", feature = "async-client"))]
 fn main() {
     println!("This example requires the new ViscaClient which is not available when both sync and async features are enabled.");
     println!("Run with: cargo run --example thread_safe_client");

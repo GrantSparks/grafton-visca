@@ -182,7 +182,7 @@ mod tests {
 }
 
 // Mock transport for testing
-#[cfg(all(test, not(feature = "async")))]
+#[cfg(all(test, not(feature = "async-client")))]
 mod sync_health_tests {
     use grafton_visca::connection::ConnectionStats;
     use grafton_visca::{ConnectionManagement, ViscaCommand, ViscaError, ViscaTransport};
@@ -275,7 +275,7 @@ mod sync_health_tests {
 }
 
 // Async tests
-#[cfg(all(test, feature = "async"))]
+#[cfg(all(test, feature = "async-client"))]
 mod async_health_tests {
     use grafton_visca::async_transport::TransportFuture;
     use grafton_visca::connection::ConnectionStats;

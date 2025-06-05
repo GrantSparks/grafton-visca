@@ -43,7 +43,7 @@
 //! ### Using ViscaClient (Recommended for Thread Safety)
 //!
 //! ```no_run
-//! # #[cfg(not(all(feature = "sync", feature = "async")))]
+//! # #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 //! # {
 //! use grafton_visca::{ViscaClient, UdpTransport};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
@@ -97,7 +97,7 @@
 //! The library provides async support for non-blocking camera control:
 //!
 //! ```no_run
-//! # #[cfg(feature = "async")]
+//! # #[cfg(feature = "async-client")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! use grafton_visca::{AsyncViscaClient, ViscaResponse};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
@@ -209,6 +209,12 @@ pub use command::{
 
 pub mod constants;
 
+// New v0.4.0 transport module - will replace the implementations below in Phase B
+pub mod transport;
+// NOTE: Not exporting new transports yet to avoid breaking changes.
+// The old UdpTransport and TcpTransport below are still in use throughout
+// the codebase. They will be replaced with the new transport module in Phase B.
+
 mod camera_detection;
 pub use camera_detection::detect_camera_model;
 
@@ -240,19 +246,19 @@ pub use focus_ext::ViscaFocusExt;
 mod preset_ext;
 pub use preset_ext::ViscaPresetExt;
 
-#[cfg(not(all(feature = "sync", feature = "async")))]
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 mod client;
-#[cfg(not(all(feature = "sync", feature = "async")))]
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 pub use client::ViscaClient;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_inquiry_ext;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_control_ext;
 
 pub mod connection;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use connection::AsyncConnectionManagement;
 pub use connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot};
 
@@ -266,42 +272,42 @@ pub use connection_pool::{
     CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_reconnecting_transport;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_reconnecting_transport::{
     AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_connection_pool;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_connection_pool::{
     AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard, AsyncViscaConnectionPool,
     CameraInfo as AsyncCameraInfo,
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_client;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_tcp_transport;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub mod async_transport;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 mod async_udp_transport;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_client::AsyncViscaClient;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_tcp_transport::AsyncTcpTransport;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_transport::{AsyncViscaTransport, TransportFuture};
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub use async_udp_transport::AsyncUdpTransport;
 
-#[cfg(all(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "blocking-client", feature = "async-client"))]
 mod sync_wrapper;
-#[cfg(all(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "blocking-client", feature = "async-client"))]
 pub use sync_wrapper::{send_command_and_wait_compat, ViscaClient};
 
 pub mod timeout;
@@ -311,6 +317,9 @@ pub use timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder};
 ///
 /// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
 /// a uniform interface for VISCA communication.
+///
+/// **Note**: This trait will be replaced by `transport::Transport` in v0.4.0.
+/// New code should prepare for the migration.
 ///
 /// # Example
 /// ```no_run
@@ -351,6 +360,8 @@ pub trait ViscaTransport {
 ///
 /// This transport uses UDP sockets for communication with VISCA cameras.
 /// It binds to an ephemeral local port and sends commands to the specified camera address.
+///
+/// **Note**: This implementation will be replaced by `transport::UdpTransport` in v0.4.0.
 ///
 /// # Example
 /// ```no_run
@@ -428,6 +439,8 @@ impl UdpTransport {
 ///
 /// This transport uses TCP sockets for reliable communication with VISCA cameras.
 /// It maintains a persistent connection to the camera.
+///
+/// **Note**: This implementation will be replaced by `transport::TcpTransport` in v0.4.0.
 ///
 /// # Example
 /// ```no_run

@@ -1,19 +1,19 @@
 use crate::{ViscaCommand, ViscaError, ViscaResponse};
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use crate::async_client::AsyncViscaClient;
 
 /// Synchronous VISCA client wrapper around the async implementation.
 ///
 /// This provides a blocking API for users who don't need async functionality.
 /// Internally, it manages a tokio runtime to execute async operations.
-#[cfg(all(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "blocking-client", feature = "async-client"))]
 pub struct ViscaClient {
     runtime: tokio::runtime::Runtime,
     async_client: AsyncViscaClient,
 }
 
-#[cfg(all(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "blocking-client", feature = "async-client"))]
 impl ViscaClient {
     /// Connect to a camera using UDP transport (blocking).
     pub fn connect_udp(camera_addr: &str) -> Result<Self, ViscaError> {
@@ -61,7 +61,7 @@ impl ViscaClient {
     }
 }
 
-#[cfg(all(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "blocking-client", feature = "async-client"))]
 impl Drop for ViscaClient {
     fn drop(&mut self) {
         // The runtime will be dropped automatically, which will:
@@ -77,7 +77,7 @@ impl Drop for ViscaClient {
 /// This function provides the same interface as the original `send_command_and_wait`
 /// but uses the new async implementation internally when both sync and async features
 /// are enabled.
-#[cfg(all(feature = "sync", feature = "async"))]
+#[cfg(all(feature = "blocking-client", feature = "async-client"))]
 pub fn send_command_and_wait_compat(
     camera_addr: &str,
     command: &dyn ViscaCommand,

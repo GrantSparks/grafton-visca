@@ -1,6 +1,6 @@
 //! Example demonstrating async auto-reconnecting transport functionality.
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
@@ -10,16 +10,16 @@ use grafton_visca::{
     AsyncConnectionEvent, AsyncConnectionManagement, AsyncReconnectingTransport, AsyncTcpTransport,
     AsyncUdpTransport, AsyncViscaTransport, ReconnectionConfig, ViscaError,
 };
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::sync::atomic::{AtomicUsize, Ordering};
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::sync::{Arc, Mutex};
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::time::Duration;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use tokio::time::sleep;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 async fn demo_async_udp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
     use std::net::SocketAddr;
 
@@ -141,7 +141,7 @@ async fn demo_async_udp_reconnection() -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
     use std::net::SocketAddr;
 
@@ -219,7 +219,7 @@ async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>> {
     use std::net::SocketAddr;
 
@@ -354,8 +354,8 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "async-client"))]
 fn main() {
     println!("This example requires the 'async' feature to be enabled.");
-    println!("Run with: cargo run --example async_reconnecting --features async");
+    println!("Run with: cargo run --example async_reconnecting --features async-client");
 }

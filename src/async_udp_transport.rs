@@ -7,7 +7,7 @@ use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
 
 /// Async UDP transport for VISCA over IP communication.
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 pub struct AsyncUdpTransport {
     socket: UdpSocket,
     camera_addr: SocketAddr,
@@ -17,7 +17,7 @@ pub struct AsyncUdpTransport {
     stats: ConnectionStats,
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl AsyncUdpTransport {
     /// Create a new async UDP transport.
     pub async fn new(camera_addr: SocketAddr) -> Result<Self, ViscaError> {
@@ -70,7 +70,7 @@ impl AsyncUdpTransport {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl AsyncViscaTransport for AsyncUdpTransport {
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
@@ -143,7 +143,7 @@ impl AsyncViscaTransport for AsyncUdpTransport {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl Drop for AsyncUdpTransport {
     fn drop(&mut self) {
         // UDP sockets don't require explicit shutdown
@@ -152,7 +152,7 @@ impl Drop for AsyncUdpTransport {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 impl crate::AsyncConnectionManagement for AsyncUdpTransport {
     fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
         Box::pin(async move {
