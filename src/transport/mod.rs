@@ -123,4 +123,3 @@ mod tests {
         assert_eq!(responses[0], vec![0x90, 0x50, 0xFF]);
     }
 }
-
