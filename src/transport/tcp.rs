@@ -1,9 +1,11 @@
 //! TCP transport implementation for VISCA over IP.
 
 // Standard library imports
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::{io, time::Duration};
 
 // Crate imports
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{ConnectionStats, ViscaCommand, ViscaError};
 
 #[cfg(feature = "blocking-client")]
