@@ -22,31 +22,31 @@ Add grafton-visca to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-# For synchronous usage only
-grafton-visca = "0.3"
+# For synchronous (blocking) usage (default)
+grafton-visca = "0.4"
 
-# For async support
-grafton-visca = { version = "0.3", features = ["async"] }
+# For async support only
+grafton-visca = { version = "0.4", default-features = false, features = ["async-client"] }
 
 # For both sync and async
-grafton-visca = { version = "0.3", features = ["full"] }
+grafton-visca = { version = "0.4", features = ["async-client"] }
 ```
 
 ### Your First Program
 
-Here's a minimal example to get you started:
+Here's a minimal example to get you started with the v0.4.0 unified client:
 
 ```rust
-use grafton_visca::{UdpTransport, ViscaTransport, send_command_and_wait};
+use grafton_visca::{ViscaClient, ViscaResponse};
 use grafton_visca::command::{PowerCommand, power::Power};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect to camera at IP 192.168.1.100
-    let mut transport = UdpTransport::new("192.168.1.100:1259")?;
+    let camera = ViscaClient::connect_udp("192.168.1.100:1259")?;
     
     // Power on the camera
     let command = PowerCommand { power: Power::On };
-    let response = send_command_and_wait(&mut transport, &command)?;
+    let response = camera.send(&command)?;
     
     println!("Camera powered on: {:?}", response);
     Ok(())
@@ -79,15 +79,20 @@ nc -v 192.168.1.100 5678
 
 ## Connection Types
 
+grafton-visca v0.4.0 provides a unified `ViscaClient` that handles both blocking and async operations.
+
 ### UDP Transport
 
 UDP is the most common transport for VISCA over IP:
 
 ```rust
-use grafton_visca::UdpTransport;
+use grafton_visca::ViscaClient;
 
-// Connect using UDP (PTZOptics default port)
-let mut transport = UdpTransport::new("192.168.1.100:1259")?;
+// Connect using UDP (blocking)
+let camera = ViscaClient::connect_udp("192.168.1.100:1259")?;
+
+// Or async
+let camera = ViscaClient::connect_udp_async("192.168.1.100:1259").await?;
 ```
 
 **Advantages:**
@@ -104,10 +109,13 @@ let mut transport = UdpTransport::new("192.168.1.100:1259")?;
 TCP provides reliable communication:
 
 ```rust
-use grafton_visca::TcpTransport;
+use grafton_visca::ViscaClient;
 
-// Connect using TCP
-let mut transport = TcpTransport::new("192.168.1.100:5678")?;
+// Connect using TCP (blocking)
+let camera = ViscaClient::connect_tcp("192.168.1.100:5678")?;
+
+// Or async
+let camera = ViscaClient::connect_tcp_async("192.168.1.100:5678").await?;
 ```
 
 **Advantages:**
@@ -129,7 +137,7 @@ Control pan and tilt movement:
 use grafton_visca::command::{PanTiltCommand, pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed}};
 
 // Move to home position
-transport.send_command(&PanTiltCommand::Home)?;
+camera.send(&PanTiltCommand::Home)?;
 
 // Move in a specific direction
 let move_cmd = PanTiltCommand::Move {
@@ -137,7 +145,7 @@ let move_cmd = PanTiltCommand::Move {
     pan_speed: PanSpeed::new(0x10)?,  // Medium speed
     tilt_speed: TiltSpeed::new(0x10)?,
 };
-transport.send_command(&move_cmd)?;
+camera.send(&move_cmd)?;
 
 // Stop movement
 let stop_cmd = PanTiltCommand::Move {

@@ -307,11 +307,10 @@ where
                             return Err(e);
                         }
                     }
-                } else {
-                    // This shouldn't happen if ensure_connected worked
-                    drop(state);
-                    continue;
                 }
+                // This shouldn't happen if ensure_connected worked
+                drop(state);
+                continue;
             }
 
             Err(ViscaError::ConnectionLost {
@@ -359,11 +358,10 @@ where
                             return Err(e);
                         }
                     }
-                } else {
-                    // This shouldn't happen if ensure_connected worked
-                    drop(state);
-                    continue;
                 }
+                // This shouldn't happen if ensure_connected worked
+                drop(state);
+                continue;
             }
 
             Err(ViscaError::ConnectionLost {

@@ -23,6 +23,15 @@ Make sure to check out our blog article introducing this library: [Controlling P
 
 ## Recent Improvements
 
+### v0.4.0 (Unified Client)
+- **Unified Client Architecture:** Single `ViscaClient` handles both blocking and async operations
+- **Simplified API:** One client type with `send()` for blocking and `send_async()` for async
+- **Smart Runtime Detection:** Blocking façade automatically uses existing tokio runtime when available
+- **Feature Simplification:** Just `blocking-client` (default) and `async-client` features
+- **Standard Features:** Connection pooling and reconnection now included by default
+- **Enhanced Error Handling:** Retry helpers and error classification for robust operation
+- **AI-Agent Friendly:** Designed for clear, self-describing API patterns
+
 ### v0.3.0 (Production Release)
 - **Async/Await Support:** Added full async support with `AsyncViscaClient` for non-blocking camera control
 - **Concurrent Command Execution:** Send up to 2 commands simultaneously with automatic socket management
@@ -146,21 +155,21 @@ The library includes connection pooling and automatic reconnection capabilities 
 ### Basic Camera Control
 
 ```rust
-use grafton_visca::{UdpTransport, ViscaTransport};
+use grafton_visca::ViscaClient;
 use grafton_visca::command::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect to camera
-    let mut camera = UdpTransport::new("192.168.1.100:5678")?;
+    let camera = ViscaClient::connect_udp("192.168.1.100:5678")?;
     
     // Power on the camera
-    camera.send_command(&PowerCommand { power: Power::On })?;
+    camera.send(&PowerCommand { power: Power::On })?;
     
     // Move to home position
-    camera.send_command(&PanTiltCommand::Home)?;
+    camera.send(&PanTiltCommand::Home)?;
     
     // Zoom in
-    camera.send_command(&ZoomCommand::TeleStandard)?;
+    camera.send(&ZoomCommand::TeleStandard)?;
     
     Ok(())
 }
@@ -178,7 +187,7 @@ let abs_pos = PanTiltCommand::AbsolutePosition {
     pan_speed: 0x10,
     tilt_speed: 0x10,
 };
-camera.send_command(&abs_pos)?;
+camera.send(&abs_pos)?;
 
 // Relative positioning
 let rel_pos = PanTiltCommand::RelativePosition {
@@ -187,7 +196,7 @@ let rel_pos = PanTiltCommand::RelativePosition {
     pan_speed: 0x08,
     tilt_speed: 0x08,
 };
-camera.send_command(&rel_pos)?;
+camera.send(&rel_pos)?;
 ```
 
 ### Exposure Control
@@ -196,17 +205,17 @@ camera.send_command(&rel_pos)?;
 use grafton_visca::command::*;
 
 // Set manual exposure mode
-camera.send_command(&ExposureCommand { mode: ExposureMode::Manual })?;
+camera.send(&ExposureCommand { mode: ExposureMode::Manual })?;
 
 // Adjust iris to F4.0
-camera.send_command(&IrisCommand::Direct(0x06))?;
+camera.send(&IrisCommand::Direct(0x06))?;
 
 // Set shutter speed to 1/1000
-camera.send_command(&ShutterCommand::Direct(0x0C))?;
+camera.send(&ShutterCommand::Direct(0x0C))?;
 
 // Enable exposure compensation with +3
-camera.send_command(&ExposureCompensationCommand::On)?;
-camera.send_command(&ExposureCompensationCommand::Direct(3))?;
+camera.send(&ExposureCompensationCommand::On)?;
+camera.send(&ExposureCompensationCommand::Direct(3))?;
 ```
 
 ### Color Adjustments
@@ -215,16 +224,16 @@ camera.send_command(&ExposureCompensationCommand::Direct(3))?;
 use grafton_visca::command::*;
 
 // Perform one-push white balance
-camera.send_command(&OnePushTriggerCommand)?;
+camera.send(&OnePushTriggerCommand)?;
 
 // Adjust color saturation to 150%
-camera.send_command(&SaturationCommand { level: 0x0A })?;
+camera.send(&SaturationCommand { level: 0x0A })?;
 
 // Fine-tune red gain
-camera.send_command(&RedTuningCommand { level: 5 })?;
+camera.send(&RedTuningCommand { level: 5 })?;
 
 // Set hue
-camera.send_command(&HueCommand { level: 7 })?;
+camera.send(&HueCommand { level: 7 })?;
 ```
 
 ### Advanced Image Control
@@ -233,38 +242,38 @@ camera.send_command(&HueCommand { level: 7 })?;
 use grafton_visca::command::*;
 
 // Set sharpness to manual mode and adjust
-camera.send_command(&SharpnessCommand::Mode(SharpnessMode::Manual))?;
-camera.send_command(&SharpnessCommand::Direct { value: 8 })?;
+camera.send(&SharpnessCommand::Mode(SharpnessMode::Manual))?;
+camera.send(&SharpnessCommand::Direct { value: 8 })?;
 
 // Control noise reduction
-camera.send_command(&NoiseReduction2DCommand::Level(3))?;
-camera.send_command(&NoiseReduction3DCommand::Level(5))?;
+camera.send(&NoiseReduction2DCommand::Level(3))?;
+camera.send(&NoiseReduction3DCommand::Level(5))?;
 
 // Switch to black & white mode
-camera.send_command(&BlackWhiteCommand { on: true })?;
+camera.send(&BlackWhiteCommand { on: true })?;
 
 // Set color temperature to 5500K
-camera.send_command(&ColorTemperatureCommand::Direct(0x20))?;
+camera.send(&ColorTemperatureCommand::Direct(0x20))?;
 
 // Advanced focus control
-camera.send_command(&FocusZoneCommand { zone: FocusZone::Center })?;
-camera.send_command(&AFSensitivityCommand { sensitivity: AFSensitivity::High })?;
+camera.send(&FocusZoneCommand { zone: FocusZone::Center })?;
+camera.send(&AFSensitivityCommand { sensitivity: AFSensitivity::High })?;
 ```
 
 ### Querying Camera Status
 
 ```rust
-use grafton_visca::{send_command_and_wait, ViscaResponse};
+use grafton_visca::{ViscaClient, ViscaResponse};
 use grafton_visca::command::*;
 
 // Query current zoom position
-let response = send_command_and_wait(&mut camera, &InquiryCommand::ZoomPosition)?;
+let response = camera.send(&InquiryCommand::ZoomPosition)?;
 if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) = response {
     println!("Current zoom position: 0x{:04X}", position);
 }
 
 // Query exposure mode
-let response = send_command_and_wait(&mut camera, &InquiryCommand::ExposureMode)?;
+let response = camera.send(&InquiryCommand::ExposureMode)?;
 if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) = response {
     println!("Exposure mode: {:?}", mode);
 }
@@ -303,27 +312,27 @@ camera.send_command(&PanTiltCommand::AbsolutePosition {
 })?;
 ```
 
-### Async Usage (with `async` feature)
+### Async Usage (with `async-client` feature)
 
 The library supports asynchronous operation for non-blocking camera control:
 
 ```rust
-use grafton_visca::{AsyncViscaClient, ViscaResponse};
+use grafton_visca::{ViscaClient, ViscaResponse};
 use grafton_visca::command::*;
 use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect to camera asynchronously
-    let camera = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+    let camera = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
     
     // Send multiple commands concurrently
-    let pan_tilt = camera.send(&PanTiltCommand::Move {
+    let pan_tilt = camera.send_async(&PanTiltCommand::Move {
         direction: PanTiltDirection::UpRight,
         pan_speed: PanSpeed::new(0x10)?,
         tilt_speed: TiltSpeed::new(0x10)?,
     });
-    let zoom = camera.send(&ZoomCommand::TeleStandard);
+    let zoom = camera.send_async(&ZoomCommand::TeleStandard);
     
     // Both commands execute concurrently (respecting the 2-socket limit)
     let (pan_result, zoom_result) = tokio::join!(pan_tilt, zoom);
@@ -340,9 +349,9 @@ The async client automatically manages the VISCA two-socket limitation:
 
 ```rust
 // Send three commands - the third will wait for a socket to become available
-let cmd1 = camera.send(&PresetCommand { action: PresetAction::Set, preset_number: 1 });
-let cmd2 = camera.send(&FocusCommand::NearStandard);
-let cmd3 = camera.send(&ZoomCommand::WideStandard);
+let cmd1 = camera.send_async(&PresetCommand { action: PresetAction::Set, preset_number: 1 });
+let cmd2 = camera.send_async(&FocusCommand::NearStandard);
+let cmd3 = camera.send_async(&ZoomCommand::WideStandard);
 
 // The first two commands will execute immediately,
 // the third will wait until one of them completes
@@ -358,12 +367,12 @@ let camera_clone = camera.clone();
 
 // Use in multiple tasks
 let task1 = tokio::spawn(async move {
-    camera_clone.send(&PowerCommand { power: Power::On }).await
+    camera_clone.send_async(&PowerCommand { power: Power::On }).await
 });
 
 let camera_clone2 = camera.clone();
 let task2 = tokio::spawn(async move {
-    camera_clone2.send(&InquiryCommand::ZoomPosition).await
+    camera_clone2.send_async(&InquiryCommand::ZoomPosition).await
 });
 
 let (res1, res2) = tokio::join!(task1, task2);

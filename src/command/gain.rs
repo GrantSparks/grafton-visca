@@ -1,3 +1,8 @@
+//! Gain control commands for VISCA cameras.
+//!
+//! This module provides commands for controlling camera gain settings,
+//! including manual gain adjustment, gain limit control, and anti-flicker settings.
+
 // Crate imports
 use crate::{
     command::{response::ViscaResponseType, ViscaCommand},
