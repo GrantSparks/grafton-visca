@@ -3,7 +3,9 @@
 //! This example shows how the new unified ViscaClient works in both
 //! blocking and async contexts.
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::command::{Power, PowerCommand, ZoomCommand};
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::{ViscaClient, ViscaError};
 
 #[cfg(feature = "blocking-client")]
@@ -64,6 +66,7 @@ async fn mixed_example() -> Result<(), ViscaError> {
     Ok(())
 }
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 #[tokio::main]
 async fn main() -> Result<(), ViscaError> {
     env_logger::init();
@@ -82,4 +85,10 @@ async fn main() -> Result<(), ViscaError> {
         .unwrap_or_else(|e| eprintln!("Mixed example error: {}", e));
 
     Ok(())
+}
+
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+fn main() {
+    println!("This example requires at least one of the 'blocking-client' or 'async-client' features.");
+    println!("Try: cargo run --example phase_b_unified_demo --features blocking-client");
 }

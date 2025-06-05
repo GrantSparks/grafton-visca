@@ -1,6 +1,6 @@
 //! Tests for Phase B unified client implementation.
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "blocking-client", feature = "async-client")))]
 mod tests {
     use grafton_visca::ViscaClient;
 
