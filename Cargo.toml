@@ -63,3 +63,45 @@ required-features = ["async-client"]
 name = "async_configurable_timeouts"
 required-features = ["async-client"]
 
+
+[[example]]
+name = "thread_safe_client"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "configurable_timeouts"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "connection_pool"
+required-features = ["blocking-client", "pool"]
+
+[[example]]
+name = "control_demo"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "demo"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "health_check"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "hello_visca"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "inquiry_demo"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "phase_a_test"
+
+[[example]]
+name = "position_conversion"
+
+[[example]]
+name = "reconnecting_transport"
+required-features = ["blocking-client", "reconnect"]
