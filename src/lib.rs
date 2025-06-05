@@ -247,6 +247,9 @@ mod sync_primitives;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod unified_client;
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+mod ptz_builder;
+
 #[cfg(feature = "async-client")]
 mod async_client;
 
@@ -270,6 +273,9 @@ pub mod async_transport;
 
 #[cfg(feature = "async-client")]
 mod async_udp_transport;
+
+#[cfg(feature = "async-client")]
+mod async_visca_ext;
 
 // Core re-exports
 pub use crate::{
@@ -316,7 +322,10 @@ pub use crate::reconnecting_transport::{
 
 // Feature-gated re-exports - Unified client
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::unified_client::ViscaClient;
+pub use crate::unified_client::{ViscaClient, ViscaClientPtzExt};
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub use crate::ptz_builder::PtzBuilder;
 
 // Feature-gated re-exports - Async functionality
 #[cfg(feature = "async-client")]
@@ -325,6 +334,7 @@ pub use crate::{
     async_tcp_transport::AsyncTcpTransport,
     async_transport::{AsyncViscaTransport, TransportFuture},
     async_udp_transport::AsyncUdpTransport,
+    async_visca_ext::{AsyncViscaExt, PanScanDirection},
     connection::AsyncConnectionManagement,
 };
 
