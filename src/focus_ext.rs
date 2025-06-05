@@ -1,8 +1,7 @@
 //! High-level extension trait for focus control operations.
 
-use crate::command::focus::FocusCommand;
-use crate::error::ViscaError;
-use crate::transport_ext::ViscaTransportExt;
+// Crate imports
+use crate::{command::focus::FocusCommand, error::ViscaError, transport_ext::ViscaTransportExt};
 
 /// Extension trait providing high-level focus control methods.
 pub trait ViscaFocusExt: ViscaTransportExt {

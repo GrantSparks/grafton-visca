@@ -1,7 +1,11 @@
+// Third-party imports
 use log::error;
 
-use super::{ExposureMode, ViscaInquiryResponse, WhiteBalanceMode};
-use crate::error::ViscaError;
+// Crate imports
+use crate::{
+    command::{ExposureMode, ViscaInquiryResponse, WhiteBalanceMode},
+    error::ViscaError,
+};
 
 /// Response from a VISCA command.
 ///
@@ -318,7 +322,7 @@ pub fn parse_visca_response(
                     if response.len() != 4 {
                         return Err(ViscaError::InvalidResponseLength);
                     }
-                    use super::SharpnessMode;
+                    use crate::command::luminance_contrast_sharpness::SharpnessMode;
                     let mode = match response[2] {
                         0x02 => SharpnessMode::Auto,
                         0x03 => SharpnessMode::Manual,

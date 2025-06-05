@@ -193,136 +193,119 @@
 //! - `sync` - Enables synchronous API (default)
 //! - `full` - Enables both sync and async APIs
 
-use log::{debug, error};
+// Standard library imports
 use std::{
     io::{self, Read, Write},
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
 
+// Third-party imports
+use log::{debug, error};
+
+// Public modules
 pub mod command;
-pub use command::{
-    response::{parse_visca_response, ViscaResponse},
-    ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
-};
-
+pub mod connection;
 pub mod constants;
-
-// New v0.4.0 transport module - will replace the implementations below in Phase B
+pub mod timeout;
 pub mod transport;
-// NOTE: Not exporting new transports yet to avoid breaking changes.
-// The old UdpTransport and TcpTransport below are still in use throughout
-// the codebase. They will be replaced with the new transport module in Phase B.
 
+// Private modules
 mod camera_detection;
-pub use camera_detection::detect_camera_model;
-
+mod connection_pool;
 mod error;
-pub use error::{AppError, ViscaError};
-
-mod session;
-pub use session::ViscaSession;
-
-mod transport_ext;
-pub use transport_ext::ViscaTransportExt;
-
-mod inquiry_ext;
-pub use inquiry_ext::{
-    CameraPosition, CameraState, ExposureState, ImageState, OpticsState, ViscaInquiryExt,
-    WhiteBalanceState,
-};
-
-mod pan_tilt_ext;
-pub use command::pan_tilt::PanTiltDirection;
-pub use pan_tilt_ext::ViscaPanTiltExt;
-
-mod zoom_ext;
-pub use zoom_ext::ViscaZoomExt;
-
 mod focus_ext;
-pub use focus_ext::ViscaFocusExt;
-
+mod inquiry_ext;
+mod pan_tilt_ext;
 mod preset_ext;
-pub use preset_ext::ViscaPresetExt;
+mod reconnecting_transport;
+mod session;
+mod transport_ext;
+mod zoom_ext;
 
-// Synchronization primitives for unified client
+// Conditional modules
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod sync_primitives;
 
-// New unified client for v0.4.0
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod unified_client;
 
-// Export ViscaClient based on features
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use unified_client::ViscaClient;
+#[cfg(feature = "async-client")]
+mod async_client;
+
+#[cfg(feature = "async-client")]
+mod async_connection_pool;
+
+#[cfg(feature = "async-client")]
+mod async_control_ext;
 
 #[cfg(feature = "async-client")]
 mod async_inquiry_ext;
 
 #[cfg(feature = "async-client")]
-mod async_control_ext;
-
-pub mod connection;
-#[cfg(feature = "async-client")]
-pub use connection::AsyncConnectionManagement;
-pub use connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot};
-
-mod reconnecting_transport;
-pub use reconnecting_transport::{
-    ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
-};
-
-mod connection_pool;
-pub use connection_pool::{
-    CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
-};
-
-#[cfg(feature = "async-client")]
 mod async_reconnecting_transport;
-#[cfg(feature = "async-client")]
-pub use async_reconnecting_transport::{
-    AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
-};
 
-#[cfg(feature = "async-client")]
-mod async_connection_pool;
-#[cfg(feature = "async-client")]
-pub use async_connection_pool::{
-    AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard, AsyncViscaConnectionPool,
-    CameraInfo as AsyncCameraInfo,
-};
-
-#[cfg(feature = "async-client")]
-mod async_client;
 #[cfg(feature = "async-client")]
 mod async_tcp_transport;
+
 #[cfg(feature = "async-client")]
 pub mod async_transport;
+
 #[cfg(feature = "async-client")]
 mod async_udp_transport;
 
-#[cfg(feature = "async-client")]
-pub use async_client::AsyncViscaClient;
-#[cfg(feature = "async-client")]
-pub use async_tcp_transport::AsyncTcpTransport;
-#[cfg(feature = "async-client")]
-pub use async_transport::{AsyncViscaTransport, TransportFuture};
-#[cfg(feature = "async-client")]
-pub use async_udp_transport::AsyncUdpTransport;
+// Core trait and type re-exports
+pub use crate::{
+    camera_detection::detect_camera_model,
+    command::{
+        pan_tilt::PanTiltDirection,
+        response::{parse_visca_response, ViscaResponse},
+        ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
+    },
+    connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
+    connection_pool::{
+        CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
+    },
+    error::{AppError, ViscaError},
+    focus_ext::ViscaFocusExt,
+    inquiry_ext::{
+        CameraPosition, CameraState, ExposureState, ImageState, OpticsState, ViscaInquiryExt,
+        WhiteBalanceState,
+    },
+    pan_tilt_ext::ViscaPanTiltExt,
+    preset_ext::ViscaPresetExt,
+    reconnecting_transport::{
+        ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
+    },
+    session::ViscaSession,
+    timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
+    transport_ext::ViscaTransportExt,
+    zoom_ext::ViscaZoomExt,
+};
 
-// sync_wrapper is no longer needed with the unified client
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub use unified_client::ViscaClient;
 
-pub mod timeout;
-pub use timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder};
+#[cfg(feature = "async-client")]
+pub use crate::{
+    async_client::AsyncViscaClient,
+    async_connection_pool::{
+        AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard,
+        AsyncViscaConnectionPool, CameraInfo as AsyncCameraInfo,
+    },
+    async_reconnecting_transport::{
+        AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
+    },
+    async_tcp_transport::AsyncTcpTransport,
+    async_transport::{AsyncViscaTransport, TransportFuture},
+    async_udp_transport::AsyncUdpTransport,
+    connection::AsyncConnectionManagement,
+};
 
 /// Transport trait for sending and receiving VISCA commands over a network connection.
 ///
 /// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
 /// a uniform interface for VISCA communication.
-///
-/// **Note**: This trait will be replaced by `transport::Transport` in v0.4.0.
-/// New code should prepare for the migration.
 ///
 /// # Example
 /// ```no_run
@@ -364,8 +347,6 @@ pub trait ViscaTransport {
 /// This transport uses UDP sockets for communication with VISCA cameras.
 /// It binds to an ephemeral local port and sends commands to the specified camera address.
 ///
-/// **Note**: This implementation will be replaced by `transport::UdpTransport` in v0.4.0.
-///
 /// # Example
 /// ```no_run
 /// # use grafton_visca::UdpTransport;
@@ -381,6 +362,48 @@ pub struct UdpTransport {
 }
 
 impl UdpTransport {
+    /// Apply timeout configuration for a specific command.
+    fn apply_command_timeout(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+        if let Some(ref config) = self.timeout_config {
+            let timeout = config.get_timeout(command.command_category());
+            self.socket
+                .set_read_timeout(Some(timeout))
+                .map_err(ViscaError::Io)?;
+            self.socket
+                .set_write_timeout(Some(timeout))
+                .map_err(ViscaError::Io)?;
+            self.timeout_duration = Some(timeout);
+        }
+        Ok(())
+    }
+
+    /// Receive data until a VISCA frame end (0xFF) is detected.
+    fn receive_until_frame_end(&mut self) -> Result<Vec<u8>, ViscaError> {
+        let mut buffer = [0u8; 1024];
+        let mut data = Vec::new();
+
+        loop {
+            let (bytes_received, src) = self.socket.recv_from(&mut buffer).map_err(|e| {
+                error!("UDP receive error: {}", e);
+                self.stats.record_error();
+                ViscaError::Io(e)
+            })?;
+
+            debug!(
+                "Received {} bytes from {}: {:02X?}",
+                bytes_received,
+                src,
+                &buffer[..bytes_received]
+            );
+            data.extend_from_slice(&buffer[..bytes_received]);
+
+            if bytes_received > 0 && buffer[bytes_received - 1] == 0xFF {
+                break;
+            }
+        }
+
+        Ok(data)
+    }
     /// Creates a new UDP transport connected to the specified camera address.
     ///
     /// Sets read and write timeouts of 10 seconds.
@@ -443,8 +466,6 @@ impl UdpTransport {
 /// This transport uses TCP sockets for reliable communication with VISCA cameras.
 /// It maintains a persistent connection to the camera.
 ///
-/// **Note**: This implementation will be replaced by `transport::TcpTransport` in v0.4.0.
-///
 /// # Example
 /// ```no_run
 /// # use grafton_visca::TcpTransport;
@@ -459,6 +480,47 @@ pub struct TcpTransport {
 }
 
 impl TcpTransport {
+    /// Apply timeout configuration for a specific command.
+    fn apply_command_timeout(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+        if let Some(ref config) = self.timeout_config {
+            let timeout = config.get_timeout(command.command_category());
+            self.stream
+                .set_read_timeout(Some(timeout))
+                .map_err(ViscaError::Io)?;
+            self.stream
+                .set_write_timeout(Some(timeout))
+                .map_err(ViscaError::Io)?;
+            self.timeout_duration = Some(timeout);
+        }
+        Ok(())
+    }
+
+    /// Receive data until a VISCA frame end (0xFF) is detected.
+    fn receive_until_frame_end(&mut self) -> Result<Vec<u8>, ViscaError> {
+        let mut buffer = [0u8; 1024];
+        let mut data = Vec::new();
+
+        loop {
+            let bytes_received = self.stream.read(&mut buffer).map_err(|e| {
+                error!("TCP receive error: {}", e);
+                self.stats.record_error();
+                ViscaError::Io(e)
+            })?;
+
+            debug!(
+                "Received {} bytes: {:02X?}",
+                bytes_received,
+                &buffer[..bytes_received]
+            );
+            data.extend_from_slice(&buffer[..bytes_received]);
+
+            if bytes_received > 0 && buffer[bytes_received - 1] == 0xFF {
+                break;
+            }
+        }
+
+        Ok(data)
+    }
     /// Creates a new TCP transport connected to the specified camera address.
     ///
     /// Establishes a TCP connection and sets read/write timeouts of 30 seconds.
@@ -514,171 +576,77 @@ impl TcpTransport {
     }
 }
 
+/// Parse VISCA response frames from a raw buffer.
+/// Each frame starts with 0x90 and ends with 0xFF.
 fn parse_response(buffer: &[u8]) -> Result<Vec<Vec<u8>>, ViscaError> {
     let mut responses = Vec::new();
-    let mut response = Vec::new();
-    let mut start_index = false;
+    let mut current_frame = Vec::new();
+    let mut in_frame = false;
 
     for &byte in buffer {
-        response.push(byte);
-        if byte == 0x90 {
-            start_index = true;
-        } else if byte == 0xFF && start_index {
-            responses.push(response.clone());
-            response.clear();
-            start_index = false;
+        current_frame.push(byte);
+
+        match byte {
+            0x90 => in_frame = true,
+            0xFF if in_frame => {
+                responses.push(current_frame.clone());
+                current_frame.clear();
+                in_frame = false;
+            }
+            _ => {}
         }
     }
 
-    if start_index {
-        // Log an error if the response format is invalid
-        error!("Invalid response format detected: {:02X?}", response);
+    if in_frame {
+        error!("Incomplete VISCA frame: {:02X?}", current_frame);
         return Err(ViscaError::InvalidResponseFormat);
     }
 
-    // Log the number of responses parsed
-    debug!("Parsed {} responses from buffer", responses.len());
-
+    debug!("Parsed {} VISCA frames", responses.len());
     Ok(responses)
 }
 
 impl ViscaTransport for UdpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
-        // Set timeout based on command category if timeout config is available
-        if let Some(ref config) = self.timeout_config {
-            let timeout = config.get_timeout(command.command_category());
-            self.socket
-                .set_read_timeout(Some(timeout))
-                .map_err(ViscaError::Io)?;
-            self.socket
-                .set_write_timeout(Some(timeout))
-                .map_err(ViscaError::Io)?;
-            self.timeout_duration = Some(timeout);
-        }
+        self.apply_command_timeout(command)?;
 
         let command_bytes = command.to_bytes()?;
-        match self
-            .socket
+        self.socket
             .send_to(&command_bytes, &self.address)
             .map_err(ViscaError::Io)
-        {
-            Ok(_) => {
-                self.stats.record_sent(command_bytes.len());
-                Ok(())
-            }
-            Err(e) => {
-                self.stats.record_error();
-                Err(e)
-            }
-        }
+            .inspect(|_| self.stats.record_sent(command_bytes.len()))
+            .inspect_err(|_| self.stats.record_error())
+            .map(|_| ())
     }
 
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
-        let mut buffer = [0u8; 1024];
-        let mut received_data = Vec::new();
-
-        loop {
-            match self.socket.recv_from(&mut buffer) {
-                Ok((bytes_received, src)) => {
-                    debug!(
-                        "Received {} bytes from {}: {:02X?}",
-                        bytes_received,
-                        src,
-                        &buffer[..bytes_received]
-                    );
-                    received_data.extend_from_slice(&buffer[..bytes_received]);
-                    if buffer[bytes_received - 1] == 0xFF {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to receive response: {}", e);
-                    self.stats.record_error();
-                    return Err(ViscaError::Io(e));
-                }
-            }
-        }
-
-        match parse_response(&received_data) {
-            Ok(responses) => {
-                self.stats.record_received(received_data.len());
-                Ok(responses)
-            }
-            Err(e) => {
-                self.stats.record_error();
-                Err(e)
-            }
-        }
+        let data = self.receive_until_frame_end()?;
+        parse_response(&data)
+            .inspect(|_| self.stats.record_received(data.len()))
+            .inspect_err(|_| self.stats.record_error())
     }
 }
 
 impl ViscaTransport for TcpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
-        // Set timeout based on command category if timeout config is available
-        if let Some(ref config) = self.timeout_config {
-            let timeout = config.get_timeout(command.command_category());
-            self.stream
-                .set_read_timeout(Some(timeout))
-                .map_err(ViscaError::Io)?;
-            self.stream
-                .set_write_timeout(Some(timeout))
-                .map_err(ViscaError::Io)?;
-            self.timeout_duration = Some(timeout);
-        }
+        self.apply_command_timeout(command)?;
 
         let command_bytes = command.to_bytes()?;
-        match self
-            .stream
+        self.stream
             .write_all(&command_bytes)
             .map_err(ViscaError::Io)
-        {
-            Ok(_) => {
+            .inspect(|_| {
                 debug!("Sent {} bytes: {:02X?}", command_bytes.len(), command_bytes);
                 self.stats.record_sent(command_bytes.len());
-                Ok(())
-            }
-            Err(e) => {
-                self.stats.record_error();
-                Err(e)
-            }
-        }
+            })
+            .inspect_err(|_| self.stats.record_error())
     }
 
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
-        let mut buffer = [0u8; 1024];
-        let mut received_data = Vec::new();
-
-        loop {
-            match self.stream.read(&mut buffer) {
-                Ok(bytes_received) => {
-                    debug!(
-                        "Received {} bytes: {:02X?}",
-                        bytes_received,
-                        &buffer[..bytes_received]
-                    );
-                    received_data.extend_from_slice(&buffer[..bytes_received]);
-                    if buffer[bytes_received - 1] == 0xFF {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to receive response: {}", e);
-                    self.stats.record_error();
-                    return Err(ViscaError::Io(e));
-                }
-            }
-        }
-
-        match parse_response(&received_data) {
-            Ok(responses) => {
-                self.stats.record_received(received_data.len());
-                Ok(responses)
-            }
-            Err(e) => {
-                self.stats.record_error();
-                Err(e)
-            }
-        }
+        let data = self.receive_until_frame_end()?;
+        parse_response(&data)
+            .inspect(|_| self.stats.record_received(data.len()))
+            .inspect_err(|_| self.stats.record_error())
     }
 }
 
@@ -687,41 +655,22 @@ impl ConnectionManagement for UdpTransport {
         use crate::command::InquiryCommand;
 
         // Check cached health result first
-        if let Some(cached_healthy) = self.stats.get_cached_health() {
-            return Ok(cached_healthy);
+        if let Some(cached) = self.stats.get_cached_health() {
+            return Ok(cached);
         }
 
-        // Save the current timeout and set a short one for health check
-        let original_timeout = self.timeout_duration;
-        let health_check_timeout = Some(Duration::from_secs(1));
+        // Send power inquiry and check response
+        self.send_command(&InquiryCommand::Power)?;
 
-        // Set temporary timeout for health check
-        if let Err(e) = self.socket.set_read_timeout(health_check_timeout) {
-            return Err(ViscaError::Io(e));
-        }
-
-        // Send the power inquiry command
-        let send_result = self.send_command(&InquiryCommand::Power);
-
-        // Restore original timeout regardless of send result
-        if let Err(e) = self.socket.set_read_timeout(original_timeout) {
-            // Log error but don't fail the health check for this
-            log::warn!("Failed to restore socket timeout: {}", e);
-        }
-
-        send_result?;
-
-        // Try to receive response
         match self.receive_response() {
             Ok(responses) => {
-                // Validate that we got a power inquiry response
-                let healthy = responses.iter().any(|response| {
-                    // Power inquiry response format: 0x90 0x50 0x0{2,3} 0xFF
-                    response.len() == 4
-                        && response[0] == 0x90
-                        && response[1] == 0x50
-                        && (response[2] == 0x02 || response[2] == 0x03)
-                        && response[3] == 0xFF
+                // Validate power inquiry response: 0x90 0x50 0x0{2,3} 0xFF
+                let healthy = responses.iter().any(|r| {
+                    r.len() == 4
+                        && r[0] == 0x90
+                        && r[1] == 0x50
+                        && (r[2] == 0x02 || r[2] == 0x03)
+                        && r[3] == 0xFF
                 });
                 self.stats.record_health_check(healthy);
                 Ok(healthy)
@@ -747,41 +696,22 @@ impl ConnectionManagement for TcpTransport {
         use crate::command::InquiryCommand;
 
         // Check cached health result first
-        if let Some(cached_healthy) = self.stats.get_cached_health() {
-            return Ok(cached_healthy);
+        if let Some(cached) = self.stats.get_cached_health() {
+            return Ok(cached);
         }
 
-        // Save the current timeout and set a short one for health check
-        let original_timeout = self.timeout_duration;
-        let health_check_timeout = Some(Duration::from_secs(1));
+        // Send power inquiry and check response
+        self.send_command(&InquiryCommand::Power)?;
 
-        // Set temporary timeout for health check
-        if let Err(e) = self.stream.set_read_timeout(health_check_timeout) {
-            return Err(ViscaError::Io(e));
-        }
-
-        // Send the power inquiry command
-        let send_result = self.send_command(&InquiryCommand::Power);
-
-        // Restore original timeout regardless of send result
-        if let Err(e) = self.stream.set_read_timeout(original_timeout) {
-            // Log error but don't fail the health check for this
-            log::warn!("Failed to restore stream timeout: {}", e);
-        }
-
-        send_result?;
-
-        // Try to receive response
         match self.receive_response() {
             Ok(responses) => {
-                // Validate that we got a power inquiry response
-                let healthy = responses.iter().any(|response| {
-                    // Power inquiry response format: 0x90 0x50 0x0{2,3} 0xFF
-                    response.len() == 4
-                        && response[0] == 0x90
-                        && response[1] == 0x50
-                        && (response[2] == 0x02 || response[2] == 0x03)
-                        && response[3] == 0xFF
+                // Validate power inquiry response: 0x90 0x50 0x0{2,3} 0xFF
+                let healthy = responses.iter().any(|r| {
+                    r.len() == 4
+                        && r[0] == 0x90
+                        && r[1] == 0x50
+                        && (r[2] == 0x02 || r[2] == 0x03)
+                        && r[3] == 0xFF
                 });
                 self.stats.record_health_check(healthy);
                 Ok(healthy)
@@ -802,7 +732,8 @@ impl ConnectionManagement for TcpTransport {
     }
 }
 
-/// Sends a VISCA command and waits for its completion response.\n///
+/// Sends a VISCA command and waits for its completion response.
+///
 /// This is the main synchronous API for sending commands to a VISCA camera.
 /// It handles the complete command lifecycle including:
 /// - Sending the command
@@ -836,77 +767,58 @@ pub fn send_command_and_wait(
     transport: &mut dyn ViscaTransport,
     command: &dyn ViscaCommand,
 ) -> Result<ViscaResponse, ViscaError> {
-    // Create a session to manage command state
     let mut session = ViscaSession::new();
-
-    // Assign a socket for this command
     let socket_id = session.assign_socket(command.response_type())?;
-    debug!("Sending command on socket {}", socket_id);
 
-    // Send the command
+    debug!("Sending command on socket {}", socket_id);
     transport.send_command(command)?;
 
-    // Wait for completion
+    let result = wait_for_response(transport, &mut session, socket_id);
+    session.release_socket(socket_id);
+    result
+}
+
+/// Wait for a response on a specific socket.
+fn wait_for_response(
+    transport: &mut dyn ViscaTransport,
+    session: &mut ViscaSession,
+    socket_id: u8,
+) -> Result<ViscaResponse, ViscaError> {
+    use ViscaResponse::*;
+
     loop {
-        match transport.receive_response() {
-            Ok(responses) => {
-                for response in responses {
-                    match session.process_response(&response) {
-                        Ok(Some((resp_socket_id, parsed_response))) => {
-                            // Check if this response is for our command
-                            if resp_socket_id == socket_id {
-                                match parsed_response {
-                                    ViscaResponse::Ack => {
-                                        debug!("Command acknowledged on socket {}", socket_id);
-                                        // Continue waiting for completion
-                                    }
-                                    ViscaResponse::Completion => {
-                                        debug!("Command completed on socket {}", socket_id);
-                                        session.release_socket(socket_id);
-                                        return Ok(ViscaResponse::Completion);
-                                    }
-                                    ViscaResponse::InquiryResponse(inquiry) => {
-                                        debug!("Inquiry response received on socket {}", socket_id);
-                                        log_inquiry_response(&inquiry);
-                                        session.release_socket(socket_id);
-                                        return Ok(ViscaResponse::InquiryResponse(inquiry));
-                                    }
-                                    ViscaResponse::Error(err) => {
-                                        error!("Command error on socket {}: {:?}", socket_id, err);
-                                        session.release_socket(socket_id);
-                                        return Err(err);
-                                    }
-                                    _ => {
-                                        debug!(
-                                            "Unexpected response on socket {}: {:?}",
-                                            socket_id, parsed_response
-                                        );
-                                    }
-                                }
-                            } else {
-                                // Response for a different command, log and continue
-                                debug!(
-                                    "Received response for socket {} (not our socket {})",
-                                    resp_socket_id, socket_id
-                                );
-                            }
-                        }
-                        Ok(None) => {
-                            // Response for unknown socket, ignore
-                            debug!("Received response for unknown socket");
-                        }
-                        Err(e) => {
-                            error!("Error processing response: {}", e);
-                            session.release_socket(socket_id);
-                            return Err(e);
-                        }
-                    }
+        let responses = transport.receive_response().map_err(|e| {
+            error!("Transport error: {}", e);
+            e
+        })?;
+
+        for response in responses {
+            if let Some((resp_socket_id, parsed_response)) = session.process_response(&response)? {
+                if resp_socket_id != socket_id {
+                    debug!(
+                        "Response for socket {} (expected {})",
+                        resp_socket_id, socket_id
+                    );
+                    continue;
                 }
-            }
-            Err(e) => {
-                error!("Transport error: {}", e);
-                session.release_socket(socket_id);
-                return Err(e);
+
+                match parsed_response {
+                    Ack => debug!("Command acknowledged on socket {}", socket_id),
+                    Completion => {
+                        debug!("Command completed on socket {}", socket_id);
+                        return Ok(Completion);
+                    }
+                    InquiryResponse(inquiry) => {
+                        debug!("Inquiry response on socket {}", socket_id);
+                        log_inquiry_response(&inquiry);
+                        return Ok(InquiryResponse(inquiry));
+                    }
+                    Error(err) => {
+                        error!("Command error on socket {}: {:?}", socket_id, err);
+                        return Err(err);
+                    }
+                    _ => debug!("Unexpected response: {:?}", parsed_response),
+                }
             }
         }
     }
@@ -914,49 +826,22 @@ pub fn send_command_and_wait(
 
 #[allow(unreachable_patterns)]
 fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
+    use ViscaInquiryResponse::*;
+
     match inquiry_response {
-        ViscaInquiryResponse::Power { on } => {
-            debug!("Power: {}", if *on { "On" } else { "Off" });
-        }
-        ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
-            debug!("Pan: {}, Tilt: {}", pan, tilt);
-        }
-        ViscaInquiryResponse::Luminance(luminance) => {
-            debug!("Luminance: {}", luminance);
-        }
-        ViscaInquiryResponse::Contrast(contrast) => {
-            debug!("Contrast: {}", contrast);
-        }
-        ViscaInquiryResponse::ZoomPosition { position } => {
-            debug!("Zoom Position: {:02X?}", position);
-        }
-        ViscaInquiryResponse::FocusPosition { position } => {
-            debug!("Focus Position: {:02X?}", position);
-        }
-        ViscaInquiryResponse::Gain { gain } => {
-            debug!("Gain: {}", gain);
-        }
-        ViscaInquiryResponse::WhiteBalance { mode } => {
-            debug!("White Balance Mode: {:?}", mode);
-        }
-        ViscaInquiryResponse::ExposureMode { mode } => {
-            debug!("Exposure Mode: {:?}", mode);
-        }
-        ViscaInquiryResponse::ExposureCompensation { value } => {
-            debug!("Exposure Compensation Value: {}", value);
-        }
-        ViscaInquiryResponse::Backlight { status } => {
-            debug!("Backlight Status: {}", status);
-        }
-        ViscaInquiryResponse::ColorTemperature { temperature } => {
-            debug!("Color Temperature: {}", temperature);
-        }
-        ViscaInquiryResponse::Hue { hue } => {
-            debug!("Hue: {}", hue);
-        }
-        // Wildcard pattern to handle any future additions to the enum
-        _ => {
-            debug!("Unhandled inquiry response: {:?}", inquiry_response);
-        }
+        Power { on } => debug!("Power: {}", if *on { "On" } else { "Off" }),
+        PanTiltPosition { pan, tilt } => debug!("Pan: {}, Tilt: {}", pan, tilt),
+        Luminance(val) => debug!("Luminance: {}", val),
+        Contrast(val) => debug!("Contrast: {}", val),
+        ZoomPosition { position } => debug!("Zoom Position: {:02X?}", position),
+        FocusPosition { position } => debug!("Focus Position: {:02X?}", position),
+        Gain { gain } => debug!("Gain: {}", gain),
+        WhiteBalance { mode } => debug!("White Balance Mode: {:?}", mode),
+        ExposureMode { mode } => debug!("Exposure Mode: {:?}", mode),
+        ExposureCompensation { value } => debug!("Exposure Compensation: {}", value),
+        Backlight { status } => debug!("Backlight: {}", status),
+        ColorTemperature { temperature } => debug!("Color Temperature: {}", temperature),
+        Hue { hue } => debug!("Hue: {}", hue),
+        _ => debug!("Unhandled inquiry response: {:?}", inquiry_response),
     }
 }

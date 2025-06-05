@@ -1,24 +1,23 @@
 //! Async auto-reconnecting transport wrapper.
 
 #[cfg(feature = "async-client")]
+// Standard library imports
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Instant;
+
+// Third-party imports
+use tokio::sync::RwLock;
+use tokio::time::{sleep, Duration};
+
+// Crate imports
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
     connection::{AsyncConnectionManagement, ConnectionStats},
     reconnecting_transport::ReconnectionConfig,
     ViscaCommand, ViscaError,
 };
-#[cfg(feature = "async-client")]
-use std::future::Future;
-#[cfg(feature = "async-client")]
-use std::pin::Pin;
-#[cfg(feature = "async-client")]
-use std::sync::Arc;
-#[cfg(feature = "async-client")]
-use std::time::Instant;
-#[cfg(feature = "async-client")]
-use tokio::sync::RwLock;
-#[cfg(feature = "async-client")]
-use tokio::time::{sleep, Duration};
 
 #[cfg(feature = "async-client")]
 type CreateTransportFn<T> =

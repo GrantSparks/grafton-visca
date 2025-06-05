@@ -1,7 +1,13 @@
-use crate::command::response::parse_visca_response;
-use crate::{ViscaError, ViscaResponse, ViscaResponseType};
-use log::{debug, error};
+// Standard library imports
 use std::collections::HashMap;
+
+// Third-party imports
+use log::{debug, error};
+
+// Crate imports
+use crate::{
+    command::response::parse_visca_response, ViscaError, ViscaResponse, ViscaResponseType,
+};
 
 /// Represents a command that is currently being processed by the camera
 #[derive(Debug)]
@@ -33,8 +39,9 @@ impl Default for ViscaSession {
 }
 
 impl ViscaSession {
-    /// Assigns a socket to a new command
-    /// Returns the socket ID (0 or 1) if successful
+    /// Assigns a socket to a new command.
+    ///
+    /// Returns the socket ID (0 or 1) if successful.
     pub fn assign_socket(
         &mut self,
         response_type: Option<ViscaResponseType>,

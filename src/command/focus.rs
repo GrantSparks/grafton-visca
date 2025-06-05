@@ -3,11 +3,12 @@
 //! This module provides commands for controlling camera focus functionality,
 //! including auto/manual modes, directional focus, and direct position control.
 
-use crate::command::ViscaCommand;
-use crate::error::ViscaError;
-use crate::timeout::CommandCategory;
-
-use super::ViscaResponseType;
+// Crate imports
+use crate::{
+    command::{ViscaCommand, ViscaResponseType},
+    error::ViscaError,
+    timeout::CommandCategory,
+};
 
 /// Focus control commands.
 ///

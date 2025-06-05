@@ -1,9 +1,12 @@
-use crate::command::ViscaCommand;
-use crate::error::ViscaError;
-use crate::timeout::CommandCategory;
+// Standard library imports
 use std::convert::TryFrom;
 
-use super::ViscaResponseType;
+// Crate imports
+use crate::{
+    command::{ViscaCommand, ViscaResponseType},
+    error::ViscaError,
+    timeout::CommandCategory,
+};
 
 #[derive(Debug, Copy, Clone)]
 pub enum WhiteBalanceMode {

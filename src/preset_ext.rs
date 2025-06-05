@@ -1,8 +1,11 @@
 //! High-level extension trait for preset management operations.
 
-use crate::command::preset::{PresetAction, PresetCommand};
-use crate::error::ViscaError;
-use crate::transport_ext::ViscaTransportExt;
+// Crate imports
+use crate::{
+    command::preset::{PresetAction, PresetCommand},
+    error::ViscaError,
+    transport_ext::ViscaTransportExt,
+};
 
 /// Extension trait providing high-level preset management methods.
 pub trait ViscaPresetExt: ViscaTransportExt {

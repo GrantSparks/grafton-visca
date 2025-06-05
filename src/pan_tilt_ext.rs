@@ -1,8 +1,11 @@
 //! High-level extension trait for pan/tilt control operations.
 
-use crate::command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed};
-use crate::error::ViscaError;
-use crate::transport_ext::ViscaTransportExt;
+// Crate imports
+use crate::{
+    command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+    error::ViscaError,
+    transport_ext::ViscaTransportExt,
+};
 
 /// Extension trait providing high-level pan/tilt control methods.
 pub trait ViscaPanTiltExt: ViscaTransportExt {

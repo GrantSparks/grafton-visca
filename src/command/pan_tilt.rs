@@ -21,11 +21,15 @@
 //! transport.send_command(&command).unwrap();
 //! ```
 
-use super::ViscaResponseType;
-use crate::command::ViscaCommand;
-use crate::error::ViscaError;
-use crate::timeout::CommandCategory;
+// Standard library imports
 use std::convert::TryFrom;
+
+// Crate imports
+use crate::{
+    command::{ViscaCommand, ViscaResponseType},
+    error::ViscaError,
+    timeout::CommandCategory,
+};
 
 /// Direction for pan/tilt movement commands.
 ///
@@ -391,9 +395,7 @@ mod tests {
     }
 }
 
-// Helper function to convert a 15-bit signed position to 4 nibbles
 fn position_to_bytes(position: i16) -> [u8; 4] {
-    // VISCA uses 15-bit signed values represented as 4 nibbles
     let unsigned = position as u16;
     [
         ((unsigned >> 12) & 0x0F) as u8,

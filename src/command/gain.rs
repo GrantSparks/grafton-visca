@@ -1,7 +1,9 @@
-use crate::error::ViscaError;
-use crate::timeout::CommandCategory;
-
-use super::{response::ViscaResponseType, ViscaCommand};
+// Crate imports
+use crate::{
+    command::{response::ViscaResponseType, ViscaCommand},
+    error::ViscaError,
+    timeout::CommandCategory,
+};
 
 #[derive(Debug, Copy, Clone)]
 pub enum GainCommand {

@@ -1,14 +1,16 @@
-use std::io;
-use std::time::Duration;
+// Standard library imports
+use std::{io, time::Duration};
+
+// Third-party imports
 use thiserror::Error;
 
-// Using traditional exhaustive enum approach for ViscaError
-// This provides better ergonomics for library users who need to handle specific errors
-// The VISCA protocol has a well-defined set of error conditions that are unlikely to change frequently
-// Adding new variants will require a major version bump, which is acceptable for this use case
+/// VISCA protocol error type.
+///
+/// Provides comprehensive error handling for all VISCA operations.
+/// The VISCA protocol has a well-defined set of error conditions
+/// that map directly to camera responses and communication failures.
 #[derive(Error, Debug)]
 pub enum ViscaError {
-    // Connection errors
     #[error("Connection failed to {addr}: {source}")]
     ConnectionFailed { addr: String, source: io::Error },
 
@@ -18,7 +20,6 @@ pub enum ViscaError {
     #[error("Command timeout after {duration:?} for command: {command}")]
     CommandTimeout { duration: Duration, command: String },
 
-    // Camera state errors
     #[error("Camera is busy executing another command")]
     CameraBusy,
 
@@ -28,14 +29,12 @@ pub enum ViscaError {
     #[error("Camera not initialized")]
     CameraNotReady,
 
-    // Protocol errors
     #[error("Invalid response: expected {expected}, got {actual:?}")]
     InvalidResponse { expected: String, actual: Vec<u8> },
 
     #[error("Command rejected by camera: {reason}")]
     CommandRejected { reason: String },
 
-    // Value errors
     #[error("Value {value} out of range [{min}, {max}] for {parameter}")]
     OutOfRange {
         value: i32,
@@ -47,11 +46,9 @@ pub enum ViscaError {
     #[error("Preset {id} not found")]
     PresetNotFound { id: u8 },
 
-    // Feature errors
     #[error("Feature '{feature}' not supported by this camera model")]
     FeatureNotSupported { feature: String },
 
-    // Legacy errors (keeping for backward compatibility)
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
 
@@ -107,35 +104,40 @@ pub enum ViscaError {
 }
 
 impl ViscaError {
+    /// Create a ViscaError from a VISCA error response code.
     pub fn from_code(code: u8) -> Self {
+        use ViscaError::*;
+
         match code {
-            0x02 => ViscaError::SyntaxError,
-            0x03 => ViscaError::CommandBufferFull,
-            0x04 => ViscaError::CommandCanceled,
-            0x05 => ViscaError::NoSocket,
-            0x41 => ViscaError::CommandNotExecutable,
-            _ => ViscaError::Unknown(code),
+            0x02 => SyntaxError,
+            0x03 => CommandBufferFull,
+            0x04 => CommandCanceled,
+            0x05 => NoSocket,
+            0x41 => CommandNotExecutable,
+            _ => Unknown(code),
         }
     }
 
+    /// Check if this error is potentially retryable.
     pub fn is_retryable(&self) -> bool {
+        use ViscaError::*;
+
         matches!(
             self,
-            ViscaError::CameraBusy
-                | ViscaError::CameraMoving { .. }
-                | ViscaError::CommandTimeout { .. }
-                | ViscaError::CommandBufferFull
-                | ViscaError::Timeout
+            CameraBusy | CameraMoving { .. } | CommandTimeout { .. } | CommandBufferFull | Timeout
         )
     }
 
+    /// Get a suggested retry delay for retryable errors.
     pub fn suggested_retry_delay(&self) -> Option<Duration> {
+        use ViscaError::*;
+
         match self {
-            ViscaError::CameraBusy => Some(Duration::from_millis(100)),
-            ViscaError::CameraMoving { .. } => Some(Duration::from_millis(500)),
-            ViscaError::CommandTimeout { .. } => Some(Duration::from_secs(1)),
-            ViscaError::CommandBufferFull => Some(Duration::from_millis(200)),
-            ViscaError::Timeout => Some(Duration::from_secs(2)),
+            CameraBusy => Some(Duration::from_millis(100)),
+            CameraMoving { .. } => Some(Duration::from_millis(500)),
+            CommandTimeout { .. } => Some(Duration::from_secs(1)),
+            CommandBufferFull => Some(Duration::from_millis(200)),
+            Timeout => Some(Duration::from_secs(2)),
             _ => None,
         }
     }
@@ -147,6 +149,7 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for ViscaError {
     }
 }
 
+/// Application-level error type for examples and user code.
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("IO error: {0}")]
@@ -246,7 +249,6 @@ mod tests {
 
     #[test]
     fn test_is_retryable() {
-        // Retryable errors
         assert!(ViscaError::CameraBusy.is_retryable());
         assert!(ViscaError::CameraMoving { pan: 100, tilt: 50 }.is_retryable());
         assert!(ViscaError::CommandTimeout {
@@ -257,7 +259,6 @@ mod tests {
         assert!(ViscaError::CommandBufferFull.is_retryable());
         assert!(ViscaError::Timeout.is_retryable());
 
-        // Non-retryable errors
         assert!(!ViscaError::SyntaxError.is_retryable());
         assert!(!ViscaError::CommandNotExecutable.is_retryable());
         assert!(!ViscaError::InvalidParameter("test".to_string()).is_retryable());
@@ -266,7 +267,6 @@ mod tests {
 
     #[test]
     fn test_suggested_retry_delay() {
-        // Errors with retry delays
         assert_eq!(
             ViscaError::CameraBusy.suggested_retry_delay(),
             Some(Duration::from_millis(100))
@@ -292,7 +292,6 @@ mod tests {
             Some(Duration::from_secs(2))
         );
 
-        // Errors without retry delays
         assert_eq!(ViscaError::SyntaxError.suggested_retry_delay(), None);
         assert_eq!(
             ViscaError::InvalidParameter("test".to_string()).suggested_retry_delay(),

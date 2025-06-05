@@ -1,10 +1,15 @@
+// Standard library imports
+use std::net::SocketAddr;
+
+// Third-party imports
+use tokio::net::UdpSocket;
+use tokio::time::{timeout, Duration};
+
+// Crate imports
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
     parse_response, ConnectionStats, TimeoutConfig, ViscaCommand, ViscaError,
 };
-use std::net::SocketAddr;
-use tokio::net::UdpSocket;
-use tokio::time::{timeout, Duration};
 
 /// Async UDP transport for VISCA over IP communication.
 #[cfg(feature = "async-client")]

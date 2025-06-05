@@ -13,7 +13,10 @@ pub use parking_lot::Mutex;
 // Semaphore abstraction that works for both sync and async
 #[cfg(feature = "async-client")]
 mod async_semaphore {
+    // Standard library imports
     use std::sync::Arc;
+
+    // Third-party imports
     use tokio::sync::{Semaphore as TokioSemaphore, SemaphorePermit};
 
     pub struct Semaphore {
@@ -44,8 +47,11 @@ mod async_semaphore {
 
 #[cfg(not(feature = "async-client"))]
 mod sync_semaphore {
-    use parking_lot::{Condvar, Mutex};
+    // Standard library imports
     use std::sync::Arc;
+
+    // Third-party imports
+    use parking_lot::{Condvar, Mutex};
 
     pub struct Semaphore {
         state: Arc<(Mutex<usize>, Condvar)>,

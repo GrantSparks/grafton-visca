@@ -18,10 +18,12 @@
 //! transport.send_command(&ZoomCommand::WideVariable(5)).unwrap();
 //! ```
 
-use super::ViscaResponseType;
-use crate::command::ViscaCommand;
-use crate::error::ViscaError;
-use crate::timeout::CommandCategory;
+// Crate imports
+use crate::{
+    command::{ViscaCommand, ViscaResponseType},
+    error::ViscaError,
+    timeout::CommandCategory,
+};
 
 /// Zoom control commands.
 ///

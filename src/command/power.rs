@@ -1,8 +1,9 @@
-use crate::command::ViscaCommand;
-use crate::error::ViscaError;
-use crate::timeout::CommandCategory;
-
-use super::ViscaResponseType;
+// Crate imports
+use crate::{
+    command::{ViscaCommand, ViscaResponseType},
+    error::ViscaError,
+    timeout::CommandCategory,
+};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Power {
