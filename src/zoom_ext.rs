@@ -2,9 +2,10 @@
 
 // Crate imports
 use crate::{
-    command::zoom::{ZoomCommand, ZoomSpeed},
+    command::{zoom::{ZoomCommand, ZoomSpeed}, InquiryCommand},
     error::ViscaError,
     transport_ext::ViscaTransportExt,
+    ViscaResponse,
 };
 
 /// Extension trait providing high-level zoom control methods.
@@ -119,6 +120,110 @@ pub trait ViscaZoomExt: ViscaTransportExt {
         let command = ZoomCommand::Stop;
         self.send_command(&command)?;
         Ok(())
+    }
+
+    /// Set zoom by magnification factor.
+    ///
+    /// # Arguments
+    /// * `magnification` - Zoom magnification (1.0 to 20.0 for 20x cameras)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Set to 1x (wide)
+    /// transport.zoom_to_magnification(1.0)?;
+    ///
+    /// // Set to 10x zoom
+    /// transport.zoom_to_magnification(10.0)?;
+    ///
+    /// // Set to maximum 20x zoom
+    /// transport.zoom_to_magnification(20.0)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn zoom_to_magnification(&mut self, magnification: f32) -> Result<(), ViscaError> {
+        let position = crate::constants::zoom_magnification_to_visca(magnification);
+        self.zoom_to(position)
+    }
+
+    /// Get current zoom magnification.
+    ///
+    /// # Returns
+    /// Current zoom magnification (1.0 to 20.0 for 20x cameras)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// let magnification = transport.get_zoom_magnification()?;
+    /// println!("Current zoom: {:.1}x", magnification);
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn get_zoom_magnification(&mut self) -> Result<f32, ViscaError>
+    where
+        Self: Sized,
+    {
+        let response = self.send_and_wait(&InquiryCommand::ZoomPosition)?;
+        match response {
+            ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition { position }) => {
+                Ok(crate::constants::zoom_visca_to_magnification(position))
+            }
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Set zoom by normalized value.
+    ///
+    /// # Arguments
+    /// * `normalized` - Normalized zoom value (0.0 = wide, 1.0 = telephoto)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Set to wide (0%)
+    /// transport.zoom_to_normalized(0.0)?;
+    ///
+    /// // Set to mid-range (50%)
+    /// transport.zoom_to_normalized(0.5)?;
+    ///
+    /// // Set to telephoto (100%)
+    /// transport.zoom_to_normalized(1.0)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn zoom_to_normalized(&mut self, normalized: f32) -> Result<(), ViscaError> {
+        let position = crate::constants::zoom_normalized_to_visca(normalized);
+        self.zoom_to(position)
+    }
+
+    /// Get current zoom as normalized value.
+    ///
+    /// # Returns
+    /// Normalized zoom value (0.0 = wide, 1.0 = telephoto)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// let normalized = transport.get_zoom_normalized()?;
+    /// println!("Current zoom: {:.0}%", normalized * 100.0);
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn get_zoom_normalized(&mut self) -> Result<f32, ViscaError>
+    where
+        Self: Sized,
+    {
+        let response = self.send_and_wait(&InquiryCommand::ZoomPosition)?;
+        match response {
+            ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition { position }) => {
+                Ok(crate::constants::zoom_visca_to_normalized(position))
+            }
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
     }
 }
 

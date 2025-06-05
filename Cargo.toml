@@ -119,3 +119,11 @@ name = "phase_d_ergonomic_apis"
 
 [[example]]
 name = "phase_e_error_handling"
+
+[[example]]
+name = "enhanced_api_demo"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "transport_extension_demo"
+required-features = ["blocking-client"]

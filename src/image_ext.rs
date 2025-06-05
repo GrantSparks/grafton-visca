@@ -1,0 +1,389 @@
+//! High-level extension trait for image settings control operations.
+
+// Crate imports
+use crate::{
+    command::{
+        BlackWhiteCommand, ContrastCommand, HueCommand, ImageFlipCombinedCommand, ImageFlipMode,
+        NoiseReduction2DCommand, NoiseReduction3DCommand, SaturationCommand, SharpnessCommand,
+    },
+    error::ViscaError,
+    transport_ext::ViscaTransportExt,
+};
+
+/// Extension trait providing high-level image settings control methods.
+pub trait ViscaImageExt: ViscaTransportExt {
+    /// Enable or disable black and white mode.
+    ///
+    /// # Arguments
+    /// * `enabled` - Whether to enable black and white mode
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Enable black and white mode
+    /// transport.set_black_white_mode(true)?;
+    ///
+    /// // Return to color mode
+    /// transport.set_black_white_mode(false)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_black_white_mode(&mut self, enabled: bool) -> Result<(), ViscaError> {
+        let command = BlackWhiteCommand { on: enabled };
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Set 2D noise reduction level.
+    ///
+    /// # Arguments
+    /// * `level` - Noise reduction level (None for off, Some(1-5) for levels)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Turn off 2D noise reduction
+    /// transport.set_noise_reduction_2d(None)?;
+    ///
+    /// // Set to low noise reduction
+    /// transport.set_noise_reduction_2d(Some(1))?;
+    ///
+    /// // Set to maximum noise reduction
+    /// transport.set_noise_reduction_2d(Some(5))?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_noise_reduction_2d(&mut self, level: Option<u8>) -> Result<(), ViscaError> {
+        let command = match level {
+            None => NoiseReduction2DCommand::Off,
+            Some(lvl) => {
+                if lvl < 1 || lvl > 5 {
+                    return Err(ViscaError::InvalidParameter(
+                        "2D noise reduction level must be 1-5".into(),
+                    ));
+                }
+                NoiseReduction2DCommand::Level(lvl)
+            }
+        };
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Set 3D noise reduction level.
+    ///
+    /// # Arguments
+    /// * `level` - Noise reduction level (None for off, Some(1-8) for levels)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Turn off 3D noise reduction
+    /// transport.set_noise_reduction_3d(None)?;
+    ///
+    /// // Set to moderate noise reduction
+    /// transport.set_noise_reduction_3d(Some(4))?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_noise_reduction_3d(&mut self, level: Option<u8>) -> Result<(), ViscaError> {
+        let command = match level {
+            None => NoiseReduction3DCommand::Off,
+            Some(lvl) => {
+                if lvl < 1 || lvl > 8 {
+                    return Err(ViscaError::InvalidParameter(
+                        "3D noise reduction level must be 1-8".into(),
+                    ));
+                }
+                NoiseReduction3DCommand::Level(lvl)
+            }
+        };
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Set image flip settings.
+    ///
+    /// # Arguments
+    /// * `horizontal` - Whether to flip horizontally
+    /// * `vertical` - Whether to flip vertically
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // No flip
+    /// transport.set_image_flip(false, false)?;
+    ///
+    /// // Horizontal flip only
+    /// transport.set_image_flip(true, false)?;
+    ///
+    /// // Vertical flip only
+    /// transport.set_image_flip(false, true)?;
+    ///
+    /// // Both horizontal and vertical flip (180° rotation)
+    /// transport.set_image_flip(true, true)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_image_flip(&mut self, horizontal: bool, vertical: bool) -> Result<(), ViscaError> {
+        let mode = match (horizontal, vertical) {
+            (false, false) => ImageFlipMode::Off,
+            (true, false) => ImageFlipMode::Horizontal,
+            (false, true) => ImageFlipMode::Vertical,
+            (true, true) => ImageFlipMode::Both,
+        };
+        let command = ImageFlipCombinedCommand { mode };
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Set sharpness level.
+    ///
+    /// # Arguments
+    /// * `level` - Sharpness level (0 to 14, 7 is default)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Set minimum sharpness (softest)
+    /// transport.set_sharpness(0)?;
+    ///
+    /// // Set default sharpness
+    /// transport.set_sharpness(7)?;
+    ///
+    /// // Set maximum sharpness
+    /// transport.set_sharpness(14)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_sharpness(&mut self, level: u8) -> Result<(), ViscaError> {
+        if level > 14 {
+            return Err(ViscaError::InvalidParameter(
+                "Sharpness level must be 0-14".into(),
+            ));
+        }
+        let command = SharpnessCommand::Direct { value: level };
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Increase sharpness.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// transport.sharpness_up()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn sharpness_up(&mut self) -> Result<(), ViscaError> {
+        let command = SharpnessCommand::Up;
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Decrease sharpness.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// transport.sharpness_down()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn sharpness_down(&mut self) -> Result<(), ViscaError> {
+        let command = SharpnessCommand::Down;
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Reset sharpness.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// transport.sharpness_reset()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn sharpness_reset(&mut self) -> Result<(), ViscaError> {
+        let command = SharpnessCommand::Reset;
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Set color saturation level.
+    ///
+    /// # Arguments
+    /// * `level` - Saturation level (0 to 14, 7 is default)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Set minimum saturation (monochrome)
+    /// transport.set_saturation(0)?;
+    ///
+    /// // Set default saturation
+    /// transport.set_saturation(7)?;
+    ///
+    /// // Set maximum saturation (vivid colors)
+    /// transport.set_saturation(14)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_saturation(&mut self, level: u8) -> Result<(), ViscaError> {
+        if level > 0x0E {
+            return Err(ViscaError::InvalidParameter(
+                "Saturation level must be 0x0-0xE (0-14)".into(),
+            ));
+        }
+        let command = SaturationCommand { level };
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Set hue adjustment.
+    ///
+    /// # Arguments
+    /// * `level` - Hue level (0 to 14, 7 is default/neutral)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Shift hue towards red
+    /// transport.set_hue(4)?;
+    ///
+    /// // Reset hue to default
+    /// transport.set_hue(7)?;
+    ///
+    /// // Shift hue towards green
+    /// transport.set_hue(10)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_hue(&mut self, level: u8) -> Result<(), ViscaError> {
+        if level > 0x0E {
+            return Err(ViscaError::InvalidParameter(
+                "Hue level must be 0x0-0xE (0-14)".into(),
+            ));
+        }
+        let command = HueCommand { level };
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    /// Set contrast level.
+    ///
+    /// # Arguments
+    /// * `level` - Contrast level (0 to 14, 7 is default)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Set minimum contrast
+    /// transport.set_contrast(0)?;
+    ///
+    /// // Set default contrast
+    /// transport.set_contrast(7)?;
+    ///
+    /// // Set maximum contrast
+    /// transport.set_contrast(14)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_contrast(&mut self, level: u8) -> Result<(), ViscaError> {
+        if level > 14 {
+            return Err(ViscaError::InvalidParameter(
+                "Contrast level must be 0-14".into(),
+            ));
+        }
+        let command = ContrastCommand { value: level };
+        self.send_command(&command)?;
+        Ok(())
+    }
+
+    // Note: The contrast command only supports direct value setting, not up/down/reset
+
+    /// Apply an image preset configuration.
+    ///
+    /// # Arguments
+    /// * `preset` - The image preset to apply
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt, ImagePreset};
+    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// // Apply vivid preset
+    /// transport.apply_image_preset(ImagePreset::Vivid)?;
+    ///
+    /// // Apply cinema preset
+    /// transport.apply_image_preset(ImagePreset::Cinema)?;
+    ///
+    /// // Reset to default
+    /// transport.apply_image_preset(ImagePreset::Default)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn apply_image_preset(&mut self, preset: ImagePreset) -> Result<(), ViscaError> {
+        match preset {
+            ImagePreset::Default => {
+                self.set_sharpness(7)?;
+                self.set_saturation(7)?;
+                self.set_contrast(7)?;
+                self.set_hue(7)?;
+            }
+            ImagePreset::Vivid => {
+                self.set_sharpness(10)?;
+                self.set_saturation(11)?;
+                self.set_contrast(9)?;
+                self.set_hue(7)?;
+            }
+            ImagePreset::Cinema => {
+                self.set_sharpness(4)?;
+                self.set_saturation(9)?;
+                self.set_contrast(8)?;
+                self.set_hue(7)?;
+            }
+            ImagePreset::Monochrome => {
+                self.set_saturation(0)?;
+                self.set_contrast(9)?;
+                self.set_sharpness(8)?;
+            }
+            ImagePreset::Soft => {
+                self.set_sharpness(2)?;
+                self.set_saturation(6)?;
+                self.set_contrast(5)?;
+                self.set_hue(7)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Common image preset configurations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImagePreset {
+    /// Default settings (all at neutral)
+    Default,
+    /// Vivid colors and sharp image
+    Vivid,
+    /// Cinema-like settings
+    Cinema,
+    /// Black and white with enhanced contrast
+    Monochrome,
+    /// Soft, dreamy look
+    Soft,
+}
+
+/// Implement the trait for all types that implement `ViscaTransportExt`
+impl<T: ViscaTransportExt> ViscaImageExt for T {}
