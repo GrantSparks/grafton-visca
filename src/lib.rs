@@ -223,19 +223,19 @@ use log::{debug, error};
 // Module declarations
 pub mod command;
 pub mod connection;
+pub mod connection_pool;
 pub mod constants;
 pub mod macros;
+pub mod reconnecting_transport;
 pub mod timeout;
 pub mod transport;
 
 mod camera_detection;
-mod connection_pool;
 mod error;
 mod focus_ext;
 mod inquiry_ext;
 mod pan_tilt_ext;
 mod preset_ext;
-mod reconnecting_transport;
 mod session;
 mod transport_ext;
 mod zoom_ext;
@@ -310,7 +310,6 @@ pub use crate::{
     ptz_builder::PtzBuilder,
     unified_client::{ViscaClient, ViscaClientPtzExt},
 };
-
 #[cfg(feature = "async-client")]
 pub use crate::{
     async_client::AsyncViscaClient,
