@@ -73,22 +73,19 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
 
     // Example 1: Retry with custom parameters
     println!("   a) Retry with custom base delay:");
+    use std::cell::Cell;
+    let attempt_count = Cell::new(0);
     let result = ViscaRetry::retry_blocking(
         || {
             // Simulate an operation that fails twice then succeeds
-            static mut ATTEMPT_COUNT: u32 = 0;
-            unsafe {
-                ATTEMPT_COUNT += 1;
-                if ATTEMPT_COUNT < 3 {
-                    println!(
-                        "      Attempt {}: Simulating CameraBusy error",
-                        ATTEMPT_COUNT
-                    );
-                    Err(ViscaError::CameraBusy)
-                } else {
-                    println!("      Attempt {}: Success!", ATTEMPT_COUNT);
-                    Ok("Operation completed")
-                }
+            let count = attempt_count.get() + 1;
+            attempt_count.set(count);
+            if count < 3 {
+                println!("      Attempt {}: Simulating CameraBusy error", count);
+                Err(ViscaError::CameraBusy)
+            } else {
+                println!("      Attempt {}: Success!", count);
+                Ok("Operation completed")
             }
         },
         3,                         // max attempts
@@ -101,25 +98,24 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
     }
 
     // Reset counter for next example
-    unsafe {
-        static mut ATTEMPT_COUNT2: u32 = 0;
-        println!("\n   b) Non-retryable error (fails immediately):");
-        let result: Result<&str, ViscaError> = ViscaRetry::retry_blocking(
-            || {
-                ATTEMPT_COUNT2 += 1;
-                println!("      Attempt {}: Simulating SyntaxError", ATTEMPT_COUNT2);
-                Err(ViscaError::SyntaxError)
-            },
-            3,
-            Duration::from_millis(50),
-        );
+    println!("\n   b) Non-retryable error (fails immediately):");
+    let attempt_count2 = Cell::new(0);
+    let result: Result<&str, ViscaError> = ViscaRetry::retry_blocking(
+        || {
+            let count = attempt_count2.get() + 1;
+            attempt_count2.set(count);
+            println!("      Attempt {}: Simulating SyntaxError", count);
+            Err(ViscaError::SyntaxError)
+        },
+        3,
+        Duration::from_millis(50),
+    );
 
-        match result {
-            Ok(_) => println!("   ✅ Unexpected success"),
-            Err(err) => {
-                println!("   ❌ Failed as expected: {}", err);
-                println!("   💡 SyntaxError is not retryable, so only 1 attempt was made");
-            }
+    match result {
+        Ok(_) => println!("   ✅ Unexpected success"),
+        Err(err) => {
+            println!("   ❌ Failed as expected: {}", err);
+            println!("   💡 SyntaxError is not retryable, so only 1 attempt was made");
         }
     }
 
@@ -162,20 +158,22 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
     println!("1. Async Retry with ViscaRetry::retry_async");
 
     // Example with simulated retryable error
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+
+    let async_attempt_count = Arc::new(AtomicU32::new(0));
+    let async_attempt_count_clone = async_attempt_count.clone();
+
     let result = ViscaRetry::retry_async(
-        || async {
-            // Simulate an operation that fails twice then succeeds
-            static mut ASYNC_ATTEMPT_COUNT: u32 = 0;
-            unsafe {
-                ASYNC_ATTEMPT_COUNT += 1;
-                if ASYNC_ATTEMPT_COUNT < 3 {
-                    println!(
-                        "   Async attempt {}: Simulating timeout",
-                        ASYNC_ATTEMPT_COUNT
-                    );
+        move || {
+            let count = async_attempt_count_clone.clone();
+            async move {
+                let current = count.fetch_add(1, Ordering::SeqCst) + 1;
+                if current < 3 {
+                    println!("   Async attempt {}: Simulating timeout", current);
                     Err(ViscaError::Timeout)
                 } else {
-                    println!("   Async attempt {}: Success!", ASYNC_ATTEMPT_COUNT);
+                    println!("   Async attempt {}: Success!", current);
                     Ok("Async operation completed")
                 }
             }
@@ -192,12 +190,15 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
 
     println!("\n2. Retry with Suggested Delays");
 
-    unsafe {
-        static mut SUGGESTED_ATTEMPT_COUNT: u32 = 0;
-        let result = ViscaRetry::retry_with_suggested_delay_async(
-            || async {
-                SUGGESTED_ATTEMPT_COUNT += 1;
-                match SUGGESTED_ATTEMPT_COUNT {
+    let suggested_attempt_count = Arc::new(AtomicU32::new(0));
+    let suggested_attempt_count_clone = suggested_attempt_count.clone();
+
+    let result = ViscaRetry::retry_with_suggested_delay_async(
+        move || {
+            let count = suggested_attempt_count_clone.clone();
+            async move {
+                let current = count.fetch_add(1, Ordering::SeqCst) + 1;
+                match current {
                     1 => {
                         println!("   Attempt 1: CameraBusy (suggested delay: 100ms)");
                         Err(ViscaError::CameraBusy)
@@ -218,53 +219,57 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
                         Ok("Operation completed with suggested delays")
                     }
                 }
-            },
-            5,
-        )
-        .await;
+            }
+        },
+        5,
+    )
+    .await;
 
-        match result {
-            Ok(value) => println!("   ✅ Suggested delay retry succeeded: {}", value),
-            Err(err) => println!("   ❌ Suggested delay retry failed: {}", err),
-        }
+    match result {
+        Ok(value) => println!("   ✅ Suggested delay retry succeeded: {}", value),
+        Err(err) => println!("   ❌ Suggested delay retry failed: {}", err),
     }
 
     println!("\n3. Exponential Backoff Example");
 
-    unsafe {
-        static mut BACKOFF_ATTEMPT_COUNT: u32 = 0;
-        let result = ViscaRetry::retry_with_exponential_backoff_async(
-            || async {
-                BACKOFF_ATTEMPT_COUNT += 1;
-                if BACKOFF_ATTEMPT_COUNT < 4 {
-                    println!("   Attempt {}: CommandBufferFull", BACKOFF_ATTEMPT_COUNT);
+    let backoff_attempt_count = Arc::new(AtomicU32::new(0));
+    let backoff_attempt_count_clone = backoff_attempt_count.clone();
+
+    let result = ViscaRetry::retry_with_exponential_backoff_async(
+        move || {
+            let count = backoff_attempt_count_clone.clone();
+            async move {
+                let current = count.fetch_add(1, Ordering::SeqCst) + 1;
+                if current < 4 {
+                    println!("   Attempt {}: CommandBufferFull", current);
                     Err(ViscaError::CommandBufferFull)
                 } else {
-                    println!("   Attempt {}: Success!", BACKOFF_ATTEMPT_COUNT);
+                    println!("   Attempt {}: Success!", current);
                     Ok("Exponential backoff completed")
                 }
-            },
-            5,                          // max attempts
-            Duration::from_millis(25),  // initial delay: 25ms
-            Duration::from_millis(400), // max delay: 400ms
-        )
-        .await;
-        // Delays will be: 25ms, 50ms, 100ms, 200ms, 400ms...
+            }
+        },
+        5,                          // max attempts
+        Duration::from_millis(25),  // initial delay: 25ms
+        Duration::from_millis(400), // max delay: 400ms
+    )
+    .await;
+    // Delays will be: 25ms, 50ms, 100ms, 200ms, 400ms...
 
-        match result {
-            Ok(value) => println!("   ✅ Exponential backoff succeeded: {}", value),
-            Err(err) => println!("   ❌ Exponential backoff failed: {}", err),
-        }
+    match result {
+        Ok(value) => println!("   ✅ Exponential backoff succeeded: {}", value),
+        Err(err) => println!("   ❌ Exponential backoff failed: {}", err),
     }
 
     println!("\n4. Real Async Camera Operations (if connected)");
 
     // Try to connect to a camera for real async operations
-    match AsyncViscaClient::connect_udp("127.0.0.1:1259")
-        .await
-        .or_else(|_| async { AsyncViscaClient::connect_udp("192.168.1.100:5678").await })
-        .await
-    {
+    let client_result = match AsyncViscaClient::connect_udp("127.0.0.1:1259").await {
+        Ok(client) => Ok(client),
+        Err(_) => AsyncViscaClient::connect_udp("192.168.1.100:5678").await,
+    };
+
+    match client_result {
         Ok(client) => {
             info!("   📹 Connected to camera, testing real operations");
 

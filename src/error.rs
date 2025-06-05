@@ -770,14 +770,22 @@ mod tests {
     #[cfg(feature = "async-client")]
     #[tokio::test]
     async fn test_visca_retry_async_success() {
-        let mut attempt_count = 0;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let attempt_count_clone = attempt_count.clone();
+
         let result = ViscaRetry::retry_async(
-            || async {
-                attempt_count += 1;
-                if attempt_count < 3 {
-                    Err(ViscaError::Timeout)
-                } else {
-                    Ok("async success")
+            move || {
+                let count = attempt_count_clone.clone();
+                async move {
+                    let current = count.fetch_add(1, Ordering::SeqCst) + 1;
+                    if current < 3 {
+                        Err(ViscaError::Timeout)
+                    } else {
+                        Ok("async success")
+                    }
                 }
             },
             3,
@@ -787,22 +795,30 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "async success");
-        assert_eq!(attempt_count, 3);
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
     }
 
     #[cfg(feature = "async-client")]
     #[tokio::test]
     async fn test_visca_retry_with_suggested_delay_async() {
-        let mut attempt_count = 0;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let attempt_count_clone = attempt_count.clone();
+
         let result = ViscaRetry::retry_with_suggested_delay_async(
-            || async {
-                attempt_count += 1;
-                if attempt_count == 1 {
-                    Err(ViscaError::CameraBusy) // 100ms suggested delay
-                } else if attempt_count == 2 {
-                    Err(ViscaError::CameraMoving { pan: 100, tilt: 50 }) // 500ms suggested delay
-                } else {
-                    Ok("suggested delay success")
+            move || {
+                let count = attempt_count_clone.clone();
+                async move {
+                    let current = count.fetch_add(1, Ordering::SeqCst) + 1;
+                    if current == 1 {
+                        Err(ViscaError::CameraBusy) // 100ms suggested delay
+                    } else if current == 2 {
+                        Err(ViscaError::CameraMoving { pan: 100, tilt: 50 }) // 500ms suggested delay
+                    } else {
+                        Ok("suggested delay success")
+                    }
                 }
             },
             4,
@@ -811,22 +827,29 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "suggested delay success");
-        assert_eq!(attempt_count, 3);
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
     }
 
     #[cfg(feature = "async-client")]
     #[tokio::test]
     async fn test_visca_retry_exponential_backoff_async() {
-        let mut attempt_count = 0;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let attempt_count_clone = attempt_count.clone();
         let start_time = std::time::Instant::now();
 
         let result = ViscaRetry::retry_with_exponential_backoff_async(
-            || async {
-                attempt_count += 1;
-                if attempt_count < 3 {
-                    Err(ViscaError::CommandBufferFull)
-                } else {
-                    Ok("backoff success")
+            move || {
+                let count = attempt_count_clone.clone();
+                async move {
+                    let current = count.fetch_add(1, Ordering::SeqCst) + 1;
+                    if current < 3 {
+                        Err(ViscaError::CommandBufferFull)
+                    } else {
+                        Ok("backoff success")
+                    }
                 }
             },
             4,
@@ -839,7 +862,7 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "backoff success");
-        assert_eq!(attempt_count, 3);
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
         // Should have at least 10ms (first retry) + 20ms (second retry) = 30ms total
         assert!(elapsed >= Duration::from_millis(25));
     }
