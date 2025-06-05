@@ -6,6 +6,7 @@
 //!
 //! # Example
 //! ```no_run
+//! # #[cfg(feature = "blocking-client")] {
 //! # use grafton_visca::{ViscaClient, ViscaClientPtzExt};
 //! # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed, PanTiltDirection};
 //! # use std::sync::Arc;
@@ -17,6 +18,7 @@
 //!     .focus_far()
 //!     .execute_sequential()
 //!     .unwrap();
+//! # }
 //! ```
 
 use std::sync::Arc;

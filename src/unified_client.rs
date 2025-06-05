@@ -260,6 +260,7 @@ pub trait ViscaClientPtzExt {
     ///
     /// # Example
     /// ```no_run
+    /// # #[cfg(feature = "blocking-client")] {
     /// # use grafton_visca::{ViscaClient, ViscaClientPtzExt};
     /// # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed, PanTiltDirection};
     /// # use std::sync::Arc;
@@ -271,6 +272,7 @@ pub trait ViscaClientPtzExt {
     ///     .focus_auto()
     ///     .execute_sequential()
     ///     .unwrap();
+    /// # }
     /// ```
     fn ptz(self) -> PtzBuilder;
 }
