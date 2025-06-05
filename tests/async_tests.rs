@@ -1,4 +1,4 @@
-#![cfg(feature = "async")]
+#![cfg(feature = "async-client")]
 
 use grafton_visca::command::{power::Power, PowerCommand};
 use grafton_visca::{

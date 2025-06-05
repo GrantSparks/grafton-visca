@@ -6,6 +6,7 @@ mod tests {
     use grafton_visca::{ViscaCommand, ViscaError};
 
     // Mock command for testing
+    #[allow(dead_code)]
     struct TestCommand;
 
     impl ViscaCommand for TestCommand {
@@ -25,6 +26,7 @@ mod tests {
     #[test]
     fn test_transport_trait_exists() {
         // This test verifies that the Transport trait exists and is usable
+        #[allow(dead_code)]
         fn accepts_transport<T: Transport>(_t: &T) {}
 
         // The test passes if this compiles

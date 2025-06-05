@@ -1,18 +1,18 @@
 //! Example demonstrating configurable timeouts for different command types with async transports.
 //!
-//! Run with: cargo run --example async_configurable_timeouts --features async
+//! Run with: cargo run --example async_configurable_timeouts --features async-client
 //!
 //! This example shows how to use the TimeoutConfig to set different timeout
 //! durations for various categories of VISCA commands when using async transports,
 //! allowing fine-tuned control over command execution timeouts.
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "async-client"))]
 fn main() {
     eprintln!("This example requires the 'async' feature. Run with:");
-    eprintln!("cargo run --example async_configurable_timeouts --features async");
+    eprintln!("cargo run --example async_configurable_timeouts --features async-client");
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use grafton_visca::{
     async_transport::AsyncViscaTransport,
     command::{
@@ -23,14 +23,14 @@ use grafton_visca::{
     },
     AsyncUdpTransport, TimeoutConfigBuilder, ViscaCommand, ViscaError, ViscaResponse,
 };
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::error::Error;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::net::ToSocketAddrs;
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 use std::time::Duration;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 async fn demonstrate_quick_command(
     transport: &mut dyn AsyncViscaTransport,
 ) -> Result<(), Box<dyn Error>> {
@@ -102,7 +102,7 @@ async fn demonstrate_quick_command(
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 async fn demonstrate_movement_command(
     transport: &mut dyn AsyncViscaTransport,
 ) -> Result<(), Box<dyn Error>> {
@@ -140,7 +140,7 @@ async fn demonstrate_movement_command(
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 async fn demonstrate_preset_command(
     transport: &mut dyn AsyncViscaTransport,
 ) -> Result<(), Box<dyn Error>> {
@@ -170,7 +170,7 @@ async fn demonstrate_preset_command(
 }
 
 /// Helper function to send a command and wait for the appropriate response
-#[cfg(feature = "async")]
+#[cfg(feature = "async-client")]
 async fn send_and_wait_async(
     transport: &mut dyn AsyncViscaTransport,
     command: &dyn ViscaCommand,
@@ -230,7 +230,7 @@ async fn send_and_wait_async(
     }
 }
 
-#[cfg(all(test, feature = "async"))]
+#[cfg(all(test, feature = "async-client"))]
 mod tests {
     use super::*;
     use grafton_visca::{CommandCategory, TimeoutConfigBuilder};
