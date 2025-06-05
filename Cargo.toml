@@ -100,6 +100,9 @@ required-features = ["blocking-client"]
 name = "phase_a_test"
 
 [[example]]
+name = "phase_b_unified_demo"
+
+[[example]]
 name = "position_conversion"
 
 [[example]]

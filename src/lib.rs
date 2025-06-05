@@ -246,10 +246,15 @@ pub use focus_ext::ViscaFocusExt;
 mod preset_ext;
 pub use preset_ext::ViscaPresetExt;
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-mod client;
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-pub use client::ViscaClient;
+// New unified client for v0.4.0
+mod unified_client;
+
+// Export ViscaClient based on features
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+compile_error!("At least one of 'blocking-client' or 'async-client' features must be enabled");
+
+// Use the new unified client for all feature combinations
+pub use unified_client::ViscaClient;
 
 #[cfg(feature = "async-client")]
 mod async_inquiry_ext;
@@ -305,10 +310,7 @@ pub use async_transport::{AsyncViscaTransport, TransportFuture};
 #[cfg(feature = "async-client")]
 pub use async_udp_transport::AsyncUdpTransport;
 
-#[cfg(all(feature = "blocking-client", feature = "async-client"))]
-mod sync_wrapper;
-#[cfg(all(feature = "blocking-client", feature = "async-client"))]
-pub use sync_wrapper::{send_command_and_wait_compat, ViscaClient};
+// sync_wrapper is no longer needed with the unified client
 
 pub mod timeout;
 pub use timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder};
