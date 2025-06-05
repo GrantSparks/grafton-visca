@@ -3,15 +3,23 @@
 //! This example demonstrates the enhanced error handling capabilities implemented in Phase E,
 //! including the ViscaResultExt trait and ViscaRetry utility for robust camera communication.
 
-use grafton_visca::{
-    command::{PanTiltCommand, ZoomCommand},
-    ViscaClient, ViscaError, ViscaResultExt, ViscaRetry,
-};
-use log::{info, warn};
+use grafton_visca::ViscaError;
 use std::time::Duration;
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use grafton_visca::{ViscaResultExt, ViscaRetry};
+
+#[cfg(feature = "blocking-client")]
+use grafton_visca::ViscaClient;
 
 #[cfg(feature = "async-client")]
 use grafton_visca::AsyncViscaClient;
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use grafton_visca::command::{PanTiltCommand, ZoomCommand};
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use log::{info, warn};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -34,23 +42,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rt.block_on(async_error_handling_examples())?;
     }
 
+    // Show message when no features are enabled
+    #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]    
+    {
+        println!("\n⚠️  No client features enabled");
+        println!("💡 Enable with one of:");
+        println!("   cargo run --example phase_e_error_handling --features blocking-client");
+        println!("   cargo run --example phase_e_error_handling --features async-client");
+    }
+
+    // Demonstrate error classification (no features required)
+    demonstrate_error_classification();
+
     println!("\n✅ Phase E error handling demonstration completed successfully!");
     Ok(())
 }
 
 #[cfg(feature = "blocking-client")]
 fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
-    // NOTE: This example uses localhost:1259 which will likely fail,
-    // demonstrating error handling in action
-    let client = ViscaClient::connect_udp("127.0.0.1:1259")
-        .or_else(|_| ViscaClient::connect_udp("192.168.1.100:5678"))
-        .unwrap_or_else(|_| {
-            // Create a mock client for demonstration
-            warn!("Unable to connect to camera, using mock scenarios");
-            // For demo purposes, we'll simulate errors manually
-            ViscaClient::connect_udp("127.0.0.1:1259").unwrap_or_else(|_| panic!("Demo only"))
-        });
-
     println!("1. Basic Error Context with ViscaResultExt");
     println!("   Using with_retry_context() to add logging to retryable errors");
 
@@ -120,33 +129,44 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
     }
 
     println!("\n3. Real Camera Operation Examples (if connected)");
-
-    // Try actual camera operations with retry
-    let pan_tilt_result = ViscaRetry::retry_blocking(
-        || client.send(&PanTiltCommand::Home),
-        3,
-        Duration::from_millis(100),
-    );
-
-    match pan_tilt_result {
-        Ok(_) => {
-            info!("   ✅ Pan/Tilt Home command succeeded");
-
-            // Try zoom operation with different retry strategy
-            let zoom_result = ViscaRetry::retry_blocking(
-                || client.send(&ZoomCommand::TeleStandard),
-                5,
-                Duration::from_millis(200),
+    
+    // Try to connect to a camera
+    match ViscaClient::connect_udp("127.0.0.1:1259") {
+        Ok(client) => {
+            info!("   📹 Connected to camera, testing real operations");
+            
+            // Try actual camera operations with retry
+            let pan_tilt_result = ViscaRetry::retry_blocking(
+                || client.send(&PanTiltCommand::Home),
+                3,
+                Duration::from_millis(100),
             );
 
-            match zoom_result {
-                Ok(_) => info!("   ✅ Zoom command succeeded"),
-                Err(err) => warn!("   ⚠️  Zoom command failed: {}", err),
+            match pan_tilt_result {
+                Ok(_) => {
+                    info!("   ✅ Pan/Tilt Home command succeeded");
+
+                    // Try zoom operation with different retry strategy
+                    let zoom_result = ViscaRetry::retry_blocking(
+                        || client.send(&ZoomCommand::TeleStandard),
+                        5,
+                        Duration::from_millis(200),
+                    );
+
+                    match zoom_result {
+                        Ok(_) => info!("   ✅ Zoom command succeeded"),
+                        Err(err) => warn!("   ⚠️  Zoom command failed: {}", err),
+                    }
+                }
+                Err(err) => {
+                    warn!("   ⚠️  Pan/Tilt command failed: {}", err);
+                }
             }
         }
         Err(err) => {
-            warn!("   ⚠️  Pan/Tilt command failed: {}", err);
+            warn!("   ⚠️  Could not connect to camera: {}", err);
             println!("   💡 This is expected if no camera is connected");
+            println!("   💡 To test with a real camera, see the control_demo example");
         }
     }
 
@@ -307,7 +327,6 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
 }
 
 /// Demonstrate error classification and retry decisions
-#[allow(dead_code)]
 fn demonstrate_error_classification() {
     println!("\n📊 Error Classification Examples:");
 
@@ -337,3 +356,4 @@ fn demonstrate_error_classification() {
         println!();
     }
 }
+
