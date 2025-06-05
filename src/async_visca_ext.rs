@@ -25,8 +25,8 @@ use std::time::Duration;
 use crate::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        preset::{PresetAction, PresetCommand},
-        zoom::ZoomCommand,
+        preset::{PresetAction, PresetCommand, PresetNumber},
+        zoom::{ZoomCommand, ZoomSpeed},
     },
     unified_client::{ViscaClient, ViscaClientPtzExt},
     ViscaError,
@@ -155,7 +155,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         // Execute pan/tilt and zoom concurrently using PTZ builder
         Arc::clone(self)
             .ptz()
-            .pan_tilt_absolute(pan_position, tilt_position, 0x18, 0x14) // Max speeds
+            .pan_tilt_absolute(pan_position, tilt_position, 0x18, 0x14)? // Max speeds
             .zoom_direct(zoom_level)
             .execute_concurrent()
             .await?;
@@ -172,7 +172,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
 
         let command = PresetCommand {
             action: PresetAction::Set,
-            preset_number: preset_number - 1, // VISCA uses 0-based indexing
+            preset_number: PresetNumber::new(preset_number - 1)?, // VISCA uses 0-based indexing
         };
 
         self.send_async(&command).await?;
@@ -193,7 +193,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         // Recall the preset position
         let command = PresetCommand {
             action: PresetAction::Recall,
-            preset_number: preset_number - 1, // VISCA uses 0-based indexing
+            preset_number: PresetNumber::new(preset_number - 1)?, // VISCA uses 0-based indexing
         };
         self.send_async(&command).await?;
 
@@ -226,7 +226,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
 
             let command = PresetCommand {
                 action: PresetAction::Recall,
-                preset_number: preset_number - 1, // VISCA uses 0-based indexing
+                preset_number: PresetNumber::new(preset_number - 1)?, // VISCA uses 0-based indexing
             };
             self.send_async(&command).await?;
 
@@ -328,7 +328,8 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         // Test zoom movement
         let zoom_test = async {
             // Zoom in slightly
-            self.send_async(&ZoomCommand::TeleVariable(3)).await?;
+            self.send_async(&ZoomCommand::TeleVariable(ZoomSpeed::new(3)?))
+                .await?;
             tokio::time::sleep(Duration::from_millis(200)).await;
 
             // Stop zoom

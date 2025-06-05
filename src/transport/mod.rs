@@ -3,27 +3,25 @@
 //! This module provides the core transport abstractions for the v0.4.0 API,
 //! featuring an async-first design with optional blocking adapters.
 
-// Standard library
+// Standard library imports
 use std::{future::Future, pin::Pin};
 
-// Internal modules
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
+use crate::{ViscaCommand, ViscaError};
+
+// Submodules
 mod tcp;
 mod udp;
 
-// Crate imports
-use crate::{ViscaCommand, ViscaError};
-
-// Blocking exports
+// Public re-exports
 #[cfg(feature = "blocking-client")]
-pub use tcp::TcpTransport;
-#[cfg(feature = "blocking-client")]
-pub use udp::UdpTransport;
+pub use self::{tcp::TcpTransport, udp::UdpTransport};
 
-// Async exports
 #[cfg(feature = "async-client")]
-pub use tcp::AsyncTcpTransport;
-#[cfg(feature = "async-client")]
-pub use udp::AsyncUdpTransport;
+pub use self::{tcp::AsyncTcpTransport, udp::AsyncUdpTransport};
 
 /// Type alias for the future returned by async transport methods.
 pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send + 'a>>;

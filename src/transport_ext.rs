@@ -2,13 +2,16 @@
 
 use crate::{
     command::{
-        exposure::{ExposureCommand, ExposureCompensationCommand, ExposureMode, IrisCommand},
+        exposure::{
+            ExposureCommand, ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode,
+            IrisCommand,
+        },
         focus::FocusCommand,
         gain::GainCommand,
         image::BacklightCommand,
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         power::{Power, PowerCommand},
-        preset::{PresetAction, PresetCommand},
+        preset::{PresetAction, PresetCommand, PresetNumber},
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
         zoom::ZoomCommand,
     },
@@ -80,7 +83,7 @@ pub trait ViscaTransportExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&PresetCommand {
-            preset_number: preset_id,
+            preset_number: PresetNumber::new(preset_id)?,
             action: PresetAction::Recall,
         })? {
             ViscaResponse::Completion => Ok(()),
@@ -98,7 +101,7 @@ pub trait ViscaTransportExt: ViscaTransport {
         Self: Sized,
     {
         match self.send_and_wait(&PresetCommand {
-            preset_number: preset_id,
+            preset_number: PresetNumber::new(preset_id)?,
             action: PresetAction::Set,
         })? {
             ViscaResponse::Completion => Ok(()),
@@ -193,8 +196,8 @@ pub trait ViscaTransportExt: ViscaTransport {
         match self.send_and_wait(&PanTiltCommand::AbsolutePosition {
             pan,
             tilt,
-            pan_speed,
-            tilt_speed,
+            pan_speed: PanSpeed::new(pan_speed)?,
+            tilt_speed: TiltSpeed::new(tilt_speed)?,
         })? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
@@ -297,7 +300,9 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&ExposureCompensationCommand::Direct(value))? {
+        match self.send_and_wait(&ExposureCompensationCommand::Direct(
+            ExposureCompensationLevel::new(value)?,
+        ))? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),

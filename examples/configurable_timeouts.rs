@@ -7,7 +7,7 @@
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        preset::{PresetAction, PresetCommand},
+        preset::{PresetAction, PresetCommand, PresetNumber},
         InquiryCommand,
     },
     TimeoutConfigBuilder, UdpTransport, ViscaCommand, ViscaTransport,
@@ -116,7 +116,7 @@ fn demonstrate_preset_command(transport: &mut UdpTransport) -> Result<(), Box<dy
 
     let command = PresetCommand {
         action: PresetAction::Recall,
-        preset_number: 1,
+        preset_number: PresetNumber::new(1)?,
     };
     println!("   Command category: {:?}", command.command_category());
     println!("   Expected timeout: Preset (30 seconds)");

@@ -1,7 +1,8 @@
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-        InquiryCommand, PanTiltCommand, ZoomCommand,
+        zoom::{ZoomCommand, ZoomSpeed},
+        InquiryCommand, PanTiltCommand,
     },
     send_command_and_wait, AppError, TcpTransport, UdpTransport, ViscaInquiryResponse,
     ViscaResponse, ViscaTransport,
@@ -110,8 +111,8 @@ fn main() -> Result<(), AppError> {
     let zoom_movements = [
         ZoomCommand::TeleStandard,
         ZoomCommand::WideStandard,
-        ZoomCommand::TeleVariable(5),
-        ZoomCommand::WideVariable(5),
+        ZoomCommand::TeleVariable(ZoomSpeed::new(5).unwrap()),
+        ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap()),
     ];
 
     for command in zoom_movements.iter() {
