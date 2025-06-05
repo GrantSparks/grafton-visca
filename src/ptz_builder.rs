@@ -261,7 +261,6 @@ impl std::fmt::Debug for PtzBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::pan_tilt::{PanSpeed, TiltSpeed};
 
     // Note: These tests would require actual ViscaClient instances
     // For now, we'll test the builder structure

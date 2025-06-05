@@ -251,7 +251,7 @@ impl ViscaClient {
     }
 }
 
-/// Extension trait for PTZ builder functionality on Arc<ViscaClient>.
+/// Extension trait for PTZ builder functionality on `Arc<ViscaClient>`.
 pub trait ViscaClientPtzExt {
     /// Create a PTZ builder for fluent command sequences.
     ///

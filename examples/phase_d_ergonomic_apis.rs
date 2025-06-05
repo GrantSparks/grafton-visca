@@ -4,7 +4,6 @@
 //! introduced in Phase D of the v0.4.0 refactoring.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
@@ -14,6 +13,9 @@ use grafton_visca::{
 // Async features
 #[cfg(feature = "async-client")]
 use grafton_visca::{AsyncViscaExt, PanScanDirection};
+
+#[cfg(feature = "async-client")]
+use std::time::Duration;
 
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 fn main() -> Result<(), ViscaError> {

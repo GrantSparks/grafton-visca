@@ -37,6 +37,7 @@ use crate::{
 /// This trait provides ergonomic methods for common camera operations
 /// that typically involve multiple VISCA commands.
 #[cfg(feature = "async-client")]
+#[allow(async_fn_in_trait)]
 pub trait AsyncViscaExt {
     /// Set up a shot with relative pan/tilt position and zoom level.
     ///
@@ -134,12 +135,12 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         zoom_level: u16,
     ) -> Result<(), ViscaError> {
         // Validate input ranges
-        if pan_percent < -1.0 || pan_percent > 1.0 {
+        if !(-1.0..=1.0).contains(&pan_percent) {
             return Err(ViscaError::InvalidParameter(
                 "pan_percent must be between -1.0 and 1.0".to_string(),
             ));
         }
-        if tilt_percent < -1.0 || tilt_percent > 1.0 {
+        if !(-1.0..=1.0).contains(&tilt_percent) {
             return Err(ViscaError::InvalidParameter(
                 "tilt_percent must be between -1.0 and 1.0".to_string(),
             ));
