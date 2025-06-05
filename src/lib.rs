@@ -43,14 +43,13 @@
 //! ### Using ViscaClient (Recommended for Thread Safety)
 //!
 //! ```no_run
-//! # #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+//! # #[cfg(feature = "blocking-client")]
 //! # {
-//! use grafton_visca::{ViscaClient, UdpTransport};
+//! use grafton_visca::ViscaClient;
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //!
-//! // Create a thread-safe client
-//! let transport = UdpTransport::new("192.168.1.100:5678").unwrap();
-//! let client = ViscaClient::new(Box::new(transport));
+//! // Create a client using the v0.4.0 unified API
+//! let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // Send commands through the client
 //! client.send(&PanTiltCommand::Home).unwrap();
@@ -246,10 +245,17 @@ pub use focus_ext::ViscaFocusExt;
 mod preset_ext;
 pub use preset_ext::ViscaPresetExt;
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-mod client;
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-pub use client::ViscaClient;
+// Synchronization primitives for unified client
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+mod sync_primitives;
+
+// New unified client for v0.4.0
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+mod unified_client;
+
+// Export ViscaClient based on features
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub use unified_client::ViscaClient;
 
 #[cfg(feature = "async-client")]
 mod async_inquiry_ext;
@@ -305,10 +311,7 @@ pub use async_transport::{AsyncViscaTransport, TransportFuture};
 #[cfg(feature = "async-client")]
 pub use async_udp_transport::AsyncUdpTransport;
 
-#[cfg(all(feature = "blocking-client", feature = "async-client"))]
-mod sync_wrapper;
-#[cfg(all(feature = "blocking-client", feature = "async-client"))]
-pub use sync_wrapper::{send_command_and_wait_compat, ViscaClient};
+// sync_wrapper is no longer needed with the unified client
 
 pub mod timeout;
 pub use timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder};

@@ -2,16 +2,17 @@
 //!
 //! This example shows how to use ViscaClient to control a camera
 //! from multiple threads without needing RefCell or manual locking.
+//!
+//! NOTE: This example needs to be updated for the v0.4.0 API.
 
 #[cfg(not(all(feature = "blocking-client", feature = "async-client")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         command::{
             pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-            power::Power,
-            PanTiltCommand, PowerCommand, ZoomCommand,
+            PanTiltCommand, Power, PowerCommand, ZoomCommand,
         },
-        UdpTransport, ViscaClient, ViscaError,
+        ViscaClient, ViscaError,
     };
     use std::sync::Arc;
     use std::thread;
@@ -27,9 +28,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Connecting to camera at {}...", camera_addr);
 
-    // Create transport and wrap it in ViscaClient
-    let transport = UdpTransport::new(camera_addr)?;
-    let client = Arc::new(ViscaClient::new(Box::new(transport)));
+    // Create client using the new v0.4.0 API
+    let client = Arc::new(ViscaClient::connect_udp(camera_addr)?);
 
     println!("Connected! Starting multi-threaded demo...");
 
@@ -108,12 +108,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[Main] Attempting concurrent command...");
     thread::sleep(Duration::from_secs(1));
 
-    // This might fail if another thread is using the transport
-    match client.try_send(&ZoomCommand::TeleStandard) {
+    // The new unified client handles concurrency with a semaphore
+    match client.send(&ZoomCommand::TeleStandard) {
         Ok(_) => println!("[Main] Successfully sent command"),
-        Err(ViscaError::InvalidParameter(msg)) if msg.contains("busy") => {
-            println!("[Main] Transport busy (expected during concurrent usage)");
-        }
         Err(e) => println!("[Main] Error: {:?}", e),
     }
 
@@ -134,6 +131,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(all(feature = "blocking-client", feature = "async-client"))]
 fn main() {
-    println!("This example requires the new ViscaClient which is not available when both sync and async features are enabled.");
-    println!("Run with: cargo run --example thread_safe_client");
+    println!("This example works with the unified ViscaClient in v0.4.0.");
+    println!("Run with: cargo run --example thread_safe_client --no-default-features --features blocking-client");
 }
