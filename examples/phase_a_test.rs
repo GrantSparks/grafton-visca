@@ -41,4 +41,3 @@ async fn main() -> Result<(), ViscaError> {
     println!("\nPhase A transport implementation is working!");
     Ok(())
 }
-

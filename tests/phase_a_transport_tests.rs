@@ -92,4 +92,3 @@ mod tests {
         assert!(result.is_err(), "Expected async TCP connection to fail");
     }
 }
-
