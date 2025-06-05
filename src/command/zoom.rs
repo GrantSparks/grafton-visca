@@ -79,13 +79,11 @@ impl ViscaCommand for ZoomCommand {
 
             // Direct zoom to a specific position
             ZoomCommand::Direct(position) => {
-                // Extract individual nibbles from the position
-                let p = ((*position >> 12) & 0x0F) as u8;
-                let q = ((*position >> 8) & 0x0F) as u8;
-                let r = ((*position >> 4) & 0x0F) as u8;
-                let s = (*position & 0x0F) as u8;
+                let nibbles = position_to_nibbles(*position);
 
-                Ok(vec![0x81, 0x01, 0x04, 0x47, p, q, r, s, 0xFF])
+                Ok(vec![
+                    0x81, 0x01, 0x04, 0x47, nibbles[0], nibbles[1], nibbles[2], nibbles[3], 0xFF,
+                ])
             }
         }
     }
@@ -101,4 +99,16 @@ impl ViscaCommand for ZoomCommand {
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Movement
     }
+}
+
+/// Converts a 16-bit position value into an array of 4 nibbles.
+///
+/// This is a common pattern in VISCA commands for encoding position data.
+fn position_to_nibbles(position: u16) -> [u8; 4] {
+    [
+        ((position >> 12) & 0x0F) as u8,
+        ((position >> 8) & 0x0F) as u8,
+        ((position >> 4) & 0x0F) as u8,
+        (position & 0x0F) as u8,
+    ]
 }

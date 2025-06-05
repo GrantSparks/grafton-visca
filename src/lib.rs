@@ -203,14 +203,14 @@ use std::{
 // Third-party imports
 use log::{debug, error};
 
-// Public modules
+// Module declarations - Public
 pub mod command;
 pub mod connection;
 pub mod constants;
 pub mod timeout;
 pub mod transport;
 
-// Private modules
+// Module declarations - Private
 mod camera_detection;
 mod connection_pool;
 mod error;
@@ -223,7 +223,7 @@ mod session;
 mod transport_ext;
 mod zoom_ext;
 
-// Conditional modules
+// Module declarations - Feature-gated
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod sync_primitives;
 
@@ -254,19 +254,33 @@ pub mod async_transport;
 #[cfg(feature = "async-client")]
 mod async_udp_transport;
 
-// Core trait and type re-exports
+// Core re-exports
 pub use crate::{
     camera_detection::detect_camera_model,
-    command::{
-        pan_tilt::PanTiltDirection,
-        response::{parse_visca_response, ViscaResponse},
-        ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
-    },
-    connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
-    connection_pool::{
-        CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
-    },
     error::{AppError, ViscaError},
+    session::ViscaSession,
+};
+
+// Command system re-exports
+pub use crate::command::{
+    pan_tilt::PanTiltDirection,
+    response::{parse_visca_response, ViscaResponse},
+    ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
+};
+
+// Connection and transport re-exports
+pub use crate::{
+    connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
+    timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
+};
+
+// Connection pool re-exports
+pub use crate::connection_pool::{
+    CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
+};
+
+// Extension trait re-exports
+pub use crate::{
     focus_ext::ViscaFocusExt,
     inquiry_ext::{
         CameraPosition, CameraState, ExposureState, ImageState, OpticsState, ViscaInquiryExt,
@@ -274,32 +288,40 @@ pub use crate::{
     },
     pan_tilt_ext::ViscaPanTiltExt,
     preset_ext::ViscaPresetExt,
-    reconnecting_transport::{
-        ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
-    },
-    session::ViscaSession,
-    timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
     transport_ext::ViscaTransportExt,
     zoom_ext::ViscaZoomExt,
 };
 
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use unified_client::ViscaClient;
+// Reconnecting transport re-exports
+pub use crate::reconnecting_transport::{
+    ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
+};
 
+// Feature-gated re-exports - Unified client
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub use crate::unified_client::ViscaClient;
+
+// Feature-gated re-exports - Async functionality
 #[cfg(feature = "async-client")]
 pub use crate::{
     async_client::AsyncViscaClient,
-    async_connection_pool::{
-        AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard,
-        AsyncViscaConnectionPool, CameraInfo as AsyncCameraInfo,
-    },
-    async_reconnecting_transport::{
-        AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
-    },
     async_tcp_transport::AsyncTcpTransport,
     async_transport::{AsyncViscaTransport, TransportFuture},
     async_udp_transport::AsyncUdpTransport,
     connection::AsyncConnectionManagement,
+};
+
+// Feature-gated re-exports - Async connection pool
+#[cfg(feature = "async-client")]
+pub use crate::async_connection_pool::{
+    AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard, AsyncViscaConnectionPool,
+    CameraInfo as AsyncCameraInfo,
+};
+
+// Feature-gated re-exports - Async reconnecting transport
+#[cfg(feature = "async-client")]
+pub use crate::async_reconnecting_transport::{
+    AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
 };
 
 /// Transport trait for sending and receiving VISCA commands over a network connection.
