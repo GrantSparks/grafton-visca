@@ -118,3 +118,6 @@ name = "declarative_macro_test"
 
 [[example]]
 name = "phase_d_ergonomic_apis"
+
+[[example]]
+name = "phase_e_error_handling"
