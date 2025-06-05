@@ -2,9 +2,13 @@
 
 #[cfg(test)]
 mod tests {
-    use grafton_visca::{ViscaClient, ViscaError};
-    use grafton_visca::command::PowerCommand;
-    use grafton_visca::command::power::Power;
+    use grafton_visca::ViscaClient;
+
+    #[cfg(any(
+        all(feature = "blocking-client", feature = "async-client"),
+        feature = "async-client"
+    ))]
+    use grafton_visca::command::{Power, PowerCommand};
 
     #[cfg(feature = "blocking-client")]
     #[test]
@@ -12,7 +16,7 @@ mod tests {
         // Test that we can create blocking clients
         let _udp_result = ViscaClient::connect_udp("127.0.0.1:1234");
         let _tcp_result = ViscaClient::connect_tcp("127.0.0.1:1234");
-        
+
         // UDP should succeed (no connection needed)
         assert!(_udp_result.is_ok());
         // TCP should fail (no server)
@@ -25,7 +29,7 @@ mod tests {
         // Test that we can create async clients
         let _udp_result = ViscaClient::connect_udp_async("127.0.0.1:1234").await;
         let _tcp_result = ViscaClient::connect_tcp_async("127.0.0.1:1234").await;
-        
+
         // UDP should succeed (no connection needed)
         assert!(_udp_result.is_ok());
         // TCP should fail (no server)
@@ -38,10 +42,10 @@ mod tests {
         // Test blocking façade when called outside a Tokio runtime
         let client = ViscaClient::connect_udp("127.0.0.1:1234").unwrap();
         let cmd = PowerCommand { power: Power::On };
-        
+
         // This should create its own runtime internally
         let result = client.send(&cmd);
-        
+
         // Should fail because no camera is connected
         assert!(result.is_err());
     }
@@ -52,10 +56,10 @@ mod tests {
         // Test blocking façade when called inside a Tokio runtime
         let client = ViscaClient::connect_udp("127.0.0.1:1234").unwrap();
         let cmd = PowerCommand { power: Power::On };
-        
+
         // This should use the existing runtime
         let result = client.send(&cmd);
-        
+
         // Should fail because no camera is connected
         assert!(result.is_err());
     }
@@ -63,12 +67,14 @@ mod tests {
     #[cfg(feature = "async-client")]
     #[tokio::test]
     async fn test_async_send() {
-        let client = ViscaClient::connect_udp_async("127.0.0.1:1234").await.unwrap();
+        let client = ViscaClient::connect_udp_async("127.0.0.1:1234")
+            .await
+            .unwrap();
         let cmd = PowerCommand { power: Power::On };
-        
+
         // Test async send
         let result = client.send_async(&cmd).await;
-        
+
         // Should fail because no camera is connected
         assert!(result.is_err());
     }
@@ -83,10 +89,12 @@ mod tests {
     }
 
     #[cfg(feature = "async-client")]
-    #[tokio::test] 
+    #[tokio::test]
     async fn test_health_check() {
-        let client = ViscaClient::connect_udp_async("127.0.0.1:1234").await.unwrap();
-        
+        let client = ViscaClient::connect_udp_async("127.0.0.1:1234")
+            .await
+            .unwrap();
+
         // Health check should fail (no camera)
         let is_healthy = client.is_healthy().await.unwrap();
         assert!(!is_healthy);
