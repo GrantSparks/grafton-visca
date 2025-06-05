@@ -1,11 +1,11 @@
 //! Declarative macros for reducing VISCA command boilerplate
 
 /// Create a simple VISCA command enum with byte sequences
-/// 
+///
 /// # Example
 /// ```
 /// use grafton_visca::visca_command;
-/// 
+///
 /// visca_command! {
 ///     #[category = "Movement"]
 ///     enum PanTiltCommand {

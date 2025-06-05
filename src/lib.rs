@@ -341,7 +341,6 @@ pub use crate::async_reconnecting_transport::{
     AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
 };
 
-
 /// Transport trait for sending and receiving VISCA commands over a network connection.
 ///
 /// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
