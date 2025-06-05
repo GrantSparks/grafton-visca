@@ -60,13 +60,11 @@ impl BlockingTransport for TcpTransport {
     fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let bytes = command.to_bytes()?;
         log::debug!("Sending command: {:02X?}", bytes);
-        
-        self.stream
-            .write_all(&bytes)
-            .map_err(ViscaError::Io)?;
-        
+
+        self.stream.write_all(&bytes).map_err(ViscaError::Io)?;
+
         self.stream.flush().map_err(ViscaError::Io)?;
-        
+
         self.stats.record_sent(bytes.len());
         Ok(())
     }
@@ -75,7 +73,7 @@ impl BlockingTransport for TcpTransport {
         let mut buffer = [0u8; 1024];
         let mut responses = Vec::new();
         let mut current_response = Vec::new();
-        
+
         // Keep receiving until we get a completion or error response
         loop {
             match self.stream.read(&mut buffer) {
@@ -83,29 +81,32 @@ impl BlockingTransport for TcpTransport {
                     self.stats.record_error();
                     return Err(ViscaError::Io(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
-                        "Connection closed by camera"
+                        "Connection closed by camera",
                     )));
                 }
                 Ok(size) => {
                     for &byte in &buffer[..size] {
                         current_response.push(byte);
-                        
+
                         // Check for end of VISCA frame
-                        if byte == 0xFF && current_response.len() >= 3 && 
-                           current_response[0] == 0x90 {
+                        if byte == 0xFF
+                            && current_response.len() >= 3
+                            && current_response[0] == 0x90
+                        {
                             log::debug!("Received response: {:02X?}", current_response);
-                            
+
                             self.stats.record_received(current_response.len());
                             responses.push(current_response.clone());
-                            
+
                             // Check for completion or error
-                            if current_response.len() >= 3 && 
-                               (current_response[1] == 0x50 || 
-                                current_response[1] == 0x51 || 
-                                (current_response[1] & 0x60) == 0x60) {
+                            if current_response.len() >= 3
+                                && (current_response[1] == 0x50
+                                    || current_response[1] == 0x51
+                                    || (current_response[1] & 0x60) == 0x60)
+                            {
                                 return Ok(responses);
                             }
-                            
+
                             current_response.clear();
                         }
                     }
@@ -113,9 +114,9 @@ impl BlockingTransport for TcpTransport {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if responses.is_empty() && current_response.is_empty() {
                         self.stats.record_error();
-                        return Err(ViscaError::CommandTimeout { 
-                            duration: Duration::from_secs(10), 
-                            command: "receive_response".to_string() 
+                        return Err(ViscaError::CommandTimeout {
+                            duration: Duration::from_secs(10),
+                            command: "receive_response".to_string(),
                         });
                     }
                     if !current_response.is_empty() {
@@ -123,7 +124,7 @@ impl BlockingTransport for TcpTransport {
                         self.stats.record_error();
                         return Err(ViscaError::Io(io::Error::new(
                             io::ErrorKind::InvalidData,
-                            "Incomplete VISCA frame"
+                            "Incomplete VISCA frame",
                         )));
                     }
                     return Ok(responses);
@@ -167,14 +168,14 @@ impl Transport for AsyncTcpTransport {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
             log::debug!("Sending command: {:02X?}", bytes);
-            
+
             self.stream
                 .write_all(&bytes)
                 .await
                 .map_err(ViscaError::Io)?;
-            
+
             self.stream.flush().await.map_err(ViscaError::Io)?;
-            
+
             self.stats.record_sent(bytes.len());
             Ok(())
         })
@@ -185,40 +186,42 @@ impl Transport for AsyncTcpTransport {
             let mut buffer = [0u8; 1024];
             let mut responses = Vec::new();
             let mut current_response = Vec::new();
-            
+
             // Keep receiving until we get a completion or error response
             loop {
-                match tokio::time::timeout(
-                    Duration::from_secs(10),
-                    self.stream.read(&mut buffer)
-                ).await {
+                match tokio::time::timeout(Duration::from_secs(10), self.stream.read(&mut buffer))
+                    .await
+                {
                     Ok(Ok(0)) => {
                         self.stats.record_error();
                         return Err(ViscaError::Io(io::Error::new(
                             io::ErrorKind::UnexpectedEof,
-                            "Connection closed by camera"
+                            "Connection closed by camera",
                         )));
                     }
                     Ok(Ok(size)) => {
                         for &byte in &buffer[..size] {
                             current_response.push(byte);
-                            
+
                             // Check for end of VISCA frame
-                            if byte == 0xFF && current_response.len() >= 3 && 
-                               current_response[0] == 0x90 {
+                            if byte == 0xFF
+                                && current_response.len() >= 3
+                                && current_response[0] == 0x90
+                            {
                                 log::debug!("Received response: {:02X?}", current_response);
-                                
+
                                 self.stats.record_received(current_response.len());
                                 responses.push(current_response.clone());
-                                
+
                                 // Check for completion or error
-                                if current_response.len() >= 3 && 
-                                   (current_response[1] == 0x50 || 
-                                    current_response[1] == 0x51 || 
-                                    (current_response[1] & 0x60) == 0x60) {
+                                if current_response.len() >= 3
+                                    && (current_response[1] == 0x50
+                                        || current_response[1] == 0x51
+                                        || (current_response[1] & 0x60) == 0x60)
+                                {
                                     return Ok(responses);
                                 }
-                                
+
                                 current_response.clear();
                             }
                         }
@@ -230,17 +233,17 @@ impl Transport for AsyncTcpTransport {
                     Err(_) => {
                         if responses.is_empty() && current_response.is_empty() {
                             self.stats.record_error();
-                            return Err(ViscaError::CommandTimeout { 
-                            duration: Duration::from_secs(10), 
-                            command: "receive_response".to_string() 
-                        });
+                            return Err(ViscaError::CommandTimeout {
+                                duration: Duration::from_secs(10),
+                                command: "receive_response".to_string(),
+                            });
                         }
                         if !current_response.is_empty() {
                             // Incomplete frame
                             self.stats.record_error();
                             return Err(ViscaError::Io(io::Error::new(
                                 io::ErrorKind::InvalidData,
-                                "Incomplete VISCA frame"
+                                "Incomplete VISCA frame",
                             )));
                         }
                         return Ok(responses);
@@ -250,3 +253,4 @@ impl Transport for AsyncTcpTransport {
         })
     }
 }
+

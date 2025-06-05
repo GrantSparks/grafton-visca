@@ -62,11 +62,11 @@ impl BlockingTransport for UdpTransport {
     fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let bytes = command.to_bytes()?;
         log::debug!("Sending command: {:02X?}", bytes);
-        
+
         self.socket
             .send_to(&bytes, &self.address)
             .map_err(ViscaError::Io)?;
-        
+
         self.stats.record_sent(bytes.len());
         Ok(())
     }
@@ -74,23 +74,24 @@ impl BlockingTransport for UdpTransport {
     fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
         let mut buffer = [0u8; 1024];
         let mut responses = Vec::new();
-        
+
         // Keep receiving until we get a completion or error response
         loop {
             match self.socket.recv_from(&mut buffer) {
                 Ok((size, _)) => {
                     let data = buffer[..size].to_vec();
                     log::debug!("Received data: {:02X?}", data);
-                    
+
                     self.stats.record_received(data.len());
-                    
+
                     // Check if this is a complete VISCA response
                     if data.len() >= 3 && data[0] == 0x90 && data[data.len() - 1] == 0xFF {
                         responses.push(data.clone());
-                        
+
                         // Check for completion or error
-                        if data.len() >= 3 && (data[1] == 0x50 || data[1] == 0x51 || 
-                            (data[1] & 0x60) == 0x60) {
+                        if data.len() >= 3
+                            && (data[1] == 0x50 || data[1] == 0x51 || (data[1] & 0x60) == 0x60)
+                        {
                             break;
                         }
                     }
@@ -98,9 +99,9 @@ impl BlockingTransport for UdpTransport {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if responses.is_empty() {
                         self.stats.record_error();
-                        return Err(ViscaError::CommandTimeout { 
-                            duration: Duration::from_secs(10), 
-                            command: "receive_response".to_string() 
+                        return Err(ViscaError::CommandTimeout {
+                            duration: Duration::from_secs(10),
+                            command: "receive_response".to_string(),
                         });
                     }
                     break;
@@ -111,7 +112,7 @@ impl BlockingTransport for UdpTransport {
                 }
             }
         }
-        
+
         Ok(responses)
     }
 }
@@ -148,12 +149,12 @@ impl Transport for AsyncUdpTransport {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
             log::debug!("Sending command: {:02X?}", bytes);
-            
+
             self.socket
                 .send_to(&bytes, &self.address)
                 .await
                 .map_err(ViscaError::Io)?;
-            
+
             self.stats.record_sent(bytes.len());
             Ok(())
         })
@@ -163,26 +164,29 @@ impl Transport for AsyncUdpTransport {
         Box::pin(async move {
             let mut buffer = [0u8; 1024];
             let mut responses = Vec::new();
-            
+
             // Keep receiving until we get a completion or error response
             loop {
                 match tokio::time::timeout(
                     Duration::from_secs(10),
-                    self.socket.recv_from(&mut buffer)
-                ).await {
+                    self.socket.recv_from(&mut buffer),
+                )
+                .await
+                {
                     Ok(Ok((size, _))) => {
                         let data = buffer[..size].to_vec();
                         log::debug!("Received data: {:02X?}", data);
-                        
+
                         self.stats.record_received(data.len());
-                        
+
                         // Check if this is a complete VISCA response
                         if data.len() >= 3 && data[0] == 0x90 && data[data.len() - 1] == 0xFF {
                             responses.push(data.clone());
-                            
+
                             // Check for completion or error
-                            if data.len() >= 3 && (data[1] == 0x50 || data[1] == 0x51 || 
-                                (data[1] & 0x60) == 0x60) {
+                            if data.len() >= 3
+                                && (data[1] == 0x50 || data[1] == 0x51 || (data[1] & 0x60) == 0x60)
+                            {
                                 break;
                             }
                         }
@@ -194,17 +198,18 @@ impl Transport for AsyncUdpTransport {
                     Err(_) => {
                         if responses.is_empty() {
                             self.stats.record_error();
-                            return Err(ViscaError::CommandTimeout { 
-                            duration: Duration::from_secs(10), 
-                            command: "receive_response".to_string() 
-                        });
+                            return Err(ViscaError::CommandTimeout {
+                                duration: Duration::from_secs(10),
+                                command: "receive_response".to_string(),
+                            });
                         }
                         break;
                     }
                 }
             }
-            
+
             Ok(responses)
         })
     }
 }
+
