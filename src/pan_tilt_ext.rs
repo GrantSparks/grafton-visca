@@ -158,5 +158,5 @@ pub trait ViscaPanTiltExt: ViscaTransportExt {
     }
 }
 
-/// Implement the trait for all types that implement ViscaTransportExt
+/// Implement the trait for all types that implement `ViscaTransportExt`
 impl<T: ViscaTransportExt> ViscaPanTiltExt for T {}

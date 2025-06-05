@@ -37,7 +37,7 @@ impl AsyncViscaClient {
             .map_err(|_| ViscaError::InvalidParameter("Invalid socket address".into()))?;
 
         let transport = AsyncUdpTransport::new(addr).await?;
-        Self::new(Box::new(transport))
+        Ok(Self::new(Box::new(transport)))
     }
 
     /// Connect to a camera using TCP transport.
@@ -47,11 +47,11 @@ impl AsyncViscaClient {
             .map_err(|_| ViscaError::InvalidParameter("Invalid socket address".into()))?;
 
         let transport = AsyncTcpTransport::new(addr).await?;
-        Self::new(Box::new(transport))
+        Ok(Self::new(Box::new(transport)))
     }
 
     /// Create a new client with a custom transport.
-    fn new(transport: Box<dyn AsyncViscaTransport>) -> Result<Self, ViscaError> {
+    fn new(transport: Box<dyn AsyncViscaTransport>) -> Self {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
 
         let client = Self {
@@ -68,7 +68,7 @@ impl AsyncViscaClient {
             client_clone.response_handler(shutdown_rx).await;
         });
 
-        Ok(client)
+        client
     }
 
     /// Send a command and wait for the response.
@@ -143,7 +143,7 @@ impl AsyncViscaClient {
                 }
                 result = self.receive_and_process() => {
                     match result {
-                        Ok(_) => consecutive_errors = 0,
+                        Ok(()) => consecutive_errors = 0,
                         Err(ViscaError::Timeout) => consecutive_errors = 0,
                         Err(e) => {
                             log::error!("Transport error: {:?}", e);
@@ -192,7 +192,8 @@ impl AsyncViscaClient {
                     }
 
                     // Send to waiting command
-                    if let Some(tx) = self.pending_commands.lock().await.remove(&socket_id) {
+                    let tx_opt = self.pending_commands.lock().await.remove(&socket_id);
+                    if let Some(tx) = tx_opt {
                         let result = match visca_response {
                             ViscaResponse::Error(e) => Err(e),
                             other => Ok(other),
@@ -223,7 +224,7 @@ impl AsyncViscaClient {
     }
 
     /// Gracefully shutdown the client
-    pub async fn shutdown(self) {
+    pub fn shutdown(self) {
         let _ = self.shutdown.send(());
         // Background task will exit on next iteration
     }

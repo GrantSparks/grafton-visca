@@ -12,9 +12,6 @@ use grafton_visca::ViscaRetry;
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{ViscaClient, ViscaResultExt};
 
-#[cfg(feature = "async-client")]
-use grafton_visca::AsyncViscaClient;
-
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 
@@ -284,9 +281,10 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
     println!("\n4. Real Async Camera Operations (if connected)");
 
     // Try to connect to a camera for real async operations
-    let client_result = match AsyncViscaClient::connect_udp("127.0.0.1:1259").await {
+    let client_result = match grafton_visca::ViscaClient::connect_udp_async("127.0.0.1:1259").await
+    {
         Ok(client) => Ok(client),
-        Err(_) => AsyncViscaClient::connect_udp("192.168.1.100:5678").await,
+        Err(_) => grafton_visca::ViscaClient::connect_udp_async("192.168.1.100:5678").await,
     };
 
     match client_result {
@@ -295,13 +293,13 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
 
             // Test concurrent operations with retry
             let pan_home = ViscaRetry::retry_async(
-                || async { client.send(&PanTiltCommand::Home).await },
+                || async { client.send_async(&PanTiltCommand::Home).await },
                 3,
                 Duration::from_millis(100),
             );
 
             let zoom_tele = ViscaRetry::retry_with_suggested_delay_async(
-                || async { client.send(&ZoomCommand::TeleStandard).await },
+                || async { client.send_async(&ZoomCommand::TeleStandard).await },
                 3,
             );
 

@@ -1,6 +1,11 @@
-//! Example demonstrating the async high-level control API for camera operations.
+//! Example demonstrating the async control API with ViscaClient.
 
-use grafton_visca::{AsyncViscaClient, PanTiltDirection, ViscaError};
+use grafton_visca::command::{
+    pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
+    preset::{PresetAction, PresetNumber},
+    FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, ZoomCommand,
+};
+use grafton_visca::{ViscaClient, ViscaError, ViscaResponse};
 use std::env;
 use tokio::time::{sleep, Duration};
 
@@ -20,7 +25,7 @@ async fn main() -> Result<(), ViscaError> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let client = AsyncViscaClient::connect_udp(camera_addr).await?;
+    let client = ViscaClient::connect_udp_async(camera_addr).await?;
 
     println!("\n=== Async Camera Control Demo ===\n");
 
@@ -29,109 +34,165 @@ async fn main() -> Result<(), ViscaError> {
     println!("   - Executing multiple queries concurrently...");
 
     // Start multiple operations concurrently
-    let power_future = client.get_power_state();
-    let position_future = client.get_pan_tilt_position();
-    let zoom_future = client.get_zoom_position();
+    let power_future = client.send_async(&InquiryCommand::Power);
+    let position_future = client.send_async(&InquiryCommand::PanTiltPosition);
+    let zoom_future = client.send_async(&InquiryCommand::ZoomPosition);
 
-    let (power, position, zoom) = tokio::join!(power_future, position_future, zoom_future);
+    let (power_result, position_result, zoom_result) =
+        tokio::join!(power_future, position_future, zoom_future);
 
-    println!("   - Power: {}", if power? { "ON" } else { "OFF" });
-    let (pan, tilt) = position?;
-    println!("   - Position: pan={}, tilt={}", pan, tilt);
-    println!("   - Zoom: 0x{:04X}", zoom?);
+    // Handle power response
+    if let Ok(ViscaResponse::InquiryResponse(grafton_visca::ViscaInquiryResponse::Power { on })) =
+        power_result
+    {
+        println!("   - Power: {}", if on { "ON" } else { "OFF" });
+    }
+
+    // Handle position response
+    if let Ok(ViscaResponse::InquiryResponse(
+        grafton_visca::ViscaInquiryResponse::PanTiltPosition { pan, tilt },
+    )) = position_result
+    {
+        println!("   - Position: pan={}, tilt={}", pan, tilt);
+    }
+
+    // Handle zoom response
+    if let Ok(ViscaResponse::InquiryResponse(grafton_visca::ViscaInquiryResponse::ZoomPosition {
+        position,
+    })) = zoom_result
+    {
+        println!("   - Zoom: {:02X?}", position);
+    }
 
     // Sequential Control Operations
     println!("\n2. Sequential Control Operations");
 
     println!("   - Moving to home position...");
-    client.go_home().await?;
+    client.send_async(&PanTiltCommand::Home).await?;
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Setting up shot 1...");
-    client.move_to_position(800, -200, Some((15, 15))).await?;
-    client.zoom_to(0x1800).await?;
+    client
+        .send_async(&PanTiltCommand::AbsolutePosition {
+            pan: 800,
+            tilt: -200,
+            pan_speed: PanSpeed::new(15)?,
+            tilt_speed: TiltSpeed::new(15)?,
+        })
+        .await?;
+    client.send_async(&ZoomCommand::Direct(0x1800)).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 10...");
-    client.save_preset(10).await?;
+    client
+        .send_async(&PresetCommand {
+            action: PresetAction::Set,
+            preset_number: PresetNumber::new(10)?,
+        })
+        .await?;
     sleep(Duration::from_millis(500)).await;
 
     println!("   - Setting up shot 2...");
-    client.move_to_position(-600, 400, None).await?;
-    client.zoom_to(0x3000).await?;
+    client
+        .send_async(&PanTiltCommand::AbsolutePosition {
+            pan: -600,
+            tilt: 400,
+            pan_speed: PanSpeed::new(10)?,
+            tilt_speed: TiltSpeed::new(10)?,
+        })
+        .await?;
+    client.send_async(&ZoomCommand::Direct(0x3000)).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 11...");
-    client.save_preset(11).await?;
+    client
+        .send_async(&PresetCommand {
+            action: PresetAction::Set,
+            preset_number: PresetNumber::new(11)?,
+        })
+        .await?;
     sleep(Duration::from_millis(500)).await;
 
     // Smooth Movement Example
     println!("\n3. Smooth Movement Sequence");
 
     println!("   - Starting smooth pan...");
-    client.start_moving(PanTiltDirection::Right, 8, 0).await?;
+    client
+        .send_async(&PanTiltCommand::Move {
+            direction: PanTiltDirection::Right,
+            pan_speed: PanSpeed::new(8)?,
+            tilt_speed: TiltSpeed::new(0)?,
+        })
+        .await?;
+
     sleep(Duration::from_secs(2)).await;
 
-    println!("   - Adding tilt movement...");
-    client.start_moving(PanTiltDirection::UpRight, 8, 5).await?;
+    println!("   - Starting diagonal movement...");
+    client
+        .send_async(&PanTiltCommand::Move {
+            direction: PanTiltDirection::UpRight,
+            pan_speed: PanSpeed::new(8)?,
+            tilt_speed: TiltSpeed::new(5)?,
+        })
+        .await?;
+
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Stopping movement...");
-    client.stop_movement().await?;
+    client
+        .send_async(&PanTiltCommand::Move {
+            direction: PanTiltDirection::Stop,
+            pan_speed: PanSpeed::new(0)?,
+            tilt_speed: TiltSpeed::new(0)?,
+        })
+        .await?;
 
-    // Focus and Zoom Coordination
-    println!("\n4. Focus and Zoom Coordination");
+    // Focus Operations
+    println!("\n4. Focus Control");
 
-    println!("   - Setting manual focus mode...");
-    client.set_auto_focus(false).await?;
+    println!("   - Setting manual focus...");
+    client.send_async(&FocusCommand::Manual).await?;
 
-    println!("   - Zooming in while adjusting focus...");
-    let zoom_task = tokio::spawn({
-        let client = client.clone();
-        async move {
-            client.zoom_in(Some(3)).await?;
-            sleep(Duration::from_secs(3)).await;
-            client.stop_zoom().await
-        }
-    });
+    println!("   - Focus operations...");
+    client.send_async(&FocusCommand::FarVariable(2)).await?;
+    sleep(Duration::from_secs(1)).await;
+    client.send_async(&FocusCommand::Stop).await?;
 
-    // Adjust focus while zooming
-    sleep(Duration::from_millis(500)).await;
-    client.focus_far(Some(2)).await?;
-    sleep(Duration::from_secs(2)).await;
-    client.stop_focus().await?;
+    println!("   - Restoring auto focus...");
+    client.send_async(&FocusCommand::Auto).await?;
 
-    zoom_task.await.unwrap()?;
+    // Preset Recall Demo
+    println!("\n5. Preset Recall Demo");
 
-    println!("   - Enabling auto-focus...");
-    client.set_auto_focus(true).await?;
-
-    // Preset Tour Example
-    println!("\n5. Preset Tour");
-    println!("   - Starting preset tour between positions 10 and 11...");
-
-    for i in 0..3 {
-        println!("   - Tour iteration {}", i + 1);
-
-        client.recall_preset(10).await?;
-        sleep(Duration::from_secs(3)).await;
-
-        client.recall_preset(11).await?;
+    for preset_num in [10, 11] {
+        println!("   - Recalling preset {}...", preset_num);
+        client
+            .send_async(&PresetCommand {
+                action: PresetAction::Recall,
+                preset_number: PresetNumber::new(preset_num)?,
+            })
+            .await?;
         sleep(Duration::from_secs(3)).await;
     }
 
-    println!("   - Returning home...");
-    client.go_home().await?;
-    sleep(Duration::from_secs(2)).await;
+    println!("   - Returning to home...");
+    client.send_async(&PanTiltCommand::Home).await?;
 
-    // Cleanup
+    // Clean up presets
     println!("\n6. Cleanup");
-    println!("   - Resetting test presets...");
-    client.reset_preset(10).await?;
-    client.reset_preset(11).await?;
+    client
+        .send_async(&PresetCommand {
+            action: PresetAction::Reset,
+            preset_number: PresetNumber::new(10)?,
+        })
+        .await?;
+    client
+        .send_async(&PresetCommand {
+            action: PresetAction::Reset,
+            preset_number: PresetNumber::new(11)?,
+        })
+        .await?;
 
-    println!("\n=== Async Demo Complete ===");
-    println!("All async control operations executed successfully!");
-
+    println!("\nDemo completed successfully!");
     Ok(())
 }

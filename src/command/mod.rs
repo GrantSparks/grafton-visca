@@ -100,41 +100,114 @@ pub trait ViscaCommand: Send + Sync {
 /// These are returned wrapped in `ViscaResponse::InquiryResponse(...)`.
 #[derive(Debug)]
 pub enum ViscaInquiryResponse {
-    Power { on: bool },
-    PanTiltPosition { pan: i16, tilt: i16 },
+    /// Power status inquiry response.
+    Power {
+        /// Whether the camera is powered on.
+        on: bool,
+    },
+    /// Pan/Tilt position inquiry response.
+    PanTiltPosition {
+        /// Current pan position.
+        pan: i16,
+        /// Current tilt position.
+        tilt: i16,
+    },
 
+    /// Luminance level inquiry response.
     Luminance(u8),
+    /// Contrast level inquiry response.
     Contrast(u8),
-    Sharpness { value: u8 },
-    SharpnessMode { mode: SharpnessMode },
-    Saturation { level: u8 },
-    Hue { hue: u8 },
+    /// Sharpness value inquiry response.
+    Sharpness {
+        /// Current sharpness value.
+        value: u8,
+    },
+    /// Sharpness mode inquiry response.
+    SharpnessMode {
+        /// Current sharpness mode.
+        mode: SharpnessMode,
+    },
+    Saturation {
+        level: u8,
+    },
+    Hue {
+        hue: u8,
+    },
 
-    ZoomPosition { position: u16 },
-    FocusPosition { position: u16 },
-    FocusZone { zone: FocusZone },
-    AFSensitivity { sensitivity: AFSensitivity },
-    FocusNearLimit { position: u16 },
+    ZoomPosition {
+        position: u16,
+    },
+    FocusPosition {
+        position: u16,
+    },
+    FocusZone {
+        zone: FocusZone,
+    },
+    AFSensitivity {
+        sensitivity: AFSensitivity,
+    },
+    FocusNearLimit {
+        position: u16,
+    },
 
-    ExposureMode { mode: ExposureMode },
-    ExposureCompensation { value: i8 },
-    ExposureCompensationMode { on: bool },
-    Gain { gain: u8 },
-    GainLimit { limit: u8 },
-    Iris { position: u8 },
-    Shutter { position: u16 },
-    Bright { position: u16 },
-    Backlight { status: bool },
-    AntiFlicker { mode: AntiFlickerMode },
+    ExposureMode {
+        mode: ExposureMode,
+    },
+    ExposureCompensation {
+        value: i8,
+    },
+    ExposureCompensationMode {
+        on: bool,
+    },
+    Gain {
+        gain: u8,
+    },
+    GainLimit {
+        limit: u8,
+    },
+    Iris {
+        position: u8,
+    },
+    Shutter {
+        position: u16,
+    },
+    Bright {
+        position: u16,
+    },
+    Backlight {
+        status: bool,
+    },
+    AntiFlicker {
+        mode: AntiFlickerMode,
+    },
 
-    WhiteBalance { mode: WhiteBalanceMode },
-    ColorTemperature { temperature: u16 },
-    RedGain { gain: i8 },
-    BlueGain { gain: i8 },
+    WhiteBalance {
+        mode: WhiteBalanceMode,
+    },
+    ColorTemperature {
+        temperature: u16,
+    },
+    RedGain {
+        gain: i8,
+    },
+    BlueGain {
+        gain: i8,
+    },
 
-    ImageFlip { vertical: bool, horizontal: bool },
-    BlackWhite { on: bool },
-    NoiseReduction2D { level: u8 },
-    NoiseReduction3D { level: u8 },
-    DynamicRange { level: u8 },
+    ImageFlip {
+        vertical: bool,
+        horizontal: bool,
+    },
+    BlackWhite {
+        on: bool,
+    },
+    NoiseReduction2D {
+        level: u8,
+    },
+    NoiseReduction3D {
+        level: u8,
+    },
+    DynamicRange {
+        level: u8,
+    },
 }

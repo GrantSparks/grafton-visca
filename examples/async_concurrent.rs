@@ -11,7 +11,7 @@ use grafton_visca::command::{
     preset::{PresetAction, PresetNumber},
     FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, ZoomCommand,
 };
-use grafton_visca::{AsyncViscaClient, ViscaResponse};
+use grafton_visca::{ViscaClient, ViscaResponse};
 use std::time::Instant;
 
 #[tokio::main]
@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100:5678".to_string());
 
     println!("Connecting to camera at {}...", camera_ip);
-    let camera = AsyncViscaClient::connect_udp(&camera_ip).await?;
+    let camera = ViscaClient::connect_udp_async(&camera_ip).await?;
 
     // Example 1: Send two commands concurrently
     println!("\n=== Concurrent Command Execution ===");
@@ -35,9 +35,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pan_speed: PanSpeed::new(0x10)?,
         tilt_speed: TiltSpeed::new(0x10)?,
     };
-    let move_fut = camera.send(&move_cmd);
+    let move_fut = camera.send_async(&move_cmd);
 
-    let zoom_fut = camera.send(&ZoomCommand::TeleStandard);
+    let zoom_fut = camera.send_async(&ZoomCommand::TeleStandard);
 
     // Wait for both to complete
     let (move_result, zoom_result) = tokio::join!(move_fut, zoom_fut);
@@ -63,8 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pan_speed: PanSpeed::new(0)?,
         tilt_speed: TiltSpeed::new(0)?,
     };
-    let _ = camera.send(&stop_cmd).await;
-    let _ = camera.send(&ZoomCommand::Stop).await;
+    let _ = camera.send_async(&stop_cmd).await;
+    let _ = camera.send_async(&ZoomCommand::Stop).await;
 
     // Example 2: Demonstrate the two-socket limitation
     println!("\n=== Two-Socket Limitation Demo ===");
@@ -75,9 +75,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         action: PresetAction::Set,
         preset_number: PresetNumber::new(1).unwrap(),
     };
-    let cmd1 = camera.send(&preset_cmd);
-    let cmd2 = camera.send(&FocusCommand::NearStandard);
-    let cmd3 = camera.send(&ZoomCommand::WideStandard);
+    let cmd1 = camera.send_async(&preset_cmd);
+    let cmd2 = camera.send_async(&FocusCommand::NearStandard);
+    let cmd3 = camera.send_async(&ZoomCommand::WideStandard);
 
     println!("Sending 3 commands concurrently (only 2 will execute at once)...");
     let (res1, res2, res3) = tokio::join!(cmd1, cmd2, cmd3);
@@ -90,9 +90,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 3: Query camera status concurrently
     println!("\n=== Concurrent Status Queries ===");
 
-    let zoom_pos = camera.send(&InquiryCommand::ZoomPosition);
-    let focus_pos = camera.send(&InquiryCommand::FocusPosition);
-    let pan_tilt_pos = camera.send(&InquiryCommand::PanTiltPosition);
+    let zoom_pos = camera.send_async(&InquiryCommand::ZoomPosition);
+    let focus_pos = camera.send_async(&InquiryCommand::FocusPosition);
+    let pan_tilt_pos = camera.send_async(&InquiryCommand::PanTiltPosition);
 
     let (zoom_res, focus_res, pt_res) = tokio::join!(zoom_pos, focus_pos, pan_tilt_pos);
 
@@ -116,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Spawn multiple tasks
     let task1 = tokio::spawn(async move {
-        match camera_clone.send(&PanTiltCommand::Home).await {
+        match camera_clone.send_async(&PanTiltCommand::Home).await {
             Ok(_) => println!("Task 1: Home command succeeded"),
             Err(e) => println!("Task 1: Home command failed: {:?}", e),
         }
@@ -124,7 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let camera_clone = camera.clone();
     let task2 = tokio::spawn(async move {
-        match camera_clone.send(&FocusCommand::Auto).await {
+        match camera_clone.send_async(&FocusCommand::Auto).await {
             Ok(_) => println!("Task 2: Auto focus succeeded"),
             Err(e) => println!("Task 2: Auto focus failed: {:?}", e),
         }

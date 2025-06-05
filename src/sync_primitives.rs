@@ -68,7 +68,7 @@ mod sync_semaphore {
             }
         }
 
-        pub fn acquire(&self) -> Result<Permit<'_>, crate::ViscaError> {
+        pub fn acquire(&self) -> Permit<'_> {
             let (lock, cvar) = &*self.state;
             let mut count = lock.lock();
 
@@ -78,7 +78,7 @@ mod sync_semaphore {
             }
 
             *count -= 1;
-            Ok(Permit { semaphore: self })
+            Permit { semaphore: self }
         }
     }
 
@@ -109,7 +109,7 @@ pub trait SemaphoreExt {
     async fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::ViscaError>;
 
     #[cfg(not(feature = "async-client"))]
-    fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::ViscaError>;
+    fn acquire_permit(&self) -> Self::Permit<'_>;
 }
 
 impl SemaphoreExt for Semaphore {
@@ -124,7 +124,7 @@ impl SemaphoreExt for Semaphore {
     }
 
     #[cfg(not(feature = "async-client"))]
-    fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::ViscaError> {
+    fn acquire_permit(&self) -> Self::Permit<'_> {
         self.acquire()
     }
 }

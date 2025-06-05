@@ -271,38 +271,39 @@ where
         let wrapper_stats = self.stats.snapshot();
 
         // If we have an inner transport, combine its stats
-        if let Some(ref transport) = self.inner {
-            let inner_stats = transport.connection_stats().snapshot();
+        self.inner.as_ref().map_or_else(
+            || self.stats.clone(),
+            |transport| {
+                let inner_stats = transport.connection_stats().snapshot();
 
-            // Create a new ConnectionStats with combined values
-            let combined = ConnectionStats::new();
+                // Create a new ConnectionStats with combined values
+                let combined = ConnectionStats::new();
 
-            // Add wrapper stats
-            for _ in 0..wrapper_stats.commands_sent {
-                combined.record_sent(0);
-            }
-            for _ in 0..wrapper_stats.responses_received {
-                combined.record_received(0);
-            }
-            for _ in 0..wrapper_stats.error_count {
-                combined.record_error();
-            }
+                // Add wrapper stats
+                for _ in 0..wrapper_stats.commands_sent {
+                    combined.record_sent(0);
+                }
+                for _ in 0..wrapper_stats.responses_received {
+                    combined.record_received(0);
+                }
+                for _ in 0..wrapper_stats.error_count {
+                    combined.record_error();
+                }
 
-            // Add inner transport stats
-            for _ in 0..inner_stats.commands_sent {
-                combined.record_sent(0);
-            }
-            for _ in 0..inner_stats.responses_received {
-                combined.record_received(0);
-            }
-            for _ in 0..inner_stats.error_count {
-                combined.record_error();
-            }
+                // Add inner transport stats
+                for _ in 0..inner_stats.commands_sent {
+                    combined.record_sent(0);
+                }
+                for _ in 0..inner_stats.responses_received {
+                    combined.record_received(0);
+                }
+                for _ in 0..inner_stats.error_count {
+                    combined.record_error();
+                }
 
-            combined
-        } else {
-            self.stats.clone()
-        }
+                combined
+            },
+        )
     }
 }
 
@@ -318,7 +319,7 @@ where
     }
 
     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
-        self.with_retry(|transport| transport.receive_response())
+        self.with_retry(super::ViscaTransport::receive_response)
     }
 
     fn send_and_wait(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
