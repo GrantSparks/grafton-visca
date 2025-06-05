@@ -6,14 +6,11 @@
 use grafton_visca::ViscaError;
 use std::time::Duration;
 
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use grafton_visca::{ViscaResultExt, ViscaRetry};
-
 #[cfg(feature = "blocking-client")]
-use grafton_visca::ViscaClient;
+use grafton_visca::{ViscaClient, ViscaResultExt, ViscaRetry};
 
 #[cfg(feature = "async-client")]
-use grafton_visca::AsyncViscaClient;
+use grafton_visca::{AsyncViscaClient, ViscaRetry};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::command::{PanTiltCommand, ZoomCommand};
