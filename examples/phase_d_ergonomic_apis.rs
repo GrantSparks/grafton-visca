@@ -10,12 +10,16 @@ use grafton_visca::{
     ViscaClient, ViscaClientPtzExt, ViscaError,
 };
 
-// Async features
-#[cfg(feature = "async-client")]
+// Async features - only needed for async-only build
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 use grafton_visca::{AsyncViscaExt, PanScanDirection};
 
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 use std::time::Duration;
+
+// Dual-mode features - AsyncViscaExt needed but not PanScanDirection/Duration
+#[cfg(all(feature = "async-client", feature = "blocking-client"))]
+use grafton_visca::AsyncViscaExt;
 
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 fn main() -> Result<(), ViscaError> {
