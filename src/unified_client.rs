@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 // Crate imports
 use crate::{
+    ptz_builder::PtzBuilder,
     session::ViscaSession,
     sync_primitives::{Mutex, Semaphore, SemaphoreExt},
     ViscaCommand, ViscaError, ViscaResponse,
@@ -247,6 +248,38 @@ impl ViscaClient {
             Ok(_) => Ok(true),
             Err(_) => Ok(false),
         }
+    }
+}
+
+/// Extension trait for PTZ builder functionality on `Arc<ViscaClient>`.
+pub trait ViscaClientPtzExt {
+    /// Create a PTZ builder for fluent command sequences.
+    ///
+    /// Returns a builder that allows chaining multiple PTZ commands together
+    /// and executing them either sequentially or concurrently.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # #[cfg(feature = "blocking-client")] {
+    /// # use grafton_visca::{ViscaClient, ViscaClientPtzExt};
+    /// # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed, PanTiltDirection};
+    /// # use std::sync::Arc;
+    /// # let client = Arc::new(ViscaClient::connect_udp("192.168.1.100:5678").unwrap());
+    /// // Build and execute a PTZ sequence
+    /// client.ptz()
+    ///     .pan_tilt_home()
+    ///     .zoom_in(5)
+    ///     .focus_auto()
+    ///     .execute_sequential()
+    ///     .unwrap();
+    /// # }
+    /// ```
+    fn ptz(self) -> PtzBuilder;
+}
+
+impl ViscaClientPtzExt for Arc<ViscaClient> {
+    fn ptz(self) -> PtzBuilder {
+        PtzBuilder::new(self)
     }
 }
 
