@@ -179,7 +179,11 @@ pub trait ViscaResultExt<T> {
     ///     Ok(())
     /// }
     /// ```
-    fn retry_on_busy(self, max_attempts: u32, base_delay: Duration) -> BoxFuture<'static, Result<T, ViscaError>>;
+    fn retry_on_busy(
+        self,
+        max_attempts: u32,
+        base_delay: Duration,
+    ) -> BoxFuture<'static, Result<T, ViscaError>>;
 
     /// Retry the operation using the error's suggested delay.
     ///
@@ -200,7 +204,10 @@ pub trait ViscaResultExt<T> {
     ///     Ok(())
     /// }
     /// ```
-    fn retry_with_suggested_delay(self, max_attempts: u32) -> BoxFuture<'static, Result<T, ViscaError>>;
+    fn retry_with_suggested_delay(
+        self,
+        max_attempts: u32,
+    ) -> BoxFuture<'static, Result<T, ViscaError>>;
 
     /// Retry the operation with exponential backoff.
     ///
@@ -245,7 +252,11 @@ impl<T> ViscaResultExt<T> for Result<T, ViscaError>
 where
     T: Send + 'static,
 {
-    fn retry_on_busy(self, _max_attempts: u32, _base_delay: Duration) -> BoxFuture<'static, Result<T, ViscaError>> {
+    fn retry_on_busy(
+        self,
+        _max_attempts: u32,
+        _base_delay: Duration,
+    ) -> BoxFuture<'static, Result<T, ViscaError>> {
         Box::pin(async move {
             // This implementation is a placeholder since we can't re-execute from just a Result
             // The real retry functionality should use the utility functions below
@@ -253,7 +264,10 @@ where
         })
     }
 
-    fn retry_with_suggested_delay(self, _max_attempts: u32) -> BoxFuture<'static, Result<T, ViscaError>> {
+    fn retry_with_suggested_delay(
+        self,
+        _max_attempts: u32,
+    ) -> BoxFuture<'static, Result<T, ViscaError>> {
         Box::pin(async move {
             // This implementation is a placeholder since we can't re-execute from just a Result
             // The real retry functionality should use the utility functions below
