@@ -17,8 +17,6 @@ readme = "README.md"
 default = ["blocking-client"]
 blocking-client = ["parking_lot"]
 async-client = ["tokio", "futures", "futures-util"]
-reconnect = []
-pool = []
 
 [dependencies]
 log = "0.4.22"
@@ -45,7 +43,7 @@ required-features = ["async-client"]
 
 [[example]]
 name = "async_connection_pool"
-required-features = ["async-client", "pool"]
+required-features = ["async-client"]
 
 [[example]]
 name = "async_health_check"
@@ -53,7 +51,7 @@ required-features = ["async-client"]
 
 [[example]]
 name = "async_reconnecting"
-required-features = ["async-client", "reconnect"]
+required-features = ["async-client"]
 
 [[example]]
 name = "async_inquiry_demo"
@@ -78,7 +76,7 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "connection_pool"
-required-features = ["blocking-client", "pool"]
+required-features = ["blocking-client"]
 
 [[example]]
 name = "control_demo"
@@ -111,7 +109,7 @@ name = "position_conversion"
 
 [[example]]
 name = "reconnecting_transport"
-required-features = ["blocking-client", "reconnect"]
+required-features = ["blocking-client"]
 
 [[example]]
 name = "declarative_macro_test"

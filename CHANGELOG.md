@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - Unreleased
 
 ### Added
+- **Unified ViscaClient**: New async-first client with blocking façade for improved developer ergonomics
+  - Single API surface for both sync and async usage
+  - Automatic socket management and concurrent command handling
+  - Smart runtime handling - reuses existing Tokio runtime when available
+  - Thread-safe design with Clone support
+- **Connection Pool**: Built-in connection pooling for managing multiple cameras (now standard feature)
+  - Configurable pool size and connection limits
+  - Automatic health checking and connection reuse
+  - Fair scheduling across multiple cameras
+- **Reconnecting Transport**: Automatic reconnection capability (now standard feature)
+  - Configurable retry policies and backoff strategies
+  - Connection event callbacks for monitoring
+  - Transparent recovery from network failures
 - **Improved Error Types**: Enhanced error handling with more specific error variants
   - Added `ConnectionFailed`, `ConnectionLost`, and `CommandTimeout` for network issues
   - Added `CameraBusy`, `CameraMoving`, and `CameraNotReady` for camera state errors
@@ -31,8 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Conversion between VISCA units, degrees, and normalized values
   - Support for zoom magnification (1x to 20x)
   - Speed conversion utilities for pan/tilt/zoom operations
+- **Extension Traits**: New ergonomic extension traits for common operations
+  - `ViscaInquiryExt` for querying complete camera state
+  - `ViscaPanTiltExt` for pan/tilt operations
+  - `ViscaZoomExt` for zoom operations
+  - `ViscaFocusExt` for focus operations
+  - `ViscaPresetExt` for preset management
 
 ### Changed
+- **Breaking Change**: Simplified feature flags - removed `reconnect` and `pool` features
+  - Connection pooling and reconnecting are now standard library components
+  - Only `blocking-client` (default) and `async-client` features remain
+  - Reduces build matrix complexity and improves user experience
 - **Breaking Change**: Reorganized `ViscaError` enum with new variants
   - Kept traditional exhaustive enum approach for better ergonomics
   - Users can handle all error cases with compile-time guarantees
@@ -42,6 +65,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Required for the new validation functions
 - **Breaking Change**: Added new error variant `InvalidState`
   - Used for async client state management errors
+- **API Improvements**: More idiomatic Rust patterns throughout
+  - Builder pattern for complex configurations
+  - Consistent use of Result types
+  - Better separation of concerns
+
+### Fixed
+- Improved error messages and debugging information
+- Better handling of edge cases in protocol implementation
+- More robust timeout handling
 
 ## [0.3.0] - 2025-01-06
 

@@ -35,10 +35,11 @@ This document outlines the PR structure for the v0.4.0 API refactoring (#23).
 - E1: Finalize `ViscaError` enum design
 - E2: Implement `ViscaResultExt` trait with retry helpers
 
-### Phase F: Feature Modules
+### Phase F: Feature Modules (COMPLETED - Simplified)
 **Branch**: `feature/v0.4.0-phase-f-features`
-- F1: Reconnecting transport decorator (behind `reconnect` flag)
-- F2: Connection pool (behind `pool` flag)
+- F1: Reconnecting transport decorator (included as standard feature)
+- F2: Connection pool (included as standard feature)
+- Note: Per issue #23 recommendations, these are now standard library components rather than feature-gated
 
 ### Phase G: Quality Assurance
 **Branch**: `feature/v0.4.0-phase-g-qa`

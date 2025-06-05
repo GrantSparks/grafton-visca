@@ -222,20 +222,20 @@ use log::{debug, error};
 // Module declarations - Public
 pub mod command;
 pub mod connection;
+pub mod connection_pool;
 pub mod constants;
 pub mod macros;
+pub mod reconnecting_transport;
 pub mod timeout;
 pub mod transport;
 
 // Module declarations - Private
 mod camera_detection;
-mod connection_pool;
 mod error;
 mod focus_ext;
 mod inquiry_ext;
 mod pan_tilt_ext;
 mod preset_ext;
-mod reconnecting_transport;
 mod session;
 mod transport_ext;
 mod zoom_ext;
@@ -302,6 +302,11 @@ pub use crate::connection_pool::{
     CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
 };
 
+// Reconnecting transport re-exports
+pub use crate::reconnecting_transport::{
+    ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
+};
+
 // Extension trait re-exports
 pub use crate::{
     focus_ext::ViscaFocusExt,
@@ -313,11 +318,6 @@ pub use crate::{
     preset_ext::ViscaPresetExt,
     transport_ext::ViscaTransportExt,
     zoom_ext::ViscaZoomExt,
-};
-
-// Reconnecting transport re-exports
-pub use crate::reconnecting_transport::{
-    ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
 };
 
 // Feature-gated re-exports - Unified client
