@@ -280,7 +280,7 @@ mod async_visca_ext;
 // Core re-exports
 pub use crate::{
     camera_detection::detect_camera_model,
-    error::{AppError, ViscaError},
+    error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
     session::ViscaSession,
 };
 
