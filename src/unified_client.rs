@@ -26,7 +26,6 @@ use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, LegacyTransportAdap
 
 // Feature-gated import for ViscaTransport when using from_legacy_transport
 #[cfg(feature = "async-client")]
-#[allow(deprecated)]
 use crate::ViscaTransport;
 
 /// Maximum number of concurrent commands (`PTZOptics` G2 limitation).
@@ -130,7 +129,6 @@ impl ViscaClient {
     /// This method helps with migration from the old transport trait to the new one.
     /// It wraps the old transport in an adapter that implements the new Transport trait.
     #[cfg(feature = "async-client")]
-    #[allow(deprecated)]
     pub fn from_legacy_transport<T>(transport: T) -> Self
     where
         T: ViscaTransport + Send + Sync + 'static,

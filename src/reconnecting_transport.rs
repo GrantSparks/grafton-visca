@@ -3,8 +3,6 @@
 //! This module implements a wrapper around any `ViscaTransport` that automatically
 //! handles connection failures and reconnection with configurable retry policies.
 
-#![allow(deprecated)]
-
 use crate::{
     connection::{ConnectionManagement, ConnectionStats},
     ViscaCommand, ViscaError, ViscaResponse, ViscaTransport,

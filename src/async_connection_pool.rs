@@ -3,8 +3,6 @@
 //! This module provides an async connection pool that manages multiple camera connections,
 //! handles automatic reconnection, and provides health checking capabilities.
 
-#![allow(deprecated)]
-
 // Standard library imports
 use std::collections::HashMap;
 use std::sync::Arc;

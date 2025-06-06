@@ -1,7 +1,5 @@
 //! Extension trait providing convenience methods for common VISCA operations.
 
-#![allow(deprecated)]
-
 use crate::{
     command::{
         exposure::{

@@ -423,14 +423,14 @@ pub use crate::{
 // Transport Migration Path (v0.4.0)
 // =================================
 // The transport layer has been redesigned for v0.4.0 with an async-first approach.
-//
+// 
 // OLD (deprecated): UdpTransport/TcpTransport implementing ViscaTransport trait (defined below)
 // NEW (recommended): Use ViscaClient::connect_udp() / ViscaClient::connect_tcp()
-//
+// 
 // For direct transport usage (advanced users):
 // - New transports are in the `transport` module
 // - They implement the new `Transport` trait (async) or `BlockingTransport` trait (sync)
-//
+// 
 // Migration path:
 // 1. Replace direct transport usage with ViscaClient
 // 2. Use ViscaClient::from_legacy_transport() for gradual migration
@@ -476,7 +476,6 @@ pub trait ViscaTransport {
     ///
     /// This method combines `send_command` and the response handling logic
     /// to provide a simpler API for common use cases.
-    #[allow(deprecated)]
     fn send_and_wait(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError>
     where
         Self: Sized,
@@ -508,7 +507,6 @@ pub struct UdpTransport {
     timeout_config: Option<TimeoutConfig>,
 }
 
-#[allow(deprecated)]
 impl UdpTransport {
     fn apply_command_timeout(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         if let Some(ref config) = self.timeout_config {
@@ -603,7 +601,6 @@ pub struct TcpTransport {
     timeout_config: Option<TimeoutConfig>,
 }
 
-#[allow(deprecated)]
 impl TcpTransport {
     fn apply_command_timeout(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         if let Some(ref config) = self.timeout_config {
@@ -729,7 +726,6 @@ fn parse_response(buffer: &[u8]) -> Result<Vec<Vec<u8>>, ViscaError> {
     Ok(responses)
 }
 
-#[allow(deprecated)]
 impl ViscaTransport for UdpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         self.apply_command_timeout(command)?;
@@ -773,7 +769,6 @@ impl ViscaTransport for UdpTransport {
     }
 }
 
-#[allow(deprecated)]
 impl ViscaTransport for TcpTransport {
     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         self.apply_command_timeout(command)?;
@@ -797,7 +792,6 @@ impl ViscaTransport for TcpTransport {
     }
 }
 
-#[allow(deprecated)]
 impl ConnectionManagement for UdpTransport {
     fn is_healthy(&mut self) -> Result<bool, ViscaError> {
         use crate::command::InquiryCommand;
@@ -839,7 +833,6 @@ impl ConnectionManagement for UdpTransport {
     }
 }
 
-#[allow(deprecated)]
 impl ConnectionManagement for TcpTransport {
     fn is_healthy(&mut self) -> Result<bool, ViscaError> {
         use crate::command::InquiryCommand;
@@ -916,7 +909,6 @@ impl ConnectionManagement for TcpTransport {
 /// # Ok::<(), grafton_visca::ViscaError>(())
 /// ```
 #[deprecated(since = "0.4.0", note = "Use `ViscaClient::send()` instead")]
-#[allow(deprecated)]
 pub fn send_command_and_wait(
     transport: &mut dyn ViscaTransport,
     command: &dyn ViscaCommand,
@@ -933,7 +925,6 @@ pub fn send_command_and_wait(
 }
 
 /// Wait for a response on a specific socket.
-#[allow(deprecated)]
 fn wait_for_response(
     transport: &mut dyn ViscaTransport,
     session: &mut ViscaSession,

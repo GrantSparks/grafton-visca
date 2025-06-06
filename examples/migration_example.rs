@@ -44,3 +44,4 @@ fn main() -> Result<(), ViscaError> {
 
     Ok(())
 }
+

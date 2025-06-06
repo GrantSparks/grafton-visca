@@ -1,7 +1,5 @@
 //! Async VISCA client implementation for non-blocking camera control.
 
-#![allow(deprecated)]
-
 // Standard library imports
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
