@@ -144,23 +144,29 @@ fn test_socket_buffer_full_error() {
 fn test_command_history_management() {
     // This test demonstrates the utility of MockTransport's history management methods
     let mut device = MockDevice::with_completion();
-    
+
     // Execute first command and verify
-    device.execute_command(&PowerCommand { power: Power::On }).unwrap();
+    device
+        .execute_command(&PowerCommand { power: Power::On })
+        .unwrap();
     assert_eq!(device.commands_sent().len(), 1);
     assert_eq!(
         device.last_command().unwrap(),
         vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]
     );
-    
+
     // Add more responses for next commands
     device.add_response(vec![0x90, 0x41, 0xFF]); // ACK
     device.add_response(vec![0x90, 0x51, 0xFF]); // Completion
-    
+
     // Execute second command
-    device.execute_command(&PowerCommand { power: Power::Standby }).unwrap();
+    device
+        .execute_command(&PowerCommand {
+            power: Power::Standby,
+        })
+        .unwrap();
     assert_eq!(device.commands_sent().len(), 2);
-    
+
     // Verify we can check just the last command without iterating
     assert_eq!(
         device.last_command().unwrap(),
@@ -172,15 +178,23 @@ fn test_command_history_management() {
 fn test_inquiry_response_queueing() {
     // Demonstrates the queue_inquiry_response utility method
     let mut device = MockDevice::new();
-    
+
     // Queue multiple inquiry responses
     device.queue_inquiry_response(ViscaInquiryResponse::Power { on: true });
     device.queue_inquiry_response(ViscaInquiryResponse::ZoomPosition { position: 0x1234 });
-    
+
     // Execute inquiries and verify responses
     let power_response = device.execute_command(&InquiryCommand::Power).unwrap();
-    assert!(matches!(power_response, ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on: true })));
-    
-    let zoom_response = device.execute_command(&InquiryCommand::ZoomPosition).unwrap();
-    assert!(matches!(zoom_response, ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position: 0x1234 })));
+    assert!(matches!(
+        power_response,
+        ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on: true })
+    ));
+
+    let zoom_response = device
+        .execute_command(&InquiryCommand::ZoomPosition)
+        .unwrap();
+    assert!(matches!(
+        zoom_response,
+        ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position: 0x1234 })
+    ));
 }
