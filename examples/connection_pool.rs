@@ -1,15 +1,190 @@
-//! Example demonstrating connection pool for managing multiple cameras.
+//! Connection pool example demonstrating multi-camera management.
 //!
-//! This example shows how to use the ViscaConnectionPool to manage connections
-//! to multiple PTZ cameras simultaneously.
+//! This example shows how to use the ViscaConnectionPool to manage
+//! multiple cameras with the new unified ViscaClient architecture.
 
-// TODO: Update this example for v0.5.0 - ViscaConnectionPool is not yet available
+#[cfg(not(feature = "blocking-client"))]
 fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("ViscaConnectionPool is not yet available in the current version");
+    println!("This example requires the 'blocking-client' feature to be enabled.");
+    println!("Try running with: cargo run --example connection_pool --features blocking-client");
 }
 
-/*
+#[cfg(feature = "blocking-client")]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use grafton_visca::{
+        connection_pool::{CameraInfo, ConnectionType, PoolConfig, ViscaConnectionPool},
+        command::pan_tilt::{PanTiltCommand, PanTiltDirection, PanSpeed, TiltSpeed},
+        command::zoom::ZoomCommand,
+        command::power::{Power, PowerCommand},
+    };
+    use std::time::Duration;
+
+    env_logger::init();
+
+    println!("=== VISCA Connection Pool Example (v0.5.0) ===\n");
+
+    // Configure the connection pool
+    let config = PoolConfig {
+        health_check_interval: Duration::from_secs(30),
+        auto_remove_unhealthy: true,
+        max_idle_time: Some(Duration::from_secs(120)),
+    };
+
+    // Create the connection pool
+    let pool = ViscaConnectionPool::new(config);
+
+    // Add multiple cameras to the pool
+    println!("Adding cameras to the pool...");
+    
+    // Camera 1: Front camera
+    match pool.add_camera(
+        "front",
+        "192.168.1.100:5678",
+        ConnectionType::Udp,
+        CameraInfo {
+            id: "front".to_string(),
+            name: Some("Front Stage Camera".to_string()),
+            model: Some("PTZOptics G2".to_string()),
+            location: Some("Main Stage Front".to_string()),
+        },
+    ) {
+        Ok(_) => println!("✓ Added front camera"),
+        Err(e) => println!("✗ Failed to add front camera: {}", e),
+    }
+
+    // Camera 2: Rear camera  
+    match pool.add_camera(
+        "rear",
+        "192.168.1.101:5678", 
+        ConnectionType::Udp,
+        CameraInfo {
+            id: "rear".to_string(),
+            name: Some("Rear Camera".to_string()),
+            model: Some("PTZOptics G2".to_string()),
+            location: Some("Back of Auditorium".to_string()),
+        },
+    ) {
+        Ok(_) => println!("✓ Added rear camera"),
+        Err(e) => println!("✗ Failed to add rear camera: {}", e),
+    }
+
+    // Camera 3: Side camera using TCP
+    match pool.add_camera(
+        "side",
+        "192.168.1.102:5678",
+        ConnectionType::Tcp,
+        CameraInfo {
+            id: "side".to_string(),
+            name: Some("Side Camera".to_string()),
+            model: Some("PTZOptics G2".to_string()),
+            location: Some("Stage Right".to_string()),
+        },
+    ) {
+        Ok(_) => println!("✓ Added side camera (TCP)"),
+        Err(e) => println!("✗ Failed to add side camera: {}", e),
+    }
+
+    // List all cameras
+    println!("\nCameras in pool:");
+    for camera_id in pool.list_cameras() {
+        println!("  - {}", camera_id);
+    }
+
+    // Power on all cameras
+    println!("\nPowering on cameras...");
+    let power_on = PowerCommand { power: Power::On };
+    for camera_id in pool.list_cameras() {
+        match pool.execute_command(&camera_id, &power_on) {
+            Ok(_) => println!("  {} - Powered on", camera_id),
+            Err(e) => println!("  {} - Power on failed: {}", camera_id, e),
+        }
+    }
+
+    // Control multiple cameras
+    println!("\nControlling cameras...");
+
+    // Pan all cameras to the left
+    let pan_left = PanTiltCommand::Move {
+        direction: PanTiltDirection::Left,
+        pan_speed: PanSpeed::new(10).unwrap(),
+        tilt_speed: TiltSpeed::new(0).unwrap(),
+    };
+
+    for camera_id in pool.list_cameras() {
+        match pool.execute_command(&camera_id, &pan_left) {
+            Ok(_) => println!("  {} - Panning left", camera_id),
+            Err(e) => println!("  {} - Error: {}", camera_id, e),
+        }
+    }
+
+    // Wait a bit
+    std::thread::sleep(Duration::from_secs(2));
+
+    // Stop all cameras
+    let stop = PanTiltCommand::Stop;
+    for camera_id in pool.list_cameras() {
+        let _ = pool.execute_command(&camera_id, &stop);
+    }
+
+    // Zoom in on the front camera only
+    if pool.list_cameras().contains(&"front".to_string()) {
+        println!("\nZooming front camera...");
+        let zoom_in = ZoomCommand::TeleStandard;
+        pool.execute_command("front", &zoom_in)?;
+        
+        std::thread::sleep(Duration::from_secs(1));
+        
+        let zoom_stop = ZoomCommand::Stop;
+        pool.execute_command("front", &zoom_stop)?;
+    }
+
+    // Check health of all cameras
+    println!("\nChecking camera health...");
+    let health_results = pool.health_check_all();
+    for (camera_id, is_healthy) in health_results {
+        println!("  {} - {}", camera_id, if is_healthy { "Healthy" } else { "Unhealthy" });
+    }
+
+    // Get statistics for all cameras
+    println!("\nCamera statistics:");
+    for stats in pool.get_all_stats() {
+        println!("  {} ({}):", stats.info.id, stats.info.name.as_deref().unwrap_or("Unknown"));
+        println!("    - Healthy: {}", stats.is_healthy);
+        println!("    - Last used: {:?} ago", stats.last_used.elapsed());
+        if let Some(location) = &stats.info.location {
+            println!("    - Location: {}", location);
+        }
+    }
+
+    // Remove unhealthy cameras if configured
+    let removed = pool.remove_unhealthy();
+    if removed.is_empty() {
+        println!("\nNo unhealthy cameras to remove");
+    } else {
+        println!("\nRemoved unhealthy cameras: {:?}", removed);
+    }
+
+    // Remove a specific camera
+    if pool.list_cameras().contains(&"side".to_string()) {
+        println!("\nRemoving side camera...");
+        if let Some(info) = pool.remove_camera("side") {
+            println!("Removed camera: {} at {}", 
+                info.name.unwrap_or_else(|| "Unknown".to_string()),
+                info.location.unwrap_or_else(|| "Unknown".to_string())
+            );
+        }
+    }
+
+    // Final camera list
+    println!("\nFinal cameras in pool:");
+    for camera_id in pool.list_cameras() {
+        println!("  - {}", camera_id);
+    }
+
+    Ok(())
+}
+
+/* Old v0.4.0 example code for reference:
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},

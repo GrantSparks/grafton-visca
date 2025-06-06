@@ -256,8 +256,8 @@
 pub mod command;
 /// Connection management for VISCA communications.
 pub mod connection;
-// TODO: Update connection_pool to use new transport system
-// pub mod connection_pool;
+/// Connection pooling for managing multiple VISCA cameras.
+pub mod connection_pool;
 pub mod constants;
 pub mod macros;
 #[cfg(feature = "async-client")]
@@ -334,9 +334,9 @@ pub use crate::{
         ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
     },
     connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
-    // connection_pool::{
-    //     CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
-    // },
+    connection_pool::{
+        CameraInfo, ConnectionType, PoolConfig, PooledCameraStats, ViscaConnectionPool,
+    },
     error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
     exposure_ext::ViscaExposureExt,
     focus_ext::ViscaFocusExt,
@@ -360,11 +360,7 @@ pub use crate::{
 pub use crate::{
     // TODO: Update async_client and re-export after updating to new transport system
     // async_client::AsyncViscaClient,
-    // TODO: Update async connection pool and reconnecting transport
-    // async_connection_pool::{
-    //     AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard,
-    //     AsyncViscaConnectionPool, CameraInfo as AsyncCameraInfo,
-    // },
+    connection_pool::AsyncViscaConnectionPool,
     // TODO: Re-export async transports after updating them
     // async_tcp_transport::AsyncTcpTransport,
     async_transport::TransportFuture,
