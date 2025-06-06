@@ -3,9 +3,8 @@
 //! This example demonstrates basic camera control using the new v0.5.0 API.
 
 use grafton_visca::{
-    ViscaClient, ViscaError,
-    ViscaTransportExt, ViscaPositionExt, ViscaZoomExt,
-    command::pan_tilt::PanTiltDirection,
+    command::pan_tilt::PanTiltDirection, ViscaClient, ViscaError, ViscaPositionExt,
+    ViscaTransportExt, ViscaZoomExt,
 };
 use std::time::Duration;
 

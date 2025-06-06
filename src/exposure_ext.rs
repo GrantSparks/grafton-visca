@@ -37,7 +37,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), ViscaError> {
         let command = ExposureCommand { mode };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -68,7 +68,7 @@ pub trait ViscaExposureExt: ViscaDevice {
         let compensation_level = ExposureCompensationLevel::new(level)?;
         let command = ExposureCompensationCommand::Direct(compensation_level);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -102,7 +102,7 @@ pub trait ViscaExposureExt: ViscaDevice {
             ExposureCompensationCommand::Off
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -122,7 +122,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn reset_exposure_compensation(&mut self) -> Result<(), ViscaError> {
         let command = ExposureCompensationCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -142,7 +142,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn exposure_compensation_up(&mut self) -> Result<(), ViscaError> {
         let command = ExposureCompensationCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -162,7 +162,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn exposure_compensation_down(&mut self) -> Result<(), ViscaError> {
         let command = ExposureCompensationCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -189,7 +189,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn set_iris(&mut self, value: u8) -> Result<(), ViscaError> {
         let command = IrisCommand::Direct(value);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -209,7 +209,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn iris_up(&mut self) -> Result<(), ViscaError> {
         let command = IrisCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -229,7 +229,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn iris_down(&mut self) -> Result<(), ViscaError> {
         let command = IrisCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -249,7 +249,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn iris_reset(&mut self) -> Result<(), ViscaError> {
         let command = IrisCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -276,7 +276,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn set_shutter_speed(&mut self, value: u16) -> Result<(), ViscaError> {
         let command = ShutterCommand::Direct(value);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -296,7 +296,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn shutter_up(&mut self) -> Result<(), ViscaError> {
         let command = ShutterCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -316,7 +316,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn shutter_down(&mut self) -> Result<(), ViscaError> {
         let command = ShutterCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -336,7 +336,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn shutter_reset(&mut self) -> Result<(), ViscaError> {
         let command = ShutterCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -366,7 +366,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn set_gain(&mut self, gain: u16) -> Result<(), ViscaError> {
         let command = GainCommand::Direct(gain);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -393,7 +393,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn set_gain_limit(&mut self, limit: u8) -> Result<(), ViscaError> {
         let command = GainLimitCommand { limit };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -413,7 +413,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn gain_up(&mut self) -> Result<(), ViscaError> {
         let command = GainCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -433,7 +433,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn gain_down(&mut self) -> Result<(), ViscaError> {
         let command = GainCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -453,7 +453,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn gain_reset(&mut self) -> Result<(), ViscaError> {
         let command = GainCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -483,7 +483,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn set_brightness(&mut self, brightness: u16) -> Result<(), ViscaError> {
         let command = BrightCommand::Direct(brightness);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -503,7 +503,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn brightness_up(&mut self) -> Result<(), ViscaError> {
         let command = BrightCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -523,7 +523,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn brightness_down(&mut self) -> Result<(), ViscaError> {
         let command = BrightCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -543,7 +543,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn brightness_reset(&mut self) -> Result<(), ViscaError> {
         let command = BrightCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -570,7 +570,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     fn set_backlight_compensation(&mut self, enabled: bool) -> Result<(), ViscaError> {
         let command = BacklightCommand { status: enabled };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }

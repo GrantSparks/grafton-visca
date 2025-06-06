@@ -36,7 +36,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), ViscaError> {
         let command = WhiteBalanceCommand { mode };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -63,7 +63,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn set_color_temperature_direct(&mut self, value: u16) -> Result<(), ViscaError> {
         let command = ColorTemperatureCommand::Direct(value);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -83,7 +83,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn color_temperature_up(&mut self) -> Result<(), ViscaError> {
         let command = ColorTemperatureCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -103,7 +103,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn color_temperature_down(&mut self) -> Result<(), ViscaError> {
         let command = ColorTemperatureCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -123,7 +123,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn color_temperature_reset(&mut self) -> Result<(), ViscaError> {
         let command = ColorTemperatureCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -150,7 +150,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn trigger_one_push_white_balance(&mut self) -> Result<(), ViscaError> {
         let command = OnePushTriggerCommand;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -185,7 +185,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
         // Set red gain
         let r_command = RedGainCommand::Direct(r_gain);
         match self.execute_command(&r_command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -193,7 +193,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
         // Set blue gain
         let b_command = BlueGainCommand::Direct(b_gain);
         match self.execute_command(&b_command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -214,7 +214,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_red_up(&mut self) -> Result<(), ViscaError> {
         let command = RedGainCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -234,7 +234,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_red_down(&mut self) -> Result<(), ViscaError> {
         let command = RedGainCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -254,7 +254,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_red_reset(&mut self) -> Result<(), ViscaError> {
         let command = RedGainCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -274,7 +274,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_blue_up(&mut self) -> Result<(), ViscaError> {
         let command = BlueGainCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -294,7 +294,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_blue_down(&mut self) -> Result<(), ViscaError> {
         let command = BlueGainCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -314,7 +314,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_blue_reset(&mut self) -> Result<(), ViscaError> {
         let command = BlueGainCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }

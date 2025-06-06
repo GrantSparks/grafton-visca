@@ -2,7 +2,8 @@
 
 // Crate imports
 use crate::{
-    command::InquiryCommand, error::ViscaError, transport_ext::ViscaTransportExt, ViscaDevice, ViscaResponse,
+    command::InquiryCommand, error::ViscaError, transport_ext::ViscaTransportExt, ViscaDevice,
+    ViscaResponse,
 };
 
 /// Extension trait providing advanced power control methods.

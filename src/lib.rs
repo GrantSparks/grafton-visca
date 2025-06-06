@@ -260,8 +260,8 @@ pub mod connection;
 // pub mod connection_pool;
 pub mod constants;
 pub mod macros;
-// TODO: Update reconnecting_transport to use new transport system
-// pub mod reconnecting_transport;
+#[cfg(feature = "async-client")]
+pub mod reconnecting_transport;
 pub mod timeout;
 pub mod transport;
 
@@ -290,30 +290,37 @@ mod unified_client;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod ptz_builder;
 
-#[cfg(feature = "async-client")]
-mod async_client;
+// TODO: Update async_client to use new transport system
+// #[cfg(feature = "async-client")]
+// mod async_client;
 
-#[cfg(feature = "async-client")]
-mod async_connection_pool;
+// TODO: Update async_connection_pool to use new transport system
+// #[cfg(feature = "async-client")]
+// mod async_connection_pool;
 
-#[cfg(feature = "async-client")]
-mod async_control_ext;
+// TODO: Update async_control_ext to use new transport system
+// #[cfg(feature = "async-client")]
+// mod async_control_ext;
 
-#[cfg(feature = "async-client")]
-mod async_inquiry_ext;
+// TODO: Update async_inquiry_ext to use new transport system
+// #[cfg(feature = "async-client")]
+// mod async_inquiry_ext;
 
-#[cfg(feature = "async-client")]
-mod async_reconnecting_transport;
+// TODO: Update async_reconnecting_transport to use new transport system
+// #[cfg(feature = "async-client")]
+// mod async_reconnecting_transport;
 
-#[cfg(feature = "async-client")]
-mod async_tcp_transport;
+// TODO: Update async_tcp_transport to use new transport system
+// #[cfg(feature = "async-client")]
+// mod async_tcp_transport;
 
 #[cfg(feature = "async-client")]
 /// Asynchronous transport implementations for VISCA protocol.
 pub mod async_transport;
 
-#[cfg(feature = "async-client")]
-mod async_udp_transport;
+// TODO: Update async_udp_transport to use new transport system
+// #[cfg(feature = "async-client")]
+// mod async_udp_transport;
 
 #[cfg(feature = "async-client")]
 mod async_visca_ext;
@@ -342,9 +349,6 @@ pub use crate::{
     position_ext::ViscaPositionExt,
     power_ext::ViscaPowerExt,
     preset_ext::ViscaPresetExt,
-    // reconnecting_transport::{
-    //     ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
-    // },
     session::ViscaSession,
     timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
     transport_ext::ViscaTransportExt,
@@ -354,20 +358,22 @@ pub use crate::{
 
 #[cfg(feature = "async-client")]
 pub use crate::{
-    async_client::AsyncViscaClient,
+    // TODO: Update async_client and re-export after updating to new transport system
+    // async_client::AsyncViscaClient,
     // TODO: Update async connection pool and reconnecting transport
     // async_connection_pool::{
     //     AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard,
     //     AsyncViscaConnectionPool, CameraInfo as AsyncCameraInfo,
     // },
-    // async_reconnecting_transport::{
-    //     AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
-    // },
-    async_tcp_transport::AsyncTcpTransport,
+    // TODO: Re-export async transports after updating them
+    // async_tcp_transport::AsyncTcpTransport,
     async_transport::{AsyncViscaTransport, TransportFuture},
-    async_udp_transport::AsyncUdpTransport,
+    // async_udp_transport::AsyncUdpTransport,
     async_visca_ext::{AsyncViscaExt, PanScanDirection},
     connection::AsyncConnectionManagement,
+    reconnecting_transport::{
+        ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
+    },
 };
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use crate::{
@@ -376,7 +382,7 @@ pub use crate::{
 };
 
 /// Core trait for types that can send and receive VISCA commands.
-/// 
+///
 /// This trait provides the minimal interface needed for the extension traits.
 /// It is implemented by `ViscaClient` and provides the foundation for all
 /// high-level camera control operations.
@@ -384,11 +390,3 @@ pub trait ViscaDevice {
     /// Send a command and wait for the response.
     fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError>;
 }
-
-
-
-
-
-
-
-

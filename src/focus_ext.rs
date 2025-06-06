@@ -29,7 +29,7 @@ pub trait ViscaFocusExt: ViscaDevice {
             FocusCommand::Manual
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -59,7 +59,7 @@ pub trait ViscaFocusExt: ViscaDevice {
     fn focus_to(&mut self, position: u16) -> Result<(), ViscaError> {
         let command = FocusCommand::Direct(position);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -95,7 +95,7 @@ pub trait ViscaFocusExt: ViscaDevice {
             FocusCommand::NearStandard
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -131,7 +131,7 @@ pub trait ViscaFocusExt: ViscaDevice {
             FocusCommand::FarStandard
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -157,7 +157,7 @@ pub trait ViscaFocusExt: ViscaDevice {
     fn stop_focus(&mut self) -> Result<(), ViscaError> {
         let command = FocusCommand::Stop;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -183,7 +183,7 @@ pub trait ViscaFocusExt: ViscaDevice {
     fn trigger_one_push_focus(&mut self) -> Result<(), ViscaError> {
         let command = FocusCommand::OnePushTrigger;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }

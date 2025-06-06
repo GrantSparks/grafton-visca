@@ -1,3 +1,10 @@
+// TODO: Update this example for v0.5.0 - async support is not yet available
+fn main() {
+    println!("This example needs to be updated for v0.5.0");
+    println!("Async support is not yet available in the current version");
+}
+
+/*
 //! Example demonstrating async connection pool for managing multiple cameras.
 //!
 //! This example shows how to use the AsyncViscaConnectionPool to manage connections
@@ -336,3 +343,4 @@ async fn demo_concurrent_async_control() -> Result<(), Box<dyn std::error::Error
 
     Ok(())
 }
+*/
