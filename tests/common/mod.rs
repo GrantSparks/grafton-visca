@@ -23,7 +23,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// A flexible mock transport for testing various scenarios.
-#[allow(dead_code)] // Some methods may not be used in all test scenarios
+#[allow(dead_code)] // Complete testing API - not all methods used in every test
 pub struct MockTransport {
     /// Queue of responses to return
     pub responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
@@ -37,7 +37,7 @@ pub struct MockTransport {
     pub fail_after: Option<usize>,
 }
 
-#[allow(dead_code)] // Some methods may not be used in all test scenarios
+#[allow(dead_code)] // Complete testing API - not all methods used in every test
 impl MockTransport {
     /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
@@ -128,13 +128,13 @@ impl BlockingTransport for MockTransport {
 
 /// A mock device implementation that properly handles VISCA protocol.
 #[cfg(feature = "blocking-client")]
-#[allow(dead_code)] // Some methods may not be used in all test scenarios
+#[allow(dead_code)] // Complete testing API - not all methods used in every test
 pub struct MockDevice {
     transport: BlockingAdapter<MockTransport>,
 }
 
 #[cfg(feature = "blocking-client")]
-#[allow(dead_code)] // Some methods may not be used in all test scenarios
+#[allow(dead_code)] // Complete testing API - not all methods used in every test
 impl MockDevice {
     /// Create a new mock device.
     pub fn new() -> Self {
@@ -340,7 +340,7 @@ mod async_mock {
         pub fail_after: Option<usize>,
     }
 
-    #[allow(dead_code)] // Some methods may not be used in all test scenarios
+    #[allow(dead_code)] // Complete testing API - not all methods used in every test
     impl MockAsyncTransport {
         pub fn new() -> Self {
             Self {
