@@ -12,23 +12,23 @@
 // Targeted allows for legitimate patterns
 #![allow(
     clippy::module_name_repetitions, // Common in Rust APIs (e.g., ViscaCommand, ViscaError)
-    clippy::must_use_candidate,      // We'll add #[must_use] where appropriate
-    clippy::use_self,                // 160 instances - needs systematic refactor
-    clippy::uninlined_format_args,   // 30 instances remaining
-    clippy::missing_const_for_fn,    // TODO: Fix in follow-up PR
-    clippy::cast_lossless,           // TODO: Fix in follow-up PR
     clippy::cast_sign_loss,          // Some are intentional after validation
     clippy::cast_possible_truncation,// Some are intentional after validation
     clippy::cast_possible_wrap,      // Some are intentional after validation
-    clippy::return_self_not_must_use,// TODO: Fix in follow-up PR
-    clippy::significant_drop_tightening, // TODO: Fix in follow-up PR
-    clippy::match_same_arms,         // TODO: Fix in follow-up PR
-    clippy::items_after_statements,  // TODO: Fix in follow-up PR
-    clippy::derive_partial_eq_without_eq, // TODO: Fix in follow-up PR
     clippy::cast_precision_loss,     // Some are intentional
-    clippy::float_cmp,               // Tests need exact float comparisons
+    clippy::float_cmp                // Tests need exact float comparisons
+)]
+// Temporary allows - should be fixed
+#![allow(
+    clippy::use_self,                // TODO: 160+ instances need systematic refactor
+    clippy::missing_const_for_fn,    // TODO: Mark const functions appropriately
+    clippy::must_use_candidate,      // TODO: Add #[must_use] where appropriate
     clippy::too_many_lines,          // TODO: Refactor parse_visca_response
-    clippy::single_match_else        // TODO: Fix in follow-up PR
+    clippy::missing_errors_doc,      // TODO: Add # Errors sections to docs
+    clippy::missing_panics_doc,      // TODO: Add # Panics sections to docs
+    clippy::derive_partial_eq_without_eq, // TODO: Add Eq where appropriate
+    clippy::cast_lossless,           // TODO: Use From trait for infallible casts
+    clippy::match_same_arms          // TODO: Consolidate duplicate match arms
 )]
 //!
 //! ## What is VISCA?
