@@ -208,10 +208,7 @@ mod sync_health_tests {
     impl BlockingTransport for MockTransport {
         fn send_command_blocking(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
             if self.fail_send {
-                Err(ViscaError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Mock send error",
-                )))
+                Err(ViscaError::Io(std::io::Error::other("Mock send error")))
             } else {
                 self.stats.record_sent(10);
                 Ok(())
@@ -220,10 +217,7 @@ mod sync_health_tests {
 
         fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
             if self.fail_receive {
-                Err(ViscaError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Mock receive error",
-                )))
+                Err(ViscaError::Io(std::io::Error::other("Mock receive error")))
             } else if self.empty_response {
                 Ok(vec![])
             } else {
