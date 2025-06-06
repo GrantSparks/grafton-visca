@@ -26,7 +26,6 @@
     clippy::too_many_lines,          // TODO: Refactor parse_visca_response
     clippy::missing_errors_doc,      // TODO: Add # Errors sections to docs
     clippy::missing_panics_doc,      // TODO: Add # Panics sections to docs
-    clippy::cast_lossless,           // TODO: Use From trait for infallible casts
     clippy::match_same_arms          // TODO: Consolidate duplicate match arms
 )]
 //!

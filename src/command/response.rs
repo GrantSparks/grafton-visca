@@ -123,15 +123,15 @@ pub fn parse_visca_response(
                         return Err(ViscaError::InvalidResponseLength);
                     }
 
-                    let mut pan = (response[2] as i16) << 12;
-                    pan |= (response[3] as i16) << 8;
-                    pan |= (response[4] as i16) << 4;
-                    pan |= response[5] as i16;
+                    let mut pan = i16::from(response[2]) << 12;
+                    pan |= i16::from(response[3]) << 8;
+                    pan |= i16::from(response[4]) << 4;
+                    pan |= i16::from(response[5]);
 
-                    let mut tilt = (response[6] as i16) << 12;
-                    tilt |= (response[7] as i16) << 8;
-                    tilt |= (response[8] as i16) << 4;
-                    tilt |= response[9] as i16;
+                    let mut tilt = i16::from(response[6]) << 12;
+                    tilt |= i16::from(response[7]) << 8;
+                    tilt |= i16::from(response[8]) << 4;
+                    tilt |= i16::from(response[9]);
 
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::PanTiltPosition { pan, tilt },
@@ -142,10 +142,10 @@ pub fn parse_visca_response(
                         return Err(ViscaError::InvalidResponseLength);
                     }
 
-                    let mut position = (response[2] as u16) << 12;
-                    position |= (response[3] as u16) << 8;
-                    position |= (response[4] as u16) << 4;
-                    position |= response[5] as u16;
+                    let mut position = u16::from(response[2]) << 12;
+                    position |= u16::from(response[3]) << 8;
+                    position |= u16::from(response[4]) << 4;
+                    position |= u16::from(response[5]);
 
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::ZoomPosition { position },
@@ -156,10 +156,10 @@ pub fn parse_visca_response(
                         return Err(ViscaError::InvalidResponseLength);
                     }
 
-                    let mut position = (response[2] as u16) << 12;
-                    position |= (response[3] as u16) << 8;
-                    position |= (response[4] as u16) << 4;
-                    position |= response[5] as u16;
+                    let mut position = u16::from(response[2]) << 12;
+                    position |= u16::from(response[3]) << 8;
+                    position |= u16::from(response[4]) << 4;
+                    position |= u16::from(response[5]);
 
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::FocusPosition { position },
@@ -227,7 +227,7 @@ pub fn parse_visca_response(
                     if response.len() != 7 {
                         return Err(ViscaError::InvalidResponseLength);
                     }
-                    let position = ((response[4] as u16) << 4) | (response[5] as u16);
+                    let position = (u16::from(response[4]) << 4) | u16::from(response[5]);
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::Shutter { position },
                     ))
@@ -236,7 +236,7 @@ pub fn parse_visca_response(
                     if response.len() != 7 {
                         return Err(ViscaError::InvalidResponseLength);
                     }
-                    let position = ((response[4] as u16) << 4) | (response[5] as u16);
+                    let position = (u16::from(response[4]) << 4) | u16::from(response[5]);
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::Bright { position },
                     ))
@@ -341,7 +341,7 @@ pub fn parse_visca_response(
                     if response.len() != 7 {
                         return Err(ViscaError::InvalidResponseLength);
                     }
-                    let temperature = ((response[4] as u16) << 4) | (response[5] as u16);
+                    let temperature = (u16::from(response[4]) << 4) | u16::from(response[5]);
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::ColorTemperature { temperature },
                     ))
@@ -407,10 +407,10 @@ pub fn parse_visca_response(
                     if response.len() != 7 {
                         return Err(ViscaError::InvalidResponseLength);
                     }
-                    let mut position = (response[2] as u16) << 12;
-                    position |= (response[3] as u16) << 8;
-                    position |= (response[4] as u16) << 4;
-                    position |= response[5] as u16;
+                    let mut position = u16::from(response[2]) << 12;
+                    position |= u16::from(response[3]) << 8;
+                    position |= u16::from(response[4]) << 4;
+                    position |= u16::from(response[5]);
                     Ok(ViscaResponse::InquiryResponse(
                         ViscaInquiryResponse::FocusNearLimit { position },
                     ))
