@@ -37,9 +37,7 @@ impl FailingMockTransport {
         self.should_fail.store(n > 0, Ordering::SeqCst);
     }
 
-    fn total_failures(&self) -> usize {
-        self.total_failures.load(Ordering::SeqCst)
-    }
+    // total_failures method removed as it was unused
 }
 
 impl Transport for FailingMockTransport {

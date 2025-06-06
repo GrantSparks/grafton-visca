@@ -16,7 +16,6 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// A flexible mock transport for testing various scenarios.
-#[allow(dead_code)]
 pub struct MockTransport {
     /// Queue of responses to return
     pub responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
@@ -26,13 +25,10 @@ pub struct MockTransport {
     pub fail_send: bool,
     /// Whether to fail on receive
     pub fail_receive: bool,
-    /// Optional delay in milliseconds (for async testing)
-    pub delay_ms: Option<u64>,
     /// Fail after N commands (for testing error scenarios)
     pub fail_after: Option<usize>,
 }
 
-#[allow(dead_code)]
 impl MockTransport {
     /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
@@ -41,7 +37,6 @@ impl MockTransport {
             commands_sent: Arc::new(Mutex::new(Vec::new())),
             fail_send: false,
             fail_receive: false,
-            delay_ms: None,
             fail_after: None,
         }
     }
@@ -132,7 +127,6 @@ pub struct MockDevice {
     transport: BlockingAdapter<MockTransport>,
 }
 
-#[allow(dead_code)]
 impl MockDevice {
     /// Create a new mock device.
     pub fn new() -> Self {
@@ -206,6 +200,11 @@ impl MockDevice {
     /// Get the last command that was sent.
     pub fn last_command(&self) -> Option<Vec<u8>> {
         self.transport.0.last_command()
+    }
+    
+    /// Clear the command history.
+    pub fn clear_commands(&mut self) {
+        self.transport.0.clear_commands();
     }
 }
 
@@ -330,7 +329,6 @@ mod async_mock {
         pub fail_after: Option<usize>,
     }
 
-    #[allow(dead_code)]
     impl MockAsyncTransport {
         pub fn new() -> Self {
             Self {
