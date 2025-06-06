@@ -443,7 +443,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt, ExposurePreset};
     /// # use grafton_visca::command::exposure::ExposureMode;
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Configure for bright daylight
