@@ -27,7 +27,7 @@ fn test_exposure_ext_methods() {
     );
 
     // Test shutter speed
-    device.set_shutter_speed(0x10).unwrap();
+    device.set_shutter(0x10).unwrap();
     assert_eq!(
         device.last_command().unwrap()[0..4],
         vec![0x81, 0x01, 0x04, 0x4A]

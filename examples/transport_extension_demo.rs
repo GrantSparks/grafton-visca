@@ -32,7 +32,7 @@ fn main() -> Result<(), ViscaError> {
     ViscaExposureExt::set_iris(&mut client, 0x0C)?;
     println!("Set iris to F5.6");
 
-    client.set_shutter_speed(0x10)?;
+    client.set_shutter(0x10)?;
     println!("Set shutter speed");
 
     // White balance
