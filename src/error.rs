@@ -332,13 +332,13 @@ impl ViscaRetry {
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use grafton_visca::{AsyncViscaClient, ViscaRetry, ViscaError};
+    /// use grafton_visca::{ViscaClient, ViscaRetry, ViscaError};
     /// use grafton_visca::command::PanTiltCommand;
     /// use std::time::Duration;
     ///
-    /// let client = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+    /// let client = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
     /// ViscaRetry::retry_async(
-    ///     || async { client.send(&PanTiltCommand::Home).await },
+    ///     || async { client.send_async(&PanTiltCommand::Home).await },
     ///     3,
     ///     Duration::from_millis(100)
     /// ).await?;
@@ -390,12 +390,12 @@ impl ViscaRetry {
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use grafton_visca::{AsyncViscaClient, ViscaRetry, ViscaError};
+    /// use grafton_visca::{ViscaClient, ViscaRetry, ViscaError};
     /// use grafton_visca::command::ZoomCommand;
     ///
-    /// let client = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+    /// let client = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
     /// ViscaRetry::retry_with_suggested_delay_async(
-    ///     || async { client.send(&ZoomCommand::Stop).await },
+    ///     || async { client.send_async(&ZoomCommand::Stop).await },
     ///     5
     /// ).await?;
     /// # Ok(())
@@ -448,13 +448,13 @@ impl ViscaRetry {
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use grafton_visca::{AsyncViscaClient, ViscaRetry, ViscaError};
+    /// use grafton_visca::{ViscaClient, ViscaRetry, ViscaError};
     /// use grafton_visca::command::FocusCommand;
     /// use std::time::Duration;
     ///
-    /// let client = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+    /// let client = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
     /// ViscaRetry::retry_with_exponential_backoff_async(
-    ///     || async { client.send(&FocusCommand::Auto).await },
+    ///     || async { client.send_async(&FocusCommand::Auto).await },
     ///     7,
     ///     Duration::from_millis(50),
     ///     Duration::from_secs(1)
