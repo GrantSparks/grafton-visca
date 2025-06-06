@@ -11,8 +11,7 @@ use crate::{
     ptz_builder::PtzBuilder,
     session::ViscaSession,
     sync_primitives::{Mutex, Semaphore, SemaphoreExt},
-    transport::LegacyTransportAdapter,
-    ViscaCommand, ViscaError, ViscaResponse, ViscaTransport,
+    ViscaCommand, ViscaError, ViscaResponse,
 };
 
 // Feature-gated imports - Blocking client
@@ -23,7 +22,11 @@ use crate::transport::{
 
 // Feature-gated imports - Async client
 #[cfg(feature = "async-client")]
-use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, Transport};
+use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, LegacyTransportAdapter, Transport};
+
+// Feature-gated import for ViscaTransport when using from_legacy_transport
+#[cfg(feature = "async-client")]
+use crate::ViscaTransport;
 
 /// Maximum number of concurrent commands (`PTZOptics` G2 limitation).
 const MAX_CONCURRENT_COMMANDS: usize = 2;
@@ -45,7 +48,7 @@ enum TransportVariant {
     /// Native async TCP transport
     #[cfg(feature = "async-client")]
     AsyncTcp(AsyncTcpTransport),
-    
+
     /// Legacy transport wrapped in adapter
     #[cfg(feature = "async-client")]
     Legacy(Box<dyn Transport + Send + Sync>),
@@ -121,14 +124,14 @@ impl ViscaClient {
         )))
     }
 
-    /// Create a client from a legacy ViscaTransport implementation.
-    /// 
+    /// Create a client from a legacy `ViscaTransport` implementation.
+    ///
     /// This method helps with migration from the old transport trait to the new one.
     /// It wraps the old transport in an adapter that implements the new Transport trait.
     #[cfg(feature = "async-client")]
-    pub fn from_legacy_transport<T>(transport: T) -> Self 
+    pub fn from_legacy_transport<T>(transport: T) -> Self
     where
-        T: ViscaTransport + Send + Sync + 'static
+        T: ViscaTransport + Send + Sync + 'static,
     {
         let adapter = LegacyTransportAdapter::new(transport);
         Self::new_from_variant(TransportVariant::Legacy(Box::new(adapter)))

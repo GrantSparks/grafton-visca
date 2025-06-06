@@ -252,35 +252,43 @@
 //!
 //! ### Old way (deprecated):
 //! ```no_run
-//! # use grafton_visca::{UdpTransport, send_command_and_wait, ViscaTransport};
+//! # use grafton_visca::{UdpTransport, send_command_and_wait};
 //! # use grafton_visca::command::{PowerCommand, power::Power};
-//! let mut transport = UdpTransport::new("192.168.1.100:5678")?;
+//! # fn main() -> Result<(), grafton_visca::ViscaError> {
+//! let mut transport = UdpTransport::new("192.168.1.100:5678")
+//!     .map_err(grafton_visca::ViscaError::Io)?;
 //! let response = send_command_and_wait(&mut transport, &PowerCommand { power: Power::On })?;
-//! # Ok::<(), grafton_visca::ViscaError>(())
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### New way (recommended):
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
-//! # {
+//! # fn main() -> Result<(), grafton_visca::ViscaError> {
 //! # use grafton_visca::{ViscaClient};
 //! # use grafton_visca::command::{PowerCommand, power::Power};
 //! let client = ViscaClient::connect_udp("192.168.1.100:5678")?;
 //! let response = client.send(&PowerCommand { power: Power::On })?;
-//! # Ok::<(), grafton_visca::ViscaError>(())
+//! # Ok(())
 //! # }
+//! # #[cfg(not(feature = "blocking-client"))]
+//! # fn main() {}
 //! ```
 //!
 //! ### Migrating existing transports:
 //! If you have existing code using the old transport trait, you can migrate gradually:
 //! ```no_run
 //! # #[cfg(all(feature = "blocking-client", feature = "async-client"))]
-//! # {
+//! # fn main() -> Result<(), grafton_visca::ViscaError> {
 //! # use grafton_visca::{UdpTransport, ViscaClient};
-//! let old_transport = UdpTransport::new("192.168.1.100:5678")?;
+//! let old_transport = UdpTransport::new("192.168.1.100:5678")
+//!     .map_err(grafton_visca::ViscaError::Io)?;
 //! let client = ViscaClient::from_legacy_transport(old_transport);
-//! # Ok::<(), grafton_visca::ViscaError>(())
+//! # Ok(())
 //! # }
+//! # #[cfg(not(all(feature = "blocking-client", feature = "async-client")))]
+//! # fn main() {}
 //! ```
 
 // Standard library imports
@@ -432,7 +440,10 @@ pub use crate::{
 /// let responses = transport.receive_response()?;
 /// # Ok::<(), ViscaError>(())
 /// ```
-#[deprecated(since = "0.4.0", note = "Use `ViscaClient` instead. See crate documentation for migration guide.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Use `ViscaClient` instead. See crate documentation for migration guide."
+)]
 pub trait ViscaTransport {
     /// Sends a VISCA command to the camera.
     ///

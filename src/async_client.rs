@@ -24,7 +24,10 @@ type PendingCommands = HashMap<u8, ResponseSender>;
 /// both blocking and async APIs.
 #[cfg(feature = "async-client")]
 #[derive(Clone)]
-#[deprecated(since = "0.4.0", note = "Use the unified `ViscaClient` with async methods instead")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Use the unified `ViscaClient` with async methods instead"
+)]
 pub struct AsyncViscaClient {
     transport: Arc<Mutex<Box<dyn AsyncViscaTransport>>>,
     session: Arc<Mutex<ViscaSession>>,
