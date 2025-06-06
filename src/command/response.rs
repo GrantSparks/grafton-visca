@@ -429,7 +429,7 @@ pub fn parse_visca_response(
         }
         0x60..=0x6F => Err(ViscaError::from_code(response[2])),
         _ => {
-            error!("Unknown response: {:02X?}", response);
+            error!("Unknown response: {response:02X?}");
             Ok(ViscaResponse::Unknown(response.to_vec()))
         }
     }

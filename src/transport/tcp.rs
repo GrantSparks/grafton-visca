@@ -75,7 +75,7 @@ impl TcpTransport {
 impl BlockingTransport for TcpTransport {
     fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let bytes = command.to_bytes()?;
-        log::debug!("Sending command: {:02X?}", bytes);
+        log::debug!("Sending command: {bytes:02X?}");
 
         self.stream.write_all(&bytes).map_err(ViscaError::Io)?;
 
@@ -109,7 +109,7 @@ impl BlockingTransport for TcpTransport {
                             && current_response.len() >= 3
                             && current_response[0] == 0x90
                         {
-                            log::debug!("Received response: {:02X?}", current_response);
+                            log::debug!("Received response: {current_response:02X?}");
 
                             self.stats.record_received(current_response.len());
                             responses.push(current_response.clone());
@@ -200,7 +200,7 @@ impl Transport for AsyncTcpTransport {
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
-            log::debug!("Sending command: {:02X?}", bytes);
+            log::debug!("Sending command: {bytes:02X?}");
 
             self.stream
                 .write_all(&bytes)
@@ -241,7 +241,7 @@ impl Transport for AsyncTcpTransport {
                                 && current_response.len() >= 3
                                 && current_response[0] == 0x90
                             {
-                                log::debug!("Received response: {:02X?}", current_response);
+                                log::debug!("Received response: {current_response:02X?}");
 
                                 self.stats.record_received(current_response.len());
                                 responses.push(current_response.clone());

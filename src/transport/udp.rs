@@ -74,7 +74,7 @@ impl UdpTransport {
 impl BlockingTransport for UdpTransport {
     fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let bytes = command.to_bytes()?;
-        log::debug!("Sending command: {:02X?}", bytes);
+        log::debug!("Sending command: {bytes:02X?}");
 
         self.socket
             .send_to(&bytes, &self.address)
@@ -158,7 +158,7 @@ impl Transport for AsyncUdpTransport {
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
-            log::debug!("Sending command: {:02X?}", bytes);
+            log::debug!("Sending command: {bytes:02X?}");
 
             self.socket
                 .send_to(&bytes, &self.address)

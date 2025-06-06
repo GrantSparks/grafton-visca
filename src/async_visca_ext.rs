@@ -37,7 +37,6 @@ use crate::{
 /// This trait provides ergonomic methods for common camera operations
 /// that typically involve multiple VISCA commands.
 #[cfg(feature = "async-client")]
-#[allow(async_fn_in_trait)] // Acceptable for ergonomics in application-specific trait
 pub trait AsyncViscaExt {
     /// Set up a shot with relative pan/tilt position and zoom level.
     ///
