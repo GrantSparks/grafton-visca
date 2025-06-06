@@ -4,8 +4,7 @@ use grafton_visca::{
         zoom::{ZoomCommand, ZoomSpeed},
         InquiryCommand, PanTiltCommand,
     },
-    send_command_and_wait, AppError, TcpTransport, UdpTransport, ViscaInquiryResponse,
-    ViscaResponse, ViscaTransport,
+    AppError, ViscaClient, ViscaInquiryResponse, ViscaResponse,
 };
 use log::{debug, error, info};
 use std::{env, time::Duration};
@@ -39,20 +38,20 @@ fn main() -> Result<(), AppError> {
         format!("{}:{}", ip_address, tcp_port)
     };
 
-    let mut transport: Box<dyn ViscaTransport> = if use_udp {
-        Box::new(UdpTransport::new(&address)?)
+    let client = if use_udp {
+        ViscaClient::connect_udp(&address)?
     } else {
-        Box::new(TcpTransport::new(&address)?)
+        ViscaClient::connect_tcp(&address)?
     };
 
     debug!("Sending Pan/Tilt home command");
     let pan_tilt_home_command = PanTiltCommand::Home;
-    send_command_and_wait(&mut *transport, &pan_tilt_home_command)?;
+    client.send(&pan_tilt_home_command)?;
 
     std::thread::sleep(Duration::from_secs(1));
     debug!("Inquiring Pan/Tilt position");
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
-        send_command_and_wait(&mut *transport, &InquiryCommand::PanTiltPosition)
+        client.send(&InquiryCommand::PanTiltPosition)
     {
         info!("Pan position: {}, Tilt position: {}", pan, tilt);
     } else {
@@ -75,7 +74,7 @@ fn main() -> Result<(), AppError> {
             pan_speed: PanSpeed::new(*pan_speed)?,
             tilt_speed: TiltSpeed::new(*tilt_speed)?,
         };
-        send_command_and_wait(&mut *transport, &pan_tilt_command)?;
+        client.send(&pan_tilt_command)?;
 
         std::thread::sleep(Duration::from_secs(3));
 
@@ -85,14 +84,14 @@ fn main() -> Result<(), AppError> {
             pan_speed: PanSpeed::new(0x00)?,
             tilt_speed: TiltSpeed::new(0x00)?,
         };
-        send_command_and_wait(&mut *transport, &pan_tilt_stop_command)?;
+        client.send(&pan_tilt_stop_command)?;
 
         std::thread::sleep(Duration::from_secs(1));
     }
 
     debug!("Inquiring Pan/Tilt position");
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
-        send_command_and_wait(&mut *transport, &InquiryCommand::PanTiltPosition)
+        client.send(&InquiryCommand::PanTiltPosition)
     {
         info!("Pan position: {}, Tilt position: {}", pan, tilt);
     } else {
@@ -101,7 +100,7 @@ fn main() -> Result<(), AppError> {
 
     debug!("Inquiring initial Zoom position");
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
-        send_command_and_wait(&mut *transport, &InquiryCommand::ZoomPosition)
+        client.send(&InquiryCommand::ZoomPosition)
     {
         info!("Initial Zoom position: {}", position);
     } else {
@@ -117,7 +116,7 @@ fn main() -> Result<(), AppError> {
 
     for command in zoom_movements.iter() {
         debug!("Sending {:?} command", command);
-        if let Err(e) = send_command_and_wait(&mut *transport, command) {
+        if let Err(e) = client.send(command) {
             error!("Error while sending zoom command: {:?}", e);
             return Err(AppError::Visca(e));
         }
@@ -126,7 +125,7 @@ fn main() -> Result<(), AppError> {
 
         debug!("Inquiring Zoom position after {:?}", command);
         if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
-            send_command_and_wait(&mut *transport, &InquiryCommand::ZoomPosition)
+            client.send(&InquiryCommand::ZoomPosition)
         {
             info!("Zoom position after {:?}: {}", command, position);
         } else {
@@ -135,11 +134,11 @@ fn main() -> Result<(), AppError> {
     }
 
     debug!("Sending Zoom stop command");
-    send_command_and_wait(&mut *transport, &ZoomCommand::Stop)?;
+    client.send(&ZoomCommand::Stop)?;
 
     debug!("Inquiring final Zoom position");
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
-        send_command_and_wait(&mut *transport, &InquiryCommand::ZoomPosition)
+        client.send(&InquiryCommand::ZoomPosition)
     {
         info!("Final Zoom position: {}", position);
     } else {
@@ -147,10 +146,10 @@ fn main() -> Result<(), AppError> {
     }
 
     debug!("Sending Pan/Tilt home command");
-    send_command_and_wait(&mut *transport, &PanTiltCommand::Home)?;
+    client.send(&PanTiltCommand::Home)?;
 
     debug!("Sending Zoom home command");
-    send_command_and_wait(&mut *transport, &ZoomCommand::WideStandard)?;
+    client.send(&ZoomCommand::WideStandard)?;
 
     Ok(())
 }
