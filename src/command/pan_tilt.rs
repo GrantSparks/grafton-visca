@@ -188,10 +188,7 @@ impl ViscaCommand for PanTiltCommand {
     }
 
     fn command_category(&self) -> CommandCategory {
-        match self {
-            PanTiltCommand::Home | PanTiltCommand::Reset => CommandCategory::Movement,
-            _ => CommandCategory::Movement,
-        }
+        CommandCategory::Movement
     }
 }
 
