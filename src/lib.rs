@@ -92,39 +92,27 @@
 //! # }
 //! ```
 //!
-//! ### Direct Transport Usage
-//!
-//! ```no_run
-//! use grafton_visca::{UdpTransport, ViscaCommand, ViscaTransport};
-//! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
-//!
-//! // Connect to camera
-//! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
-//!
-//! // Send Pan/Tilt Home command
-//! transport.send_command(&PanTiltCommand::Home).unwrap();
-//!
-//! // Zoom in
-//! transport.send_command(&ZoomCommand::TeleStandard).unwrap();
-//! ```
 //!
 //! ## Advanced Camera Control
 //!
 //! ```no_run
+//! # #[cfg(feature = "blocking-client")]
+//! # {
+//! use grafton_visca::ViscaClient;
 //! use grafton_visca::command::{ExposureCompensationCommand, IrisCommand, SaturationCommand};
 //! use grafton_visca::command::exposure::ExposureCompensationLevel;
-//! use grafton_visca::{UdpTransport, ViscaTransport};
 //!
-//! let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//! let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // Adjust exposure compensation
-//! transport.send_command(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(3).unwrap())).unwrap();
+//! client.send(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(3).unwrap())).unwrap();
 //!
 //! // Set iris to F4.0
-//! transport.send_command(&IrisCommand::Direct(0x06)).unwrap();
+//! client.send(&IrisCommand::Direct(0x06)).unwrap();
 //!
 //! // Adjust color saturation to 150%
-//! transport.send_command(&SaturationCommand { level: 0x0A }).unwrap();
+//! client.send(&SaturationCommand { level: 0x0A }).unwrap();
+//! # }
 //! ```
 //!
 //! ## Creating Custom Commands with Macro
@@ -183,14 +171,13 @@
 //!   - Provides `send()`, `try_send()`, and `send_with_timeout()` methods
 //!
 //! ### Transport Layer
-//! - [`ViscaTransport`] trait - The core abstraction for sending/receiving commands
-//! - [`UdpTransport`] - UDP transport (default port 1259 for VISCA over IP)
-//! - [`TcpTransport`] - TCP transport (default port 5678 for VISCA over IP)
+//! - Transport implementations are available in the [`transport`] module
+//! - UDP transport (default port 1259 for VISCA over IP)
+//! - TCP transport (default port 5678 for VISCA over IP)
 //!
 //! ### Command Layer
 //! - [`ViscaCommand`] trait - Implemented by all command types
 //! - Command modules in [`command`] - Organized by functionality
-//! - [`send_command_and_wait`] - Main synchronous API for sending commands
 //!
 //! ### Response Handling
 //! - [`ViscaResponse`] - Enum for all response types (ACK, Completion, Inquiry, Error)
@@ -199,7 +186,6 @@
 //!
 //! ### Async Support (with `async` feature)
 //! - `AsyncViscaClient` - High-level async client with automatic socket management
-//! - `AsyncViscaTransport` trait - Async version of the transport trait
 //!
 //! ## Connection Setup
 //!
@@ -245,24 +231,10 @@
 //! - `sync` - Enables synchronous API (default)
 //! - `full` - Enables both sync and async APIs
 //!
-//! ## Migration from v0.3.x to v0.4.x
+//! ## Usage
 //!
-//! Version 0.4.0 introduces a unified client that works for both blocking and async code.
-//! The old `ViscaTransport` trait and separate blocking/async clients are deprecated.
+//! The recommended way to use this library is through the unified `ViscaClient`:
 //!
-//! ### Old way (deprecated):
-//! ```no_run
-//! # use grafton_visca::{UdpTransport, send_command_and_wait};
-//! # use grafton_visca::command::{PowerCommand, power::Power};
-//! # fn main() -> Result<(), grafton_visca::ViscaError> {
-//! let mut transport = UdpTransport::new("192.168.1.100:5678")
-//!     .map_err(grafton_visca::ViscaError::Io)?;
-//! let response = send_command_and_wait(&mut transport, &PowerCommand { power: Power::On })?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ### New way (recommended):
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
 //! # fn main() -> Result<(), grafton_visca::ViscaError> {
@@ -276,43 +248,25 @@
 //! # fn main() {}
 //! ```
 //!
-//! ### Migrating existing transports:
-//! If you have existing code using the old transport trait, you can migrate gradually:
-//! ```no_run
-//! # #[cfg(all(feature = "blocking-client", feature = "async-client"))]
-//! # fn main() -> Result<(), grafton_visca::ViscaError> {
-//! # use grafton_visca::{UdpTransport, ViscaClient};
-//! let old_transport = UdpTransport::new("192.168.1.100:5678")
-//!     .map_err(grafton_visca::ViscaError::Io)?;
-//! let client = ViscaClient::from_legacy_transport(old_transport);
-//! # Ok(())
-//! # }
-//! # #[cfg(not(all(feature = "blocking-client", feature = "async-client")))]
-//! # fn main() {}
-//! ```
 
 // Standard library imports
-use std::{
-    io::{self, Read, Write},
-    net::{TcpStream, UdpSocket},
-    time::Duration,
-};
-
-// Third-party crate imports
-use log::{debug, error};
+// (none currently needed at module level)
 
 // Module declarations
 pub mod command;
 /// Connection management for VISCA communications.
 pub mod connection;
-pub mod connection_pool;
+// TODO: Update connection_pool to use new transport system
+// pub mod connection_pool;
 pub mod constants;
 pub mod macros;
-pub mod reconnecting_transport;
+// TODO: Update reconnecting_transport to use new transport system
+// pub mod reconnecting_transport;
 pub mod timeout;
 pub mod transport;
 
-mod camera_detection;
+// TODO: Update camera_detection to use new transport system
+// mod camera_detection;
 mod error;
 mod exposure_ext;
 mod focus_ext;
@@ -366,16 +320,16 @@ mod async_visca_ext;
 
 // Public re-exports
 pub use crate::{
-    camera_detection::detect_camera_model,
+    // camera_detection::detect_camera_model,
     command::{
         pan_tilt::PanTiltDirection,
         response::{parse_visca_response, ViscaResponse},
         ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
     },
     connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
-    connection_pool::{
-        CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
-    },
+    // connection_pool::{
+    //     CameraInfo, PoolConfig, PooledCameraStats, PooledConnectionGuard, ViscaConnectionPool,
+    // },
     error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
     exposure_ext::ViscaExposureExt,
     focus_ext::ViscaFocusExt,
@@ -388,9 +342,9 @@ pub use crate::{
     position_ext::ViscaPositionExt,
     power_ext::ViscaPowerExt,
     preset_ext::ViscaPresetExt,
-    reconnecting_transport::{
-        ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
-    },
+    // reconnecting_transport::{
+    //     ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
+    // },
     session::ViscaSession,
     timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
     transport_ext::ViscaTransportExt,
@@ -401,13 +355,14 @@ pub use crate::{
 #[cfg(feature = "async-client")]
 pub use crate::{
     async_client::AsyncViscaClient,
-    async_connection_pool::{
-        AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard,
-        AsyncViscaConnectionPool, CameraInfo as AsyncCameraInfo,
-    },
-    async_reconnecting_transport::{
-        AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
-    },
+    // TODO: Update async connection pool and reconnecting transport
+    // async_connection_pool::{
+    //     AsyncPoolConfig, AsyncPooledCameraStats, AsyncPooledConnectionGuard,
+    //     AsyncViscaConnectionPool, CameraInfo as AsyncCameraInfo,
+    // },
+    // async_reconnecting_transport::{
+    //     AsyncReconnectingTransport, ConnectionEvent as AsyncConnectionEvent,
+    // },
     async_tcp_transport::AsyncTcpTransport,
     async_transport::{AsyncViscaTransport, TransportFuture},
     async_udp_transport::AsyncUdpTransport,
@@ -420,578 +375,20 @@ pub use crate::{
     unified_client::{ViscaClient, ViscaClientPtzExt},
 };
 
-// Transport Migration Path (v0.4.0)
-// =================================
-// The transport layer has been redesigned for v0.4.0 with an async-first approach.
-// 
-// OLD (deprecated): UdpTransport/TcpTransport implementing ViscaTransport trait (defined below)
-// NEW (recommended): Use ViscaClient::connect_udp() / ViscaClient::connect_tcp()
-// 
-// For direct transport usage (advanced users):
-// - New transports are in the `transport` module
-// - They implement the new `Transport` trait (async) or `BlockingTransport` trait (sync)
-// 
-// Migration path:
-// 1. Replace direct transport usage with ViscaClient
-// 2. Use ViscaClient::from_legacy_transport() for gradual migration
-// 3. The old transport types below will be removed in v0.5.0
-
-/// Transport trait for sending and receiving VISCA commands over a network connection.
-///
-/// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
-/// a uniform interface for VISCA communication.
-///
-/// # Deprecated
-/// This trait is deprecated in favor of the unified `ViscaClient`. See the crate-level
-/// documentation for migration instructions.
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::{ViscaTransport, UdpTransport, ViscaCommand, ViscaError};
-/// # use grafton_visca::command::PowerCommand;
-/// # use grafton_visca::command::power::Power;
-/// let mut transport = UdpTransport::new("192.168.1.100:5678")?;
-/// let command = PowerCommand { power: Power::On };
-/// transport.send_command(&command)?;
-/// let responses = transport.receive_response()?;
-/// # Ok::<(), ViscaError>(())
-/// ```
-#[deprecated(
-    since = "0.4.0",
-    note = "Use `ViscaClient` instead. See crate documentation for migration guide."
-)]
-pub trait ViscaTransport {
-    /// Sends a VISCA command to the camera.
-    ///
-    /// The command is serialized to bytes and transmitted over the transport.
-    fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;
-
-    /// Receives response frames from the camera.
-    ///
-    /// Returns a vector of response frames, where each frame is a complete VISCA
-    /// response (starts with 0x90 and ends with 0xFF).
-    fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
-
-    /// Convenience method that sends a command and waits for completion.
-    ///
-    /// This method combines `send_command` and the response handling logic
-    /// to provide a simpler API for common use cases.
-    fn send_and_wait(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError>
-    where
-        Self: Sized,
-    {
-        send_command_and_wait(self, command)
-    }
+/// Core trait for types that can send and receive VISCA commands.
+/// 
+/// This trait provides the minimal interface needed for the extension traits.
+/// It is implemented by `ViscaClient` and provides the foundation for all
+/// high-level camera control operations.
+pub trait ViscaDevice {
+    /// Send a command and wait for the response.
+    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError>;
 }
 
-/// UDP transport for VISCA over IP communication.
-///
-/// This transport uses UDP sockets for communication with VISCA cameras.
-/// It binds to an ephemeral local port and sends commands to the specified camera address.
-///
-/// # Deprecated
-/// This type is deprecated in favor of `ViscaClient::connect_udp()`.
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::UdpTransport;
-/// let transport = UdpTransport::new("192.168.1.100:5678")?;
-/// # Ok::<(), std::io::Error>(())
-/// ```
-#[deprecated(since = "0.4.0", note = "Use `ViscaClient::connect_udp()` instead")]
-pub struct UdpTransport {
-    socket: UdpSocket,
-    address: String,
-    stats: ConnectionStats,
-    timeout_duration: Option<Duration>,
-    timeout_config: Option<TimeoutConfig>,
-}
 
-impl UdpTransport {
-    fn apply_command_timeout(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
-        if let Some(ref config) = self.timeout_config {
-            let timeout = config.get_timeout(command.command_category());
-            self.socket
-                .set_read_timeout(Some(timeout))
-                .map_err(ViscaError::Io)?;
-            self.socket
-                .set_write_timeout(Some(timeout))
-                .map_err(ViscaError::Io)?;
-            self.timeout_duration = Some(timeout);
-        }
-        Ok(())
-    }
 
-    /// Creates a new UDP transport connected to the specified camera address.
-    ///
-    /// Sets read and write timeouts of 10 seconds.
-    ///
-    /// # Arguments
-    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
-    ///
-    /// # Errors
-    /// Returns an error if the socket cannot be created or configured.
-    pub fn new(address: &str) -> io::Result<Self> {
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
-        let timeout = Some(Duration::from_secs(10));
-        socket.set_read_timeout(timeout)?;
-        socket.set_write_timeout(timeout)?;
-        Ok(Self {
-            socket,
-            address: address.to_string(),
-            stats: ConnectionStats::new(),
-            timeout_duration: timeout,
-            timeout_config: None,
-        })
-    }
 
-    /// Creates a new UDP transport with custom timeout configuration.
-    ///
-    /// # Arguments
-    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
-    /// * `timeout_config` - Timeout configuration for different command types
-    ///
-    /// # Errors
-    /// Returns an error if the socket cannot be created or configured.
-    pub fn with_timeout_config(address: &str, timeout_config: TimeoutConfig) -> io::Result<Self> {
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
-        // Set initial timeout to the default timeout
-        let timeout = Some(timeout_config.default_timeout);
-        socket.set_read_timeout(timeout)?;
-        socket.set_write_timeout(timeout)?;
-        Ok(Self {
-            socket,
-            address: address.to_string(),
-            stats: ConnectionStats::new(),
-            timeout_duration: timeout,
-            timeout_config: Some(timeout_config),
-        })
-    }
 
-    /// Get connection statistics
-    pub fn stats(&self) -> &ConnectionStats {
-        &self.stats
-    }
 
-    /// Get the timeout configuration
-    pub fn timeout_config(&self) -> Option<&TimeoutConfig> {
-        self.timeout_config.as_ref()
-    }
-}
 
-/// TCP transport for VISCA over IP communication.
-///
-/// This transport uses TCP sockets for reliable communication with VISCA cameras.
-/// It maintains a persistent connection to the camera.
-///
-/// # Deprecated
-/// This type is deprecated in favor of `ViscaClient::connect_tcp()`.
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::TcpTransport;
-/// let transport = TcpTransport::new("192.168.1.100:5678")?;
-/// # Ok::<(), std::io::Error>(())
-/// ```
-#[deprecated(since = "0.4.0", note = "Use `ViscaClient::connect_tcp()` instead")]
-pub struct TcpTransport {
-    stream: TcpStream,
-    stats: ConnectionStats,
-    timeout_duration: Option<Duration>,
-    timeout_config: Option<TimeoutConfig>,
-}
 
-impl TcpTransport {
-    fn apply_command_timeout(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
-        if let Some(ref config) = self.timeout_config {
-            let timeout = config.get_timeout(command.command_category());
-            self.stream
-                .set_read_timeout(Some(timeout))
-                .map_err(ViscaError::Io)?;
-            self.stream
-                .set_write_timeout(Some(timeout))
-                .map_err(ViscaError::Io)?;
-            self.timeout_duration = Some(timeout);
-        }
-        Ok(())
-    }
-
-    fn receive_until_frame_end(&mut self) -> Result<Vec<u8>, ViscaError> {
-        let mut buffer = [0u8; 1024];
-        let mut data = Vec::new();
-
-        loop {
-            let bytes_received = self.stream.read(&mut buffer).map_err(|e| {
-                error!("TCP receive error: {}", e);
-                self.stats.record_error();
-                ViscaError::Io(e)
-            })?;
-
-            debug!(
-                "Received {} bytes: {:02X?}",
-                bytes_received,
-                &buffer[..bytes_received]
-            );
-            data.extend_from_slice(&buffer[..bytes_received]);
-
-            if bytes_received > 0 && buffer[bytes_received - 1] == 0xFF {
-                break;
-            }
-        }
-
-        Ok(data)
-    }
-    /// Creates a new TCP transport connected to the specified camera address.
-    ///
-    /// Establishes a TCP connection and sets read/write timeouts of 30 seconds.
-    ///
-    /// # Arguments
-    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
-    ///
-    /// # Errors
-    /// Returns an error if the connection cannot be established or configured.
-    pub fn new(address: &str) -> io::Result<Self> {
-        let stream = TcpStream::connect(address)?;
-        let timeout = Some(Duration::from_secs(30));
-        stream.set_read_timeout(timeout)?;
-        stream.set_write_timeout(timeout)?;
-        Ok(Self {
-            stream,
-            stats: ConnectionStats::new(),
-            timeout_duration: timeout,
-            timeout_config: None,
-        })
-    }
-
-    /// Creates a new TCP transport with custom timeout configuration.
-    ///
-    /// # Arguments
-    /// * `address` - The camera's IP address and port (e.g., "192.168.1.100:5678")
-    /// * `timeout_config` - Timeout configuration for different command types
-    ///
-    /// # Errors
-    /// Returns an error if the connection cannot be established or configured.
-    pub fn with_timeout_config(address: &str, timeout_config: TimeoutConfig) -> io::Result<Self> {
-        let stream = TcpStream::connect(address)?;
-        // Set initial timeout to the default timeout
-        let timeout = Some(timeout_config.default_timeout);
-        stream.set_read_timeout(timeout)?;
-        stream.set_write_timeout(timeout)?;
-        Ok(Self {
-            stream,
-            stats: ConnectionStats::new(),
-            timeout_duration: timeout,
-            timeout_config: Some(timeout_config),
-        })
-    }
-
-    /// Get connection statistics
-    pub fn stats(&self) -> &ConnectionStats {
-        &self.stats
-    }
-
-    /// Get the timeout configuration
-    pub fn timeout_config(&self) -> Option<&TimeoutConfig> {
-        self.timeout_config.as_ref()
-    }
-}
-
-/// Parse VISCA response frames from a raw buffer.
-/// Each frame starts with 0x90 and ends with 0xFF.
-fn parse_response(buffer: &[u8]) -> Result<Vec<Vec<u8>>, ViscaError> {
-    let mut responses = Vec::new();
-    let mut current_frame = Vec::new();
-    let mut in_frame = false;
-
-    for &byte in buffer {
-        current_frame.push(byte);
-
-        match byte {
-            0x90 => in_frame = true,
-            0xFF if in_frame => {
-                responses.push(current_frame.clone());
-                current_frame.clear();
-                in_frame = false;
-            }
-            _ => {}
-        }
-    }
-
-    if in_frame {
-        error!("Incomplete VISCA frame: {:02X?}", current_frame);
-        return Err(ViscaError::InvalidResponseFormat);
-    }
-
-    debug!("Parsed {} VISCA frames", responses.len());
-    Ok(responses)
-}
-
-impl ViscaTransport for UdpTransport {
-    fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
-        self.apply_command_timeout(command)?;
-
-        let command_bytes = command.to_bytes()?;
-        self.socket
-            .send_to(&command_bytes, &self.address)
-            .map_err(ViscaError::Io)
-            .inspect(|_| self.stats.record_sent(command_bytes.len()))
-            .inspect_err(|_| self.stats.record_error())
-            .map(|_| ())
-    }
-
-    fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
-        let mut buffer = [0u8; 1024];
-        let mut data = Vec::new();
-
-        loop {
-            let (bytes_received, src) = self.socket.recv_from(&mut buffer).map_err(|e| {
-                error!("UDP receive error: {}", e);
-                self.stats.record_error();
-                ViscaError::Io(e)
-            })?;
-
-            debug!(
-                "Received {} bytes from {}: {:02X?}",
-                bytes_received,
-                src,
-                &buffer[..bytes_received]
-            );
-            data.extend_from_slice(&buffer[..bytes_received]);
-
-            if bytes_received > 0 && buffer[bytes_received - 1] == 0xFF {
-                break;
-            }
-        }
-
-        parse_response(&data)
-            .inspect(|_| self.stats.record_received(data.len()))
-            .inspect_err(|_| self.stats.record_error())
-    }
-}
-
-impl ViscaTransport for TcpTransport {
-    fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
-        self.apply_command_timeout(command)?;
-
-        let command_bytes = command.to_bytes()?;
-        self.stream
-            .write_all(&command_bytes)
-            .map_err(ViscaError::Io)
-            .inspect(|()| {
-                debug!("Sent {} bytes: {:02X?}", command_bytes.len(), command_bytes);
-                self.stats.record_sent(command_bytes.len());
-            })
-            .inspect_err(|_| self.stats.record_error())
-    }
-
-    fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
-        let data = self.receive_until_frame_end()?;
-        parse_response(&data)
-            .inspect(|_| self.stats.record_received(data.len()))
-            .inspect_err(|_| self.stats.record_error())
-    }
-}
-
-impl ConnectionManagement for UdpTransport {
-    fn is_healthy(&mut self) -> Result<bool, ViscaError> {
-        use crate::command::InquiryCommand;
-
-        // Check cached health result first
-        if let Some(cached) = self.stats.get_cached_health() {
-            return Ok(cached);
-        }
-
-        // Send power inquiry and check response
-        self.send_command(&InquiryCommand::Power)?;
-
-        match self.receive_response() {
-            Ok(responses) => {
-                // Validate power inquiry response: 0x90 0x50 0x0{2,3} 0xFF
-                let healthy = responses.iter().any(|r| {
-                    r.len() == 4
-                        && r[0] == 0x90
-                        && r[1] == 0x50
-                        && (r[2] == 0x02 || r[2] == 0x03)
-                        && r[3] == 0xFF
-                });
-                self.stats.record_health_check(healthy);
-                Ok(healthy)
-            }
-            Err(ViscaError::Timeout) => {
-                self.stats.record_health_check(false);
-                Ok(false)
-            }
-            Err(e) => {
-                self.stats.record_health_check(false);
-                Err(e)
-            }
-        }
-    }
-
-    fn connection_stats(&self) -> &ConnectionStats {
-        &self.stats
-    }
-}
-
-impl ConnectionManagement for TcpTransport {
-    fn is_healthy(&mut self) -> Result<bool, ViscaError> {
-        use crate::command::InquiryCommand;
-
-        // Check cached health result first
-        if let Some(cached) = self.stats.get_cached_health() {
-            return Ok(cached);
-        }
-
-        // Send power inquiry and check response
-        self.send_command(&InquiryCommand::Power)?;
-
-        match self.receive_response() {
-            Ok(responses) => {
-                // Validate power inquiry response: 0x90 0x50 0x0{2,3} 0xFF
-                let healthy = responses.iter().any(|r| {
-                    r.len() == 4
-                        && r[0] == 0x90
-                        && r[1] == 0x50
-                        && (r[2] == 0x02 || r[2] == 0x03)
-                        && r[3] == 0xFF
-                });
-                self.stats.record_health_check(healthy);
-                Ok(healthy)
-            }
-            Err(ViscaError::Timeout) => {
-                self.stats.record_health_check(false);
-                Ok(false)
-            }
-            Err(e) => {
-                self.stats.record_health_check(false);
-                Err(e)
-            }
-        }
-    }
-
-    fn connection_stats(&self) -> &ConnectionStats {
-        &self.stats
-    }
-}
-
-/// Sends a VISCA command and waits for its completion response.
-///
-/// This is the main synchronous API for sending commands to a VISCA camera.
-/// It handles the complete command lifecycle including:
-/// - Sending the command
-/// - Receiving and processing ACK response
-/// - Waiting for and returning the completion response
-///
-/// # Deprecated
-/// This function is deprecated in favor of `ViscaClient::send()`.
-///
-/// # Arguments
-/// * `transport` - The transport to use for communication
-/// * `command` - The VISCA command to send
-///
-/// # Returns
-/// Returns the final response which can be:
-/// - `ViscaResponse::Completion` for commands with no data response
-/// - `ViscaResponse::InquiryResponse(...)` for inquiry commands
-/// - `ViscaResponse::Error(...)` if the camera reports an error
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::{UdpTransport, send_command_and_wait, ViscaResponse};
-/// # use grafton_visca::command::{PowerCommand, power::Power};
-/// # let mut transport = UdpTransport::new("192.168.1.100:5678")?;
-/// let command = PowerCommand { power: Power::On };
-/// match send_command_and_wait(&mut transport, &command)? {
-///     ViscaResponse::Completion => println!("Power on successful"),
-///     ViscaResponse::Error(e) => println!("Error: {:?}", e),
-///     _ => println!("Unexpected response"),
-/// }
-/// # Ok::<(), grafton_visca::ViscaError>(())
-/// ```
-#[deprecated(since = "0.4.0", note = "Use `ViscaClient::send()` instead")]
-pub fn send_command_and_wait(
-    transport: &mut dyn ViscaTransport,
-    command: &dyn ViscaCommand,
-) -> Result<ViscaResponse, ViscaError> {
-    let mut session = ViscaSession::new();
-    let socket_id = session.assign_socket(command.response_type())?;
-
-    debug!("Sending command on socket {}", socket_id);
-    transport.send_command(command)?;
-
-    let result = wait_for_response(transport, &mut session, socket_id);
-    session.release_socket(socket_id);
-    result
-}
-
-/// Wait for a response on a specific socket.
-fn wait_for_response(
-    transport: &mut dyn ViscaTransport,
-    session: &mut ViscaSession,
-    socket_id: u8,
-) -> Result<ViscaResponse, ViscaError> {
-    use ViscaResponse::{Ack, Completion, Error, InquiryResponse};
-
-    loop {
-        let responses = transport.receive_response().map_err(|e| {
-            error!("Transport error: {}", e);
-            e
-        })?;
-
-        for response in responses {
-            if let Some((resp_socket_id, parsed_response)) = session.process_response(&response)? {
-                if resp_socket_id != socket_id {
-                    debug!(
-                        "Response for socket {} (expected {})",
-                        resp_socket_id, socket_id
-                    );
-                    continue;
-                }
-
-                match parsed_response {
-                    Ack => debug!("Command acknowledged on socket {}", socket_id),
-                    Completion => {
-                        debug!("Command completed on socket {}", socket_id);
-                        return Ok(Completion);
-                    }
-                    InquiryResponse(inquiry) => {
-                        debug!("Inquiry response on socket {}", socket_id);
-                        log_inquiry_response(&inquiry);
-                        return Ok(InquiryResponse(inquiry));
-                    }
-                    Error(err) => {
-                        error!("Command error on socket {}: {:?}", socket_id, err);
-                        return Err(err);
-                    }
-                    ViscaResponse::Unknown(_) => {
-                        debug!("Unexpected response: {:?}", parsed_response);
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn log_inquiry_response(inquiry_response: &ViscaInquiryResponse) {
-    use ViscaInquiryResponse::{
-        Backlight, ColorTemperature, Contrast, ExposureCompensation, ExposureMode, FocusPosition,
-        Gain, Hue, Luminance, PanTiltPosition, Power, WhiteBalance, ZoomPosition,
-    };
-
-    match inquiry_response {
-        Power { on } => debug!("Power: {}", if *on { "On" } else { "Off" }),
-        PanTiltPosition { pan, tilt } => debug!("Pan: {}, Tilt: {}", pan, tilt),
-        Luminance(val) => debug!("Luminance: {}", val),
-        Contrast(val) => debug!("Contrast: {}", val),
-        ZoomPosition { position } => debug!("Zoom Position: {:02X?}", position),
-        FocusPosition { position } => debug!("Focus Position: {:02X?}", position),
-        Gain { gain } => debug!("Gain: {}", gain),
-        WhiteBalance { mode } => debug!("White Balance Mode: {:?}", mode),
-        ExposureMode { mode } => debug!("Exposure Mode: {:?}", mode),
-        ExposureCompensation { value } => debug!("Exposure Compensation: {}", value),
-        Backlight { status } => debug!("Backlight: {}", status),
-        ColorTemperature { temperature } => debug!("Color Temperature: {}", temperature),
-        Hue { hue } => debug!("Hue: {}", hue),
-        _ => debug!("Unhandled inquiry response: {:?}", inquiry_response),
-    }
-}

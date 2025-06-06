@@ -22,13 +22,13 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPositionExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # fn example(transport: &mut impl ViscaTransportmut ViscaClient) -> Result<(), ViscaError> {
     /// // Move to 45 degrees right, 30 degrees up
-    /// transport.move_to_degrees(45.0, 30.0, None)?;
+    /// client.move_to_degrees(45.0, 30.0, None)?;
     ///
     /// // Move to left 90 degrees, level, at specific speeds
-    /// transport.move_to_degrees(-90.0, 0.0, Some((10, 10)))?;
+    /// client.move_to_degrees(-90.0, 0.0, Some((10, 10)))?;
     /// # Ok(())
     /// # }
     /// ```
@@ -60,16 +60,16 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPositionExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # fn example(transport: &mut impl ViscaTransportmut ViscaClient) -> Result<(), ViscaError> {
     /// // Move to center
-    /// transport.move_to_normalized(0.0, 0.0, None)?;
+    /// client.move_to_normalized(0.0, 0.0, None)?;
     ///
     /// // Move to top-right corner
-    /// transport.move_to_normalized(1.0, 1.0, Some((15, 15)))?;
+    /// client.move_to_normalized(1.0, 1.0, Some((15, 15)))?;
     ///
     /// // Move to 25% left, 50% up
-    /// transport.move_to_normalized(-0.25, 0.5, None)?;
+    /// client.move_to_normalized(-0.25, 0.5, None)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -96,9 +96,9 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPositionExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// let pos = transport.get_position_degrees()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # fn example(transport: &mut impl ViscaTransportmut ViscaClient) -> Result<(), ViscaError> {
+    /// let pos = client.get_position_degrees()?;
     /// println!("Pan: {:.1}°, Tilt: {:.1}°", pos.pan, pos.tilt);
     /// # Ok(())
     /// # }
@@ -107,7 +107,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     where
         Self: Sized,
     {
-        let response = self.send_and_wait(&InquiryCommand::PanTiltPosition)?;
+        let response = self.execute_command(&InquiryCommand::PanTiltPosition)?;
         match response {
             ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::PanTiltPosition {
                 pan,
@@ -127,9 +127,9 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPositionExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// let pos = transport.get_position_normalized()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # fn example(transport: &mut impl ViscaTransportmut ViscaClient) -> Result<(), ViscaError> {
+    /// let pos = client.get_position_normalized()?;
     /// println!("Pan: {:.0}%, Tilt: {:.0}%", pos.pan * 100.0, pos.tilt * 100.0);
     /// # Ok(())
     /// # }
@@ -138,7 +138,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     where
         Self: Sized,
     {
-        let response = self.send_and_wait(&InquiryCommand::PanTiltPosition)?;
+        let response = self.execute_command(&InquiryCommand::PanTiltPosition)?;
         match response {
             ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::PanTiltPosition {
                 pan,
@@ -161,11 +161,11 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPositionExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
     /// # use grafton_visca::constants::CameraModel;
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # fn example(transport: &mut impl ViscaTransportmut ViscaClient) -> Result<(), ViscaError> {
     /// // Move using 30X camera model parameters
-    /// transport.move_to_degrees_for_model(
+    /// client.move_to_degrees_for_model(
     ///     45.0,
     ///     30.0,
     ///     CameraModel::PTZOptics30X,
@@ -203,13 +203,13 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPositionExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # fn example(transport: &mut impl ViscaTransportmut ViscaClient) -> Result<(), ViscaError> {
     /// // Move 10 degrees right and 5 degrees up from current position
-    /// transport.move_by_degrees(10.0, 5.0, None)?;
+    /// client.move_by_degrees(10.0, 5.0, None)?;
     ///
     /// // Move 45 degrees left at high speed
-    /// transport.move_by_degrees(-45.0, 0.0, Some((20, 20)))?;
+    /// client.move_by_degrees(-45.0, 0.0, Some((20, 20)))?;
     /// # Ok(())
     /// # }
     /// ```
@@ -241,14 +241,14 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPositionExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # fn example(transport: &mut impl ViscaTransportmut ViscaClient) -> Result<(), ViscaError> {
     /// // Set to 50% speed
-    /// let (pan, tilt) = transport.set_normalized_speeds(0.5, 0.5)?;
+    /// let (pan, tilt) = client.set_normalized_speeds(0.5, 0.5)?;
     /// println!("Set speeds: pan={}, tilt={}", pan, tilt);
     ///
     /// // Set to maximum speed
-    /// transport.set_normalized_speeds(1.0, 1.0)?;
+    /// client.set_normalized_speeds(1.0, 1.0)?;
     /// # Ok(())
     /// # }
     /// ```
