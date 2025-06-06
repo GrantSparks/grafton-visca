@@ -51,4 +51,3 @@ impl<T: ViscaTransport + Send + Sync + 'static> IntoTransport for T {
         LegacyTransportAdapter::new(self)
     }
 }
-
