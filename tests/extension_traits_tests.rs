@@ -3,7 +3,7 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use common::MockDevice;
+use common::{MockDevice, MockTransport};
 use grafton_visca::{
     ImagePreset, ViscaCommand, ViscaDevice, ViscaError, ViscaExposureExt, ViscaImageExt,
     ViscaPositionExt, ViscaResponse, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
@@ -12,7 +12,11 @@ use grafton_visca::{
 
 #[test]
 fn test_exposure_ext_methods() {
-    let mut device = MockDevice::with_completion();
+    let mut transport = MockTransport::new();
+    // Add responses for both commands
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
     // Test iris control
     ViscaExposureExt::set_iris(&mut device, 0x0C).unwrap();
@@ -31,7 +35,13 @@ fn test_exposure_ext_methods() {
 
 #[test]
 fn test_white_balance_ext_methods() {
-    let mut device = MockDevice::with_completion();
+    let mut transport = MockTransport::new();
+    // Daylight preset sends 2 commands: mode + temperature
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    // Direct temperature setting sends 1 command
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
     // Test white balance preset - Daylight first sets ColorTemperature mode
     device
@@ -55,18 +65,33 @@ fn test_white_balance_ext_methods() {
 
 #[test]
 fn test_image_ext_methods() {
-    let mut device = MockDevice::with_completion();
+    let mut transport = MockTransport::new();
+    // Vivid preset sends 4 commands: sharpness, saturation, contrast, hue
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
     // Test image preset
     device.apply_image_preset(ImagePreset::Vivid).unwrap();
 
-    // This would be testing a composite operation, just verify a command was sent
-    assert!(!device.commands_sent().is_empty());
+    // Verify 4 commands were sent for the preset
+    assert_eq!(device.commands_sent().len(), 4);
+    
+    // Check the last command was hue (the preset sets sharpness, saturation, contrast, hue in that order)
+    assert_eq!(
+        device.last_command().unwrap()[0..4],
+        vec![0x81, 0x01, 0x04, 0x4F]
+    );
 }
 
 #[test]
 fn test_zoom_ext_methods() {
-    let mut device = MockDevice::with_completion();
+    let mut transport = MockTransport::new();
+    // Zoom to magnification sends 1 command
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
     // Test zoom to magnification
     device.zoom_to_magnification(5.0).unwrap();
@@ -80,7 +105,10 @@ fn test_zoom_ext_methods() {
 
 #[test]
 fn test_position_ext_methods() {
-    let mut device = MockDevice::with_completion();
+    let mut transport = MockTransport::new();
+    // Move to degrees sends 1 command
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
     // Test move to degrees
     device.move_to_degrees(45.0, 15.0, Some((10, 10))).unwrap();
@@ -94,7 +122,11 @@ fn test_position_ext_methods() {
 
 #[test]
 fn test_transport_ext_methods() {
-    let mut device = MockDevice::with_completion();
+    let mut transport = MockTransport::new();
+    // Power on sends 1 command, power off sends 1 command
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
     // Test power on convenience method
     match device.power_on() {
@@ -119,7 +151,12 @@ fn test_transport_ext_methods() {
 
 #[test]
 fn test_chained_operations() {
-    let mut device = MockDevice::with_completion();
+    let mut transport = MockTransport::new();
+    // 3 commands for chained operations
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
     // Chain multiple operations
     device.power_on().unwrap();
@@ -127,5 +164,5 @@ fn test_chained_operations() {
     device.move_to_degrees(0.0, 0.0, None).unwrap();
 
     // Verify multiple commands were sent
-    assert!(device.commands_sent().len() >= 3);
+    assert_eq!(device.commands_sent().len(), 3);
 }
