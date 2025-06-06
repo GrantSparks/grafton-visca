@@ -30,6 +30,7 @@
     clippy::cast_precision_loss,     // Some are intentional
     clippy::float_cmp,               // Tests need exact float comparisons
     clippy::too_many_lines,          // TODO: Refactor parse_visca_response
+    clippy::single_match_else,       // TODO: Fix in follow-up PR
     missing_docs                     // Temporarily allowed while adding docs
 )]
 //!
