@@ -222,3 +222,20 @@ impl Transport for AsyncUdpTransport {
         })
     }
 }
+
+// TODO: Remove once ViscaTransport trait is fully removed
+// #[cfg(feature = "blocking-client")]
+// impl crate::ViscaTransport for UdpTransport {
+//     fn send_command(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+//         self.send_command_blocking(command)
+//     }
+//
+//     fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+//         self.receive_response_blocking()
+//     }
+//
+//     fn send_and_wait(&mut self, command: &dyn ViscaCommand) -> Result<crate::ViscaResponse, ViscaError> {
+//         // Use the proper send_command_and_wait implementation from the crate
+//         crate::send_command_and_wait(self, command)
+//     }
+// }

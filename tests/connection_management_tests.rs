@@ -182,10 +182,10 @@ mod tests {
 }
 
 // Mock transport for testing
-#[cfg(all(test, not(feature = "async-client")))]
+#[cfg(all(test, feature = "blocking-client"))]
 mod sync_health_tests {
     use grafton_visca::connection::ConnectionStats;
-    use grafton_visca::{ConnectionManagement, ViscaCommand, ViscaError, ViscaTransport};
+    use grafton_visca::{transport::BlockingTransport, ViscaCommand, ViscaError};
 
     struct MockTransport {
         stats: ConnectionStats,
@@ -205,8 +205,8 @@ mod sync_health_tests {
         }
     }
 
-    impl ViscaTransport for MockTransport {
-        fn send_command(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+    impl BlockingTransport for MockTransport {
+        fn send_command_blocking(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
             if self.fail_send {
                 Err(ViscaError::Io(std::io::Error::other("Mock send error")))
             } else {
@@ -215,7 +215,7 @@ mod sync_health_tests {
             }
         }
 
-        fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+        fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
             if self.fail_receive {
                 Err(ViscaError::Io(std::io::Error::other("Mock receive error")))
             } else if self.empty_response {
@@ -227,59 +227,50 @@ mod sync_health_tests {
         }
     }
 
-    impl ConnectionManagement for MockTransport {
-        fn is_healthy(&mut self) -> Result<bool, ViscaError> {
-            // Simple mock implementation
-            self.send_command(&grafton_visca::command::InquiryCommand::Power)?;
-            let responses = self.receive_response()?;
-            Ok(!responses.is_empty())
-        }
-
-        fn connection_stats(&self) -> &ConnectionStats {
-            &self.stats
-        }
-    }
+    // ConnectionManagement trait has been removed in v0.4.0
+    // Health checking is now handled internally by ViscaSession
 
     #[test]
-    fn test_sync_health_check_success() {
+    fn test_sync_transport_send_success() {
         let mut transport = MockTransport::new();
-        let result = transport.is_healthy();
+        use grafton_visca::command::power::{Power, PowerCommand};
+        let result = transport.send_command_blocking(&PowerCommand { power: Power::On });
         assert!(result.is_ok());
-        assert!(result.unwrap());
+        assert_eq!(transport.stats.snapshot().bytes_sent, 10);
     }
 
     #[test]
-    fn test_sync_health_check_send_failure() {
+    fn test_sync_transport_send_failure() {
         let mut transport = MockTransport::new();
         transport.fail_send = true;
-        let result = transport.is_healthy();
+        use grafton_visca::command::power::{Power, PowerCommand};
+        let result = transport.send_command_blocking(&PowerCommand { power: Power::On });
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_sync_health_check_receive_failure() {
+    fn test_sync_transport_receive_success() {
+        let mut transport = MockTransport::new();
+        let result = transport.receive_response_blocking();
+        assert!(result.is_ok());
+        assert_eq!(transport.stats.snapshot().bytes_received, 20);
+    }
+
+    #[test]
+    fn test_sync_transport_receive_failure() {
         let mut transport = MockTransport::new();
         transport.fail_receive = true;
-        let result = transport.is_healthy();
+        let result = transport.receive_response_blocking();
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_sync_health_check_unhealthy() {
-        let mut transport = MockTransport::new();
-        transport.empty_response = true;
-        let result = transport.is_healthy();
-        assert!(result.is_ok());
-        assert!(!result.unwrap());
     }
 }
 
 // Async tests
 #[cfg(all(test, feature = "async-client"))]
 mod async_health_tests {
-    use grafton_visca::async_transport::TransportFuture;
     use grafton_visca::connection::ConnectionStats;
-    use grafton_visca::{AsyncConnectionManagement, AsyncViscaTransport, ViscaCommand, ViscaError};
+    use grafton_visca::transport::{Transport, TransportFuture};
+    use grafton_visca::{ViscaCommand, ViscaError};
 
     struct MockAsyncTransport {
         stats: ConnectionStats,
@@ -299,7 +290,7 @@ mod async_health_tests {
         }
     }
 
-    impl AsyncViscaTransport for MockAsyncTransport {
+    impl Transport for MockAsyncTransport {
         fn send_command<'a>(
             &'a mut self,
             _command: &'a dyn ViscaCommand,
@@ -328,61 +319,46 @@ mod async_health_tests {
         }
     }
 
-    impl AsyncConnectionManagement for MockAsyncTransport {
-        fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
-            Box::pin(async move {
-                // Simple mock implementation
-                if self
-                    .send_command(&grafton_visca::command::InquiryCommand::Power)
-                    .await
-                    .is_err()
-                {
-                    return Ok(false);
-                }
-                match self.receive_response().await {
-                    Ok(responses) => Ok(!responses.is_empty()),
-                    Err(_) => Ok(false),
-                }
-            })
-        }
-
-        fn connection_stats(&self) -> &ConnectionStats {
-            &self.stats
-        }
-    }
+    // AsyncConnectionManagement trait has been removed in v0.4.0
+    // Health checking is now handled internally by ViscaSession
 
     #[tokio::test]
-    async fn test_async_health_check_success() {
+    async fn test_async_transport_send_success() {
         let mut transport = MockAsyncTransport::new();
-        let result = transport.is_healthy().await;
+        use grafton_visca::command::power::{Power, PowerCommand};
+        let result = transport
+            .send_command(&PowerCommand { power: Power::On })
+            .await;
         assert!(result.is_ok());
-        assert!(result.unwrap());
+        assert_eq!(transport.stats.snapshot().bytes_sent, 10);
     }
 
     #[tokio::test]
-    async fn test_async_health_check_send_failure() {
+    async fn test_async_transport_send_failure() {
         let mut transport = MockAsyncTransport::new();
         transport.fail_send = true;
-        let result = transport.is_healthy().await;
-        assert!(result.is_ok());
-        assert!(!result.unwrap()); // Should be unhealthy
+        use grafton_visca::command::power::{Power, PowerCommand};
+        let result = transport
+            .send_command(&PowerCommand { power: Power::On })
+            .await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn test_async_health_check_receive_failure() {
+    async fn test_async_transport_receive_success() {
+        let mut transport = MockAsyncTransport::new();
+        let result = transport.receive_response().await;
+        assert!(result.is_ok());
+        let responses = result.unwrap();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(transport.stats.snapshot().bytes_received, 20);
+    }
+
+    #[tokio::test]
+    async fn test_async_transport_receive_failure() {
         let mut transport = MockAsyncTransport::new();
         transport.fail_receive = true;
-        let result = transport.is_healthy().await;
-        assert!(result.is_ok());
-        assert!(!result.unwrap()); // Should be unhealthy
-    }
-
-    #[tokio::test]
-    async fn test_async_health_check_unhealthy() {
-        let mut transport = MockAsyncTransport::new();
-        transport.empty_response = true;
-        let result = transport.is_healthy().await;
-        assert!(result.is_ok());
-        assert!(!result.unwrap());
+        let result = transport.receive_response().await;
+        assert!(result.is_err());
     }
 }

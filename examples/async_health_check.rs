@@ -1,3 +1,10 @@
+// TODO: Update this example for v0.5.0 - async support is not yet available
+fn main() {
+    println!("This example needs to be updated for v0.5.0");
+    println!("Async support is not yet available in the current version");
+}
+
+/*
 #[cfg(feature = "async-client")]
 use grafton_visca::command::power::Power;
 #[cfg(feature = "async-client")]
@@ -131,3 +138,4 @@ fn main() {
     eprintln!("This example requires the 'async' feature to be enabled.");
     eprintln!("Try running with: cargo run --example async_health_check --features async-client");
 }
+*/

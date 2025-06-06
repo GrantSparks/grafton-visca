@@ -1,156 +1,308 @@
 #![cfg(feature = "async-client")]
 
-use grafton_visca::command::{power::Power, PowerCommand};
+//! Tests for async functionality in the unified client.
+//!
+//! These tests verify async-specific behavior including concurrency,
+//! timeouts, and proper error propagation through async chains.
+
+mod common;
+
+use common::MockAsyncTransport;
 use grafton_visca::{
-    AsyncViscaTransport, TransportFuture, ViscaCommand, ViscaError, ViscaResponse,
+    command::{
+        pan_tilt::PanTiltCommand,
+        power::{Power, PowerCommand},
+        zoom::ZoomCommand,
+        InquiryCommand,
+    },
+    transport::Transport,
+    ViscaError,
 };
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
-
-/// Mock transport for testing that records sent commands and provides canned responses.
-struct MockTransport {
-    sent_commands: Arc<Mutex<Vec<Vec<u8>>>>,
-    responses: Arc<Mutex<Vec<Vec<u8>>>>,
-}
-
-impl MockTransport {
-    fn new() -> Self {
-        Self {
-            sent_commands: Arc::new(Mutex::new(Vec::new())),
-            responses: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    async fn add_response(&self, response: Vec<u8>) {
-        let mut responses = self.responses.lock().await;
-        responses.push(response);
-    }
-}
-
-impl AsyncViscaTransport for MockTransport {
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
-        Box::pin(async move {
-            let bytes = command.to_bytes()?;
-            let mut sent = self.sent_commands.lock().await;
-            sent.push(bytes);
-            Ok(())
-        })
-    }
-
-    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
-        Box::pin(async move {
-            // Simulate a small delay
-            tokio::time::sleep(Duration::from_millis(10)).await;
-
-            let mut responses = self.responses.lock().await;
-            if responses.is_empty() {
-                Err(ViscaError::Timeout)
-            } else {
-                Ok(vec![responses.remove(0)])
-            }
-        })
-    }
-}
+use tokio::sync::{Mutex, Semaphore};
+use tokio::time::{sleep, timeout};
 
 #[tokio::test]
-async fn test_async_command_sequence() {
-    // Test that commands are sent and acknowledged properly
-    let transport = MockTransport::new();
+async fn test_async_send_receive_basic() {
+    let mut transport = MockAsyncTransport::new();
+    transport.add_response(vec![0x90, 0x50, 0xFF]).await;
 
-    // Add expected responses (ACK then completion for power on)
-    transport.add_response(vec![0x90, 0x40, 0xFF]).await; // ACK socket 0
-    transport.add_response(vec![0x90, 0x50, 0xFF]).await; // Completion socket 0
+    let command = PowerCommand { power: Power::On };
+    transport.send_command(&command).await.unwrap();
 
-    // This test would require refactoring AsyncViscaClient to accept a custom transport
-    // For now, we'll test the transport behavior directly
-    let mut transport = transport;
+    let sent = transport.sent_commands.lock().await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0], vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
 
-    let cmd = PowerCommand { power: Power::On };
-    transport.send_command(&cmd).await.unwrap();
+    drop(sent); // Release lock
 
     let responses = transport.receive_response().await.unwrap();
     assert_eq!(responses.len(), 1);
-    assert_eq!(responses[0], vec![0x90, 0x40, 0xFF]);
+    assert_eq!(responses[0], vec![0x90, 0x50, 0xFF]);
 }
 
 #[tokio::test]
 async fn test_concurrent_commands() {
     // Test that multiple commands can be sent concurrently
-    // This would require a real async client test with proper mocking
+    let transport = Arc::new(Mutex::new(MockAsyncTransport::new()));
 
-    // For now, we test that the async runtime works
-    let task1 = tokio::spawn(async {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        "task1"
+    // Prepare responses for 3 concurrent commands
+    {
+        let t = transport.lock().await;
+        t.add_ack_completion(0).await;
+        t.add_ack_completion(1).await;
+        t.add_ack_completion(0).await; // Socket 0 reused after completion
+    }
+
+    // Spawn 3 concurrent command tasks
+    let t1 = transport.clone();
+    let task1 = tokio::spawn(async move {
+        let mut t = t1.lock().await;
+        t.send_command(&PanTiltCommand::Home).await
     });
 
-    let task2 = tokio::spawn(async {
-        tokio::time::sleep(Duration::from_millis(5)).await;
-        "task2"
+    let t2 = transport.clone();
+    let task2 = tokio::spawn(async move {
+        let mut t = t2.lock().await;
+        t.send_command(&ZoomCommand::Stop).await
     });
 
-    let (res1, res2) = tokio::join!(task1, task2);
-    assert_eq!(res1.unwrap(), "task1");
-    assert_eq!(res2.unwrap(), "task2");
+    let t3 = transport.clone();
+    let task3 = tokio::spawn(async move {
+        let mut t = t3.lock().await;
+        t.send_command(&PowerCommand { power: Power::On }).await
+    });
+
+    // All should complete successfully
+    assert!(task1.await.unwrap().is_ok());
+    assert!(task2.await.unwrap().is_ok());
+    assert!(task3.await.unwrap().is_ok());
+
+    // Verify all 3 commands were sent
+    let count = transport.lock().await.command_count().await;
+    assert_eq!(count, 3);
 }
 
 #[tokio::test]
 async fn test_semaphore_limiting() {
-    use tokio::sync::Semaphore;
+    // Test that semaphore properly limits concurrent commands to 2
+    let semaphore = Arc::new(Semaphore::new(2));
+    let transport = Arc::new(Mutex::new(MockAsyncTransport::new().with_delay(50)));
 
-    // Test that semaphore properly limits to 2 concurrent operations
-    let sem = Arc::new(Semaphore::new(2));
-    let mut handles = vec![];
+    // Track timing
+    let start = tokio::time::Instant::now();
 
-    for i in 0..3 {
-        let sem_clone = Arc::clone(&sem);
-        let handle = tokio::spawn(async move {
-            let _permit = sem_clone.acquire().await.unwrap();
-            let start = tokio::time::Instant::now();
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            (i, start)
+    // Try to send 3 commands with semaphore limiting to 2
+    let mut tasks = vec![];
+
+    for _ in 0..3 {
+        let sem = semaphore.clone();
+        let t = transport.clone();
+
+        let task = tokio::spawn(async move {
+            let _permit = sem.acquire().await.unwrap();
+            let mut transport = t.lock().await;
+            transport.add_response(vec![0x90, 0x50, 0xFF]).await;
+            transport
+                .send_command(&PowerCommand { power: Power::On })
+                .await
+                .unwrap();
+            sleep(Duration::from_millis(100)).await; // Simulate command execution time
         });
-        handles.push(handle);
-        // Give tasks time to start
-        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        tasks.push(task);
     }
 
-    let mut results: Vec<_> = futures::future::join_all(handles)
-        .await
-        .into_iter()
-        .map(|r| r.unwrap())
-        .collect();
+    // Wait for all to complete
+    for task in tasks {
+        task.await.unwrap();
+    }
 
-    results.sort_by_key(|(i, _)| *i);
+    let elapsed = start.elapsed();
 
-    // First two should start almost immediately
-    // Third should start after one of the first two finishes (~50ms later)
-    let time_diff = results[2].1.duration_since(results[0].1);
-    assert!(time_diff >= Duration::from_millis(40)); // Some tolerance for timing
+    // With semaphore limiting to 2, the 3rd command should wait
+    // Expected: 2 batches * 100ms = ~200ms (plus overhead)
+    // Adding more tolerance for test timing
+    assert!(elapsed >= Duration::from_millis(150)); // At least batch processing
+
+    // On Windows CI runners, timing can be significantly slower due to virtualization
+    // and resource constraints. Allow more time on Windows.
+    #[cfg(target_os = "windows")]
+    assert!(elapsed < Duration::from_millis(1000)); // Very generous timeout for Windows CI
+
+    #[cfg(not(target_os = "windows"))]
+    assert!(elapsed < Duration::from_millis(500)); // Normal timeout for other platforms
 }
 
 #[tokio::test]
 async fn test_timeout_handling() {
-    use tokio::time::timeout;
+    let mut transport = MockAsyncTransport::new().with_delay(100);
+    // Don't add any response - should timeout
 
-    // Test that operations can timeout properly
-    let future = async {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        Ok::<_, ViscaError>(ViscaResponse::Completion)
-    };
+    // Test command timeout
+    let result = timeout(Duration::from_millis(50), transport.receive_response()).await;
 
-    let result = timeout(Duration::from_millis(100), future).await;
-    assert!(result.is_err()); // Should timeout
+    assert!(result.is_err()); // Timeout from tokio
+
+    // Test with longer timeout - should get ViscaError::Timeout
+    let result = timeout(Duration::from_millis(200), transport.receive_response()).await;
+
+    assert!(result.is_ok()); // No tokio timeout
+    assert!(matches!(result.unwrap(), Err(ViscaError::Timeout))); // But VISCA timeout
 }
 
 #[tokio::test]
 async fn test_error_propagation() {
-    // Test that errors are properly propagated through the async chain
-    async fn failing_operation() -> Result<ViscaResponse, ViscaError> {
-        Err(ViscaError::CommandBufferFull)
-    }
+    // Test that errors propagate correctly through async chains
+    let mut transport = MockAsyncTransport::new().fail_after_n_commands(2);
 
-    let result = failing_operation().await;
-    assert!(matches!(result, Err(ViscaError::CommandBufferFull)));
+    // First two commands should succeed
+    transport
+        .send_command(&PowerCommand { power: Power::On })
+        .await
+        .unwrap();
+    transport.send_command(&ZoomCommand::Stop).await.unwrap();
+
+    // Third command should fail
+    let result = transport.send_command(&PanTiltCommand::Home).await;
+    assert!(result.is_err());
+
+    match result.unwrap_err() {
+        ViscaError::Io(e) => {
+            assert_eq!(e.kind(), std::io::ErrorKind::ConnectionAborted);
+        }
+        _ => panic!("Expected IO error"),
+    }
+}
+
+#[tokio::test]
+async fn test_inquiry_async_handling() {
+    let mut transport = MockAsyncTransport::new();
+
+    // Add inquiry response (no ACK for inquiries)
+    transport
+        .add_response(vec![
+            0x90, 0x50, // Header
+            0x00, 0x01, 0x02, 0x03, // Pan
+            0x04, 0x05, 0x06, 0x07, // Tilt
+            0xFF,
+        ])
+        .await;
+
+    transport
+        .send_command(&InquiryCommand::PanTiltPosition)
+        .await
+        .unwrap();
+
+    let responses = transport.receive_response().await.unwrap();
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0].len(), 11); // Full inquiry response
+}
+
+#[tokio::test]
+async fn test_concurrent_timeout_handling() {
+    // Test that timeouts in concurrent operations don't affect each other
+    let transport = Arc::new(Mutex::new(MockAsyncTransport::new().with_delay(50)));
+
+    // Add response only for first command
+    transport
+        .lock()
+        .await
+        .add_response(vec![0x90, 0x50, 0xFF])
+        .await;
+
+    let t1 = transport.clone();
+    let task1 = tokio::spawn(async move {
+        let mut t = t1.lock().await;
+        timeout(Duration::from_millis(100), t.receive_response()).await
+    });
+
+    let t2 = transport.clone();
+    let task2 = tokio::spawn(async move {
+        let mut t = t2.lock().await;
+        timeout(Duration::from_millis(100), t.receive_response()).await
+    });
+
+    let (r1, r2) = tokio::join!(task1, task2);
+
+    // First should succeed
+    assert!(r1.unwrap().is_ok());
+
+    // Second should timeout (no response available)
+    let r2_result = r2.unwrap();
+    assert!(r2_result.is_ok()); // tokio timeout didn't fire
+    assert!(matches!(r2_result.unwrap(), Err(ViscaError::Timeout)));
+}
+
+#[tokio::test]
+async fn test_async_command_sequence() {
+    // Test a realistic sequence of async commands
+    let mut transport = MockAsyncTransport::new();
+
+    // Prepare a sequence of responses
+    transport.add_ack_completion(0).await; // Home
+    transport
+        .add_response(vec![
+            0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
+        ])
+        .await; // Position inquiry
+    transport.add_ack_completion(1).await; // Zoom
+
+    // Execute command sequence
+    transport.send_command(&PanTiltCommand::Home).await.unwrap();
+    let _ = transport.receive_response().await.unwrap(); // ACK
+    let _ = transport.receive_response().await.unwrap(); // Completion
+
+    transport
+        .send_command(&InquiryCommand::PanTiltPosition)
+        .await
+        .unwrap();
+    let pos_response = transport.receive_response().await.unwrap();
+    assert_eq!(pos_response[0].len(), 11); // Valid position response
+
+    transport.send_command(&ZoomCommand::Stop).await.unwrap();
+    let _ = transport.receive_response().await.unwrap(); // ACK
+    let _ = transport.receive_response().await.unwrap(); // Completion
+
+    assert_eq!(transport.command_count().await, 3);
+}
+
+#[tokio::test]
+async fn test_mock_transport_utilities() {
+    // This test demonstrates the utility methods of MockAsyncTransport
+    let mut transport = MockAsyncTransport::new().with_delay(5); // Use the with_delay builder method
+
+    // Use add_response to queue a custom response
+    transport.add_response(vec![0x90, 0x60, 0x02, 0xFF]).await; // Syntax error
+
+    // Send a command and verify we get the error
+    let command = PowerCommand { power: Power::On };
+    transport.send_command(&command).await.unwrap();
+
+    let responses = transport.receive_response().await.unwrap();
+    assert_eq!(responses[0], vec![0x90, 0x60, 0x02, 0xFF]);
+
+    // Verify command count
+    assert_eq!(transport.command_count().await, 1);
+}
+
+#[tokio::test]
+async fn test_mock_transport_ack_completion_helper() {
+    // Demonstrates the add_ack_completion helper method
+    let mut transport = MockAsyncTransport::new();
+
+    // Use the helper to add both ACK and completion
+    transport.add_ack_completion(0).await;
+
+    let command = ZoomCommand::Stop;
+    transport.send_command(&command).await.unwrap();
+
+    // Should get ACK
+    let ack = transport.receive_response().await.unwrap();
+    assert_eq!(ack[0], vec![0x90, 0x40, 0xFF]);
+
+    // Should get completion
+    let completion = transport.receive_response().await.unwrap();
+    assert_eq!(completion[0], vec![0x90, 0x50, 0xFF]);
 }

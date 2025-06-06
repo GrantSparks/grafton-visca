@@ -9,16 +9,19 @@
 //!
 //! # Example
 //! ```no_run
+//! # #[cfg(feature = "blocking-client")]
+//! # {
 //! # use grafton_visca::command::pan_tilt::{PanTiltCommand, PanTiltDirection, PanSpeed, TiltSpeed};
-//! # use grafton_visca::{UdpTransport, ViscaTransport};
-//! # let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//! # use grafton_visca::ViscaClient;
+//! # let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //! // Move camera diagonally up-right
 //! let command = PanTiltCommand::Move {
 //!     direction: PanTiltDirection::UpRight,
 //!     pan_speed: PanSpeed::new(0x10).unwrap(),
 //!     tilt_speed: TiltSpeed::new(0x10).unwrap(),
 //! };
-//! transport.send_command(&command).unwrap();
+//! client.send(&command).unwrap();
+//! # }
 //! ```
 
 // Standard library imports

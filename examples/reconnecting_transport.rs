@@ -3,6 +3,13 @@
 //! This example shows how to use the ReconnectingTransport wrapper to handle
 //! connection failures gracefully with automatic reconnection.
 
+// TODO: Update this example for v0.5.0 - ReconnectingTransport is not yet available
+fn main() {
+    println!("This example needs to be updated for v0.5.0");
+    println!("ReconnectingTransport is not yet available in the current version");
+}
+
+/*
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
@@ -49,67 +56,71 @@ fn demo_udp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
     let mut transport = ReconnectingTransport::new(
         || UdpTransport::new(camera_addr).map_err(ViscaError::Io),
         reconnect_config,
-    )?;
+    );
 
-    println!("Connected to camera at {}", camera_addr);
+    println!("Created reconnecting UDP transport for {}", camera_addr);
+    println!("Configuration:");
+    println!("  Max retries: {}", reconnect_config.max_retries);
+    println!("  Initial delay: {:?}", reconnect_config.initial_delay);
+    println!("  Max delay: {:?}", reconnect_config.max_delay);
+    println!("  Backoff factor: {}", reconnect_config.backoff_factor);
+    println!(
+        "  Health check interval: {:?}",
+        reconnect_config.health_check_interval
+    );
 
-    // Demonstrate normal operation
-    println!("\n1. Normal operation:");
-    transport.power_on()?;
-    println!("✓ Power on successful");
+    // Try some commands
+    println!("\nTesting commands with automatic reconnection...");
 
-    transport.home()?;
-    println!("✓ Home position set");
-
-    // Check health
-    match transport.is_healthy() {
-        Ok(true) => println!("✓ Connection is healthy"),
-        Ok(false) => println!("✗ Connection is not healthy"),
-        Err(e) => println!("✗ Error checking health: {}", e),
+    // Power on
+    match transport.send_and_wait(&PowerCommand { power: Power::On }) {
+        Ok(_) => println!("✓ Power on command sent successfully"),
+        Err(e) => println!("✗ Power on failed: {}", e),
     }
 
-    // Simulate commands that might fail due to network issues
-    println!("\n2. Sending multiple commands (will auto-reconnect if connection drops):");
+    // Home position
+    match transport.home() {
+        Ok(_) => println!("✓ Home command sent successfully"),
+        Err(e) => println!("✗ Home command failed: {}", e),
+    }
 
-    for i in 0..5 {
-        println!("\nCommand batch {}:", i + 1);
+    // Simulate network issues by attempting many rapid commands
+    println!("\nSimulating rapid command sequence (may trigger reconnection)...");
+    for i in 1..=10 {
+        thread::sleep(Duration::from_millis(100));
 
-        // These commands will automatically retry if the connection fails
-        match transport.send_and_wait(&ZoomCommand::TeleStandard) {
-            Ok(_) => println!("  ✓ Zoom tele command successful"),
-            Err(e) => println!("  ✗ Zoom command failed after retries: {}", e),
-        }
-
-        thread::sleep(Duration::from_millis(500));
+        let direction = if i % 2 == 0 {
+            PanTiltDirection::Right
+        } else {
+            PanTiltDirection::Left
+        };
 
         match transport.send_and_wait(&PanTiltCommand::Move {
-            direction: PanTiltDirection::Left,
+            direction,
             pan_speed: PanSpeed::new(5).unwrap(),
-            tilt_speed: TiltSpeed::new(5).unwrap(),
+            tilt_speed: TiltSpeed::new(0).unwrap(),
         }) {
-            Ok(_) => println!("  ✓ Pan left command successful"),
-            Err(e) => println!("  ✗ Pan command failed after retries: {}", e),
+            Ok(_) => print!("."),
+            Err(_) => print!("!"),
         }
-
-        thread::sleep(Duration::from_secs(1));
     }
+    println!();
 
-    // Get connection stats using the new methods
-    let stats = transport.stats_snapshot();
-    let snapshot = stats.snapshot();
-    println!("\n3. Connection Statistics:");
-    println!("  Commands sent: {}", snapshot.commands_sent);
-    println!("  Responses received: {}", snapshot.responses_received);
-    println!("  Bytes sent: {}", snapshot.bytes_sent);
-    println!("  Bytes received: {}", snapshot.bytes_received);
-    println!("  Errors: {}", snapshot.error_count);
+    // Stop movement
+    let _ = transport.send_and_wait(&PanTiltCommand::Move {
+        direction: PanTiltDirection::Stop,
+        pan_speed: PanSpeed::new(0).unwrap(),
+        tilt_speed: TiltSpeed::new(0).unwrap(),
+    });
 
-    // Get combined stats (wrapper + inner transport)
-    let combined = transport.combined_stats();
-    let combined_snapshot = combined.snapshot();
-    println!("\n4. Combined Statistics (wrapper + transport):");
-    println!("  Total commands: {}", combined_snapshot.commands_sent);
-    println!("  Total errors: {}", combined_snapshot.error_count);
+    // Check connection statistics
+    let stats = transport.connection_stats().snapshot();
+    println!("\nConnection Statistics:");
+    println!("  Commands sent: {}", stats.commands_sent);
+    println!("  Responses received: {}", stats.responses_received);
+    println!("  Errors: {}", stats.error_count);
+    println!("  Reconnection attempts: {}", stats.reconnection_attempts);
+    println!("  Successful reconnections: {}", stats.successful_reconnections);
 
     Ok(())
 }
@@ -117,205 +128,135 @@ fn demo_udp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
 fn demo_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
     let camera_addr = "192.168.1.100:5678";
 
-    // Configure more aggressive reconnection for TCP
+    // More aggressive reconnection for TCP
     let reconnect_config = ReconnectionConfig {
         max_retries: 10,
-        initial_delay: Duration::from_millis(100),
-        max_delay: Duration::from_secs(10),
+        initial_delay: Duration::from_secs(1),
+        max_delay: Duration::from_secs(60),
         backoff_factor: 1.5,
         health_check_interval: Some(Duration::from_secs(20)),
     };
 
-    // Create the reconnecting transport
     let mut transport = ReconnectingTransport::new(
         || TcpTransport::new(camera_addr).map_err(ViscaError::Io),
         reconnect_config,
-    )?;
+    );
 
-    println!("Connected to camera at {} via TCP", camera_addr);
+    println!("Created reconnecting TCP transport for {}", camera_addr);
 
-    // Test with preset operations
-    println!("\n1. Testing preset operations with auto-reconnection:");
+    // Test zoom commands
+    println!("\nTesting zoom commands...");
 
-    // Save current position as preset 1
-    match transport.save_preset(1) {
-        Ok(_) => println!("✓ Saved preset 1"),
-        Err(e) => println!("✗ Failed to save preset: {}", e),
-    }
-
-    // Move camera
-    transport.send_and_wait(&PanTiltCommand::Move {
-        direction: PanTiltDirection::Right,
-        pan_speed: PanSpeed::new(10).unwrap(),
-        tilt_speed: TiltSpeed::new(10).unwrap(),
-    })?;
-    thread::sleep(Duration::from_secs(2));
-
-    // Save as preset 2
-    match transport.save_preset(2) {
-        Ok(_) => println!("✓ Saved preset 2"),
-        Err(e) => println!("✗ Failed to save preset: {}", e),
-    }
-
-    // Recall presets multiple times
-    println!("\n2. Recalling presets (will auto-reconnect if needed):");
-    for i in 0..3 {
-        println!("\nIteration {}:", i + 1);
-
-        match transport.recall_preset(1) {
-            Ok(_) => println!("  ✓ Recalled preset 1"),
-            Err(e) => println!("  ✗ Failed to recall preset 1: {}", e),
+    for zoom_level in [0x0000, 0x2000, 0x4000, 0x2000, 0x0000] {
+        match transport.zoom_to_position(zoom_level) {
+            Ok(_) => println!("✓ Zoomed to position 0x{:04X}", zoom_level),
+            Err(e) => println!("✗ Zoom failed: {}", e),
         }
-
-        thread::sleep(Duration::from_secs(3));
-
-        match transport.recall_preset(2) {
-            Ok(_) => println!("  ✓ Recalled preset 2"),
-            Err(e) => println!("  ✗ Failed to recall preset 2: {}", e),
-        }
-
-        thread::sleep(Duration::from_secs(3));
-    }
-
-    // Final health check
-    match transport.is_healthy() {
-        Ok(true) => println!("\n✓ Final health check: Connection is healthy"),
-        Ok(false) => println!("\n✗ Final health check: Connection is not healthy"),
-        Err(e) => println!("\n✗ Error during final health check: {}", e),
+        thread::sleep(Duration::from_secs(2));
     }
 
     Ok(())
 }
 
-/// Demonstrates connection event monitoring
 fn demo_connection_events() -> Result<(), Box<dyn std::error::Error>> {
     let camera_addr = "192.168.1.100:1259";
 
-    // Track connection events
-    let events = Arc::new(Mutex::new(Vec::new()));
-    let events_clone = events.clone();
+    // Create a flaky transport factory that fails intermittently
+    let failure_counter = Arc::new(Mutex::new(0));
+    let failure_counter_clone = failure_counter.clone();
 
-    // Configure reconnection with shorter delays for demo
-    let reconnect_config = ReconnectionConfig {
-        max_retries: 3,
-        initial_delay: Duration::from_millis(100),
-        max_delay: Duration::from_secs(2),
-        backoff_factor: 2.0,
-        health_check_interval: Some(Duration::from_secs(5)),
+    let transport_factory = move || {
+        let mut counter = failure_counter_clone.lock().unwrap();
+        *counter += 1;
+
+        // Simulate failures on attempts 3, 4, 7, 8
+        if *counter == 3 || *counter == 4 || *counter == 7 || *counter == 8 {
+            println!("  [Factory] Simulating connection failure (attempt {})", *counter);
+            Err(ViscaError::Io(io::Error::new(
+                io::ErrorKind::ConnectionRefused,
+                "Simulated connection failure",
+            )))
+        } else {
+            println!("  [Factory] Creating transport (attempt {})", *counter);
+            UdpTransport::new(camera_addr).map_err(ViscaError::Io)
+        }
     };
 
-    // Create transport with a simulated failing connection
-    let fail_count = Arc::new(Mutex::new(0));
-    let fail_count_clone = fail_count.clone();
+    let reconnect_config = ReconnectionConfig {
+        max_retries: 3,
+        initial_delay: Duration::from_millis(500),
+        max_delay: Duration::from_secs(5),
+        backoff_factor: 2.0,
+        health_check_interval: None,
+    };
 
-    let mut transport = ReconnectingTransport::new(
-        move || {
-            let mut count = fail_count_clone.lock().unwrap();
-            *count += 1;
+    let mut transport = ReconnectingTransport::new(transport_factory, reconnect_config);
 
-            // Simulate connection failures on attempts 2-4
-            if (2..=4).contains(&*count) {
-                Err(ViscaError::Io(io::Error::new(
-                    io::ErrorKind::ConnectionRefused,
-                    "Simulated connection failure for demo",
-                )))
-            } else {
-                UdpTransport::new(camera_addr).map_err(ViscaError::Io)
-            }
-        },
-        reconnect_config,
-    )?;
+    // Set up event callback to monitor connection events
+    let event_log = Arc::new(Mutex::new(Vec::new()));
+    let event_log_clone = event_log.clone();
 
-    // Set up event callback
-    transport.set_event_callback(Arc::new(move |event| {
-        let mut event_list = events_clone.lock().unwrap();
+    transport.set_event_callback(Some(Box::new(move |event| {
+        let mut log = event_log_clone.lock().unwrap();
+        log.push(event.clone());
 
-        // Print event as it happens
-        match &event {
-            ConnectionEvent::Connected => {
-                println!("📡 EVENT: Connection established");
+        match event {
+            ConnectionEvent::Connected => println!("  📡 EVENT: Connected"),
+            ConnectionEvent::Disconnected(reason) => {
+                println!("  ❌ EVENT: Disconnected - {}", reason)
             }
-            ConnectionEvent::Disconnected { reason } => {
-                println!("🔌 EVENT: Connection lost - {}", reason);
+            ConnectionEvent::ReconnectAttempt { attempt, max } => {
+                println!("  🔄 EVENT: Reconnect attempt {}/{}", attempt, max)
             }
-            ConnectionEvent::ReconnectingStarted {
-                attempt,
-                max_attempts,
-            } => {
-                println!(
-                    "🔄 EVENT: Reconnection attempt {}/{}",
-                    attempt, max_attempts
-                );
-            }
-            ConnectionEvent::ReconnectingFailed { attempt, error } => {
-                println!(
-                    "❌ EVENT: Reconnection attempt {} failed - {}",
-                    attempt, error
-                );
-            }
-            ConnectionEvent::ReconnectionExhausted => {
-                println!("⛔ EVENT: All reconnection attempts exhausted");
+            ConnectionEvent::ReconnectSuccess => println!("  ✅ EVENT: Reconnect successful"),
+            ConnectionEvent::ReconnectFailed => println!("  ❌ EVENT: Reconnect failed"),
+            ConnectionEvent::HealthCheckPassed => println!("  ✅ EVENT: Health check passed"),
+            ConnectionEvent::HealthCheckFailed(reason) => {
+                println!("  ❌ EVENT: Health check failed - {}", reason)
             }
         }
-
-        event_list.push(event);
-    }));
+    })));
 
     println!("Monitoring connection events...\n");
 
-    // Send commands that will trigger reconnection
-    println!("Sending commands (will trigger simulated failures):");
+    // Perform operations that will trigger connection events
+    for i in 1..=10 {
+        println!("\nOperation {}:", i);
 
-    // This should work
-    match transport.send_and_wait(&PowerCommand { power: Power::On }) {
-        Ok(_) => println!("✓ Power on successful"),
-        Err(e) => println!("✗ Power on failed: {}", e),
-    }
+        match transport.send_and_wait(&PowerCommand { power: Power::On }) {
+            Ok(_) => println!("  ✓ Command successful"),
+            Err(e) => println!("  ✗ Command failed: {}", e),
+        }
 
-    // Force a failure by incrementing count
-    *fail_count.lock().unwrap() = 1;
-
-    // This will fail and trigger reconnection
-    match transport.send_and_wait(&ZoomCommand::WideStandard) {
-        Ok(_) => println!("✓ Zoom command successful"),
-        Err(e) => println!("✗ Zoom command failed: {}", e),
-    }
-
-    // Wait a bit to see reconnection events
-    thread::sleep(Duration::from_secs(1));
-
-    // Try another command (should eventually succeed after reconnection)
-    match transport.send_and_wait(&PanTiltCommand::Home) {
-        Ok(_) => println!("✓ Home command successful"),
-        Err(e) => println!("✗ Home command failed: {}", e),
+        thread::sleep(Duration::from_millis(500));
     }
 
     // Display event summary
-    println!("\n📊 Connection Event Summary:");
-    let event_list = events.lock().unwrap();
-    println!("Total events recorded: {}", event_list.len());
-
-    let disconnects = event_list
-        .iter()
-        .filter(|e| matches!(e, ConnectionEvent::Disconnected { .. }))
-        .count();
-    let reconnect_attempts = event_list
-        .iter()
-        .filter(|e| matches!(e, ConnectionEvent::ReconnectingStarted { .. }))
-        .count();
-    let reconnect_failures = event_list
-        .iter()
-        .filter(|e| matches!(e, ConnectionEvent::ReconnectingFailed { .. }))
-        .count();
-    let successful_connections = event_list
+    println!("\n=== Event Summary ===");
+    let events = event_log.lock().unwrap();
+    let connected_count = events
         .iter()
         .filter(|e| matches!(e, ConnectionEvent::Connected))
         .count();
+    let disconnected_count = events
+        .iter()
+        .filter(|e| matches!(e, ConnectionEvent::Disconnected(_)))
+        .count();
+    let reconnect_attempts = events
+        .iter()
+        .filter(|e| matches!(e, ConnectionEvent::ReconnectAttempt { .. }))
+        .count();
+    let reconnect_success = events
+        .iter()
+        .filter(|e| matches!(e, ConnectionEvent::ReconnectSuccess))
+        .count();
 
-    println!("  Disconnections: {}", disconnects);
-    println!("  Reconnection attempts: {}", reconnect_attempts);
-    println!("  Failed attempts: {}", reconnect_failures);
-    println!("  Successful connections: {}", successful_connections);
+    println!("Total events: {}", events.len());
+    println!("Connected: {}", connected_count);
+    println!("Disconnected: {}", disconnected_count);
+    println!("Reconnect attempts: {}", reconnect_attempts);
+    println!("Successful reconnections: {}", reconnect_success);
 
     Ok(())
 }
+*/

@@ -4,17 +4,28 @@
 //! durations for various categories of VISCA commands, allowing fine-tuned
 //! control over command execution timeouts.
 
+// TODO: Update imports when example is re-enabled
+// Currently unused imports commented out to satisfy clippy
+/*
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         preset::{PresetAction, PresetCommand, PresetNumber},
         InquiryCommand,
     },
-    TimeoutConfigBuilder, UdpTransport, ViscaCommand, ViscaTransport,
+    TimeoutConfigBuilder, ViscaClient, ViscaCommand,
 };
 use std::error::Error;
 use std::time::Duration;
+*/
 
+// TODO: Update this example for v0.5.0 - configurable timeouts are not yet available in ViscaClient
+fn main() {
+    println!("This example needs to be updated for v0.5.0");
+    println!("Configurable timeouts are not yet available in ViscaClient");
+}
+
+/*
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
@@ -38,21 +49,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  Default timeout:   {:?}", timeout_config.default_timeout);
     println!();
 
-    // Create transport with custom timeout configuration
+    // Create client with custom timeout configuration
     let camera_address = "192.168.1.100:5678";
-    let mut transport = UdpTransport::with_timeout_config(camera_address, timeout_config)?;
+    let mut client = ViscaClient::connect_udp_with_timeout(camera_address, timeout_config)?;
 
     println!("Connected to camera at {}\n", camera_address);
 
     // Demonstrate different command categories and their timeouts
-    demonstrate_quick_command(&mut transport)?;
-    demonstrate_movement_command(&mut transport)?;
-    demonstrate_preset_command(&mut transport)?;
+    demonstrate_quick_command(&mut client)?;
+    demonstrate_movement_command(&mut client)?;
+    demonstrate_preset_command(&mut client)?;
 
     Ok(())
 }
 
-fn demonstrate_quick_command(transport: &mut UdpTransport) -> Result<(), Box<dyn Error>> {
+fn demonstrate_quick_command(client: &mut ViscaClient) -> Result<(), Box<dyn Error>> {
     println!("1. Quick Command (Power Inquiry):");
 
     let command = InquiryCommand::Power;
@@ -60,7 +71,7 @@ fn demonstrate_quick_command(transport: &mut UdpTransport) -> Result<(), Box<dyn
     println!("   Expected timeout: Quick (1 second)");
 
     let start = std::time::Instant::now();
-    match transport.send_and_wait(&command) {
+    match client.send_command_and_wait(&command) {
         Ok(response) => {
             let elapsed = start.elapsed();
             println!("   ✓ Response received in {:?}", elapsed);
@@ -76,7 +87,7 @@ fn demonstrate_quick_command(transport: &mut UdpTransport) -> Result<(), Box<dyn
     Ok(())
 }
 
-fn demonstrate_movement_command(transport: &mut UdpTransport) -> Result<(), Box<dyn Error>> {
+fn demonstrate_movement_command(client: &mut ViscaClient) -> Result<(), Box<dyn Error>> {
     println!("2. Movement Command (Pan/Tilt):");
 
     let command = PanTiltCommand::Move {
@@ -88,7 +99,7 @@ fn demonstrate_movement_command(transport: &mut UdpTransport) -> Result<(), Box<
     println!("   Expected timeout: Movement (5 seconds)");
 
     let start = std::time::Instant::now();
-    match transport.send_and_wait(&command) {
+    match client.send_command_and_wait(&command) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Command completed in {:?}", elapsed);
@@ -99,7 +110,7 @@ fn demonstrate_movement_command(transport: &mut UdpTransport) -> Result<(), Box<
                 pan_speed: PanSpeed::new(0)?,
                 tilt_speed: TiltSpeed::new(0)?,
             };
-            let _ = transport.send_and_wait(&stop);
+            let _ = client.send_command_and_wait(&stop);
         }
         Err(e) => {
             let elapsed = start.elapsed();
@@ -111,7 +122,7 @@ fn demonstrate_movement_command(transport: &mut UdpTransport) -> Result<(), Box<
     Ok(())
 }
 
-fn demonstrate_preset_command(transport: &mut UdpTransport) -> Result<(), Box<dyn Error>> {
+fn demonstrate_preset_command(client: &mut ViscaClient) -> Result<(), Box<dyn Error>> {
     println!("3. Preset Command (Recall Preset):");
 
     let command = PresetCommand {
@@ -122,7 +133,7 @@ fn demonstrate_preset_command(transport: &mut UdpTransport) -> Result<(), Box<dy
     println!("   Expected timeout: Preset (30 seconds)");
 
     let start = std::time::Instant::now();
-    match transport.send_and_wait(&command) {
+    match client.send_command_and_wait(&command) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Preset recalled in {:?}", elapsed);
@@ -136,10 +147,19 @@ fn demonstrate_preset_command(transport: &mut UdpTransport) -> Result<(), Box<dy
 
     Ok(())
 }
+*/
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use grafton_visca::{
+        command::{
+            pan_tilt::PanTiltCommand,
+            preset::{PresetAction, PresetCommand, PresetNumber},
+            CommandCategory, InquiryCommand,
+        },
+        TimeoutConfigBuilder,
+    };
+    use std::time::Duration;
 
     #[test]
     fn test_timeout_configuration() {
@@ -166,7 +186,7 @@ mod tests {
 
         let preset = PresetCommand {
             action: PresetAction::Recall,
-            preset_number: 1,
+            preset_number: PresetNumber::new(1).unwrap(),
         };
         assert_eq!(preset.command_category(), CommandCategory::Preset);
     }

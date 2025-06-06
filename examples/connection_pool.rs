@@ -3,6 +3,13 @@
 //! This example shows how to use the ViscaConnectionPool to manage connections
 //! to multiple PTZ cameras simultaneously.
 
+// TODO: Update this example for v0.5.0 - ViscaConnectionPool is not yet available
+fn main() {
+    println!("This example needs to be updated for v0.5.0");
+    println!("ViscaConnectionPool is not yet available in the current version");
+}
+
+/*
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
@@ -353,3 +360,4 @@ fn demo_concurrent_control() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+*/
