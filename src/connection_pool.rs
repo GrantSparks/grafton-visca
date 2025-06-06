@@ -3,6 +3,8 @@
 //! This module provides a connection pool that manages multiple camera connections,
 //! handles automatic reconnection, and provides health checking capabilities.
 
+#![allow(deprecated)]
+
 use crate::{
     ConnectionManagement, ReconnectingTransport, ReconnectionConfig, ViscaError, ViscaTransport,
 };

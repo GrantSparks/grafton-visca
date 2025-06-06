@@ -1,5 +1,7 @@
 //! Async auto-reconnecting transport wrapper.
 
+#![allow(deprecated)]
+
 #[cfg(feature = "async-client")]
 // Standard library imports
 use std::future::Future;

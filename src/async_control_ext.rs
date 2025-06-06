@@ -1,5 +1,7 @@
 //! Async implementations of control extension traits for `AsyncViscaClient`.
 
+#![allow(deprecated)]
+
 // Crate imports
 use crate::{
     async_client::AsyncViscaClient,

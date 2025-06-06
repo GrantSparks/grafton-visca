@@ -1,3 +1,7 @@
+//! Async UDP transport implementation for VISCA over IP.
+
+#![allow(deprecated)]
+
 // Standard library imports
 use std::net::SocketAddr;
 

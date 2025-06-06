@@ -1,5 +1,7 @@
 //! High-level extension trait for image settings control operations.
 
+#![allow(deprecated)]
+
 // Crate imports
 use crate::{
     command::{

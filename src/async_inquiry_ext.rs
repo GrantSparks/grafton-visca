@@ -1,5 +1,7 @@
 //! Async extension trait providing convenience methods for camera state inquiries.
 
+#![allow(deprecated)]
+
 // Crate imports
 use crate::{
     async_client::AsyncViscaClient,
