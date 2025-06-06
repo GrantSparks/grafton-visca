@@ -244,6 +244,44 @@
 //! - `async` - Enables async/await support with Tokio
 //! - `sync` - Enables synchronous API (default)
 //! - `full` - Enables both sync and async APIs
+//!
+//! ## Migration from v0.3.x to v0.4.x
+//!
+//! Version 0.4.0 introduces a unified client that works for both blocking and async code.
+//! The old `ViscaTransport` trait and separate blocking/async clients are deprecated.
+//!
+//! ### Old way (deprecated):
+//! ```no_run
+//! # use grafton_visca::{UdpTransport, send_command_and_wait, ViscaTransport};
+//! # use grafton_visca::command::{PowerCommand, power::Power};
+//! let mut transport = UdpTransport::new("192.168.1.100:5678")?;
+//! let response = send_command_and_wait(&mut transport, &PowerCommand { power: Power::On })?;
+//! # Ok::<(), grafton_visca::ViscaError>(())
+//! ```
+//!
+//! ### New way (recommended):
+//! ```no_run
+//! # #[cfg(feature = "blocking-client")]
+//! # {
+//! # use grafton_visca::{ViscaClient};
+//! # use grafton_visca::command::{PowerCommand, power::Power};
+//! let client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+//! let response = client.send(&PowerCommand { power: Power::On })?;
+//! # Ok::<(), grafton_visca::ViscaError>(())
+//! # }
+//! ```
+//!
+//! ### Migrating existing transports:
+//! If you have existing code using the old transport trait, you can migrate gradually:
+//! ```no_run
+//! # #[cfg(all(feature = "blocking-client", feature = "async-client"))]
+//! # {
+//! # use grafton_visca::{UdpTransport, ViscaClient};
+//! let old_transport = UdpTransport::new("192.168.1.100:5678")?;
+//! let client = ViscaClient::from_legacy_transport(old_transport);
+//! # Ok::<(), grafton_visca::ViscaError>(())
+//! # }
+//! ```
 
 // Standard library imports
 use std::{
@@ -379,6 +417,10 @@ pub use crate::{
 /// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
 /// a uniform interface for VISCA communication.
 ///
+/// # Deprecated
+/// This trait is deprecated in favor of the unified `ViscaClient`. See the crate-level
+/// documentation for migration instructions.
+///
 /// # Example
 /// ```no_run
 /// # use grafton_visca::{ViscaTransport, UdpTransport, ViscaCommand, ViscaError};
@@ -390,6 +432,7 @@ pub use crate::{
 /// let responses = transport.receive_response()?;
 /// # Ok::<(), ViscaError>(())
 /// ```
+#[deprecated(since = "0.4.0", note = "Use `ViscaClient` instead. See crate documentation for migration guide.")]
 pub trait ViscaTransport {
     /// Sends a VISCA command to the camera.
     ///
@@ -419,12 +462,16 @@ pub trait ViscaTransport {
 /// This transport uses UDP sockets for communication with VISCA cameras.
 /// It binds to an ephemeral local port and sends commands to the specified camera address.
 ///
+/// # Deprecated
+/// This type is deprecated in favor of `ViscaClient::connect_udp()`.
+///
 /// # Example
 /// ```no_run
 /// # use grafton_visca::UdpTransport;
 /// let transport = UdpTransport::new("192.168.1.100:5678")?;
 /// # Ok::<(), std::io::Error>(())
 /// ```
+#[deprecated(since = "0.4.0", note = "Use `ViscaClient::connect_udp()` instead")]
 pub struct UdpTransport {
     socket: UdpSocket,
     address: String,
@@ -510,12 +557,16 @@ impl UdpTransport {
 /// This transport uses TCP sockets for reliable communication with VISCA cameras.
 /// It maintains a persistent connection to the camera.
 ///
+/// # Deprecated
+/// This type is deprecated in favor of `ViscaClient::connect_tcp()`.
+///
 /// # Example
 /// ```no_run
 /// # use grafton_visca::TcpTransport;
 /// let transport = TcpTransport::new("192.168.1.100:5678")?;
 /// # Ok::<(), std::io::Error>(())
 /// ```
+#[deprecated(since = "0.4.0", note = "Use `ViscaClient::connect_tcp()` instead")]
 pub struct TcpTransport {
     stream: TcpStream,
     stats: ConnectionStats,
@@ -804,6 +855,9 @@ impl ConnectionManagement for TcpTransport {
 /// - Receiving and processing ACK response
 /// - Waiting for and returning the completion response
 ///
+/// # Deprecated
+/// This function is deprecated in favor of `ViscaClient::send()`.
+///
 /// # Arguments
 /// * `transport` - The transport to use for communication
 /// * `command` - The VISCA command to send
@@ -827,6 +881,7 @@ impl ConnectionManagement for TcpTransport {
 /// }
 /// # Ok::<(), grafton_visca::ViscaError>(())
 /// ```
+#[deprecated(since = "0.4.0", note = "Use `ViscaClient::send()` instead")]
 pub fn send_command_and_wait(
     transport: &mut dyn ViscaTransport,
     command: &dyn ViscaCommand,

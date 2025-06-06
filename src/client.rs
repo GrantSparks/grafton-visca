@@ -19,6 +19,10 @@ use crate::{send_command_and_wait, ViscaCommand, ViscaError, ViscaResponse, Visc
 /// RefCell in user code and allows the client to be cloned and shared
 /// between threads.
 ///
+/// # Deprecated
+/// This client is deprecated in favor of the unified `ViscaClient` from `unified_client`.
+/// The new client provides both blocking and async APIs in a single type.
+///
 /// # Example
 ///
 /// ```no_run
@@ -47,6 +51,7 @@ use crate::{send_command_and_wait, ViscaCommand, ViscaError, ViscaResponse, Visc
 /// # }
 /// ```
 #[derive(Clone)]
+#[deprecated(since = "0.4.0", note = "Use the unified `ViscaClient` instead")]
 pub struct ViscaClient {
     transport: Arc<Mutex<Box<dyn ViscaTransport + Send>>>,
 }
