@@ -4,11 +4,18 @@
 //! to avoid code duplication across test files.
 
 use grafton_visca::{
+    ViscaCommand, ViscaError, ViscaResponse,
+};
+
+#[cfg(feature = "blocking-client")]
+use grafton_visca::{
     command::ViscaResponseType,
     parse_visca_response,
-    transport::{BlockingAdapter, BlockingTransport},
-    ViscaCommand, ViscaDevice, ViscaError, ViscaInquiryResponse, ViscaResponse,
+    ViscaDevice, ViscaInquiryResponse,
 };
+
+#[cfg(feature = "blocking-client")]
+use grafton_visca::transport::{BlockingAdapter, BlockingTransport};
 
 #[cfg(feature = "async-client")]
 use grafton_visca::transport::{Transport, TransportFuture};
@@ -82,6 +89,7 @@ impl MockTransport {
     }
 }
 
+#[cfg(feature = "blocking-client")]
 impl BlockingTransport for MockTransport {
     fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         // Check if we should fail after N commands
@@ -119,11 +127,13 @@ impl BlockingTransport for MockTransport {
 }
 
 /// A mock device implementation that properly handles VISCA protocol.
+#[cfg(feature = "blocking-client")]
 #[allow(dead_code)] // Some methods may not be used in all test scenarios
 pub struct MockDevice {
     transport: BlockingAdapter<MockTransport>,
 }
 
+#[cfg(feature = "blocking-client")]
 #[allow(dead_code)] // Some methods may not be used in all test scenarios
 impl MockDevice {
     /// Create a new mock device.
@@ -206,6 +216,7 @@ impl MockDevice {
     }
 }
 
+#[cfg(feature = "blocking-client")]
 impl ViscaDevice for MockDevice {
     fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
         // For blocking transport, we don't need futures

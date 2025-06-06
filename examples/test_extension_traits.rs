@@ -1,5 +1,6 @@
 //! Test program to verify extension traits work with ViscaClient
 
+#[cfg(feature = "blocking-client")]
 use grafton_visca::{
     ViscaClient,
     ViscaError,
@@ -15,6 +16,7 @@ use grafton_visca::{
     ViscaZoomExt,
 };
 
+#[cfg(feature = "blocking-client")]
 fn main() -> Result<(), ViscaError> {
     env_logger::init();
 
@@ -84,4 +86,10 @@ fn main() -> Result<(), ViscaError> {
     println!("\nAll extension traits are working correctly!");
 
     Ok(())
+}
+
+#[cfg(not(feature = "blocking-client"))]
+fn main() {
+    println!("This example requires the 'blocking-client' feature to be enabled.");
+    println!("Run with: cargo run --example test_extension_traits --features blocking-client");
 }
