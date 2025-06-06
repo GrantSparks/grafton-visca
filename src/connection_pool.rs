@@ -108,7 +108,7 @@ impl ViscaConnectionPool {
         info: CameraInfo,
     ) -> Result<(), ViscaError> {
         let camera_id = camera_id.into();
-        
+
         let client = match connection_type {
             ConnectionType::Udp => ViscaClient::connect_udp(address)?,
             ConnectionType::Tcp => ViscaClient::connect_tcp(address)?,
@@ -135,7 +135,7 @@ impl ViscaConnectionPool {
     /// Gets a connection from the pool and executes a command.
     ///
     /// This method handles the connection lookup and automatically updates
-    /// the last_used timestamp.
+    /// the `last_used` timestamp.
     #[cfg(feature = "blocking-client")]
     pub fn execute_command(
         &self,
@@ -146,7 +146,7 @@ impl ViscaConnectionPool {
         let pooled = connections.get_mut(camera_id).ok_or_else(|| {
             ViscaError::InvalidParameter(format!("Camera '{}' not found in pool", camera_id))
         })?;
-        
+
         pooled.last_used = Instant::now();
         pooled.client.send(command)
     }
@@ -258,7 +258,7 @@ impl AsyncViscaConnectionPool {
         info: CameraInfo,
     ) -> Result<(), ViscaError> {
         let camera_id = camera_id.into();
-        
+
         let client = match connection_type {
             ConnectionType::Udp => ViscaClient::connect_udp_async(address).await?,
             ConnectionType::Tcp => ViscaClient::connect_tcp_async(address).await?,
@@ -292,7 +292,7 @@ impl AsyncViscaConnectionPool {
         let pooled = connections.get_mut(camera_id).ok_or_else(|| {
             ViscaError::InvalidParameter(format!("Camera '{}' not found in pool", camera_id))
         })?;
-        
+
         pooled.last_used = Instant::now();
         pooled.client.send_async(command).await
     }
@@ -307,7 +307,7 @@ impl AsyncViscaConnectionPool {
     pub async fn get_all_stats(&self) -> Vec<PooledCameraStats> {
         let connections = self.connections.lock().await;
         let mut stats = Vec::new();
-        
+
         for (_id, conn) in connections.iter() {
             let is_healthy = conn.client.is_healthy().await.unwrap_or(false);
             stats.push(PooledCameraStats {
@@ -316,7 +316,7 @@ impl AsyncViscaConnectionPool {
                 last_used: conn.last_used,
             });
         }
-        
+
         stats
     }
 
@@ -354,7 +354,7 @@ impl AsyncViscaConnectionPool {
             let now = Instant::now();
             let mut connections = self.connections.lock().await;
             let mut removed = Vec::new();
-            
+
             connections.retain(|id, conn| {
                 let is_stale = now.duration_since(conn.last_used) > max_idle;
                 if is_stale {
@@ -362,7 +362,7 @@ impl AsyncViscaConnectionPool {
                 }
                 !is_stale
             });
-            
+
             removed
         } else {
             Vec::new()
@@ -396,8 +396,13 @@ mod tests {
         };
 
         // Note: This will fail without a real camera, but the structure is correct
-        let _ = pool.add_camera("cam1", "192.168.1.100:1259", ConnectionType::Udp, info.clone());
-        
+        let _ = pool.add_camera(
+            "cam1",
+            "192.168.1.100:1259",
+            ConnectionType::Udp,
+            info.clone(),
+        );
+
         // Even if add fails, test the remove logic
         if pool.list_cameras().contains(&"cam1".to_string()) {
             let removed_info = pool.remove_camera("cam1").unwrap();
@@ -428,8 +433,15 @@ mod tests {
         };
 
         // Note: This will fail without a real camera, but the structure is correct
-        let _ = pool.add_camera("cam1", "192.168.1.100:1259", ConnectionType::Udp, info.clone()).await;
-        
+        let _ = pool
+            .add_camera(
+                "cam1",
+                "192.168.1.100:1259",
+                ConnectionType::Udp,
+                info.clone(),
+            )
+            .await;
+
         // Even if add fails, test the remove logic
         if pool.list_cameras().await.contains(&"cam1".to_string()) {
             let removed_info = pool.remove_camera("cam1").await.unwrap();

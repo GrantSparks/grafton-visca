@@ -12,10 +12,10 @@ fn main() {
 #[cfg(feature = "blocking-client")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
-        connection_pool::{CameraInfo, ConnectionType, PoolConfig, ViscaConnectionPool},
-        command::pan_tilt::{PanTiltCommand, PanTiltDirection, PanSpeed, TiltSpeed},
-        command::zoom::ZoomCommand,
+        command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         command::power::{Power, PowerCommand},
+        command::zoom::ZoomCommand,
+        connection_pool::{CameraInfo, ConnectionType, PoolConfig, ViscaConnectionPool},
     };
     use std::time::Duration;
 
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add multiple cameras to the pool
     println!("Adding cameras to the pool...");
-    
+
     // Camera 1: Front camera
     match pool.add_camera(
         "front",
@@ -52,10 +52,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => println!("✗ Failed to add front camera: {}", e),
     }
 
-    // Camera 2: Rear camera  
+    // Camera 2: Rear camera
     match pool.add_camera(
         "rear",
-        "192.168.1.101:5678", 
+        "192.168.1.101:5678",
         ConnectionType::Udp,
         CameraInfo {
             id: "rear".to_string(),
@@ -131,9 +131,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\nZooming front camera...");
         let zoom_in = ZoomCommand::TeleStandard;
         pool.execute_command("front", &zoom_in)?;
-        
+
         std::thread::sleep(Duration::from_secs(1));
-        
+
         let zoom_stop = ZoomCommand::Stop;
         pool.execute_command("front", &zoom_stop)?;
     }
@@ -142,13 +142,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nChecking camera health...");
     let health_results = pool.health_check_all();
     for (camera_id, is_healthy) in health_results {
-        println!("  {} - {}", camera_id, if is_healthy { "Healthy" } else { "Unhealthy" });
+        println!(
+            "  {} - {}",
+            camera_id,
+            if is_healthy { "Healthy" } else { "Unhealthy" }
+        );
     }
 
     // Get statistics for all cameras
     println!("\nCamera statistics:");
     for stats in pool.get_all_stats() {
-        println!("  {} ({}):", stats.info.id, stats.info.name.as_deref().unwrap_or("Unknown"));
+        println!(
+            "  {} ({}):",
+            stats.info.id,
+            stats.info.name.as_deref().unwrap_or("Unknown")
+        );
         println!("    - Healthy: {}", stats.is_healthy);
         println!("    - Last used: {:?} ago", stats.last_used.elapsed());
         if let Some(location) = &stats.info.location {
@@ -168,7 +176,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if pool.list_cameras().contains(&"side".to_string()) {
         println!("\nRemoving side camera...");
         if let Some(info) = pool.remove_camera("side") {
-            println!("Removed camera: {} at {}", 
+            println!(
+                "Removed camera: {} at {}",
                 info.name.unwrap_or_else(|| "Unknown".to_string()),
                 info.location.unwrap_or_else(|| "Unknown".to_string())
             );
