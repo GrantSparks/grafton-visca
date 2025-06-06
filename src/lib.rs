@@ -29,6 +29,7 @@
     clippy::derive_partial_eq_without_eq, // TODO: Fix in follow-up PR
     clippy::cast_precision_loss,     // Some are intentional
     clippy::float_cmp,               // Tests need exact float comparisons
+    clippy::too_many_lines,          // TODO: Refactor parse_visca_response
     missing_docs                     // Temporarily allowed while adding docs
 )]
 //!
