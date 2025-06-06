@@ -138,12 +138,12 @@
 //! ```no_run
 //! # #[cfg(feature = "async-client")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! use grafton_visca::{AsyncViscaClient, ViscaResponse};
+//! use grafton_visca::{ViscaClient, ViscaResponse};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //! use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
 //!
 //! // Connect to camera
-//! let camera = AsyncViscaClient::connect_udp("192.168.1.100:5678").await?;
+//! let camera = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
 //!
 //! // Send multiple commands concurrently
 //! let pan_tilt_cmd = PanTiltCommand::Move {
@@ -151,11 +151,11 @@
 //!     pan_speed: PanSpeed::new(0x10)?,
 //!     tilt_speed: TiltSpeed::new(0x10)?,
 //! };
-//! let pan_tilt = camera.send(&pan_tilt_cmd);
-//! let zoom = camera.send(&ZoomCommand::TeleStandard);
+//! let pan_tilt = camera.send_async(&pan_tilt_cmd);
+//! let zoom = camera.send_async(&ZoomCommand::TeleStandard);
 //!
 //! // Both commands execute concurrently (respecting the 2-socket limit)
-//! let (pan_result, zoom_result) = tokio::join!(pan_tilt, zoom);
+//! let (pan_result, zoom_result): (Result<ViscaResponse, _>, Result<ViscaResponse, _>) = tokio::join!(pan_tilt, zoom);
 //! # Ok(())
 //! # }
 //! ```
