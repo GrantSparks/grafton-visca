@@ -11,13 +11,12 @@ use grafton_visca::{
 };
 
 #[cfg(feature = "async-client")]
-use grafton_visca::{
-    transport::{Transport, TransportFuture},
-};
+use grafton_visca::transport::{Transport, TransportFuture};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// A flexible mock transport for testing various scenarios.
+#[allow(dead_code)]
 pub struct MockTransport {
     /// Queue of responses to return
     pub responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
@@ -33,6 +32,7 @@ pub struct MockTransport {
     pub fail_after: Option<usize>,
 }
 
+#[allow(dead_code)]
 impl MockTransport {
     /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
@@ -132,6 +132,7 @@ pub struct MockDevice {
     transport: BlockingAdapter<MockTransport>,
 }
 
+#[allow(dead_code)]
 impl MockDevice {
     /// Create a new mock device.
     pub fn new() -> Self {
@@ -168,7 +169,8 @@ impl MockDevice {
             }
             ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
                 vec![
-                    0x90, 0x50,
+                    0x90,
+                    0x50,
                     ((pan >> 12) & 0x0F) as u8,
                     ((pan >> 8) & 0x0F) as u8,
                     ((pan >> 4) & 0x0F) as u8,
@@ -182,7 +184,8 @@ impl MockDevice {
             }
             ViscaInquiryResponse::ZoomPosition { position } => {
                 vec![
-                    0x90, 0x50,
+                    0x90,
+                    0x50,
                     ((position >> 12) & 0x0F) as u8,
                     ((position >> 8) & 0x0F) as u8,
                     ((position >> 4) & 0x0F) as u8,
@@ -213,20 +216,22 @@ impl ViscaDevice for MockDevice {
         use std::future::Future;
         use std::pin::Pin;
         use std::task::{Context, Poll, Waker};
-        
+
         // Simple executor for our blocking adapter
         fn block_on<F: Future>(mut fut: F) -> F::Output {
-            let waker = unsafe { Waker::from_raw(std::task::RawWaker::new(
-                std::ptr::null(),
-                &std::task::RawWakerVTable::new(
-                    |_| std::task::RawWaker::new(std::ptr::null(), &VTABLE),
-                    |_| {},
-                    |_| {},
-                    |_| {},
-                ),
-            )) };
+            let waker = unsafe {
+                Waker::from_raw(std::task::RawWaker::new(
+                    std::ptr::null(),
+                    &std::task::RawWakerVTable::new(
+                        |_| std::task::RawWaker::new(std::ptr::null(), &VTABLE),
+                        |_| {},
+                        |_| {},
+                        |_| {},
+                    ),
+                ))
+            };
             let mut cx = Context::from_waker(&waker);
-            
+
             loop {
                 match unsafe { Pin::new_unchecked(&mut fut) }.poll(&mut cx) {
                     Poll::Ready(val) => return val,
@@ -234,31 +239,29 @@ impl ViscaDevice for MockDevice {
                 }
             }
         }
-        
+
         const VTABLE: std::task::RawWakerVTable = std::task::RawWakerVTable::new(
             |_| std::task::RawWaker::new(std::ptr::null(), &VTABLE),
             |_| {},
             |_| {},
             |_| {},
         );
-        
+
         // Send the command
         block_on(self.transport.send_command(command))?;
 
         // Check if this is an inquiry command
-        let is_inquiry = command.response_type().map_or(false, |rt| {
-            matches!(
-                rt,
-                ViscaResponseType::Power
-                    | ViscaResponseType::PanTiltPosition
-                    | ViscaResponseType::ZoomPosition
-                    | ViscaResponseType::FocusPosition
-                    | ViscaResponseType::ExposureMode
-                    | ViscaResponseType::WhiteBalanceMode
-                    | ViscaResponseType::Sharpness
-                    | ViscaResponseType::ExposureCompensation
-            )
-        });
+        let is_inquiry = matches!(
+            command.response_type(),
+            Some(ViscaResponseType::Power
+                | ViscaResponseType::PanTiltPosition
+                | ViscaResponseType::ZoomPosition
+                | ViscaResponseType::FocusPosition
+                | ViscaResponseType::ExposureMode
+                | ViscaResponseType::WhiteBalanceMode
+                | ViscaResponseType::Sharpness
+                | ViscaResponseType::ExposureCompensation)
+        );
 
         if is_inquiry {
             // For inquiry commands, expect a direct response
@@ -275,25 +278,26 @@ impl ViscaDevice for MockDevice {
         let first_responses = block_on(self.transport.receive_response())?;
         if let Some(first) = first_responses.into_iter().next() {
             // Check for direct error response
-            if first.len() >= 3 && first[0] == 0x90 && first[1] == 0x60 {
-                if first.len() >= 4 {
-                    return Err(ViscaError::from_code(first[2]));
-                }
+            if first.len() >= 4 && first[0] == 0x90 && first[1] == 0x60 {
+                return Err(ViscaError::from_code(first[2]));
             }
-            
+
             // Verify it's an ACK
-            if first.len() == 3 && first[0] == 0x90 && (first[1] & 0xF0) == 0x40 && first[2] == 0xFF {
+            if first.len() == 3 && first[0] == 0x90 && (first[1] & 0xF0) == 0x40 && first[2] == 0xFF
+            {
                 // Now receive completion
                 let comp_responses = block_on(self.transport.receive_response())?;
                 if let Some(comp) = comp_responses.into_iter().next() {
                     // Check for error responses
-                    if comp.len() >= 3 && comp[0] == 0x90 && comp[1] == 0x60 {
-                        if comp.len() >= 4 {
-                            return Err(ViscaError::from_code(comp[2]));
-                        }
+                    if comp.len() >= 4 && comp[0] == 0x90 && comp[1] == 0x60 {
+                        return Err(ViscaError::from_code(comp[2]));
                     }
                     // Check for completion
-                    if comp.len() == 3 && comp[0] == 0x90 && (comp[1] & 0xF0) == 0x50 && comp[2] == 0xFF {
+                    if comp.len() == 3
+                        && comp[0] == 0x90
+                        && (comp[1] & 0xF0) == 0x50
+                        && comp[2] == 0xFF
+                    {
                         return Ok(ViscaResponse::Completion);
                     }
                 }
@@ -307,8 +311,10 @@ impl ViscaDevice for MockDevice {
     }
 }
 
+// Re-export async mock types when async-client feature is enabled
 #[cfg(feature = "async-client")]
-pub use async_mock::*;
+#[allow(unused_imports)] // Used by async tests when feature is enabled
+pub use async_mock::MockAsyncTransport;
 
 #[cfg(feature = "async-client")]
 mod async_mock {
@@ -324,6 +330,7 @@ mod async_mock {
         pub fail_after: Option<usize>,
     }
 
+    #[allow(dead_code)]
     impl MockAsyncTransport {
         pub fn new() -> Self {
             Self {
@@ -360,7 +367,10 @@ mod async_mock {
     }
 
     impl Transport for MockAsyncTransport {
-        fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
+        fn send_command<'a>(
+            &'a mut self,
+            command: &'a dyn ViscaCommand,
+        ) -> TransportFuture<'a, ()> {
             Box::pin(async move {
                 let count = self.sent_commands.lock().await.len();
 

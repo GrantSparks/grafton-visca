@@ -5,8 +5,8 @@ mod common;
 
 use common::{MockDevice, MockTransport};
 use grafton_visca::{
-    ImagePreset, ViscaCommand, ViscaDevice, ViscaError, ViscaExposureExt, ViscaImageExt,
-    ViscaPositionExt, ViscaResponse, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
+    ImagePreset, ViscaExposureExt, ViscaImageExt,
+    ViscaPositionExt, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
     WhiteBalancePreset,
 };
 
@@ -78,7 +78,7 @@ fn test_image_ext_methods() {
 
     // Verify 4 commands were sent for the preset
     assert_eq!(device.commands_sent().len(), 4);
-    
+
     // Check the last command was hue (the preset sets sharpness, saturation, contrast, hue in that order)
     assert_eq!(
         device.last_command().unwrap()[0..4],

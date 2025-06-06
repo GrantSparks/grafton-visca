@@ -13,6 +13,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
+/// Type alias for transport creation function
+type TransportCreator<T> = Arc<
+    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, ViscaError>> + Send>>
+        + Send
+        + Sync,
+>;
+
 /// Configuration for automatic reconnection behavior.
 #[derive(Debug, Clone)]
 pub struct ReconnectionConfig {
@@ -79,7 +86,7 @@ pub struct ReconnectingTransport<T> {
     /// Configuration for reconnection behavior
     config: Arc<ReconnectionConfig>,
     /// Function to create a new transport instance
-    create_transport: Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, ViscaError>> + Send>> + Send + Sync>,
+    create_transport: TransportCreator<T>,
     /// Optional connection event callback
     event_callback: Option<ConnectionEventCallback>,
 }
@@ -93,20 +100,23 @@ where
     /// # Arguments
     /// * `create_transport` - An async function that creates a new transport instance
     /// * `config` - Configuration for reconnection behavior
-    pub async fn new<F, Fut>(create_transport: F, config: ReconnectionConfig) -> Result<Self, ViscaError>
+    pub async fn new<F, Fut>(
+        create_transport: F,
+        config: ReconnectionConfig,
+    ) -> Result<Self, ViscaError>
     where
         F: Fn() -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Result<T, ViscaError>> + Send + 'static,
     {
         let transport = create_transport().await?;
-        
+
         let state = TransportState {
             inner: Some(transport),
             last_successful_operation: Some(Instant::now()),
             current_retry_count: 0,
             stats: ConnectionStats::new(),
         };
-        
+
         Ok(Self {
             state: Arc::new(Mutex::new(state)),
             config: Arc::new(config),
@@ -130,7 +140,7 @@ where
     /// Ensures the transport is connected, attempting to reconnect if necessary.
     async fn ensure_connected(&self) -> Result<(), ViscaError> {
         let mut state = self.state.lock().await;
-        
+
         // Check if we need to reconnect
         if state.inner.is_some() {
             // Check if health check interval has elapsed
@@ -180,7 +190,7 @@ where
 
             // Drop the lock before creating transport (which might take time)
             drop(state);
-            
+
             match (self.create_transport)().await {
                 Ok(transport) => {
                     state = self.state.lock().await;
@@ -208,7 +218,7 @@ where
                                 .min(self.config.max_delay.as_secs_f64()),
                         );
                     }
-                    
+
                     // Re-acquire lock for next iteration
                     state = self.state.lock().await;
                 }
@@ -251,7 +261,7 @@ where
             for attempt in 0..self.config.max_retries {
                 // Ensure connected
                 self.ensure_connected().await?;
-                
+
                 // Try to send
                 let mut state = self.state.lock().await;
                 if let Some(ref mut transport) = state.inner {
@@ -265,13 +275,15 @@ where
                             // Check if this is a connection error
                             if matches!(
                                 e,
-                                ViscaError::Io(_) | ViscaError::ConnectionLost { .. } | ViscaError::Timeout
+                                ViscaError::Io(_)
+                                    | ViscaError::ConnectionLost { .. }
+                                    | ViscaError::Timeout
                             ) {
                                 log::warn!("Connection error during send_command: {}", e);
                                 state.inner = None;
                                 state.stats.record_error();
                                 drop(state); // Release lock before notifying
-                                
+
                                 self.notify_event(ConnectionEvent::Disconnected {
                                     reason: e.to_string(),
                                 });
@@ -298,7 +310,7 @@ where
             for attempt in 0..self.config.max_retries {
                 // Ensure connected
                 self.ensure_connected().await?;
-                
+
                 // Try to receive
                 let mut state = self.state.lock().await;
                 if let Some(ref mut transport) = state.inner {
@@ -314,13 +326,15 @@ where
                             // Check if this is a connection error
                             if matches!(
                                 e,
-                                ViscaError::Io(_) | ViscaError::ConnectionLost { .. } | ViscaError::Timeout
+                                ViscaError::Io(_)
+                                    | ViscaError::ConnectionLost { .. }
+                                    | ViscaError::Timeout
                             ) {
                                 log::warn!("Connection error during receive_response: {}", e);
                                 state.inner = None;
                                 state.stats.record_error();
                                 drop(state); // Release lock before notifying
-                                
+
                                 self.notify_event(ConnectionEvent::Disconnected {
                                     reason: e.to_string(),
                                 });
