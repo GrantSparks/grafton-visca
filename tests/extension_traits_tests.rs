@@ -5,9 +5,8 @@ mod common;
 
 use common::{MockDevice, MockTransport};
 use grafton_visca::{
-    ImagePreset, ViscaExposureExt, ViscaImageExt,
-    ViscaPositionExt, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
-    WhiteBalancePreset,
+    ImagePreset, ViscaExposureExt, ViscaImageExt, ViscaPositionExt, ViscaTransportExt,
+    ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset,
 };
 
 #[test]

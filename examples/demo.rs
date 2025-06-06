@@ -12,9 +12,7 @@
 use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed};
 use grafton_visca::command::preset::PresetNumber;
 use grafton_visca::command::*;
-use grafton_visca::{
-    ViscaClient, ViscaDevice, ViscaInquiryResponse, ViscaResponse,
-};
+use grafton_visca::{ViscaClient, ViscaDevice, ViscaInquiryResponse, ViscaResponse};
 use std::thread;
 use std::time::Duration;
 

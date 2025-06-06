@@ -16,6 +16,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// A flexible mock transport for testing various scenarios.
+#[allow(dead_code)] // Some methods may not be used in all test scenarios
 pub struct MockTransport {
     /// Queue of responses to return
     pub responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
@@ -29,6 +30,7 @@ pub struct MockTransport {
     pub fail_after: Option<usize>,
 }
 
+#[allow(dead_code)] // Some methods may not be used in all test scenarios
 impl MockTransport {
     /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
@@ -94,10 +96,7 @@ impl BlockingTransport for MockTransport {
         }
 
         if self.fail_send {
-            Err(ViscaError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Mock send error",
-            )))
+            Err(ViscaError::Io(std::io::Error::other("Mock send error")))
         } else {
             let mut commands = self.commands_sent.lock().unwrap();
             commands.push(command.to_bytes()?);
@@ -107,10 +106,7 @@ impl BlockingTransport for MockTransport {
 
     fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
         if self.fail_receive {
-            Err(ViscaError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Mock receive error",
-            )))
+            Err(ViscaError::Io(std::io::Error::other("Mock receive error")))
         } else {
             let mut responses = self.responses.lock().unwrap();
             if let Some(response) = responses.pop_front() {
@@ -123,10 +119,12 @@ impl BlockingTransport for MockTransport {
 }
 
 /// A mock device implementation that properly handles VISCA protocol.
+#[allow(dead_code)] // Some methods may not be used in all test scenarios
 pub struct MockDevice {
     transport: BlockingAdapter<MockTransport>,
 }
 
+#[allow(dead_code)] // Some methods may not be used in all test scenarios
 impl MockDevice {
     /// Create a new mock device.
     pub fn new() -> Self {
@@ -201,7 +199,7 @@ impl MockDevice {
     pub fn last_command(&self) -> Option<Vec<u8>> {
         self.transport.0.last_command()
     }
-    
+
     /// Clear the command history.
     pub fn clear_commands(&mut self) {
         self.transport.0.clear_commands();
@@ -252,14 +250,16 @@ impl ViscaDevice for MockDevice {
         // Check if this is an inquiry command
         let is_inquiry = matches!(
             command.response_type(),
-            Some(ViscaResponseType::Power
-                | ViscaResponseType::PanTiltPosition
-                | ViscaResponseType::ZoomPosition
-                | ViscaResponseType::FocusPosition
-                | ViscaResponseType::ExposureMode
-                | ViscaResponseType::WhiteBalanceMode
-                | ViscaResponseType::Sharpness
-                | ViscaResponseType::ExposureCompensation)
+            Some(
+                ViscaResponseType::Power
+                    | ViscaResponseType::PanTiltPosition
+                    | ViscaResponseType::ZoomPosition
+                    | ViscaResponseType::FocusPosition
+                    | ViscaResponseType::ExposureMode
+                    | ViscaResponseType::WhiteBalanceMode
+                    | ViscaResponseType::Sharpness
+                    | ViscaResponseType::ExposureCompensation
+            )
         );
 
         if is_inquiry {
@@ -329,6 +329,7 @@ mod async_mock {
         pub fail_after: Option<usize>,
     }
 
+    #[allow(dead_code)] // Some methods may not be used in all test scenarios
     impl MockAsyncTransport {
         pub fn new() -> Self {
             Self {

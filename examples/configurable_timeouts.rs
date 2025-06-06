@@ -155,7 +155,7 @@ mod tests {
         command::{
             pan_tilt::PanTiltCommand,
             preset::{PresetAction, PresetCommand, PresetNumber},
-            InquiryCommand, CommandCategory,
+            CommandCategory, InquiryCommand,
         },
         TimeoutConfigBuilder,
     };
