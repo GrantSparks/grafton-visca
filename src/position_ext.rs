@@ -22,9 +22,11 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = grafton_visca::ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
     /// // Move to 45 degrees right, 30 degrees up
     /// client.move_to_degrees(45.0, 30.0, None)?;
     ///
@@ -61,9 +63,11 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = grafton_visca::ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
     /// // Move to center
     /// client.move_to_normalized(0.0, 0.0, None)?;
     ///
@@ -98,9 +102,11 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = grafton_visca::ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
     /// let pos = client.get_position_degrees()?;
     /// println!("Pan: {:.1}°, Tilt: {:.1}°", pos.pan, pos.tilt);
     /// # Ok(())
@@ -130,9 +136,11 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = grafton_visca::ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
     /// let pos = client.get_position_normalized()?;
     /// println!("Pan: {:.0}%, Tilt: {:.0}%", pos.pan * 100.0, pos.tilt * 100.0);
     /// # Ok(())
@@ -165,10 +173,13 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
     /// # use grafton_visca::constants::CameraModel;
+    /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = grafton_visca::ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
     /// // Move using 30X camera model parameters
     /// client.move_to_degrees_for_model(
     ///     45.0,
@@ -208,9 +219,11 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = grafton_visca::ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
     /// // Move 10 degrees right and 5 degrees up from current position
     /// client.move_by_degrees(10.0, 5.0, None)?;
     ///
@@ -247,9 +260,11 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = grafton_visca::ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
     /// // Set to 50% speed
     /// let (pan, tilt) = client.set_normalized_speeds(0.5, 0.5)?;
     /// println!("Set speeds: pan={}, tilt={}", pan, tilt);
