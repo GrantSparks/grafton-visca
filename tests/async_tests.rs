@@ -125,7 +125,14 @@ async fn test_semaphore_limiting() {
     // Expected: 2 batches * 100ms = ~200ms (plus overhead)
     // Adding more tolerance for test timing
     assert!(elapsed >= Duration::from_millis(150)); // At least batch processing
-    assert!(elapsed < Duration::from_millis(500)); // Allow more time for CI/slower systems
+    
+    // On Windows CI runners, timing can be significantly slower due to virtualization
+    // and resource constraints. Allow more time on Windows.
+    #[cfg(target_os = "windows")]
+    assert!(elapsed < Duration::from_millis(1000)); // Very generous timeout for Windows CI
+    
+    #[cfg(not(target_os = "windows"))]
+    assert!(elapsed < Duration::from_millis(500)); // Normal timeout for other platforms
 }
 
 #[tokio::test]
