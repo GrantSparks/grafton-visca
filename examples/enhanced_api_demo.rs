@@ -3,9 +3,9 @@
 //! This example showcases the enhanced API with high-level control methods.
 
 use grafton_visca::{
-    ViscaError, UdpTransport, ViscaExposureExt, ViscaImageExt, ViscaPowerExt,
-    ViscaPositionExt, ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset, ImagePreset,
-    ViscaTransportExt, ViscaPanTiltExt,
+    ImagePreset, UdpTransport, ViscaError, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt,
+    ViscaPositionExt, ViscaPowerExt, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
+    WhiteBalancePreset,
 };
 use std::thread;
 use std::time::Duration;
@@ -15,7 +15,7 @@ fn main() -> Result<(), ViscaError> {
 
     // Connect to camera using UDP transport
     let mut transport = UdpTransport::new("192.168.1.100:5678")?;
-    
+
     println!("=== Enhanced API Demo ===\n");
 
     // Check power status and ensure camera is on
@@ -28,15 +28,18 @@ fn main() -> Result<(), ViscaError> {
     } else {
         println!("Camera is already powered on");
     }
-    
+
     // Demonstrate exposure control
     println!("\n--- Exposure Control ---");
-    ViscaExposureExt::set_exposure_mode(&mut transport, grafton_visca::command::exposure::ExposureMode::Auto)?;
+    ViscaExposureExt::set_exposure_mode(
+        &mut transport,
+        grafton_visca::command::exposure::ExposureMode::Auto,
+    )?;
     println!("Set exposure mode to Auto");
-    
+
     transport.set_backlight_compensation(true)?;
     println!("Enabled backlight compensation");
-    
+
     transport.set_brightness(0x08)?;
     println!("Set brightness to default level");
 
@@ -45,7 +48,7 @@ fn main() -> Result<(), ViscaError> {
     transport.set_white_balance_preset(WhiteBalancePreset::Daylight)?;
     println!("Set white balance to daylight preset");
     thread::sleep(Duration::from_secs(1));
-    
+
     transport.set_white_balance_preset(WhiteBalancePreset::Tungsten)?;
     println!("Set white balance to tungsten preset");
     thread::sleep(Duration::from_secs(1));
@@ -55,10 +58,10 @@ fn main() -> Result<(), ViscaError> {
     transport.apply_image_preset(ImagePreset::Vivid)?;
     println!("Applied vivid image preset");
     thread::sleep(Duration::from_secs(1));
-    
+
     transport.set_noise_reduction_2d(Some(3))?;
     println!("Set 2D noise reduction to level 3");
-    
+
     transport.set_image_flip(false, false)?;
     println!("Disabled image flip");
 
@@ -67,15 +70,15 @@ fn main() -> Result<(), ViscaError> {
     transport.zoom_to_magnification(1.0)?;
     println!("Set zoom to 1x (wide)");
     thread::sleep(Duration::from_secs(2));
-    
+
     transport.zoom_to_magnification(5.0)?;
     println!("Set zoom to 5x");
     thread::sleep(Duration::from_secs(2));
-    
+
     transport.zoom_to_normalized(0.25)?;
     println!("Set zoom to 25% (normalized)");
     thread::sleep(Duration::from_secs(2));
-    
+
     let mag = transport.get_zoom_magnification()?;
     println!("Current zoom magnification: {:.1}x", mag);
 
@@ -84,17 +87,20 @@ fn main() -> Result<(), ViscaError> {
     transport.move_to_position(0, 0, None)?;
     println!("Moved to center position");
     thread::sleep(Duration::from_secs(2));
-    
+
     transport.move_to_degrees(45.0, 15.0, Some((10, 10)))?;
     println!("Moved to 45° pan, 15° tilt");
     thread::sleep(Duration::from_secs(2));
-    
+
     transport.move_to_normalized(-0.5, 0.25, None)?;
     println!("Moved to normalized position (-50% pan, +25% tilt)");
     thread::sleep(Duration::from_secs(2));
-    
+
     let pos = transport.get_position_degrees()?;
-    println!("Current position: Pan={:.1}°, Tilt={:.1}°", pos.pan, pos.tilt);
+    println!(
+        "Current position: Pan={:.1}°, Tilt={:.1}°",
+        pos.pan, pos.tilt
+    );
 
     // Demonstrate relative movement
     println!("\n--- Relative Movement ---");
@@ -104,7 +110,10 @@ fn main() -> Result<(), ViscaError> {
 
     // Return to default settings
     println!("\n--- Returning to Defaults ---");
-    ViscaExposureExt::set_exposure_mode(&mut transport, grafton_visca::command::exposure::ExposureMode::Auto)?;
+    ViscaExposureExt::set_exposure_mode(
+        &mut transport,
+        grafton_visca::command::exposure::ExposureMode::Auto,
+    )?;
     transport.set_white_balance_preset(WhiteBalancePreset::Auto)?;
     transport.apply_image_preset(ImagePreset::Default)?;
     transport.move_to_position(0, 0, None)?;

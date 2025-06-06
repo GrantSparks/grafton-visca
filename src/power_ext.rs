@@ -2,10 +2,7 @@
 
 // Crate imports
 use crate::{
-    command::InquiryCommand,
-    error::ViscaError,
-    transport_ext::ViscaTransportExt,
-    ViscaResponse,
+    command::InquiryCommand, error::ViscaError, transport_ext::ViscaTransportExt, ViscaResponse,
 };
 
 /// Extension trait providing advanced power control methods.
@@ -38,7 +35,7 @@ pub trait ViscaPowerExt: ViscaTransportExt {
         Self: Sized,
     {
         let response = self.send_and_wait(&InquiryCommand::Power)?;
-        
+
         match response {
             ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::Power { on }) => Ok(on),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -71,13 +68,13 @@ pub trait ViscaPowerExt: ViscaTransportExt {
     {
         // Power off
         self.power_off()?;
-        
+
         // Wait
         std::thread::sleep(wait_duration);
-        
+
         // Power on
         self.power_on()?;
-        
+
         Ok(())
     }
 
@@ -151,7 +148,7 @@ pub trait ViscaPowerExt: ViscaTransportExt {
         Self: Sized,
     {
         let start = std::time::Instant::now();
-        
+
         loop {
             match self.is_powered_on() {
                 Ok(true) => return Ok(()),
