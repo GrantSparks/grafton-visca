@@ -3,10 +3,16 @@
 //! This module provides a connection pool that manages multiple camera connections
 //! using the unified `ViscaClient` architecture.
 
-use crate::{ViscaClient, ViscaCommand, ViscaError, ViscaResponse};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use crate::{ViscaClient, ViscaCommand, ViscaError, ViscaResponse};
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use std::collections::HashMap;
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use std::sync::{Arc, Mutex};
 
 /// Configuration for the connection pool.
 #[derive(Debug, Clone)]
@@ -30,6 +36,7 @@ impl Default for PoolConfig {
 }
 
 /// A pooled connection that tracks usage and health.
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 struct PooledConnection {
     client: ViscaClient,
     last_used: Instant,
@@ -69,15 +76,26 @@ pub enum ConnectionType {
     Tcp,
 }
 
+// Provide a stub when features are disabled to prevent breaking the public API
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+/// A pool of VISCA camera connections (requires blocking-client or async-client feature).
+pub struct ViscaConnectionPool;
+
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+/// Async-specific connection pool (requires async-client feature).
+pub struct AsyncViscaConnectionPool;
+
 /// A pool of VISCA camera connections using the unified `ViscaClient`.
 ///
 /// This pool manages multiple camera connections and provides convenient
 /// methods for executing commands on specific cameras.
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub struct ViscaConnectionPool {
     connections: Arc<Mutex<HashMap<String, PooledConnection>>>,
     config: PoolConfig,
 }
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 impl ViscaConnectionPool {
     /// Creates a new connection pool.
     ///
@@ -372,6 +390,7 @@ impl AsyncViscaConnectionPool {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]
