@@ -54,7 +54,7 @@ pub enum PanTiltDirection {
 }
 
 impl PanTiltDirection {
-    pub fn to_bytes(self) -> (u8, u8) {
+    pub const fn to_bytes(self) -> (u8, u8) {
         match self {
             PanTiltDirection::Up => (0x03, 0x01),
             PanTiltDirection::Down => (0x03, 0x02),
@@ -370,7 +370,7 @@ mod tests {
     }
 }
 
-fn position_to_bytes(position: i16) -> [u8; 4] {
+const fn position_to_bytes(position: i16) -> [u8; 4] {
     let unsigned = position as u16;
     [
         ((unsigned >> 12) & 0x0F) as u8,

@@ -53,7 +53,7 @@ impl PresetNumber {
     }
 
     /// Get the raw value.
-    pub fn value(self) -> u8 {
+    pub const fn value(self) -> u8 {
         self.0
     }
 }

@@ -60,7 +60,7 @@ impl ZoomSpeed {
     }
 
     /// Get the raw value.
-    pub fn value(self) -> u8 {
+    pub const fn value(self) -> u8 {
         self.0
     }
 }
@@ -153,7 +153,7 @@ impl ViscaCommand for ZoomCommand {
 /// Converts a 16-bit position value into an array of 4 nibbles.
 ///
 /// This is a common pattern in VISCA commands for encoding position data.
-fn position_to_nibbles(position: u16) -> [u8; 4] {
+const fn position_to_nibbles(position: u16) -> [u8; 4] {
     [
         ((position >> 12) & 0x0F) as u8,
         ((position >> 8) & 0x0F) as u8,
