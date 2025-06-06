@@ -4,11 +4,11 @@
 use crate::{
     command::preset::{PresetAction, PresetCommand, PresetNumber},
     error::ViscaError,
-    transport_ext::ViscaTransportExt,
+    ViscaDevice, ViscaResponse,
 };
 
 /// Extension trait providing high-level preset management methods.
-pub trait ViscaPresetExt: ViscaTransportExt {
+pub trait ViscaPresetExt: ViscaDevice {
     /// Save the current camera position (pan/tilt/zoom/focus) to a preset.
     ///
     /// # Arguments
@@ -16,13 +16,13 @@ pub trait ViscaPresetExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPresetExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Position camera as desired, then save to preset 1
-    /// transport.save_preset(1)?;
+    /// client.save_preset(1)?;
     ///
     /// // Save another position to preset 2
-    /// transport.save_preset(2)?;
+    /// client.save_preset(2)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -31,7 +31,11 @@ pub trait ViscaPresetExt: ViscaTransportExt {
             action: PresetAction::Set,
             preset_number: PresetNumber::new(preset_number)?,
         };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -44,13 +48,13 @@ pub trait ViscaPresetExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPresetExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Return to preset position 1
-    /// transport.recall_preset(1)?;
+    /// client.recall_preset(1)?;
     ///
     /// // Move to home position (preset 0 is often home)
-    /// transport.recall_preset(0)?;
+    /// client.recall_preset(0)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -59,7 +63,11 @@ pub trait ViscaPresetExt: ViscaTransportExt {
             action: PresetAction::Recall,
             preset_number: PresetNumber::new(preset_number)?,
         };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -70,13 +78,13 @@ pub trait ViscaPresetExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPresetExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Clear preset 1
-    /// transport.reset_preset(1)?;
+    /// client.reset_preset(1)?;
     ///
     /// // Reset all presets (preset 255 typically means all)
-    /// transport.reset_preset(255)?;
+    /// client.reset_preset(255)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -85,10 +93,14 @@ pub trait ViscaPresetExt: ViscaTransportExt {
             action: PresetAction::Reset,
             preset_number: PresetNumber::new(preset_number)?,
         };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 }
 
 /// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaTransportExt> ViscaPresetExt for T {}
+impl<T: ViscaDevice> ViscaPresetExt for T {}

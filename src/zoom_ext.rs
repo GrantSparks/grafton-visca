@@ -7,12 +7,11 @@ use crate::{
         InquiryCommand,
     },
     error::ViscaError,
-    transport_ext::ViscaTransportExt,
-    ViscaResponse,
+    ViscaDevice, ViscaResponse,
 };
 
 /// Extension trait providing high-level zoom control methods.
-pub trait ViscaZoomExt: ViscaTransportExt {
+pub trait ViscaZoomExt: ViscaDevice {
     /// Move zoom to an absolute position.
     ///
     /// # Arguments
@@ -20,23 +19,29 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
     /// // Move to minimum zoom (wide)
-    /// transport.zoom_to(0x0000)?;
+    /// client.zoom_to(0x0000)?;
     ///
     /// // Move to maximum zoom (telephoto)
-    /// transport.zoom_to(0x4000)?;
+    /// client.zoom_to(0x4000)?;
     ///
     /// // Move to mid-range zoom
-    /// transport.zoom_to(0x2000)?;
+    /// client.zoom_to(0x2000)?;
     /// # Ok(())
+    /// # }
     /// # }
     /// ```
     fn zoom_to(&mut self, position: u16) -> Result<(), ViscaError> {
         let command = ZoomCommand::Direct(position);
-        self.send_command(&command)?;
-        Ok(())
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => Ok(()),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
     }
 
     /// Start zooming in (telephoto direction).
@@ -46,14 +51,17 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
     /// // Zoom in at standard speed
-    /// transport.zoom_in(None)?;
+    /// client.zoom_in(None)?;
     ///
     /// // Zoom in at maximum speed
-    /// transport.zoom_in(Some(7))?;
+    /// client.zoom_in(Some(7))?;
     /// # Ok(())
+    /// # }
     /// # }
     /// ```
     fn zoom_in(&mut self, speed: Option<u8>) -> Result<(), ViscaError> {
@@ -67,8 +75,11 @@ pub trait ViscaZoomExt: ViscaTransportExt {
         } else {
             ZoomCommand::TeleStandard
         };
-        self.send_command(&command)?;
-        Ok(())
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => Ok(()),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
     }
 
     /// Start zooming out (wide direction).
@@ -78,14 +89,17 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
     /// // Zoom out at standard speed
-    /// transport.zoom_out(None)?;
+    /// client.zoom_out(None)?;
     ///
     /// // Zoom out at slow speed
-    /// transport.zoom_out(Some(2))?;
+    /// client.zoom_out(Some(2))?;
     /// # Ok(())
+    /// # }
     /// # }
     /// ```
     fn zoom_out(&mut self, speed: Option<u8>) -> Result<(), ViscaError> {
@@ -99,30 +113,39 @@ pub trait ViscaZoomExt: ViscaTransportExt {
         } else {
             ZoomCommand::WideStandard
         };
-        self.send_command(&command)?;
-        Ok(())
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => Ok(()),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
     }
 
     /// Stop zoom movement.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
     /// // Start zooming in
-    /// transport.zoom_in(None)?;
+    /// client.zoom_in(None)?;
     ///
     /// // ... wait some time ...
     ///
     /// // Stop zooming
-    /// transport.stop_zoom()?;
+    /// client.stop_zoom()?;
     /// # Ok(())
+    /// # }
     /// # }
     /// ```
     fn stop_zoom(&mut self) -> Result<(), ViscaError> {
         let command = ZoomCommand::Stop;
-        self.send_command(&command)?;
-        Ok(())
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => Ok(()),
+            ViscaResponse::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
     }
 
     /// Set zoom by magnification factor.
@@ -132,17 +155,20 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
     /// // Set to 1x (wide)
-    /// transport.zoom_to_magnification(1.0)?;
+    /// client.zoom_to_magnification(1.0)?;
     ///
     /// // Set to 10x zoom
-    /// transport.zoom_to_magnification(10.0)?;
+    /// client.zoom_to_magnification(10.0)?;
     ///
     /// // Set to maximum 20x zoom
-    /// transport.zoom_to_magnification(20.0)?;
+    /// client.zoom_to_magnification(20.0)?;
     /// # Ok(())
+    /// # }
     /// # }
     /// ```
     fn zoom_to_magnification(&mut self, magnification: f32) -> Result<(), ViscaError> {
@@ -157,18 +183,21 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// let magnification = transport.get_zoom_magnification()?;
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// let magnification = client.get_zoom_magnification()?;
     /// println!("Current zoom: {:.1}x", magnification);
     /// # Ok(())
+    /// # }
     /// # }
     /// ```
     fn get_zoom_magnification(&mut self) -> Result<f32, ViscaError>
     where
         Self: Sized,
     {
-        let response = self.send_and_wait(&InquiryCommand::ZoomPosition)?;
+        let response = self.execute_command(&InquiryCommand::ZoomPosition)?;
         match response {
             ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition {
                 position,
@@ -184,17 +213,20 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
     /// // Set to wide (0%)
-    /// transport.zoom_to_normalized(0.0)?;
+    /// client.zoom_to_normalized(0.0)?;
     ///
     /// // Set to mid-range (50%)
-    /// transport.zoom_to_normalized(0.5)?;
+    /// client.zoom_to_normalized(0.5)?;
     ///
     /// // Set to telephoto (100%)
-    /// transport.zoom_to_normalized(1.0)?;
+    /// client.zoom_to_normalized(1.0)?;
     /// # Ok(())
+    /// # }
     /// # }
     /// ```
     fn zoom_to_normalized(&mut self, normalized: f32) -> Result<(), ViscaError> {
@@ -209,18 +241,21 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaZoomExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// let normalized = transport.get_zoom_normalized()?;
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// let normalized = client.get_zoom_normalized()?;
     /// println!("Current zoom: {:.0}%", normalized * 100.0);
     /// # Ok(())
+    /// # }
     /// # }
     /// ```
     fn get_zoom_normalized(&mut self) -> Result<f32, ViscaError>
     where
         Self: Sized,
     {
-        let response = self.send_and_wait(&InquiryCommand::ZoomPosition)?;
+        let response = self.execute_command(&InquiryCommand::ZoomPosition)?;
         match response {
             ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition {
                 position,
@@ -230,5 +265,5 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     }
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaTransportExt> ViscaZoomExt for T {}
+// Blanket implementation for all types that implement ViscaDevice
+impl<T: ViscaDevice> ViscaZoomExt for T {}

@@ -183,7 +183,7 @@ impl ViscaClient {
                         use crate::transport::BlockingTransport;
                         t.0.send_command_blocking(command)?;
                     }
-                    #[cfg(feature = "async-client")]
+                    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
                     _ => unreachable!(
                         "Async transports should not be present in blocking-only builds"
                     ),
@@ -222,7 +222,7 @@ impl ViscaClient {
                         use crate::transport::BlockingTransport;
                         t.0.receive_response_blocking()?
                     }
-                    #[cfg(feature = "async-client")]
+                    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
                     _ => unreachable!(
                         "Async transports should not be present in blocking-only builds"
                     ),
@@ -253,8 +253,11 @@ impl ViscaClient {
                             return Ok(Completion);
                         }
                         InquiryResponse(inquiry) => {
-                            log::debug!("Inquiry response received for socket {}", socket_id);
-                            crate::log_inquiry_response(&inquiry);
+                            log::debug!(
+                                "Inquiry response received for socket {}: {:?}",
+                                socket_id,
+                                inquiry
+                            );
                             return Ok(InquiryResponse(inquiry));
                         }
                         Error(err) => {
@@ -372,8 +375,11 @@ impl ViscaClient {
                             return Ok(Completion);
                         }
                         InquiryResponse(inquiry) => {
-                            log::debug!("Inquiry response received for socket {}", socket_id);
-                            crate::log_inquiry_response(&inquiry);
+                            log::debug!(
+                                "Inquiry response received for socket {}: {:?}",
+                                socket_id,
+                                inquiry
+                            );
                             return Ok(InquiryResponse(inquiry));
                         }
                         Error(err) => {
@@ -441,5 +447,13 @@ pub trait ViscaClientPtzExt {
 impl ViscaClientPtzExt for Arc<ViscaClient> {
     fn ptz(self) -> PtzBuilder {
         PtzBuilder::new(self)
+    }
+}
+
+// Implement ViscaDevice to support extension traits
+#[cfg(feature = "blocking-client")]
+impl crate::ViscaDevice for ViscaClient {
+    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+        self.send(command)
     }
 }

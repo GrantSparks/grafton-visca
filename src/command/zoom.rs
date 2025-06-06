@@ -8,14 +8,17 @@
 //!
 //! # Example
 //! ```no_run
+//! # #[cfg(feature = "blocking-client")]
+//! # {
 //! # use grafton_visca::command::{ZoomCommand, zoom::ZoomSpeed};
-//! # use grafton_visca::{UdpTransport, ViscaTransport};
-//! # let mut transport = UdpTransport::new("192.168.1.100:5678").unwrap();
+//! # use grafton_visca::ViscaClient;
+//! # let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
-//! transport.send_command(&ZoomCommand::TeleStandard).unwrap();
+//! client.send(&ZoomCommand::TeleStandard).unwrap();
 //!
 //! // Zoom out at variable speed
-//! transport.send_command(&ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
+//! client.send(&ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
+//! # }
 //! ```
 
 // Standard library imports

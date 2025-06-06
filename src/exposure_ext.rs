@@ -8,11 +8,11 @@ use crate::{
         ShutterCommand,
     },
     error::ViscaError,
-    transport_ext::ViscaTransportExt,
+    ViscaDevice, ViscaResponse,
 };
 
 /// Extension trait providing high-level exposure control methods.
-pub trait ViscaExposureExt: ViscaTransportExt {
+pub trait ViscaExposureExt: ViscaDevice {
     /// Set the exposure mode.
     ///
     /// # Arguments
@@ -20,23 +20,27 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
     /// # use grafton_visca::command::exposure::ExposureMode;
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Set to auto exposure
-    /// transport.set_exposure_mode(ExposureMode::Auto)?;
+    /// client.set_exposure_mode(ExposureMode::Auto)?;
     ///
     /// // Set to manual exposure
-    /// transport.set_exposure_mode(ExposureMode::Manual)?;
+    /// client.set_exposure_mode(ExposureMode::Manual)?;
     ///
     /// // Set to shutter priority
-    /// transport.set_exposure_mode(ExposureMode::Shutter)?;
+    /// client.set_exposure_mode(ExposureMode::Shutter)?;
     /// # Ok(())
     /// # }
     /// ```
     fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), ViscaError> {
         let command = ExposureCommand { mode };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -47,23 +51,27 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Increase exposure by 2 stops
-    /// transport.set_exposure_compensation(2)?;
+    /// client.set_exposure_compensation(2)?;
     ///
     /// // Decrease exposure by 1 stop
-    /// transport.set_exposure_compensation(-1)?;
+    /// client.set_exposure_compensation(-1)?;
     ///
     /// // Reset to no compensation
-    /// transport.set_exposure_compensation(0)?;
+    /// client.set_exposure_compensation(0)?;
     /// # Ok(())
     /// # }
     /// ```
     fn set_exposure_compensation(&mut self, level: i8) -> Result<(), ViscaError> {
         let compensation_level = ExposureCompensationLevel::new(level)?;
         let command = ExposureCompensationCommand::Direct(compensation_level);
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -74,16 +82,16 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Enable exposure compensation
-    /// transport.set_exposure_compensation_enabled(true)?;
+    /// client.set_exposure_compensation_enabled(true)?;
     ///
     /// // Apply compensation
-    /// transport.set_exposure_compensation(2)?;
+    /// client.set_exposure_compensation(2)?;
     ///
     /// // Disable exposure compensation
-    /// transport.set_exposure_compensation_enabled(false)?;
+    /// client.set_exposure_compensation_enabled(false)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -93,7 +101,11 @@ pub trait ViscaExposureExt: ViscaTransportExt {
         } else {
             ExposureCompensationCommand::Off
         };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -101,15 +113,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.reset_exposure_compensation()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.reset_exposure_compensation()?;
     /// # Ok(())
     /// # }
     /// ```
     fn reset_exposure_compensation(&mut self) -> Result<(), ViscaError> {
         let command = ExposureCompensationCommand::Reset;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -117,15 +133,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.exposure_compensation_up()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.exposure_compensation_up()?;
     /// # Ok(())
     /// # }
     /// ```
     fn exposure_compensation_up(&mut self) -> Result<(), ViscaError> {
         let command = ExposureCompensationCommand::Up;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -133,15 +153,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.exposure_compensation_down()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.exposure_compensation_down()?;
     /// # Ok(())
     /// # }
     /// ```
     fn exposure_compensation_down(&mut self) -> Result<(), ViscaError> {
         let command = ExposureCompensationCommand::Down;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -152,19 +176,23 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Set iris to F5.6
-    /// transport.set_iris(0x08)?;
+    /// client.set_iris(0x08)?;
     ///
     /// // Set iris to F1.8 (most open)
-    /// transport.set_iris(0x0C)?;
+    /// client.set_iris(0x0C)?;
     /// # Ok(())
     /// # }
     /// ```
     fn set_iris(&mut self, value: u8) -> Result<(), ViscaError> {
         let command = IrisCommand::Direct(value);
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -172,15 +200,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.iris_up()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.iris_up()?;
     /// # Ok(())
     /// # }
     /// ```
     fn iris_up(&mut self) -> Result<(), ViscaError> {
         let command = IrisCommand::Up;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -188,15 +220,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.iris_down()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.iris_down()?;
     /// # Ok(())
     /// # }
     /// ```
     fn iris_down(&mut self) -> Result<(), ViscaError> {
         let command = IrisCommand::Down;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -204,15 +240,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.iris_reset()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.iris_reset()?;
     /// # Ok(())
     /// # }
     /// ```
     fn iris_reset(&mut self) -> Result<(), ViscaError> {
         let command = IrisCommand::Reset;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -223,19 +263,23 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Set to 1/60
-    /// transport.set_shutter_speed(0x06)?;
+    /// client.set_shutter_speed(0x06)?;
     ///
     /// // Set to 1/500  
-    /// transport.set_shutter_speed(0x0C)?;
+    /// client.set_shutter_speed(0x0C)?;
     /// # Ok(())
     /// # }
     /// ```
     fn set_shutter_speed(&mut self, value: u16) -> Result<(), ViscaError> {
         let command = ShutterCommand::Direct(value);
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -243,15 +287,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.shutter_up()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.shutter_up()?;
     /// # Ok(())
     /// # }
     /// ```
     fn shutter_up(&mut self) -> Result<(), ViscaError> {
         let command = ShutterCommand::Up;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -259,15 +307,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.shutter_down()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.shutter_down()?;
     /// # Ok(())
     /// # }
     /// ```
     fn shutter_down(&mut self) -> Result<(), ViscaError> {
         let command = ShutterCommand::Down;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -275,15 +327,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.shutter_reset()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.shutter_reset()?;
     /// # Ok(())
     /// # }
     /// ```
     fn shutter_reset(&mut self) -> Result<(), ViscaError> {
         let command = ShutterCommand::Reset;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -294,22 +350,26 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Set minimal gain
-    /// transport.set_gain(0x00)?;
+    /// client.set_gain(0x00)?;
     ///
     /// // Set moderate gain
-    /// transport.set_gain(0x04)?;
+    /// client.set_gain(0x04)?;
     ///
     /// // Set maximum gain
-    /// transport.set_gain(0x07)?;
+    /// client.set_gain(0x07)?;
     /// # Ok(())
     /// # }
     /// ```
     fn set_gain(&mut self, gain: u16) -> Result<(), ViscaError> {
         let command = GainCommand::Direct(gain);
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -320,19 +380,23 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Limit gain to low values
-    /// transport.set_gain_limit(0x3)?;
+    /// client.set_gain_limit(0x3)?;
     ///
     /// // Allow maximum gain
-    /// transport.set_gain_limit(0xF)?;
+    /// client.set_gain_limit(0xF)?;
     /// # Ok(())
     /// # }
     /// ```
     fn set_gain_limit(&mut self, limit: u8) -> Result<(), ViscaError> {
         let command = GainLimitCommand { limit };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -340,15 +404,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.gain_up()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.gain_up()?;
     /// # Ok(())
     /// # }
     /// ```
     fn gain_up(&mut self) -> Result<(), ViscaError> {
         let command = GainCommand::Up;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -356,15 +424,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.gain_down()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.gain_down()?;
     /// # Ok(())
     /// # }
     /// ```
     fn gain_down(&mut self) -> Result<(), ViscaError> {
         let command = GainCommand::Down;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -372,15 +444,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.gain_reset()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.gain_reset()?;
     /// # Ok(())
     /// # }
     /// ```
     fn gain_reset(&mut self) -> Result<(), ViscaError> {
         let command = GainCommand::Reset;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -391,22 +467,26 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Set minimal brightness
-    /// transport.set_brightness(0x00)?;
+    /// client.set_brightness(0x00)?;
     ///
     /// // Set default brightness
-    /// transport.set_brightness(0x08)?;
+    /// client.set_brightness(0x08)?;
     ///
     /// // Set maximum brightness
-    /// transport.set_brightness(0x11)?;
+    /// client.set_brightness(0x11)?;
     /// # Ok(())
     /// # }
     /// ```
     fn set_brightness(&mut self, brightness: u16) -> Result<(), ViscaError> {
         let command = BrightCommand::Direct(brightness);
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -414,15 +494,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.brightness_up()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.brightness_up()?;
     /// # Ok(())
     /// # }
     /// ```
     fn brightness_up(&mut self) -> Result<(), ViscaError> {
         let command = BrightCommand::Up;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -430,15 +514,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.brightness_down()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.brightness_down()?;
     /// # Ok(())
     /// # }
     /// ```
     fn brightness_down(&mut self) -> Result<(), ViscaError> {
         let command = BrightCommand::Down;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -446,15 +534,19 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.brightness_reset()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.brightness_reset()?;
     /// # Ok(())
     /// # }
     /// ```
     fn brightness_reset(&mut self) -> Result<(), ViscaError> {
         let command = BrightCommand::Reset;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -465,22 +557,26 @@ pub trait ViscaExposureExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaExposureExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Enable backlight compensation
-    /// transport.set_backlight_compensation(true)?;
+    /// client.set_backlight_compensation(true)?;
     ///
     /// // Disable backlight compensation
-    /// transport.set_backlight_compensation(false)?;
+    /// client.set_backlight_compensation(false)?;
     /// # Ok(())
     /// # }
     /// ```
     fn set_backlight_compensation(&mut self, enabled: bool) -> Result<(), ViscaError> {
         let command = BacklightCommand { status: enabled };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 }
 
 /// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaTransportExt> ViscaExposureExt for T {}
+impl<T: ViscaDevice> ViscaExposureExt for T {}

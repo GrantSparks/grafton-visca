@@ -1,10 +1,10 @@
 //! High-level extension trait for focus control operations.
 
 // Crate imports
-use crate::{command::focus::FocusCommand, error::ViscaError, transport_ext::ViscaTransportExt};
+use crate::{command::focus::FocusCommand, error::ViscaError, ViscaDevice, ViscaResponse};
 
 /// Extension trait providing high-level focus control methods.
-pub trait ViscaFocusExt: ViscaTransportExt {
+pub trait ViscaFocusExt: ViscaDevice {
     /// Enable or disable auto-focus mode.
     ///
     /// # Arguments
@@ -12,13 +12,13 @@ pub trait ViscaFocusExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaFocusExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Enable auto-focus
-    /// transport.set_auto_focus(true)?;
+    /// client.set_auto_focus(true)?;
     ///
     /// // Switch to manual focus
-    /// transport.set_auto_focus(false)?;
+    /// client.set_auto_focus(false)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -28,7 +28,11 @@ pub trait ViscaFocusExt: ViscaTransportExt {
         } else {
             FocusCommand::Manual
         };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -39,22 +43,26 @@ pub trait ViscaFocusExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaFocusExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Focus to near position
-    /// transport.focus_to(0x1000)?;
+    /// client.focus_to(0x1000)?;
     ///
     /// // Focus to far position
-    /// transport.focus_to(0xF000)?;
+    /// client.focus_to(0xF000)?;
     ///
     /// // Focus to mid-range
-    /// transport.focus_to(0x8000)?;
+    /// client.focus_to(0x8000)?;
     /// # Ok(())
     /// # }
     /// ```
     fn focus_to(&mut self, position: u16) -> Result<(), ViscaError> {
         let command = FocusCommand::Direct(position);
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -65,13 +73,13 @@ pub trait ViscaFocusExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaFocusExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Focus near at standard speed
-    /// transport.focus_near(None)?;
+    /// client.focus_near(None)?;
     ///
     /// // Focus near at maximum speed
-    /// transport.focus_near(Some(7))?;
+    /// client.focus_near(Some(7))?;
     /// # Ok(())
     /// # }
     /// ```
@@ -86,7 +94,11 @@ pub trait ViscaFocusExt: ViscaTransportExt {
         } else {
             FocusCommand::NearStandard
         };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -97,13 +109,13 @@ pub trait ViscaFocusExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaFocusExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Focus far at standard speed
-    /// transport.focus_far(None)?;
+    /// client.focus_far(None)?;
     ///
     /// // Focus far at slow speed
-    /// transport.focus_far(Some(2))?;
+    /// client.focus_far(Some(2))?;
     /// # Ok(())
     /// # }
     /// ```
@@ -118,7 +130,11 @@ pub trait ViscaFocusExt: ViscaTransportExt {
         } else {
             FocusCommand::FarStandard
         };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -126,21 +142,25 @@ pub trait ViscaFocusExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaFocusExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Start focusing near
-    /// transport.focus_near(None)?;
+    /// client.focus_near(None)?;
     ///
     /// // ... wait some time ...
     ///
     /// // Stop focusing
-    /// transport.stop_focus()?;
+    /// client.stop_focus()?;
     /// # Ok(())
     /// # }
     /// ```
     fn stop_focus(&mut self) -> Result<(), ViscaError> {
         let command = FocusCommand::Stop;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -150,22 +170,26 @@ pub trait ViscaFocusExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaFocusExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Set manual focus mode
-    /// transport.set_auto_focus(false)?;
+    /// client.set_auto_focus(false)?;
     ///
     /// // Trigger one-time auto-focus
-    /// transport.trigger_one_push_focus()?;
+    /// client.trigger_one_push_focus()?;
     /// # Ok(())
     /// # }
     /// ```
     fn trigger_one_push_focus(&mut self) -> Result<(), ViscaError> {
         let command = FocusCommand::OnePushTrigger;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 }
 
 /// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaTransportExt> ViscaFocusExt for T {}
+impl<T: ViscaDevice> ViscaFocusExt for T {}

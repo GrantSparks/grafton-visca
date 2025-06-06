@@ -1,126 +1,169 @@
 //! Tests for the high-level extension traits.
 
+#![cfg(feature = "blocking-client")]
+
+#[path = "common/mod.rs"]
+mod common;
+
+use common::{MockDevice, MockTransport};
 use grafton_visca::{
-    ImagePreset, ViscaError, ViscaExposureExt, ViscaImageExt, ViscaPositionExt, ViscaTransportExt,
+    ImagePreset, ViscaExposureExt, ViscaImageExt, ViscaPositionExt, ViscaTransportExt,
     ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset,
 };
 
-/// Mock transport for testing
-struct MockTransport {
-    responses: Vec<Vec<u8>>,
-    commands_sent: Vec<Vec<u8>>,
-}
-
-impl MockTransport {
-    fn new() -> Self {
-        Self {
-            responses: vec![],
-            commands_sent: vec![],
-        }
-    }
-
-    fn with_ack_completion() -> Self {
-        Self {
-            responses: vec![
-                vec![0x90, 0x41, 0xFF], // ACK
-                vec![0x90, 0x51, 0xFF], // Completion
-            ],
-            commands_sent: vec![],
-        }
-    }
-}
-
-impl grafton_visca::ViscaTransport for MockTransport {
-    fn send_command(
-        &mut self,
-        command: &dyn grafton_visca::ViscaCommand,
-    ) -> Result<(), ViscaError> {
-        self.commands_sent.push(command.to_bytes()?);
-        Ok(())
-    }
-
-    fn receive_response(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
-        if self.responses.is_empty() {
-            Err(ViscaError::Timeout)
-        } else {
-            Ok(vec![self.responses.remove(0)])
-        }
-    }
-}
-
 #[test]
 fn test_exposure_ext_methods() {
-    let mut transport = MockTransport::with_ack_completion();
+    let mut transport = MockTransport::new();
+    // Add responses for both commands
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
-    // Test set_iris
-    ViscaExposureExt::set_iris(&mut transport, 0x0C).unwrap();
-    assert_eq!(transport.commands_sent.len(), 1);
-    // IrisCommand::Direct includes 4 bytes for the value
+    // Test iris control
+    ViscaExposureExt::set_iris(&mut device, 0x0C).unwrap();
     assert_eq!(
-        transport.commands_sent[0],
-        vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0C, 0xFF]
+        device.last_command().unwrap()[0..4],
+        vec![0x81, 0x01, 0x04, 0x4B]
+    );
+
+    // Test shutter speed
+    device.set_shutter_speed(0x10).unwrap();
+    assert_eq!(
+        device.last_command().unwrap()[0..4],
+        vec![0x81, 0x01, 0x04, 0x4A]
     );
 }
 
 #[test]
-fn test_white_balance_preset() {
-    let mut transport = MockTransport::with_ack_completion();
+fn test_white_balance_ext_methods() {
+    let mut transport = MockTransport::new();
+    // Daylight preset sends 2 commands: mode + temperature
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    // Direct temperature setting sends 1 command
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
-    // Test white balance preset - Daylight sends 2 commands
-    transport
+    // Test white balance preset - Daylight first sets ColorTemperature mode
+    device
         .set_white_balance_preset(WhiteBalancePreset::Daylight)
         .unwrap();
-    assert_eq!(transport.commands_sent.len(), 2); // Set mode + set temperature
+    // The last command would be the color temperature direct command
+    // since Daylight preset first sets mode to ColorTemperature, then sets temp to 0x1C
+    assert_eq!(
+        device.last_command().unwrap()[0..5],
+        vec![0x81, 0x01, 0x04, 0x20, 0x00]
+    );
+
+    // Test direct color temperature setting (5600K)
+    device.set_color_temperature_direct(30).unwrap(); // 30 = roughly 5600K
+                                                      // The color temperature direct command uses 0x20
+    assert_eq!(
+        device.last_command().unwrap()[0..4],
+        vec![0x81, 0x01, 0x04, 0x20]
+    );
 }
 
 #[test]
-fn test_image_preset() {
-    let mut transport = MockTransport::with_ack_completion();
+fn test_image_ext_methods() {
+    let mut transport = MockTransport::new();
+    // Vivid preset sends 4 commands: sharpness, saturation, contrast, hue
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
-    // Test image preset - this should send multiple commands
-    transport.apply_image_preset(ImagePreset::Vivid).unwrap();
-    assert!(transport.commands_sent.len() >= 4); // Should set sharpness, saturation, contrast, hue
+    // Test image preset
+    device.apply_image_preset(ImagePreset::Vivid).unwrap();
+
+    // Verify 4 commands were sent for the preset
+    assert_eq!(device.commands_sent().len(), 4);
+
+    // Check the last command was hue (the preset sets sharpness, saturation, contrast, hue in that order)
+    assert_eq!(
+        device.last_command().unwrap()[0..4],
+        vec![0x81, 0x01, 0x04, 0x4F]
+    );
 }
 
 #[test]
-fn test_zoom_magnification() {
-    let mut transport = MockTransport::with_ack_completion();
+fn test_zoom_ext_methods() {
+    let mut transport = MockTransport::new();
+    // Zoom to magnification sends 1 command
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
     // Test zoom to magnification
-    transport.zoom_to_magnification(5.0).unwrap();
-    assert_eq!(transport.commands_sent.len(), 1);
+    device.zoom_to_magnification(5.0).unwrap();
+
+    // Test that zoom position command was sent
+    assert_eq!(
+        device.last_command().unwrap()[0..4],
+        vec![0x81, 0x01, 0x04, 0x47]
+    );
 }
 
 #[test]
-fn test_position_degrees() {
-    let mut transport = MockTransport::with_ack_completion();
+fn test_position_ext_methods() {
+    let mut transport = MockTransport::new();
+    // Move to degrees sends 1 command
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
     // Test move to degrees
-    transport
-        .move_to_degrees(45.0, 15.0, Some((10, 10)))
-        .unwrap();
-    assert_eq!(transport.commands_sent.len(), 1);
+    device.move_to_degrees(45.0, 15.0, Some((10, 10))).unwrap();
+
+    // Test that absolute position command was sent
+    assert_eq!(
+        device.last_command().unwrap()[0..4],
+        vec![0x81, 0x01, 0x06, 0x02]
+    );
 }
 
 #[test]
-fn test_power_ext() {
-    // For now, just test that the command is sent correctly
-    // Testing the full response parsing would require a more complex mock
+fn test_transport_ext_methods() {
     let mut transport = MockTransport::new();
+    // Power on sends 1 command, power off sends 1 command
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
 
-    // We can't easily test is_powered_on without a full session mock
-    // So let's test a simpler method
-    match transport.power_on() {
-        Ok(_) => {
-            assert_eq!(transport.commands_sent.len(), 1);
+    // Test power on convenience method
+    match device.power_on() {
+        Ok(()) => {
             assert_eq!(
-                transport.commands_sent[0],
-                vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]
-            ); // Power on
+                device.last_command().unwrap()[0..4],
+                vec![0x81, 0x01, 0x04, 0x00]
+            );
+            assert_eq!(device.last_command().unwrap()[4], 0x02);
         }
-        Err(_e) => {
-            // Expected - MockTransport doesn't provide responses
-            assert_eq!(transport.commands_sent.len(), 1);
-        }
+        Err(e) => panic!("Power on failed: {:?}", e),
     }
+
+    // Test power off
+    device.power_off().unwrap();
+    assert_eq!(
+        device.last_command().unwrap()[0..4],
+        vec![0x81, 0x01, 0x04, 0x00]
+    );
+    assert_eq!(device.last_command().unwrap()[4], 0x03);
+}
+
+#[test]
+fn test_chained_operations() {
+    let mut transport = MockTransport::new();
+    // 3 commands for chained operations
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    let mut device = MockDevice::from_transport(transport);
+
+    // Chain multiple operations
+    device.power_on().unwrap();
+    device.zoom_to_magnification(2.0).unwrap();
+    device.move_to_degrees(0.0, 0.0, None).unwrap();
+
+    // Verify multiple commands were sent
+    assert_eq!(device.commands_sent().len(), 3);
 }

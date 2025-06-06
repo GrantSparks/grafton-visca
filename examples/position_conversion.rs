@@ -6,19 +6,23 @@
 //! - Validate camera parameters
 //! - Detect camera model (placeholder functionality)
 
+#[cfg(feature = "blocking-client")]
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, TiltSpeed},
-        InquiryCommand, PanTiltCommand,
+        PanTiltCommand,
     },
     constants::{
         self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
-    detect_camera_model, send_command_and_wait, UdpTransport, ViscaInquiryResponse, ViscaResponse,
+    ViscaClient,
 };
+#[cfg(feature = "blocking-client")]
 use log::{error, info};
+#[cfg(feature = "blocking-client")]
 use std::env;
 
+#[cfg(feature = "blocking-client")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("Position conversion and constants example");
@@ -33,14 +37,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = format!("{}:1259", ip_address);
 
     // Connect to camera
-    let mut transport = UdpTransport::new(&address)?;
+    let mut client = ViscaClient::connect_udp(&address)?;
     info!("Connected to camera at {}", address);
 
-    // Try to detect camera model (currently returns Unknown)
-    let model = detect_camera_model(&mut transport)?;
-    info!("Detected camera model: {:?}", model);
-
     // For this example, we'll assume PTZOptics G2
+    // Note: detect_camera_model is not yet available in current API
     let model = CameraModel::PTZOpticsG2;
     info!("Using camera model: {:?}", model);
 
@@ -56,48 +57,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Get current position
     info!("\nQuerying current camera position...");
-    let response = send_command_and_wait(&mut transport, &InquiryCommand::PanTiltPosition)?;
+    // Note: send_command_and_wait is not directly available on ViscaClient
+    // Using the extension trait methods instead
+    use grafton_visca::ViscaInquiryExt;
+    let (pan, tilt) = client.get_pan_tilt_position()?;
 
-    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) =
-        response
-    {
-        let visca_pos = ViscaPosition { pan, tilt };
-        info!("Current VISCA position: pan={}, tilt={}", pan, tilt);
+    let visca_pos = ViscaPosition { pan, tilt };
+    info!("Current VISCA position: pan={}, tilt={}", pan, tilt);
 
-        // Convert to different units
-        let degrees = visca_pos.to_degrees(model);
-        let normalized = visca_pos.to_normalized(model);
+    // Convert to different units
+    let degrees = visca_pos.to_degrees(model);
+    let normalized = visca_pos.to_normalized(model);
 
-        info!("\nPosition conversions:");
-        info!(
-            "  VISCA units: pan={}, tilt={}",
-            visca_pos.pan, visca_pos.tilt
-        );
-        info!(
-            "  Degrees: pan={:.1}°, tilt={:.1}°",
-            degrees.pan, degrees.tilt
-        );
-        info!(
-            "  Normalized: pan={:.3}, tilt={:.3}",
-            normalized.pan, normalized.tilt
-        );
+    info!("\nPosition conversions:");
+    info!(
+        "  VISCA units: pan={}, tilt={}",
+        visca_pos.pan, visca_pos.tilt
+    );
+    info!(
+        "  Degrees: pan={:.1}°, tilt={:.1}°",
+        degrees.pan, degrees.tilt
+    );
+    info!(
+        "  Normalized: pan={:.3}, tilt={:.3}",
+        normalized.pan, normalized.tilt
+    );
 
-        // Demonstrate reverse conversions
-        info!("\nReverse conversions:");
-        let from_degrees = degrees.to_visca(model);
-        info!(
-            "  Degrees -> VISCA: pan={}, tilt={}",
-            from_degrees.pan, from_degrees.tilt
-        );
+    // Demonstrate reverse conversions
+    info!("\nReverse conversions:");
+    let from_degrees = degrees.to_visca(model);
+    info!(
+        "  Degrees -> VISCA: pan={}, tilt={}",
+        from_degrees.pan, from_degrees.tilt
+    );
 
-        let from_normalized = normalized.to_visca(model);
-        info!(
-            "  Normalized -> VISCA: pan={}, tilt={}",
-            from_normalized.pan, from_normalized.tilt
-        );
-    } else {
-        error!("Failed to get current position");
-    }
+    let from_normalized = normalized.to_visca(model);
+    info!(
+        "  Normalized -> VISCA: pan={}, tilt={}",
+        from_normalized.pan, from_normalized.tilt
+    );
 
     // Demonstrate validation
     info!("\nValidation examples:");
@@ -148,14 +146,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         constants::validate_pan_position(target_visca.pan, model),
         constants::validate_tilt_position(target_visca.tilt, model),
     ) {
-        let command = PanTiltCommand::AbsolutePosition {
+        let _command = PanTiltCommand::AbsolutePosition {
             pan: target_visca.pan,
             tilt: target_visca.tilt,
             pan_speed: PanSpeed::new(constants::speed::PAN_SPEED_DEFAULT).unwrap(),
             tilt_speed: TiltSpeed::new(constants::speed::TILT_SPEED_DEFAULT).unwrap(),
         };
 
-        match send_command_and_wait(&mut transport, &command) {
+        // Using extension trait method
+        use grafton_visca::ViscaPanTiltExt;
+        match ViscaPanTiltExt::move_to_position(
+            &mut client,
+            target_visca.pan,
+            target_visca.tilt,
+            Some((
+                constants::speed::PAN_SPEED_DEFAULT,
+                constants::speed::TILT_SPEED_DEFAULT,
+            )),
+        ) {
             Ok(_) => info!("Successfully moved to target position"),
             Err(e) => error!("Failed to move: {}", e),
         }
@@ -180,4 +188,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  Max preset ID: {}", constants::preset::PRESET_ID_MAX);
 
     Ok(())
+}
+
+#[cfg(not(feature = "blocking-client"))]
+fn main() {
+    println!("This example requires the 'blocking-client' feature to be enabled.");
+    println!("Run with: cargo run --example position_conversion --features blocking-client");
 }

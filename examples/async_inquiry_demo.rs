@@ -1,3 +1,10 @@
+// TODO: Update this example for v0.5.0 - async support is not yet available
+fn main() {
+    println!("This example needs to be updated for v0.5.0");
+    println!("Async support is not yet available in the current version");
+}
+
+/*
 //! Example demonstrating the async inquiry API with ViscaClient.
 
 use grafton_visca::command::InquiryCommand;
@@ -132,3 +139,4 @@ async fn main() -> Result<(), ViscaError> {
     println!("\nInquiry demo completed successfully!");
     Ok(())
 }
+*/
