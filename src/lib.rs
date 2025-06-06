@@ -420,6 +420,22 @@ pub use crate::{
     unified_client::{ViscaClient, ViscaClientPtzExt},
 };
 
+// Transport Migration Path (v0.4.0)
+// =================================
+// The transport layer has been redesigned for v0.4.0 with an async-first approach.
+// 
+// OLD (deprecated): UdpTransport/TcpTransport implementing ViscaTransport trait (defined below)
+// NEW (recommended): Use ViscaClient::connect_udp() / ViscaClient::connect_tcp()
+// 
+// For direct transport usage (advanced users):
+// - New transports are in the `transport` module
+// - They implement the new `Transport` trait (async) or `BlockingTransport` trait (sync)
+// 
+// Migration path:
+// 1. Replace direct transport usage with ViscaClient
+// 2. Use ViscaClient::from_legacy_transport() for gradual migration
+// 3. The old transport types below will be removed in v0.5.0
+
 /// Transport trait for sending and receiving VISCA commands over a network connection.
 ///
 /// This trait abstracts the underlying transport mechanism (UDP or TCP) and provides
