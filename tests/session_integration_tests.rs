@@ -6,6 +6,8 @@
 //! - Proper timeout handling
 //! - Error recovery
 
+#![cfg(feature = "blocking-client")]
+
 #[path = "common/mod.rs"]
 mod common;
 

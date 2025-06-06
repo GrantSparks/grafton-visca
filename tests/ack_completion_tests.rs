@@ -3,6 +3,8 @@
 //! These tests verify that the client correctly handles the ACK+Completion
 //! response pattern used by VISCA cameras.
 
+#![cfg(feature = "blocking-client")]
+
 mod common;
 
 use common::{MockDevice, MockTransport};

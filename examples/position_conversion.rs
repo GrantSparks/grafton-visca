@@ -6,6 +6,7 @@
 //! - Validate camera parameters
 //! - Detect camera model (placeholder functionality)
 
+#[cfg(feature = "blocking-client")]
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, TiltSpeed},
@@ -16,9 +17,12 @@ use grafton_visca::{
     },
     ViscaClient,
 };
+#[cfg(feature = "blocking-client")]
 use log::{error, info};
+#[cfg(feature = "blocking-client")]
 use std::env;
 
+#[cfg(feature = "blocking-client")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("Position conversion and constants example");
@@ -184,4 +188,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  Max preset ID: {}", constants::preset::PRESET_ID_MAX);
 
     Ok(())
+}
+
+#[cfg(not(feature = "blocking-client"))]
+fn main() {
+    println!("This example requires the 'blocking-client' feature to be enabled.");
+    println!("Run with: cargo run --example position_conversion --features blocking-client");
 }

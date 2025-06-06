@@ -1,5 +1,7 @@
 //! Tests for the high-level extension traits.
 
+#![cfg(feature = "blocking-client")]
+
 #[path = "common/mod.rs"]
 mod common;
 

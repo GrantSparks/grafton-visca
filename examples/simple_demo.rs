@@ -2,12 +2,15 @@
 //!
 //! This example demonstrates basic camera control using the new v0.5.0 API.
 
+#[cfg(feature = "blocking-client")]
 use grafton_visca::{
     command::pan_tilt::PanTiltDirection, ViscaClient, ViscaError, ViscaPositionExt,
     ViscaTransportExt, ViscaZoomExt,
 };
+#[cfg(feature = "blocking-client")]
 use std::time::Duration;
 
+#[cfg(feature = "blocking-client")]
 fn main() -> Result<(), ViscaError> {
     // Initialize logging
     env_logger::init();
@@ -58,4 +61,10 @@ fn main() -> Result<(), ViscaError> {
 
     println!("\nDemo completed successfully!");
     Ok(())
+}
+
+#[cfg(not(feature = "blocking-client"))]
+fn main() {
+    println!("This example requires the 'blocking-client' feature to be enabled.");
+    println!("Run with: cargo run --example simple_demo --features blocking-client");
 }
