@@ -12,7 +12,11 @@ pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaErr
 ///
 /// This trait provides the async equivalent of `ViscaTransport`, allowing for
 /// concurrent command execution and non-blocking network operations.
+///
+/// # Deprecated
+/// This trait is deprecated in favor of the unified `Transport` trait in the `transport` module.
 #[cfg(feature = "async-client")]
+#[deprecated(since = "0.4.0", note = "Use `transport::Transport` trait instead")]
 pub trait AsyncViscaTransport: Send + Sync {
     /// Send a VISCA command to the camera asynchronously.
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()>;

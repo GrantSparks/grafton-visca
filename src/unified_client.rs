@@ -11,7 +11,8 @@ use crate::{
     ptz_builder::PtzBuilder,
     session::ViscaSession,
     sync_primitives::{Mutex, Semaphore, SemaphoreExt},
-    ViscaCommand, ViscaError, ViscaResponse,
+    transport::LegacyTransportAdapter,
+    ViscaCommand, ViscaError, ViscaResponse, ViscaTransport,
 };
 
 // Feature-gated imports - Blocking client
@@ -44,6 +45,10 @@ enum TransportVariant {
     /// Native async TCP transport
     #[cfg(feature = "async-client")]
     AsyncTcp(AsyncTcpTransport),
+    
+    /// Legacy transport wrapped in adapter
+    #[cfg(feature = "async-client")]
+    Legacy(Box<dyn Transport + Send + Sync>),
 }
 
 /// Unified VISCA client with async-first design and blocking façade.
@@ -116,6 +121,19 @@ impl ViscaClient {
         )))
     }
 
+    /// Create a client from a legacy ViscaTransport implementation.
+    /// 
+    /// This method helps with migration from the old transport trait to the new one.
+    /// It wraps the old transport in an adapter that implements the new Transport trait.
+    #[cfg(feature = "async-client")]
+    pub fn from_legacy_transport<T>(transport: T) -> Self 
+    where
+        T: ViscaTransport + Send + Sync + 'static
+    {
+        let adapter = LegacyTransportAdapter::new(transport);
+        Self::new_from_variant(TransportVariant::Legacy(Box::new(adapter)))
+    }
+
     /// Send a command and wait for the response (blocking).
     ///
     /// Sends a command and waits for the response (blocking).
@@ -183,7 +201,7 @@ impl ViscaClient {
                         use crate::transport::BlockingTransport;
                         t.0.send_command_blocking(command)?;
                     }
-                    #[cfg(feature = "async-client")]
+                    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
                     _ => unreachable!(
                         "Async transports should not be present in blocking-only builds"
                     ),
@@ -222,7 +240,7 @@ impl ViscaClient {
                         use crate::transport::BlockingTransport;
                         t.0.receive_response_blocking()?
                     }
-                    #[cfg(feature = "async-client")]
+                    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
                     _ => unreachable!(
                         "Async transports should not be present in blocking-only builds"
                     ),
@@ -311,6 +329,10 @@ impl ViscaClient {
                     TransportVariant::AsyncTcp(t) => {
                         t.send_command(command).await?;
                     }
+                    #[cfg(feature = "async-client")]
+                    TransportVariant::Legacy(t) => {
+                        t.send_command(command).await?;
+                    }
                 }
             }
 
@@ -345,6 +367,8 @@ impl ViscaClient {
                     TransportVariant::AsyncUdp(t) => t.receive_response().await?,
                     #[cfg(feature = "async-client")]
                     TransportVariant::AsyncTcp(t) => t.receive_response().await?,
+                    #[cfg(feature = "async-client")]
+                    TransportVariant::Legacy(t) => t.receive_response().await?,
                 }
             };
 
