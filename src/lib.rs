@@ -358,15 +358,15 @@ pub use crate::{
 
 #[cfg(feature = "async-client")]
 pub use crate::{
+    // TODO: Update async_client and re-export after updating to new transport system
+    // async_client::AsyncViscaClient,
+    connection_pool::AsyncViscaConnectionPool,
     // TODO: Re-export async transports after updating them
     // async_tcp_transport::AsyncTcpTransport,
     async_transport::TransportFuture,
     // async_udp_transport::AsyncUdpTransport,
     async_visca_ext::{AsyncViscaExt, PanScanDirection},
     connection::AsyncConnectionManagement,
-    // TODO: Update async_client and re-export after updating to new transport system
-    // async_client::AsyncViscaClient,
-    connection_pool::AsyncViscaConnectionPool,
     reconnecting_transport::{
         ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
     },
