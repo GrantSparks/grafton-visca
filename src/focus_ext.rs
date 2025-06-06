@@ -1,5 +1,7 @@
 //! High-level extension trait for focus control operations.
 
+#![allow(deprecated)]
+
 // Crate imports
 use crate::{command::focus::FocusCommand, error::ViscaError, transport_ext::ViscaTransportExt};
 

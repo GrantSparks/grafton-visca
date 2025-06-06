@@ -1,5 +1,7 @@
 //! High-level extension trait for position control with different coordinate systems.
 
+#![allow(deprecated)]
+
 // Crate imports
 use crate::{
     command::InquiryCommand,

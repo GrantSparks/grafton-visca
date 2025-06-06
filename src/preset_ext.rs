@@ -1,5 +1,7 @@
 //! High-level extension trait for preset management operations.
 
+#![allow(deprecated)]
+
 // Crate imports
 use crate::{
     command::preset::{PresetAction, PresetCommand, PresetNumber},

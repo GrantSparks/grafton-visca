@@ -1,5 +1,7 @@
 //! Extension trait providing convenience methods for camera state inquiries.
 
+#![allow(deprecated)]
+
 use crate::{
     command::{
         exposure::ExposureMode,

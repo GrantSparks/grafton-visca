@@ -1,5 +1,7 @@
 //! High-level extension trait for zoom control operations.
 
+#![allow(deprecated)]
+
 // Crate imports
 use crate::{
     command::{

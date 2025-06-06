@@ -1,5 +1,7 @@
 //! High-level extension trait for pan/tilt control operations.
 
+#![allow(deprecated)]
+
 // Crate imports
 use crate::{
     command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
