@@ -2,7 +2,10 @@
 
 // Crate imports
 use crate::{
-    command::{zoom::{ZoomCommand, ZoomSpeed}, InquiryCommand},
+    command::{
+        zoom::{ZoomCommand, ZoomSpeed},
+        InquiryCommand,
+    },
     error::ViscaError,
     transport_ext::ViscaTransportExt,
     ViscaResponse,
@@ -167,9 +170,9 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     {
         let response = self.send_and_wait(&InquiryCommand::ZoomPosition)?;
         match response {
-            ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition { position }) => {
-                Ok(crate::constants::zoom_visca_to_magnification(position))
-            }
+            ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition {
+                position,
+            }) => Ok(crate::constants::zoom_visca_to_magnification(position)),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -219,9 +222,9 @@ pub trait ViscaZoomExt: ViscaTransportExt {
     {
         let response = self.send_and_wait(&InquiryCommand::ZoomPosition)?;
         match response {
-            ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition { position }) => {
-                Ok(crate::constants::zoom_visca_to_normalized(position))
-            }
+            ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition {
+                position,
+            }) => Ok(crate::constants::zoom_visca_to_normalized(position)),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }

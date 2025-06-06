@@ -161,11 +161,11 @@ pub trait ViscaWhiteBalanceExt: ViscaTransportExt {
         // Set red gain
         let r_command = RedGainCommand::Direct(r_gain);
         self.send_command(&r_command)?;
-        
+
         // Set blue gain
         let b_command = BlueGainCommand::Direct(b_gain);
         self.send_command(&b_command)?;
-        
+
         Ok(())
     }
 

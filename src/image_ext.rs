@@ -59,7 +59,7 @@ pub trait ViscaImageExt: ViscaTransportExt {
         let command = match level {
             None => NoiseReduction2DCommand::Off,
             Some(lvl) => {
-                if lvl < 1 || lvl > 5 {
+                if !(1..=5).contains(&lvl) {
                     return Err(ViscaError::InvalidParameter(
                         "2D noise reduction level must be 1-5".into(),
                     ));
@@ -92,7 +92,7 @@ pub trait ViscaImageExt: ViscaTransportExt {
         let command = match level {
             None => NoiseReduction3DCommand::Off,
             Some(lvl) => {
-                if lvl < 1 || lvl > 8 {
+                if !(1..=8).contains(&lvl) {
                     return Err(ViscaError::InvalidParameter(
                         "3D noise reduction level must be 1-8".into(),
                     ));

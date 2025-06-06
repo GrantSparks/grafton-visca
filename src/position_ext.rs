@@ -4,8 +4,7 @@
 use crate::{
     command::InquiryCommand,
     constants::{
-        CameraModel, DegreePosition, NormalizedPosition, PositionConversion,
-        ViscaPosition,
+        CameraModel, DegreePosition, NormalizedPosition, PositionConversion, ViscaPosition,
     },
     error::ViscaError,
     pan_tilt_ext::ViscaPanTiltExt,
@@ -167,8 +166,8 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
     /// // Move using 30X camera model parameters
     /// transport.move_to_degrees_for_model(
-    ///     45.0, 
-    ///     30.0, 
+    ///     45.0,
+    ///     30.0,
     ///     CameraModel::PTZOptics30X,
     ///     Some((12, 12))
     /// )?;
