@@ -260,3 +260,43 @@ async fn test_async_command_sequence() {
 
     assert_eq!(transport.command_count().await, 3);
 }
+
+#[tokio::test]
+async fn test_mock_transport_utilities() {
+    // This test demonstrates the utility methods of MockAsyncTransport
+    let mut transport = MockAsyncTransport::new()
+        .with_delay(5);  // Use the with_delay builder method
+    
+    // Use add_response to queue a custom response
+    transport.add_response(vec![0x90, 0x60, 0x02, 0xFF]).await; // Syntax error
+    
+    // Send a command and verify we get the error
+    let command = PowerCommand { power: Power::On };
+    transport.send_command(&command).await.unwrap();
+    
+    let responses = transport.receive_response().await.unwrap();
+    assert_eq!(responses[0], vec![0x90, 0x60, 0x02, 0xFF]);
+    
+    // Verify command count
+    assert_eq!(transport.command_count().await, 1);
+}
+
+#[tokio::test]
+async fn test_mock_transport_ack_completion_helper() {
+    // Demonstrates the add_ack_completion helper method
+    let mut transport = MockAsyncTransport::new();
+    
+    // Use the helper to add both ACK and completion
+    transport.add_ack_completion(0).await;
+    
+    let command = ZoomCommand::Stop;
+    transport.send_command(&command).await.unwrap();
+    
+    // Should get ACK
+    let ack = transport.receive_response().await.unwrap();
+    assert_eq!(ack[0], vec![0x90, 0x40, 0xFF]);
+    
+    // Should get completion
+    let completion = transport.receive_response().await.unwrap();
+    assert_eq!(completion[0], vec![0x90, 0x50, 0xFF]);
+}

@@ -202,3 +202,30 @@ fn test_rapid_command_timing() {
 
     assert_eq!(device.commands_sent().len(), 5);
 }
+
+#[test]
+fn test_command_history_clearing() {
+    // Demonstrates the use of clear_commands() for testing command sequences
+    let mut transport = MockTransport::new();
+    
+    // Add responses for multiple operations
+    transport.add_ack_completion(0);
+    transport.add_ack_completion(0);
+    
+    let mut device = MockDevice::from_transport(transport);
+    
+    // Phase 1: Initial commands
+    device.execute_command(&PowerCommand { power: Power::On }).unwrap();
+    assert_eq!(device.commands_sent().len(), 1);
+    
+    // Clear history to test next phase independently
+    device.clear_commands();
+    
+    // Phase 2: Verify clean slate
+    device.execute_command(&ZoomCommand::Stop).unwrap();
+    assert_eq!(device.commands_sent().len(), 1); // Only the new command
+    assert_eq!(
+        device.last_command().unwrap(),
+        vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]
+    );
+}
