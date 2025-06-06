@@ -8,9 +8,11 @@ mod common;
 use common::{MockDevice, MockTransport};
 use grafton_visca::{
     command::{
-        pan_tilt::PanTiltCommand, power::{Power, PowerCommand}, InquiryCommand,
+        pan_tilt::PanTiltCommand,
+        power::{Power, PowerCommand},
+        InquiryCommand,
     },
-    ViscaCommand, ViscaDevice, ViscaError, ViscaInquiryResponse, ViscaResponse,
+    ViscaDevice, ViscaError, ViscaInquiryResponse, ViscaResponse,
 };
 
 #[test]
@@ -18,13 +20,13 @@ fn test_ack_then_completion_sequence() {
     // Simulate ACK followed by completion for socket 0
     let mut transport = MockTransport::new();
     transport.add_ack_completion(0);
-    
+
     let mut device = MockDevice::from_transport(transport);
     let result = device.execute_command(&PanTiltCommand::Home);
-    
+
     assert!(result.is_ok());
     assert!(matches!(result.unwrap(), ViscaResponse::Completion));
-    
+
     // Verify command was sent
     let commands = device.commands_sent();
     assert_eq!(commands.len(), 1);
@@ -35,12 +37,12 @@ fn test_ack_then_completion_sequence() {
 fn test_command_error_handling() {
     // Simulate ACK followed by error
     let mut transport = MockTransport::new();
-    transport.add_response(vec![0x90, 0x41, 0xFF]);       // ACK on socket 1
+    transport.add_response(vec![0x90, 0x41, 0xFF]); // ACK on socket 1
     transport.add_response(vec![0x90, 0x60, 0x41, 0xFF]); // Command Not Executable error
-    
+
     let mut device = MockDevice::from_transport(transport);
     let result = device.execute_command(&PowerCommand { power: Power::On });
-    
+
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
@@ -53,10 +55,10 @@ fn test_inquiry_direct_response() {
     // Inquiry commands should not receive ACK, just direct response
     let mut transport = MockTransport::new();
     transport.add_response(vec![0x90, 0x50, 0x02, 0xFF]); // Power ON response
-    
+
     let mut device = MockDevice::from_transport(transport);
     let result = device.execute_command(&InquiryCommand::Power);
-    
+
     assert!(result.is_ok());
     match result.unwrap() {
         ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => {
@@ -73,13 +75,13 @@ fn test_pan_tilt_position_inquiry() {
     transport.add_response(vec![
         0x90, 0x50, // Header
         0x01, 0x02, 0x03, 0x04, // Pan position
-        0x05, 0x06, 0x07, 0x08, // Tilt position  
+        0x05, 0x06, 0x07, 0x08, // Tilt position
         0xFF,
     ]);
-    
+
     let mut device = MockDevice::from_transport(transport);
     let result = device.execute_command(&InquiryCommand::PanTiltPosition);
-    
+
     assert!(result.is_ok());
     match result.unwrap() {
         ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
@@ -96,17 +98,17 @@ fn test_multiple_socket_handling() {
     let mut transport = MockTransport::new();
     transport.add_ack_completion(0); // First command uses socket 0
     transport.add_ack_completion(1); // Second command uses socket 1
-    
+
     let mut device = MockDevice::from_transport(transport);
-    
+
     // First command
     let result1 = device.execute_command(&PanTiltCommand::Home);
     assert!(result1.is_ok());
-    
+
     // Second command would use socket 1
     let result2 = device.execute_command(&PowerCommand { power: Power::On });
     assert!(result2.is_ok());
-    
+
     // Verify both commands were sent
     assert_eq!(device.commands_sent().len(), 2);
 }
@@ -116,11 +118,11 @@ fn test_timeout_on_missing_completion() {
     // Simulate ACK but no completion (timeout scenario)
     let mut transport = MockTransport::new();
     transport.add_response(vec![0x90, 0x40, 0xFF]); // ACK on socket 0
-    // No completion - should timeout
-    
+                                                    // No completion - should timeout
+
     let mut device = MockDevice::from_transport(transport);
     let result = device.execute_command(&PanTiltCommand::Home);
-    
+
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), ViscaError::Timeout));
 }
@@ -130,13 +132,10 @@ fn test_socket_buffer_full_error() {
     // Simulate command buffer full error
     let mut transport = MockTransport::new();
     transport.add_response(vec![0x90, 0x60, 0x03, 0xFF]); // Command Buffer Full error (code 0x03)
-    
+
     let mut device = MockDevice::from_transport(transport);
     let result = device.execute_command(&PanTiltCommand::Home);
-    
+
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        ViscaError::CommandBufferFull
-    ));
+    assert!(matches!(result.unwrap_err(), ViscaError::CommandBufferFull));
 }

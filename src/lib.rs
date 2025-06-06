@@ -367,7 +367,7 @@ pub use crate::{
     // },
     // TODO: Re-export async transports after updating them
     // async_tcp_transport::AsyncTcpTransport,
-    async_transport::{AsyncViscaTransport, TransportFuture},
+    async_transport::TransportFuture,
     // async_udp_transport::AsyncUdpTransport,
     async_visca_ext::{AsyncViscaExt, PanScanDirection},
     connection::AsyncConnectionManagement,

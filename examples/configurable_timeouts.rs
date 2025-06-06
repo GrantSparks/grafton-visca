@@ -4,6 +4,9 @@
 //! durations for various categories of VISCA commands, allowing fine-tuned
 //! control over command execution timeouts.
 
+// TODO: Update imports when example is re-enabled
+// Currently unused imports commented out to satisfy clippy
+/*
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
@@ -14,6 +17,7 @@ use grafton_visca::{
 };
 use std::error::Error;
 use std::time::Duration;
+*/
 
 // TODO: Update this example for v0.5.0 - configurable timeouts are not yet available in ViscaClient
 fn main() {
@@ -147,8 +151,15 @@ fn demonstrate_preset_command(client: &mut ViscaClient) -> Result<(), Box<dyn Er
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use grafton_visca::command::CommandCategory;
+    use grafton_visca::{
+        command::{
+            pan_tilt::PanTiltCommand,
+            preset::{PresetAction, PresetCommand, PresetNumber},
+            InquiryCommand, CommandCategory,
+        },
+        TimeoutConfigBuilder,
+    };
+    use std::time::Duration;
 
     #[test]
     fn test_timeout_configuration() {

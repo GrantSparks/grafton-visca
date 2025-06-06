@@ -9,12 +9,12 @@
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, TiltSpeed},
-        InquiryCommand, PanTiltCommand,
+        PanTiltCommand,
     },
     constants::{
         self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
-    ViscaClient, ViscaInquiryResponse, ViscaResponse,
+    ViscaClient,
 };
 use log::{error, info};
 use std::env;
@@ -142,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         constants::validate_pan_position(target_visca.pan, model),
         constants::validate_tilt_position(target_visca.tilt, model),
     ) {
-        let command = PanTiltCommand::AbsolutePosition {
+        let _command = PanTiltCommand::AbsolutePosition {
             pan: target_visca.pan,
             tilt: target_visca.tilt,
             pan_speed: PanSpeed::new(constants::speed::PAN_SPEED_DEFAULT).unwrap(),
