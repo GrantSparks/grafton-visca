@@ -1,6 +1,5 @@
 //! High-level extension trait for exposure control operations.
 
-// Crate imports
 use crate::{
     command::{
         BacklightCommand, BrightCommand, ExposureCommand, ExposureCompensationCommand,
@@ -8,7 +7,7 @@ use crate::{
         ShutterCommand,
     },
     error::ViscaError,
-    ViscaDevice, ViscaResponse,
+    execute_command, ViscaDevice,
 };
 
 /// Extension trait providing high-level exposure control methods.
@@ -35,13 +34,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), ViscaError> {
-        let command = ExposureCommand { mode };
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, ExposureCommand { mode })
     }
 
     /// Set the exposure compensation level.
@@ -66,13 +59,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// ```
     fn set_exposure_compensation(&mut self, level: i8) -> Result<(), ViscaError> {
         let compensation_level = ExposureCompensationLevel::new(level)?;
-        let command = ExposureCompensationCommand::Direct(compensation_level);
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(
+            self,
+            ExposureCompensationCommand::Direct(compensation_level)
+        )
     }
 
     /// Enable or disable exposure compensation.
@@ -101,12 +91,7 @@ pub trait ViscaExposureExt: ViscaDevice {
         } else {
             ExposureCompensationCommand::Off
         };
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, command)
     }
 
     /// Reset exposure compensation to 0.
@@ -120,13 +105,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn reset_exposure_compensation(&mut self) -> Result<(), ViscaError> {
-        let command = ExposureCompensationCommand::Reset;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, ExposureCompensationCommand::Reset)
     }
 
     /// Increase exposure compensation by one step.
@@ -140,13 +119,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn exposure_compensation_up(&mut self) -> Result<(), ViscaError> {
-        let command = ExposureCompensationCommand::Up;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, ExposureCompensationCommand::Up)
     }
 
     /// Decrease exposure compensation by one step.
@@ -160,13 +133,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn exposure_compensation_down(&mut self) -> Result<(), ViscaError> {
-        let command = ExposureCompensationCommand::Down;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, ExposureCompensationCommand::Down)
     }
 
     /// Set the iris value.
@@ -187,13 +154,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn set_iris(&mut self, value: u8) -> Result<(), ViscaError> {
-        let command = IrisCommand::Direct(value);
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, IrisCommand::Direct(value))
     }
 
     /// Increase iris opening (brighter).
@@ -207,13 +168,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn iris_up(&mut self) -> Result<(), ViscaError> {
-        let command = IrisCommand::Up;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, IrisCommand::Up)
     }
 
     /// Decrease iris opening (darker).
@@ -227,13 +182,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn iris_down(&mut self) -> Result<(), ViscaError> {
-        let command = IrisCommand::Down;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, IrisCommand::Down)
     }
 
     /// Reset iris to default.
@@ -247,43 +196,31 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn iris_reset(&mut self) -> Result<(), ViscaError> {
-        let command = IrisCommand::Reset;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, IrisCommand::Reset)
     }
 
     /// Set the shutter speed.
     ///
     /// # Arguments
-    /// * `value` - The shutter speed value (0x01 to 0x11)
+    /// * `value` - Shutter speed value (0x00 to 0x15)
     ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
-    /// // Set to 1/60
-    /// client.set_shutter_speed(0x06)?;
+    /// // Set shutter to 1/60
+    /// client.set_shutter(0x08)?;
     ///
-    /// // Set to 1/500  
-    /// client.set_shutter_speed(0x0C)?;
+    /// // Set shutter to 1/30
+    /// client.set_shutter(0x06)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn set_shutter_speed(&mut self, value: u16) -> Result<(), ViscaError> {
-        let command = ShutterCommand::Direct(value);
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+    fn set_shutter(&mut self, value: u8) -> Result<(), ViscaError> {
+        execute_command!(self, ShutterCommand::Direct(value.into()))
     }
 
-    /// Increase shutter speed (faster/darker).
+    /// Increase shutter speed (faster, darker).
     ///
     /// # Example
     /// ```no_run
@@ -294,16 +231,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn shutter_up(&mut self) -> Result<(), ViscaError> {
-        let command = ShutterCommand::Up;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, ShutterCommand::Up)
     }
 
-    /// Decrease shutter speed (slower/brighter).
+    /// Decrease shutter speed (slower, brighter).
     ///
     /// # Example
     /// ```no_run
@@ -314,16 +245,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn shutter_down(&mut self) -> Result<(), ViscaError> {
-        let command = ShutterCommand::Down;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, ShutterCommand::Down)
     }
 
-    /// Reset shutter speed.
+    /// Reset shutter to default.
     ///
     /// # Example
     /// ```no_run
@@ -334,73 +259,34 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn shutter_reset(&mut self) -> Result<(), ViscaError> {
-        let command = ShutterCommand::Reset;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, ShutterCommand::Reset)
     }
 
     /// Set the gain value.
     ///
     /// # Arguments
-    /// * `gain` - Gain value (0x00 to 0x07)
+    /// * `value` - Gain value (0x00 to 0x0F)
     ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
-    /// // Set minimal gain
+    /// // Set minimum gain (0 dB)
     /// client.set_gain(0x00)?;
     ///
-    /// // Set moderate gain
-    /// client.set_gain(0x04)?;
+    /// // Set medium gain
+    /// client.set_gain(0x08)?;
     ///
-    /// // Set maximum gain
-    /// client.set_gain(0x07)?;
+    /// // Set maximum gain (48 dB)
+    /// client.set_gain(0x0F)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn set_gain(&mut self, gain: u16) -> Result<(), ViscaError> {
-        let command = GainCommand::Direct(gain);
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+    fn set_gain(&mut self, value: u8) -> Result<(), ViscaError> {
+        execute_command!(self, GainCommand::Direct(value.into()))
     }
 
-    /// Set the gain limit.
-    ///
-    /// # Arguments
-    /// * `limit` - The gain limit (0x0 to 0xF)
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
-    /// // Limit gain to low values
-    /// client.set_gain_limit(0x3)?;
-    ///
-    /// // Allow maximum gain
-    /// client.set_gain_limit(0xF)?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    fn set_gain_limit(&mut self, limit: u8) -> Result<(), ViscaError> {
-        let command = GainLimitCommand { limit };
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
-    }
-
-    /// Increase gain (brighter).
+    /// Increase gain (brighter but more noise).
     ///
     /// # Example
     /// ```no_run
@@ -411,16 +297,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn gain_up(&mut self) -> Result<(), ViscaError> {
-        let command = GainCommand::Up;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, GainCommand::Up)
     }
 
-    /// Decrease gain (darker).
+    /// Decrease gain (darker but less noise).
     ///
     /// # Example
     /// ```no_run
@@ -431,16 +311,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn gain_down(&mut self) -> Result<(), ViscaError> {
-        let command = GainCommand::Down;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, GainCommand::Down)
     }
 
-    /// Reset gain.
+    /// Reset gain to default.
     ///
     /// # Example
     /// ```no_run
@@ -451,43 +325,52 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn gain_reset(&mut self) -> Result<(), ViscaError> {
-        let command = GainCommand::Reset;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, GainCommand::Reset)
     }
 
-    /// Set the brightness level.
+    /// Set the gain limit.
     ///
     /// # Arguments
-    /// * `brightness` - Brightness level (0x00 to 0x11)
+    /// * `limit` - Maximum allowed gain value (0x04 to 0x0F)
     ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
-    /// // Set minimal brightness
-    /// client.set_brightness(0x00)?;
+    /// // Limit gain to 24 dB
+    /// client.set_gain_limit(0x08)?;
     ///
-    /// // Set default brightness
-    /// client.set_brightness(0x08)?;
-    ///
-    /// // Set maximum brightness
-    /// client.set_brightness(0x11)?;
+    /// // Allow full gain range
+    /// client.set_gain_limit(0x0F)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn set_brightness(&mut self, brightness: u16) -> Result<(), ViscaError> {
-        let command = BrightCommand::Direct(brightness);
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+    fn set_gain_limit(&mut self, limit: u8) -> Result<(), ViscaError> {
+        execute_command!(self, GainLimitCommand { limit })
+    }
+
+    /// Set the brightness adjustment.
+    ///
+    /// # Arguments
+    /// * `value` - Brightness value (0x00 to 0x17)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// // Set neutral brightness
+    /// client.set_brightness(0x0C)?;
+    ///
+    /// // Increase brightness
+    /// client.set_brightness(0x10)?;
+    ///
+    /// // Decrease brightness
+    /// client.set_brightness(0x08)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_brightness(&mut self, value: u8) -> Result<(), ViscaError> {
+        execute_command!(self, BrightCommand::Direct(value.into()))
     }
 
     /// Increase brightness.
@@ -501,13 +384,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn brightness_up(&mut self) -> Result<(), ViscaError> {
-        let command = BrightCommand::Up;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, BrightCommand::Up)
     }
 
     /// Decrease brightness.
@@ -521,16 +398,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn brightness_down(&mut self) -> Result<(), ViscaError> {
-        let command = BrightCommand::Down;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, BrightCommand::Down)
     }
 
-    /// Reset brightness.
+    /// Reset brightness to default.
     ///
     /// # Example
     /// ```no_run
@@ -541,13 +412,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn brightness_reset(&mut self) -> Result<(), ViscaError> {
-        let command = BrightCommand::Reset;
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
-        }
-        Ok(())
+        execute_command!(self, BrightCommand::Reset)
     }
 
     /// Enable or disable backlight compensation.
@@ -559,24 +424,86 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
-    /// // Enable backlight compensation
-    /// client.set_backlight_compensation(true)?;
+    /// // Enable backlight compensation for subjects against bright backgrounds
+    /// client.set_backlight(true)?;
     ///
     /// // Disable backlight compensation
-    /// client.set_backlight_compensation(false)?;
+    /// client.set_backlight(false)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn set_backlight_compensation(&mut self, enabled: bool) -> Result<(), ViscaError> {
-        let command = BacklightCommand { status: enabled };
-        match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+    fn set_backlight(&mut self, enabled: bool) -> Result<(), ViscaError> {
+        execute_command!(self, BacklightCommand { status: enabled })
+    }
+
+    /// Configure exposure settings for common scenarios.
+    ///
+    /// # Arguments
+    /// * `preset` - The exposure preset to apply
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # use grafton_visca::command::exposure::ExposureMode;
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// // Configure for bright daylight
+    /// client.configure_exposure_preset(ExposurePreset::BrightDaylight)?;
+    ///
+    /// // Configure for indoor lighting
+    /// client.configure_exposure_preset(ExposurePreset::Indoor)?;
+    ///
+    /// // Configure for low light
+    /// client.configure_exposure_preset(ExposurePreset::LowLight)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn configure_exposure_preset(&mut self, preset: ExposurePreset) -> Result<(), ViscaError> {
+        match preset {
+            ExposurePreset::BrightDaylight => {
+                self.set_exposure_mode(ExposureMode::Auto)?;
+                self.set_gain_limit(0x04)?; // Limit gain to reduce noise
+                self.set_iris(0x08)?; // F5.6
+                self.set_backlight(false)?;
+            }
+            ExposurePreset::Indoor => {
+                self.set_exposure_mode(ExposureMode::Auto)?;
+                self.set_gain_limit(0x08)?; // Allow moderate gain
+                self.set_iris(0x0A)?; // F2.8
+                self.set_backlight(false)?;
+            }
+            ExposurePreset::LowLight => {
+                self.set_exposure_mode(ExposureMode::Auto)?;
+                self.set_gain_limit(0x0F)?; // Allow full gain
+                self.set_iris(0x0C)?; // F1.8 (most open)
+                self.set_backlight(false)?;
+            }
+            ExposurePreset::Backlit => {
+                self.set_exposure_mode(ExposureMode::Auto)?;
+                self.set_gain_limit(0x08)?;
+                self.set_backlight(true)?;
+            }
+            ExposurePreset::Manual => {
+                self.set_exposure_mode(ExposureMode::Manual)?;
+                // User will control individual settings
+            }
         }
         Ok(())
     }
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
+/// Common exposure presets for different scenarios.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExposurePreset {
+    /// Bright outdoor daylight
+    BrightDaylight,
+    /// Indoor lighting
+    Indoor,
+    /// Low light conditions
+    LowLight,
+    /// Subject against bright background
+    Backlit,
+    /// Manual control
+    Manual,
+}
+
 impl<T: ViscaDevice> ViscaExposureExt for T {}

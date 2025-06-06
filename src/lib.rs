@@ -2,7 +2,6 @@
 //!
 //! A production-ready Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
 #![warn(missing_docs)]
-#![allow(missing_docs)] // Temporary allow for Phase G - will be addressed incrementally
 #![warn(
     clippy::all,
     clippy::pedantic,
@@ -10,31 +9,13 @@
     clippy::cargo,
     rust_2018_idioms
 )]
+// Targeted allows for legitimate patterns
 #![allow(
-    clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::redundant_pub_crate,
-    clippy::cargo_common_metadata,
-    clippy::use_self,
-    clippy::cast_sign_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_lossless,
-    clippy::significant_drop_tightening,
-    clippy::wildcard_imports,
-    clippy::missing_const_for_fn,
-    clippy::derive_partial_eq_without_eq,
-    clippy::match_same_arms,
-    clippy::too_many_lines,
-    clippy::match_wild_err_arm,
-    clippy::cast_possible_wrap,
-    clippy::items_after_statements,
-    clippy::uninlined_format_args,
-    clippy::return_self_not_must_use,
-    clippy::float_cmp,
-    clippy::wildcard_enum_match_arm,
-    clippy::single_match_else
+    clippy::module_name_repetitions, // Common in Rust APIs (e.g., ViscaCommand, ViscaError)
+    clippy::must_use_candidate,      // We'll add #[must_use] where appropriate
+    clippy::missing_errors_doc,      // Temporarily allowed while adding docs
+    clippy::missing_panics_doc,      // Temporarily allowed while adding docs
+    missing_docs                     // Temporarily allowed while adding docs
 )]
 //!
 //! ## What is VISCA?
@@ -249,24 +230,22 @@
 //! ```
 //!
 
-// Standard library imports
-// (none currently needed at module level)
-
-// Module declarations
+// Public modules
 pub mod command;
-/// Connection management for VISCA communications.
 pub mod connection;
-/// Connection pooling for managing multiple VISCA cameras.
 pub mod connection_pool;
 pub mod constants;
 pub mod macros;
-#[cfg(feature = "async-client")]
-pub mod reconnecting_transport;
 pub mod timeout;
 pub mod transport;
 
-// TODO: Update camera_detection to use new transport system
-// mod camera_detection;
+#[cfg(feature = "async-client")]
+pub mod async_transport;
+
+#[cfg(feature = "async-client")]
+pub mod reconnecting_transport;
+
+// Private modules
 mod error;
 mod exposure_ext;
 mod focus_ext;
@@ -281,63 +260,40 @@ mod transport_ext;
 mod white_balance_ext;
 mod zoom_ext;
 
+#[cfg(feature = "async-client")]
+mod async_visca_ext;
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+mod ptz_builder;
+
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod sync_primitives;
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod unified_client;
 
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-mod ptz_builder;
-
-// TODO: Update async_client to use new transport system
-// #[cfg(feature = "async-client")]
-// mod async_client;
-
-// TODO: Update async_connection_pool to use new transport system
-// #[cfg(feature = "async-client")]
-// mod async_connection_pool;
-
-// TODO: Update async_control_ext to use new transport system
-// #[cfg(feature = "async-client")]
-// mod async_control_ext;
-
-// TODO: Update async_inquiry_ext to use new transport system
-// #[cfg(feature = "async-client")]
-// mod async_inquiry_ext;
-
-// TODO: Update async_reconnecting_transport to use new transport system
-// #[cfg(feature = "async-client")]
-// mod async_reconnecting_transport;
-
-// TODO: Update async_tcp_transport to use new transport system
-// #[cfg(feature = "async-client")]
-// mod async_tcp_transport;
-
-#[cfg(feature = "async-client")]
-/// Asynchronous transport implementations for VISCA protocol.
-pub mod async_transport;
-
-// TODO: Update async_udp_transport to use new transport system
-// #[cfg(feature = "async-client")]
-// mod async_udp_transport;
-
-#[cfg(feature = "async-client")]
-mod async_visca_ext;
-
-// Public re-exports
+// Core re-exports
 pub use crate::{
-    // camera_detection::detect_camera_model,
     command::{
         pan_tilt::PanTiltDirection,
         response::{parse_visca_response, ViscaResponse},
         ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
     },
+    error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
+    session::ViscaSession,
+};
+
+// Connection and pooling re-exports
+pub use crate::{
     connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
     connection_pool::{
         CameraInfo, ConnectionType, PoolConfig, PooledCameraStats, ViscaConnectionPool,
     },
-    error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
+    timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
+};
+
+// Extension trait re-exports
+pub use crate::{
     exposure_ext::ViscaExposureExt,
     focus_ext::ViscaFocusExt,
     image_ext::{ImagePreset, ViscaImageExt},
@@ -349,32 +305,28 @@ pub use crate::{
     position_ext::ViscaPositionExt,
     power_ext::ViscaPowerExt,
     preset_ext::ViscaPresetExt,
-    session::ViscaSession,
-    timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
     transport_ext::ViscaTransportExt,
     white_balance_ext::{ViscaWhiteBalanceExt, WhiteBalancePreset},
     zoom_ext::ViscaZoomExt,
 };
 
-#[cfg(feature = "async-client")]
-pub use crate::{
-    // TODO: Update async_client and re-export after updating to new transport system
-    // async_client::AsyncViscaClient,
-    connection_pool::AsyncViscaConnectionPool,
-    // TODO: Re-export async transports after updating them
-    // async_tcp_transport::AsyncTcpTransport,
-    async_transport::TransportFuture,
-    // async_udp_transport::AsyncUdpTransport,
-    async_visca_ext::{AsyncViscaExt, PanScanDirection},
-    connection::AsyncConnectionManagement,
-    reconnecting_transport::{
-        ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
-    },
-};
+// Unified client re-exports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use crate::{
     ptz_builder::PtzBuilder,
     unified_client::{ViscaClient, ViscaClientPtzExt},
+};
+
+// Async-specific re-exports
+#[cfg(feature = "async-client")]
+pub use crate::{
+    async_transport::TransportFuture,
+    async_visca_ext::{AsyncViscaExt, PanScanDirection},
+    connection::AsyncConnectionManagement,
+    connection_pool::AsyncViscaConnectionPool,
+    reconnecting_transport::{
+        ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
+    },
 };
 
 /// Core trait for types that can send and receive VISCA commands.
