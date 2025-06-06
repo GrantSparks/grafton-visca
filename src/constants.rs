@@ -170,21 +170,11 @@ pub trait CameraConstants {
 
 impl CameraConstants for CameraModel {
     fn pan_range(&self) -> (i16, i16) {
-        match self {
-            CameraModel::PTZOpticsG2 | CameraModel::PTZOpticsG3 | CameraModel::PTZOptics30X => {
-                (position::PAN_MIN, position::PAN_MAX)
-            }
-            CameraModel::Unknown => (position::PAN_MIN, position::PAN_MAX),
-        }
+        (position::PAN_MIN, position::PAN_MAX)
     }
 
     fn tilt_range(&self) -> (i16, i16) {
-        match self {
-            CameraModel::PTZOpticsG2 | CameraModel::PTZOpticsG3 | CameraModel::PTZOptics30X => {
-                (position::TILT_MIN, position::TILT_MAX)
-            }
-            CameraModel::Unknown => (position::TILT_MIN, position::TILT_MAX),
-        }
+        (position::TILT_MIN, position::TILT_MAX)
     }
 
     fn zoom_range(&self) -> (u16, u16) {
@@ -199,19 +189,15 @@ impl CameraConstants for CameraModel {
 
     fn pan_degrees(&self) -> f32 {
         match self {
-            CameraModel::PTZOpticsG2 => position::PAN_DEGREES_G2,
-            CameraModel::PTZOpticsG3 => position::PAN_DEGREES_G2,
+            CameraModel::PTZOpticsG2 | CameraModel::PTZOpticsG3 | CameraModel::Unknown => position::PAN_DEGREES_G2,
             CameraModel::PTZOptics30X => position::PAN_DEGREES_30X,
-            CameraModel::Unknown => position::PAN_DEGREES_G2,
         }
     }
 
     fn tilt_degrees(&self) -> f32 {
         match self {
-            CameraModel::PTZOpticsG2 => position::TILT_DEGREES_G2,
-            CameraModel::PTZOpticsG3 => position::TILT_DEGREES_G2,
+            CameraModel::PTZOpticsG2 | CameraModel::PTZOpticsG3 | CameraModel::Unknown => position::TILT_DEGREES_G2,
             CameraModel::PTZOptics30X => position::TILT_DEGREES_30X,
-            CameraModel::Unknown => position::TILT_DEGREES_G2,
         }
     }
 
@@ -436,18 +422,21 @@ pub fn validate_preset_id(id: u8) -> Result<u8, ViscaError> {
 
 /// Convert normalized pan value (-1.0 to 1.0) to VISCA units
 #[inline]
+#[must_use]
 pub fn pan_normalized_to_visca(normalized: f32) -> i16 {
     (normalized.clamp(-1.0, 1.0) * f32::from(position::PAN_MAX)) as i16
 }
 
 /// Convert VISCA pan units to normalized value (-1.0 to 1.0)
 #[inline]
+#[must_use]
 pub fn pan_visca_to_normalized(visca: i16) -> f32 {
     f32::from(visca) / f32::from(position::PAN_MAX)
 }
 
 /// Convert pan degrees to VISCA units (assumes G2 camera)
 #[inline]
+#[must_use]
 pub fn pan_degrees_to_visca(degrees: f32) -> i16 {
     let normalized = degrees / (position::PAN_DEGREES_G2 / 2.0);
     pan_normalized_to_visca(normalized)
@@ -455,6 +444,7 @@ pub fn pan_degrees_to_visca(degrees: f32) -> i16 {
 
 /// Convert VISCA pan units to degrees (assumes G2 camera)
 #[inline]
+#[must_use]
 pub fn pan_visca_to_degrees(visca: i16) -> f32 {
     let normalized = pan_visca_to_normalized(visca);
     normalized * (position::PAN_DEGREES_G2 / 2.0)
@@ -462,18 +452,21 @@ pub fn pan_visca_to_degrees(visca: i16) -> f32 {
 
 /// Convert tilt normalized value (-1.0 to 1.0) to VISCA units
 #[inline]
+#[must_use]
 pub fn tilt_normalized_to_visca(normalized: f32) -> i16 {
     (normalized.clamp(-1.0, 1.0) * f32::from(position::TILT_MAX)) as i16
 }
 
 /// Convert VISCA tilt units to normalized value (-1.0 to 1.0)
 #[inline]
+#[must_use]
 pub fn tilt_visca_to_normalized(visca: i16) -> f32 {
     f32::from(visca) / f32::from(position::TILT_MAX)
 }
 
 /// Convert tilt degrees to VISCA units (assumes G2 camera)
 #[inline]
+#[must_use]
 pub fn tilt_degrees_to_visca(degrees: f32) -> i16 {
     let normalized = degrees / (position::TILT_DEGREES_G2 / 2.0);
     tilt_normalized_to_visca(normalized)
@@ -481,6 +474,7 @@ pub fn tilt_degrees_to_visca(degrees: f32) -> i16 {
 
 /// Convert VISCA tilt units to degrees (assumes G2 camera)
 #[inline]
+#[must_use]
 pub fn tilt_visca_to_degrees(visca: i16) -> f32 {
     let normalized = tilt_visca_to_normalized(visca);
     normalized * (position::TILT_DEGREES_G2 / 2.0)
@@ -488,18 +482,21 @@ pub fn tilt_visca_to_degrees(visca: i16) -> f32 {
 
 /// Convert zoom normalized value (0.0 to 1.0) to VISCA units
 #[inline]
+#[must_use]
 pub fn zoom_normalized_to_visca(normalized: f32) -> u16 {
     (normalized.clamp(0.0, 1.0) * f32::from(zoom::ZOOM_MAX_20X)) as u16
 }
 
 /// Convert VISCA zoom units to normalized value (0.0 to 1.0)
 #[inline]
+#[must_use]
 pub fn zoom_visca_to_normalized(visca: u16) -> f32 {
     f32::from(visca) / f32::from(zoom::ZOOM_MAX_20X)
 }
 
 /// Convert zoom magnification (1x to 20x) to VISCA units
 #[inline]
+#[must_use]
 pub fn zoom_magnification_to_visca(magnification: f32) -> u16 {
     let normalized = (magnification.clamp(1.0, 20.0) - 1.0) / 19.0;
     zoom_normalized_to_visca(normalized)
@@ -507,6 +504,7 @@ pub fn zoom_magnification_to_visca(magnification: f32) -> u16 {
 
 /// Convert VISCA zoom units to magnification (1x to 20x)
 #[inline]
+#[must_use]
 pub fn zoom_visca_to_magnification(visca: u16) -> f32 {
     let normalized = zoom_visca_to_normalized(visca);
     normalized.mul_add(19.0, 1.0)
@@ -514,6 +512,7 @@ pub fn zoom_visca_to_magnification(visca: u16) -> f32 {
 
 /// Convert focus normalized value (0.0 to 1.0) to VISCA units
 #[inline]
+#[must_use]
 pub fn focus_normalized_to_visca(normalized: f32) -> u16 {
     let range = f32::from(focus::FOCUS_MAX - focus::FOCUS_MIN);
     focus::FOCUS_MIN + (normalized.clamp(0.0, 1.0) * range) as u16
@@ -521,6 +520,7 @@ pub fn focus_normalized_to_visca(normalized: f32) -> u16 {
 
 /// Convert VISCA focus units to normalized value (0.0 to 1.0)
 #[inline]
+#[must_use]
 pub fn focus_visca_to_normalized(visca: u16) -> f32 {
     let clamped = visca.clamp(focus::FOCUS_MIN, focus::FOCUS_MAX);
     let range = f32::from(focus::FOCUS_MAX - focus::FOCUS_MIN);
@@ -529,18 +529,21 @@ pub fn focus_visca_to_normalized(visca: u16) -> f32 {
 
 /// Convert speed normalized value (0.0 to 1.0) to VISCA pan speed units
 #[inline]
+#[must_use]
 pub fn pan_speed_normalized_to_visca(normalized: f32) -> u8 {
     (normalized.clamp(0.0, 1.0) * f32::from(speed::PAN_SPEED_MAX)) as u8
 }
 
 /// Convert speed normalized value (0.0 to 1.0) to VISCA tilt speed units
 #[inline]
+#[must_use]
 pub fn tilt_speed_normalized_to_visca(normalized: f32) -> u8 {
     (normalized.clamp(0.0, 1.0) * f32::from(speed::TILT_SPEED_MAX)) as u8
 }
 
 /// Convert speed normalized value (0.0 to 1.0) to VISCA zoom speed units
 #[inline]
+#[must_use]
 pub fn zoom_speed_normalized_to_visca(normalized: f32) -> u8 {
     (normalized.clamp(0.0, 1.0) * f32::from(speed::ZOOM_SPEED_MAX)) as u8
 }
