@@ -2,6 +2,14 @@
 //!
 //! This module provides macros to simplify the creation of VISCA commands,
 //! reducing repetitive code while maintaining type safety and clarity.
+//!
+//! ## Available Macros
+//!
+//! - `visca_command!` - Create simple command enums
+//! - `visca_param_command!` - Create commands with parameters
+//! - `visca_inquiry!` - Create inquiry commands with response parsing
+//! - `execute_command!` - Execute a command with standard error handling
+//! - `impl_up_down_reset!` - Generate up/down/reset method triplets
 
 /// Create a simple VISCA command enum with byte sequences.
 ///
@@ -195,6 +203,110 @@ macro_rules! visca_inquiry {
                     _ => $crate::timeout::CommandCategory::Custom,
                 }
             }
+        }
+    };
+}
+
+/// Execute a VISCA command with standard error handling.
+///
+/// This macro consolidates the common pattern of executing a command and handling
+/// the response, reducing 5 lines of boilerplate to a single macro call.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::execute_command;
+///
+/// fn zoom_in(&mut self) -> Result<(), ViscaError> {
+///     execute_command!(self, ZoomCommand::TeleStandard)
+/// }
+/// ```
+#[macro_export]
+macro_rules! execute_command {
+    ($device:expr, $command:expr) => {
+        match $device.execute_command(&$command)? {
+            $crate::ViscaResponse::Completion => Ok(()),
+            $crate::ViscaResponse::Error(e) => Err(e),
+            _ => Err($crate::ViscaError::UnexpectedResponseType),
+        }
+    };
+}
+
+/// Generate up/down/reset method triplets for camera controls.
+///
+/// This macro creates three methods following the common pattern used for
+/// controls like iris, shutter, gain, brightness, etc.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::impl_up_down_reset;
+///
+/// impl ViscaExposureExt for MyDevice {
+///     impl_up_down_reset!(iris, IrisCommand);
+///     // Generates: iris_up(), iris_down(), iris_reset()
+/// }
+/// ```
+#[macro_export]
+macro_rules! impl_up_down_reset {
+    ($prefix:ident, $command_type:ty) => {
+        fn [<$prefix _up>](&mut self) -> Result<(), $crate::ViscaError> {
+            $crate::execute_command!(self, <$command_type>::Up)
+        }
+
+        fn [<$prefix _down>](&mut self) -> Result<(), $crate::ViscaError> {
+            $crate::execute_command!(self, <$command_type>::Down)
+        }
+
+        fn [<$prefix _reset>](&mut self) -> Result<(), $crate::ViscaError> {
+            $crate::execute_command!(self, <$command_type>::Reset)
+        }
+    };
+}
+
+/// Generate simple command methods that just execute a command.
+///
+/// This macro creates methods that construct and execute a command variant.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::impl_simple_command;
+///
+/// impl ViscaImageExt for MyDevice {
+///     impl_simple_command!(flip_horizontal_on, FlipCommand::HorizontalOn);
+///     impl_simple_command!(flip_horizontal_off, FlipCommand::HorizontalOff);
+/// }
+/// ```
+#[macro_export]
+macro_rules! impl_simple_command {
+    ($method_name:ident, $command:expr) => {
+        fn $method_name(&mut self) -> Result<(), $crate::ViscaError> {
+            $crate::execute_command!(self, $command)
+        }
+    };
+}
+
+/// Generate command methods with optional speed parameters.
+///
+/// This macro creates methods that accept an optional speed parameter with validation.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::impl_speed_command;
+///
+/// impl ViscaFocusExt for MyDevice {
+///     impl_speed_command!(focus_near, FocusCommand::Near, FocusSpeed);
+///     impl_speed_command!(focus_far, FocusCommand::Far, FocusSpeed);
+/// }
+/// ```
+#[macro_export]
+macro_rules! impl_speed_command {
+    ($method_name:ident, $command_variant:path, $speed_type:ty) => {
+        fn $method_name(&mut self, speed: Option<$speed_type>) -> Result<(), $crate::ViscaError> {
+            let command = if let Some(s) = speed {
+                $command_variant(s)
+            } else {
+                $command_variant(<$speed_type>::default())
+            };
+            $crate::execute_command!(self, command)
         }
     };
 }
