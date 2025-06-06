@@ -37,7 +37,7 @@ fn main() -> Result<(), ViscaError> {
     )?;
     println!("Set exposure mode to Auto");
 
-    client.set_backlight_compensation(true)?;
+    ViscaExposureExt::set_backlight(&mut client, true)?;
     println!("Enabled backlight compensation");
 
     client.set_brightness(0x08)?;
