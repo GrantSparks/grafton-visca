@@ -121,7 +121,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::sleep(Duration::from_secs(2));
 
     // Stop all cameras
-    let stop = PanTiltCommand::Stop;
+    let stop = PanTiltCommand::Move {
+        direction: PanTiltDirection::Stop,
+        pan_speed: PanSpeed::new(0).unwrap(),
+        tilt_speed: TiltSpeed::new(0).unwrap(),
+    };
     for camera_id in pool.list_cameras() {
         let _ = pool.execute_command(&camera_id, &stop);
     }
