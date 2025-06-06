@@ -3,15 +3,11 @@
 //! This module provides shared mock implementations and utilities
 //! to avoid code duplication across test files.
 
-use grafton_visca::{
-    ViscaCommand, ViscaError, ViscaResponse,
-};
+use grafton_visca::{ViscaCommand, ViscaError, ViscaResponse};
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
-    command::ViscaResponseType,
-    parse_visca_response,
-    ViscaDevice, ViscaInquiryResponse,
+    command::ViscaResponseType, parse_visca_response, ViscaDevice, ViscaInquiryResponse,
 };
 
 #[cfg(feature = "blocking-client")]
