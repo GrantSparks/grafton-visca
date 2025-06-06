@@ -33,7 +33,7 @@ pub enum ViscaResponse {
 /// Type of expected response for inquiry commands.
 ///
 /// Used to indicate what kind of data parser should expect in the response payload.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViscaResponseType {
     Power,
     PanTiltPosition,
