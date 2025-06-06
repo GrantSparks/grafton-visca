@@ -40,7 +40,7 @@ use crate::{
 /// Direction for pan/tilt movement commands.
 ///
 /// Represents the 8 directional movements plus stop.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PanTiltDirection {
     Up,
     Down,

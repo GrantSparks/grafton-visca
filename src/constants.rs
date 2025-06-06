@@ -124,7 +124,7 @@ pub mod timing {
 }
 
 /// Position represented in VISCA units
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViscaPosition {
     pub pan: i16,
     pub tilt: i16,
