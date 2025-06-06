@@ -1,7 +1,5 @@
 //! Adapters to help migrate from old transport traits to new unified Transport trait
 
-#![allow(deprecated)]
-
 use super::{Transport, TransportFuture};
 use crate::{ViscaCommand, ViscaTransport};
 
@@ -53,3 +51,4 @@ impl<T: ViscaTransport + Send + Sync + 'static> IntoTransport for T {
         LegacyTransportAdapter::new(self)
     }
 }
+

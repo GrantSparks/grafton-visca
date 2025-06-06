@@ -1,7 +1,5 @@
 //! High-level extension trait for white balance control operations.
 
-#![allow(deprecated)]
-
 // Crate imports
 use crate::{
     command::{

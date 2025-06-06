@@ -1,7 +1,5 @@
 //! High-level extension trait for advanced power control operations.
 
-#![allow(deprecated)]
-
 // Crate imports
 use crate::{
     command::InquiryCommand, error::ViscaError, transport_ext::ViscaTransportExt, ViscaResponse,

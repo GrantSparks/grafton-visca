@@ -3,8 +3,6 @@
 //! This module provides functionality to detect the specific model of a VISCA camera
 //! by querying its capabilities and characteristics.
 
-#![allow(deprecated)]
-
 use crate::{
     command::{InquiryCommand, ViscaInquiryResponse},
     constants::CameraModel,
