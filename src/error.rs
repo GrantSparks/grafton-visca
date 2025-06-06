@@ -108,7 +108,7 @@ pub enum ViscaError {
 
 impl ViscaError {
     /// Create a `ViscaError` from a VISCA error response code.
-    pub fn from_code(code: u8) -> Self {
+    pub const fn from_code(code: u8) -> Self {
         use ViscaError::{
             CommandBufferFull, CommandCanceled, CommandNotExecutable, NoSocket, SyntaxError,
             Unknown,
@@ -125,7 +125,7 @@ impl ViscaError {
     }
 
     /// Check if this error is potentially retryable.
-    pub fn is_retryable(&self) -> bool {
+    pub const fn is_retryable(&self) -> bool {
         use ViscaError::{CameraBusy, CameraMoving, CommandBufferFull, CommandTimeout, Timeout};
 
         matches!(
@@ -135,7 +135,7 @@ impl ViscaError {
     }
 
     /// Get a suggested retry delay for retryable errors.
-    pub fn suggested_retry_delay(&self) -> Option<Duration> {
+    pub const fn suggested_retry_delay(&self) -> Option<Duration> {
         use ViscaError::{CameraBusy, CameraMoving, CommandBufferFull, CommandTimeout, Timeout};
 
         match self {

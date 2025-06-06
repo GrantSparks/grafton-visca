@@ -23,7 +23,7 @@ pub enum CommandCategory {
 
 impl CommandCategory {
     /// Returns the default timeout for this category.
-    pub fn default_timeout(&self) -> Duration {
+    pub const fn default_timeout(&self) -> Duration {
         match self {
             CommandCategory::Quick => Duration::from_secs(2),
             CommandCategory::Movement => Duration::from_secs(10),
@@ -63,7 +63,7 @@ impl Default for TimeoutConfig {
 
 impl TimeoutConfig {
     /// Creates a new timeout configuration with all timeouts set to the same value.
-    pub fn uniform(timeout: Duration) -> Self {
+    pub const fn uniform(timeout: Duration) -> Self {
         Self {
             quick_timeout: timeout,
             movement_timeout: timeout,
@@ -74,7 +74,7 @@ impl TimeoutConfig {
     }
 
     /// Gets the timeout for a specific command category.
-    pub fn get_timeout(&self, category: CommandCategory) -> Duration {
+    pub const fn get_timeout(&self, category: CommandCategory) -> Duration {
         match category {
             CommandCategory::Quick => self.quick_timeout,
             CommandCategory::Movement => self.movement_timeout,
@@ -128,7 +128,7 @@ impl TimeoutConfigBuilder {
     }
 
     /// Builds the timeout configuration.
-    pub fn build(self) -> TimeoutConfig {
+    pub const fn build(self) -> TimeoutConfig {
         self.config
     }
 }
