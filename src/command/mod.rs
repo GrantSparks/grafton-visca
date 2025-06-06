@@ -131,87 +131,140 @@ pub enum ViscaInquiryResponse {
         /// Current sharpness mode.
         mode: SharpnessMode,
     },
+    /// Color saturation inquiry response.
     Saturation {
+        /// Saturation level (0x0=60% to 0xE=200%).
         level: u8,
     },
+    /// Color hue inquiry response.
     Hue {
+        /// Hue value (0x0=0 to 0xE=14).
         hue: u8,
     },
 
+    /// Current zoom position inquiry response.
     ZoomPosition {
+        /// Zoom position value.
         position: u16,
     },
+    /// Current focus position inquiry response.
     FocusPosition {
+        /// Focus position value.
         position: u16,
     },
+    /// Focus zone inquiry response.
     FocusZone {
+        /// Current focus zone setting.
         zone: FocusZone,
     },
+    /// Auto-focus sensitivity inquiry response.
     AFSensitivity {
+        /// Current auto-focus sensitivity setting.
         sensitivity: AFSensitivity,
     },
+    /// Focus near limit inquiry response.
     FocusNearLimit {
+        /// Near limit position value.
         position: u16,
     },
 
+    /// Exposure mode inquiry response.
     ExposureMode {
+        /// Current exposure mode (Auto, Manual, Shutter, Iris, or Bright).
         mode: ExposureMode,
     },
+    /// Exposure compensation inquiry response.
     ExposureCompensation {
+        /// Exposure compensation value (-7 to +7).
         value: i8,
     },
+    /// Exposure compensation mode inquiry response.
     ExposureCompensationMode {
+        /// Whether exposure compensation is enabled.
         on: bool,
     },
+    /// Gain inquiry response.
     Gain {
+        /// Gain value (0x00=0 to 0x07=7).
         gain: u8,
     },
+    /// Gain limit inquiry response.
     GainLimit {
+        /// Maximum gain limit (0x0=0 to 0xF=15).
         limit: u8,
     },
+    /// Iris position inquiry response.
     Iris {
+        /// Iris position (0x0=Close to 0xC=F1.8).
         position: u8,
     },
+    /// Shutter speed inquiry response.
     Shutter {
+        /// Shutter position (0x01=1/30 to 0x11=1/10000).
         position: u16,
     },
+    /// Brightness inquiry response.
     Bright {
+        /// Brightness position (0x00=0 to 0x11=17).
         position: u16,
     },
+    /// Backlight compensation inquiry response.
     Backlight {
+        /// Whether backlight compensation is enabled.
         status: bool,
     },
+    /// Anti-flicker mode inquiry response.
     AntiFlicker {
+        /// Current anti-flicker mode (Off, 50Hz, or 60Hz).
         mode: AntiFlickerMode,
     },
 
+    /// White balance mode inquiry response.
     WhiteBalance {
+        /// Current white balance mode.
         mode: WhiteBalanceMode,
     },
+    /// Color temperature inquiry response.
     ColorTemperature {
+        /// Color temperature in Kelvin.
         temperature: u16,
     },
+    /// Red gain tuning inquiry response.
     RedGain {
+        /// Red gain adjustment value (-10 to +10).
         gain: i8,
     },
+    /// Blue gain tuning inquiry response.
     BlueGain {
+        /// Blue gain adjustment value (-10 to +10).
         gain: i8,
     },
 
+    /// Image flip inquiry response.
     ImageFlip {
+        /// Whether vertical flip is enabled.
         vertical: bool,
+        /// Whether horizontal flip is enabled.
         horizontal: bool,
     },
+    /// Black and white mode inquiry response.
     BlackWhite {
+        /// Whether black and white mode is enabled.
         on: bool,
     },
+    /// 2D noise reduction inquiry response.
     NoiseReduction2D {
+        /// 2D noise reduction level.
         level: u8,
     },
+    /// 3D noise reduction inquiry response.
     NoiseReduction3D {
+        /// 3D noise reduction level.
         level: u8,
     },
+    /// Dynamic range control inquiry response.
     DynamicRange {
+        /// Dynamic range level (0x0=0 to 0x8=8).
         level: u8,
     },
 }
