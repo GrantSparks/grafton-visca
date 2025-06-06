@@ -534,9 +534,3 @@ async fn test_stats_tracking() {
     assert_eq!(snapshot.responses_received, 1);
     assert_eq!(snapshot.error_count, 0);
 }
-
-// Placeholder test to ensure module compiles
-#[test]
-fn placeholder_test() {
-    assert!(true);
-}

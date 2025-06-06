@@ -21,7 +21,7 @@ use crate::{
 /// # Example
 /// ```no_run
 /// # #[cfg(feature = "blocking-client")]
-/// # {
+/// # fn example() -> Result<(), grafton_visca::ViscaError> {
 /// # use grafton_visca::{ViscaClient, ViscaInquiryExt, ViscaError};
 /// let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
 ///
@@ -29,8 +29,8 @@ use crate::{
 /// let (pan, tilt) = client.get_pan_tilt_position()?;
 /// let zoom = client.get_zoom_position()?;
 /// let is_powered_on = client.get_power_state()?;
+/// # Ok(())
 /// # }
-/// # Ok::<(), ViscaError>(())
 /// ```
 pub trait ViscaInquiryExt: ViscaDevice {
     /// Get current power state.

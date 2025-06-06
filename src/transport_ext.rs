@@ -26,7 +26,7 @@ use crate::{
 /// # Example
 /// ```no_run
 /// # #[cfg(feature = "blocking-client")]
-/// # {
+/// # fn example() -> Result<(), grafton_visca::ViscaError> {
 /// # use grafton_visca::{ViscaClient, ViscaTransportExt, ViscaError};
 /// # use grafton_visca::command::exposure::ExposureMode;
 /// let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
@@ -35,8 +35,8 @@ use crate::{
 /// client.power_on()?;
 /// client.home()?;
 /// client.set_exposure_mode(ExposureMode::Auto)?;
+/// # Ok(())
 /// # }
-/// # Ok::<(), ViscaError>(())
 /// ```
 pub trait ViscaTransportExt: ViscaDevice {
     /// Powers on the camera.
