@@ -42,7 +42,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
             tilt,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -82,7 +82,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
             tilt: tilt_delta,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -124,7 +124,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
             tilt_speed,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -150,7 +150,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
             tilt_speed,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -170,7 +170,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     fn go_home(&mut self) -> Result<(), ViscaError> {
         let command = PanTiltCommand::Home;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }

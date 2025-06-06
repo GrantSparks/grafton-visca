@@ -32,7 +32,7 @@ pub trait ViscaPresetExt: ViscaDevice {
             preset_number: PresetNumber::new(preset_number)?,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -64,7 +64,7 @@ pub trait ViscaPresetExt: ViscaDevice {
             preset_number: PresetNumber::new(preset_number)?,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
@@ -94,7 +94,7 @@ pub trait ViscaPresetExt: ViscaDevice {
             preset_number: PresetNumber::new(preset_number)?,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {},
+            ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }

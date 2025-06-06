@@ -1,6 +1,6 @@
 //! Example demonstrating the high-level inquiry API for querying camera state.
 
-use grafton_visca::{UdpTransport, ViscaError, ViscaInquiryExt};
+use grafton_visca::{ViscaClient, ViscaError, ViscaInquiryExt};
 use std::env;
 
 fn main() -> Result<(), ViscaError> {
@@ -18,13 +18,13 @@ fn main() -> Result<(), ViscaError> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let mut transport = UdpTransport::new(camera_addr)?;
+    let mut client = ViscaClient::connect_udp(camera_addr)?;
 
     // Query individual camera settings
     println!("\n=== Individual Camera Queries ===");
 
     // Power state
-    let power = transport.get_power_state()?;
+    let power = client.get_power_state()?;
     println!("Power: {}", if power { "ON" } else { "OFF" });
 
     if !power {
@@ -32,70 +32,70 @@ fn main() -> Result<(), ViscaError> {
     }
 
     // Position
-    let (pan, tilt) = transport.get_pan_tilt_position()?;
+    let (pan, tilt) = client.get_pan_tilt_position()?;
     println!("Pan/Tilt Position: pan={}, tilt={}", pan, tilt);
 
     // Zoom
-    let zoom = transport.get_zoom_position()?;
+    let zoom = client.get_zoom_position()?;
     println!("Zoom Position: 0x{:04X}", zoom);
 
     // Focus
-    let focus = transport.get_focus_position()?;
+    let focus = client.get_focus_position()?;
     println!("Focus Position: 0x{:04X}", focus);
 
     // Exposure
-    let exposure_mode = transport.get_exposure_mode()?;
+    let exposure_mode = client.get_exposure_mode()?;
     println!("Exposure Mode: {:?}", exposure_mode);
 
-    if transport.get_exposure_compensation_enabled()? {
-        let compensation = transport.get_exposure_compensation()?;
+    if client.get_exposure_compensation_enabled()? {
+        let compensation = client.get_exposure_compensation()?;
         println!("Exposure Compensation: {:+} EV", compensation);
     } else {
         println!("Exposure Compensation: Disabled");
     }
 
     // White Balance
-    let wb_mode = transport.get_white_balance_mode()?;
+    let wb_mode = client.get_white_balance_mode()?;
     println!("White Balance Mode: {:?}", wb_mode);
 
     // Image Settings
     println!("\n=== Image Settings ===");
-    let luminance = transport.get_luminance()?;
+    let luminance = client.get_luminance()?;
     println!("Luminance: {}", luminance);
 
-    let contrast = transport.get_contrast()?;
+    let contrast = client.get_contrast()?;
     println!("Contrast: {}", contrast);
 
-    let sharpness = transport.get_sharpness()?;
+    let sharpness = client.get_sharpness()?;
     println!("Sharpness: {}", sharpness);
 
-    let saturation = transport.get_saturation()?;
+    let saturation = client.get_saturation()?;
     println!("Saturation: {}", saturation);
 
-    let hue = transport.get_hue()?;
+    let hue = client.get_hue()?;
     println!("Hue: {}", hue);
 
     // Advanced Settings
     println!("\n=== Advanced Settings ===");
-    let (vertical_flip, horizontal_flip) = transport.get_image_flip()?;
+    let (vertical_flip, horizontal_flip) = client.get_image_flip()?;
     println!(
         "Image Flip: Vertical={}, Horizontal={}",
         vertical_flip, horizontal_flip
     );
 
-    let backlight = transport.get_backlight_status()?;
+    let backlight = client.get_backlight_status()?;
     println!(
         "Backlight Compensation: {}",
         if backlight { "ON" } else { "OFF" }
     );
 
-    let bw_mode = transport.get_black_white_mode()?;
+    let bw_mode = client.get_black_white_mode()?;
     println!("Black & White Mode: {}", if bw_mode { "ON" } else { "OFF" });
 
     // Get complete camera state
     println!("\n=== Complete Camera State ===");
     println!("Querying all camera settings...");
-    let state = transport.get_camera_state()?;
+    let state = client.get_camera_state()?;
 
     println!("\nCamera State Summary:");
     println!("  Power: {}", if state.power { "ON" } else { "OFF" });

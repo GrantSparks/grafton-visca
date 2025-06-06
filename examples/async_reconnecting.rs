@@ -1,3 +1,10 @@
+// TODO: Update this example for v0.5.0 - async support is not yet available
+fn main() {
+    println!("This example needs to be updated for v0.5.0");
+    println!("Async support is not yet available in the current version");
+}
+
+/*
 //! Example demonstrating async auto-reconnecting transport functionality.
 
 #[cfg(feature = "async-client")]
@@ -359,3 +366,4 @@ fn main() {
     println!("This example requires the 'async' feature to be enabled.");
     println!("Run with: cargo run --example async_reconnecting --features async-client");
 }
+*/

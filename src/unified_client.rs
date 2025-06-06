@@ -44,7 +44,6 @@ enum TransportVariant {
     /// Native async TCP transport
     #[cfg(feature = "async-client")]
     AsyncTcp(AsyncTcpTransport),
-
 }
 
 /// Unified VISCA client with async-first design and blocking façade.
@@ -116,7 +115,6 @@ impl ViscaClient {
             transport,
         )))
     }
-
 
     /// Send a command and wait for the response (blocking).
     ///
@@ -255,7 +253,11 @@ impl ViscaClient {
                             return Ok(Completion);
                         }
                         InquiryResponse(inquiry) => {
-                            log::debug!("Inquiry response received for socket {}: {:?}", socket_id, inquiry);
+                            log::debug!(
+                                "Inquiry response received for socket {}: {:?}",
+                                socket_id,
+                                inquiry
+                            );
                             return Ok(InquiryResponse(inquiry));
                         }
                         Error(err) => {
@@ -373,7 +375,11 @@ impl ViscaClient {
                             return Ok(Completion);
                         }
                         InquiryResponse(inquiry) => {
-                            log::debug!("Inquiry response received for socket {}: {:?}", socket_id, inquiry);
+                            log::debug!(
+                                "Inquiry response received for socket {}: {:?}",
+                                socket_id,
+                                inquiry
+                            );
                             return Ok(InquiryResponse(inquiry));
                         }
                         Error(err) => {
@@ -451,4 +457,3 @@ impl crate::ViscaDevice for ViscaClient {
         self.send(command)
     }
 }
-
