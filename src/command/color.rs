@@ -140,10 +140,14 @@ impl ViscaCommand for HueCommand {
 /// Color Temperature command
 #[derive(Debug, Copy, Clone)]
 pub enum ColorTemperatureCommand {
+    /// Reset color temperature to default.
     Reset,
+    /// Increase color temperature.
     Up,
+    /// Decrease color temperature.
     Down,
-    Direct(u16), // 0x00=2500K to 0x37=8000K
+    /// Set color temperature directly (0x00=2500K to 0x37=8000K).
+    Direct(u16),
 }
 
 impl ViscaCommand for ColorTemperatureCommand {
