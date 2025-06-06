@@ -308,7 +308,7 @@ pub use crate::{
 
 // Extension trait re-exports
 pub use crate::{
-    exposure_ext::ViscaExposureExt,
+    exposure_ext::{ExposurePreset, ViscaExposureExt},
     focus_ext::ViscaFocusExt,
     image_ext::{ImagePreset, ViscaImageExt},
     inquiry_ext::{
