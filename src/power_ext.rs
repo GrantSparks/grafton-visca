@@ -2,14 +2,14 @@
 
 // Crate imports
 use crate::{
-    command::InquiryCommand, error::ViscaError, transport_ext::ViscaTransportExt, ViscaResponse,
+    command::InquiryCommand, error::ViscaError, transport_ext::ViscaTransportExt, ViscaDevice, ViscaResponse,
 };
 
 /// Extension trait providing advanced power control methods.
 ///
 /// This trait extends the basic power control methods in `ViscaTransportExt`
 /// with additional convenience functions.
-pub trait ViscaPowerExt: ViscaTransportExt {
+pub trait ViscaPowerExt: ViscaDevice {
     /// Check if the camera is powered on.
     ///
     /// # Returns
@@ -19,13 +19,13 @@ pub trait ViscaPowerExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPowerExt, ViscaTransportExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// if transport.is_powered_on()? {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPowerExt, ViscaTransportExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// if client.is_powered_on()? {
     ///     println!("Camera is powered on");
     /// } else {
     ///     println!("Camera is powered off");
-    ///     transport.power_on()?;
+    ///     client.power_on()?;
     /// }
     /// # Ok(())
     /// # }
@@ -34,7 +34,7 @@ pub trait ViscaPowerExt: ViscaTransportExt {
     where
         Self: Sized,
     {
-        let response = self.send_and_wait(&InquiryCommand::Power)?;
+        let response = self.execute_command(&InquiryCommand::Power)?;
 
         match response {
             ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::Power { on }) => Ok(on),
@@ -54,11 +54,11 @@ pub trait ViscaPowerExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPowerExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPowerExt};
     /// # use std::time::Duration;
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Power cycle with 2 second wait
-    /// transport.power_cycle(Duration::from_secs(2))?;
+    /// client.power_cycle(Duration::from_secs(2))?;
     /// # Ok(())
     /// # }
     /// ```
@@ -67,13 +67,13 @@ pub trait ViscaPowerExt: ViscaTransportExt {
         Self: Sized,
     {
         // Power off
-        self.power_off()?;
+        <Self as ViscaTransportExt>::power_off(self)?;
 
         // Wait
         std::thread::sleep(wait_duration);
 
         // Power on
-        self.power_on()?;
+        <Self as ViscaTransportExt>::power_on(self)?;
 
         Ok(())
     }
@@ -89,10 +89,10 @@ pub trait ViscaPowerExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPowerExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPowerExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Ensure camera is ready before sending commands
-    /// let was_on = transport.ensure_powered_on()?;
+    /// let was_on = client.ensure_powered_on()?;
     /// if !was_on {
     ///     println!("Camera was powered off, now powered on");
     ///     // May want to wait for camera to fully initialize
@@ -108,7 +108,7 @@ pub trait ViscaPowerExt: ViscaTransportExt {
         match self.is_powered_on() {
             Ok(true) => Ok(true),
             Ok(false) => {
-                self.power_on()?;
+                <Self as ViscaTransportExt>::power_on(self)?;
                 Ok(false)
             }
             Err(e) => Err(e),
@@ -126,12 +126,12 @@ pub trait ViscaPowerExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaPowerExt, ViscaTransportExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPowerExt, ViscaTransportExt};
     /// # use std::time::Duration;
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Power on and wait up to 10 seconds for camera to be ready
-    /// transport.power_on()?;
-    /// transport.wait_for_power_on(
+    /// client.power_on()?;
+    /// client.wait_for_power_on(
     ///     Duration::from_secs(10),
     ///     Duration::from_millis(500)
     /// )?;
@@ -171,4 +171,4 @@ pub trait ViscaPowerExt: ViscaTransportExt {
 }
 
 /// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaTransportExt> ViscaPowerExt for T {}
+impl<T: ViscaDevice> ViscaPowerExt for T {}

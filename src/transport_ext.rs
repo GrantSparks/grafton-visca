@@ -15,33 +15,36 @@ use crate::{
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
         zoom::ZoomCommand,
     },
-    ViscaError, ViscaResponse, ViscaTransport,
+    ViscaDevice, ViscaError, ViscaResponse,
 };
 
 /// Extension trait providing convenience methods for common VISCA operations.
 ///
-/// This trait is automatically implemented for all types that implement `ViscaTransport`,
+/// This trait is automatically implemented for all types that implement `ViscaDevice`,
 /// providing a more ergonomic API for common camera control operations.
 ///
 /// # Example
 /// ```no_run
-/// # use grafton_visca::{UdpTransport, ViscaTransportExt, ViscaError};
+/// # #[cfg(feature = "blocking-client")]
+/// # {
+/// # use grafton_visca::{ViscaClient, ViscaTransportExt, ViscaError};
 /// # use grafton_visca::command::exposure::ExposureMode;
-/// let mut transport = UdpTransport::new("192.168.1.100:5678")?;
+/// let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
 ///
 /// // Simple one-line operations
-/// transport.power_on()?;
-/// transport.home()?;
-/// transport.set_exposure_mode(ExposureMode::Auto)?;
+/// client.power_on()?;
+/// client.home()?;
+/// client.set_exposure_mode(ExposureMode::Auto)?;
+/// # }
 /// # Ok::<(), ViscaError>(())
 /// ```
-pub trait ViscaTransportExt: ViscaTransport {
+pub trait ViscaTransportExt: ViscaDevice {
     /// Powers on the camera.
     fn power_on(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
-        match self.send_and_wait(&PowerCommand { power: Power::On })? {
+        match self.execute_command(&PowerCommand { power: Power::On })? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -53,7 +56,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&PowerCommand {
+        match self.execute_command(&PowerCommand {
             power: Power::Standby,
         })? {
             ViscaResponse::Completion => Ok(()),
@@ -67,7 +70,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&PanTiltCommand::Home)? {
+        match self.execute_command(&PanTiltCommand::Home)? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -82,7 +85,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&PresetCommand {
+        match self.execute_command(&PresetCommand {
             preset_number: PresetNumber::new(preset_id)?,
             action: PresetAction::Recall,
         })? {
@@ -100,7 +103,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&PresetCommand {
+        match self.execute_command(&PresetCommand {
             preset_number: PresetNumber::new(preset_id)?,
             action: PresetAction::Set,
         })? {
@@ -115,7 +118,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&ExposureCommand { mode })? {
+        match self.execute_command(&ExposureCommand { mode })? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -127,7 +130,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&WhiteBalanceCommand { mode })? {
+        match self.execute_command(&WhiteBalanceCommand { mode })? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -149,7 +152,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&PanTiltCommand::Move {
+        match self.execute_command(&PanTiltCommand::Move {
             direction,
             pan_speed: PanSpeed::new(pan_speed)?,
             tilt_speed: TiltSpeed::new(tilt_speed)?,
@@ -165,7 +168,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&PanTiltCommand::Move {
+        match self.execute_command(&PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::new(0)?,
             tilt_speed: TiltSpeed::new(0)?,
@@ -193,7 +196,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&PanTiltCommand::AbsolutePosition {
+        match self.execute_command(&PanTiltCommand::AbsolutePosition {
             pan,
             tilt,
             pan_speed: PanSpeed::new(pan_speed)?,
@@ -210,7 +213,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&ZoomCommand::TeleStandard)? {
+        match self.execute_command(&ZoomCommand::TeleStandard)? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -222,7 +225,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&ZoomCommand::WideStandard)? {
+        match self.execute_command(&ZoomCommand::WideStandard)? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -234,7 +237,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&ZoomCommand::Stop)? {
+        match self.execute_command(&ZoomCommand::Stop)? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -249,7 +252,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&ZoomCommand::Direct(position))? {
+        match self.execute_command(&ZoomCommand::Direct(position))? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -261,7 +264,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&FocusCommand::Auto)? {
+        match self.execute_command(&FocusCommand::Auto)? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -273,7 +276,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&FocusCommand::Manual)? {
+        match self.execute_command(&FocusCommand::Manual)? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -285,7 +288,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&BacklightCommand { status: enabled })? {
+        match self.execute_command(&BacklightCommand { status: enabled })? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -300,7 +303,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&ExposureCompensationCommand::Direct(
+        match self.execute_command(&ExposureCompensationCommand::Direct(
             ExposureCompensationLevel::new(value)?,
         ))? {
             ViscaResponse::Completion => Ok(()),
@@ -317,7 +320,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&IrisCommand::Direct(value))? {
+        match self.execute_command(&IrisCommand::Direct(value))? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -332,7 +335,7 @@ pub trait ViscaTransportExt: ViscaTransport {
     where
         Self: Sized,
     {
-        match self.send_and_wait(&GainCommand::Direct(value))? {
+        match self.execute_command(&GainCommand::Direct(value))? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -340,5 +343,5 @@ pub trait ViscaTransportExt: ViscaTransport {
     }
 }
 
-// Blanket implementation for all types that implement ViscaTransport
-impl<T: ViscaTransport + ?Sized> ViscaTransportExt for T {}
+// Blanket implementation for all types that implement ViscaDevice
+impl<T: ViscaDevice> ViscaTransportExt for T {}

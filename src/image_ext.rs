@@ -7,11 +7,11 @@ use crate::{
         NoiseReduction2DCommand, NoiseReduction3DCommand, SaturationCommand, SharpnessCommand,
     },
     error::ViscaError,
-    transport_ext::ViscaTransportExt,
+    ViscaDevice, ViscaResponse,
 };
 
 /// Extension trait providing high-level image settings control methods.
-pub trait ViscaImageExt: ViscaTransportExt {
+pub trait ViscaImageExt: ViscaDevice {
     /// Enable or disable black and white mode.
     ///
     /// # Arguments
@@ -19,19 +19,23 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Enable black and white mode
-    /// transport.set_black_white_mode(true)?;
+    /// client.set_black_white_mode(true)?;
     ///
     /// // Return to color mode
-    /// transport.set_black_white_mode(false)?;
+    /// client.set_black_white_mode(false)?;
     /// # Ok(())
     /// # }
     /// ```
     fn set_black_white_mode(&mut self, enabled: bool) -> Result<(), ViscaError> {
         let command = BlackWhiteCommand { on: enabled };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -42,16 +46,16 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Turn off 2D noise reduction
-    /// transport.set_noise_reduction_2d(None)?;
+    /// client.set_noise_reduction_2d(None)?;
     ///
     /// // Set to low noise reduction
-    /// transport.set_noise_reduction_2d(Some(1))?;
+    /// client.set_noise_reduction_2d(Some(1))?;
     ///
     /// // Set to maximum noise reduction
-    /// transport.set_noise_reduction_2d(Some(5))?;
+    /// client.set_noise_reduction_2d(Some(5))?;
     /// # Ok(())
     /// # }
     /// ```
@@ -67,7 +71,11 @@ pub trait ViscaImageExt: ViscaTransportExt {
                 NoiseReduction2DCommand::Level(lvl)
             }
         };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -78,13 +86,13 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Turn off 3D noise reduction
-    /// transport.set_noise_reduction_3d(None)?;
+    /// client.set_noise_reduction_3d(None)?;
     ///
     /// // Set to moderate noise reduction
-    /// transport.set_noise_reduction_3d(Some(4))?;
+    /// client.set_noise_reduction_3d(Some(4))?;
     /// # Ok(())
     /// # }
     /// ```
@@ -100,7 +108,11 @@ pub trait ViscaImageExt: ViscaTransportExt {
                 NoiseReduction3DCommand::Level(lvl)
             }
         };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -112,19 +124,19 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // No flip
-    /// transport.set_image_flip(false, false)?;
+    /// client.set_image_flip(false, false)?;
     ///
     /// // Horizontal flip only
-    /// transport.set_image_flip(true, false)?;
+    /// client.set_image_flip(true, false)?;
     ///
     /// // Vertical flip only
-    /// transport.set_image_flip(false, true)?;
+    /// client.set_image_flip(false, true)?;
     ///
     /// // Both horizontal and vertical flip (180° rotation)
-    /// transport.set_image_flip(true, true)?;
+    /// client.set_image_flip(true, true)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -136,7 +148,11 @@ pub trait ViscaImageExt: ViscaTransportExt {
             (true, true) => ImageFlipMode::Both,
         };
         let command = ImageFlipCombinedCommand { mode };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -147,16 +163,16 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Set minimum sharpness (softest)
-    /// transport.set_sharpness(0)?;
+    /// client.set_sharpness(0)?;
     ///
     /// // Set default sharpness
-    /// transport.set_sharpness(7)?;
+    /// client.set_sharpness(7)?;
     ///
     /// // Set maximum sharpness
-    /// transport.set_sharpness(14)?;
+    /// client.set_sharpness(14)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -167,7 +183,11 @@ pub trait ViscaImageExt: ViscaTransportExt {
             ));
         }
         let command = SharpnessCommand::Direct { value: level };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -175,15 +195,19 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.sharpness_up()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.sharpness_up()?;
     /// # Ok(())
     /// # }
     /// ```
     fn sharpness_up(&mut self) -> Result<(), ViscaError> {
         let command = SharpnessCommand::Up;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -191,15 +215,19 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.sharpness_down()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.sharpness_down()?;
     /// # Ok(())
     /// # }
     /// ```
     fn sharpness_down(&mut self) -> Result<(), ViscaError> {
         let command = SharpnessCommand::Down;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -207,15 +235,19 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
-    /// transport.sharpness_reset()?;
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// client.sharpness_reset()?;
     /// # Ok(())
     /// # }
     /// ```
     fn sharpness_reset(&mut self) -> Result<(), ViscaError> {
         let command = SharpnessCommand::Reset;
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -226,16 +258,16 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Set minimum saturation (monochrome)
-    /// transport.set_saturation(0)?;
+    /// client.set_saturation(0)?;
     ///
     /// // Set default saturation
-    /// transport.set_saturation(7)?;
+    /// client.set_saturation(7)?;
     ///
     /// // Set maximum saturation (vivid colors)
-    /// transport.set_saturation(14)?;
+    /// client.set_saturation(14)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -246,7 +278,11 @@ pub trait ViscaImageExt: ViscaTransportExt {
             ));
         }
         let command = SaturationCommand { level };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -257,16 +293,16 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Shift hue towards red
-    /// transport.set_hue(4)?;
+    /// client.set_hue(4)?;
     ///
     /// // Reset hue to default
-    /// transport.set_hue(7)?;
+    /// client.set_hue(7)?;
     ///
     /// // Shift hue towards green
-    /// transport.set_hue(10)?;
+    /// client.set_hue(10)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -277,7 +313,11 @@ pub trait ViscaImageExt: ViscaTransportExt {
             ));
         }
         let command = HueCommand { level };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -288,16 +328,16 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Set minimum contrast
-    /// transport.set_contrast(0)?;
+    /// client.set_contrast(0)?;
     ///
     /// // Set default contrast
-    /// transport.set_contrast(7)?;
+    /// client.set_contrast(7)?;
     ///
     /// // Set maximum contrast
-    /// transport.set_contrast(14)?;
+    /// client.set_contrast(14)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -308,7 +348,11 @@ pub trait ViscaImageExt: ViscaTransportExt {
             ));
         }
         let command = ContrastCommand { value: level };
-        self.send_command(&command)?;
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {},
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
         Ok(())
     }
 
@@ -321,16 +365,16 @@ pub trait ViscaImageExt: ViscaTransportExt {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaTransport, ViscaImageExt, ImagePreset};
-    /// # fn example(transport: &mut impl ViscaTransport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt, ImagePreset};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Apply vivid preset
-    /// transport.apply_image_preset(ImagePreset::Vivid)?;
+    /// client.apply_image_preset(ImagePreset::Vivid)?;
     ///
     /// // Apply cinema preset
-    /// transport.apply_image_preset(ImagePreset::Cinema)?;
+    /// client.apply_image_preset(ImagePreset::Cinema)?;
     ///
     /// // Reset to default
-    /// transport.apply_image_preset(ImagePreset::Default)?;
+    /// client.apply_image_preset(ImagePreset::Default)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -386,4 +430,4 @@ pub enum ImagePreset {
 }
 
 /// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaTransportExt> ViscaImageExt for T {}
+impl<T: ViscaDevice> ViscaImageExt for T {}

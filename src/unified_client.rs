@@ -22,11 +22,7 @@ use crate::transport::{
 
 // Feature-gated imports - Async client
 #[cfg(feature = "async-client")]
-use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, LegacyTransportAdapter, Transport};
-
-// Feature-gated import for ViscaTransport when using from_legacy_transport
-#[cfg(feature = "async-client")]
-use crate::ViscaTransport;
+use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, Transport};
 
 /// Maximum number of concurrent commands (`PTZOptics` G2 limitation).
 const MAX_CONCURRENT_COMMANDS: usize = 2;
@@ -49,9 +45,6 @@ enum TransportVariant {
     #[cfg(feature = "async-client")]
     AsyncTcp(AsyncTcpTransport),
 
-    /// Legacy transport wrapped in adapter
-    #[cfg(feature = "async-client")]
-    Legacy(Box<dyn Transport + Send + Sync>),
 }
 
 /// Unified VISCA client with async-first design and blocking façade.
@@ -124,18 +117,6 @@ impl ViscaClient {
         )))
     }
 
-    /// Create a client from a legacy `ViscaTransport` implementation.
-    ///
-    /// This method helps with migration from the old transport trait to the new one.
-    /// It wraps the old transport in an adapter that implements the new Transport trait.
-    #[cfg(feature = "async-client")]
-    pub fn from_legacy_transport<T>(transport: T) -> Self
-    where
-        T: ViscaTransport + Send + Sync + 'static,
-    {
-        let adapter = LegacyTransportAdapter::new(transport);
-        Self::new_from_variant(TransportVariant::Legacy(Box::new(adapter)))
-    }
 
     /// Send a command and wait for the response (blocking).
     ///
@@ -274,8 +255,7 @@ impl ViscaClient {
                             return Ok(Completion);
                         }
                         InquiryResponse(inquiry) => {
-                            log::debug!("Inquiry response received for socket {}", socket_id);
-                            crate::log_inquiry_response(&inquiry);
+                            log::debug!("Inquiry response received for socket {}: {:?}", socket_id, inquiry);
                             return Ok(InquiryResponse(inquiry));
                         }
                         Error(err) => {
@@ -332,10 +312,6 @@ impl ViscaClient {
                     TransportVariant::AsyncTcp(t) => {
                         t.send_command(command).await?;
                     }
-                    #[cfg(feature = "async-client")]
-                    TransportVariant::Legacy(t) => {
-                        t.send_command(command).await?;
-                    }
                 }
             }
 
@@ -370,8 +346,6 @@ impl ViscaClient {
                     TransportVariant::AsyncUdp(t) => t.receive_response().await?,
                     #[cfg(feature = "async-client")]
                     TransportVariant::AsyncTcp(t) => t.receive_response().await?,
-                    #[cfg(feature = "async-client")]
-                    TransportVariant::Legacy(t) => t.receive_response().await?,
                 }
             };
 
@@ -399,8 +373,7 @@ impl ViscaClient {
                             return Ok(Completion);
                         }
                         InquiryResponse(inquiry) => {
-                            log::debug!("Inquiry response received for socket {}", socket_id);
-                            crate::log_inquiry_response(&inquiry);
+                            log::debug!("Inquiry response received for socket {}: {:?}", socket_id, inquiry);
                             return Ok(InquiryResponse(inquiry));
                         }
                         Error(err) => {
@@ -470,3 +443,12 @@ impl ViscaClientPtzExt for Arc<ViscaClient> {
         PtzBuilder::new(self)
     }
 }
+
+// Implement ViscaDevice to support extension traits
+#[cfg(feature = "blocking-client")]
+impl crate::ViscaDevice for ViscaClient {
+    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+        self.send(command)
+    }
+}
+
