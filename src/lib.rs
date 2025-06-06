@@ -13,10 +13,8 @@
 #![allow(
     clippy::module_name_repetitions, // Common in Rust APIs (e.g., ViscaCommand, ViscaError)
     clippy::must_use_candidate,      // We'll add #[must_use] where appropriate
-    clippy::missing_errors_doc,      // Temporarily allowed while adding docs
-    clippy::missing_panics_doc,      // Temporarily allowed while adding docs
-    clippy::use_self,                // TODO: Fix in follow-up PR
-    clippy::uninlined_format_args,   // TODO: Fix in follow-up PR
+    clippy::use_self,                // 160 instances - needs systematic refactor
+    clippy::uninlined_format_args,   // 30 instances remaining
     clippy::missing_const_for_fn,    // TODO: Fix in follow-up PR
     clippy::cast_lossless,           // TODO: Fix in follow-up PR
     clippy::cast_sign_loss,          // Some are intentional after validation
@@ -30,8 +28,7 @@
     clippy::cast_precision_loss,     // Some are intentional
     clippy::float_cmp,               // Tests need exact float comparisons
     clippy::too_many_lines,          // TODO: Refactor parse_visca_response
-    clippy::single_match_else,       // TODO: Fix in follow-up PR
-    missing_docs                     // Temporarily allowed while adding docs
+    clippy::single_match_else        // TODO: Fix in follow-up PR
 )]
 //!
 //! ## What is VISCA?

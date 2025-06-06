@@ -162,7 +162,7 @@ impl ViscaConnectionPool {
     ) -> Result<ViscaResponse, ViscaError> {
         let mut connections = self.connections.lock().unwrap();
         let pooled = connections.get_mut(camera_id).ok_or_else(|| {
-            ViscaError::InvalidParameter(format!("Camera '{}' not found in pool", camera_id))
+            ViscaError::InvalidParameter(format!("Camera '{camera_id}' not found in pool"))
         })?;
 
         pooled.last_used = Instant::now();
@@ -308,7 +308,7 @@ impl AsyncViscaConnectionPool {
     ) -> Result<ViscaResponse, ViscaError> {
         let mut connections = self.connections.lock().await;
         let pooled = connections.get_mut(camera_id).ok_or_else(|| {
-            ViscaError::InvalidParameter(format!("Camera '{}' not found in pool", camera_id))
+            ViscaError::InvalidParameter(format!("Camera '{camera_id}' not found in pool"))
         })?;
 
         pooled.last_used = Instant::now();
@@ -390,7 +390,6 @@ impl AsyncViscaConnectionPool {
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
     use super::*;
 
     #[test]
