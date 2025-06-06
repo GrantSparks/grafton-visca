@@ -362,11 +362,7 @@ impl ViscaRetry {
                 Err(err) if err.is_retryable() && attempt < max_attempts => {
                     let delay = err.suggested_retry_delay().unwrap_or(base_delay);
                     log::debug!(
-                        "Attempt {}/{} failed with retryable error: {}. Retrying in {:?}",
-                        attempt,
-                        max_attempts,
-                        err,
-                        delay
+                        "Attempt {attempt}/{max_attempts} failed with retryable error: {err}. Retrying in {delay:?}"
                     );
 
                     #[cfg(feature = "async-client")]
@@ -541,11 +537,7 @@ impl ViscaRetry {
                 Err(err) if err.is_retryable() && attempt < max_attempts => {
                     let delay = err.suggested_retry_delay().unwrap_or(base_delay);
                     log::debug!(
-                        "Attempt {}/{} failed with retryable error: {}. Retrying in {:?}",
-                        attempt,
-                        max_attempts,
-                        err,
-                        delay
+                        "Attempt {attempt}/{max_attempts} failed with retryable error: {err}. Retrying in {delay:?}"
                     );
 
                     std::thread::sleep(delay);
