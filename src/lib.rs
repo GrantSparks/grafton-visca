@@ -24,7 +24,6 @@
     clippy::missing_const_for_fn,    // TODO: Mark const functions appropriately
     clippy::must_use_candidate,      // TODO: Add #[must_use] where appropriate
     clippy::too_many_lines,          // TODO: Refactor parse_visca_response
-    clippy::missing_errors_doc,      // TODO: Add # Errors sections to docs
     clippy::missing_panics_doc,      // TODO: Add # Panics sections to docs
 )]
 //!

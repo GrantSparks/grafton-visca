@@ -189,14 +189,18 @@ impl CameraConstants for CameraModel {
 
     fn pan_degrees(&self) -> f32 {
         match self {
-            CameraModel::PTZOpticsG2 | CameraModel::PTZOpticsG3 | CameraModel::Unknown => position::PAN_DEGREES_G2,
+            CameraModel::PTZOpticsG2 | CameraModel::PTZOpticsG3 | CameraModel::Unknown => {
+                position::PAN_DEGREES_G2
+            }
             CameraModel::PTZOptics30X => position::PAN_DEGREES_30X,
         }
     }
 
     fn tilt_degrees(&self) -> f32 {
         match self {
-            CameraModel::PTZOpticsG2 | CameraModel::PTZOpticsG3 | CameraModel::Unknown => position::TILT_DEGREES_G2,
+            CameraModel::PTZOpticsG2 | CameraModel::PTZOpticsG3 | CameraModel::Unknown => {
+                position::TILT_DEGREES_G2
+            }
             CameraModel::PTZOptics30X => position::TILT_DEGREES_30X,
         }
     }
@@ -331,6 +335,10 @@ impl PositionConversion for NormalizedPosition {
 }
 
 /// Validate pan position is within camera limits
+///
+/// # Errors
+///
+/// Returns `ViscaError::ParameterOutOfRange` if the pan position is outside the valid range for the camera model
 pub fn validate_pan_position(pos: i16, model: CameraModel) -> Result<i16, ViscaError> {
     let (min, max) = model.pan_range();
     if pos < min || pos > max {
@@ -346,6 +354,10 @@ pub fn validate_pan_position(pos: i16, model: CameraModel) -> Result<i16, ViscaE
 }
 
 /// Validate tilt position is within camera limits
+///
+/// # Errors
+///
+/// Returns `ViscaError::ParameterOutOfRange` if the tilt position is outside the valid range for the camera model
 pub fn validate_tilt_position(pos: i16, model: CameraModel) -> Result<i16, ViscaError> {
     let (min, max) = model.tilt_range();
     if pos < min || pos > max {
@@ -361,6 +373,10 @@ pub fn validate_tilt_position(pos: i16, model: CameraModel) -> Result<i16, Visca
 }
 
 /// Validate zoom position is within camera limits
+///
+/// # Errors
+///
+/// Returns `ViscaError::ParameterOutOfRange` if the zoom position is outside the valid range for the camera model
 pub fn validate_zoom_position(pos: u16, model: CameraModel) -> Result<u16, ViscaError> {
     let (min, max) = model.zoom_range();
     if pos < min || pos > max {
@@ -376,6 +392,10 @@ pub fn validate_zoom_position(pos: u16, model: CameraModel) -> Result<u16, Visca
 }
 
 /// Validate pan speed is within limits
+///
+/// # Errors
+///
+/// Returns `ViscaError::ParameterOutOfRange` if the pan speed exceeds the maximum allowed value
 pub fn validate_pan_speed(speed: u8) -> Result<u8, ViscaError> {
     if speed > speed::PAN_SPEED_MAX {
         Err(ViscaError::ParameterOutOfRange {
@@ -390,6 +410,10 @@ pub fn validate_pan_speed(speed: u8) -> Result<u8, ViscaError> {
 }
 
 /// Validate tilt speed is within limits
+///
+/// # Errors
+///
+/// Returns `ViscaError::ParameterOutOfRange` if the tilt speed exceeds the maximum allowed value
 pub fn validate_tilt_speed(speed: u8) -> Result<u8, ViscaError> {
     if speed > speed::TILT_SPEED_MAX {
         Err(ViscaError::ParameterOutOfRange {
@@ -404,6 +428,10 @@ pub fn validate_tilt_speed(speed: u8) -> Result<u8, ViscaError> {
 }
 
 /// Validate preset ID is within limits
+///
+/// # Errors
+///
+/// Returns `ViscaError::ParameterOutOfRange` if the preset ID is outside the valid range
 pub fn validate_preset_id(id: u8) -> Result<u8, ViscaError> {
     if id > preset::PRESET_ID_MAX {
         Err(ViscaError::ParameterOutOfRange {

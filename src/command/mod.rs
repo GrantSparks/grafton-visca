@@ -76,6 +76,10 @@ pub trait ViscaCommand: Send + Sync {
     ///
     /// The returned bytes should be a complete VISCA command packet,
     /// typically starting with 0x81 and ending with 0xFF.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::InvalidParameter` if the command contains invalid parameters
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError>;
 
     /// Returns the expected response type for this command.

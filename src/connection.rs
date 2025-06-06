@@ -232,6 +232,10 @@ impl Default for ConnectionStats {
 /// Extension trait for VISCA transports to add connection management capabilities
 pub trait ConnectionManagement {
     /// Check if the connection is healthy by sending a simple inquiry
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ViscaError` if the health check command fails to send or receive a response
     fn is_healthy(&mut self) -> Result<bool, crate::ViscaError>;
 
     /// Get connection statistics
