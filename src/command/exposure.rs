@@ -328,7 +328,9 @@ impl ViscaCommand for ShutterCommand {
                         "Shutter value must be between 0x01 (1/30) and 0x11 (1/10000)".into(),
                     ));
                 }
+                // Safe: shifting right by 4 bits ensures the result fits in u8
                 let high = (*value >> 4) as u8;
+                // Safe: masking with 0x0F (15) ensures the result fits in u8  
                 let low = (*value & 0x0F) as u8;
                 vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
             }
@@ -375,7 +377,9 @@ impl ViscaCommand for BrightCommand {
                         "Bright value must be between 0x00 (0) and 0x11 (17)".into(),
                     ));
                 }
+                // Safe: shifting right by 4 bits ensures the result fits in u8
                 let high = (*value >> 4) as u8;
+                // Safe: masking with 0x0F (15) ensures the result fits in u8  
                 let low = (*value & 0x0F) as u8;
                 vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, high, low, 0xFF]
             }
