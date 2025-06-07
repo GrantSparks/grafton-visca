@@ -99,6 +99,7 @@ pub struct TimeoutConfigBuilder {
 impl TimeoutConfigBuilder {
     /// Sets the timeout for quick commands.
     #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[must_use]
     pub fn quick_timeout(mut self, timeout: Duration) -> Self {
         self.config.quick_timeout = timeout;
         self
@@ -106,6 +107,7 @@ impl TimeoutConfigBuilder {
 
     /// Sets the timeout for movement commands.
     #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[must_use]
     pub fn movement_timeout(mut self, timeout: Duration) -> Self {
         self.config.movement_timeout = timeout;
         self
@@ -113,6 +115,7 @@ impl TimeoutConfigBuilder {
 
     /// Sets the timeout for preset operations.
     #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[must_use]
     pub fn preset_timeout(mut self, timeout: Duration) -> Self {
         self.config.preset_timeout = timeout;
         self
@@ -120,6 +123,7 @@ impl TimeoutConfigBuilder {
 
     /// Sets the timeout for long-running operations.
     #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[must_use]
     pub fn long_timeout(mut self, timeout: Duration) -> Self {
         self.config.long_timeout = timeout;
         self
@@ -127,6 +131,7 @@ impl TimeoutConfigBuilder {
 
     /// Sets the default timeout for uncategorized commands.
     #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[must_use]
     pub fn default_timeout(mut self, timeout: Duration) -> Self {
         self.config.default_timeout = timeout;
         self

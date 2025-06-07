@@ -119,7 +119,7 @@ pub fn parse_visca_response(
             if response.len() == 3 {
                 return Ok(ViscaResponse::Completion);
             }
-            parse_inquiry_response(response, response_type)
+            parse_inquiry_response(response, *response_type)
         }
         0x60..=0x6F => Err(ViscaError::from_code(response[2])),
         _ => {
@@ -131,7 +131,7 @@ pub fn parse_visca_response(
 
 fn parse_inquiry_response(
     response: &[u8],
-    response_type: &ViscaResponseType,
+    response_type: ViscaResponseType,
 ) -> Result<ViscaResponse, ViscaError> {
     match response_type {
         ViscaResponseType::Power => parse_power_response(response),
@@ -216,6 +216,7 @@ fn parse_inquiry_response(
     }
 }
 
+#[allow(clippy::missing_const_for_fn)] // ViscaError contains String fields
 fn parse_power_response(response: &[u8]) -> Result<ViscaResponse, ViscaError> {
     if response.len() != 4 {
         return Err(ViscaError::InvalidResponseLength);
@@ -327,6 +328,7 @@ fn parse_value_response(
     }
 }
 
+#[allow(clippy::missing_const_for_fn)] // ViscaError contains String fields
 fn parse_simple_value(
     response: &[u8],
     value_type: SimpleValueType,
