@@ -138,7 +138,7 @@ fn test_transport_ext_methods() {
             );
             assert_eq!(device.last_command().unwrap()[4], 0x02);
         }
-        Err(e) => panic!("Power on failed: {:?}", e),
+        Err(e) => panic!("Power on failed: {e:?}"),
     }
 
     // Test power off

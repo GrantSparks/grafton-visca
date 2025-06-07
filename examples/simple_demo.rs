@@ -1,4 +1,4 @@
-//! Simple demo showcasing the new unified ViscaClient API
+//! Simple demo showcasing the new unified `ViscaClient` API
 //!
 //! This example demonstrates basic camera control using the new v0.5.0 API.
 

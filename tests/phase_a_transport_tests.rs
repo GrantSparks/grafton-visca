@@ -58,11 +58,12 @@ mod tests {
             }
         }
 
+        fn accepts_transport<T: Transport>(_t: &T) {}
+
         let transport = MockBlockingTransport;
         let adapter = BlockingAdapter(transport);
 
         // Verify it implements Transport
-        fn accepts_transport<T: Transport>(_t: &T) {}
         accepts_transport(&adapter);
     }
 

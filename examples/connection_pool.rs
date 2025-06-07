@@ -1,7 +1,7 @@
 //! Connection pool example demonstrating multi-camera management.
 //!
-//! This example shows how to use the ViscaConnectionPool to manage
-//! multiple cameras with the new unified ViscaClient architecture.
+//! This example shows how to use the `ViscaConnectionPool` to manage
+//! multiple cameras with the new unified `ViscaClient` architecture.
 
 #[cfg(not(feature = "blocking-client"))]
 fn main() {
@@ -48,8 +48,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             location: Some("Main Stage Front".to_string()),
         },
     ) {
-        Ok(_) => println!("✓ Added front camera"),
-        Err(e) => println!("✗ Failed to add front camera: {}", e),
+        Ok(()) => println!("✓ Added front camera"),
+        Err(e) => println!("✗ Failed to add front camera: {e}"),
     }
 
     // Camera 2: Rear camera
@@ -64,8 +64,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             location: Some("Back of Auditorium".to_string()),
         },
     ) {
-        Ok(_) => println!("✓ Added rear camera"),
-        Err(e) => println!("✗ Failed to add rear camera: {}", e),
+        Ok(()) => println!("✓ Added rear camera"),
+        Err(e) => println!("✗ Failed to add rear camera: {e}"),
     }
 
     // Camera 3: Side camera using TCP
@@ -80,14 +80,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             location: Some("Stage Right".to_string()),
         },
     ) {
-        Ok(_) => println!("✓ Added side camera (TCP)"),
-        Err(e) => println!("✗ Failed to add side camera: {}", e),
+        Ok(()) => println!("✓ Added side camera (TCP)"),
+        Err(e) => println!("✗ Failed to add side camera: {e}"),
     }
 
     // List all cameras
     println!("\nCameras in pool:");
     for camera_id in pool.list_cameras() {
-        println!("  - {}", camera_id);
+        println!("  - {camera_id}");
     }
 
     // Power on all cameras
@@ -95,8 +95,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let power_on = PowerCommand { power: Power::On };
     for camera_id in pool.list_cameras() {
         match pool.execute_command(&camera_id, &power_on) {
-            Ok(_) => println!("  {} - Powered on", camera_id),
-            Err(e) => println!("  {} - Power on failed: {}", camera_id, e),
+            Ok(_) => println!("  {camera_id} - Powered on"),
+            Err(e) => println!("  {camera_id} - Power on failed: {e}"),
         }
     }
 
@@ -112,8 +112,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for camera_id in pool.list_cameras() {
         match pool.execute_command(&camera_id, &pan_left) {
-            Ok(_) => println!("  {} - Panning left", camera_id),
-            Err(e) => println!("  {} - Error: {}", camera_id, e),
+            Ok(_) => println!("  {camera_id} - Panning left"),
+            Err(e) => println!("  {camera_id} - Error: {e}"),
         }
     }
 
@@ -164,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("    - Healthy: {}", stats.is_healthy);
         println!("    - Last used: {:?} ago", stats.last_used.elapsed());
         if let Some(location) = &stats.info.location {
-            println!("    - Location: {}", location);
+            println!("    - Location: {location}");
         }
     }
 
@@ -173,7 +173,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if removed.is_empty() {
         println!("\nNo unhealthy cameras to remove");
     } else {
-        println!("\nRemoved unhealthy cameras: {:?}", removed);
+        println!("\nRemoved unhealthy cameras: {removed:?}");
     }
 
     // Remove a specific camera
@@ -191,7 +191,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Final camera list
     println!("\nFinal cameras in pool:");
     for camera_id in pool.list_cameras() {
-        println!("  - {}", camera_id);
+        println!("  - {camera_id}");
     }
 
     Ok(())

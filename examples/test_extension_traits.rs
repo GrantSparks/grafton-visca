@@ -1,4 +1,4 @@
-//! Test program to verify extension traits work with ViscaClient
+//! Test program to verify extension traits work with `ViscaClient`
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
@@ -70,10 +70,10 @@ fn main() -> Result<(), ViscaError> {
     // Test ViscaInquiryExt methods
     println!("Testing ViscaInquiryExt...");
     let (pan, tilt) = client.get_pan_tilt_position()?;
-    println!("Current position - Pan: {}, Tilt: {}", pan, tilt);
+    println!("Current position - Pan: {pan}, Tilt: {tilt}");
 
     let zoom = client.get_zoom_position()?;
-    println!("Current zoom position: 0x{:04X}", zoom);
+    println!("Current zoom position: 0x{zoom:04X}");
 
     // Test ViscaWhiteBalanceExt methods
     println!("Testing ViscaWhiteBalanceExt...");

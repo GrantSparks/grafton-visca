@@ -20,13 +20,13 @@ fn main() -> Result<(), ViscaError> {
 
     // Check power status and ensure camera is on
     println!("Checking camera power status...");
-    if !client.is_powered_on()? {
+    if client.is_powered_on()? {
+        println!("Camera is already powered on");
+    } else {
         println!("Camera is off, powering on...");
         client.power_on()?;
         client.wait_for_power_on(Duration::from_secs(5), Duration::from_millis(500))?;
         println!("Camera powered on!");
-    } else {
-        println!("Camera is already powered on");
     }
 
     // Demonstrate exposure control
@@ -80,7 +80,7 @@ fn main() -> Result<(), ViscaError> {
     thread::sleep(Duration::from_secs(2));
 
     let mag = client.get_zoom_magnification()?;
-    println!("Current zoom magnification: {:.1}x", mag);
+    println!("Current zoom magnification: {mag:.1}x");
 
     // Demonstrate position control with degrees
     println!("\n--- Position Control ---");

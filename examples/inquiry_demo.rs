@@ -17,7 +17,7 @@ fn main() -> Result<(), ViscaError> {
 
     // Connect to camera
     let camera_addr = &args[1];
-    println!("Connecting to camera at {}...", camera_addr);
+    println!("Connecting to camera at {camera_addr}...");
     let mut client = ViscaClient::connect_udp(camera_addr)?;
 
     // Query individual camera settings
@@ -33,55 +33,52 @@ fn main() -> Result<(), ViscaError> {
 
     // Position
     let (pan, tilt) = client.get_pan_tilt_position()?;
-    println!("Pan/Tilt Position: pan={}, tilt={}", pan, tilt);
+    println!("Pan/Tilt Position: pan={pan}, tilt={tilt}");
 
     // Zoom
     let zoom = client.get_zoom_position()?;
-    println!("Zoom Position: 0x{:04X}", zoom);
+    println!("Zoom Position: 0x{zoom:04X}");
 
     // Focus
     let focus = client.get_focus_position()?;
-    println!("Focus Position: 0x{:04X}", focus);
+    println!("Focus Position: 0x{focus:04X}");
 
     // Exposure
     let exposure_mode = client.get_exposure_mode()?;
-    println!("Exposure Mode: {:?}", exposure_mode);
+    println!("Exposure Mode: {exposure_mode:?}");
 
     if client.get_exposure_compensation_enabled()? {
         let compensation = client.get_exposure_compensation()?;
-        println!("Exposure Compensation: {:+} EV", compensation);
+        println!("Exposure Compensation: {compensation:+} EV");
     } else {
         println!("Exposure Compensation: Disabled");
     }
 
     // White Balance
     let wb_mode = client.get_white_balance_mode()?;
-    println!("White Balance Mode: {:?}", wb_mode);
+    println!("White Balance Mode: {wb_mode:?}");
 
     // Image Settings
     println!("\n=== Image Settings ===");
     let luminance = client.get_luminance()?;
-    println!("Luminance: {}", luminance);
+    println!("Luminance: {luminance}");
 
     let contrast = client.get_contrast()?;
-    println!("Contrast: {}", contrast);
+    println!("Contrast: {contrast}");
 
     let sharpness = client.get_sharpness()?;
-    println!("Sharpness: {}", sharpness);
+    println!("Sharpness: {sharpness}");
 
     let saturation = client.get_saturation()?;
-    println!("Saturation: {}", saturation);
+    println!("Saturation: {saturation}");
 
     let hue = client.get_hue()?;
-    println!("Hue: {}", hue);
+    println!("Hue: {hue}");
 
     // Advanced Settings
     println!("\n=== Advanced Settings ===");
     let (vertical_flip, horizontal_flip) = client.get_image_flip()?;
-    println!(
-        "Image Flip: Vertical={}, Horizontal={}",
-        vertical_flip, horizontal_flip
-    );
+    println!("Image Flip: Vertical={vertical_flip}, Horizontal={horizontal_flip}");
 
     let backlight = client.get_backlight_status()?;
     println!(

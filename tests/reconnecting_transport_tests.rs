@@ -6,8 +6,9 @@ mod common;
 
 use common::MockAsyncTransport;
 use grafton_visca::{
-    transport::Transport, ConnectionEvent, ReconnectingTransport, ReconnectionConfig, ViscaCommand,
-    ViscaError,
+    command::power::{Power, PowerCommand},
+    transport::Transport,
+    ConnectionEvent, ReconnectingTransport, ReconnectionConfig, ViscaCommand, ViscaError,
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -118,7 +119,6 @@ async fn test_basic_reconnection() {
     assert_eq!(creation_count.load(Ordering::SeqCst), 1);
 
     // Should work normally
-    use grafton_visca::command::power::{Power, PowerCommand};
     let cmd = PowerCommand { power: Power::On };
     reconnecting.send_command(&cmd).await.unwrap();
 
@@ -169,7 +169,6 @@ async fn test_reconnection_after_failure() {
         .unwrap();
 
     // First command should fail and trigger reconnection
-    use grafton_visca::command::power::{Power, PowerCommand};
     let cmd = PowerCommand { power: Power::On };
 
     // This should succeed after reconnection
@@ -218,7 +217,6 @@ async fn test_max_retry_attempts() {
         .unwrap();
 
     // This should fail after max retries
-    use grafton_visca::command::power::{Power, PowerCommand};
     let cmd = PowerCommand { power: Power::On };
     let result = reconnecting.send_command(&cmd).await;
 
@@ -275,7 +273,6 @@ async fn test_exponential_backoff() {
         .unwrap();
 
     // Trigger reconnection by sending a command that will fail
-    use grafton_visca::command::power::{Power, PowerCommand};
     let cmd = PowerCommand { power: Power::On };
     let result = reconnecting.send_command(&cmd).await;
     assert!(result.is_err());
@@ -356,7 +353,6 @@ async fn test_connection_event_callbacks() {
     reconnecting.set_event_callback(callback);
 
     // Trigger failure and reconnection
-    use grafton_visca::command::power::{Power, PowerCommand};
     let cmd = PowerCommand { power: Power::On };
     let _ = reconnecting.send_command(&cmd).await;
 
@@ -422,7 +418,6 @@ async fn test_health_check_triggers_reconnection() {
         .unwrap();
 
     // First command should work
-    use grafton_visca::command::power::{Power, PowerCommand};
     let cmd = PowerCommand { power: Power::On };
     reconnecting.send_command(&cmd).await.unwrap();
 
@@ -489,7 +484,6 @@ async fn test_concurrent_operations_during_reconnection() {
     reconnecting.force_disconnect().await;
 
     // Start two concurrent operations
-    use grafton_visca::command::power::{Power, PowerCommand};
     let cmd1 = PowerCommand { power: Power::On };
     let cmd2 = PowerCommand { power: Power::On };
 
@@ -520,7 +514,6 @@ async fn test_stats_tracking() {
         .unwrap();
 
     // Perform some operations
-    use grafton_visca::command::power::{Power, PowerCommand};
     let cmd = PowerCommand { power: Power::On };
 
     reconnecting.send_command(&cmd).await.unwrap();

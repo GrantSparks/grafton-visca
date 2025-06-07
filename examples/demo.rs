@@ -11,7 +11,13 @@
 
 use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed};
 use grafton_visca::command::preset::PresetNumber;
-use grafton_visca::command::*;
+use grafton_visca::command::{
+    BacklightCommand, ContrastCommand, ExposureCommand, ExposureMode, FocusCommand, HueCommand,
+    ImageFlipCombinedCommand, ImageFlipMode, InquiryCommand, IrisCommand, LuminanceCommand,
+    NoiseReduction2DCommand, PanTiltCommand, PanTiltDirection, Power, PowerCommand, PresetAction,
+    PresetCommand, SaturationCommand, SharpnessCommand, ShutterCommand, WhiteBalanceCommand,
+    WhiteBalanceMode, ZoomCommand,
+};
 use grafton_visca::{ViscaClient, ViscaDevice, ViscaInquiryResponse, ViscaResponse};
 use std::thread;
 use std::time::Duration;
@@ -23,10 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get camera IP from environment or use default
     let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100:5678".to_string());
 
-    println!(
-        "🎥 Grafton VISCA Demo - Connecting to camera at {}",
-        camera_ip
-    );
+    println!("🎥 Grafton VISCA Demo - Connecting to camera at {camera_ip}");
     println!("{}", "=".repeat(50));
 
     // Create client
@@ -37,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Powering on camera...");
     match client.execute_command(&PowerCommand { power: Power::On })? {
         ViscaResponse::Completion => println!("✅ Camera powered on successfully"),
-        ViscaResponse::Error(e) => println!("❌ Power on error: {:?}", e),
+        ViscaResponse::Error(e) => println!("❌ Power on error: {e:?}"),
         _ => println!("⚠️  Unexpected response"),
     }
     thread::sleep(Duration::from_secs(2));
@@ -166,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Query zoom position
     match client.execute_command(&InquiryCommand::ZoomPosition)? {
         ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
-            println!("  Zoom position: 0x{:04X}", position);
+            println!("  Zoom position: 0x{position:04X}");
         }
         _ => println!("  Failed to get zoom position"),
     }
@@ -174,7 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Query pan/tilt position
     match client.execute_command(&InquiryCommand::PanTiltPosition)? {
         ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
-            println!("  Pan/Tilt position: Pan={}, Tilt={}", pan, tilt);
+            println!("  Pan/Tilt position: Pan={pan}, Tilt={tilt}");
         }
         _ => println!("  Failed to get pan/tilt position"),
     }
@@ -182,7 +185,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Query exposure mode
     match client.execute_command(&InquiryCommand::ExposureMode)? {
         ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) => {
-            println!("  Exposure mode: {:?}", mode);
+            println!("  Exposure mode: {mode:?}");
         }
         _ => println!("  Failed to get exposure mode"),
     }
@@ -190,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Query white balance mode
     match client.execute_command(&InquiryCommand::WhiteBalanceMode)? {
         ViscaResponse::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode }) => {
-            println!("  White balance mode: {:?}", mode);
+            println!("  White balance mode: {mode:?}");
         }
         _ => println!("  Failed to get white balance mode"),
     }

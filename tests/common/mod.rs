@@ -167,17 +167,21 @@ impl MockDevice {
                 vec![0x90, 0x50, if on { 0x02 } else { 0x03 }, 0xFF]
             }
             ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
+                // Extract 4-bit nibbles from 16-bit signed values
+                // Using transmute for protocol-level bit manipulation
+                let pan_u16 = u16::from_ne_bytes(pan.to_ne_bytes());
+                let tilt_u16 = u16::from_ne_bytes(tilt.to_ne_bytes());
                 vec![
                     0x90,
                     0x50,
-                    ((pan >> 12) & 0x0F) as u8,
-                    ((pan >> 8) & 0x0F) as u8,
-                    ((pan >> 4) & 0x0F) as u8,
-                    (pan & 0x0F) as u8,
-                    ((tilt >> 12) & 0x0F) as u8,
-                    ((tilt >> 8) & 0x0F) as u8,
-                    ((tilt >> 4) & 0x0F) as u8,
-                    (tilt & 0x0F) as u8,
+                    ((pan_u16 >> 12) & 0x0F) as u8,
+                    ((pan_u16 >> 8) & 0x0F) as u8,
+                    ((pan_u16 >> 4) & 0x0F) as u8,
+                    (pan_u16 & 0x0F) as u8,
+                    ((tilt_u16 >> 12) & 0x0F) as u8,
+                    ((tilt_u16 >> 8) & 0x0F) as u8,
+                    ((tilt_u16 >> 4) & 0x0F) as u8,
+                    (tilt_u16 & 0x0F) as u8,
                     0xFF,
                 ]
             }

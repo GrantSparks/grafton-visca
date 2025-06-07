@@ -52,7 +52,7 @@ fn main() -> Result<(), ViscaError> {
     thread::sleep(Duration::from_secs(2));
 
     let mag = ViscaZoomExt::get_zoom_magnification(&mut client)?;
-    println!("Current zoom: {:.1}x", mag);
+    println!("Current zoom: {mag:.1}x");
 
     // Position control
     println!("\n--- Position Control ---");

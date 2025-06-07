@@ -15,7 +15,7 @@ use grafton_visca::{
     constants::{
         self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
-    ViscaClient,
+    ViscaClient, ViscaInquiryExt, ViscaPanTiltExt,
 };
 #[cfg(feature = "blocking-client")]
 use log::{error, info};
@@ -34,19 +34,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         "192.168.0.110"
     };
-    let address = format!("{}:1259", ip_address);
+    let address = format!("{ip_address}:1259");
 
     // Connect to camera
     let mut client = ViscaClient::connect_udp(&address)?;
-    info!("Connected to camera at {}", address);
+    info!("Connected to camera at {address}");
 
     // For this example, we'll assume PTZOptics G2
     // Note: detect_camera_model is not yet available in current API
     let model = CameraModel::PTZOpticsG2;
-    info!("Using camera model: {:?}", model);
+    info!("Using camera model: {model:?}");
 
     // Display camera constants
-    info!("\nCamera Constants for {:?}:", model);
+    info!("\nCamera Constants for {model:?}:");
     info!("  Pan range: {:?} VISCA units", model.pan_range());
     info!("  Tilt range: {:?} VISCA units", model.tilt_range());
     info!("  Zoom range: {:?} VISCA units", model.zoom_range());
@@ -59,11 +59,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("\nQuerying current camera position...");
     // Note: send_command_and_wait is not directly available on ViscaClient
     // Using the extension trait methods instead
-    use grafton_visca::ViscaInquiryExt;
     let (pan, tilt) = client.get_pan_tilt_position()?;
 
     let visca_pos = ViscaPosition { pan, tilt };
-    info!("Current VISCA position: pan={}, tilt={}", pan, tilt);
+    info!("Current VISCA position: pan={pan}, tilt={tilt}");
 
     // Convert to different units
     let degrees = visca_pos.to_degrees(model);
@@ -102,26 +101,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Valid pan position
     match constants::validate_pan_position(1000, model) {
-        Ok(pos) => info!("  Pan position {} is valid", pos),
-        Err(e) => error!("  Pan validation error: {}", e),
+        Ok(pos) => info!("  Pan position {pos} is valid"),
+        Err(e) => error!("  Pan validation error: {e}"),
     }
 
     // Invalid pan position
     match constants::validate_pan_position(5000, model) {
-        Ok(pos) => info!("  Pan position {} is valid", pos),
-        Err(e) => info!("  Pan validation error (expected): {}", e),
+        Ok(pos) => info!("  Pan position {pos} is valid"),
+        Err(e) => info!("  Pan validation error (expected): {e}"),
     }
 
     // Valid preset ID
     match constants::validate_preset_id(50) {
-        Ok(id) => info!("  Preset ID {} is valid", id),
-        Err(e) => error!("  Preset validation error: {}", e),
+        Ok(id) => info!("  Preset ID {id} is valid"),
+        Err(e) => error!("  Preset validation error: {e}"),
     }
 
     // Invalid preset ID
     match constants::validate_preset_id(150) {
-        Ok(id) => info!("  Preset ID {} is valid", id),
-        Err(e) => info!("  Preset validation error (expected): {}", e),
+        Ok(id) => info!("  Preset ID {id} is valid"),
+        Err(e) => info!("  Preset validation error (expected): {e}"),
     }
 
     // Demonstrate moving to a position specified in degrees
@@ -154,7 +153,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         // Using extension trait method
-        use grafton_visca::ViscaPanTiltExt;
         match ViscaPanTiltExt::move_to_position(
             &mut client,
             target_visca.pan,
@@ -164,8 +162,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 constants::speed::TILT_SPEED_DEFAULT,
             )),
         ) {
-            Ok(_) => info!("Successfully moved to target position"),
-            Err(e) => error!("Failed to move: {}", e),
+            Ok(()) => info!("Successfully moved to target position"),
+            Err(e) => error!("Failed to move: {e}"),
         }
     } else {
         error!("Target position is out of range");

@@ -1,7 +1,7 @@
 //! # Phase E: Enhanced Error Handling Demo
 //!
 //! This example demonstrates the enhanced error handling capabilities implemented in Phase E,
-//! including the ViscaResultExt trait and ViscaRetry utility for robust camera communication.
+//! including the `ViscaResultExt` trait and `ViscaRetry` utility for robust camera communication.
 
 use grafton_visca::ViscaError;
 use std::time::Duration;
@@ -57,19 +57,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "blocking-client")]
 fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
+    use std::cell::Cell;
+
     println!("1. Basic Error Context with ViscaResultExt");
     println!("   Using with_retry_context() to add logging to retryable errors");
 
     // Simulate a result that would benefit from retry context
     let simulated_busy_error: Result<(), ViscaError> = Err(ViscaError::CameraBusy);
     match simulated_busy_error.with_retry_context() {
-        Ok(_) => println!("   ✅ Operation succeeded"),
+        Ok(()) => println!("   ✅ Operation succeeded"),
         Err(err) => {
-            println!("   ⚠️  Retryable error detected: {}", err);
+            println!("   ⚠️  Retryable error detected: {err}");
             if err.is_retryable() {
                 println!("   💡 Suggestion: Use ViscaRetry utilities for automatic retry");
                 if let Some(delay) = err.suggested_retry_delay() {
-                    println!("   ⏱️  Suggested retry delay: {:?}", delay);
+                    println!("   ⏱️  Suggested retry delay: {delay:?}");
                 }
             }
         }
@@ -79,7 +81,6 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
 
     // Example 1: Retry with custom parameters
     println!("   a) Retry with custom base delay:");
-    use std::cell::Cell;
     let attempt_count = Cell::new(0);
     let result = ViscaRetry::retry_blocking(
         || {
@@ -87,10 +88,10 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
             let count = attempt_count.get() + 1;
             attempt_count.set(count);
             if count < 3 {
-                println!("      Attempt {}: Simulating CameraBusy error", count);
+                println!("      Attempt {count}: Simulating CameraBusy error");
                 Err(ViscaError::CameraBusy)
             } else {
-                println!("      Attempt {}: Success!", count);
+                println!("      Attempt {count}: Success!");
                 Ok("Operation completed")
             }
         },
@@ -99,8 +100,8 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
     );
 
     match result {
-        Ok(value) => println!("   ✅ Retry succeeded: {}", value),
-        Err(err) => println!("   ❌ Retry failed: {}", err),
+        Ok(value) => println!("   ✅ Retry succeeded: {value}"),
+        Err(err) => println!("   ❌ Retry failed: {err}"),
     }
 
     // Reset counter for next example
@@ -110,7 +111,7 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
         || {
             let count = attempt_count2.get() + 1;
             attempt_count2.set(count);
-            println!("      Attempt {}: Simulating SyntaxError", count);
+            println!("      Attempt {count}: Simulating SyntaxError");
             Err(ViscaError::SyntaxError)
         },
         3,
@@ -120,7 +121,7 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
     match result {
         Ok(_) => println!("   ✅ Unexpected success"),
         Err(err) => {
-            println!("   ❌ Failed as expected: {}", err);
+            println!("   ❌ Failed as expected: {err}");
             println!("   💡 SyntaxError is not retryable, so only 1 attempt was made");
         }
     }
@@ -152,16 +153,16 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
 
                     match zoom_result {
                         Ok(_) => info!("   ✅ Zoom command succeeded"),
-                        Err(err) => warn!("   ⚠️  Zoom command failed: {}", err),
+                        Err(err) => warn!("   ⚠️  Zoom command failed: {err}"),
                     }
                 }
                 Err(err) => {
-                    warn!("   ⚠️  Pan/Tilt command failed: {}", err);
+                    warn!("   ⚠️  Pan/Tilt command failed: {err}");
                 }
             }
         }
         Err(err) => {
-            warn!("   ⚠️  Could not connect to camera: {}", err);
+            warn!("   ⚠️  Could not connect to camera: {err}");
             println!("   💡 This is expected if no camera is connected");
             println!("   💡 To test with a real camera, see the control_demo example");
         }
@@ -172,11 +173,12 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
 
 #[cfg(feature = "async-client")]
 async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+
     println!("1. Async Retry with ViscaRetry::retry_async");
 
     // Example with simulated retryable error
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
 
     let async_attempt_count = Arc::new(AtomicU32::new(0));
     let async_attempt_count_clone = async_attempt_count.clone();
@@ -187,10 +189,10 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
             async move {
                 let current = count.fetch_add(1, Ordering::SeqCst) + 1;
                 if current < 3 {
-                    println!("   Async attempt {}: Simulating timeout", current);
+                    println!("   Async attempt {current}: Simulating timeout");
                     Err(ViscaError::Timeout)
                 } else {
-                    println!("   Async attempt {}: Success!", current);
+                    println!("   Async attempt {current}: Success!");
                     Ok("Async operation completed")
                 }
             }
@@ -201,8 +203,8 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
     .await;
 
     match result {
-        Ok(value) => println!("   ✅ Async retry succeeded: {}", value),
-        Err(err) => println!("   ❌ Async retry failed: {}", err),
+        Ok(value) => println!("   ✅ Async retry succeeded: {value}"),
+        Err(err) => println!("   ❌ Async retry failed: {err}"),
     }
 
     println!("\n2. Retry with Suggested Delays");
@@ -243,8 +245,8 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
     .await;
 
     match result {
-        Ok(value) => println!("   ✅ Suggested delay retry succeeded: {}", value),
-        Err(err) => println!("   ❌ Suggested delay retry failed: {}", err),
+        Ok(value) => println!("   ✅ Suggested delay retry succeeded: {value}"),
+        Err(err) => println!("   ❌ Suggested delay retry failed: {err}"),
     }
 
     println!("\n3. Exponential Backoff Example");
@@ -258,10 +260,10 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
             async move {
                 let current = count.fetch_add(1, Ordering::SeqCst) + 1;
                 if current < 4 {
-                    println!("   Attempt {}: CommandBufferFull", current);
+                    println!("   Attempt {current}: CommandBufferFull");
                     Err(ViscaError::CommandBufferFull)
                 } else {
-                    println!("   Attempt {}: Success!", current);
+                    println!("   Attempt {current}: Success!");
                     Ok("Exponential backoff completed")
                 }
             }
@@ -274,8 +276,8 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
     // Delays will be: 25ms, 50ms, 100ms, 200ms, 400ms...
 
     match result {
-        Ok(value) => println!("   ✅ Exponential backoff succeeded: {}", value),
-        Err(err) => println!("   ❌ Exponential backoff failed: {}", err),
+        Ok(value) => println!("   ✅ Exponential backoff succeeded: {value}"),
+        Err(err) => println!("   ❌ Exponential backoff failed: {err}"),
     }
 
     println!("\n4. Real Async Camera Operations (if connected)");
@@ -307,16 +309,16 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
 
             match pan_result {
                 Ok(_) => info!("   ✅ Async pan/tilt home succeeded"),
-                Err(err) => warn!("   ⚠️  Async pan/tilt home failed: {}", err),
+                Err(err) => warn!("   ⚠️  Async pan/tilt home failed: {err}"),
             }
 
             match zoom_result {
                 Ok(_) => info!("   ✅ Async zoom operation succeeded"),
-                Err(err) => warn!("   ⚠️  Async zoom operation failed: {}", err),
+                Err(err) => warn!("   ⚠️  Async zoom operation failed: {err}"),
             }
         }
         Err(err) => {
-            warn!("   ⚠️  Could not connect to camera: {}", err);
+            warn!("   ⚠️  Could not connect to camera: {err}");
             println!("   💡 This is expected if no camera is available");
         }
     }
@@ -346,10 +348,10 @@ fn demonstrate_error_classification() {
     ];
 
     for error in errors {
-        println!("   Error: {}", error);
+        println!("   Error: {error}");
         println!("     Retryable: {}", error.is_retryable());
         if let Some(delay) = error.suggested_retry_delay() {
-            println!("     Suggested delay: {:?}", delay);
+            println!("     Suggested delay: {delay:?}");
         }
         println!();
     }

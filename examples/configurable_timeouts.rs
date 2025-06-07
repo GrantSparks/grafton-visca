@@ -1,6 +1,6 @@
 //! Example demonstrating configurable timeouts for different command types.
 //!
-//! This example shows how to use the TimeoutConfig to set different timeout
+//! This example shows how to use the `TimeoutConfig` to set different timeout
 //! durations for various categories of VISCA commands, allowing fine-tuned
 //! control over command execution timeouts.
 

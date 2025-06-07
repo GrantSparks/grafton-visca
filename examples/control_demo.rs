@@ -20,7 +20,7 @@ fn main() -> Result<(), ViscaError> {
 
     // Connect to camera
     let camera_addr = &args[1];
-    println!("Connecting to camera at {}...", camera_addr);
+    println!("Connecting to camera at {camera_addr}...");
     let mut client = ViscaClient::connect_udp(camera_addr)?;
 
     println!("\n=== Camera Control Demo ===\n");

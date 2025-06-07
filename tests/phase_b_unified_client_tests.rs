@@ -14,26 +14,26 @@ mod tests {
     #[test]
     fn test_blocking_client_creation() {
         // Test that we can create blocking clients
-        let _udp_result = ViscaClient::connect_udp("127.0.0.1:1234");
-        let _tcp_result = ViscaClient::connect_tcp("127.0.0.1:1234");
+        let udp_result = ViscaClient::connect_udp("127.0.0.1:1234");
+        let tcp_result = ViscaClient::connect_tcp("127.0.0.1:1234");
 
         // UDP should succeed (no connection needed)
-        assert!(_udp_result.is_ok());
+        assert!(udp_result.is_ok());
         // TCP should fail (no server)
-        assert!(_tcp_result.is_err());
+        assert!(tcp_result.is_err());
     }
 
     #[cfg(feature = "async-client")]
     #[tokio::test]
     async fn test_async_client_creation() {
         // Test that we can create async clients
-        let _udp_result = ViscaClient::connect_udp_async("127.0.0.1:1234").await;
-        let _tcp_result = ViscaClient::connect_tcp_async("127.0.0.1:1234").await;
+        let udp_result = ViscaClient::connect_udp_async("127.0.0.1:1234").await;
+        let tcp_result = ViscaClient::connect_tcp_async("127.0.0.1:1234").await;
 
         // UDP should succeed (no connection needed)
-        assert!(_udp_result.is_ok());
+        assert!(udp_result.is_ok());
         // TCP should fail (no server)
-        assert!(_tcp_result.is_err());
+        assert!(tcp_result.is_err());
     }
 
     #[cfg(all(feature = "blocking-client", feature = "async-client"))]
