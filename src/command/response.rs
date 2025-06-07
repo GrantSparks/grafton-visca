@@ -8,7 +8,11 @@ use log::error;
 
 // Crate imports
 use crate::{
-    command::{ExposureMode, ViscaInquiryResponse, WhiteBalanceMode},
+    command::{
+        gain::AntiFlickerMode,
+        luminance_contrast_sharpness::SharpnessMode,
+        AFSensitivity, ExposureMode, FocusZone, ViscaInquiryResponse, WhiteBalanceMode,
+    },
     error::ViscaError,
 };
 
@@ -93,6 +97,14 @@ pub enum ViscaResponseType {
     DynamicRange,
 }
 
+/// Parse a VISCA response from raw bytes.
+///
+/// # Errors
+///
+/// Returns `ViscaError::InvalidResponseFormat` if the response format is invalid.
+/// Returns `ViscaError::InvalidResponseLength` if the response length doesn't match expected.
+/// Returns `ViscaError::UnexpectedResponseType` if the response data is invalid for the type.
+/// Returns a specific VISCA error code if the response indicates an error (0x60-0x6F).
 pub fn parse_visca_response(
     response: &[u8],
     response_type: &ViscaResponseType,
@@ -287,7 +299,6 @@ fn parse_mode_response(response: &[u8], mode_type: ModeType) -> Result<ViscaResp
             ))
         }
         ModeType::Sharpness => {
-            use crate::command::luminance_contrast_sharpness::SharpnessMode;
             let mode = match response[2] {
                 0x02 => SharpnessMode::Auto,
                 0x03 => SharpnessMode::Manual,
@@ -332,7 +343,6 @@ fn parse_simple_value(
             ))
         }
         SimpleValueType::AntiFlicker => {
-            use crate::command::gain::AntiFlickerMode;
             let mode = match response[2] {
                 0x00 => AntiFlickerMode::Off,
                 0x01 => AntiFlickerMode::Hz50,
@@ -378,7 +388,6 @@ fn parse_simple_value(
             ))
         }
         SimpleValueType::FocusZone => {
-            use super::FocusZone;
             let zone = match response[2] {
                 0x00 => FocusZone::Top,
                 0x01 => FocusZone::Center,
@@ -390,7 +399,6 @@ fn parse_simple_value(
             ))
         }
         SimpleValueType::AFSensitivity => {
-            use super::AFSensitivity;
             let sensitivity = match response[2] {
                 0x02 => AFSensitivity::High,
                 0x01 => AFSensitivity::Normal,
