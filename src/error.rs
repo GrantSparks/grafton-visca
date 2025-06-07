@@ -221,7 +221,7 @@ impl ViscaError {
 
 impl From<nom::Err<nom::error::Error<&[u8]>>> for ViscaError {
     fn from(err: nom::Err<nom::error::Error<&[u8]>>) -> Self {
-        ViscaError::ParseError(err.to_string())
+        Self::ParseError(err.to_string())
     }
 }
 
@@ -329,6 +329,7 @@ pub trait ViscaResultExt<T> {
     fn with_retry_context(self) -> Result<T, ViscaError>;
 }
 
+#[allow(clippy::use_self)]
 impl<T> ViscaResultExt<T> for Result<T, ViscaError>
 where
     T: Send + 'static,

@@ -42,17 +42,17 @@ pub enum SharpnessCommand {
 impl ViscaCommand for SharpnessCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(match self {
-            SharpnessCommand::Mode(mode) => {
+            Self::Mode(mode) => {
                 let mode_byte = match mode {
                     SharpnessMode::Auto => 0x02,
                     SharpnessMode::Manual => 0x03,
                 };
                 vec![0x81, 0x01, 0x04, 0x05, mode_byte, 0xFF]
             }
-            SharpnessCommand::Reset => vec![0x81, 0x01, 0x04, 0x02, 0x00, 0xFF],
-            SharpnessCommand::Up => vec![0x81, 0x01, 0x04, 0x02, 0x02, 0xFF],
-            SharpnessCommand::Down => vec![0x81, 0x01, 0x04, 0x02, 0x03, 0xFF],
-            SharpnessCommand::Direct { value } => {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x02, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x02, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x02, 0x03, 0xFF],
+            Self::Direct { value } => {
                 if *value > 11 {
                     return Err(ViscaError::InvalidParameter(
                         "Sharpness value must be in the range 0..=11".into(),

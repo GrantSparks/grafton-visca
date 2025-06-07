@@ -26,11 +26,11 @@ impl CommandCategory {
     #[must_use]
     pub const fn default_timeout(&self) -> Duration {
         match self {
-            CommandCategory::Quick => Duration::from_secs(2),
-            CommandCategory::Movement => Duration::from_secs(10),
-            CommandCategory::Preset => Duration::from_secs(60),
-            CommandCategory::LongRunning => Duration::from_secs(300),
-            CommandCategory::Custom => Duration::from_secs(30),
+            Self::Quick => Duration::from_secs(2),
+            Self::Movement => Duration::from_secs(10),
+            Self::Preset => Duration::from_secs(60),
+            Self::LongRunning => Duration::from_secs(300),
+            Self::Custom => Duration::from_secs(30),
         }
     }
 }

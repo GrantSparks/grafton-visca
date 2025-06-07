@@ -50,8 +50,8 @@ pub enum NoiseReduction2DCommand {
 impl ViscaCommand for NoiseReduction2DCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(match self {
-            NoiseReduction2DCommand::Off => vec![0x81, 0x01, 0x04, 0x53, 0x00, 0xFF],
-            NoiseReduction2DCommand::Level(level) => {
+            Self::Off => vec![0x81, 0x01, 0x04, 0x53, 0x00, 0xFF],
+            Self::Level(level) => {
                 if *level < 1 || *level > 5 {
                     return Err(ViscaError::InvalidParameter(
                         "2D Noise Reduction level must be between 1 and 5".into(),
@@ -87,8 +87,8 @@ pub enum NoiseReduction3DCommand {
 impl ViscaCommand for NoiseReduction3DCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(match self {
-            NoiseReduction3DCommand::Off => vec![0x81, 0x01, 0x04, 0x54, 0x00, 0xFF],
-            NoiseReduction3DCommand::Level(level) => {
+            Self::Off => vec![0x81, 0x01, 0x04, 0x54, 0x00, 0xFF],
+            Self::Level(level) => {
                 if *level < 1 || *level > 8 {
                     return Err(ViscaError::InvalidParameter(
                         "3D Noise Reduction level must be between 1 and 8".into(),

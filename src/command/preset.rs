@@ -44,7 +44,7 @@ impl PresetNumber {
     #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
-            Ok(PresetNumber(value))
+            Ok(Self(value))
         } else {
             Err(ViscaError::InvalidParameter(format!(
                 "Preset number must be between 0 and {}",
@@ -64,7 +64,7 @@ impl TryFrom<u8> for PresetNumber {
     type Error = ViscaError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        PresetNumber::new(value)
+        Self::new(value)
     }
 }
 
