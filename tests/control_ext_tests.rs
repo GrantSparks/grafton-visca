@@ -1,8 +1,14 @@
 //! Tests for high-level control API extension traits.
 
 use grafton_visca::{
-    PanTiltDirection, ViscaCommand, ViscaDevice, ViscaError, ViscaFocusExt, ViscaPanTiltExt,
-    ViscaPresetExt, ViscaResponse, ViscaZoomExt,
+    command::{
+        focus::FocusSpeed,
+        pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
+        preset::PresetNumber,
+        zoom::ZoomSpeed,
+    },
+    ViscaCommand, ViscaDevice, ViscaError, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt,
+    ViscaResponse, ViscaZoomExt,
 };
 
 /// Mock device for testing control commands
@@ -54,7 +60,13 @@ mod pan_tilt_tests {
     fn test_move_to_position_custom_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.move_to_position(0, 0, Some((24, 18))).unwrap();
+        device
+            .move_to_position(
+                0,
+                0,
+                Some((PanSpeed::new(24).unwrap(), TiltSpeed::new(18).unwrap())),
+            )
+            .unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd[0..5], [0x81, 0x01, 0x06, 0x02, 24]);
@@ -76,7 +88,11 @@ mod pan_tilt_tests {
         let mut device = MockDevice::with_completion();
 
         device
-            .start_moving(PanTiltDirection::UpRight, 10, 8)
+            .start_moving(
+                PanTiltDirection::UpRight,
+                PanSpeed::new(10).unwrap(),
+                TiltSpeed::new(8).unwrap(),
+            )
             .unwrap();
 
         let cmd = device.last_command();
@@ -137,7 +153,7 @@ mod zoom_tests {
     fn test_zoom_in_variable_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.zoom_in(Some(5)).unwrap();
+        device.zoom_in(Some(ZoomSpeed::new(5).unwrap())).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]); // Tele variable speed 5
@@ -215,7 +231,7 @@ mod focus_tests {
     fn test_focus_far_variable_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.focus_far(Some(6)).unwrap();
+        device.focus_far(Some(FocusSpeed::new(6).unwrap())).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x08, 0x26, 0xFF]); // Far variable speed 6
@@ -240,7 +256,7 @@ mod preset_tests {
     fn test_save_preset() {
         let mut device = MockDevice::with_completion();
 
-        device.save_preset(1).unwrap();
+        device.save_preset(PresetNumber::new(1).unwrap()).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x3F, 0x01, 0x01, 0xFF]); // Set preset 1
@@ -250,7 +266,7 @@ mod preset_tests {
     fn test_recall_preset() {
         let mut device = MockDevice::with_completion();
 
-        device.recall_preset(5).unwrap();
+        device.recall_preset(PresetNumber::new(5).unwrap()).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x3F, 0x02, 0x05, 0xFF]); // Recall preset 5
@@ -260,7 +276,7 @@ mod preset_tests {
     fn test_reset_preset() {
         let mut device = MockDevice::with_completion();
 
-        device.reset_preset(89).unwrap();
+        device.reset_preset(PresetNumber::new(89).unwrap()).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x3F, 0x00, 0x59, 0xFF]); // Reset preset 89 (max allowed)

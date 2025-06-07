@@ -2,7 +2,10 @@
 
 // Crate imports
 use crate::{
-    command::InquiryCommand,
+    command::{
+        pan_tilt::{PanSpeed, TiltSpeed},
+        InquiryCommand,
+    },
     constants::{
         CameraModel, DegreePosition, NormalizedPosition, PositionConversion, ViscaPosition,
     },
@@ -18,7 +21,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Arguments
     /// * `pan_deg` - Pan position in degrees (-170° to +170° for most cameras)
     /// * `tilt_deg` - Tilt position in degrees (varies by camera model)
-    /// * `speed` - Optional pan and tilt speeds (1-24 for pan, 1-20 for tilt)
+    /// * `speed` - Optional pan and tilt speeds
     ///
     /// # Errors
     /// Returns `ViscaError` if the command fails to send, the camera returns an error,
@@ -27,7 +30,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt, PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
     /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
@@ -35,7 +38,9 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// client.move_to_degrees(45.0, 30.0, None)?;
     ///
     /// // Move to left 90 degrees, level, at specific speeds
-    /// client.move_to_degrees(-90.0, 0.0, Some((10, 10)))?;
+    /// let pan_speed = PanSpeed::new(10)?;
+    /// let tilt_speed = TiltSpeed::new(10)?;
+    /// client.move_to_degrees(-90.0, 0.0, Some((pan_speed, tilt_speed)))?;
     /// # Ok(())
     /// # }
     /// ```
@@ -43,19 +48,14 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
         &mut self,
         pan_deg: f32,
         tilt_deg: f32,
-        speed: Option<(u8, u8)>,
+        speed: Option<(PanSpeed, TiltSpeed)>,
     ) -> Result<(), ViscaError> {
         let position = DegreePosition {
             pan: pan_deg,
             tilt: tilt_deg,
         };
         let visca_pos = position.to_visca(CameraModel::PTZOpticsG2);
-
-        if let Some((pan_speed, tilt_speed)) = speed {
-            self.move_to_position(visca_pos.pan, visca_pos.tilt, Some((pan_speed, tilt_speed)))
-        } else {
-            self.move_to_position(visca_pos.pan, visca_pos.tilt, None)
-        }
+        self.move_to_position(visca_pos.pan, visca_pos.tilt, speed)
     }
 
     /// Move to normalized position.
@@ -63,7 +63,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Arguments
     /// * `pan` - Normalized pan position (-1.0 = full left, 0.0 = center, 1.0 = full right)
     /// * `tilt` - Normalized tilt position (-1.0 = full down, 0.0 = center, 1.0 = full up)
-    /// * `speed` - Optional pan and tilt speeds (1-24 for pan, 1-20 for tilt)
+    /// * `speed` - Optional pan and tilt speeds
     ///
     /// # Errors
     /// Returns `ViscaError` if the command fails to send, the camera returns an error,
@@ -72,7 +72,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt, PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
     /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
@@ -80,7 +80,9 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// client.move_to_normalized(0.0, 0.0, None)?;
     ///
     /// // Move to top-right corner
-    /// client.move_to_normalized(1.0, 1.0, Some((15, 15)))?;
+    /// let pan_speed = PanSpeed::new(15)?;
+    /// let tilt_speed = TiltSpeed::new(15)?;
+    /// client.move_to_normalized(1.0, 1.0, Some((pan_speed, tilt_speed)))?;
     ///
     /// // Move to 25% left, 50% up
     /// client.move_to_normalized(-0.25, 0.5, None)?;
@@ -91,16 +93,11 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
         &mut self,
         pan: f32,
         tilt: f32,
-        speed: Option<(u8, u8)>,
+        speed: Option<(PanSpeed, TiltSpeed)>,
     ) -> Result<(), ViscaError> {
         let position = NormalizedPosition { pan, tilt };
         let visca_pos = position.to_visca(CameraModel::PTZOpticsG2);
-
-        if let Some((pan_speed, tilt_speed)) = speed {
-            self.move_to_position(visca_pos.pan, visca_pos.tilt, Some((pan_speed, tilt_speed)))
-        } else {
-            self.move_to_position(visca_pos.pan, visca_pos.tilt, None)
-        }
+        self.move_to_position(visca_pos.pan, visca_pos.tilt, speed)
     }
 
     /// Get current position in degrees.
@@ -194,18 +191,20 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt, PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
     /// # use grafton_visca::constants::CameraModel;
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
     /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
     /// // Move using 30X camera model parameters
+    /// let pan_speed = PanSpeed::new(12)?;
+    /// let tilt_speed = TiltSpeed::new(12)?;
     /// client.move_to_degrees_for_model(
     ///     45.0,
     ///     30.0,
     ///     CameraModel::PTZOptics30X,
-    ///     Some((12, 12))
+    ///     Some((pan_speed, tilt_speed))
     /// )?;
     /// # Ok(())
     /// # }
@@ -215,19 +214,14 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
         pan_deg: f32,
         tilt_deg: f32,
         model: CameraModel,
-        speed: Option<(u8, u8)>,
+        speed: Option<(PanSpeed, TiltSpeed)>,
     ) -> Result<(), ViscaError> {
         let position = DegreePosition {
             pan: pan_deg,
             tilt: tilt_deg,
         };
         let visca_pos = position.to_visca(model);
-
-        if let Some((pan_speed, tilt_speed)) = speed {
-            self.move_to_position(visca_pos.pan, visca_pos.tilt, Some((pan_speed, tilt_speed)))
-        } else {
-            self.move_to_position(visca_pos.pan, visca_pos.tilt, None)
-        }
+        self.move_to_position(visca_pos.pan, visca_pos.tilt, speed)
     }
 
     /// Move by relative degrees.
@@ -245,6 +239,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::ViscaError> {
     /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
@@ -252,7 +247,9 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// client.move_by_degrees(10.0, 5.0, None)?;
     ///
     /// // Move 45 degrees left at high speed
-    /// client.move_by_degrees(-45.0, 0.0, Some((20, 20)))?;
+    /// let pan_speed = PanSpeed::new(20)?;
+    /// let tilt_speed = TiltSpeed::new(20)?;
+    /// client.move_by_degrees(-45.0, 0.0, Some((pan_speed, tilt_speed)))?;
     /// # Ok(())
     /// # }
     /// ```
@@ -260,17 +257,12 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
         &mut self,
         pan_deg: f32,
         tilt_deg: f32,
-        speed: Option<(u8, u8)>,
+        speed: Option<(PanSpeed, TiltSpeed)>,
     ) -> Result<(), ViscaError> {
         // Convert degrees to VISCA units using the conversion factor
         let pan_units = crate::constants::pan_degrees_to_visca(pan_deg);
         let tilt_units = crate::constants::tilt_degrees_to_visca(tilt_deg);
-
-        if let Some((pan_speed, tilt_speed)) = speed {
-            self.move_relative(pan_units, tilt_units, Some((pan_speed, tilt_speed)))
-        } else {
-            self.move_relative(pan_units, tilt_units, None)
-        }
+        self.move_relative(pan_units, tilt_units, speed)
     }
 
     /// Set normalized pan/tilt speeds.

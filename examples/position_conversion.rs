@@ -8,6 +8,7 @@
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
+    command::pan_tilt::{PanSpeed, TiltSpeed},
     constants::{
         self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
@@ -144,8 +145,8 @@ fn move_to_degrees_position(client: &mut ViscaClient, model: CameraModel) {
             target_visca.pan,
             target_visca.tilt,
             Some((
-                constants::speed::PAN_SPEED_DEFAULT,
-                constants::speed::TILT_SPEED_DEFAULT,
+                PanSpeed::new(constants::speed::PAN_SPEED_DEFAULT).unwrap(),
+                TiltSpeed::new(constants::speed::TILT_SPEED_DEFAULT).unwrap(),
             )),
         ) {
             Ok(()) => info!("Successfully moved to target position"),

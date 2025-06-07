@@ -2,6 +2,11 @@
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
+    command::{
+        pan_tilt::{PanSpeed, TiltSpeed},
+        preset::PresetNumber,
+        zoom::ZoomSpeed,
+    },
     ViscaClient,
     ViscaError,
     ViscaExposureExt,
@@ -31,7 +36,7 @@ fn main() -> Result<(), ViscaError> {
     // Test ViscaZoomExt methods
     println!("Testing ViscaZoomExt...");
     client.zoom_to(0x2000)?;
-    ViscaZoomExt::zoom_in(&mut client, Some(5))?; // Disambiguate
+    ViscaZoomExt::zoom_in(&mut client, Some(ZoomSpeed::new(5)?))?; // Disambiguate
     client.stop_zoom()?;
 
     // Test ViscaTransportExt pan/tilt methods
@@ -46,8 +51,8 @@ fn main() -> Result<(), ViscaError> {
 
     // Test ViscaPresetExt methods
     println!("Testing ViscaPresetExt...");
-    ViscaPresetExt::save_preset(&mut client, 1)?; // Disambiguate
-    ViscaPresetExt::recall_preset(&mut client, 1)?; // Disambiguate
+    ViscaPresetExt::save_preset(&mut client, PresetNumber::new(1)?)?; // Disambiguate
+    ViscaPresetExt::recall_preset(&mut client, PresetNumber::new(1)?)?; // Disambiguate
 
     // Test ViscaTransportExt focus methods
     println!("Testing focus methods from ViscaTransportExt...");
@@ -81,7 +86,7 @@ fn main() -> Result<(), ViscaError> {
 
     // Test ViscaPositionExt methods
     println!("Testing ViscaPositionExt...");
-    client.move_to_degrees(0.0, 0.0, Some((10, 10)))?; // Pass speeds as Option<(u8, u8)>
+    client.move_to_degrees(0.0, 0.0, Some((PanSpeed::new(10)?, TiltSpeed::new(10)?)))?; // Pass speeds as typed values
 
     println!("\nAll extension traits are working correctly!");
 

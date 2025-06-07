@@ -7,6 +7,7 @@ mod common;
 
 use common::{MockDevice, MockTransport};
 use grafton_visca::{
+    command::pan_tilt::{PanSpeed, TiltSpeed},
     ImagePreset, ViscaExposureExt, ViscaImageExt, ViscaPositionExt, ViscaTransportExt,
     ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset,
 };
@@ -112,7 +113,13 @@ fn test_position_ext_methods() {
     let mut device = MockDevice::from_transport(transport);
 
     // Test move to degrees
-    device.move_to_degrees(45.0, 15.0, Some((10, 10))).unwrap();
+    device
+        .move_to_degrees(
+            45.0,
+            15.0,
+            Some((PanSpeed::new(10).unwrap(), TiltSpeed::new(10).unwrap())),
+        )
+        .unwrap();
 
     // Test that absolute position command was sent
     assert_eq!(

@@ -3,10 +3,10 @@
 // Standard library imports
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
-// Third-party imports
+// Third-party crate imports
 use tokio::sync::{oneshot, watch, Mutex, Semaphore};
 
-// Crate imports
+// Workspace / local-crate imports
 use crate::{
     async_tcp_transport::AsyncTcpTransport, async_transport::AsyncViscaTransport,
     async_udp_transport::AsyncUdpTransport, session::ViscaSession, ViscaCommand, ViscaError,

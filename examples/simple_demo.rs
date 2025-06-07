@@ -4,8 +4,8 @@
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
-    command::pan_tilt::PanTiltDirection, ViscaClient, ViscaError, ViscaPositionExt,
-    ViscaTransportExt, ViscaZoomExt,
+    command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
+    ViscaClient, ViscaError, ViscaPositionExt, ViscaTransportExt, ViscaZoomExt,
 };
 #[cfg(feature = "blocking-client")]
 use std::time::Duration;
@@ -38,7 +38,7 @@ fn main() -> Result<(), ViscaError> {
     println!("Saved preset 1");
 
     // Move camera using high-level API
-    client.move_to_degrees(45.0, -15.0, Some((10, 10)))?;
+    client.move_to_degrees(45.0, -15.0, Some((PanSpeed::new(10)?, TiltSpeed::new(10)?)))?;
     println!("Moved to 45° pan, -15° tilt");
 
     // Zoom in

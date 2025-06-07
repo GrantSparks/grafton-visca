@@ -310,3 +310,167 @@ macro_rules! impl_speed_command {
         }
     };
 }
+
+/// Create a command enum with Up/Down/Reset/Direct variants.
+///
+/// This macro generates a complete command enum for parameters that support
+/// incremental control (up/down), reset to default, and direct setting.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::visca_up_down_command;
+///
+/// visca_up_down_command! {
+///     /// Controls camera iris level.
+///     IrisCommand {
+///         category: "Quick",
+///         direct_type: u8,
+///         // Byte sequences for each command variant
+///         reset:  [0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF],
+///         up:     [0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF],
+///         down:   [0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF],
+///         direct: |value| [0x81, 0x01, 0x04, 0x0B, 0x40, 0x00, 0x00, value, 0xFF],
+///         direct_validation: |value| {
+///             if value > 0x0C {
+///                 Err(ViscaError::InvalidParameter(
+///                     "Iris value must be between 0x00 and 0x0C".into()
+///                 ))
+///             } else {
+///                 Ok(())
+///             }
+///         }
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! visca_up_down_command {
+    (
+        $(#[$meta:meta])*
+        $name:ident {
+            category: $category:literal,
+            direct_type: $direct_type:ty,
+            reset: [$($reset_byte:expr),+ $(,)?],
+            up: [$($up_byte:expr),+ $(,)?],
+            down: [$($down_byte:expr),+ $(,)?],
+            direct: |$value:ident| [$($direct_byte:expr),+ $(,)?],
+            $(direct_validation: |$val_param:ident| $validation:block)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub enum $name {
+            /// Reset to default value.
+            Reset,
+            /// Increase by one step.
+            Up,
+            /// Decrease by one step.
+            Down,
+            /// Set to specific value.
+            Direct($direct_type),
+        }
+
+        impl $crate::command::ViscaCommand for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+                match self {
+                    Self::Reset => Ok(vec![$($reset_byte),+]),
+                    Self::Up => Ok(vec![$($up_byte),+]),
+                    Self::Down => Ok(vec![$($down_byte),+]),
+                    Self::Direct($value) => {
+                        $(
+                            let $val_param = $value;
+                            $validation?;
+                        )?
+                        Ok(vec![$($direct_byte),+])
+                    },
+                }
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+                None
+            }
+
+            fn command_category(&self) -> $crate::timeout::CommandCategory {
+                match $category {
+                    "Quick" => $crate::timeout::CommandCategory::Quick,
+                    "Movement" => $crate::timeout::CommandCategory::Movement,
+                    "Preset" => $crate::timeout::CommandCategory::Preset,
+                    "LongRunning" => $crate::timeout::CommandCategory::LongRunning,
+                    _ => $crate::timeout::CommandCategory::Custom,
+                }
+            }
+        }
+    };
+}
+
+/// Create a validated newtype wrapper for numeric parameters.
+///
+/// This macro generates a newtype struct with validation, conversion traits,
+/// and common methods for VISCA parameter types that have min/max bounds.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::visca_bounded_param;
+///
+/// visca_bounded_param! {
+///     /// Variable zoom speed (0-7).
+///     ZoomSpeed: u8 {
+///         min: 0,
+///         max: 7,
+///         error_msg: "Zoom speed must be in the range 0..=7"
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! visca_bounded_param {
+    (
+        $(#[$meta:meta])*
+        $name:ident: $type:ty {
+            min: $min:expr,
+            max: $max:expr,
+            error_msg: $error_msg:expr
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+        pub struct $name($type);
+
+        impl $name {
+            /// Minimum allowed value.
+            pub const MIN: $type = $min;
+            /// Maximum allowed value.
+            pub const MAX: $type = $max;
+
+            /// Creates a new instance with validation.
+            ///
+            /// # Errors
+            /// Returns `ViscaError::InvalidParameter` if value is out of range.
+            pub fn new(value: $type) -> Result<Self, $crate::ViscaError> {
+                if (Self::MIN..=Self::MAX).contains(&value) {
+                    Ok(Self(value))
+                } else {
+                    Err($crate::ViscaError::InvalidParameter($error_msg.into()))
+                }
+            }
+
+            /// Get the raw value.
+            #[must_use]
+            pub const fn value(self) -> $type {
+                self.0
+            }
+        }
+
+        impl std::convert::TryFrom<$type> for $name {
+            type Error = $crate::ViscaError;
+
+            fn try_from(value: $type) -> Result<Self, Self::Error> {
+                Self::new(value)
+            }
+        }
+
+        impl From<$name> for $type {
+            fn from(val: $name) -> Self {
+                val.0
+            }
+        }
+    };
+}

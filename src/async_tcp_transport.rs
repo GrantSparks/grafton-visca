@@ -1,12 +1,12 @@
 // Standard library imports
 use std::net::SocketAddr;
 
-// Third-party imports
+// Third-party crate imports
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
 
-// Crate imports
+// Workspace / local-crate imports
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
     parse_response, ConnectionStats, TimeoutConfig, ViscaCommand, ViscaError,

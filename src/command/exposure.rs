@@ -173,43 +173,14 @@ impl ViscaCommand for ExposureCompensationCommand {
     }
 }
 
-/// Dynamic range level.
-///
-/// Valid range: 0 to 8.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DynamicRangeLevel(u8);
-
-impl DynamicRangeLevel {
-    /// Maximum allowed dynamic range level.
-    pub const MAX: u8 = 8;
-
-    /// Creates a new `DynamicRangeLevel` with validation.
+crate::visca_bounded_param! {
+    /// Dynamic range level.
     ///
-    /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if value > 8.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
-        if value <= Self::MAX {
-            Ok(Self(value))
-        } else {
-            Err(ViscaError::InvalidParameter(format!(
-                "Dynamic range level must be between 0 and {}",
-                Self::MAX
-            )))
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for DynamicRangeLevel {
-    type Error = ViscaError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
+    /// Valid range: 0 to 8.
+    DynamicRangeLevel: u8 {
+        min: 0,
+        max: 8,
+        error_msg: "Dynamic range level must be between 0 and 8"
     }
 }
 

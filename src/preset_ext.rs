@@ -12,27 +12,29 @@ pub trait ViscaPresetExt: ViscaDevice {
     /// Save the current camera position (pan/tilt/zoom/focus) to a preset.
     ///
     /// # Arguments
-    /// * `preset_number` - Preset slot number (0-254)
+    /// * `preset_number` - Preset slot number
     ///
     /// # Errors
     /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt, PresetNumber};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Position camera as desired, then save to preset 1
-    /// client.save_preset(1)?;
+    /// let preset = PresetNumber::new(1)?;
+    /// client.save_preset(preset)?;
     ///
     /// // Save another position to preset 2
-    /// client.save_preset(2)?;
+    /// let preset2 = PresetNumber::new(2)?;
+    /// client.save_preset(preset2)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn save_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
+    fn save_preset(&mut self, preset_number: PresetNumber) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Set,
-            preset_number: PresetNumber::new(preset_number)?,
+            preset_number,
         };
         match self.execute_command(&command)? {
             ViscaResponse::Completion => {}
@@ -47,27 +49,29 @@ pub trait ViscaPresetExt: ViscaDevice {
     /// The camera will move to the saved pan/tilt/zoom/focus position.
     ///
     /// # Arguments
-    /// * `preset_number` - Preset slot number (0-254)
+    /// * `preset_number` - Preset slot number
     ///
     /// # Errors
     /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt, PresetNumber};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Return to preset position 1
-    /// client.recall_preset(1)?;
+    /// let preset1 = PresetNumber::new(1)?;
+    /// client.recall_preset(preset1)?;
     ///
     /// // Move to home position (preset 0 is often home)
-    /// client.recall_preset(0)?;
+    /// let home = PresetNumber::new(0)?;
+    /// client.recall_preset(home)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn recall_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
+    fn recall_preset(&mut self, preset_number: PresetNumber) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Recall,
-            preset_number: PresetNumber::new(preset_number)?,
+            preset_number,
         };
         match self.execute_command(&command)? {
             ViscaResponse::Completion => {}
@@ -80,27 +84,25 @@ pub trait ViscaPresetExt: ViscaDevice {
     /// Reset a preset to its default state.
     ///
     /// # Arguments
-    /// * `preset_number` - Preset slot number (0-254)
+    /// * `preset_number` - Preset slot number
     ///
     /// # Errors
     /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt, PresetNumber};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Clear preset 1
-    /// client.reset_preset(1)?;
-    ///
-    /// // Reset all presets (preset 255 typically means all)
-    /// client.reset_preset(255)?;
+    /// let preset1 = PresetNumber::new(1)?;
+    /// client.reset_preset(preset1)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn reset_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
+    fn reset_preset(&mut self, preset_number: PresetNumber) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Reset,
-            preset_number: PresetNumber::new(preset_number)?,
+            preset_number,
         };
         match self.execute_command(&command)? {
             ViscaResponse::Completion => {}

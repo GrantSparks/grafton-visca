@@ -3,6 +3,7 @@
 //! This example showcases the enhanced API with high-level control methods.
 
 use grafton_visca::{
+    command::pan_tilt::{PanSpeed, TiltSpeed},
     ImagePreset, ViscaClient, ViscaError, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt,
     ViscaPositionExt, ViscaPowerExt, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
     WhiteBalancePreset,
@@ -88,7 +89,7 @@ fn main() -> Result<(), ViscaError> {
     println!("Moved to center position");
     thread::sleep(Duration::from_secs(2));
 
-    client.move_to_degrees(45.0, 15.0, Some((10, 10)))?;
+    client.move_to_degrees(45.0, 15.0, Some((PanSpeed::new(10)?, TiltSpeed::new(10)?)))?;
     println!("Moved to 45° pan, 15° tilt");
     thread::sleep(Duration::from_secs(2));
 
@@ -104,7 +105,12 @@ fn main() -> Result<(), ViscaError> {
 
     // Demonstrate relative movement
     println!("\n--- Relative Movement ---");
-    ViscaPositionExt::move_by_degrees(&mut client, 10.0, -5.0, Some((5, 5)))?;
+    ViscaPositionExt::move_by_degrees(
+        &mut client,
+        10.0,
+        -5.0,
+        Some((PanSpeed::new(5)?, TiltSpeed::new(5)?)),
+    )?;
     println!("Moved 10° right and 5° down from current position");
     thread::sleep(Duration::from_secs(1));
 

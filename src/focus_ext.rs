@@ -1,7 +1,11 @@
 //! High-level extension trait for focus control operations.
 
 // Crate imports
-use crate::{command::focus::FocusCommand, error::ViscaError, ViscaDevice, ViscaResponse};
+use crate::{
+    command::focus::{FocusCommand, FocusSpeed},
+    error::ViscaError,
+    ViscaDevice, ViscaResponse,
+};
 
 /// Extension trait providing high-level focus control methods.
 pub trait ViscaFocusExt: ViscaDevice {
@@ -75,34 +79,25 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// Start focusing near (closer to camera).
     ///
     /// # Arguments
-    /// * `speed` - Optional focus speed (0-7). If None, uses standard speed.
+    /// * `speed` - Optional focus speed. If None, uses standard speed.
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if speed is greater than 7, or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt, FocusSpeed};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Focus near at standard speed
     /// client.focus_near(None)?;
     ///
     /// // Focus near at maximum speed
-    /// client.focus_near(Some(7))?;
+    /// client.focus_near(Some(FocusSpeed::new(7)?))?;
     /// # Ok(())
     /// # }
     /// ```
-    fn focus_near(&mut self, speed: Option<u8>) -> Result<(), ViscaError> {
-        let command = if let Some(s) = speed {
-            if s > 7 {
-                return Err(ViscaError::InvalidParameter(
-                    "Focus speed must be 0-7".into(),
-                ));
-            }
-            FocusCommand::NearVariable(s)
-        } else {
-            FocusCommand::NearStandard
-        };
+    fn focus_near(&mut self, speed: Option<FocusSpeed>) -> Result<(), ViscaError> {
+        let command = speed.map_or(FocusCommand::NearStandard, FocusCommand::NearVariable);
         match self.execute_command(&command)? {
             ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
@@ -114,34 +109,25 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// Start focusing far (farther from camera).
     ///
     /// # Arguments
-    /// * `speed` - Optional focus speed (0-7). If None, uses standard speed.
+    /// * `speed` - Optional focus speed. If None, uses standard speed.
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if speed is greater than 7, or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt, FocusSpeed};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Focus far at standard speed
     /// client.focus_far(None)?;
     ///
     /// // Focus far at slow speed
-    /// client.focus_far(Some(2))?;
+    /// client.focus_far(Some(FocusSpeed::new(2)?))?;
     /// # Ok(())
     /// # }
     /// ```
-    fn focus_far(&mut self, speed: Option<u8>) -> Result<(), ViscaError> {
-        let command = if let Some(s) = speed {
-            if s > 7 {
-                return Err(ViscaError::InvalidParameter(
-                    "Focus speed must be 0-7".into(),
-                ));
-            }
-            FocusCommand::FarVariable(s)
-        } else {
-            FocusCommand::FarStandard
-        };
+    fn focus_far(&mut self, speed: Option<FocusSpeed>) -> Result<(), ViscaError> {
+        let command = speed.map_or(FocusCommand::FarStandard, FocusCommand::FarVariable);
         match self.execute_command(&command)? {
             ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),
