@@ -45,6 +45,9 @@ impl ViscaSession {
     /// Assigns a socket to a new command.
     ///
     /// Returns the socket ID (0 or 1) if successful.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::CommandBufferFull` if both sockets (0 and 1) are already in use.
     pub fn assign_socket(
         &mut self,
         response_type: Option<ViscaResponseType>,
@@ -75,6 +78,11 @@ impl ViscaSession {
     }
 
     /// Processes a response frame and returns the parsed result
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidResponseFormat` if the response frame format is invalid.
+    /// Returns `ViscaError::UnexpectedResponseType` if response data is received for a non-inquiry command.
+    /// Returns parsing errors if the response payload cannot be parsed.
     pub fn process_response(
         &mut self,
         response: &[u8],
@@ -228,7 +236,7 @@ mod tests {
     #[test]
     fn test_ack_processing() {
         let mut session = ViscaSession::new();
-        session.assign_socket(None).unwrap();
+        let _ = session.assign_socket(None).unwrap();
 
         // Process ACK for socket 0
         let ack_response = vec![0x90, 0x40, 0xFF];
@@ -244,7 +252,7 @@ mod tests {
     #[test]
     fn test_completion_processing() {
         let mut session = ViscaSession::new();
-        session.assign_socket(None).unwrap();
+        let _ = session.assign_socket(None).unwrap();
 
         // Process completion for socket 0
         let completion_response = vec![0x90, 0x50, 0xFF];
@@ -259,7 +267,7 @@ mod tests {
     #[test]
     fn test_error_processing() {
         let mut session = ViscaSession::new();
-        session.assign_socket(None).unwrap();
+        let _ = session.assign_socket(None).unwrap();
 
         // Process syntax error
         let error_response = vec![0x90, 0x60, 0x02, 0xFF];
@@ -342,7 +350,7 @@ mod tests {
         assert!(session.is_complete(1));
 
         // Assign a socket
-        session.assign_socket(None).unwrap();
+        let _ = session.assign_socket(None).unwrap();
         assert!(!session.is_complete(0));
         assert!(session.is_complete(1)); // Socket 1 not assigned
 
@@ -359,11 +367,11 @@ mod tests {
         assert_eq!(session.get_pending_sockets(), vec![]);
 
         // Assign socket 0
-        session.assign_socket(None).unwrap();
+        let _ = session.assign_socket(None).unwrap();
         assert_eq!(session.get_pending_sockets(), vec![0]);
 
         // Assign socket 1
-        session.assign_socket(None).unwrap();
+        let _ = session.assign_socket(None).unwrap();
         let mut pending = session.get_pending_sockets();
         pending.sort_unstable();
         assert_eq!(pending, vec![0, 1]);
@@ -390,7 +398,7 @@ mod tests {
         let mut session = ViscaSession::new();
 
         // Assign socket with inquiry response type
-        session
+        let _ = session
             .assign_socket(Some(ViscaResponseType::ZoomPosition))
             .unwrap();
 
@@ -415,7 +423,7 @@ mod tests {
     #[test]
     fn test_invalid_response_format() {
         let mut session = ViscaSession::new();
-        session.assign_socket(None).unwrap();
+        let _ = session.assign_socket(None).unwrap();
 
         // Invalid response (doesn't start with 0x90)
         let invalid_response = vec![0x80, 0x50, 0xFF];

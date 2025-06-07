@@ -115,6 +115,12 @@ pub trait ViscaZoomExt: ViscaDevice {
     /// # }
     /// # }
     /// ```
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speed > 7.
+    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns camera-specific errors if the command is rejected.
+    /// Returns transport errors if communication fails.
     fn zoom_out(&mut self, speed: Option<u8>) -> Result<(), ViscaError> {
         let command = if let Some(s) = speed {
             if s > 7 {
@@ -152,6 +158,9 @@ pub trait ViscaZoomExt: ViscaDevice {
     /// # }
     /// # }
     /// ```
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn stop_zoom(&mut self) -> Result<(), ViscaError> {
         let command = ZoomCommand::Stop;
         match self.execute_command(&command)? {
@@ -184,6 +193,9 @@ pub trait ViscaZoomExt: ViscaDevice {
     /// # }
     /// # }
     /// ```
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn zoom_to_magnification(&mut self, magnification: f32) -> Result<(), ViscaError> {
         let position = crate::constants::zoom_magnification_to_visca(magnification);
         self.zoom_to(position)
@@ -193,6 +205,10 @@ pub trait ViscaZoomExt: ViscaDevice {
     ///
     /// # Returns
     /// Current zoom magnification (1.0 to 20.0 for 20x cameras)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::UnexpectedResponseType` if the camera returns an unexpected response.
+    /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run
@@ -242,6 +258,9 @@ pub trait ViscaZoomExt: ViscaDevice {
     /// # }
     /// # }
     /// ```
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn zoom_to_normalized(&mut self, normalized: f32) -> Result<(), ViscaError> {
         let position = crate::constants::zoom_normalized_to_visca(normalized);
         self.zoom_to(position)
@@ -251,6 +270,10 @@ pub trait ViscaZoomExt: ViscaDevice {
     ///
     /// # Returns
     /// Normalized zoom value (0.0 = wide, 1.0 = telephoto)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::UnexpectedResponseType` if the camera returns an unexpected response.
+    /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run

@@ -17,6 +17,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Arguments
     /// * `mode` - The white balance mode to set
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
@@ -48,6 +51,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Arguments
     /// * `value` - Color temperature value (0x00=2500K to 0x37=8000K)
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
@@ -72,6 +78,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
 
     /// Increase color temperature.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
@@ -92,6 +101,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
 
     /// Decrease color temperature.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
@@ -111,6 +123,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     }
 
     /// Reset color temperature.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -134,6 +149,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// This will calibrate the white balance based on the current scene.
     /// Point the camera at a white or neutral gray surface before calling this.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -162,6 +180,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Arguments
     /// * `r_gain` - Red gain value (0x00 to 0xFF)
     /// * `b_gain` - Blue gain value (0x00 to 0xFF)
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -203,6 +224,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
 
     /// Increase red gain in manual white balance mode.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
@@ -222,6 +246,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     }
 
     /// Decrease red gain in manual white balance mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -243,6 +270,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
 
     /// Reset red gain in manual white balance mode.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
@@ -262,6 +292,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     }
 
     /// Increase blue gain in manual white balance mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -283,6 +316,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
 
     /// Decrease blue gain in manual white balance mode.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
@@ -302,6 +338,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     }
 
     /// Reset blue gain in manual white balance mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -325,6 +364,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `preset` - A common lighting preset
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run

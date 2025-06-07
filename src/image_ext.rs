@@ -17,6 +17,9 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Arguments
     /// * `enabled` - Whether to enable black and white mode
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
@@ -43,6 +46,10 @@ pub trait ViscaImageExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `level` - Noise reduction level (None for off, Some(1-5) for levels)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if level is not in the range 1-5,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -84,6 +91,10 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Arguments
     /// * `level` - Noise reduction level (None for off, Some(1-8) for levels)
     ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if level is not in the range 1-8,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
@@ -121,6 +132,9 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Arguments
     /// * `horizontal` - Whether to flip horizontally
     /// * `vertical` - Whether to flip vertically
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -161,6 +175,10 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Arguments
     /// * `level` - Sharpness level (0 to 14, 7 is default)
     ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
@@ -193,6 +211,9 @@ pub trait ViscaImageExt: ViscaDevice {
 
     /// Increase sharpness.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
@@ -213,6 +234,9 @@ pub trait ViscaImageExt: ViscaDevice {
 
     /// Decrease sharpness.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
@@ -232,6 +256,9 @@ pub trait ViscaImageExt: ViscaDevice {
     }
 
     /// Reset sharpness.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -255,6 +282,10 @@ pub trait ViscaImageExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `level` - Saturation level (0 to 14, 7 is default)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -291,6 +322,10 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Arguments
     /// * `level` - Hue level (0 to 14, 7 is default/neutral)
     ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
@@ -325,6 +360,10 @@ pub trait ViscaImageExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `level` - Contrast level (0 to 14, 7 is default)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -362,6 +401,9 @@ pub trait ViscaImageExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `preset` - The image preset to apply
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if any of the underlying setting commands fail to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run

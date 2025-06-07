@@ -31,7 +31,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::InvalidParameter` if pan_speed > 24 or tilt_speed > 20.
+    /// Returns `ViscaError::InvalidParameter` if `pan_speed` > 24 or `tilt_speed` > 20.
     /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
@@ -78,7 +78,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::InvalidParameter` if pan_speed > 24 or tilt_speed > 20.
+    /// Returns `ViscaError::InvalidParameter` if `pan_speed` > 24 or `tilt_speed` > 20.
     /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
@@ -109,6 +109,12 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     /// * `direction` - Direction of movement
     /// * `pan_speed` - Pan speed (1-24)
     /// * `tilt_speed` - Tilt speed (1-18)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if `pan_speed` > 24 or `tilt_speed` > 20.
+    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns camera-specific errors if the command is rejected.
+    /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run
@@ -147,6 +153,9 @@ pub trait ViscaPanTiltExt: ViscaDevice {
 
     /// Stop all pan/tilt movement.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt};
@@ -172,6 +181,9 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     }
 
     /// Return camera to home position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run

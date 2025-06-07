@@ -34,6 +34,10 @@ use crate::{
 /// ```
 pub trait ViscaInquiryExt: ViscaDevice {
     /// Get current power state.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_power_state(&mut self) -> Result<bool, ViscaError>
     where
         Self: Sized,
@@ -46,6 +50,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current pan/tilt position in VISCA units.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_pan_tilt_position(&mut self) -> Result<(i16, i16), ViscaError>
     where
         Self: Sized,
@@ -60,6 +68,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current zoom position (0x0000-0x4000 for most cameras).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_zoom_position(&mut self) -> Result<u16, ViscaError>
     where
         Self: Sized,
@@ -74,6 +86,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current focus position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_focus_position(&mut self) -> Result<u16, ViscaError>
     where
         Self: Sized,
@@ -88,6 +104,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current exposure mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_exposure_mode(&mut self) -> Result<ExposureMode, ViscaError>
     where
         Self: Sized,
@@ -100,6 +120,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current white balance mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_white_balance_mode(&mut self) -> Result<WhiteBalanceMode, ViscaError>
     where
         Self: Sized,
@@ -112,6 +136,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current luminance level.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_luminance(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -124,6 +152,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current contrast level.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_contrast(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -136,6 +168,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current sharpness value.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_sharpness(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -148,6 +184,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current exposure compensation value (-7 to +7).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_exposure_compensation(&mut self) -> Result<i8, ViscaError>
     where
         Self: Sized,
@@ -162,6 +202,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get whether exposure compensation is enabled.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_exposure_compensation_enabled(&mut self) -> Result<bool, ViscaError>
     where
         Self: Sized,
@@ -176,6 +220,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current iris position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_iris_position(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -188,6 +236,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current shutter position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_shutter_position(&mut self) -> Result<u16, ViscaError>
     where
         Self: Sized,
@@ -202,6 +254,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current brightness position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_brightness_position(&mut self) -> Result<u16, ViscaError>
     where
         Self: Sized,
@@ -216,6 +272,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current gain value.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_gain(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -228,6 +288,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current gain limit.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_gain_limit(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -240,6 +304,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current anti-flicker mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_anti_flicker_mode(&mut self) -> Result<AntiFlickerMode, ViscaError>
     where
         Self: Sized,
@@ -252,6 +320,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current saturation level.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_saturation(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -264,6 +336,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current hue value.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_hue(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -276,6 +352,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current red gain value (-10 to +10).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_red_gain(&mut self) -> Result<i8, ViscaError>
     where
         Self: Sized,
@@ -288,6 +368,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current blue gain value (-10 to +10).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_blue_gain(&mut self) -> Result<i8, ViscaError>
     where
         Self: Sized,
@@ -300,6 +384,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current backlight compensation status.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_backlight_status(&mut self) -> Result<bool, ViscaError>
     where
         Self: Sized,
@@ -314,6 +402,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current image flip settings (vertical and horizontal).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_image_flip(&mut self) -> Result<(bool, bool), ViscaError>
     where
         Self: Sized,
@@ -329,6 +421,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current sharpness mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_sharpness_mode(&mut self) -> Result<SharpnessMode, ViscaError>
     where
         Self: Sized,
@@ -343,6 +439,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current color temperature.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_color_temperature(&mut self) -> Result<u16, ViscaError>
     where
         Self: Sized,
@@ -357,6 +457,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current 2D noise reduction level.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_noise_reduction_2d(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -371,6 +475,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current 3D noise reduction level.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_noise_reduction_3d(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -385,6 +493,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get whether black & white mode is enabled.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_black_white_mode(&mut self) -> Result<bool, ViscaError>
     where
         Self: Sized,
@@ -397,6 +509,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current focus zone.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_focus_zone(&mut self) -> Result<FocusZone, ViscaError>
     where
         Self: Sized,
@@ -409,6 +525,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current AF sensitivity.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_af_sensitivity(&mut self) -> Result<AFSensitivity, ViscaError>
     where
         Self: Sized,
@@ -423,6 +543,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current focus near limit position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_focus_near_limit(&mut self) -> Result<u16, ViscaError>
     where
         Self: Sized,
@@ -437,6 +561,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 
     /// Get current dynamic range level.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_dynamic_range(&mut self) -> Result<u8, ViscaError>
     where
         Self: Sized,
@@ -455,6 +583,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
     /// This method performs multiple inquiry commands to gather comprehensive
     /// camera state information. Note that these are sequential due to VISCA's
     /// command limitations.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if any of the multiple query commands fail, response parsing fails,
+    /// communication times out, or the camera returns an unexpected response type.
     fn get_camera_state(&mut self) -> Result<CameraState, ViscaError>
     where
         Self: Sized,

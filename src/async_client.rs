@@ -90,6 +90,10 @@ impl AsyncViscaClient {
     }
 
     /// Send a command and wait for the response.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the semaphore is closed, if socket assignment fails,
+    /// if command sending fails, if the response channel is closed, or if a timeout occurs.
     pub async fn send(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
         // Acquire permit (blocks if 2 commands already in flight)
         let _permit = self
@@ -184,6 +188,10 @@ impl AsyncViscaClient {
     }
 
     /// Receive and process one batch of responses
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if a timeout occurs while receiving responses
+    /// or if the underlying transport encounters an error.
     async fn receive_and_process(&self) -> Result<(), ViscaError> {
         // Short timeout to keep the loop responsive
         let responses = tokio::time::timeout(Duration::from_millis(500), async {

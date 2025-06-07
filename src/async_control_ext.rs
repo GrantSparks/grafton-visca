@@ -16,6 +16,10 @@ impl AsyncViscaClient {
     // Pan/Tilt Control Methods
 
     /// Move camera to an absolute pan/tilt position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speeds are out of valid range,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn move_to_position(
         &self,
         pan: i16,
@@ -34,6 +38,10 @@ impl AsyncViscaClient {
     }
 
     /// Move camera relative to its current position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speeds are out of valid range,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn move_relative(
         &self,
         pan_delta: i16,
@@ -52,6 +60,10 @@ impl AsyncViscaClient {
     }
 
     /// Start continuous pan/tilt movement in the specified direction.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speeds are out of valid range,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn start_moving(
         &self,
         direction: PanTiltDirection,
@@ -72,6 +84,9 @@ impl AsyncViscaClient {
     }
 
     /// Stop all pan/tilt movement.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn stop_movement(&self) -> Result<(), ViscaError> {
         let pan_speed = PanSpeed::new(0).unwrap();
         let tilt_speed = TiltSpeed::new(0).unwrap();
@@ -85,6 +100,9 @@ impl AsyncViscaClient {
     }
 
     /// Return camera to home position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn go_home(&self) -> Result<(), ViscaError> {
         let command = PanTiltCommand::Home;
         self.send(&command).await?;
@@ -94,6 +112,9 @@ impl AsyncViscaClient {
     // Zoom Control Methods
 
     /// Move zoom to an absolute position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn zoom_to(&self, position: u16) -> Result<(), ViscaError> {
         let command = ZoomCommand::Direct(position);
         self.send(&command).await?;
@@ -101,6 +122,10 @@ impl AsyncViscaClient {
     }
 
     /// Start zooming in (telephoto direction).
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speed is greater than 7,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn zoom_in(&self, speed: Option<u8>) -> Result<(), ViscaError> {
         let command = if let Some(s) = speed {
             if s > 7 {
@@ -117,6 +142,10 @@ impl AsyncViscaClient {
     }
 
     /// Start zooming out (wide direction).
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speed is greater than 7,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn zoom_out(&self, speed: Option<u8>) -> Result<(), ViscaError> {
         let command = if let Some(s) = speed {
             if s > 7 {
@@ -133,6 +162,9 @@ impl AsyncViscaClient {
     }
 
     /// Stop zoom movement.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn stop_zoom(&self) -> Result<(), ViscaError> {
         let command = ZoomCommand::Stop;
         self.send(&command).await?;
@@ -142,6 +174,9 @@ impl AsyncViscaClient {
     // Focus Control Methods
 
     /// Enable or disable auto-focus mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn set_auto_focus(&self, enabled: bool) -> Result<(), ViscaError> {
         let command = if enabled {
             FocusCommand::Auto
@@ -153,6 +188,9 @@ impl AsyncViscaClient {
     }
 
     /// Move focus to an absolute position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn focus_to(&self, position: u16) -> Result<(), ViscaError> {
         let command = FocusCommand::Direct(position);
         self.send(&command).await?;
@@ -160,6 +198,10 @@ impl AsyncViscaClient {
     }
 
     /// Start focusing near (closer to camera).
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speed is greater than 7,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn focus_near(&self, speed: Option<u8>) -> Result<(), ViscaError> {
         let command = if let Some(s) = speed {
             if s > 7 {
@@ -176,6 +218,10 @@ impl AsyncViscaClient {
     }
 
     /// Start focusing far (farther from camera).
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speed is greater than 7,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn focus_far(&self, speed: Option<u8>) -> Result<(), ViscaError> {
         let command = if let Some(s) = speed {
             if s > 7 {
@@ -192,6 +238,9 @@ impl AsyncViscaClient {
     }
 
     /// Stop focus movement.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn stop_focus(&self) -> Result<(), ViscaError> {
         let command = FocusCommand::Stop;
         self.send(&command).await?;
@@ -199,6 +248,9 @@ impl AsyncViscaClient {
     }
 
     /// Trigger one-push auto-focus.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn trigger_one_push_focus(&self) -> Result<(), ViscaError> {
         let command = FocusCommand::OnePushTrigger;
         self.send(&command).await?;
@@ -208,6 +260,10 @@ impl AsyncViscaClient {
     // Preset Management Methods
 
     /// Save the current camera position to a preset.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if preset_number is invalid,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn save_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Set,
@@ -218,6 +274,10 @@ impl AsyncViscaClient {
     }
 
     /// Recall a saved preset position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if preset_number is invalid,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn recall_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Recall,
@@ -228,6 +288,10 @@ impl AsyncViscaClient {
     }
 
     /// Reset a preset to its default state.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if preset_number is invalid,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn reset_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
         let command = PresetCommand {
             action: PresetAction::Reset,

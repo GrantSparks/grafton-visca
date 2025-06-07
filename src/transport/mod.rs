@@ -90,7 +90,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_blocking_adapter() {
+    async fn test_blocking_adapter() -> Result<(), ViscaError> {
         struct DummyCommand;
 
         impl ViscaCommand for DummyCommand {
@@ -110,10 +110,11 @@ mod tests {
         let mut adapter = BlockingAdapter(MockBlockingTransport);
         let cmd = DummyCommand;
 
-        adapter.send_command(&cmd).await.unwrap();
+        adapter.send_command(&cmd).await?;
 
-        let responses = adapter.receive_response().await.unwrap();
+        let responses = adapter.receive_response().await?;
         assert_eq!(responses.len(), 1);
         assert_eq!(responses[0], vec![0x90, 0x50, 0xFF]);
+        Ok(())
     }
 }

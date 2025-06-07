@@ -78,11 +78,17 @@ impl UdpTransport {
 
 #[cfg(feature = "blocking-client")]
 impl BlockingTransport for UdpTransport {
+    /// Sends a VISCA command over the UDP socket.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command serialization fails or if there's
+    /// an I/O error sending the UDP packet.
     fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let bytes = command.to_bytes()?;
         log::debug!("Sending command: {bytes:02X?}");
 
-        let _ = self.socket
+        let _ = self
+            .socket
             .send_to(&bytes, &self.address)
             .map_err(ViscaError::Io)?;
 
@@ -90,6 +96,11 @@ impl BlockingTransport for UdpTransport {
         Ok(())
     }
 
+    /// Receives VISCA response packets from the UDP socket.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if a receive timeout occurs or if there's
+    /// an I/O error reading from the UDP socket.
     fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
         let mut buffer = [0u8; 1024];
         let mut responses = Vec::new();
@@ -167,6 +178,11 @@ impl AsyncUdpTransport {
 
 #[cfg(feature = "async-client")]
 impl Transport for AsyncUdpTransport {
+    /// Sends a VISCA command over the async UDP socket.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command serialization fails or if there's
+    /// an I/O error sending the UDP packet.
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
@@ -182,6 +198,11 @@ impl Transport for AsyncUdpTransport {
         })
     }
 
+    /// Receives VISCA response packets from the async UDP socket.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if a receive timeout occurs or if there's
+    /// an I/O error reading from the UDP socket.
     fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
         Box::pin(async move {
             let mut buffer = [0u8; 1024];

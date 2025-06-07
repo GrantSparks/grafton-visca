@@ -40,6 +40,9 @@ use crate::{
 /// ```
 pub trait ViscaTransportExt: ViscaDevice {
     /// Powers on the camera.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn power_on(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -52,6 +55,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Powers off the camera (standby mode).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn power_off(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -66,6 +72,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Moves the camera to the home position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn home(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -81,6 +90,10 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `preset_id` - The preset number to recall (typically 0-89)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if `preset_id` is invalid,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     fn recall_preset(&mut self, preset_id: u8) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -99,6 +112,10 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `preset_id` - The preset number to save (typically 0-89)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if `preset_id` is invalid,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     fn save_preset(&mut self, preset_id: u8) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -114,6 +131,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Sets the exposure mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -126,6 +146,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Sets the white balance mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn set_white_balance(&mut self, mode: WhiteBalanceMode) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -143,6 +166,10 @@ pub trait ViscaTransportExt: ViscaDevice {
     /// * `direction` - The direction to move
     /// * `pan_speed` - Pan speed (0x01-0x18)
     /// * `tilt_speed` - Tilt speed (0x01-0x14)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speeds are out of valid range,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     fn move_start(
         &mut self,
         direction: PanTiltDirection,
@@ -164,6 +191,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Stops camera movement.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn move_stop(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -186,6 +216,10 @@ pub trait ViscaTransportExt: ViscaDevice {
     /// * `tilt` - Tilt position in VISCA units
     /// * `pan_speed` - Pan speed (0x01-0x18)
     /// * `tilt_speed` - Tilt speed (0x01-0x14)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speeds are out of valid range,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     fn move_absolute(
         &mut self,
         pan: i16,
@@ -209,6 +243,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Starts zooming in (tele direction).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn zoom_in(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -221,6 +258,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Starts zooming out (wide direction).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn zoom_out(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -233,6 +273,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Stops zooming.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn zoom_stop(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -248,6 +291,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `position` - Zoom position in VISCA units (0x0000-0x4000 for most cameras)
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn zoom_direct(&mut self, position: u16) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -260,6 +306,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Sets focus to auto mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn set_focus_auto(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -272,6 +321,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Sets focus to manual mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn set_focus_manual(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -284,6 +336,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 
     /// Enables or disables backlight compensation.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn set_backlight(&mut self, enabled: bool) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -299,6 +354,10 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `value` - Exposure compensation value (-7 to +7)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if value is not in the range -7 to +7,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
     fn set_exposure_compensation(&mut self, value: i8) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -316,6 +375,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `value` - Iris value in VISCA units
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn set_iris(&mut self, value: u8) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -331,6 +393,9 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `value` - Gain value in VISCA units
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     fn set_gain(&mut self, value: u16) -> Result<(), ViscaError>
     where
         Self: Sized,

@@ -96,7 +96,8 @@ impl ConnectionStats {
 
     /// Record a sent command
     pub fn record_sent(&self, bytes: usize) {
-        let _ = self.inner
+        let _ = self
+            .inner
             .bytes_sent
             .fetch_add(bytes as u64, Ordering::Relaxed);
         let _ = self.inner.commands_sent.fetch_add(1, Ordering::Relaxed);
@@ -105,10 +106,12 @@ impl ConnectionStats {
 
     /// Record a received response
     pub fn record_received(&self, bytes: usize) {
-        let _ = self.inner
+        let _ = self
+            .inner
             .bytes_received
             .fetch_add(bytes as u64, Ordering::Relaxed);
-        let _ = self.inner
+        let _ = self
+            .inner
             .responses_received
             .fetch_add(1, Ordering::Relaxed);
         Self::write_instant(&self.inner.last_activity, Some(Instant::now()));

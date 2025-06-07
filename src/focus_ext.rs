@@ -10,6 +10,9 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// # Arguments
     /// * `enabled` - true to enable auto-focus, false for manual focus
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
@@ -41,6 +44,9 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// # Arguments
     /// * `position` - Target focus position (0x1000 to 0xF000)
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
@@ -70,6 +76,9 @@ pub trait ViscaFocusExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `speed` - Optional focus speed (0-7). If None, uses standard speed.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speed is greater than 7, or `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -107,6 +116,9 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// # Arguments
     /// * `speed` - Optional focus speed (0-7). If None, uses standard speed.
     ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speed is greater than 7, or `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
@@ -140,6 +152,9 @@ pub trait ViscaFocusExt: ViscaDevice {
 
     /// Stop focus movement.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
@@ -167,6 +182,9 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// Trigger one-push auto-focus.
     ///
     /// This performs a single auto-focus operation, even when in manual focus mode.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run

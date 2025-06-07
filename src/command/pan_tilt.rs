@@ -301,7 +301,10 @@ mod tests {
     fn test_pan_tilt_command_to_bytes() {
         // Test Home command
         let home = PanTiltCommand::Home;
-        assert_eq!(home.to_bytes().expect("Valid command"), vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
+        assert_eq!(
+            home.to_bytes().expect("Valid command"),
+            vec![0x81, 0x01, 0x06, 0x04, 0xFF]
+        );
 
         // Test Reset command
         let reset = PanTiltCommand::Reset;
