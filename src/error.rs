@@ -480,11 +480,7 @@ impl ViscaRetry {
                 Err(err) if err.is_retryable() && attempt < max_attempts => {
                     if let Some(delay) = err.suggested_retry_delay() {
                         log::debug!(
-                            "Attempt {}/{} failed: {}. Retrying in {:?}",
-                            attempt,
-                            max_attempts,
-                            err,
-                            delay
+                            "Attempt {attempt}/{max_attempts} failed: {err}. Retrying in {delay:?}"
                         );
 
                         #[cfg(feature = "async-client")]
@@ -543,11 +539,7 @@ impl ViscaRetry {
                 Ok(result) => return Ok(result),
                 Err(err) if err.is_retryable() && attempt < max_attempts => {
                     log::debug!(
-                        "Attempt {}/{} failed: {}. Retrying in {:?}",
-                        attempt,
-                        max_attempts,
-                        err,
-                        current_delay
+                        "Attempt {attempt}/{max_attempts} failed: {err}. Retrying in {current_delay:?}"
                     );
 
                     #[cfg(feature = "async-client")]

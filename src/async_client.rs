@@ -114,7 +114,7 @@ impl AsyncViscaClient {
             return Err(e);
         }
 
-        log::debug!("Command sent on socket {}", socket_id);
+        log::debug!("Command sent on socket {socket_id}");
 
         // Wait for response
         let result = match tokio::time::timeout(Duration::from_secs(30), rx).await {
@@ -192,7 +192,7 @@ impl AsyncViscaClient {
         for response in responses {
             match session.process_response(&response) {
                 Ok(Some((socket_id, visca_response))) => {
-                    log::debug!("Response for socket {}: {:?}", socket_id, visca_response);
+                    log::debug!("Response for socket {socket_id}: {visca_response:?}");
 
                     // Skip ACK responses
                     if matches!(visca_response, ViscaResponse::Ack) {

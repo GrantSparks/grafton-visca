@@ -291,7 +291,7 @@ where
                                     | ViscaError::ConnectionLost { .. }
                                     | ViscaError::Timeout
                             ) {
-                                log::warn!("Connection error during send_command: {}", e);
+                                log::warn!("Connection error during send_command: {e}");
                                 state.transport = None;
                                 state.stats.record_error();
                                 drop(state);
@@ -341,7 +341,7 @@ where
                                     | ViscaError::ConnectionLost { .. }
                                     | ViscaError::Timeout
                             ) {
-                                log::warn!("Connection error during receive_response: {}", e);
+                                log::warn!("Connection error during receive_response: {e}");
                                 state.transport = None;
                                 state.stats.record_error();
                                 drop(state);

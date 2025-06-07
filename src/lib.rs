@@ -24,7 +24,6 @@
     clippy::must_use_candidate,      // TODO: Add #[must_use] where appropriate
     clippy::missing_panics_doc,      // TODO: Add # Panics sections to docs
     clippy::missing_errors_doc,      // TODO: Add # Errors sections to docs (many instances)
-    clippy::uninlined_format_args,   // TODO: Update format strings to use inline syntax
     clippy::return_self_not_must_use,// TODO: Add #[must_use] to builder methods
     clippy::significant_drop_tightening, // TODO: Review mutex lock scopes
 )]
