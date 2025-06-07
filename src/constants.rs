@@ -126,21 +126,27 @@ pub mod timing {
 /// Position represented in VISCA units
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViscaPosition {
+    /// Pan position in VISCA units
     pub pan: i16,
+    /// Tilt position in VISCA units
     pub tilt: i16,
 }
 
 /// Position represented in degrees
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DegreePosition {
+    /// Pan position in degrees
     pub pan: f32,
+    /// Tilt position in degrees
     pub tilt: f32,
 }
 
 /// Position represented as normalized values (-1.0 to 1.0)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NormalizedPosition {
+    /// Pan position normalized to -1.0 to 1.0 range
     pub pan: f32,
+    /// Tilt position normalized to -1.0 to 1.0 range
     pub tilt: f32,
 }
 

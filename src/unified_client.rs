@@ -134,21 +134,20 @@ impl ViscaClient {
             let client = self.clone();
 
             // Try to use existing Tokio runtime if available
-            match tokio::runtime::Handle::try_current() {
-                Ok(_) => tokio::task::block_in_place(move || {
+            if tokio::runtime::Handle::try_current().is_ok() {
+                tokio::task::block_in_place(move || {
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
                         .map_err(|e| ViscaError::Io(std::io::Error::other(e)))?;
                     rt.block_on(client.send_async(command))
-                }),
-                Err(_) => {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| ViscaError::Io(std::io::Error::other(e)))?;
-                    rt.block_on(client.send_async(command))
-                }
+                })
+            } else {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| ViscaError::Io(std::io::Error::other(e)))?;
+                rt.block_on(client.send_async(command))
             }
         }
 

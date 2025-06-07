@@ -56,11 +56,24 @@ pub enum ConnectionEvent {
     /// Connection established successfully
     Connected,
     /// Connection lost
-    Disconnected { reason: String },
+    Disconnected {
+        /// Reason for disconnection
+        reason: String,
+    },
     /// Reconnection attempt started
-    ReconnectingStarted { attempt: usize, max_attempts: usize },
+    ReconnectingStarted {
+        /// Current attempt number
+        attempt: usize,
+        /// Maximum number of attempts configured
+        max_attempts: usize,
+    },
     /// Reconnection attempt failed
-    ReconnectingFailed { attempt: usize, error: String },
+    ReconnectingFailed {
+        /// Attempt number that failed
+        attempt: usize,
+        /// Error message describing the failure
+        error: String,
+    },
     /// All reconnection attempts exhausted
     ReconnectionExhausted,
 }
@@ -150,16 +163,12 @@ where
                         // Perform health check
                         if let Some(ref mut transport) = state.inner {
                             // Try a simple operation to check health
-                            match transport.receive_response().await {
-                                Ok(_) => {
-                                    state.last_successful_operation = Some(Instant::now());
-                                    return Ok(());
-                                }
-                                Err(_) => {
-                                    log::warn!("Health check failed, will reconnect");
-                                    state.inner = None;
-                                }
+                            if transport.receive_response().await.is_ok() {
+                                state.last_successful_operation = Some(Instant::now());
+                                return Ok(());
                             }
+                            log::warn!("Health check failed, will reconnect");
+                            state.inner = None;
                         }
                     } else {
                         return Ok(());
@@ -209,7 +218,7 @@ where
                     });
 
                     if attempt < self.config.max_retries {
-                        log::info!("Waiting {:?} before next reconnection attempt", delay);
+                        log::info!("Waiting {delay:?} before next reconnection attempt");
                         sleep(delay).await;
 
                         // Calculate next delay with exponential backoff

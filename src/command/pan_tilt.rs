@@ -65,7 +65,7 @@ pub enum PanTiltDirection {
 impl PanTiltDirection {
     /// Converts the direction to its VISCA byte representation.
     ///
-    /// Returns a tuple of (pan_direction, tilt_direction) bytes.
+    /// Returns a tuple of (`pan_direction`, `tilt_direction`) bytes.
     pub const fn to_bytes(self) -> (u8, u8) {
         match self {
             PanTiltDirection::Up => (0x03, 0x01),
@@ -512,7 +512,7 @@ pub enum PanTiltLimitCommand {
     ///
     /// This establishes a boundary that the camera cannot move beyond.
     Set {
-        /// Which corner to set the limit for (DownLeft or UpRight).
+        /// Which corner to set the limit for (`DownLeft` or `UpRight`).
         corner: LimitCorner,
         /// Pan position for the limit.
         pan: i16,
@@ -523,7 +523,7 @@ pub enum PanTiltLimitCommand {
     ///
     /// This removes the boundary, allowing full range of movement.
     Clear {
-        /// Which corner limit to clear (DownLeft or UpRight).
+        /// Which corner limit to clear (`DownLeft` or `UpRight`).
         corner: LimitCorner,
     },
 }
