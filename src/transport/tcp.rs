@@ -55,6 +55,10 @@ impl TcpTransport {
     }
 
     /// Creates a new TCP transport with a custom timeout.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if the connection cannot be established or if the address cannot be parsed.
     pub fn with_timeout(address: &str, timeout: Duration) -> io::Result<Self> {
         let stream = TcpStream::connect_timeout(&address.parse().unwrap(), timeout)?;
         stream.set_read_timeout(Some(timeout))?;
@@ -181,6 +185,10 @@ pub struct AsyncTcpTransport {
 #[cfg(feature = "async-client")]
 impl AsyncTcpTransport {
     /// Creates a new async TCP transport.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if the connection cannot be established.
     pub async fn new(address: &str) -> io::Result<Self> {
         let stream = TokioTcpStream::connect(address).await?;
         Ok(Self {

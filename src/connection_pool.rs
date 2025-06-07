@@ -227,7 +227,7 @@ impl ViscaConnectionPool {
         for camera_id in camera_ids {
             let is_healthy = {
                 let connections = self.connections.lock().unwrap();
-                connections.get(&camera_id).map_or(false, |conn| conn.client.is_healthy_blocking().unwrap_or(false))
+                connections.get(&camera_id).is_some_and(|conn| conn.client.is_healthy_blocking().unwrap_or(false))
             };
             results.insert(camera_id, is_healthy);
         }

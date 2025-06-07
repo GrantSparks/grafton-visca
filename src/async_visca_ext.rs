@@ -37,6 +37,7 @@ use crate::{
 /// This trait provides ergonomic methods for common camera operations
 /// that typically involve multiple VISCA commands.
 #[cfg(feature = "async-client")]
+#[allow(clippy::manual_async_fn)] // Required to avoid async_fn_in_trait warning
 pub trait AsyncViscaExt {
     /// Set up a shot with relative pan/tilt position and zoom level.
     ///
@@ -47,29 +48,29 @@ pub trait AsyncViscaExt {
     /// * `pan_percent` - Pan position as percentage (-1.0 to 1.0, where 0.0 is center)
     /// * `tilt_percent` - Tilt position as percentage (-1.0 to 1.0, where 0.0 is center)
     /// * `zoom_level` - Zoom level (0x0000 to 0xFFFF)
-    async fn setup_shot(
+    fn setup_shot(
         &self,
         pan_percent: f32,
         tilt_percent: f32,
         zoom_level: u16,
-    ) -> Result<(), ViscaError>;
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
 
     /// Save the current camera position to a preset.
     ///
     /// # Arguments
     /// * `preset_number` - Preset number (1-90)
-    async fn save_current_position(&self, preset_number: u8) -> Result<(), ViscaError>;
+    fn save_current_position(&self, preset_number: u8) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
 
     /// Recall a preset position and optionally adjust zoom.
     ///
     /// # Arguments
     /// * `preset_number` - Preset number (1-90)
     /// * `zoom_adjustment` - Optional zoom adjustment after recalling preset
-    async fn recall_position_with_zoom(
+    fn recall_position_with_zoom(
         &self,
         preset_number: u8,
         zoom_adjustment: Option<u16>,
-    ) -> Result<(), ViscaError>;
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
 
     /// Patrol between multiple preset positions.
     ///
@@ -78,11 +79,11 @@ pub trait AsyncViscaExt {
     /// # Arguments
     /// * `preset_numbers` - Array of preset numbers to patrol
     /// * `delay_between` - Optional delay between positions (default: 2 seconds)
-    async fn patrol_positions(
+    fn patrol_positions(
         &self,
         preset_numbers: &[u8],
         delay_between: Option<Duration>,
-    ) -> Result<(), ViscaError>;
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
 
     /// Perform a smooth pan scan across the scene.
     ///
@@ -90,12 +91,12 @@ pub trait AsyncViscaExt {
     /// * `speed` - Pan speed (0-24)
     /// * `duration` - How long to pan
     /// * `direction` - Direction to pan (Left or Right)
-    async fn smooth_pan_scan(
+    fn smooth_pan_scan(
         &self,
         speed: u8,
         duration: Duration,
         direction: PanScanDirection,
-    ) -> Result<(), ViscaError>;
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
 
     /// Focus and zoom to frame a subject optimally.
     ///
@@ -105,17 +106,17 @@ pub trait AsyncViscaExt {
     /// # Arguments
     /// * `zoom_level` - Target zoom level
     /// * `auto_focus` - Whether to enable auto-focus after zooming
-    async fn frame_subject(&self, zoom_level: u16, auto_focus: bool) -> Result<(), ViscaError>;
+    fn frame_subject(&self, zoom_level: u16, auto_focus: bool) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
 
     /// Reset camera to a neutral state.
     ///
     /// Returns camera to home position, resets zoom to wide, and enables auto-focus.
-    async fn reset_to_neutral(&self) -> Result<(), ViscaError>;
+    fn reset_to_neutral(&self) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
 
     /// Perform a quick health check of camera movement systems.
     ///
     /// Tests pan/tilt and zoom movement to verify camera responsiveness.
-    async fn movement_health_check(&self) -> Result<bool, ViscaError>;
+    fn movement_health_check(&self) -> impl std::future::Future<Output = Result<bool, ViscaError>> + Send;
 }
 
 /// Direction for pan scanning operations.
@@ -128,13 +129,15 @@ pub enum PanScanDirection {
 }
 
 #[cfg(feature = "async-client")]
+#[allow(clippy::manual_async_fn)] // Required to avoid async_fn_in_trait warning
 impl AsyncViscaExt for Arc<ViscaClient> {
-    async fn setup_shot(
+    fn setup_shot(
         &self,
         pan_percent: f32,
         tilt_percent: f32,
         zoom_level: u16,
-    ) -> Result<(), ViscaError> {
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
+        async move {
         // Validate input ranges
         if !(-1.0..=1.0).contains(&pan_percent) {
             return Err(ViscaError::InvalidParameter(
@@ -160,9 +163,11 @@ impl AsyncViscaExt for Arc<ViscaClient> {
             .await?;
 
         Ok(())
+        }
     }
 
-    async fn save_current_position(&self, preset_number: u8) -> Result<(), ViscaError> {
+    fn save_current_position(&self, preset_number: u8) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
+        async move {
         if preset_number == 0 || preset_number > 90 {
             return Err(ViscaError::InvalidParameter(
                 "preset_number must be between 1 and 90".to_string(),
@@ -176,13 +181,15 @@ impl AsyncViscaExt for Arc<ViscaClient> {
 
         self.send_async(&command).await?;
         Ok(())
+        }
     }
 
-    async fn recall_position_with_zoom(
+    fn recall_position_with_zoom(
         &self,
         preset_number: u8,
         zoom_adjustment: Option<u16>,
-    ) -> Result<(), ViscaError> {
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
+        async move {
         if preset_number == 0 || preset_number > 90 {
             return Err(ViscaError::InvalidParameter(
                 "preset_number must be between 1 and 90".to_string(),
@@ -206,13 +213,15 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         }
 
         Ok(())
+        }
     }
 
-    async fn patrol_positions(
+    fn patrol_positions(
         &self,
         preset_numbers: &[u8],
         delay_between: Option<Duration>,
-    ) -> Result<(), ViscaError> {
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
+        async move {
         let delay = delay_between.unwrap_or(Duration::from_secs(2));
 
         for &preset_number in preset_numbers {
@@ -234,14 +243,16 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         }
 
         Ok(())
+        }
     }
 
-    async fn smooth_pan_scan(
+    fn smooth_pan_scan(
         &self,
         speed: u8,
         duration: Duration,
         direction: PanScanDirection,
-    ) -> Result<(), ViscaError> {
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
+        async move {
         let pan_speed = PanSpeed::new(speed.min(0x18))?;
         let tilt_speed = TiltSpeed::new(0)?; // No tilt movement
 
@@ -270,9 +281,11 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         self.send_async(&stop_command).await?;
 
         Ok(())
+        }
     }
 
-    async fn frame_subject(&self, zoom_level: u16, auto_focus: bool) -> Result<(), ViscaError> {
+    fn frame_subject(&self, zoom_level: u16, auto_focus: bool) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
+        async move {
         let mut builder = Arc::clone(self).ptz().zoom_direct(zoom_level);
 
         if auto_focus {
@@ -281,9 +294,11 @@ impl AsyncViscaExt for Arc<ViscaClient> {
 
         builder.execute_sequential_async().await?;
         Ok(())
+        }
     }
 
-    async fn reset_to_neutral(&self) -> Result<(), ViscaError> {
+    fn reset_to_neutral(&self) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
+        async move {
         Arc::clone(self)
             .ptz()
             .pan_tilt_home()
@@ -293,9 +308,11 @@ impl AsyncViscaExt for Arc<ViscaClient> {
             .await?;
 
         Ok(())
+        }
     }
 
-    async fn movement_health_check(&self) -> Result<bool, ViscaError> {
+    fn movement_health_check(&self) -> impl std::future::Future<Output = Result<bool, ViscaError>> + Send {
+        async move {
         // Test basic connectivity first
         if !self.is_healthy().await? {
             return Ok(false);
@@ -341,6 +358,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         match tokio::try_join!(pan_test, zoom_test) {
             Ok(_) => Ok(true),
             Err(_) => Ok(false),
+        }
         }
     }
 }

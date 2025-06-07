@@ -53,6 +53,10 @@ impl UdpTransport {
     }
 
     /// Creates a new UDP transport with a custom timeout.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if the socket cannot be created or bound.
     pub fn with_timeout(address: &str, timeout: Duration) -> io::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         socket.set_read_timeout(Some(timeout))?;
@@ -92,7 +96,7 @@ impl BlockingTransport for UdpTransport {
             match self.socket.recv_from(&mut buffer) {
                 Ok((size, _)) => {
                     let data = buffer[..size].to_vec();
-                    log::debug!("Received data: {:02X?}", data);
+                    log::debug!("Received data: {data:02X?}");
 
                     self.stats.record_received(data.len());
 
@@ -138,6 +142,10 @@ pub struct AsyncUdpTransport {
 #[cfg(feature = "async-client")]
 impl AsyncUdpTransport {
     /// Creates a new async UDP transport.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if the socket cannot be created or bound.
     pub async fn new(address: &str) -> io::Result<Self> {
         let socket = TokioUdpSocket::bind("0.0.0.0:0").await?;
         Ok(Self {
@@ -185,7 +193,7 @@ impl Transport for AsyncUdpTransport {
                 {
                     Ok(Ok((size, _))) => {
                         let data = buffer[..size].to_vec();
-                        log::debug!("Received data: {:02X?}", data);
+                        log::debug!("Received data: {data:02X?}");
 
                         self.stats.record_received(data.len());
 
