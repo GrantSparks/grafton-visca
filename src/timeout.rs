@@ -74,6 +74,7 @@ impl TimeoutConfig {
     }
 
     /// Gets the timeout for a specific command category.
+    #[must_use]
     pub const fn get_timeout(&self, category: CommandCategory) -> Duration {
         match category {
             CommandCategory::Quick => self.quick_timeout,
@@ -85,6 +86,7 @@ impl TimeoutConfig {
     }
 
     /// Creates a builder for timeout configuration.
+    #[must_use]
     pub fn builder() -> TimeoutConfigBuilder {
         TimeoutConfigBuilder::default()
     }
@@ -138,6 +140,7 @@ impl TimeoutConfigBuilder {
     }
 
     /// Builds the timeout configuration.
+    #[must_use]
     pub const fn build(self) -> TimeoutConfig {
         self.config
     }

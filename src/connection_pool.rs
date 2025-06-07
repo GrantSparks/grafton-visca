@@ -102,6 +102,7 @@ impl ViscaConnectionPool {
     /// # Arguments
     ///
     /// * `config` - Pool configuration
+    #[must_use]
     pub fn new(config: PoolConfig) -> Self {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
@@ -147,6 +148,7 @@ impl ViscaConnectionPool {
     }
 
     /// Removes a camera from the pool.
+    #[must_use]
     pub fn remove_camera(&self, camera_id: &str) -> Option<CameraInfo> {
         let mut connections = self.connections.lock().unwrap();
         connections.remove(camera_id).map(|conn| conn.camera_info)
@@ -179,6 +181,7 @@ impl ViscaConnectionPool {
     }
 
     /// Gets a list of all cameras in the pool.
+    #[must_use]
     pub fn list_cameras(&self) -> Vec<String> {
         let connections = self.connections.lock().unwrap();
         connections.keys().cloned().collect()
@@ -186,6 +189,7 @@ impl ViscaConnectionPool {
 
     /// Gets statistics for all cameras in the pool.
     #[cfg(feature = "blocking-client")]
+    #[must_use]
     pub fn get_all_stats(&self) -> Vec<PooledCameraStats> {
         // First collect camera info and clients to avoid holding lock during health checks
         let camera_data: Vec<(CameraInfo, Instant, ViscaClient)> = {

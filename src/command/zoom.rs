@@ -48,6 +48,7 @@ impl ZoomSpeed {
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 7.
+    #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
             Ok(ZoomSpeed(value))
@@ -60,6 +61,7 @@ impl ZoomSpeed {
     }
 
     /// Get the raw value.
+    #[must_use]
     pub const fn value(self) -> u8 {
         self.0
     }

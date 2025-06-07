@@ -63,6 +63,7 @@ pub struct ConnectionStatsSnapshot {
 
 impl ConnectionStats {
     /// Create new connection statistics starting now
+    #[must_use]
     pub fn new() -> Self {
         Self {
             inner: Arc::new(ConnectionStatsInner {
@@ -82,11 +83,13 @@ impl ConnectionStats {
     }
 
     /// Get the connection uptime
+    #[must_use]
     pub fn uptime(&self) -> Option<Duration> {
         Self::read_instant(&self.inner.connected_since).map(|since| since.elapsed())
     }
 
     /// Get the time since last activity
+    #[must_use]
     pub fn idle_time(&self) -> Option<Duration> {
         Self::read_instant(&self.inner.last_activity).map(|last| last.elapsed())
     }
@@ -137,6 +140,7 @@ impl ConnectionStats {
     }
 
     /// Get a consistent snapshot of all statistics
+    #[must_use]
     pub fn snapshot(&self) -> ConnectionStatsSnapshot {
         ConnectionStatsSnapshot {
             connected_since: Self::read_instant(&self.inner.connected_since),
@@ -163,6 +167,7 @@ impl ConnectionStats {
     }
 
     /// Get the last health check result if still valid (within 5 seconds)
+    #[must_use]
     pub fn get_cached_health(&self) -> Option<bool> {
         // Check cache validity flag first for fast path
         if !self.inner.cache_valid.load(Ordering::Acquire) {
