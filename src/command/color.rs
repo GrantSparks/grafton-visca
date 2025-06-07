@@ -161,16 +161,23 @@ impl ViscaCommand for HueCommand {
     }
 }
 
-/// Color Temperature command
+/// Color Temperature command.
+///
+/// Controls the color temperature setting when white balance is in color temperature mode.
+/// Color temperature is measured in Kelvin (K) and affects the warmth/coolness of the image.
 #[derive(Debug, Copy, Clone)]
 pub enum ColorTemperatureCommand {
-    /// Reset color temperature to default.
+    /// Reset color temperature to default value.
     Reset,
-    /// Increase color temperature.
+    /// Increase color temperature (makes image cooler/bluer).
     Up,
-    /// Decrease color temperature.
+    /// Decrease color temperature (makes image warmer/redder).
     Down,
-    /// Set color temperature directly (0x00=2500K to 0x37=8000K).
+    /// Set color temperature directly.
+    ///
+    /// Valid range: 0x00 (2500K - very warm) to 0x37 (8000K - very cool).
+    /// Lower values produce warmer (more orange/red) colors,
+    /// higher values produce cooler (more blue) colors.
     Direct(u16),
 }
 
@@ -202,16 +209,22 @@ impl ViscaCommand for ColorTemperatureCommand {
     }
 }
 
-/// Red Gain Direct command (different from tuning)
+/// Red Gain Direct command (different from tuning).
+///
+/// Controls the red channel gain in manual white balance mode.
+/// This provides direct control over the red color channel intensity.
 #[derive(Debug, Copy, Clone)]
 pub enum RedGainCommand {
-    /// Reset red gain to default value
+    /// Reset red gain to default value.
     Reset,
-    /// Increment red gain value
+    /// Increment red gain value by one step.
     Up,
-    /// Decrement red gain value
+    /// Decrement red gain value by one step.
     Down,
-    /// Set red gain to a specific value (0x00 to 0xFF)
+    /// Set red gain to a specific value.
+    ///
+    /// Valid range: 0x00 (minimum) to 0xFF (maximum).
+    /// Higher values increase the intensity of red in the image.
     Direct(u8),
 }
 
@@ -238,16 +251,22 @@ impl ViscaCommand for RedGainCommand {
     }
 }
 
-/// Blue Gain Direct command (different from tuning)
+/// Blue Gain Direct command (different from tuning).
+///
+/// Controls the blue channel gain in manual white balance mode.
+/// This provides direct control over the blue color channel intensity.
 #[derive(Debug, Copy, Clone)]
 pub enum BlueGainCommand {
-    /// Reset blue gain to default value
+    /// Reset blue gain to default value.
     Reset,
-    /// Increment blue gain value
+    /// Increment blue gain value by one step.
     Up,
-    /// Decrement blue gain value
+    /// Decrement blue gain value by one step.
     Down,
-    /// Set blue gain to a specific value (0x00 to 0xFF)
+    /// Set blue gain to a specific value.
+    ///
+    /// Valid range: 0x00 (minimum) to 0xFF (maximum).
+    /// Higher values increase the intensity of blue in the image.
     Direct(u8),
 }
 
