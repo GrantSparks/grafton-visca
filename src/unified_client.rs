@@ -28,6 +28,7 @@ use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, Transport};
 const MAX_CONCURRENT_COMMANDS: usize = 2;
 
 /// Internal transport variant that supports both blocking and async transports.
+#[derive(Debug)]
 enum TransportVariant {
     /// Blocking UDP transport wrapped in an adapter
     #[cfg(feature = "blocking-client")]
@@ -50,7 +51,7 @@ enum TransportVariant {
 ///
 /// This client provides a single API surface for both blocking and async usage,
 /// with automatic runtime management for blocking operations.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ViscaClient {
     /// The underlying transport (blocking or async)
     transport: Arc<Mutex<TransportVariant>>,

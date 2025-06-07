@@ -312,6 +312,7 @@ impl std::fmt::Debug for PtzBuilder {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     // Note: PtzBuilder tests would require actual ViscaClient instances
 

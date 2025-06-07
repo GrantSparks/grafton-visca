@@ -164,6 +164,7 @@ const fn position_to_nibbles(position: u16) -> [u8; 4] {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -171,7 +172,7 @@ mod tests {
     fn test_zoom_speed_new() {
         // Valid speeds
         for speed in 0..=7 {
-            let zoom_speed = ZoomSpeed::new(speed).unwrap();
+            let zoom_speed = ZoomSpeed::new(speed).expect("Valid zoom speed");
             assert_eq!(zoom_speed.value(), speed);
         }
 
@@ -189,7 +190,7 @@ mod tests {
     #[test]
     fn test_zoom_speed_try_from() {
         // Valid conversion
-        let speed = ZoomSpeed::try_from(5).unwrap();
+        let speed = ZoomSpeed::try_from(5).expect("Valid zoom speed");
         assert_eq!(speed.value(), 5);
 
         // Invalid conversion
@@ -198,7 +199,7 @@ mod tests {
 
     #[test]
     fn test_zoom_speed_into_u8() {
-        let speed = ZoomSpeed::new(3).unwrap();
+        let speed = ZoomSpeed::new(3).expect("Valid zoom speed");
         let value: u8 = speed.into();
         assert_eq!(value, 3);
     }
@@ -207,7 +208,7 @@ mod tests {
     fn test_zoom_command_stop() {
         let cmd = ZoomCommand::Stop;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]
         );
     }
@@ -216,7 +217,7 @@ mod tests {
     fn test_zoom_command_tele_standard() {
         let cmd = ZoomCommand::TeleStandard;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
         );
         assert_eq!(
@@ -229,7 +230,7 @@ mod tests {
     fn test_zoom_command_wide_standard() {
         let cmd = ZoomCommand::WideStandard;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
         );
         assert_eq!(
@@ -240,20 +241,20 @@ mod tests {
 
     #[test]
     fn test_zoom_command_tele_variable() {
-        let speed = ZoomSpeed::new(5).unwrap();
+        let speed = ZoomSpeed::new(5).expect("Valid zoom speed");
         let cmd = ZoomCommand::TeleVariable(speed);
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]
         );
     }
 
     #[test]
     fn test_zoom_command_wide_variable() {
-        let speed = ZoomSpeed::new(7).unwrap();
+        let speed = ZoomSpeed::new(7).expect("Valid zoom speed");
         let cmd = ZoomCommand::WideVariable(speed);
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF]
         );
     }
@@ -262,7 +263,7 @@ mod tests {
     fn test_zoom_command_direct() {
         let cmd = ZoomCommand::Direct(0x1234);
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF]
         );
     }

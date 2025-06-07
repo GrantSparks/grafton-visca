@@ -223,6 +223,7 @@ impl ViscaCommand for PanTiltCommand {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -256,7 +257,7 @@ mod tests {
         assert!(PanSpeed::try_from(0x20).is_err());
 
         // Into trait
-        let speed = PanSpeed::new(0x10).unwrap();
+        let speed = PanSpeed::new(0x10).expect("Valid pan speed");
         let value: u8 = speed.into();
         assert_eq!(value, 0x10);
     }
@@ -278,7 +279,7 @@ mod tests {
         assert!(TiltSpeed::try_from(0x15).is_err());
 
         // Into trait
-        let speed = TiltSpeed::new(0x10).unwrap();
+        let speed = TiltSpeed::new(0x10).expect("Valid tilt speed");
         let value: u8 = speed.into();
         assert_eq!(value, 0x10);
     }
@@ -300,23 +301,23 @@ mod tests {
     fn test_pan_tilt_command_to_bytes() {
         // Test Home command
         let home = PanTiltCommand::Home;
-        assert_eq!(home.to_bytes().unwrap(), vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
+        assert_eq!(home.to_bytes().expect("Valid command"), vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
 
         // Test Reset command
         let reset = PanTiltCommand::Reset;
         assert_eq!(
-            reset.to_bytes().unwrap(),
+            reset.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x06, 0x05, 0xFF]
         );
 
         // Test Move command
         let move_cmd = PanTiltCommand::Move {
             direction: PanTiltDirection::UpRight,
-            pan_speed: PanSpeed::new(0x10).unwrap(),
-            tilt_speed: TiltSpeed::new(0x10).unwrap(),
+            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
+            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
         };
         assert_eq!(
-            move_cmd.to_bytes().unwrap(),
+            move_cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x06, 0x01, 0x10, 0x10, 0x02, 0x01, 0xFF]
         );
 
@@ -324,11 +325,11 @@ mod tests {
         let abs_pos = PanTiltCommand::AbsolutePosition {
             pan: 0x1234,
             tilt: 0x5678,
-            pan_speed: PanSpeed::new(0x10).unwrap(),
-            tilt_speed: TiltSpeed::new(0x10).unwrap(),
+            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
+            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
         };
         assert_eq!(
-            abs_pos.to_bytes().unwrap(),
+            abs_pos.to_bytes().expect("Valid command"),
             vec![
                 0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
                 0xFF
@@ -339,11 +340,11 @@ mod tests {
         let rel_pos = PanTiltCommand::RelativePosition {
             pan: -0x100,
             tilt: 0x200,
-            pan_speed: PanSpeed::new(0x10).unwrap(),
-            tilt_speed: TiltSpeed::new(0x10).unwrap(),
+            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
+            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
         };
         assert_eq!(
-            rel_pos.to_bytes().unwrap(),
+            rel_pos.to_bytes().expect("Valid command"),
             vec![
                 0x81, 0x01, 0x06, 0x03, 0x10, 0x10, 0x0F, 0x0F, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
                 0xFF
@@ -360,7 +361,7 @@ mod tests {
             tilt: 0x2000,
         };
         assert_eq!(
-            set_limit.to_bytes().unwrap(),
+            set_limit.to_bytes().expect("Valid command"),
             vec![
                 0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
                 0xFF
@@ -372,7 +373,7 @@ mod tests {
             corner: LimitCorner::UpRight,
         };
         assert_eq!(
-            clear_limit.to_bytes().unwrap(),
+            clear_limit.to_bytes().expect("Valid command"),
             vec![
                 0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
                 0xFF
@@ -388,8 +389,8 @@ mod tests {
 
         let move_cmd = PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0).unwrap(),
-            tilt_speed: TiltSpeed::new(0).unwrap(),
+            pan_speed: PanSpeed::new(0).expect("Valid pan speed"),
+            tilt_speed: TiltSpeed::new(0).expect("Valid tilt speed"),
         };
         assert!(move_cmd.response_type().is_none());
 
@@ -402,6 +403,7 @@ mod tests {
 
 const fn position_to_bytes(position: i16) -> [u8; 4] {
     // Convert to unsigned using bitwise representation (preserves bit pattern)
+    #[allow(clippy::cast_sign_loss)]
     let unsigned = position as u16;
     [
         ((unsigned >> 12) & 0x0F) as u8,

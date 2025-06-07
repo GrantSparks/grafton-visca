@@ -326,6 +326,9 @@ pub trait ViscaResultExt<T> {
     ///
     /// This method provides context about what retry strategies might be appropriate
     /// for the error that occurred.
+    ///
+    /// # Errors
+    /// Returns the original `ViscaError` with added retry context information.
     fn with_retry_context(self) -> Result<T, ViscaError>;
 }
 
@@ -400,6 +403,9 @@ impl ViscaRetry {
     /// - `max_attempts`: Maximum number of attempts (including the initial attempt)
     /// - `base_delay`: Base delay between retries
     ///
+    /// # Errors
+    /// Returns the last `ViscaError` encountered if all retry attempts fail.
+    ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
@@ -454,6 +460,9 @@ impl ViscaRetry {
 
     /// Retry an async operation using suggested delays from errors.
     ///
+    /// # Errors
+    /// Returns the last `ViscaError` encountered if all retry attempts fail.
+    ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
@@ -507,6 +516,9 @@ impl ViscaRetry {
     }
 
     /// Retry an async operation with exponential backoff.
+    ///
+    /// # Errors
+    /// Returns the last `ViscaError` encountered if all retry attempts fail.
     ///
     /// # Example
     /// ```no_run
@@ -565,6 +577,9 @@ impl ViscaRetry {
     }
 
     /// Retry a blocking operation with custom parameters.
+    ///
+    /// # Errors
+    /// Returns the last `ViscaError` encountered if all retry attempts fail.
     ///
     /// # Example
     /// ```no_run
@@ -628,6 +643,7 @@ pub enum AppError {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

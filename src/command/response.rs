@@ -412,6 +412,7 @@ fn parse_simple_value(
         }
         SimpleValueType::RedGain => {
             let gain = i16::from(response[2]) - 10;
+            #[allow(clippy::cast_possible_truncation)]
             let gain = gain as i8; // Safe: VISCA gain values are in valid range
             Ok(ViscaResponse::InquiryResponse(
                 ViscaInquiryResponse::RedGain { gain },
@@ -419,6 +420,7 @@ fn parse_simple_value(
         }
         SimpleValueType::BlueGain => {
             let gain = i16::from(response[2]) - 10;
+            #[allow(clippy::cast_possible_truncation)]
             let gain = gain as i8; // Safe: VISCA gain values are in valid range
             Ok(ViscaResponse::InquiryResponse(
                 ViscaInquiryResponse::BlueGain { gain },
@@ -489,6 +491,7 @@ fn parse_extended_value(
         ExtendedValueType::ExposureCompensation => {
             let raw_value = response[5];
             let value = i16::from(raw_value) - 7;
+            #[allow(clippy::cast_possible_truncation)]
             let value = value as i8; // Safe: VISCA exposure compensation values are in valid range
             Ok(ViscaResponse::InquiryResponse(
                 ViscaInquiryResponse::ExposureCompensation { value },

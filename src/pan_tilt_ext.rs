@@ -156,8 +156,8 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     /// # }
     /// ```
     fn stop_movement(&mut self) -> Result<(), ViscaError> {
-        let pan_speed = PanSpeed::new(0).unwrap();
-        let tilt_speed = TiltSpeed::new(0).unwrap();
+        let pan_speed = PanSpeed::new(0)?;
+        let tilt_speed = TiltSpeed::new(0)?;
         let command = PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
             pan_speed,

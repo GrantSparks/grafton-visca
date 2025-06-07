@@ -113,6 +113,9 @@ where
     /// # Arguments
     /// * `create_transport` - An async function that creates a new transport instance
     /// * `config` - Configuration for reconnection behavior
+    ///
+    /// # Errors
+    /// Returns a `ViscaError` if the initial transport creation fails.
     pub async fn new<F, Fut>(
         create_transport: F,
         config: ReconnectionConfig,

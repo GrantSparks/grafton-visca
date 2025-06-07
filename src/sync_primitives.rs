@@ -19,6 +19,7 @@ mod async_semaphore {
     // Third-party imports
     use tokio::sync::{Semaphore as TokioSemaphore, SemaphorePermit};
 
+    #[derive(Debug)]
     pub struct Semaphore {
         inner: Arc<TokioSemaphore>,
     }
@@ -53,6 +54,7 @@ mod sync_semaphore {
     // Third-party imports
     use parking_lot::{Condvar, Mutex};
 
+    #[derive(Debug)]
     pub struct Semaphore {
         state: Arc<(Mutex<usize>, Condvar)>,
     }
