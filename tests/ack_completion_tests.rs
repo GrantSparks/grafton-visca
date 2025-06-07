@@ -20,7 +20,7 @@ use grafton_visca::{
 #[test]
 fn test_ack_then_completion_sequence() {
     // Simulate ACK followed by completion for socket 0
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     transport.add_ack_completion(0);
 
     let mut device = MockDevice::from_transport(transport);
@@ -97,7 +97,7 @@ fn test_pan_tilt_position_inquiry() {
 #[test]
 fn test_multiple_socket_handling() {
     // Test that different commands can use different sockets
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     transport.add_ack_completion(0); // First command uses socket 0
     transport.add_ack_completion(1); // Second command uses socket 1
 

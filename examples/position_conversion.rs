@@ -8,10 +8,6 @@
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
-    command::{
-        pan_tilt::{PanSpeed, TiltSpeed},
-        PanTiltCommand,
-    },
     constants::{
         self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
@@ -23,29 +19,18 @@ use log::{error, info};
 use std::env;
 
 #[cfg(feature = "blocking-client")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    info!("Position conversion and constants example");
-
-    // Get camera address from command line or use default
+fn get_camera_address() -> String {
     let args: Vec<String> = env::args().collect();
     let ip_address = if args.len() > 1 {
         &args[1]
     } else {
         "192.168.0.110"
     };
-    let address = format!("{ip_address}:1259");
+    format!("{ip_address}:1259")
+}
 
-    // Connect to camera
-    let mut client = ViscaClient::connect_udp(&address)?;
-    info!("Connected to camera at {address}");
-
-    // For this example, we'll assume PTZOptics G2
-    // Note: detect_camera_model is not yet available in current API
-    let model = CameraModel::PTZOpticsG2;
-    info!("Using camera model: {model:?}");
-
-    // Display camera constants
+#[cfg(feature = "blocking-client")]
+fn display_camera_constants(model: CameraModel) {
     info!("\nCamera Constants for {model:?}:");
     info!("  Pan range: {:?} VISCA units", model.pan_range());
     info!("  Tilt range: {:?} VISCA units", model.tilt_range());
@@ -54,11 +39,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  Tilt degrees: {} degrees", model.tilt_degrees());
     info!("  Max pan speed: {}", model.max_pan_speed());
     info!("  Max tilt speed: {}", model.max_tilt_speed());
+}
 
-    // Get current position
+#[cfg(feature = "blocking-client")]
+fn demonstrate_position_conversions(
+    client: &mut ViscaClient,
+    model: CameraModel,
+) -> Result<(), Box<dyn std::error::Error>> {
     info!("\nQuerying current camera position...");
-    // Note: send_command_and_wait is not directly available on ViscaClient
-    // Using the extension trait methods instead
     let (pan, tilt) = client.get_pan_tilt_position()?;
 
     let visca_pos = ViscaPosition { pan, tilt };
@@ -96,7 +84,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         from_normalized.pan, from_normalized.tilt
     );
 
-    // Demonstrate validation
+    Ok(())
+}
+
+#[cfg(feature = "blocking-client")]
+fn demonstrate_validation(model: CameraModel) {
     info!("\nValidation examples:");
 
     // Valid pan position
@@ -122,8 +114,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(id) => info!("  Preset ID {id} is valid"),
         Err(e) => info!("  Preset validation error (expected): {e}"),
     }
+}
 
-    // Demonstrate moving to a position specified in degrees
+#[cfg(feature = "blocking-client")]
+fn move_to_degrees_position(
+    client: &mut ViscaClient,
+    model: CameraModel,
+) -> Result<(), Box<dyn std::error::Error>> {
     info!("\nMoving to position specified in degrees...");
     let target_degrees = DegreePosition {
         pan: 45.0,
@@ -145,16 +142,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         constants::validate_pan_position(target_visca.pan, model),
         constants::validate_tilt_position(target_visca.tilt, model),
     ) {
-        let _command = PanTiltCommand::AbsolutePosition {
-            pan: target_visca.pan,
-            tilt: target_visca.tilt,
-            pan_speed: PanSpeed::new(constants::speed::PAN_SPEED_DEFAULT).unwrap(),
-            tilt_speed: TiltSpeed::new(constants::speed::TILT_SPEED_DEFAULT).unwrap(),
-        };
-
-        // Using extension trait method
         match ViscaPanTiltExt::move_to_position(
-            &mut client,
+            client,
             target_visca.pan,
             target_visca.tilt,
             Some((
@@ -169,7 +158,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         error!("Target position is out of range");
     }
 
-    // Using constants for network and timing
+    Ok(())
+}
+
+#[cfg(feature = "blocking-client")]
+fn display_other_constants() {
     info!("\nOther useful constants:");
     info!(
         "  Default VISCA port: {}",
@@ -184,6 +177,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         constants::timing::PRESET_RECALL_TIMEOUT_MS
     );
     info!("  Max preset ID: {}", constants::preset::PRESET_ID_MAX);
+}
+
+#[cfg(feature = "blocking-client")]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    info!("Position conversion and constants example");
+
+    let address = get_camera_address();
+    let mut client = ViscaClient::connect_udp(&address)?;
+    info!("Connected to camera at {address}");
+
+    let model = CameraModel::PTZOpticsG2;
+    info!("Using camera model: {model:?}");
+
+    display_camera_constants(model);
+    demonstrate_position_conversions(&mut client, model)?;
+    demonstrate_validation(model);
+    move_to_degrees_position(&mut client, model)?;
+    display_other_constants();
 
     Ok(())
 }

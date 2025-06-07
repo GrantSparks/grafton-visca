@@ -49,7 +49,7 @@ impl MockTransport {
 
     /// Create a mock that returns ACK followed by completion.
     pub fn with_ack_completion() -> Self {
-        let mut mock = Self::new();
+        let mock = Self::new();
         mock.add_ack_completion(0);
         mock
     }
@@ -60,13 +60,13 @@ impl MockTransport {
     }
 
     /// Add an ACK followed by completion response.
-    pub fn add_ack_completion(&mut self, socket: u8) {
+    pub fn add_ack_completion(&self, socket: u8) {
         self.add_response(vec![0x90, 0x40 | socket, 0xFF]); // ACK
         self.add_response(vec![0x90, 0x50 | socket, 0xFF]); // Completion
     }
 
     /// Add an inquiry response.
-    pub fn add_inquiry_response(&mut self, response: Vec<u8>) {
+    pub fn add_inquiry_response(&self, response: Vec<u8>) {
         self.add_response(response);
     }
 
@@ -152,7 +152,7 @@ impl MockDevice {
     }
 
     /// Add a response to the queue.
-    pub fn add_response(&mut self, response: Vec<u8>) {
+    pub fn add_response(&self, response: Vec<u8>) {
         self.transport.0.add_response(response);
     }
 
@@ -209,7 +209,7 @@ impl MockDevice {
     }
 
     /// Clear the command history.
-    pub fn clear_commands(&mut self) {
+    pub fn clear_commands(&self) {
         self.transport.0.clear_commands();
     }
 }
@@ -349,12 +349,12 @@ mod async_mock {
             }
         }
 
-        pub fn with_delay(mut self, delay_ms: u64) -> Self {
+        pub const fn with_delay(mut self, delay_ms: u64) -> Self {
             self.delay_ms = delay_ms;
             self
         }
 
-        pub fn fail_after_n_commands(mut self, n: usize) -> Self {
+        pub const fn fail_after_n_commands(mut self, n: usize) -> Self {
             self.fail_after = Some(n);
             self
         }
