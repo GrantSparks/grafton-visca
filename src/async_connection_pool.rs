@@ -299,12 +299,13 @@ where
                 drop(connections);
 
                 // Remove stale connections if configured
-                if config.max_idle_time.is_some() {
+                if let Some(max_idle_time) = config.max_idle_time {
                     let now = Instant::now();
                     let mut connections = pool.write().await;
                     connections.retain(|_, conn| {
-                        let last_used = conn.last_used.try_read().unwrap();
-                        now.duration_since(*last_used) <= config.max_idle_time.unwrap()
+                        conn.last_used.try_read()
+                            .map(|last_used| now.duration_since(*last_used) <= max_idle_time)
+                            .unwrap_or(true) // Keep connection if we can't read the lock
                     });
                 }
             }

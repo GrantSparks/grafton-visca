@@ -3,13 +3,19 @@
 //! This module provides functionality to detect the specific model of a VISCA camera
 //! by querying its capabilities and characteristics.
 
+// Standard library imports
+// (none)
+
+// Third-party crate imports
+use log::debug;
+
+// Workspace / local-crate imports
 use crate::{
     command::{InquiryCommand, ViscaInquiryResponse},
     constants::CameraModel,
     error::ViscaError,
     send_command_and_wait, ViscaResponse, ViscaTransport,
 };
-use log::debug;
 
 /// Detect the camera model by querying its capabilities
 ///

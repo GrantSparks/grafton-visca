@@ -427,6 +427,9 @@ impl PanSpeed {
     /// Maximum allowed pan speed (0x18 = 24 decimal).
     pub const MAX: u8 = 0x18;
 
+    /// Zero speed value (stop).
+    pub const ZERO: Self = Self(0);
+
     /// Creates a new `PanSpeed` with validation.
     ///
     /// # Errors
@@ -467,6 +470,9 @@ pub struct TiltSpeed(u8);
 impl TiltSpeed {
     /// Maximum allowed tilt speed (0x14 = 20 decimal).
     pub const MAX: u8 = 0x14;
+
+    /// Zero speed value (stop).
+    pub const ZERO: Self = Self(0);
 
     /// Creates a new `TiltSpeed` with validation.
     ///

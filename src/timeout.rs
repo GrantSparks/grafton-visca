@@ -4,7 +4,14 @@
 //! allowing fine-tuned control over command execution timeouts based on the expected duration
 //! of each operation type.
 
+// Standard library imports
 use std::time::Duration;
+
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
+// (none)
 
 /// Categories of VISCA commands with different timeout requirements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

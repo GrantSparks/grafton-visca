@@ -473,26 +473,14 @@ where
                 let combined = ConnectionStats::new();
 
                 // Add wrapper stats
-                for _ in 0..wrapper_stats.commands_sent {
-                    combined.record_sent(0);
-                }
-                for _ in 0..wrapper_stats.responses_received {
-                    combined.record_received(0);
-                }
-                for _ in 0..wrapper_stats.error_count {
-                    combined.record_error();
-                }
+                (0..wrapper_stats.commands_sent).for_each(|_| combined.record_sent(0));
+                (0..wrapper_stats.responses_received).for_each(|_| combined.record_received(0));
+                (0..wrapper_stats.error_count).for_each(|_| combined.record_error());
 
                 // Add inner transport stats
-                for _ in 0..inner_stats.commands_sent {
-                    combined.record_sent(0);
-                }
-                for _ in 0..inner_stats.responses_received {
-                    combined.record_received(0);
-                }
-                for _ in 0..inner_stats.error_count {
-                    combined.record_error();
-                }
+                (0..inner_stats.commands_sent).for_each(|_| combined.record_sent(0));
+                (0..inner_stats.responses_received).for_each(|_| combined.record_received(0));
+                (0..inner_stats.error_count).for_each(|_| combined.record_error());
 
                 combined
             },

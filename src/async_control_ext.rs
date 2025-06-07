@@ -88,12 +88,10 @@ impl AsyncViscaClient {
     /// # Errors
     /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     pub async fn stop_movement(&self) -> Result<(), ViscaError> {
-        let pan_speed = PanSpeed::new(0).unwrap();
-        let tilt_speed = TiltSpeed::new(0).unwrap();
         let command = PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed,
-            tilt_speed,
+            pan_speed: PanSpeed::ZERO,
+            tilt_speed: TiltSpeed::ZERO,
         };
         self.send(&command).await?;
         Ok(())

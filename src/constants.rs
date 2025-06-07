@@ -3,6 +3,13 @@
 //! This module provides constants for `PTZOptics` cameras including position ranges,
 //! speed limits, and utilities for converting between different unit systems.
 
+// Standard library imports
+// (none)
+
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::error::ViscaError;
 
 /// `PTZOptics` camera models with their specific capabilities

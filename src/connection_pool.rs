@@ -3,16 +3,21 @@
 //! This module provides a connection pool that manages multiple camera connections
 //! using the unified `ViscaClient` architecture.
 
+// Standard library imports
 use std::time::{Duration, Instant};
-
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{ViscaClient, ViscaCommand, ViscaError, ViscaResponse};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::collections::HashMap;
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::sync::{Arc, Mutex};
+
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use crate::{ViscaClient, ViscaCommand, ViscaError, ViscaResponse};
 
 /// Configuration for the connection pool.
 #[derive(Debug, Copy, Clone)]
