@@ -386,7 +386,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pan_scan_direction() {
+    const fn test_pan_scan_direction() {
         // Test that enum values are correctly defined
         matches!(PanScanDirection::Left, PanScanDirection::Left);
         matches!(PanScanDirection::Right, PanScanDirection::Right);
