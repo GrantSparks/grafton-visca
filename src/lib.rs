@@ -28,7 +28,6 @@
     clippy::return_self_not_must_use,// TODO: Add #[must_use] to builder methods
     clippy::single_match_else,       // TODO: Convert to if let where appropriate
     clippy::significant_drop_tightening, // TODO: Review mutex lock scopes
-    missing_docs,                    // TODO: Add documentation for all public items
 )]
 //!
 //! ## What is VISCA?

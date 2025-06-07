@@ -10,41 +10,78 @@ use crate::{
     timeout::CommandCategory,
 };
 
+/// Commands for querying the current state of camera settings.
+///
+/// These commands allow reading the current values of various camera parameters
+/// without modifying them. Each command returns the specific type of inquiry response
+/// appropriate for the requested parameter.
 #[derive(Debug)]
 pub enum InquiryCommand {
+    /// Query the camera's power state (On/Off).
     Power,
+    /// Query the current pan and tilt position.
     PanTiltPosition,
+    /// Query the current zoom position.
     ZoomPosition,
+    /// Query the current focus position.
     FocusPosition,
+    /// Query the current exposure mode (Auto/Manual/Shutter/Iris/Bright).
     ExposureMode,
+    /// Query the current white balance mode (Auto/Indoor/Outdoor/OnePush/Manual/ColorTemperature).
     WhiteBalanceMode,
+    /// Query the current luminance level (0-14).
     Luminance,
+    /// Query the current contrast level (0-14).
     Contrast,
     // New inquiry commands for features added in Sprint 1
+    /// Query the current sharpness level (0-11).
     Sharpness,
+    /// Query the current exposure compensation value (-7 to +7).
     ExposureCompensation,
+    /// Query whether exposure compensation is enabled (On/Off).
     ExposureCompensationMode,
+    /// Query the current iris setting (0x0=Close to 0xC=F1.8).
     Iris,
+    /// Query the current shutter speed (0x01=1/30 to 0x11=1/10000).
     Shutter,
+    /// Query the current brightness level (0-17).
     Bright,
+    /// Query the current gain level (0-7).
     Gain,
+    /// Query the current gain limit (0-15).
     GainLimit,
+    /// Query the anti-flicker mode (Off/50Hz/60Hz).
     AntiFlicker,
+    /// Query the current saturation level (60%-200%).
     Saturation,
+    /// Query the current hue level (0-14).
     Hue,
+    /// Query the red gain tuning value (-10 to +10).
     RedGain,
+    /// Query the blue gain tuning value (-10 to +10).
     BlueGain,
+    /// Query whether backlight compensation is enabled (On/Off).
     Backlight,
+    /// Query the current image flip state.
     ImageFlip,
     // Additional inquiry commands for new features
+    /// Query the sharpness mode (Auto/Manual).
     SharpnessMode,
+    /// Query the current color temperature value.
     ColorTemperature,
+    /// Query the 2D noise reduction setting.
     NoiseReduction2D,
+    /// Query the 3D noise reduction setting.
     NoiseReduction3D,
+    /// Query the black and white mode state.
     BlackWhite,
+    /// Query the current focus zone setting.
     FocusZone,
+    /// Query the auto-focus sensitivity setting.
     AFSensitivity,
+    /// Query the focus near limit position.
     FocusNearLimit,
+    /// Query the dynamic range control level (0-8).
     DynamicRange,
 }
 
