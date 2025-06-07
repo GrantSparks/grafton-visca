@@ -184,6 +184,7 @@ mod tests {
 // Mock transport for testing
 #[cfg(all(test, feature = "blocking-client"))]
 mod sync_health_tests {
+    use grafton_visca::command::power::{Power, PowerCommand};
     use grafton_visca::connection::ConnectionStats;
     use grafton_visca::{transport::BlockingTransport, ViscaCommand, ViscaError};
 
@@ -233,7 +234,6 @@ mod sync_health_tests {
     #[test]
     fn test_sync_transport_send_success() {
         let mut transport = MockTransport::new();
-        use grafton_visca::command::power::{Power, PowerCommand};
         let result = transport.send_command_blocking(&PowerCommand { power: Power::On });
         assert!(result.is_ok());
         assert_eq!(transport.stats.snapshot().bytes_sent, 10);
@@ -243,7 +243,6 @@ mod sync_health_tests {
     fn test_sync_transport_send_failure() {
         let mut transport = MockTransport::new();
         transport.fail_send = true;
-        use grafton_visca::command::power::{Power, PowerCommand};
         let result = transport.send_command_blocking(&PowerCommand { power: Power::On });
         assert!(result.is_err());
     }
@@ -268,6 +267,7 @@ mod sync_health_tests {
 // Async tests
 #[cfg(all(test, feature = "async-client"))]
 mod async_health_tests {
+    use grafton_visca::command::power::{Power, PowerCommand};
     use grafton_visca::connection::ConnectionStats;
     use grafton_visca::transport::{Transport, TransportFuture};
     use grafton_visca::{ViscaCommand, ViscaError};
@@ -325,7 +325,6 @@ mod async_health_tests {
     #[tokio::test]
     async fn test_async_transport_send_success() {
         let mut transport = MockAsyncTransport::new();
-        use grafton_visca::command::power::{Power, PowerCommand};
         let result = transport
             .send_command(&PowerCommand { power: Power::On })
             .await;
@@ -337,7 +336,6 @@ mod async_health_tests {
     async fn test_async_transport_send_failure() {
         let mut transport = MockAsyncTransport::new();
         transport.fail_send = true;
-        use grafton_visca::command::power::{Power, PowerCommand};
         let result = transport
             .send_command(&PowerCommand { power: Power::On })
             .await;

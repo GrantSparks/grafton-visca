@@ -1,7 +1,7 @@
-//! Example demonstrating thread-safe usage of ViscaClient
+//! Example demonstrating thread-safe usage of `ViscaClient`
 //!
-//! This example shows how to use ViscaClient to control a camera
-//! from multiple threads without needing RefCell or manual locking.
+//! This example shows how to use `ViscaClient` to control a camera
+//! from multiple threads without needing `RefCell` or manual locking.
 //!
 //! NOTE: This example needs to be updated for the v0.4.0 API.
 

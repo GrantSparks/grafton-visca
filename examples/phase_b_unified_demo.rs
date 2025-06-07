@@ -1,6 +1,6 @@
 //! Demo of the Phase B unified client implementation.
 //!
-//! This example shows how the new unified ViscaClient works in both
+//! This example shows how the new unified `ViscaClient` works in both
 //! blocking and async contexts.
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -43,7 +43,7 @@ async fn async_example() -> Result<(), ViscaError> {
 
     // Check camera health
     let is_healthy = client.is_healthy().await?;
-    println!("Camera healthy: {}", is_healthy);
+    println!("Camera healthy: {is_healthy}");
 
     Ok(())
 }
@@ -72,17 +72,17 @@ async fn main() -> Result<(), ViscaError> {
     env_logger::init();
 
     #[cfg(feature = "blocking-client")]
-    blocking_example().unwrap_or_else(|e| eprintln!("Blocking example error: {}", e));
+    blocking_example().unwrap_or_else(|e| eprintln!("Blocking example error: {e}"));
 
     #[cfg(feature = "async-client")]
     async_example()
         .await
-        .unwrap_or_else(|e| eprintln!("Async example error: {}", e));
+        .unwrap_or_else(|e| eprintln!("Async example error: {e}"));
 
     #[cfg(all(feature = "blocking-client", feature = "async-client"))]
     mixed_example()
         .await
-        .unwrap_or_else(|e| eprintln!("Mixed example error: {}", e));
+        .unwrap_or_else(|e| eprintln!("Mixed example error: {e}"));
 
     Ok(())
 }

@@ -599,6 +599,7 @@ mod golden_vector_tests {
             pan_speed: PanSpeed::new(0x08).unwrap(),
             tilt_speed: TiltSpeed::new(0x08).unwrap(),
         };
+        // Convert signed to unsigned for VISCA protocol encoding
         let pan_bytes = -100i16 as u16;
         let tilt_bytes = 200u16;
         assert_eq!(

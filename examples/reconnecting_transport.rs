@@ -1,6 +1,6 @@
 //! Example demonstrating auto-reconnecting transport functionality.
 //!
-//! This example shows how to use the ReconnectingTransport wrapper to handle
+//! This example shows how to use the `ReconnectingTransport` wrapper to handle
 //! connection failures gracefully with automatic reconnection.
 
 // TODO: Update this example for v0.5.0 - ReconnectingTransport is not yet available

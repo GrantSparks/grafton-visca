@@ -33,9 +33,9 @@ fn main() -> Result<(), AppError> {
 
     let use_udp = protocol.eq_ignore_ascii_case("udp");
     let address = if use_udp {
-        format!("{}:{}", ip_address, udp_port)
+        format!("{ip_address}:{udp_port}")
     } else {
-        format!("{}:{}", ip_address, tcp_port)
+        format!("{ip_address}:{tcp_port}")
     };
 
     let client = if use_udp {
@@ -53,7 +53,7 @@ fn main() -> Result<(), AppError> {
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
         client.send(&InquiryCommand::PanTiltPosition)
     {
-        info!("Pan position: {}, Tilt position: {}", pan, tilt);
+        info!("Pan position: {pan}, Tilt position: {tilt}");
     } else {
         error!("Failed to get Pan/Tilt position");
     }
@@ -67,8 +67,8 @@ fn main() -> Result<(), AppError> {
         (PanTiltDirection::DownRight, 3, 3),
     ];
 
-    for (direction, pan_speed, tilt_speed) in complex_movements.iter() {
-        debug!("Sending Pan/Tilt {:?} command", direction);
+    for (direction, pan_speed, tilt_speed) in &complex_movements {
+        debug!("Sending Pan/Tilt {direction:?} command");
         let pan_tilt_command = PanTiltCommand::Move {
             direction: *direction,
             pan_speed: PanSpeed::new(*pan_speed)?,
@@ -93,7 +93,7 @@ fn main() -> Result<(), AppError> {
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
         client.send(&InquiryCommand::PanTiltPosition)
     {
-        info!("Pan position: {}, Tilt position: {}", pan, tilt);
+        info!("Pan position: {pan}, Tilt position: {tilt}");
     } else {
         error!("Failed to get Pan/Tilt position");
     }
@@ -102,7 +102,7 @@ fn main() -> Result<(), AppError> {
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
         client.send(&InquiryCommand::ZoomPosition)
     {
-        info!("Initial Zoom position: {}", position);
+        info!("Initial Zoom position: {position}");
     } else {
         error!("Failed to get initial Zoom position");
     }
@@ -114,22 +114,22 @@ fn main() -> Result<(), AppError> {
         ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap()),
     ];
 
-    for command in zoom_movements.iter() {
-        debug!("Sending {:?} command", command);
+    for command in &zoom_movements {
+        debug!("Sending {command:?} command");
         if let Err(e) = client.send(command) {
-            error!("Error while sending zoom command: {:?}", e);
+            error!("Error while sending zoom command: {e:?}");
             return Err(AppError::Visca(e));
         }
 
         std::thread::sleep(Duration::from_secs(3));
 
-        debug!("Inquiring Zoom position after {:?}", command);
+        debug!("Inquiring Zoom position after {command:?}");
         if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
             client.send(&InquiryCommand::ZoomPosition)
         {
-            info!("Zoom position after {:?}: {}", command, position);
+            info!("Zoom position after {command:?}: {position}");
         } else {
-            error!("Failed to get Zoom position after {:?}", command);
+            error!("Failed to get Zoom position after {command:?}");
         }
     }
 
@@ -140,7 +140,7 @@ fn main() -> Result<(), AppError> {
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
         client.send(&InquiryCommand::ZoomPosition)
     {
-        info!("Final Zoom position: {}", position);
+        info!("Final Zoom position: {position}");
     } else {
         error!("Failed to get final Zoom position");
     }

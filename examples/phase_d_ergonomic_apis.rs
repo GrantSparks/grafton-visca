@@ -1,6 +1,6 @@
 //! Example demonstrating Phase D ergonomic APIs.
 //!
-//! This example shows the new PTZ builder pattern and AsyncViscaExt trait
+//! This example shows the new PTZ builder pattern and `AsyncViscaExt` trait
 //! introduced in Phase D of the v0.4.0 refactoring.
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]

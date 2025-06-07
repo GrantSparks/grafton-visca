@@ -1,4 +1,4 @@
-//! Integration tests for ViscaSession behavior through the public API.
+//! Integration tests for `ViscaSession` behavior through the public API.
 //!
 //! These tests verify that the internal session management correctly handles:
 //! - Socket assignment and reuse
@@ -36,7 +36,6 @@ fn test_socket_assignment_and_reuse() {
     let mut device = MockDevice::from_transport(transport);
 
     // Send three commands in sequence
-    let _start = Instant::now();
 
     // First command - should get socket 0
     thread::sleep(Duration::from_millis(5));
@@ -81,7 +80,7 @@ fn test_command_buffer_full_handling() {
     // This should fail with CommandBufferFull error
     match r3 {
         Err(ViscaError::CommandBufferFull) => {}
-        _ => panic!("Expected CommandBufferFull error, got {:?}", r3),
+        _ => panic!("Expected CommandBufferFull error, got {r3:?}"),
     }
 }
 
@@ -173,13 +172,13 @@ fn test_rapid_command_timing() {
 
     // Set up all responses for 5 commands
     for i in 0..5 {
-        let socket = (i % 2) as u8;
+        let socket = u8::try_from(i % 2).unwrap();
         transport.add_ack_completion(socket);
     }
 
     let mut device = MockDevice::from_transport(transport);
 
-    let _start = Instant::now();
+    let start = Instant::now();
 
     // Send 5 commands rapidly
     for i in 0..5 {
@@ -195,11 +194,10 @@ fn test_rapid_command_timing() {
             .unwrap();
     }
 
-    let total_time = _start.elapsed();
+    let total_time = start.elapsed();
     assert!(
         total_time < Duration::from_secs(2),
-        "Commands took too long: {:?}",
-        total_time
+        "Commands took too long: {total_time:?}"
     );
 
     assert_eq!(device.commands_sent().len(), 5);
