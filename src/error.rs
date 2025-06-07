@@ -14,94 +14,161 @@ use thiserror::Error;
 /// that map directly to camera responses and communication failures.
 #[derive(Error, Debug)]
 pub enum ViscaError {
+    /// Failed to establish connection to the camera.
     #[error("Connection failed to {addr}: {source}")]
-    ConnectionFailed { addr: String, source: io::Error },
+    ConnectionFailed {
+        /// The address that failed to connect.
+        addr: String,
+        /// The underlying IO error.
+        source: io::Error,
+    },
 
+    /// Connection to the camera was lost during operation.
     #[error("Connection lost: {reason}")]
-    ConnectionLost { reason: String },
+    ConnectionLost {
+        /// Reason for the connection loss.
+        reason: String,
+    },
 
+    /// Command execution exceeded the configured timeout.
     #[error("Command timeout after {duration:?} for command: {command}")]
-    CommandTimeout { duration: Duration, command: String },
+    CommandTimeout {
+        /// Duration of the timeout.
+        duration: Duration,
+        /// Description of the command that timed out.
+        command: String,
+    },
 
+    /// Camera is busy executing another command and cannot accept new commands.
     #[error("Camera is busy executing another command")]
     CameraBusy,
 
+    /// Camera is still performing a mechanical movement operation.
     #[error("Camera is still moving, position: pan={pan}, tilt={tilt}")]
-    CameraMoving { pan: i16, tilt: i16 },
+    CameraMoving {
+        /// Current pan position.
+        pan: i16,
+        /// Current tilt position.
+        tilt: i16,
+    },
 
+    /// Camera has not been properly initialized or powered on.
     #[error("Camera not initialized")]
     CameraNotReady,
 
+    /// Response from camera doesn't match the expected format.
     #[error("Invalid response: expected {expected}, got {actual:?}")]
-    InvalidResponse { expected: String, actual: Vec<u8> },
+    InvalidResponse {
+        /// Description of expected response.
+        expected: String,
+        /// Actual bytes received.
+        actual: Vec<u8>,
+    },
 
+    /// Camera explicitly rejected the command.
     #[error("Command rejected by camera: {reason}")]
-    CommandRejected { reason: String },
+    CommandRejected {
+        /// Reason for rejection.
+        reason: String,
+    },
 
+    /// A parameter value is outside the valid range.
     #[error("Value {value} out of range [{min}, {max}] for {parameter}")]
     OutOfRange {
+        /// The invalid value provided.
         value: i32,
+        /// Minimum valid value.
         min: i32,
+        /// Maximum valid value.
         max: i32,
+        /// Name of the parameter.
         parameter: String,
     },
 
+    /// Requested preset position does not exist.
     #[error("Preset {id} not found")]
-    PresetNotFound { id: u8 },
+    PresetNotFound {
+        /// ID of the missing preset.
+        id: u8,
+    },
 
+    /// Camera model doesn't support the requested feature.
     #[error("Feature '{feature}' not supported by this camera model")]
-    FeatureNotSupported { feature: String },
+    FeatureNotSupported {
+        /// Name of the unsupported feature.
+        feature: String,
+    },
 
+    /// Underlying IO error from network operations.
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
 
+    /// VISCA protocol syntax error (0x02): Command format is incorrect or parameters are illegal.
     #[error("Syntax error in VISCA command")]
     SyntaxError,
 
+    /// VISCA protocol command buffer full error (0x03): Two sockets are already in use.
     #[error("Command buffer is full")]
     CommandBufferFull,
 
+    /// VISCA protocol command canceled (0x04): Command was canceled in the specified socket.
     #[error("Command was canceled")]
     CommandCanceled,
 
+    /// VISCA protocol no socket error (0x05): No command is executing in the specified socket.
     #[error("No socket available")]
     NoSocket,
 
+    /// VISCA protocol command not executable (0x41): Command cannot be executed due to current conditions.
     #[error("Command is not executable")]
     CommandNotExecutable,
 
+    /// Response data doesn't conform to expected VISCA protocol format.
     #[error("Invalid response format")]
     InvalidResponseFormat,
 
+    /// Response has an unexpected number of bytes.
     #[error("Invalid response length")]
     InvalidResponseLength,
 
+    /// Response type doesn't match what the command should return.
     #[error("Unexpected response type")]
     UnexpectedResponseType,
 
+    /// Received an unknown error code from the camera.
     #[error("Unknown error code: {0:#02X}")]
     Unknown(u8),
 
+    /// Failed to parse response data.
     #[error("Parse error: {0}")]
     ParseError(String),
 
+    /// Transport layer communication error.
     #[error("Transport error: {0}")]
     TransportError(String),
 
+    /// Invalid parameter provided to a command.
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
 
+    /// Parameter value is out of the acceptable range.
     #[error("Parameter out of range: {parameter} = {value} (valid range: {min}..{max})")]
     ParameterOutOfRange {
+        /// Name of the parameter.
         parameter: String,
+        /// Value that was provided.
         value: i32,
+        /// Minimum valid value.
         min: i32,
+        /// Maximum valid value.
         max: i32,
     },
 
+    /// Operation exceeded timeout without response.
     #[error("Operation timed out")]
     Timeout,
 
+    /// Operation cannot be performed in current state.
     #[error("Invalid state: {0}")]
     InvalidState(String),
 }
@@ -554,9 +621,11 @@ impl ViscaRetry {
 /// Application-level error type for examples and user code.
 #[derive(Error, Debug)]
 pub enum AppError {
+    /// IO error from file or network operations.
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
 
+    /// VISCA protocol or camera communication error.
     #[error("VISCA error: {0}")]
     Visca(#[from] ViscaError),
 }
