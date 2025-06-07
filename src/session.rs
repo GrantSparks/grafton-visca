@@ -55,7 +55,7 @@ impl ViscaSession {
                     response_type,
                     acknowledged: false,
                 });
-                debug!("Assigned socket {} for new command", socket_id);
+                debug!("Assigned socket {socket_id} for new command");
                 return Ok(socket_id);
             }
         }
@@ -67,7 +67,7 @@ impl ViscaSession {
     /// Releases a socket after command completion
     pub fn release_socket(&mut self, socket_id: u8) {
         if self.pending_commands.remove(&socket_id).is_some() {
-            debug!("Released socket {}", socket_id);
+            debug!("Released socket {socket_id}");
         }
     }
 
@@ -87,10 +87,10 @@ impl ViscaSession {
 
                 if let Some(pending) = self.pending_commands.get_mut(&socket_id) {
                     pending.acknowledged = true;
-                    debug!("ACK received for socket {}", socket_id);
+                    debug!("ACK received for socket {socket_id}");
                     Ok(Some((socket_id, ViscaResponse::Ack)))
                 } else {
-                    error!("Received ACK for unknown socket {}", socket_id);
+                    error!("Received ACK for unknown socket {socket_id}");
                     Ok(None)
                 }
             }
@@ -101,13 +101,13 @@ impl ViscaSession {
 
                 self.pending_commands.get(&socket_id).map_or_else(
                     || {
-                        error!("Received completion for unknown socket {}", socket_id);
+                        error!("Received completion for unknown socket {socket_id}");
                         Ok(None)
                     },
                     |pending| {
                         if response.len() == 3 {
                             // Simple completion with no data
-                            debug!("Completion received for socket {}", socket_id);
+                            debug!("Completion received for socket {socket_id}");
                             Ok(Some((socket_id, ViscaResponse::Completion)))
                         } else {
                             // Completion with data payload (inquiry response)
@@ -115,21 +115,19 @@ impl ViscaSession {
                                 || {
                                     // Unexpected data response for non-inquiry command
                                     error!(
-                                        "Received data response for non-inquiry command on socket {}",
-                                        socket_id
+                                        "Received data response for non-inquiry command on socket {socket_id}"
                                     );
                                     Err(ViscaError::UnexpectedResponseType)
                                 },
                                 |response_type| match parse_visca_response(response, &response_type) {
                                     Ok(parsed) => {
                                         debug!(
-                                            "Inquiry response received for socket {}: {:?}",
-                                            socket_id, parsed
+                                            "Inquiry response received for socket {socket_id}: {parsed:?}"
                                         );
                                         Ok(Some((socket_id, parsed)))
                                     }
                                     Err(e) => {
-                                        error!("Failed to parse inquiry response: {}", e);
+                                        error!("Failed to parse inquiry response: {e}");
                                         Err(e)
                                     }
                                 },
@@ -149,12 +147,12 @@ impl ViscaSession {
                 };
                 let error = ViscaError::from_code(error_code);
 
-                error!("Error response on socket {}: {:?}", socket_id, error);
+                error!("Error response on socket {socket_id}: {error:?}");
                 Ok(Some((socket_id, ViscaResponse::Error(error))))
             }
 
             _ => {
-                error!("Unknown response type: {:02X?}", response);
+                error!("Unknown response type: {response:02X?}");
                 Ok(Some((0xFF, ViscaResponse::Unknown(response.to_vec()))))
             }
         }

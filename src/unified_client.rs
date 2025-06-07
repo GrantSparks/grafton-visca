@@ -235,37 +235,31 @@ impl ViscaClient {
                     session.process_response(&response)?
                 {
                     if resp_socket_id != socket_id {
-                        log::debug!(
-                            "Response for socket {} (expected {})",
-                            resp_socket_id,
-                            socket_id
-                        );
+                        log::debug!("Response for socket {resp_socket_id} (expected {socket_id})");
                         continue;
                     }
 
                     match parsed_response {
                         Ack => {
-                            log::debug!("ACK received for socket {}", socket_id);
+                            log::debug!("ACK received for socket {socket_id}");
                             // Continue waiting for completion
                         }
                         Completion => {
-                            log::debug!("Completion received for socket {}", socket_id);
+                            log::debug!("Completion received for socket {socket_id}");
                             return Ok(Completion);
                         }
                         InquiryResponse(inquiry) => {
                             log::debug!(
-                                "Inquiry response received for socket {}: {:?}",
-                                socket_id,
-                                inquiry
+                                "Inquiry response received for socket {socket_id}: {inquiry:?}"
                             );
                             return Ok(InquiryResponse(inquiry));
                         }
                         Error(err) => {
-                            log::error!("Command error on socket {}: {:?}", socket_id, err);
+                            log::error!("Command error on socket {socket_id}: {err:?}");
                             return Err(err);
                         }
                         ViscaResponse::Unknown(_) => {
-                            log::debug!("Unexpected response: {:?}", parsed_response);
+                            log::debug!("Unexpected response: {parsed_response:?}");
                         }
                     }
                 }
@@ -357,37 +351,31 @@ impl ViscaClient {
                     session.process_response(&response)?
                 {
                     if resp_socket_id != socket_id {
-                        log::debug!(
-                            "Response for socket {} (expected {})",
-                            resp_socket_id,
-                            socket_id
-                        );
+                        log::debug!("Response for socket {resp_socket_id} (expected {socket_id})");
                         continue;
                     }
 
                     match parsed_response {
                         Ack => {
-                            log::debug!("ACK received for socket {}", socket_id);
+                            log::debug!("ACK received for socket {socket_id}");
                             // Continue waiting for completion
                         }
                         Completion => {
-                            log::debug!("Completion received for socket {}", socket_id);
+                            log::debug!("Completion received for socket {socket_id}");
                             return Ok(Completion);
                         }
                         InquiryResponse(inquiry) => {
                             log::debug!(
-                                "Inquiry response received for socket {}: {:?}",
-                                socket_id,
-                                inquiry
+                                "Inquiry response received for socket {socket_id}: {inquiry:?}"
                             );
                             return Ok(InquiryResponse(inquiry));
                         }
                         Error(err) => {
-                            log::error!("Command error on socket {}: {:?}", socket_id, err);
+                            log::error!("Command error on socket {socket_id}: {err:?}");
                             return Err(err);
                         }
                         ViscaResponse::Unknown(_) => {
-                            log::debug!("Unexpected response: {:?}", parsed_response);
+                            log::debug!("Unexpected response: {parsed_response:?}");
                         }
                     }
                 }

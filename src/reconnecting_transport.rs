@@ -202,7 +202,7 @@ where
                     return Ok(());
                 }
                 Err(e) => {
-                    log::error!("Reconnection attempt {} failed: {}", attempt, e);
+                    log::error!("Reconnection attempt {attempt} failed: {e}");
                     self.notify_event(ConnectionEvent::ReconnectingFailed {
                         attempt,
                         error: e.to_string(),
@@ -279,7 +279,7 @@ where
                                     | ViscaError::ConnectionLost { .. }
                                     | ViscaError::Timeout
                             ) {
-                                log::warn!("Connection error during send_command: {}", e);
+                                log::warn!("Connection error during send_command: {e}");
                                 state.inner = None;
                                 state.stats.record_error();
                                 drop(state); // Release lock before notifying
@@ -330,7 +330,7 @@ where
                                     | ViscaError::ConnectionLost { .. }
                                     | ViscaError::Timeout
                             ) {
-                                log::warn!("Connection error during receive_response: {}", e);
+                                log::warn!("Connection error during receive_response: {e}");
                                 state.inner = None;
                                 state.stats.record_error();
                                 drop(state); // Release lock before notifying

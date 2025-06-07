@@ -124,11 +124,10 @@ impl AsyncViscaTransport for AsyncUdpTransport {
                             Ok(responses)
                         }
                         Err(e) => {
-                            log::error!("Failed to parse response: {:?}", e);
+                            log::error!("Failed to parse response: {e:?}");
                             self.stats.record_error();
                             Err(ViscaError::ParseError(format!(
-                                "Failed to parse response: {:?}",
-                                e
+                                "Failed to parse response: {e:?}"
                             )))
                         }
                     }

@@ -239,8 +239,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
             for &preset_number in preset_numbers {
                 if preset_number == 0 || preset_number > 90 {
                     return Err(ViscaError::InvalidParameter(format!(
-                        "preset_number {} must be between 1 and 90",
-                        preset_number
+                        "preset_number {preset_number} must be between 1 and 90"
                     )));
                 }
 

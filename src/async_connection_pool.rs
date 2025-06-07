@@ -172,7 +172,7 @@ where
         let connections = self.connections.read().await;
 
         let pooled = connections.get(camera_id).ok_or_else(|| {
-            ViscaError::InvalidParameter(format!("Camera '{}' not found in pool", camera_id))
+            ViscaError::InvalidParameter(format!("Camera '{camera_id}' not found in pool"))
         })?;
 
         Ok(AsyncPooledConnectionGuard {
