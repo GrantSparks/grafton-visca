@@ -181,6 +181,7 @@ impl BlockingTransport for TcpTransport {
 
 /// Async TCP transport for VISCA communication.
 #[cfg(feature = "async-client")]
+#[derive(Debug)]
 pub struct AsyncTcpTransport {
     stream: TokioTcpStream,
     stats: ConnectionStats,

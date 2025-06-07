@@ -135,6 +135,7 @@ impl BlockingTransport for UdpTransport {
 
 /// Async UDP transport for VISCA communication.
 #[cfg(feature = "async-client")]
+#[derive(Debug)]
 pub struct AsyncUdpTransport {
     socket: TokioUdpSocket,
     address: String,

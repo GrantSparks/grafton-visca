@@ -298,7 +298,9 @@ impl PositionConversion for DegreePosition {
         let pan_range = f32::from(pan_max - pan_min);
         let tilt_range = f32::from(tilt_max - tilt_min);
 
+        #[allow(clippy::cast_possible_truncation)]
         let pan = pan_ratio.mul_add(pan_range, f32::from(pan_min)).round() as i16;
+        #[allow(clippy::cast_possible_truncation)]
         let tilt = tilt_ratio.mul_add(tilt_range, f32::from(tilt_min)).round() as i16;
         
         ViscaPosition { pan, tilt }
@@ -324,12 +326,14 @@ impl PositionConversion for NormalizedPosition {
         let (pan_min, pan_max) = model.pan_range();
         let (tilt_min, tilt_max) = model.tilt_range();
 
+        #[allow(clippy::cast_possible_truncation)]
         let pan = if self.pan >= 0.0 {
             (self.pan * f32::from(pan_max)).round() as i16
         } else {
             (self.pan * f32::from(-pan_min)).round() as i16
         };
 
+        #[allow(clippy::cast_possible_truncation)]
         let tilt = if self.tilt >= 0.0 {
             (self.tilt * f32::from(tilt_max)).round() as i16
         } else {
@@ -458,7 +462,9 @@ pub fn validate_preset_id(id: u8) -> Result<u8, ViscaError> {
 #[inline]
 #[must_use]
 pub fn pan_normalized_to_visca(normalized: f32) -> i16 {
-    (normalized.clamp(-1.0, 1.0) * f32::from(position::PAN_MAX)).round() as i16
+    #[allow(clippy::cast_possible_truncation)]
+    let result = (normalized.clamp(-1.0, 1.0) * f32::from(position::PAN_MAX)).round() as i16;
+    result
 }
 
 /// Convert VISCA pan units to normalized value (-1.0 to 1.0)
@@ -488,7 +494,9 @@ pub fn pan_visca_to_degrees(visca: i16) -> f32 {
 #[inline]
 #[must_use]
 pub fn tilt_normalized_to_visca(normalized: f32) -> i16 {
-    (normalized.clamp(-1.0, 1.0) * f32::from(position::TILT_MAX)).round() as i16
+    #[allow(clippy::cast_possible_truncation)]
+    let result = (normalized.clamp(-1.0, 1.0) * f32::from(position::TILT_MAX)).round() as i16;
+    result
 }
 
 /// Convert VISCA tilt units to normalized value (-1.0 to 1.0)
@@ -518,7 +526,9 @@ pub fn tilt_visca_to_degrees(visca: i16) -> f32 {
 #[inline]
 #[must_use]
 pub fn zoom_normalized_to_visca(normalized: f32) -> u16 {
-    (normalized.clamp(0.0, 1.0) * f32::from(zoom::ZOOM_MAX_20X)).round() as u16
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let result = (normalized.clamp(0.0, 1.0) * f32::from(zoom::ZOOM_MAX_20X)).round() as u16;
+    result
 }
 
 /// Convert VISCA zoom units to normalized value (0.0 to 1.0)
@@ -549,7 +559,9 @@ pub fn zoom_visca_to_magnification(visca: u16) -> f32 {
 #[must_use]
 pub fn focus_normalized_to_visca(normalized: f32) -> u16 {
     let range = f32::from(focus::FOCUS_MAX - focus::FOCUS_MIN);
-    focus::FOCUS_MIN + (normalized.clamp(0.0, 1.0) * range).round() as u16
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let offset = (normalized.clamp(0.0, 1.0) * range).round() as u16;
+    focus::FOCUS_MIN + offset
 }
 
 /// Convert VISCA focus units to normalized value (0.0 to 1.0)
@@ -565,24 +577,31 @@ pub fn focus_visca_to_normalized(visca: u16) -> f32 {
 #[inline]
 #[must_use]
 pub fn pan_speed_normalized_to_visca(normalized: f32) -> u8 {
-    (normalized.clamp(0.0, 1.0) * f32::from(speed::PAN_SPEED_MAX)).round() as u8
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let result = (normalized.clamp(0.0, 1.0) * f32::from(speed::PAN_SPEED_MAX)).round() as u8;
+    result
 }
 
 /// Convert speed normalized value (0.0 to 1.0) to VISCA tilt speed units
 #[inline]
 #[must_use]
 pub fn tilt_speed_normalized_to_visca(normalized: f32) -> u8 {
-    (normalized.clamp(0.0, 1.0) * f32::from(speed::TILT_SPEED_MAX)).round() as u8
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let result = (normalized.clamp(0.0, 1.0) * f32::from(speed::TILT_SPEED_MAX)).round() as u8;
+    result
 }
 
 /// Convert speed normalized value (0.0 to 1.0) to VISCA zoom speed units
 #[inline]
 #[must_use]
 pub fn zoom_speed_normalized_to_visca(normalized: f32) -> u8 {
-    (normalized.clamp(0.0, 1.0) * f32::from(speed::ZOOM_SPEED_MAX)).round() as u8
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let result = (normalized.clamp(0.0, 1.0) * f32::from(speed::ZOOM_SPEED_MAX)).round() as u8;
+    result
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

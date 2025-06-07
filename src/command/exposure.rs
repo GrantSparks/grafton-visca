@@ -329,8 +329,10 @@ impl ViscaCommand for ShutterCommand {
                     ));
                 }
                 // Safe: shifting right by 4 bits ensures the result fits in u8
+                #[allow(clippy::cast_possible_truncation)]
                 let high = (*value >> 4) as u8;
                 // Safe: masking with 0x0F (15) ensures the result fits in u8  
+                #[allow(clippy::cast_possible_truncation)]
                 let low = (*value & 0x0F) as u8;
                 vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
             }
@@ -378,8 +380,10 @@ impl ViscaCommand for BrightCommand {
                     ));
                 }
                 // Safe: shifting right by 4 bits ensures the result fits in u8
+                #[allow(clippy::cast_possible_truncation)]
                 let high = (*value >> 4) as u8;
                 // Safe: masking with 0x0F (15) ensures the result fits in u8  
+                #[allow(clippy::cast_possible_truncation)]
                 let low = (*value & 0x0F) as u8;
                 vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, high, low, 0xFF]
             }

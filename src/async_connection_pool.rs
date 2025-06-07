@@ -345,6 +345,7 @@ impl<T> Drop for AsyncPooledConnectionGuard<T> {
 // Tests are currently limited due to lifetime complexity with async closures and traits
 // More comprehensive tests can be added when lifetime bounds are resolved
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

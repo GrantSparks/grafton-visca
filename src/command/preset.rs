@@ -99,6 +99,7 @@ impl ViscaCommand for PresetCommand {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -123,7 +124,7 @@ mod tests {
     #[test]
     fn test_preset_number_try_from() {
         // Valid conversion
-        let preset = PresetNumber::try_from(50).unwrap();
+        let preset = PresetNumber::try_from(50).expect("Valid preset number");
         assert_eq!(preset.value(), 50);
 
         // Invalid conversion
@@ -141,10 +142,10 @@ mod tests {
     fn test_preset_command_reset() {
         let cmd = PresetCommand {
             action: PresetAction::Reset,
-            preset_number: PresetNumber::new(10).unwrap(),
+            preset_number: PresetNumber::new(10).expect("Valid preset number"),
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x3F, 0x00, 0x0A, 0xFF]
         );
     }
@@ -153,10 +154,10 @@ mod tests {
     fn test_preset_command_set() {
         let cmd = PresetCommand {
             action: PresetAction::Set,
-            preset_number: PresetNumber::new(45).unwrap(),
+            preset_number: PresetNumber::new(45).expect("Valid preset number"),
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x2D, 0xFF]
         );
     }
@@ -165,10 +166,10 @@ mod tests {
     fn test_preset_command_recall() {
         let cmd = PresetCommand {
             action: PresetAction::Recall,
-            preset_number: PresetNumber::new(89).unwrap(),
+            preset_number: PresetNumber::new(89).expect("Valid preset number"),
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, 0xFF]
         );
     }
@@ -177,7 +178,7 @@ mod tests {
     fn test_preset_command_category() {
         let cmd = PresetCommand {
             action: PresetAction::Recall,
-            preset_number: PresetNumber::new(0).unwrap(),
+            preset_number: PresetNumber::new(0).expect("Valid preset number"),
         };
         assert_eq!(cmd.command_category(), CommandCategory::Preset);
     }
@@ -186,7 +187,7 @@ mod tests {
     fn test_preset_command_response_type() {
         let cmd = PresetCommand {
             action: PresetAction::Set,
-            preset_number: PresetNumber::new(0).unwrap(),
+            preset_number: PresetNumber::new(0).expect("Valid preset number"),
         };
         assert!(cmd.response_type().is_none());
     }

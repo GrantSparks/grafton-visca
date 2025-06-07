@@ -479,6 +479,7 @@ impl AsyncViscaConnectionPool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     #[cfg(feature = "async-client")]
     use super::AsyncViscaConnectionPool;
