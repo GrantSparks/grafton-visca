@@ -170,13 +170,11 @@ fn blocking_error_handling_examples() {
 }
 
 #[cfg(feature = "async-client")]
-async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
+async fn demonstrate_async_retry() -> Result<(), Box<dyn std::error::Error>> {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
 
     println!("1. Async Retry with ViscaRetry::retry_async");
-
-    // Example with simulated retryable error
 
     let async_attempt_count = Arc::new(AtomicU32::new(0));
     let async_attempt_count_clone = async_attempt_count.clone();
@@ -204,6 +202,14 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
         Ok(value) => println!("   ✅ Async retry succeeded: {value}"),
         Err(err) => println!("   ❌ Async retry failed: {err}"),
     }
+
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+async fn demonstrate_async_suggested_delays() -> Result<(), Box<dyn std::error::Error>> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     println!("\n2. Retry with Suggested Delays");
 
@@ -247,6 +253,14 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
         Err(err) => println!("   ❌ Suggested delay retry failed: {err}"),
     }
 
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+async fn demonstrate_async_exponential_backoff() -> Result<(), Box<dyn std::error::Error>> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+
     println!("\n3. Exponential Backoff Example");
 
     let backoff_attempt_count = Arc::new(AtomicU32::new(0));
@@ -278,6 +292,11 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
         Err(err) => println!("   ❌ Exponential backoff failed: {err}"),
     }
 
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+async fn demonstrate_real_async_operations() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n4. Real Async Camera Operations (if connected)");
 
     // Try to connect to a camera for real async operations
@@ -321,6 +340,15 @@ async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error
         }
     }
 
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
+    demonstrate_async_retry().await?;
+    demonstrate_async_suggested_delays().await?;
+    demonstrate_async_exponential_backoff().await?;
+    demonstrate_real_async_operations().await?;
     Ok(())
 }
 

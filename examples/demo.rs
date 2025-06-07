@@ -1,41 +1,25 @@
-//! Demo application showcasing grafton-visca library features
-//!
-//! This example demonstrates various camera control features including:
-//! - Power control
-//! - Pan/Tilt movement
-//! - Zoom operations
-//! - Focus control
-//! - Exposure settings
-//! - Color adjustments
-//! - Inquiry commands
-
-use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed};
-use grafton_visca::command::preset::PresetNumber;
+use grafton_visca::command::color::{HueCommand, SaturationCommand};
+use grafton_visca::command::exposure::{
+    ExposureCommand, ExposureMode, IrisCommand, ShutterCommand,
+};
+use grafton_visca::command::focus::FocusCommand;
+use grafton_visca::command::inquiry::InquiryCommand;
+use grafton_visca::command::luminance_contrast_sharpness::{
+    ContrastCommand, LuminanceCommand, SharpnessCommand,
+};
+use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed};
+use grafton_visca::command::power::{Power, PowerCommand};
+use grafton_visca::command::preset::{PresetAction, PresetCommand, PresetNumber};
+use grafton_visca::command::white_balance::{WhiteBalanceCommand, WhiteBalanceMode};
+use grafton_visca::command::zoom::ZoomCommand;
 use grafton_visca::command::{
-    BacklightCommand, ContrastCommand, ExposureCommand, ExposureMode, FocusCommand, HueCommand,
-    ImageFlipCombinedCommand, ImageFlipMode, InquiryCommand, IrisCommand, LuminanceCommand,
-    NoiseReduction2DCommand, PanTiltCommand, PanTiltDirection, Power, PowerCommand, PresetAction,
-    PresetCommand, SaturationCommand, SharpnessCommand, ShutterCommand, WhiteBalanceCommand,
-    WhiteBalanceMode, ZoomCommand,
+    BacklightCommand, ImageFlipCombinedCommand, ImageFlipMode, NoiseReduction2DCommand,
 };
 use grafton_visca::{ViscaClient, ViscaDevice, ViscaInquiryResponse, ViscaResponse};
 use std::thread;
 use std::time::Duration;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    env_logger::init();
-
-    // Get camera IP from environment or use default
-    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100:5678".to_string());
-
-    println!("🎥 Grafton VISCA Demo - Connecting to camera at {camera_ip}");
-    println!("{}", "=".repeat(50));
-
-    // Create client
-    let mut client = ViscaClient::connect_udp(&camera_ip)?;
-
-    // Demo 1: Power Control
+fn demo_power_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 1: Power Control");
     println!("Powering on camera...");
     match client.execute_command(&PowerCommand { power: Power::On })? {
@@ -44,8 +28,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => println!("⚠️  Unexpected response"),
     }
     thread::sleep(Duration::from_secs(2));
+    Ok(())
+}
 
-    // Demo 2: Pan/Tilt Movement
+fn demo_pan_tilt_movement(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 2: Pan/Tilt Movement");
 
     println!("Moving to home position...");
@@ -68,8 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tilt_speed: TiltSpeed::new(0)?,
     };
     client.execute_command(&stop_cmd)?;
+    Ok(())
+}
 
-    // Demo 3: Zoom Control
+fn demo_zoom_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 3: Zoom Control");
 
     println!("Zooming in...");
@@ -83,15 +71,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(1));
 
     client.execute_command(&ZoomCommand::Stop)?;
+    Ok(())
+}
 
-    // Demo 4: Focus Control
+fn demo_focus_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 4: Focus Control");
 
     println!("Setting auto focus...");
     client.execute_command(&FocusCommand::Auto)?;
     thread::sleep(Duration::from_secs(1));
+    Ok(())
+}
 
-    // Demo 5: Preset Positions
+fn demo_preset_positions(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 5: Preset Positions");
 
     println!("Saving current position as preset 1...");
@@ -111,6 +103,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     client.execute_command(&move_cmd)?;
     thread::sleep(Duration::from_secs(1));
+
+    let stop_cmd = PanTiltCommand::Move {
+        direction: PanTiltDirection::Stop,
+        pan_speed: PanSpeed::new(0)?,
+        tilt_speed: TiltSpeed::new(0)?,
+    };
     client.execute_command(&stop_cmd)?;
 
     println!("Recalling preset 1...");
@@ -120,8 +118,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     client.execute_command(&preset_recall)?;
     thread::sleep(Duration::from_secs(2));
+    Ok(())
+}
 
-    // Demo 6: Exposure Control
+fn demo_exposure_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 6: Exposure Control");
 
     println!("Setting manual exposure mode...");
@@ -134,8 +134,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Setting shutter speed...");
     client.execute_command(&ShutterCommand::Direct(0x0A))?;
+    Ok(())
+}
 
-    // Demo 7: Color Adjustments
+fn demo_color_adjustments(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 7: Color Adjustments");
 
     println!("Setting white balance to auto...");
@@ -148,8 +150,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Adjusting hue...");
     client.execute_command(&HueCommand { level: 0x07 })?;
+    Ok(())
+}
 
-    // Demo 8: Image Quality Settings
+fn demo_image_quality(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 8: Image Quality Settings");
 
     println!("Setting luminance...");
@@ -160,8 +164,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Setting sharpness...");
     client.execute_command(&SharpnessCommand::Direct { value: 0x08 })?;
+    Ok(())
+}
 
-    // Demo 9: Inquiry Commands
+fn demo_inquiry_commands(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 9: Inquiry Commands");
 
     println!("Querying camera status...");
@@ -197,8 +203,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => println!("  Failed to get white balance mode"),
     }
+    Ok(())
+}
 
-    // Demo 10: Advanced Features
+fn demo_advanced_features(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 10: Advanced Features");
 
     println!("Setting 2D noise reduction...");
@@ -217,6 +225,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.execute_command(&ImageFlipCombinedCommand {
         mode: ImageFlipMode::Off,
     })?;
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
+    env_logger::init();
+
+    // Get camera IP from environment or use default
+    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100:5678".to_string());
+
+    println!("🎥 Grafton VISCA Demo - Connecting to camera at {camera_ip}");
+    println!("{}", "=".repeat(50));
+
+    // Create client
+    let mut client = ViscaClient::connect_udp(&camera_ip)?;
+
+    // Run all demos
+    demo_power_control(&mut client)?;
+    demo_pan_tilt_movement(&mut client)?;
+    demo_zoom_control(&mut client)?;
+    demo_focus_control(&mut client)?;
+    demo_preset_positions(&mut client)?;
+    demo_exposure_control(&mut client)?;
+    demo_color_adjustments(&mut client)?;
+    demo_image_quality(&mut client)?;
+    demo_inquiry_commands(&mut client)?;
+    demo_advanced_features(&mut client)?;
 
     // Return to home position
     println!("\n🏁 Demo complete! Returning to home position...");

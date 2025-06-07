@@ -117,10 +117,7 @@ fn demonstrate_validation(model: CameraModel) {
 }
 
 #[cfg(feature = "blocking-client")]
-fn move_to_degrees_position(
-    client: &mut ViscaClient,
-    model: CameraModel,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn move_to_degrees_position(client: &mut ViscaClient, model: CameraModel) {
     info!("\nMoving to position specified in degrees...");
     let target_degrees = DegreePosition {
         pan: 45.0,
@@ -157,8 +154,6 @@ fn move_to_degrees_position(
     } else {
         error!("Target position is out of range");
     }
-
-    Ok(())
 }
 
 #[cfg(feature = "blocking-client")]
@@ -194,7 +189,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     display_camera_constants(model);
     demonstrate_position_conversions(&mut client, model)?;
     demonstrate_validation(model);
-    move_to_degrees_position(&mut client, model)?;
+    move_to_degrees_position(&mut client, model);
     display_other_constants();
 
     Ok(())
