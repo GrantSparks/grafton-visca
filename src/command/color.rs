@@ -181,10 +181,14 @@ impl ViscaCommand for ColorTemperatureCommand {
 /// Red Gain Direct command (different from tuning)
 #[derive(Debug, Copy, Clone)]
 pub enum RedGainCommand {
+    /// Reset red gain to default value
     Reset,
+    /// Increment red gain value
     Up,
+    /// Decrement red gain value
     Down,
-    Direct(u8), // 0x00 to 0xFF
+    /// Set red gain to a specific value (0x00 to 0xFF)
+    Direct(u8),
 }
 
 impl ViscaCommand for RedGainCommand {
@@ -213,10 +217,14 @@ impl ViscaCommand for RedGainCommand {
 /// Blue Gain Direct command (different from tuning)
 #[derive(Debug, Copy, Clone)]
 pub enum BlueGainCommand {
+    /// Reset blue gain to default value
     Reset,
+    /// Increment blue gain value
     Up,
+    /// Decrement blue gain value
     Down,
-    Direct(u8), // 0x00 to 0xFF
+    /// Set blue gain to a specific value (0x00 to 0xFF)
+    Direct(u8),
 }
 
 impl ViscaCommand for BlueGainCommand {

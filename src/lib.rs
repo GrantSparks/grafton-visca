@@ -244,17 +244,26 @@
 //!
 
 // Public modules
+/// VISCA command definitions and implementations
 pub mod command;
+/// Connection management for VISCA devices
 pub mod connection;
+/// Connection pooling for managing multiple VISCA device connections
 pub mod connection_pool;
+/// VISCA protocol constants and definitions
 pub mod constants;
+/// Utility macros for VISCA operations
 pub mod macros;
+/// Timeout configuration and management
 pub mod timeout;
+/// Transport layer implementations for VISCA communication
 pub mod transport;
 
+/// Async transport layer implementations
 #[cfg(feature = "async-client")]
 pub mod async_transport;
 
+/// Reconnecting transport wrapper for handling connection failures
 #[cfg(feature = "async-client")]
 pub mod reconnecting_transport;
 
