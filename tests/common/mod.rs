@@ -157,7 +157,7 @@ impl MockDevice {
     }
 
     /// Add an inquiry response.
-    pub fn queue_inquiry_response(&mut self, response: ViscaInquiryResponse) {
+    pub fn queue_inquiry_response(&self, response: ViscaInquiryResponse) {
         // Convert the inquiry response to bytes based on its type
         let bytes = match response {
             ViscaInquiryResponse::Power { on } => {

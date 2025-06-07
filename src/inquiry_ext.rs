@@ -1,5 +1,12 @@
 //! Extension trait providing convenience methods for camera state inquiries.
 
+// Standard library imports
+// (none)
+
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::{
     command::{
         exposure::ExposureMode,

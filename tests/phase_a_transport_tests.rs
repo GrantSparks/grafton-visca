@@ -41,6 +41,7 @@ mod tests {
 
     #[cfg(feature = "blocking-client")]
     #[test]
+    #[allow(clippy::missing_const_for_fn)] // Test functions cannot be const
     fn test_blocking_transport_exists() {
         // This test verifies that BlockingTransport can be used
         struct MockBlockingTransport;

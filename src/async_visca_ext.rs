@@ -19,9 +19,14 @@
 //! # }
 //! ```
 
+// Standard library imports
 use std::sync::Arc;
 use std::time::Duration;
 
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},

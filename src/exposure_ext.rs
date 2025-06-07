@@ -1,5 +1,12 @@
 //! High-level extension trait for exposure control operations.
 
+// Standard library imports
+// (none)
+
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::{
     command::{
         BacklightCommand, BrightCommand, ExposureCommand, ExposureCompensationCommand,

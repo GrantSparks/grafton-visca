@@ -3,15 +3,20 @@
 //! This module implements a wrapper around any `Transport` that automatically
 //! handles connection failures and reconnection with configurable retry policies.
 
+// Standard library imports
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+// Third-party crate imports
+use tokio::sync::Mutex;
+use tokio::time::sleep;
+
+// Workspace / local-crate imports
 use crate::{
     connection::ConnectionStats,
     transport::{Transport, TransportFuture},
     ViscaCommand, ViscaError,
 };
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
-use tokio::time::sleep;
 
 /// Type alias for transport creation function
 type TransportCreator<T> = Arc<
