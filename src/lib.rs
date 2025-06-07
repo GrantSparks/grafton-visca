@@ -1,28 +1,25 @@
 //! # grafton-visca
 //!
 //! A production-ready Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
-#![warn(missing_docs)]
 #![warn(
     clippy::all,
     clippy::pedantic,
     clippy::nursery,
-    clippy::cargo,
-    rust_2018_idioms
+    missing_docs,
+    missing_debug_implementations,
+    missing_copy_implementations,
+    trivial_casts,
+    trivial_numeric_casts,
+    unsafe_code,
+    unused_qualifications,
+    unused_results
 )]
-// Targeted allows for legitimate patterns
-#![allow(
-    clippy::module_name_repetitions, // Common in Rust APIs (e.g., ViscaCommand, ViscaError)
-    clippy::cast_sign_loss,          // Some are intentional after validation
-    clippy::cast_possible_truncation,// Some are intentional after validation
-    clippy::cast_possible_wrap,      // Some are intentional after validation
-    clippy::cast_precision_loss,     // Some are intentional
-    clippy::float_cmp                // Tests need exact float comparisons
-)]
-// Temporary allows - should be fixed
-#![allow(
-    clippy::missing_panics_doc,      // TODO: Add # Panics sections to docs
-    clippy::missing_errors_doc,      // TODO: Add # Errors sections to docs (154 instances remaining, power_ext.rs completed)
-    clippy::significant_drop_tightening, // TODO: Review mutex lock scopes
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::todo
 )]
 //!
 //! ## What is VISCA?
