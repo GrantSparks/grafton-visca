@@ -28,6 +28,7 @@ use super::{Transport, TransportFuture};
 
 /// Blocking TCP transport for VISCA communication.
 #[cfg(feature = "blocking-client")]
+#[derive(Debug)]
 pub struct TcpTransport {
     stream: TcpStream,
     stats: ConnectionStats,

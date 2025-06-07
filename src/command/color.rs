@@ -3,9 +3,6 @@
 //! This module provides commands for controlling color-related settings
 //! including white balance tuning, saturation, and hue adjustments.
 
-// Standard library imports
-use std::convert::TryFrom;
-
 // Crate imports
 use crate::{
     command::{response::ViscaResponseType, ViscaCommand},
@@ -53,7 +50,10 @@ impl ViscaCommand for RedTuningCommand {
                 "Red tuning level must be between -10 and +10".into(),
             ));
         }
-        let value = u8::try_from(self.level + 10).expect("level already validated to be in range"); // Convert -10..+10 to 0x00..0x14
+        // Convert -10..+10 to 0x00..0x14
+        // Safe because we validated level is between -10 and +10
+        #[allow(clippy::cast_sign_loss)]
+        let value = (self.level + 10) as u8;
         Ok(vec![0x81, 0x0A, 0x01, 0x12, value, 0xFF])
     }
 
@@ -84,7 +84,10 @@ impl ViscaCommand for BlueTuningCommand {
                 "Blue tuning level must be between -10 and +10".into(),
             ));
         }
-        let value = u8::try_from(self.level + 10).expect("level already validated to be in range"); // Convert -10..+10 to 0x00..0x14
+        // Convert -10..+10 to 0x00..0x14
+        // Safe because we validated level is between -10 and +10
+        #[allow(clippy::cast_sign_loss)]
+        let value = (self.level + 10) as u8;
         Ok(vec![0x81, 0x0A, 0x01, 0x13, value, 0xFF])
     }
 

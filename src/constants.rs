@@ -590,7 +590,7 @@ mod tests {
     fn test_visca_to_degrees_conversion() {
         // Test center position
         let visca_pos = ViscaPosition { pan: 0, tilt: 432 };
-        let degrees = visca_pos.to_degrees(Self::PTZOpticsG2);
+        let degrees = visca_pos.to_degrees(CameraModel::PTZOpticsG2);
 
         // Pan 0 should map to 0 degrees (center)
         assert!((degrees.pan - 0.0).abs() < 0.1);
@@ -603,7 +603,7 @@ mod tests {
             pan: position::PAN_MAX,
             tilt: position::TILT_MAX,
         };
-        let degrees = visca_pos.to_degrees(Self::PTZOpticsG2);
+        let degrees = visca_pos.to_degrees(CameraModel::PTZOpticsG2);
 
         assert!((degrees.pan - 170.0).abs() < 1.0); // Half of 340 degrees
         assert!((degrees.tilt - 60.0).abs() < 1.0); // Maximum tilt
@@ -615,7 +615,7 @@ mod tests {
             pan: 0.0,
             tilt: 0.0,
         };
-        let visca = degree_pos.to_visca(Self::PTZOpticsG2);
+        let visca = degree_pos.to_visca(CameraModel::PTZOpticsG2);
 
         // 0 degrees pan should map to VISCA 0
         assert_eq!(visca.pan, 0);
@@ -630,7 +630,7 @@ mod tests {
             pan: 1.0,
             tilt: 1.0,
         };
-        let visca = norm_pos.to_visca(Self::PTZOpticsG2);
+        let visca = norm_pos.to_visca(CameraModel::PTZOpticsG2);
 
         assert_eq!(visca.pan, position::PAN_MAX);
         assert_eq!(visca.tilt, position::TILT_MAX);
@@ -639,7 +639,7 @@ mod tests {
             pan: -1.0,
             tilt: -1.0,
         };
-        let visca = norm_pos.to_visca(Self::PTZOpticsG2);
+        let visca = norm_pos.to_visca(CameraModel::PTZOpticsG2);
 
         assert_eq!(visca.pan, position::PAN_MIN);
         assert_eq!(visca.tilt, position::TILT_MIN);
@@ -647,11 +647,11 @@ mod tests {
 
     #[test]
     fn test_validation_functions() {
-        assert!(validate_pan_position(0, Self::PTZOpticsG2).is_ok());
-        assert!(validate_pan_position(5000, Self::PTZOpticsG2).is_err());
+        assert!(validate_pan_position(0, CameraModel::PTZOpticsG2).is_ok());
+        assert!(validate_pan_position(5000, CameraModel::PTZOpticsG2).is_err());
 
-        assert!(validate_tilt_position(0, Self::PTZOpticsG2).is_ok());
-        assert!(validate_tilt_position(-1000, Self::PTZOpticsG2).is_err());
+        assert!(validate_tilt_position(0, CameraModel::PTZOpticsG2).is_ok());
+        assert!(validate_tilt_position(-1000, CameraModel::PTZOpticsG2).is_err());
 
         assert!(validate_pan_speed(12).is_ok());
         assert!(validate_pan_speed(30).is_err());

@@ -28,6 +28,13 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::InvalidParameter` if pan_speed > 24 or tilt_speed > 20.
+    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns camera-specific errors if the command is rejected.
+    /// Returns transport errors if communication fails.
     fn move_to_position(
         &mut self,
         pan: i16,
@@ -68,6 +75,13 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::InvalidParameter` if pan_speed > 24 or tilt_speed > 20.
+    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns camera-specific errors if the command is rejected.
+    /// Returns transport errors if communication fails.
     fn move_relative(
         &mut self,
         pan_delta: i16,

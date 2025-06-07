@@ -59,6 +59,7 @@ pub trait BlockingTransport {
 /// This allows blocking implementations to be used through the async interface.
 #[doc(hidden)]
 #[cfg(feature = "blocking-client")]
+#[derive(Debug)]
 pub struct BlockingAdapter<T: BlockingTransport>(pub T);
 
 #[cfg(feature = "blocking-client")]

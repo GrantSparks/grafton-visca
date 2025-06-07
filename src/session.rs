@@ -19,6 +19,7 @@ pub struct PendingCommand {
 }
 
 /// Manages the state of VISCA commands and their responses
+#[derive(Debug)]
 pub struct ViscaSession {
     /// Maps socket IDs (0 or 1) to pending commands
     pending_commands: HashMap<u8, PendingCommand>,
@@ -53,7 +54,7 @@ impl ViscaSession {
         // Try to find a free socket (0 or 1)
         for socket_id in 0..=1 {
             if let Entry::Vacant(e) = self.pending_commands.entry(socket_id) {
-                e.insert(PendingCommand {
+                let _ = e.insert(PendingCommand {
                     response_type,
                     acknowledged: false,
                 });

@@ -69,7 +69,7 @@ impl TryFrom<u8> for PresetNumber {
 }
 
 /// Command to manage camera presets.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct PresetCommand {
     /// The action to perform.
     pub action: PresetAction,

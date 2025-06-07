@@ -15,7 +15,7 @@ use crate::{
 /// These commands allow reading the current values of various camera parameters
 /// without modifying them. Each command returns the specific type of inquiry response
 /// appropriate for the requested parameter.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum InquiryCommand {
     /// Query the camera's power state (On/Off).
     Power,

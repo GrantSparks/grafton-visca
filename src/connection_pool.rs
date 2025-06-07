@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// Configuration for the connection pool.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct PoolConfig {
     /// How often to run health checks on all connections.
     pub health_check_interval: Duration,
@@ -143,14 +143,19 @@ impl ViscaConnectionPool {
             camera_info: info,
         };
 
-        self.connections.lock().unwrap().insert(camera_id, pooled);
+        let _ = self.connections
+            .lock()
+            .map_err(|_| ViscaError::InvalidState("Mutex poisoned".into()))?
+            .insert(camera_id, pooled);
         Ok(())
     }
 
     /// Removes a camera from the pool.
     #[must_use]
     pub fn remove_camera(&self, camera_id: &str) -> Option<CameraInfo> {
-        let mut connections = self.connections.lock().unwrap();
+        let mut connections = self.connections
+            .lock()
+            .ok()?;
         connections.remove(camera_id).map(|conn| conn.camera_info)
     }
 
@@ -169,7 +174,9 @@ impl ViscaConnectionPool {
         camera_id: &str,
         command: &dyn ViscaCommand,
     ) -> Result<ViscaResponse, ViscaError> {
-        let mut connections = self.connections.lock().unwrap();
+        let mut connections = self.connections
+            .lock()
+            .map_err(|_| ViscaError::InvalidState("Mutex poisoned".into()))?;
         let pooled = connections.get_mut(camera_id).ok_or_else(|| {
             ViscaError::InvalidParameter(format!("Camera '{camera_id}' not found in pool"))
         })?;
@@ -183,7 +190,10 @@ impl ViscaConnectionPool {
     /// Gets a list of all cameras in the pool.
     #[must_use]
     pub fn list_cameras(&self) -> Vec<String> {
-        let connections = self.connections.lock().unwrap();
+        let connections = match self.connections.lock() {
+            Ok(guard) => guard,
+            Err(_) => return Vec::new(),
+        };
         connections.keys().cloned().collect()
     }
 
@@ -193,7 +203,10 @@ impl ViscaConnectionPool {
     pub fn get_all_stats(&self) -> Vec<PooledCameraStats> {
         // First collect camera info and clients to avoid holding lock during health checks
         let camera_data: Vec<(CameraInfo, Instant, ViscaClient)> = {
-            let connections = self.connections.lock().unwrap();
+            let connections = match self.connections.lock() {
+                Ok(guard) => guard,
+                Err(_) => return Vec::new(),
+            };
             connections
                 .values()
                 .map(|conn| {
@@ -228,7 +241,10 @@ impl ViscaConnectionPool {
     pub fn health_check_all(&self) -> HashMap<String, bool> {
         // First collect the camera IDs to avoid holding the lock during health checks
         let camera_ids: Vec<String> = {
-            let connections = self.connections.lock().unwrap();
+            let connections = match self.connections.lock() {
+                Ok(guard) => guard,
+                Err(_) => return HashMap::new(),
+            };
             connections.keys().cloned().collect()
         };
 
@@ -237,12 +253,15 @@ impl ViscaConnectionPool {
         // Now check each camera without holding the main lock
         for camera_id in camera_ids {
             let is_healthy = {
-                let connections = self.connections.lock().unwrap();
+                let connections = match self.connections.lock() {
+                    Ok(guard) => guard,
+                    Err(_) => continue,
+                };
                 connections
                     .get(&camera_id)
                     .is_some_and(|conn| conn.client.is_healthy_blocking().unwrap_or(false))
             };
-            results.insert(camera_id, is_healthy);
+            let _ = results.insert(camera_id, is_healthy);
         }
 
         results
@@ -257,7 +276,10 @@ impl ViscaConnectionPool {
         let health_results = self.health_check_all();
         let mut removed = Vec::new();
 
-        let mut connections = self.connections.lock().unwrap();
+        let mut connections = match self.connections.lock() {
+            Ok(guard) => guard,
+            Err(_) => return Vec::new(),
+        };
         for (id, is_healthy) in health_results {
             if !is_healthy && connections.remove(&id).is_some() {
                 removed.push(id);
@@ -276,7 +298,10 @@ impl ViscaConnectionPool {
             let now = Instant::now();
             let mut removed = Vec::new();
 
-            let mut connections = self.connections.lock().unwrap();
+            let mut connections = match self.connections.lock() {
+                Ok(guard) => guard,
+                Err(_) => return Vec::new(),
+            };
             connections.retain(|id, conn| {
                 let is_stale = now.duration_since(conn.last_used) > max_idle;
                 if is_stale {
@@ -428,7 +453,7 @@ impl AsyncViscaConnectionPool {
                     false
                 }
             };
-            results.insert(camera_id, is_healthy);
+            let _ = results.insert(camera_id, is_healthy);
         }
 
         results

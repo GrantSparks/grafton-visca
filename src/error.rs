@@ -389,6 +389,7 @@ where
 /// Utility functions for retrying VISCA operations.
 ///
 /// These functions provide practical retry mechanisms that can re-execute operations.
+#[derive(Debug, Copy, Clone)]
 pub struct ViscaRetry;
 
 impl ViscaRetry {
@@ -423,7 +424,7 @@ impl ViscaRetry {
     ) -> Result<T, ViscaError>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T, ViscaError>>,
+        Fut: Future<Output = Result<T, ViscaError>>,
     {
         let mut last_error = None;
 
@@ -474,7 +475,7 @@ impl ViscaRetry {
     ) -> Result<T, ViscaError>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T, ViscaError>>,
+        Fut: Future<Output = Result<T, ViscaError>>,
     {
         let mut last_error = None;
 
@@ -533,7 +534,7 @@ impl ViscaRetry {
     ) -> Result<T, ViscaError>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T, ViscaError>>,
+        Fut: Future<Output = Result<T, ViscaError>>,
     {
         let mut last_error = None;
         let mut current_delay = initial_delay;

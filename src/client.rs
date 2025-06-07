@@ -148,6 +148,12 @@ impl ViscaClient {
     /// }
     /// # Ok::<(), ViscaError>(())
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::InvalidParameter` with "Transport is busy" if the mutex is already locked.
+    /// Returns any errors from `send_command_and_wait` including transport errors, timeouts,
+    /// and camera-specific errors.
     pub fn try_send(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
         let mut transport = self
             .transport

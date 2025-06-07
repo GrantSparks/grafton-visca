@@ -36,7 +36,7 @@ impl CommandCategory {
 }
 
 /// Configuration for command timeouts.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct TimeoutConfig {
     /// Timeout for quick commands (inquiry, power status)
     pub quick_timeout: Duration,

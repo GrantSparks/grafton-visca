@@ -90,7 +90,7 @@ impl From<ZoomSpeed> for u8 {
 /// - `TeleVariable` - Zoom in at specified speed (0-7)
 /// - `WideVariable` - Zoom out at specified speed (0-7)
 /// - `Direct` - Set zoom to specific position
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ZoomCommand {
     /// Stop zoom movement.
     Stop,
@@ -172,17 +172,17 @@ mod tests {
     fn test_zoom_speed_new() {
         // Valid speeds
         for speed in 0..=7 {
-            let zoom_speed = Self::new(speed).unwrap();
+            let zoom_speed = ZoomSpeed::new(speed).unwrap();
             assert_eq!(zoom_speed.value(), speed);
         }
 
         // Invalid speed
         assert!(matches!(
-            Self::new(8),
+            ZoomSpeed::new(8),
             Err(ViscaError::InvalidParameter(_))
         ));
         assert!(matches!(
-            Self::new(255),
+            ZoomSpeed::new(255),
             Err(ViscaError::InvalidParameter(_))
         ));
     }
@@ -199,14 +199,14 @@ mod tests {
 
     #[test]
     fn test_zoom_speed_into_u8() {
-        let speed = Self::new(3).unwrap();
+        let speed = ZoomSpeed::new(3).unwrap();
         let value: u8 = speed.into();
         assert_eq!(value, 3);
     }
 
     #[test]
     fn test_zoom_command_stop() {
-        let cmd = Self::Stop;
+        let cmd = ZoomCommand::Stop;
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_zoom_command_tele_standard() {
-        let cmd = Self::TeleStandard;
+        let cmd = ZoomCommand::TeleStandard;
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_zoom_command_wide_standard() {
-        let cmd = Self::WideStandard;
+        let cmd = ZoomCommand::WideStandard;
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
@@ -241,8 +241,8 @@ mod tests {
 
     #[test]
     fn test_zoom_command_tele_variable() {
-        let speed = Self::new(5).unwrap();
-        let cmd = Self::TeleVariable(speed);
+        let speed = ZoomSpeed::new(5).unwrap();
+        let cmd = ZoomCommand::TeleVariable(speed);
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]
@@ -251,8 +251,8 @@ mod tests {
 
     #[test]
     fn test_zoom_command_wide_variable() {
-        let speed = Self::new(7).unwrap();
-        let cmd = Self::WideVariable(speed);
+        let speed = ZoomSpeed::new(7).unwrap();
+        let cmd = ZoomCommand::WideVariable(speed);
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF]
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_zoom_command_direct() {
-        let cmd = Self::Direct(0x1234);
+        let cmd = ZoomCommand::Direct(0x1234);
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF]
@@ -279,15 +279,15 @@ mod tests {
     #[test]
     fn test_command_category() {
         assert_eq!(
-            Self::Stop.command_category(),
+            ZoomCommand::Stop.command_category(),
             CommandCategory::Movement
         );
         assert_eq!(
-            Self::TeleStandard.command_category(),
+            ZoomCommand::TeleStandard.command_category(),
             CommandCategory::Movement
         );
         assert_eq!(
-            Self::Direct(0).command_category(),
+            ZoomCommand::Direct(0).command_category(),
             CommandCategory::Movement
         );
     }

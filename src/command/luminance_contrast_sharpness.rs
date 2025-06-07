@@ -23,6 +23,7 @@ pub enum SharpnessMode {
 ///
 /// Controls edge enhancement to make images appear more or less sharp.
 /// Higher sharpness values enhance edges but may introduce artifacts.
+#[derive(Debug, Copy, Clone)]
 pub enum SharpnessCommand {
     /// Set sharpness mode (auto or manual).
     Mode(SharpnessMode),
@@ -78,6 +79,7 @@ impl ViscaCommand for SharpnessCommand {
 ///
 /// Controls the overall brightness of the image by adjusting
 /// the luminance level.
+#[derive(Debug, Copy, Clone)]
 pub struct LuminanceCommand {
     /// Luminance value (0 = darkest, 14 = brightest).
     pub value: u8,
@@ -109,6 +111,7 @@ impl ViscaCommand for LuminanceCommand {
 ///
 /// Controls the difference between light and dark areas of the image.
 /// Higher contrast makes darks darker and lights lighter.
+#[derive(Debug, Copy, Clone)]
 pub struct ContrastCommand {
     /// Contrast value (0 = minimum contrast, 14 = maximum contrast).
     pub value: u8,

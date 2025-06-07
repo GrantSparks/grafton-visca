@@ -35,6 +35,12 @@ pub trait ViscaZoomExt: ViscaDevice {
     /// # }
     /// # }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns camera-specific errors if the command is rejected.
+    /// Returns transport errors if communication fails.
     fn zoom_to(&mut self, position: u16) -> Result<(), ViscaError> {
         let command = ZoomCommand::Direct(position);
         match self.execute_command(&command)? {
@@ -64,6 +70,13 @@ pub trait ViscaZoomExt: ViscaDevice {
     /// # }
     /// # }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::InvalidParameter` if speed > 7.
+    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns camera-specific errors if the command is rejected.
+    /// Returns transport errors if communication fails.
     fn zoom_in(&mut self, speed: Option<u8>) -> Result<(), ViscaError> {
         let command = if let Some(s) = speed {
             if s > 7 {

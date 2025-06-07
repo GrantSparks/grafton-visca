@@ -41,7 +41,7 @@ struct ConnectionStatsInner {
 }
 
 /// A snapshot of connection statistics at a point in time
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct ConnectionStatsSnapshot {
     /// When the connection was established
     pub connected_since: Option<Instant>,
@@ -96,19 +96,19 @@ impl ConnectionStats {
 
     /// Record a sent command
     pub fn record_sent(&self, bytes: usize) {
-        self.inner
+        let _ = self.inner
             .bytes_sent
             .fetch_add(bytes as u64, Ordering::Relaxed);
-        self.inner.commands_sent.fetch_add(1, Ordering::Relaxed);
+        let _ = self.inner.commands_sent.fetch_add(1, Ordering::Relaxed);
         Self::write_instant(&self.inner.last_activity, Some(Instant::now()));
     }
 
     /// Record a received response
     pub fn record_received(&self, bytes: usize) {
-        self.inner
+        let _ = self.inner
             .bytes_received
             .fetch_add(bytes as u64, Ordering::Relaxed);
-        self.inner
+        let _ = self.inner
             .responses_received
             .fetch_add(1, Ordering::Relaxed);
         Self::write_instant(&self.inner.last_activity, Some(Instant::now()));
@@ -116,7 +116,7 @@ impl ConnectionStats {
 
     /// Record an error
     pub fn record_error(&self) {
-        self.inner.error_count.fetch_add(1, Ordering::Relaxed);
+        let _ = self.inner.error_count.fetch_add(1, Ordering::Relaxed);
         Self::write_instant(&self.inner.last_error, Some(Instant::now()));
     }
 
