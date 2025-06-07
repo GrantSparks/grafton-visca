@@ -305,11 +305,13 @@ mod tests {
     // For now, we'll test the builder structure
 
     #[test]
+    #[allow(clippy::missing_const_for_fn)] // Test functions should not be const
     fn test_ptz_builder_structure() {
         // This is a structural test - we can't easily test execution without a mock client
         // But we can test that the builder methods chain correctly
 
         // Test that method chaining works (compilation test)
+        #[allow(clippy::missing_const_for_fn)] // Test functions should not be const
         fn _test_method_chaining() {
             // This won't compile unless the method signatures are correct
             // let client = ViscaClient::connect_udp("test")?;
