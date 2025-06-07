@@ -31,7 +31,12 @@ pub enum ExposureMode {
     Bright = 0x0D,
 }
 
+/// Command to set the camera's exposure mode.
+///
+/// This command allows switching between different exposure modes such as
+/// auto, manual, shutter priority, iris priority, or brightness priority.
 pub struct ExposureCommand {
+    /// The exposure mode to set.
     pub mode: ExposureMode,
 }
 
@@ -204,8 +209,15 @@ impl TryFrom<u8> for DynamicRangeLevel {
     }
 }
 
+/// Commands for controlling the camera's dynamic range.
+///
+/// Dynamic range control adjusts the camera's ability to capture detail
+/// in both bright and dark areas of a scene simultaneously. Higher values
+/// increase the dynamic range, allowing better detail retention in scenes
+/// with high contrast.
 #[derive(Debug, Copy, Clone)]
 pub enum DynamicRangeCommand {
+    /// Set dynamic range to a specific level (0-8).
     Direct(DynamicRangeLevel),
 }
 
@@ -235,12 +247,23 @@ impl ViscaCommand for DynamicRangeCommand {
     }
 }
 
+/// Commands for controlling the camera iris (aperture).
+///
+/// The iris controls the amount of light entering the camera by adjusting
+/// the aperture size. Smaller aperture values mean less light but greater
+/// depth of field.
 #[derive(Debug, Copy, Clone)]
 pub enum IrisCommand {
+    /// Reset iris to default position.
     Reset,
+    /// Open iris to increase aperture (let in more light).
     Up,
+    /// Close iris to decrease aperture (let in less light).
     Down,
-    Direct(u8), // 0x00=Close to 0x0C=F1.8
+    /// Set iris to specific aperture value.
+    ///
+    /// Valid range: 0x00 (fully closed) to 0x0C (F1.8 - fully open).
+    Direct(u8),
 }
 
 impl ViscaCommand for IrisCommand {
@@ -269,6 +292,7 @@ impl ViscaCommand for IrisCommand {
     }
 }
 
+#[allow(missing_docs)] // TODO: Add documentation for shutter control
 #[derive(Debug, Copy, Clone)]
 pub enum ShutterCommand {
     Reset,

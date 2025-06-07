@@ -9,9 +9,8 @@ use log::error;
 // Crate imports
 use crate::{
     command::{
-        gain::AntiFlickerMode,
-        luminance_contrast_sharpness::SharpnessMode,
-        AFSensitivity, ExposureMode, FocusZone, ViscaInquiryResponse, WhiteBalanceMode,
+        gain::AntiFlickerMode, luminance_contrast_sharpness::SharpnessMode, AFSensitivity,
+        ExposureMode, FocusZone, ViscaInquiryResponse, WhiteBalanceMode,
     },
     error::ViscaError,
 };
