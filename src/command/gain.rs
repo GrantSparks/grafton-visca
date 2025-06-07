@@ -10,12 +10,20 @@ use crate::{
     timeout::CommandCategory,
 };
 
+/// Commands for controlling camera gain.
+///
+/// Gain amplifies the camera sensor's signal, allowing for brighter images
+/// in low light conditions at the cost of increased noise.
 #[derive(Debug, Copy, Clone)]
 pub enum GainCommand {
+    /// Reset gain to default value.
     Reset,
+    /// Increase gain by one step.
     Up,
+    /// Decrease gain by one step.
     Down,
-    Direct(u16), // 0x00=0 to 0x07=7
+    /// Set gain to specific value (0x00 to 0x07, representing gain levels 0-7).
+    Direct(u16),
 }
 
 impl ViscaCommand for GainCommand {
@@ -46,9 +54,14 @@ impl ViscaCommand for GainCommand {
     }
 }
 
+/// Command to set the maximum gain limit.
+///
+/// Limits the maximum gain that can be applied when in auto exposure mode,
+/// helping to control noise levels in low light conditions.
 #[derive(Debug, Copy, Clone)]
 pub struct GainLimitCommand {
-    pub limit: u8, // 0x0=0 to 0xF=15
+    /// Maximum gain limit (0x0 to 0xF, representing levels 0-15).
+    pub limit: u8,
 }
 
 impl ViscaCommand for GainLimitCommand {
@@ -70,15 +83,24 @@ impl ViscaCommand for GainLimitCommand {
     }
 }
 
+/// Anti-flicker mode settings.
+///
+/// Reduces flicker caused by artificial lighting that operates at
+/// different frequencies than the camera's frame rate.
 #[derive(Debug, Copy, Clone)]
 pub enum AntiFlickerMode {
+    /// Disable anti-flicker processing.
     Off = 0x00,
+    /// Enable 50Hz anti-flicker (for regions with 50Hz AC power).
     Hz50 = 0x01,
+    /// Enable 60Hz anti-flicker (for regions with 60Hz AC power).
     Hz60 = 0x02,
 }
 
+/// Command to set anti-flicker mode.
 #[derive(Debug, Copy, Clone)]
 pub struct AntiFlickerCommand {
+    /// The anti-flicker mode to apply.
     pub mode: AntiFlickerMode,
 }
 

@@ -13,7 +13,11 @@ use crate::{
     timeout::CommandCategory,
 };
 
-/// One-Push White Balance Trigger command
+/// One-Push White Balance Trigger command.
+///
+/// Performs a one-time automatic white balance adjustment based on
+/// the current scene. The camera will analyze the image and set the
+/// white balance to achieve neutral colors.
 #[derive(Debug, Copy, Clone)]
 pub struct OnePushTriggerCommand;
 
@@ -31,10 +35,15 @@ impl ViscaCommand for OnePushTriggerCommand {
     }
 }
 
-/// Red Gain Tuning command
+/// Red Gain Tuning command.
+///
+/// Fine-tunes the red channel gain for white balance adjustment.
+/// This is typically used after setting a base white balance mode
+/// to make small corrections.
 #[derive(Debug, Copy, Clone)]
 pub struct RedTuningCommand {
-    pub level: i8, // -10 to +10
+    /// Red tuning level (-10 to +10, where 0 is neutral).
+    pub level: i8,
 }
 
 impl ViscaCommand for RedTuningCommand {
@@ -57,10 +66,15 @@ impl ViscaCommand for RedTuningCommand {
     }
 }
 
-/// Blue Gain Tuning command
+/// Blue Gain Tuning command.
+///
+/// Fine-tunes the blue channel gain for white balance adjustment.
+/// This is typically used after setting a base white balance mode
+/// to make small corrections.
 #[derive(Debug, Copy, Clone)]
 pub struct BlueTuningCommand {
-    pub level: i8, // -10 to +10
+    /// Blue tuning level (-10 to +10, where 0 is neutral).
+    pub level: i8,
 }
 
 impl ViscaCommand for BlueTuningCommand {
@@ -83,10 +97,15 @@ impl ViscaCommand for BlueTuningCommand {
     }
 }
 
-/// Saturation command
+/// Saturation control command.
+///
+/// Adjusts the color saturation level of the image.
+/// Lower values produce more muted colors, while higher values
+/// produce more vivid colors.
 #[derive(Debug, Copy, Clone)]
 pub struct SaturationCommand {
-    pub level: u8, // 0x0=60% to 0xE=200%
+    /// Saturation level (0x0 = 60%, 0xE = 200%).
+    pub level: u8,
 }
 
 impl ViscaCommand for SaturationCommand {
@@ -110,10 +129,15 @@ impl ViscaCommand for SaturationCommand {
     }
 }
 
-/// Hue command
+/// Hue adjustment command.
+///
+/// Adjusts the hue (color phase) of the image, shifting all colors
+/// around the color wheel. This can be used to correct color casts
+/// or create artistic effects.
 #[derive(Debug, Copy, Clone)]
 pub struct HueCommand {
-    pub level: u8, // 0x0=0 to 0xE=14
+    /// Hue level (0x0 to 0xE, representing 0 to 14 degrees of rotation).
+    pub level: u8,
 }
 
 impl ViscaCommand for HueCommand {

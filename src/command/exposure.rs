@@ -292,13 +292,24 @@ impl ViscaCommand for IrisCommand {
     }
 }
 
-#[allow(missing_docs)] // TODO: Add documentation for shutter control
+/// Commands for controlling the camera's shutter speed.
+///
+/// Shutter speed determines how long the camera's sensor is exposed to light.
+/// Faster shutter speeds freeze motion but let in less light, while slower
+/// speeds let in more light but may cause motion blur.
 #[derive(Debug, Copy, Clone)]
 pub enum ShutterCommand {
+    /// Reset shutter speed to default value.
     Reset,
+    /// Increase shutter speed (shorter exposure, less light).
     Up,
+    /// Decrease shutter speed (longer exposure, more light).
     Down,
-    Direct(u16), // 0x01=1/30 to 0x11=1/10000
+    /// Set shutter speed directly.
+    ///
+    /// Valid range: 0x01 (1/30 second) to 0x11 (1/10000 second).
+    /// Higher values mean faster shutter speeds.
+    Direct(u16),
 }
 
 impl ViscaCommand for ShutterCommand {
@@ -329,12 +340,23 @@ impl ViscaCommand for ShutterCommand {
     }
 }
 
+/// Commands for controlling the camera's brightness level.
+///
+/// Brightness control adjusts the overall lightness or darkness of the image.
+/// This is typically used in automatic exposure modes to fine-tune the
+/// camera's exposure decisions.
 #[derive(Debug, Copy, Clone)]
 pub enum BrightCommand {
+    /// Reset brightness to default level.
     Reset,
+    /// Increase brightness level.
     Up,
+    /// Decrease brightness level.
     Down,
-    Direct(u16), // 0x00=0 to 0x11=17
+    /// Set brightness to a specific level.
+    ///
+    /// Valid range: 0x00 (minimum brightness) to 0x11 (maximum brightness, level 17).
+    Direct(u16),
 }
 
 impl ViscaCommand for BrightCommand {
