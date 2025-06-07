@@ -26,7 +26,6 @@
     clippy::missing_errors_doc,      // TODO: Add # Errors sections to docs (many instances)
     clippy::uninlined_format_args,   // TODO: Update format strings to use inline syntax
     clippy::return_self_not_must_use,// TODO: Add #[must_use] to builder methods
-    clippy::single_match_else,       // TODO: Convert to if let where appropriate
     clippy::significant_drop_tightening, // TODO: Review mutex lock scopes
 )]
 //!
