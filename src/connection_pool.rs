@@ -117,6 +117,10 @@ impl ViscaConnectionPool {
     /// * `address` - Network address of the camera (e.g., "192.168.1.100:5678")
     /// * `connection_type` - Whether to use UDP or TCP
     /// * `info` - Camera information
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError` if the connection cannot be established.
     #[cfg(feature = "blocking-client")]
     pub fn add_camera(
         &self,
@@ -138,9 +142,7 @@ impl ViscaConnectionPool {
             camera_info: info,
         };
 
-        let mut connections = self.connections.lock().unwrap();
-        connections.insert(camera_id, pooled);
-
+        self.connections.lock().unwrap().insert(camera_id, pooled);
         Ok(())
     }
 
@@ -154,6 +156,11 @@ impl ViscaConnectionPool {
     ///
     /// This method handles the connection lookup and automatically updates
     /// the `last_used` timestamp.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::InvalidParameter` if the camera is not found in the pool.
+    /// Returns other `ViscaError` variants if the command execution fails.
     #[cfg(feature = "blocking-client")]
     pub fn execute_command(
         &self,
@@ -166,7 +173,9 @@ impl ViscaConnectionPool {
         })?;
 
         pooled.last_used = Instant::now();
-        pooled.client.send(command)
+        let result = pooled.client.send(command);
+        drop(connections);
+        result
     }
 
     /// Gets a list of all cameras in the pool.
@@ -178,15 +187,24 @@ impl ViscaConnectionPool {
     /// Gets statistics for all cameras in the pool.
     #[cfg(feature = "blocking-client")]
     pub fn get_all_stats(&self) -> Vec<PooledCameraStats> {
-        let connections = self.connections.lock().unwrap();
-        connections
-            .iter()
-            .map(|(_id, conn)| {
-                let is_healthy = conn.client.is_healthy_blocking().unwrap_or(false);
+        // First collect camera info and clients to avoid holding lock during health checks
+        let camera_data: Vec<(CameraInfo, Instant, ViscaClient)> = {
+            let connections = self.connections.lock().unwrap();
+            connections
+                .values()
+                .map(|conn| (conn.camera_info.clone(), conn.last_used, conn.client.clone()))
+                .collect()
+        };
+        
+        // Now check health without holding the lock
+        camera_data
+            .into_iter()
+            .map(|(info, last_used, client)| {
+                let is_healthy = client.is_healthy_blocking().unwrap_or(false);
                 PooledCameraStats {
-                    info: conn.camera_info.clone(),
+                    info,
                     is_healthy,
-                    last_used: conn.last_used,
+                    last_used,
                 }
             })
             .collect()
@@ -197,12 +215,21 @@ impl ViscaConnectionPool {
     /// Returns a map of camera IDs to their health status.
     #[cfg(feature = "blocking-client")]
     pub fn health_check_all(&self) -> HashMap<String, bool> {
-        let connections = self.connections.lock().unwrap();
-        let mut results = HashMap::new();
+        // First collect the camera IDs to avoid holding the lock during health checks
+        let camera_ids: Vec<String> = {
+            let connections = self.connections.lock().unwrap();
+            connections.keys().cloned().collect()
+        };
 
-        for (id, conn) in connections.iter() {
-            let is_healthy = conn.client.is_healthy_blocking().unwrap_or(false);
-            results.insert(id.clone(), is_healthy);
+        let mut results = HashMap::new();
+        
+        // Now check each camera without holding the main lock
+        for camera_id in camera_ids {
+            let is_healthy = {
+                let connections = self.connections.lock().unwrap();
+                connections.get(&camera_id).map_or(false, |conn| conn.client.is_healthy_blocking().unwrap_or(false))
+            };
+            results.insert(camera_id, is_healthy);
         }
 
         results
@@ -268,6 +295,10 @@ impl AsyncViscaConnectionPool {
     }
 
     /// Adds a camera to the pool using the async API.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError` if the connection cannot be established.
     pub async fn add_camera(
         &self,
         camera_id: impl Into<String>,
@@ -288,9 +319,7 @@ impl AsyncViscaConnectionPool {
             camera_info: info,
         };
 
-        let mut connections = self.connections.lock().await;
-        connections.insert(camera_id, pooled);
-
+        self.connections.lock().await.insert(camera_id, pooled);
         Ok(())
     }
 
@@ -301,6 +330,11 @@ impl AsyncViscaConnectionPool {
     }
 
     /// Gets a connection from the pool and executes a command.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::InvalidParameter` if the camera is not found in the pool.
+    /// Returns other `ViscaError` variants if the command execution fails.
     pub async fn execute_command(
         &self,
         camera_id: &str,
@@ -312,7 +346,9 @@ impl AsyncViscaConnectionPool {
         })?;
 
         pooled.last_used = Instant::now();
-        pooled.client.send_async(command).await
+        let result = pooled.client.send_async(command).await;
+        drop(connections);
+        result
     }
 
     /// Gets a list of all cameras in the pool.
@@ -323,15 +359,24 @@ impl AsyncViscaConnectionPool {
 
     /// Gets statistics for all cameras in the pool.
     pub async fn get_all_stats(&self) -> Vec<PooledCameraStats> {
-        let connections = self.connections.lock().await;
-        let mut stats = Vec::new();
+        // First collect camera info and clients to avoid holding lock during health checks
+        let camera_data: Vec<(CameraInfo, Instant, ViscaClient)> = {
+            let connections = self.connections.lock().await;
+            connections
+                .values()
+                .map(|conn| (conn.camera_info.clone(), conn.last_used, conn.client.clone()))
+                .collect()
+        };
 
-        for (_id, conn) in connections.iter() {
-            let is_healthy = conn.client.is_healthy().await.unwrap_or(false);
+        let mut stats = Vec::new();
+        
+        // Now check health without holding the lock
+        for (info, last_used, client) in camera_data {
+            let is_healthy = client.is_healthy().await.unwrap_or(false);
             stats.push(PooledCameraStats {
-                info: conn.camera_info.clone(),
+                info,
                 is_healthy,
-                last_used: conn.last_used,
+                last_used,
             });
         }
 
@@ -340,12 +385,26 @@ impl AsyncViscaConnectionPool {
 
     /// Performs health checks on all connections.
     pub async fn health_check_all(&self) -> HashMap<String, bool> {
-        let connections = self.connections.lock().await;
-        let mut results = HashMap::new();
+        // First collect the camera IDs to avoid holding the lock during health checks
+        let camera_ids: Vec<String> = {
+            let connections = self.connections.lock().await;
+            connections.keys().cloned().collect()
+        };
 
-        for (id, conn) in connections.iter() {
-            let is_healthy = conn.client.is_healthy().await.unwrap_or(false);
-            results.insert(id.clone(), is_healthy);
+        let mut results = HashMap::new();
+        
+        // Now check each camera without holding the main lock
+        for camera_id in camera_ids {
+            let is_healthy = {
+                let connections = self.connections.lock().await;
+                #[allow(clippy::option_if_let_else)]
+                if let Some(conn) = connections.get(&camera_id) {
+                    conn.client.is_healthy().await.unwrap_or(false)
+                } else {
+                    false
+                }
+            };
+            results.insert(camera_id, is_healthy);
         }
 
         results
