@@ -97,7 +97,7 @@ impl PtzBuilder {
     /// Add a pan/tilt absolute position command.
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed values cannot be converted to valid PanSpeed or TiltSpeed.
+    /// Returns `ViscaError::InvalidParameter` if the speed values cannot be converted to valid `PanSpeed` or `TiltSpeed`.
     pub fn pan_tilt_absolute(
         mut self,
         pan: i16,
@@ -125,7 +125,7 @@ impl PtzBuilder {
     /// Add a pan/tilt relative position command.
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed values cannot be converted to valid PanSpeed or TiltSpeed.
+    /// Returns `ViscaError::InvalidParameter` if the speed values cannot be converted to valid `PanSpeed` or `TiltSpeed`.
     pub fn pan_tilt_relative(
         mut self,
         pan: i16,
@@ -163,7 +163,7 @@ impl PtzBuilder {
     /// * `speed` - Zoom speed (0=slowest, 7=fastest)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid ZoomSpeed.
+    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid `ZoomSpeed`.
     pub fn zoom_in(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, ViscaError> {
         let speed = speed
             .try_into()
@@ -179,7 +179,7 @@ impl PtzBuilder {
     /// * `speed` - Zoom speed (0=slowest, 7=fastest)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid ZoomSpeed.
+    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid `ZoomSpeed`.
     pub fn zoom_out(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, ViscaError> {
         let speed = speed
             .try_into()

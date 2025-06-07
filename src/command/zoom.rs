@@ -14,10 +14,10 @@
 //! # use grafton_visca::ViscaClient;
 //! # let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
-//! client.send(&Self::TeleStandard).unwrap();
+//! client.send(&ZoomCommand::TeleStandard).unwrap();
 //!
 //! // Zoom out at variable speed
-//! client.send(&Self::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
+//! client.send(&ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
 //! # }
 //! ```
 

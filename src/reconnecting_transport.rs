@@ -21,7 +21,7 @@ type TransportCreator<T> = Arc<
 >;
 
 /// Configuration for automatic reconnection behavior.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ReconnectionConfig {
     /// Maximum number of reconnection attempts before giving up
     pub max_retries: usize,
@@ -102,6 +102,15 @@ pub struct ReconnectingTransport<T> {
     create_transport: TransportCreator<T>,
     /// Optional connection event callback
     event_callback: Option<ConnectionEventCallback>,
+}
+
+impl<T> std::fmt::Debug for ReconnectingTransport<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReconnectingTransport")
+            .field("config", &self.config)
+            .field("has_event_callback", &self.event_callback.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<T> ReconnectingTransport<T>

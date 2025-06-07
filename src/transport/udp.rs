@@ -188,7 +188,8 @@ impl Transport for AsyncUdpTransport {
             let bytes = command.to_bytes()?;
             log::debug!("Sending command: {bytes:02X?}");
 
-            self.socket
+            let _ = self
+                .socket
                 .send_to(&bytes, &self.address)
                 .await
                 .map_err(ViscaError::Io)?;
