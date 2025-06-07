@@ -98,12 +98,14 @@ impl ExposureCompensationLevel {
     }
 
     /// Get the raw value.
+    #[must_use]
     pub const fn value(self) -> i8 {
         self.0
     }
 
     /// Convert to protocol value (0x0 to 0xE).
     #[allow(clippy::cast_sign_loss)]
+    #[must_use]
     pub const fn to_protocol_value(self) -> u8 {
         (self.0 + 7) as u8
     }
@@ -196,6 +198,7 @@ impl DynamicRangeLevel {
     }
 
     /// Get the raw value.
+    #[must_use]
     pub const fn value(self) -> u8 {
         self.0
     }

@@ -69,6 +69,7 @@ impl ViscaClient {
     /// let client = ViscaClient::new(Box::new(transport));
     /// # Ok::<(), ViscaError>(())
     /// ```
+    #[must_use]
     pub fn new(transport: Box<dyn ViscaTransport + Send>) -> Self {
         Self {
             transport: Arc::new(Mutex::new(transport)),

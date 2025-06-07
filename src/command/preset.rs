@@ -41,6 +41,7 @@ impl PresetNumber {
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 89.
+    #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
             Ok(PresetNumber(value))
@@ -53,6 +54,7 @@ impl PresetNumber {
     }
 
     /// Get the raw value.
+    #[must_use]
     pub const fn value(self) -> u8 {
         self.0
     }

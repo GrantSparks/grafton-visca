@@ -66,6 +66,7 @@ impl PanTiltDirection {
     /// Converts the direction to its VISCA byte representation.
     ///
     /// Returns a tuple of (`pan_direction`, `tilt_direction`) bytes.
+    #[must_use]
     pub const fn to_bytes(self) -> (u8, u8) {
         match self {
             PanTiltDirection::Up => (0x03, 0x01),
@@ -424,6 +425,7 @@ impl PanSpeed {
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 0x18.
+    #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
             Ok(PanSpeed(value))
@@ -465,6 +467,7 @@ impl TiltSpeed {
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 0x14.
+    #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
             Ok(TiltSpeed(value))

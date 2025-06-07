@@ -192,6 +192,7 @@ impl ViscaError {
     }
 
     /// Check if this error is potentially retryable.
+    #[must_use]
     pub const fn is_retryable(&self) -> bool {
         use ViscaError::{CameraBusy, CameraMoving, CommandBufferFull, CommandTimeout, Timeout};
 
@@ -202,6 +203,7 @@ impl ViscaError {
     }
 
     /// Get a suggested retry delay for retryable errors.
+    #[must_use]
     pub const fn suggested_retry_delay(&self) -> Option<Duration> {
         use ViscaError::{CameraBusy, CameraMoving, CommandBufferFull, CommandTimeout, Timeout};
 
