@@ -76,6 +76,10 @@ impl ViscaClient {
     ///
     /// This constructor automatically selects the appropriate transport based on
     /// the enabled features and the calling context.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::Io` if UDP transport creation fails.
     #[cfg(feature = "blocking-client")]
     pub fn connect_udp(camera_addr: &str) -> Result<Self, ViscaError> {
         let transport = BlockingUdpTransport::new(camera_addr).map_err(ViscaError::Io)?;
@@ -89,6 +93,10 @@ impl ViscaClient {
     ///
     /// This constructor automatically selects the appropriate transport based on
     /// the enabled features and the calling context.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::Io` if TCP connection fails.
     #[cfg(feature = "blocking-client")]
     pub fn connect_tcp(camera_addr: &str) -> Result<Self, ViscaError> {
         let transport = BlockingTcpTransport::new(camera_addr).map_err(ViscaError::Io)?;
@@ -99,6 +107,10 @@ impl ViscaClient {
     }
 
     /// Connect to a camera using UDP transport (async).
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::Io` if UDP transport creation fails.
     #[cfg(feature = "async-client")]
     pub async fn connect_udp_async(camera_addr: &str) -> Result<Self, ViscaError> {
         let transport = AsyncUdpTransport::new(camera_addr).await?;
@@ -108,6 +120,10 @@ impl ViscaClient {
     }
 
     /// Connect to a camera using TCP transport (async).
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::Io` if TCP connection fails.
     #[cfg(feature = "async-client")]
     pub async fn connect_tcp_async(camera_addr: &str) -> Result<Self, ViscaError> {
         let transport = AsyncTcpTransport::new(camera_addr).await?;

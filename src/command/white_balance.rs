@@ -34,6 +34,7 @@ pub enum WhiteBalanceMode {
 }
 
 /// Command to set the white balance mode.
+#[derive(Debug, Copy, Clone)]
 pub struct WhiteBalanceCommand {
     /// The white balance mode to set.
     pub mode: WhiteBalanceMode,

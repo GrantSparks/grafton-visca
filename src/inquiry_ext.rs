@@ -513,7 +513,7 @@ pub struct CameraState {
 }
 
 /// Camera position information.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct CameraPosition {
     /// Pan position in VISCA units
     pub pan: i16,
@@ -522,7 +522,7 @@ pub struct CameraPosition {
 }
 
 /// Optical settings state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct OpticsState {
     /// Zoom position (0x0000-0x4000 for most cameras)
     pub zoom: u16,
@@ -531,7 +531,7 @@ pub struct OpticsState {
 }
 
 /// Exposure settings state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct ExposureState {
     /// Exposure mode
     pub mode: ExposureMode,
@@ -540,14 +540,14 @@ pub struct ExposureState {
 }
 
 /// White balance settings state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct WhiteBalanceState {
     /// White balance mode
     pub mode: WhiteBalanceMode,
 }
 
 /// Image quality settings state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct ImageState {
     /// Luminance level
     pub luminance: u8,

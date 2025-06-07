@@ -88,7 +88,7 @@ mod sync_semaphore {
             let mut count = lock.lock();
             *count += 1;
             drop(count);
-            cvar.notify_one();
+            let _ = cvar.notify_one();
         }
     }
 }

@@ -90,7 +90,7 @@ impl PanTiltDirection {
 /// - `Move` - Directional movement with speed control
 /// - `AbsolutePosition` - Move to exact coordinates
 /// - `RelativePosition` - Move relative to current position
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum PanTiltCommand {
     /// Return camera to home position.
     Home,
@@ -228,15 +228,15 @@ mod tests {
 
     #[test]
     fn test_pan_tilt_direction_to_bytes() {
-        assert_eq!(Self::Up.to_bytes(), (0x03, 0x01));
-        assert_eq!(Self::Down.to_bytes(), (0x03, 0x02));
-        assert_eq!(Self::Left.to_bytes(), (0x01, 0x03));
-        assert_eq!(Self::Right.to_bytes(), (0x02, 0x03));
-        assert_eq!(Self::UpLeft.to_bytes(), (0x01, 0x01));
-        assert_eq!(Self::UpRight.to_bytes(), (0x02, 0x01));
-        assert_eq!(Self::DownLeft.to_bytes(), (0x01, 0x02));
-        assert_eq!(Self::DownRight.to_bytes(), (0x02, 0x02));
-        assert_eq!(Self::Stop.to_bytes(), (0x03, 0x03));
+        assert_eq!(PanTiltDirection::Up.to_bytes(), (0x03, 0x01));
+        assert_eq!(PanTiltDirection::Down.to_bytes(), (0x03, 0x02));
+        assert_eq!(PanTiltDirection::Left.to_bytes(), (0x01, 0x03));
+        assert_eq!(PanTiltDirection::Right.to_bytes(), (0x02, 0x03));
+        assert_eq!(PanTiltDirection::UpLeft.to_bytes(), (0x01, 0x01));
+        assert_eq!(PanTiltDirection::UpRight.to_bytes(), (0x02, 0x01));
+        assert_eq!(PanTiltDirection::DownLeft.to_bytes(), (0x01, 0x02));
+        assert_eq!(PanTiltDirection::DownRight.to_bytes(), (0x02, 0x02));
+        assert_eq!(PanTiltDirection::Stop.to_bytes(), (0x03, 0x03));
     }
 
     #[test]
@@ -299,19 +299,19 @@ mod tests {
     #[test]
     fn test_pan_tilt_command_to_bytes() {
         // Test Home command
-        let home = Self::Home;
+        let home = PanTiltCommand::Home;
         assert_eq!(home.to_bytes().unwrap(), vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
 
         // Test Reset command
-        let reset = Self::Reset;
+        let reset = PanTiltCommand::Reset;
         assert_eq!(
             reset.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x06, 0x05, 0xFF]
         );
 
         // Test Move command
-        let move_cmd = Self::Move {
-            direction: Self::UpRight,
+        let move_cmd = PanTiltCommand::Move {
+            direction: PanTiltDirection::UpRight,
             pan_speed: PanSpeed::new(0x10).unwrap(),
             tilt_speed: TiltSpeed::new(0x10).unwrap(),
         };
@@ -321,7 +321,7 @@ mod tests {
         );
 
         // Test AbsolutePosition command
-        let abs_pos = Self::AbsolutePosition {
+        let abs_pos = PanTiltCommand::AbsolutePosition {
             pan: 0x1234,
             tilt: 0x5678,
             pan_speed: PanSpeed::new(0x10).unwrap(),
@@ -336,7 +336,7 @@ mod tests {
         );
 
         // Test RelativePosition command
-        let rel_pos = Self::RelativePosition {
+        let rel_pos = PanTiltCommand::RelativePosition {
             pan: -0x100,
             tilt: 0x200,
             pan_speed: PanSpeed::new(0x10).unwrap(),
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn test_pan_tilt_limit_command_to_bytes() {
         // Test Set command
-        let set_limit = Self::Set {
+        let set_limit = PanTiltLimitCommand::Set {
             corner: LimitCorner::DownLeft,
             pan: 0x1000,
             tilt: 0x2000,
@@ -368,7 +368,7 @@ mod tests {
         );
 
         // Test Clear command
-        let clear_limit = Self::Clear {
+        let clear_limit = PanTiltLimitCommand::Clear {
             corner: LimitCorner::UpRight,
         };
         assert_eq!(
@@ -383,17 +383,17 @@ mod tests {
     #[test]
     fn test_response_type() {
         // All pan/tilt commands should return None for response_type
-        assert!(Self::Home.response_type().is_none());
-        assert!(Self::Reset.response_type().is_none());
+        assert!(PanTiltCommand::Home.response_type().is_none());
+        assert!(PanTiltCommand::Reset.response_type().is_none());
 
-        let move_cmd = Self::Move {
-            direction: Self::Stop,
+        let move_cmd = PanTiltCommand::Move {
+            direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::new(0).unwrap(),
             tilt_speed: TiltSpeed::new(0).unwrap(),
         };
         assert!(move_cmd.response_type().is_none());
 
-        let limit_cmd = Self::Clear {
+        let limit_cmd = PanTiltLimitCommand::Clear {
             corner: LimitCorner::DownLeft,
         };
         assert!(limit_cmd.response_type().is_none());
@@ -509,7 +509,7 @@ pub enum LimitCorner {
 ///
 /// Used to set or clear movement boundaries for the camera.
 /// This prevents the camera from moving beyond specified positions.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum PanTiltLimitCommand {
     /// Set a movement limit at the specified corner position.
     ///

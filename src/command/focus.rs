@@ -13,7 +13,7 @@ use crate::{
 /// Focus control commands.
 ///
 /// Provides various ways to control camera focus.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum FocusCommand {
     /// Stop any focus movement.
     Stop,
@@ -98,6 +98,7 @@ pub enum FocusZone {
 }
 
 /// Command to set the focus zone.
+#[derive(Debug, Copy, Clone)]
 pub struct FocusZoneCommand {
     /// The focus zone to select.
     pub zone: FocusZone,
@@ -136,6 +137,7 @@ pub enum AFSensitivity {
 }
 
 /// Command to set auto focus sensitivity.
+#[derive(Debug, Copy, Clone)]
 pub struct AFSensitivityCommand {
     /// The sensitivity level to set.
     pub sensitivity: AFSensitivity,
@@ -164,6 +166,7 @@ impl ViscaCommand for AFSensitivityCommand {
 ///
 /// Sets the minimum focus distance to prevent the camera from
 /// focusing on objects too close to the lens.
+#[derive(Debug, Copy, Clone)]
 pub struct FocusNearLimitCommand {
     /// The focus position limit (0x0000 to 0xFFFF).
     pub position: u16,

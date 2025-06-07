@@ -102,7 +102,7 @@ pub trait ViscaCommand: Send + Sync {
 ///
 /// Each variant represents a different type of inquiry response with its associated data.
 /// These are returned wrapped in `ViscaResponse::InquiryResponse(...)`.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ViscaInquiryResponse {
     /// Power status inquiry response.
     Power {

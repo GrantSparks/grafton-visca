@@ -23,6 +23,7 @@ use super::{Transport, TransportFuture};
 
 /// Blocking UDP transport for VISCA communication.
 #[cfg(feature = "blocking-client")]
+#[derive(Debug)]
 pub struct UdpTransport {
     socket: UdpSocket,
     address: String,
@@ -81,7 +82,7 @@ impl BlockingTransport for UdpTransport {
         let bytes = command.to_bytes()?;
         log::debug!("Sending command: {bytes:02X?}");
 
-        self.socket
+        let _ = self.socket
             .send_to(&bytes, &self.address)
             .map_err(ViscaError::Io)?;
 

@@ -14,6 +14,7 @@ use crate::{
 ///
 /// Enables or disables backlight compensation, which helps properly expose
 /// subjects that are backlit (have a bright light source behind them).
+#[derive(Debug, Copy, Clone)]
 pub struct BacklightCommand {
     /// Enable (true) or disable (false) backlight compensation.
     pub status: bool,
@@ -149,6 +150,7 @@ pub enum ImageFlipMode {
 }
 
 /// Command to set the combined image flip mode.
+#[derive(Debug, Copy, Clone)]
 pub struct ImageFlipCombinedCommand {
     /// The flip mode to apply.
     pub mode: ImageFlipMode,

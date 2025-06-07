@@ -39,6 +39,11 @@ pub struct AsyncViscaClient {
 #[cfg(feature = "async-client")]
 impl AsyncViscaClient {
     /// Connect to a camera using UDP transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::InvalidParameter` if the socket address is invalid.
+    /// Returns `ViscaError::Io` if UDP transport creation fails.
     pub async fn connect_udp(camera_addr: &str) -> Result<Self, ViscaError> {
         let addr = camera_addr
             .parse::<SocketAddr>()
@@ -49,6 +54,11 @@ impl AsyncViscaClient {
     }
 
     /// Connect to a camera using TCP transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ViscaError::InvalidParameter` if the socket address is invalid.
+    /// Returns `ViscaError::Io` if TCP connection fails.
     pub async fn connect_tcp(camera_addr: &str) -> Result<Self, ViscaError> {
         let addr = camera_addr
             .parse::<SocketAddr>()

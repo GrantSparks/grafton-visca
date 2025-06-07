@@ -27,7 +27,7 @@ pub enum Flip {
 /// Command to control image flip.
 ///
 /// This command flips the image vertically (upside down).
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct ImageFlipCommand {
     /// The desired flip state.
     pub flip: Flip,
