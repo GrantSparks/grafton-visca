@@ -10,18 +10,33 @@ use crate::{
     timeout::CommandCategory,
 };
 
+/// Sharpness control modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SharpnessMode {
+    /// Automatic sharpness adjustment based on scene content.
     Auto,
+    /// Manual sharpness control.
     Manual,
 }
 
+/// Sharpness control commands.
+///
+/// Controls edge enhancement to make images appear more or less sharp.
+/// Higher sharpness values enhance edges but may introduce artifacts.
 pub enum SharpnessCommand {
+    /// Set sharpness mode (auto or manual).
     Mode(SharpnessMode),
+    /// Reset sharpness to default value.
     Reset,
+    /// Increase sharpness by one step.
     Up,
+    /// Decrease sharpness by one step.
     Down,
-    Direct { value: u8 },
+    /// Set sharpness to specific value (0-11).
+    Direct {
+        /// Sharpness value (0 = minimum, 11 = maximum).
+        value: u8,
+    },
 }
 
 impl ViscaCommand for SharpnessCommand {
@@ -59,7 +74,12 @@ impl ViscaCommand for SharpnessCommand {
     }
 }
 
+/// Luminance adjustment command.
+///
+/// Controls the overall brightness of the image by adjusting
+/// the luminance level.
 pub struct LuminanceCommand {
+    /// Luminance value (0 = darkest, 14 = brightest).
     pub value: u8,
 }
 
@@ -85,7 +105,12 @@ impl ViscaCommand for LuminanceCommand {
     }
 }
 
+/// Contrast adjustment command.
+///
+/// Controls the difference between light and dark areas of the image.
+/// Higher contrast makes darks darker and lights lighter.
 pub struct ContrastCommand {
+    /// Contrast value (0 = minimum contrast, 14 = maximum contrast).
     pub value: u8,
 }
 

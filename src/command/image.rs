@@ -10,7 +10,12 @@ use crate::{
     timeout::CommandCategory,
 };
 
+/// Backlight compensation command.
+///
+/// Enables or disables backlight compensation, which helps properly expose
+/// subjects that are backlit (have a bright light source behind them).
 pub struct BacklightCommand {
+    /// Enable (true) or disable (false) backlight compensation.
     pub status: bool,
 }
 
@@ -29,11 +34,17 @@ impl ViscaCommand for BacklightCommand {
     }
 }
 
-/// 2D Noise Reduction command
+/// 2D Noise Reduction command.
+///
+/// Reduces spatial noise in individual frames by analyzing and smoothing
+/// pixel variations. Higher levels provide more noise reduction but may
+/// reduce fine detail.
 #[derive(Debug, Copy, Clone)]
 pub enum NoiseReduction2DCommand {
+    /// Disable 2D noise reduction.
     Off,
-    Level(u8), // 1-5
+    /// Set 2D noise reduction level (1 = minimal, 5 = maximum).
+    Level(u8),
 }
 
 impl ViscaCommand for NoiseReduction2DCommand {
@@ -60,11 +71,17 @@ impl ViscaCommand for NoiseReduction2DCommand {
     }
 }
 
-/// 3D Noise Reduction command
+/// 3D Noise Reduction command.
+///
+/// Reduces temporal noise by analyzing multiple frames over time.
+/// This is effective for reducing noise in video streams while preserving
+/// motion detail. Higher levels provide more noise reduction.
 #[derive(Debug, Copy, Clone)]
 pub enum NoiseReduction3DCommand {
+    /// Disable 3D noise reduction.
     Off,
-    Level(u8), // 1-8
+    /// Set 3D noise reduction level (1 = minimal, 8 = maximum).
+    Level(u8),
 }
 
 impl ViscaCommand for NoiseReduction3DCommand {
@@ -91,9 +108,12 @@ impl ViscaCommand for NoiseReduction3DCommand {
     }
 }
 
-/// Black and White Mode command
+/// Black and White Mode command.
+///
+/// Switches the camera output between color and monochrome (black and white) modes.
 #[derive(Debug, Copy, Clone)]
 pub struct BlackWhiteCommand {
+    /// Enable (true) for black and white mode, disable (false) for color mode.
     pub on: bool,
 }
 
@@ -112,16 +132,25 @@ impl ViscaCommand for BlackWhiteCommand {
     }
 }
 
-/// Combined Image Flip command (Horizontal + Vertical)
+/// Combined Image Flip modes.
+///
+/// Allows flipping the image horizontally, vertically, or both.
+/// Useful for when cameras are mounted upside down or need mirror effects.
 #[derive(Debug, Copy, Clone)]
 pub enum ImageFlipMode {
+    /// No image flipping.
     Off,
+    /// Flip image horizontally (mirror).
     Horizontal,
+    /// Flip image vertically (upside down).
     Vertical,
+    /// Flip image both horizontally and vertically (180° rotation).
     Both,
 }
 
+/// Command to set the combined image flip mode.
 pub struct ImageFlipCombinedCommand {
+    /// The flip mode to apply.
     pub mode: ImageFlipMode,
 }
 
