@@ -59,7 +59,10 @@ pub trait AsyncViscaExt {
     ///
     /// # Arguments
     /// * `preset_number` - Preset number (1-90)
-    fn save_current_position(&self, preset_number: u8) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
+    fn save_current_position(
+        &self,
+        preset_number: u8,
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
 
     /// Recall a preset position and optionally adjust zoom.
     ///
@@ -106,7 +109,11 @@ pub trait AsyncViscaExt {
     /// # Arguments
     /// * `zoom_level` - Target zoom level
     /// * `auto_focus` - Whether to enable auto-focus after zooming
-    fn frame_subject(&self, zoom_level: u16, auto_focus: bool) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
+    fn frame_subject(
+        &self,
+        zoom_level: u16,
+        auto_focus: bool,
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send;
 
     /// Reset camera to a neutral state.
     ///
@@ -116,7 +123,9 @@ pub trait AsyncViscaExt {
     /// Perform a quick health check of camera movement systems.
     ///
     /// Tests pan/tilt and zoom movement to verify camera responsiveness.
-    fn movement_health_check(&self) -> impl std::future::Future<Output = Result<bool, ViscaError>> + Send;
+    fn movement_health_check(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, ViscaError>> + Send;
 }
 
 /// Direction for pan scanning operations.
@@ -138,49 +147,52 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         zoom_level: u16,
     ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
         async move {
-        // Validate input ranges
-        if !(-1.0..=1.0).contains(&pan_percent) {
-            return Err(ViscaError::InvalidParameter(
-                "pan_percent must be between -1.0 and 1.0".to_string(),
-            ));
-        }
-        if !(-1.0..=1.0).contains(&tilt_percent) {
-            return Err(ViscaError::InvalidParameter(
-                "tilt_percent must be between -1.0 and 1.0".to_string(),
-            ));
-        }
+            // Validate input ranges
+            if !(-1.0..=1.0).contains(&pan_percent) {
+                return Err(ViscaError::InvalidParameter(
+                    "pan_percent must be between -1.0 and 1.0".to_string(),
+                ));
+            }
+            if !(-1.0..=1.0).contains(&tilt_percent) {
+                return Err(ViscaError::InvalidParameter(
+                    "tilt_percent must be between -1.0 and 1.0".to_string(),
+                ));
+            }
 
-        // Convert percentages to VISCA position values (assuming ±0x7FFF range)
-        let pan_position = (pan_percent * 32767.0) as i16;
-        let tilt_position = (tilt_percent * 32767.0) as i16;
+            // Convert percentages to VISCA position values (assuming ±0x7FFF range)
+            let pan_position = (pan_percent * 32767.0) as i16;
+            let tilt_position = (tilt_percent * 32767.0) as i16;
 
-        // Execute pan/tilt and zoom concurrently using PTZ builder
-        Arc::clone(self)
-            .ptz()
-            .pan_tilt_absolute(pan_position, tilt_position, 0x18, 0x14)? // Max speeds
-            .zoom_direct(zoom_level)
-            .execute_concurrent()
-            .await?;
+            // Execute pan/tilt and zoom concurrently using PTZ builder
+            Arc::clone(self)
+                .ptz()
+                .pan_tilt_absolute(pan_position, tilt_position, 0x18, 0x14)? // Max speeds
+                .zoom_direct(zoom_level)
+                .execute_concurrent()
+                .await?;
 
-        Ok(())
+            Ok(())
         }
     }
 
-    fn save_current_position(&self, preset_number: u8) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
+    fn save_current_position(
+        &self,
+        preset_number: u8,
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
         async move {
-        if preset_number == 0 || preset_number > 90 {
-            return Err(ViscaError::InvalidParameter(
-                "preset_number must be between 1 and 90".to_string(),
-            ));
-        }
+            if preset_number == 0 || preset_number > 90 {
+                return Err(ViscaError::InvalidParameter(
+                    "preset_number must be between 1 and 90".to_string(),
+                ));
+            }
 
-        let command = PresetCommand {
-            action: PresetAction::Set,
-            preset_number: PresetNumber::new(preset_number - 1)?, // VISCA uses 0-based indexing
-        };
+            let command = PresetCommand {
+                action: PresetAction::Set,
+                preset_number: PresetNumber::new(preset_number - 1)?, // VISCA uses 0-based indexing
+            };
 
-        self.send_async(&command).await?;
-        Ok(())
+            self.send_async(&command).await?;
+            Ok(())
         }
     }
 
@@ -190,29 +202,29 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         zoom_adjustment: Option<u16>,
     ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
         async move {
-        if preset_number == 0 || preset_number > 90 {
-            return Err(ViscaError::InvalidParameter(
-                "preset_number must be between 1 and 90".to_string(),
-            ));
-        }
+            if preset_number == 0 || preset_number > 90 {
+                return Err(ViscaError::InvalidParameter(
+                    "preset_number must be between 1 and 90".to_string(),
+                ));
+            }
 
-        // Recall the preset position
-        let command = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: PresetNumber::new(preset_number - 1)?, // VISCA uses 0-based indexing
-        };
-        self.send_async(&command).await?;
+            // Recall the preset position
+            let command = PresetCommand {
+                action: PresetAction::Recall,
+                preset_number: PresetNumber::new(preset_number - 1)?, // VISCA uses 0-based indexing
+            };
+            self.send_async(&command).await?;
 
-        // Apply zoom adjustment if specified
-        if let Some(zoom_level) = zoom_adjustment {
-            // Small delay to let preset recall complete
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            // Apply zoom adjustment if specified
+            if let Some(zoom_level) = zoom_adjustment {
+                // Small delay to let preset recall complete
+                tokio::time::sleep(Duration::from_millis(500)).await;
 
-            let zoom_command = ZoomCommand::Direct(zoom_level);
-            self.send_async(&zoom_command).await?;
-        }
+                let zoom_command = ZoomCommand::Direct(zoom_level);
+                self.send_async(&zoom_command).await?;
+            }
 
-        Ok(())
+            Ok(())
         }
     }
 
@@ -222,27 +234,27 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         delay_between: Option<Duration>,
     ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
         async move {
-        let delay = delay_between.unwrap_or(Duration::from_secs(2));
+            let delay = delay_between.unwrap_or(Duration::from_secs(2));
 
-        for &preset_number in preset_numbers {
-            if preset_number == 0 || preset_number > 90 {
-                return Err(ViscaError::InvalidParameter(format!(
-                    "preset_number {} must be between 1 and 90",
-                    preset_number
-                )));
+            for &preset_number in preset_numbers {
+                if preset_number == 0 || preset_number > 90 {
+                    return Err(ViscaError::InvalidParameter(format!(
+                        "preset_number {} must be between 1 and 90",
+                        preset_number
+                    )));
+                }
+
+                let command = PresetCommand {
+                    action: PresetAction::Recall,
+                    preset_number: PresetNumber::new(preset_number - 1)?, // VISCA uses 0-based indexing
+                };
+                self.send_async(&command).await?;
+
+                // Wait before moving to next position
+                tokio::time::sleep(delay).await;
             }
 
-            let command = PresetCommand {
-                action: PresetAction::Recall,
-                preset_number: PresetNumber::new(preset_number - 1)?, // VISCA uses 0-based indexing
-            };
-            self.send_async(&command).await?;
-
-            // Wait before moving to next position
-            tokio::time::sleep(delay).await;
-        }
-
-        Ok(())
+            Ok(())
         }
     }
 
@@ -253,112 +265,118 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         direction: PanScanDirection,
     ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
         async move {
-        let pan_speed = PanSpeed::new(speed.min(0x18))?;
-        let tilt_speed = TiltSpeed::new(0)?; // No tilt movement
+            let pan_speed = PanSpeed::new(speed.min(0x18))?;
+            let tilt_speed = TiltSpeed::new(0)?; // No tilt movement
 
-        let pan_direction = match direction {
-            PanScanDirection::Left => PanTiltDirection::Left,
-            PanScanDirection::Right => PanTiltDirection::Right,
-        };
+            let pan_direction = match direction {
+                PanScanDirection::Left => PanTiltDirection::Left,
+                PanScanDirection::Right => PanTiltDirection::Right,
+            };
 
-        // Start panning
-        let move_command = PanTiltCommand::Move {
-            direction: pan_direction,
-            pan_speed,
-            tilt_speed,
-        };
-        self.send_async(&move_command).await?;
+            // Start panning
+            let move_command = PanTiltCommand::Move {
+                direction: pan_direction,
+                pan_speed,
+                tilt_speed,
+            };
+            self.send_async(&move_command).await?;
 
-        // Continue for specified duration
-        tokio::time::sleep(duration).await;
+            // Continue for specified duration
+            tokio::time::sleep(duration).await;
 
-        // Stop panning
-        let stop_command = PanTiltCommand::Move {
-            direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0)?,
-            tilt_speed: TiltSpeed::new(0)?,
-        };
-        self.send_async(&stop_command).await?;
+            // Stop panning
+            let stop_command = PanTiltCommand::Move {
+                direction: PanTiltDirection::Stop,
+                pan_speed: PanSpeed::new(0)?,
+                tilt_speed: TiltSpeed::new(0)?,
+            };
+            self.send_async(&stop_command).await?;
 
-        Ok(())
+            Ok(())
         }
     }
 
-    fn frame_subject(&self, zoom_level: u16, auto_focus: bool) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
+    fn frame_subject(
+        &self,
+        zoom_level: u16,
+        auto_focus: bool,
+    ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
         async move {
-        let mut builder = Arc::clone(self).ptz().zoom_direct(zoom_level);
+            let mut builder = Arc::clone(self).ptz().zoom_direct(zoom_level);
 
-        if auto_focus {
-            builder = builder.focus_auto();
-        }
+            if auto_focus {
+                builder = builder.focus_auto();
+            }
 
-        builder.execute_sequential_async().await?;
-        Ok(())
+            builder.execute_sequential_async().await?;
+            Ok(())
         }
     }
 
     fn reset_to_neutral(&self) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
         async move {
-        Arc::clone(self)
-            .ptz()
-            .pan_tilt_home()
-            .zoom_direct(0x0000) // Wide zoom
-            .focus_auto()
-            .execute_sequential_async()
-            .await?;
+            Arc::clone(self)
+                .ptz()
+                .pan_tilt_home()
+                .zoom_direct(0x0000) // Wide zoom
+                .focus_auto()
+                .execute_sequential_async()
+                .await?;
 
-        Ok(())
+            Ok(())
         }
     }
 
-    fn movement_health_check(&self) -> impl std::future::Future<Output = Result<bool, ViscaError>> + Send {
+    fn movement_health_check(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, ViscaError>> + Send {
         async move {
-        // Test basic connectivity first
-        if !self.is_healthy().await? {
-            return Ok(false);
-        }
+            // Test basic connectivity first
+            if !self.is_healthy().await? {
+                return Ok(false);
+            }
 
-        // Test pan/tilt movement
-        let pan_test = async {
-            // Small movement right
-            let move_right = PanTiltCommand::Move {
-                direction: PanTiltDirection::Right,
-                pan_speed: PanSpeed::new(0x08)?,
-                tilt_speed: TiltSpeed::new(0)?,
+            // Test pan/tilt movement
+            let pan_test = async {
+                // Small movement right
+                let move_right = PanTiltCommand::Move {
+                    direction: PanTiltDirection::Right,
+                    pan_speed: PanSpeed::new(0x08)?,
+                    tilt_speed: TiltSpeed::new(0)?,
+                };
+                self.send_async(&move_right).await?;
+
+                tokio::time::sleep(Duration::from_millis(200)).await;
+
+                // Stop movement
+                let stop = PanTiltCommand::Move {
+                    direction: PanTiltDirection::Stop,
+                    pan_speed: PanSpeed::new(0)?,
+                    tilt_speed: TiltSpeed::new(0)?,
+                };
+                self.send_async(&stop).await?;
+
+                Ok::<(), ViscaError>(())
             };
-            self.send_async(&move_right).await?;
 
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            // Test zoom movement
+            let zoom_test = async {
+                // Zoom in slightly
+                self.send_async(&ZoomCommand::TeleVariable(ZoomSpeed::new(3)?))
+                    .await?;
+                tokio::time::sleep(Duration::from_millis(200)).await;
 
-            // Stop movement
-            let stop = PanTiltCommand::Move {
-                direction: PanTiltDirection::Stop,
-                pan_speed: PanSpeed::new(0)?,
-                tilt_speed: TiltSpeed::new(0)?,
+                // Stop zoom
+                self.send_async(&ZoomCommand::Stop).await?;
+
+                Ok::<(), ViscaError>(())
             };
-            self.send_async(&stop).await?;
 
-            Ok::<(), ViscaError>(())
-        };
-
-        // Test zoom movement
-        let zoom_test = async {
-            // Zoom in slightly
-            self.send_async(&ZoomCommand::TeleVariable(ZoomSpeed::new(3)?))
-                .await?;
-            tokio::time::sleep(Duration::from_millis(200)).await;
-
-            // Stop zoom
-            self.send_async(&ZoomCommand::Stop).await?;
-
-            Ok::<(), ViscaError>(())
-        };
-
-        // Run tests concurrently
-        match tokio::try_join!(pan_test, zoom_test) {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false),
-        }
+            // Run tests concurrently
+            match tokio::try_join!(pan_test, zoom_test) {
+                Ok(_) => Ok(true),
+                Err(_) => Ok(false),
+            }
         }
     }
 }

@@ -192,10 +192,16 @@ impl ViscaConnectionPool {
             let connections = self.connections.lock().unwrap();
             connections
                 .values()
-                .map(|conn| (conn.camera_info.clone(), conn.last_used, conn.client.clone()))
+                .map(|conn| {
+                    (
+                        conn.camera_info.clone(),
+                        conn.last_used,
+                        conn.client.clone(),
+                    )
+                })
                 .collect()
         };
-        
+
         // Now check health without holding the lock
         camera_data
             .into_iter()
@@ -222,12 +228,14 @@ impl ViscaConnectionPool {
         };
 
         let mut results = HashMap::new();
-        
+
         // Now check each camera without holding the main lock
         for camera_id in camera_ids {
             let is_healthy = {
                 let connections = self.connections.lock().unwrap();
-                connections.get(&camera_id).is_some_and(|conn| conn.client.is_healthy_blocking().unwrap_or(false))
+                connections
+                    .get(&camera_id)
+                    .is_some_and(|conn| conn.client.is_healthy_blocking().unwrap_or(false))
             };
             results.insert(camera_id, is_healthy);
         }
@@ -364,12 +372,18 @@ impl AsyncViscaConnectionPool {
             let connections = self.connections.lock().await;
             connections
                 .values()
-                .map(|conn| (conn.camera_info.clone(), conn.last_used, conn.client.clone()))
+                .map(|conn| {
+                    (
+                        conn.camera_info.clone(),
+                        conn.last_used,
+                        conn.client.clone(),
+                    )
+                })
                 .collect()
         };
 
         let mut stats = Vec::new();
-        
+
         // Now check health without holding the lock
         for (info, last_used, client) in camera_data {
             let is_healthy = client.is_healthy().await.unwrap_or(false);
@@ -392,7 +406,7 @@ impl AsyncViscaConnectionPool {
         };
 
         let mut results = HashMap::new();
-        
+
         // Now check each camera without holding the main lock
         for camera_id in camera_ids {
             let is_healthy = {
