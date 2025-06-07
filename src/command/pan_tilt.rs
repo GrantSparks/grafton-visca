@@ -63,6 +63,9 @@ pub enum PanTiltDirection {
 }
 
 impl PanTiltDirection {
+    /// Converts the direction to its VISCA byte representation.
+    ///
+    /// Returns a tuple of (pan_direction, tilt_direction) bytes.
     pub const fn to_bytes(self) -> (u8, u8) {
         match self {
             PanTiltDirection::Up => (0x03, 0x01),
@@ -94,20 +97,37 @@ pub enum PanTiltCommand {
     Reset,
     /// Move camera in specified direction with given speeds.
     Move {
+        /// Direction of movement (8 directions + stop).
         direction: PanTiltDirection,
+        /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
+        /// Tilt movement speed (0x00-0x14).
         tilt_speed: TiltSpeed,
     },
+    /// Move camera to an absolute pan/tilt position.
+    ///
+    /// The pan and tilt values specify exact coordinates to move to.
     AbsolutePosition {
+        /// Absolute pan position to move to.
         pan: i16,
+        /// Absolute tilt position to move to.
         tilt: i16,
+        /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
+        /// Tilt movement speed (0x00-0x14).
         tilt_speed: TiltSpeed,
     },
+    /// Move camera relative to its current position.
+    ///
+    /// The pan and tilt values specify the offset from the current position.
     RelativePosition {
+        /// Relative pan movement amount.
         pan: i16,
+        /// Relative tilt movement amount.
         tilt: i16,
+        /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
+        /// Tilt movement speed (0x00-0x14).
         tilt_speed: TiltSpeed,
     },
 }
@@ -488,12 +508,22 @@ pub enum LimitCorner {
 /// This prevents the camera from moving beyond specified positions.
 #[derive(Debug)]
 pub enum PanTiltLimitCommand {
+    /// Set a movement limit at the specified corner position.
+    ///
+    /// This establishes a boundary that the camera cannot move beyond.
     Set {
+        /// Which corner to set the limit for (DownLeft or UpRight).
         corner: LimitCorner,
+        /// Pan position for the limit.
         pan: i16,
+        /// Tilt position for the limit.
         tilt: i16,
     },
+    /// Clear the movement limit for the specified corner.
+    ///
+    /// This removes the boundary, allowing full range of movement.
     Clear {
+        /// Which corner limit to clear (DownLeft or UpRight).
         corner: LimitCorner,
     },
 }
