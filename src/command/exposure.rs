@@ -16,12 +16,18 @@ use crate::{
     timeout::CommandCategory,
 };
 
+/// Camera exposure control modes.
 #[derive(Debug, Copy, Clone)]
 pub enum ExposureMode {
+    /// Automatic exposure control - camera adjusts all exposure parameters automatically
     Auto = 0x00,
+    /// Manual exposure control - user has full control over exposure parameters
     Manual = 0x03,
+    /// Shutter priority mode - user controls shutter speed, camera adjusts other parameters
     Shutter = 0x0A,
+    /// Iris priority mode - user controls iris/aperture, camera adjusts other parameters
     Iris = 0x0B,
+    /// Brightness priority mode - user controls brightness level, camera adjusts other parameters
     Bright = 0x0D,
 }
 
