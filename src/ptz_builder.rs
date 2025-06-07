@@ -64,6 +64,7 @@ impl PtzBuilder {
     /// * `direction` - Direction to move (can be borrowed)
     /// * `pan_speed` - Pan speed (can be borrowed)
     /// * `tilt_speed` - Tilt speed (can be borrowed)
+    #[must_use]
     pub fn pan_tilt_move(
         mut self,
         direction: impl Into<PanTiltDirection> + Copy,
@@ -80,12 +81,14 @@ impl PtzBuilder {
     }
 
     /// Add a pan/tilt home command.
+    #[must_use]
     pub fn pan_tilt_home(mut self) -> Self {
         self.commands.push(Box::new(PanTiltCommand::Home));
         self
     }
 
     /// Add a pan/tilt reset command.
+    #[must_use]
     pub fn pan_tilt_reset(mut self) -> Self {
         self.commands.push(Box::new(PanTiltCommand::Reset));
         self
@@ -142,6 +145,7 @@ impl PtzBuilder {
     }
 
     /// Add a zoom stop command.
+    #[must_use]
     pub fn zoom_stop(mut self) -> Self {
         self.commands.push(Box::new(ZoomCommand::Stop));
         self
@@ -177,36 +181,42 @@ impl PtzBuilder {
     ///
     /// # Arguments
     /// * `position` - Zoom position (0x0000 to 0xFFFF)
+    #[must_use]
     pub fn zoom_direct(mut self, position: u16) -> Self {
         self.commands.push(Box::new(ZoomCommand::Direct(position)));
         self
     }
 
     /// Add a focus near command.
+    #[must_use]
     pub fn focus_near(mut self) -> Self {
         self.commands.push(Box::new(FocusCommand::NearStandard));
         self
     }
 
     /// Add a focus far command.
+    #[must_use]
     pub fn focus_far(mut self) -> Self {
         self.commands.push(Box::new(FocusCommand::FarStandard));
         self
     }
 
     /// Add a focus stop command.
+    #[must_use]
     pub fn focus_stop(mut self) -> Self {
         self.commands.push(Box::new(FocusCommand::Stop));
         self
     }
 
     /// Add a focus auto command.
+    #[must_use]
     pub fn focus_auto(mut self) -> Self {
         self.commands.push(Box::new(FocusCommand::Auto));
         self
     }
 
     /// Add a focus manual command.
+    #[must_use]
     pub fn focus_manual(mut self) -> Self {
         self.commands.push(Box::new(FocusCommand::Manual));
         self
@@ -215,6 +225,7 @@ impl PtzBuilder {
     /// Add a custom command to the sequence.
     ///
     /// This allows adding any command that implements `ViscaCommand` + Send + Sync.
+    #[must_use]
     pub fn custom_command(mut self, command: Box<dyn ViscaCommand + Send + Sync>) -> Self {
         self.commands.push(command);
         self
@@ -283,6 +294,7 @@ impl PtzBuilder {
     }
 
     /// Clear all commands from the sequence.
+    #[must_use]
     pub fn clear(mut self) -> Self {
         self.commands.clear();
         self
