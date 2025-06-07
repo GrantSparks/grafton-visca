@@ -60,6 +60,7 @@ impl AsyncUdpTransport {
     }
 
     /// Get connection statistics
+    #[must_use]
     pub const fn stats(&self) -> &ConnectionStats {
         &self.stats
     }
@@ -70,6 +71,7 @@ impl AsyncUdpTransport {
     }
 
     /// Get the timeout configuration
+    #[must_use]
     pub fn timeout_config(&self) -> Option<&TimeoutConfig> {
         self.timeout_config.as_ref()
     }

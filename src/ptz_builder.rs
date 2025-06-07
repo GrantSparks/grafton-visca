@@ -284,11 +284,13 @@ impl PtzBuilder {
     }
 
     /// Get the number of commands in the sequence.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.commands.len()
     }
 
     /// Check if the command sequence is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
     }

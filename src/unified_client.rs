@@ -428,6 +428,7 @@ pub trait ViscaClientPtzExt {
     ///     .unwrap();
     /// # }
     /// ```
+    #[must_use]
     fn ptz(self) -> PtzBuilder;
 }
 

@@ -26,6 +26,7 @@ pub struct ViscaSession {
 
 impl ViscaSession {
     /// Creates a new VISCA session with no pending commands.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             pending_commands: HashMap::new(),
@@ -160,6 +161,7 @@ impl ViscaSession {
     }
 
     /// Checks if a socket has been acknowledged
+    #[must_use]
     pub fn is_acknowledged(&self, socket_id: u8) -> bool {
         self.pending_commands
             .get(&socket_id)
@@ -167,21 +169,25 @@ impl ViscaSession {
     }
 
     /// Gets the number of pending commands
+    #[must_use]
     pub fn pending_count(&self) -> usize {
         self.pending_commands.len()
     }
 
     /// Checks if all sockets are in use
+    #[must_use]
     pub fn is_full(&self) -> bool {
         self.pending_commands.len() >= 2
     }
 
     /// Checks if a socket is complete (not in use)
+    #[must_use]
     pub fn is_complete(&self, socket_id: u8) -> bool {
         !self.pending_commands.contains_key(&socket_id)
     }
 
     /// Gets a list of currently pending socket IDs
+    #[must_use]
     pub fn get_pending_sockets(&self) -> Vec<u8> {
         self.pending_commands.keys().copied().collect()
     }

@@ -67,6 +67,7 @@ impl AsyncTcpTransport {
     }
 
     /// Get connection statistics
+    #[must_use]
     pub const fn stats(&self) -> &ConnectionStats {
         &self.stats
     }
@@ -77,6 +78,7 @@ impl AsyncTcpTransport {
     }
 
     /// Get the timeout configuration
+    #[must_use]
     pub fn timeout_config(&self) -> Option<&TimeoutConfig> {
         self.timeout_config.as_ref()
     }
