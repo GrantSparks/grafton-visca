@@ -13,17 +13,29 @@ use crate::{
     timeout::CommandCategory,
 };
 
+/// White balance modes.
+///
+/// Controls how the camera adjusts color temperature to ensure
+/// white objects appear white under different lighting conditions.
 #[derive(Debug, Copy, Clone)]
 pub enum WhiteBalanceMode {
+    /// Automatic white balance adjustment.
     Auto = 0x00,
+    /// Indoor preset (optimized for incandescent/tungsten lighting).
     Indoor = 0x01,
+    /// Outdoor preset (optimized for daylight).
     Outdoor = 0x02,
+    /// One-push white balance (calibrate once based on current scene).
     OnePush = 0x03,
+    /// Manual white balance control.
     Manual = 0x05,
+    /// Color temperature mode (specify exact color temperature).
     ColorTemperature = 0x20,
 }
 
+/// Command to set the white balance mode.
 pub struct WhiteBalanceCommand {
+    /// The white balance mode to set.
     pub mode: WhiteBalanceMode,
 }
 
