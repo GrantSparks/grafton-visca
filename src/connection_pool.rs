@@ -463,12 +463,12 @@ impl AsyncViscaConnectionPool {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-    use super::{CameraInfo, ConnectionType, PoolConfig};
-    #[cfg(feature = "blocking-client")]
-    use super::ViscaConnectionPool;
     #[cfg(feature = "async-client")]
     use super::AsyncViscaConnectionPool;
+    #[cfg(feature = "blocking-client")]
+    use super::ViscaConnectionPool;
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+    use super::{CameraInfo, ConnectionType, PoolConfig};
 
     #[test]
     #[cfg(feature = "blocking-client")]
