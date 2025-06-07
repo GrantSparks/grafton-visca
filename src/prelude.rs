@@ -9,7 +9,11 @@
 //! ```
 
 // Core types
-pub use crate::{ViscaClient, ViscaClientPtzExt, ViscaDevice, ViscaError, ViscaResponse};
+pub use crate::{ViscaDevice, ViscaError, ViscaResponse};
+
+// Client types (feature-gated)
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub use crate::{ViscaClient, ViscaClientPtzExt};
 
 // Parameter types
 pub use crate::{
