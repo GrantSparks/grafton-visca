@@ -42,14 +42,23 @@ use crate::{
 /// Represents the 8 directional movements plus stop.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PanTiltDirection {
+    /// Move camera upward (tilt up) while maintaining pan position.
     Up,
+    /// Move camera downward (tilt down) while maintaining pan position.
     Down,
+    /// Move camera leftward (pan left) while maintaining tilt position.
     Left,
+    /// Move camera rightward (pan right) while maintaining tilt position.
     Right,
+    /// Move camera diagonally up and to the left.
     UpLeft,
+    /// Move camera diagonally up and to the right.
     UpRight,
+    /// Move camera diagonally down and to the left.
     DownLeft,
+    /// Move camera diagonally down and to the right.
     DownRight,
+    /// Stop all pan/tilt movement.
     Stop,
 }
 
@@ -467,7 +476,9 @@ impl From<TiltSpeed> for u8 {
 /// Used to define the movement boundaries of the camera.
 #[derive(Debug, Copy, Clone)]
 pub enum LimitCorner {
+    /// Lower-left corner boundary position (minimum pan/tilt values).
     DownLeft = 0,
+    /// Upper-right corner boundary position (maximum pan/tilt values).
     UpRight = 1,
 }
 
