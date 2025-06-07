@@ -22,7 +22,6 @@
 #![allow(
     clippy::use_self,                // TODO: 160+ instances need systematic refactor
     clippy::must_use_candidate,      // TODO: Add #[must_use] where appropriate
-    clippy::too_many_lines,          // TODO: Refactor parse_visca_response
     clippy::missing_panics_doc,      // TODO: Add # Panics sections to docs
 )]
 //!
