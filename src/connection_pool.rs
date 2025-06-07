@@ -80,10 +80,12 @@ pub enum ConnectionType {
 // Provide a stub when features are disabled to prevent breaking the public API
 #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
 /// A pool of VISCA camera connections (requires blocking-client or async-client feature).
+#[derive(Debug, Clone, Copy)]
 pub struct ViscaConnectionPool;
 
 #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
 /// Async-specific connection pool (requires async-client feature).
+#[derive(Debug, Clone, Copy)]
 pub struct AsyncViscaConnectionPool;
 
 /// A pool of VISCA camera connections using the unified `ViscaClient`.
