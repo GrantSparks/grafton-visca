@@ -628,7 +628,7 @@ pub trait ViscaInquiryExt: ViscaDevice {
 impl<T: ViscaDevice + ?Sized> ViscaInquiryExt for T {}
 
 /// Complete camera state snapshot.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct CameraState {
     /// Power state (on/off)
     pub power: bool,

@@ -37,6 +37,7 @@ impl Default for PoolConfig {
 
 /// A pooled connection that tracks usage and health.
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+#[derive(Debug)]
 struct PooledConnection {
     client: ViscaClient,
     last_used: Instant,
@@ -90,6 +91,7 @@ pub struct AsyncViscaConnectionPool;
 /// This pool manages multiple camera connections and provides convenient
 /// methods for executing commands on specific cameras.
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+#[derive(Debug)]
 pub struct ViscaConnectionPool {
     connections: Arc<Mutex<HashMap<String, PooledConnection>>>,
     config: PoolConfig,
@@ -313,6 +315,7 @@ impl ViscaConnectionPool {
 ///
 /// This provides async methods when the async-client feature is enabled.
 #[cfg(feature = "async-client")]
+#[derive(Debug)]
 pub struct AsyncViscaConnectionPool {
     connections: Arc<tokio::sync::Mutex<HashMap<String, PooledConnection>>>,
     config: PoolConfig,
@@ -354,7 +357,7 @@ impl AsyncViscaConnectionPool {
             camera_info: info,
         };
 
-        self.connections.lock().await.insert(camera_id, pooled);
+        let _ = self.connections.lock().await.insert(camera_id, pooled);
         Ok(())
     }
 
