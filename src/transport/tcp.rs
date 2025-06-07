@@ -61,7 +61,9 @@ impl TcpTransport {
     ///
     /// Returns an error if the connection cannot be established or if the address cannot be parsed.
     pub fn with_timeout(address: &str, timeout: Duration) -> io::Result<Self> {
-        let stream = TcpStream::connect_timeout(&address.parse().unwrap(), timeout)?;
+        let socket_addr = address.parse()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid address: {e}")))?;
+        let stream = TcpStream::connect_timeout(&socket_addr, timeout)?;
         stream.set_read_timeout(Some(timeout))?;
         stream.set_write_timeout(Some(timeout))?;
         Ok(Self {

@@ -411,13 +411,15 @@ fn parse_simple_value(
             ))
         }
         SimpleValueType::RedGain => {
-            let gain = (response[2] as i8) - 10;
+            let gain = i16::from(response[2]) - 10;
+            let gain = gain as i8; // Safe: VISCA gain values are in valid range
             Ok(ViscaResponse::InquiryResponse(
                 ViscaInquiryResponse::RedGain { gain },
             ))
         }
         SimpleValueType::BlueGain => {
-            let gain = (response[2] as i8) - 10;
+            let gain = i16::from(response[2]) - 10;
+            let gain = gain as i8; // Safe: VISCA gain values are in valid range
             Ok(ViscaResponse::InquiryResponse(
                 ViscaInquiryResponse::BlueGain { gain },
             ))
@@ -486,7 +488,8 @@ fn parse_extended_value(
         }
         ExtendedValueType::ExposureCompensation => {
             let raw_value = response[5];
-            let value = (raw_value as i8) - 7;
+            let value = i16::from(raw_value) - 7;
+            let value = value as i8; // Safe: VISCA exposure compensation values are in valid range
             Ok(ViscaResponse::InquiryResponse(
                 ViscaInquiryResponse::ExposureCompensation { value },
             ))

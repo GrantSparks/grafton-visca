@@ -401,6 +401,7 @@ mod tests {
 }
 
 const fn position_to_bytes(position: i16) -> [u8; 4] {
+    // Convert to unsigned using bitwise representation (preserves bit pattern)
     let unsigned = position as u16;
     [
         ((unsigned >> 12) & 0x0F) as u8,
@@ -425,7 +426,6 @@ impl PanSpeed {
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 0x18.
-    #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
             Ok(Self(value))
@@ -467,7 +467,6 @@ impl TiltSpeed {
     ///
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if value > 0x14.
-    #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
             Ok(Self(value))

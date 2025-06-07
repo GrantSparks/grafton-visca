@@ -298,10 +298,10 @@ impl PositionConversion for DegreePosition {
         let pan_range = f32::from(pan_max - pan_min);
         let tilt_range = f32::from(tilt_max - tilt_min);
 
-        ViscaPosition {
-            pan: pan_ratio.mul_add(pan_range, f32::from(pan_min)) as i16,
-            tilt: tilt_ratio.mul_add(tilt_range, f32::from(tilt_min)) as i16,
-        }
+        let pan = pan_ratio.mul_add(pan_range, f32::from(pan_min)).round() as i16;
+        let tilt = tilt_ratio.mul_add(tilt_range, f32::from(tilt_min)).round() as i16;
+        
+        ViscaPosition { pan, tilt }
     }
 }
 
@@ -325,15 +325,15 @@ impl PositionConversion for NormalizedPosition {
         let (tilt_min, tilt_max) = model.tilt_range();
 
         let pan = if self.pan >= 0.0 {
-            (self.pan * f32::from(pan_max)) as i16
+            (self.pan * f32::from(pan_max)).round() as i16
         } else {
-            (self.pan * f32::from(-pan_min)) as i16
+            (self.pan * f32::from(-pan_min)).round() as i16
         };
 
         let tilt = if self.tilt >= 0.0 {
-            (self.tilt * f32::from(tilt_max)) as i16
+            (self.tilt * f32::from(tilt_max)).round() as i16
         } else {
-            (self.tilt * f32::from(-tilt_min)) as i16
+            (self.tilt * f32::from(-tilt_min)).round() as i16
         };
 
         ViscaPosition { pan, tilt }
@@ -458,7 +458,7 @@ pub fn validate_preset_id(id: u8) -> Result<u8, ViscaError> {
 #[inline]
 #[must_use]
 pub fn pan_normalized_to_visca(normalized: f32) -> i16 {
-    (normalized.clamp(-1.0, 1.0) * f32::from(position::PAN_MAX)) as i16
+    (normalized.clamp(-1.0, 1.0) * f32::from(position::PAN_MAX)).round() as i16
 }
 
 /// Convert VISCA pan units to normalized value (-1.0 to 1.0)
@@ -488,7 +488,7 @@ pub fn pan_visca_to_degrees(visca: i16) -> f32 {
 #[inline]
 #[must_use]
 pub fn tilt_normalized_to_visca(normalized: f32) -> i16 {
-    (normalized.clamp(-1.0, 1.0) * f32::from(position::TILT_MAX)) as i16
+    (normalized.clamp(-1.0, 1.0) * f32::from(position::TILT_MAX)).round() as i16
 }
 
 /// Convert VISCA tilt units to normalized value (-1.0 to 1.0)
@@ -518,7 +518,7 @@ pub fn tilt_visca_to_degrees(visca: i16) -> f32 {
 #[inline]
 #[must_use]
 pub fn zoom_normalized_to_visca(normalized: f32) -> u16 {
-    (normalized.clamp(0.0, 1.0) * f32::from(zoom::ZOOM_MAX_20X)) as u16
+    (normalized.clamp(0.0, 1.0) * f32::from(zoom::ZOOM_MAX_20X)).round() as u16
 }
 
 /// Convert VISCA zoom units to normalized value (0.0 to 1.0)
@@ -549,7 +549,7 @@ pub fn zoom_visca_to_magnification(visca: u16) -> f32 {
 #[must_use]
 pub fn focus_normalized_to_visca(normalized: f32) -> u16 {
     let range = f32::from(focus::FOCUS_MAX - focus::FOCUS_MIN);
-    focus::FOCUS_MIN + (normalized.clamp(0.0, 1.0) * range) as u16
+    focus::FOCUS_MIN + (normalized.clamp(0.0, 1.0) * range).round() as u16
 }
 
 /// Convert VISCA focus units to normalized value (0.0 to 1.0)
@@ -565,21 +565,21 @@ pub fn focus_visca_to_normalized(visca: u16) -> f32 {
 #[inline]
 #[must_use]
 pub fn pan_speed_normalized_to_visca(normalized: f32) -> u8 {
-    (normalized.clamp(0.0, 1.0) * f32::from(speed::PAN_SPEED_MAX)) as u8
+    (normalized.clamp(0.0, 1.0) * f32::from(speed::PAN_SPEED_MAX)).round() as u8
 }
 
 /// Convert speed normalized value (0.0 to 1.0) to VISCA tilt speed units
 #[inline]
 #[must_use]
 pub fn tilt_speed_normalized_to_visca(normalized: f32) -> u8 {
-    (normalized.clamp(0.0, 1.0) * f32::from(speed::TILT_SPEED_MAX)) as u8
+    (normalized.clamp(0.0, 1.0) * f32::from(speed::TILT_SPEED_MAX)).round() as u8
 }
 
 /// Convert speed normalized value (0.0 to 1.0) to VISCA zoom speed units
 #[inline]
 #[must_use]
 pub fn zoom_speed_normalized_to_visca(normalized: f32) -> u8 {
-    (normalized.clamp(0.0, 1.0) * f32::from(speed::ZOOM_SPEED_MAX)) as u8
+    (normalized.clamp(0.0, 1.0) * f32::from(speed::ZOOM_SPEED_MAX)).round() as u8
 }
 
 #[cfg(test)]

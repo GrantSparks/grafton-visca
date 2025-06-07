@@ -185,6 +185,9 @@ where
         state.current_retry_count = 0;
         let mut delay = self.config.initial_delay;
 
+        // Drop the lock before the reconnection loop
+        drop(state);
+        
         for attempt in 1..=self.config.max_retries {
             log::info!(
                 "Attempting to reconnect (attempt {}/{})",
@@ -197,15 +200,13 @@ where
                 max_attempts: self.config.max_retries,
             });
 
-            // Drop the lock before creating transport (which might take time)
-            drop(state);
-
             match (self.create_transport)().await {
                 Ok(transport) => {
-                    state = self.state.lock().await;
+                    let mut state = self.state.lock().await;
                     state.inner = Some(transport);
                     state.current_retry_count = 0;
                     state.last_successful_operation = Some(Instant::now());
+                    drop(state);
                     self.notify_event(ConnectionEvent::Connected);
                     log::info!("Reconnection successful");
                     return Ok(());
@@ -227,9 +228,6 @@ where
                                 .min(self.config.max_delay.as_secs_f64()),
                         );
                     }
-
-                    // Re-acquire lock for next iteration
-                    state = self.state.lock().await;
                 }
             }
         }
