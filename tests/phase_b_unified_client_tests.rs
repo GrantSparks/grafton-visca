@@ -84,7 +84,7 @@ mod tests {
         #[cfg(feature = "blocking-client")]
         {
             let client = ViscaClient::connect_udp("127.0.0.1:1234").unwrap();
-            let _clone = client.clone();
+            let _clone = client;
         }
     }
 

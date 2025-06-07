@@ -13,7 +13,7 @@ mod tests {
     }
 
     impl MockDevice {
-        fn new() -> Self {
+        const fn new() -> Self {
             Self {
                 responses: VecDeque::new(),
             }

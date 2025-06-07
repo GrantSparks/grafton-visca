@@ -11,7 +11,7 @@ struct MockDevice {
 }
 
 impl MockDevice {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             sent_commands: Vec::new(),
         }

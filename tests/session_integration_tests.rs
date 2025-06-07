@@ -86,7 +86,7 @@ fn test_command_buffer_full_handling() {
 
 #[test]
 fn test_inquiry_no_socket_usage() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
 
     // Inquiry commands get direct responses without socket assignment
     transport.add_response(vec![0x90, 0x50, 0x02, 0xFF]); // Power On response

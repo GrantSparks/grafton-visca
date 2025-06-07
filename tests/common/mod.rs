@@ -55,7 +55,7 @@ impl MockTransport {
     }
 
     /// Add a response to the queue.
-    pub fn add_response(&mut self, response: Vec<u8>) {
+    pub fn add_response(&self, response: Vec<u8>) {
         self.responses.lock().unwrap().push_back(response);
     }
 
@@ -81,7 +81,7 @@ impl MockTransport {
     }
 
     /// Clear all sent commands.
-    pub fn clear_commands(&mut self) {
+    pub fn clear_commands(&self) {
         self.commands_sent.lock().unwrap().clear();
     }
 }
@@ -103,8 +103,7 @@ impl BlockingTransport for MockTransport {
         if self.fail_send {
             Err(ViscaError::Io(std::io::Error::other("Mock send error")))
         } else {
-            let mut commands = self.commands_sent.lock().unwrap();
-            commands.push(command.to_bytes()?);
+            self.commands_sent.lock().unwrap().push(command.to_bytes()?);
             Ok(())
         }
     }
@@ -114,11 +113,9 @@ impl BlockingTransport for MockTransport {
             Err(ViscaError::Io(std::io::Error::other("Mock receive error")))
         } else {
             let mut responses = self.responses.lock().unwrap();
-            if let Some(response) = responses.pop_front() {
-                Ok(vec![response])
-            } else {
-                Err(ViscaError::Timeout)
-            }
+            responses
+                .pop_front()
+                .map_or(Err(ViscaError::Timeout), |response| Ok(vec![response]))
         }
     }
 }
@@ -148,7 +145,7 @@ impl MockDevice {
     }
 
     /// Create from a custom mock transport.
-    pub fn from_transport(transport: MockTransport) -> Self {
+    pub const fn from_transport(transport: MockTransport) -> Self {
         Self {
             transport: BlockingAdapter(transport),
         }
@@ -395,8 +392,7 @@ mod async_mock {
                 }
 
                 let bytes = command.to_bytes()?;
-                let mut sent = self.sent_commands.lock().await;
-                sent.push(bytes);
+                self.sent_commands.lock().await.push(bytes);
 
                 sleep(Duration::from_millis(self.delay_ms)).await;
                 Ok(())

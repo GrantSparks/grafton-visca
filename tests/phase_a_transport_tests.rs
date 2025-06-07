@@ -31,10 +31,10 @@ mod tests {
     }
 
     #[test]
-    fn test_transport_trait_exists() {
+    const fn test_transport_trait_exists() {
         // This test verifies that the Transport trait exists and is usable
         #[allow(dead_code)]
-        fn accepts_transport<T: Transport>(_t: &T) {}
+        const fn accepts_transport<T: Transport>(_t: &T) {}
 
         // The test passes if this compiles
     }
@@ -58,7 +58,7 @@ mod tests {
             }
         }
 
-        fn accepts_transport<T: Transport>(_t: &T) {}
+        const fn accepts_transport<T: Transport>(_t: &T) {}
 
         let transport = MockBlockingTransport;
         let adapter = BlockingAdapter(transport);

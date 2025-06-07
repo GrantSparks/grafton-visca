@@ -31,8 +31,7 @@ async fn test_session_concurrent_commands() {
     assert_eq!(socket2, 1);
 
     // Try to assign a third socket (should fail)
-    let mut session = session.lock().await;
-    let result = session.assign_socket(None);
+    let result = session.lock().await.assign_socket(None);
     assert!(matches!(result, Err(ViscaError::CommandBufferFull)));
 }
 
@@ -53,20 +52,23 @@ async fn test_session_ack_completion_flow() {
         let result = session.process_response(&ack_response).unwrap();
         assert!(matches!(result, Some((sid, ViscaResponse::Ack)) if sid == socket_id));
         assert!(session.is_acknowledged(socket_id));
+        drop(session);
     }
 
     // Send Completion
     let completion_response = vec![0x90, 0x50 | socket_id, 0xFF];
     {
-        let mut session = session.lock().await;
-        let result = session.process_response(&completion_response).unwrap();
+        let result = session
+            .lock()
+            .await
+            .process_response(&completion_response)
+            .unwrap();
         assert!(matches!(result, Some((sid, ViscaResponse::Completion)) if sid == socket_id));
     }
 
     // Socket should still be allocated after completion (requires explicit release)
     {
-        let session = session.lock().await;
-        assert_eq!(session.pending_count(), 1);
+        assert_eq!(session.lock().await.pending_count(), 1);
     }
 
     // Release the socket
@@ -74,6 +76,7 @@ async fn test_session_ack_completion_flow() {
         let mut session = session.lock().await;
         session.release_socket(socket_id);
         assert_eq!(session.pending_count(), 0);
+        drop(session);
     }
 }
 
@@ -90,8 +93,11 @@ async fn test_session_error_handling() {
     // Send error response
     let error_response = vec![0x90, 0x60 | socket_id, 0x03, 0xFF]; // Command buffer full
     {
-        let mut session = session.lock().await;
-        let result = session.process_response(&error_response).unwrap();
+        let result = session
+            .lock()
+            .await
+            .process_response(&error_response)
+            .unwrap();
         assert!(matches!(
             result,
             Some((sid, ViscaResponse::Error(ViscaError::CommandBufferFull))) if sid == socket_id
@@ -100,8 +106,7 @@ async fn test_session_error_handling() {
 
     // Socket should still be allocated after error (requires explicit release)
     {
-        let session = session.lock().await;
-        assert_eq!(session.pending_count(), 1);
+        assert_eq!(session.lock().await.pending_count(), 1);
     }
 
     // Release the socket
@@ -109,6 +114,7 @@ async fn test_session_error_handling() {
         let mut session = session.lock().await;
         session.release_socket(socket_id);
         assert_eq!(session.pending_count(), 0);
+        drop(session);
     }
 }
 
@@ -127,8 +133,11 @@ async fn test_session_inquiry_response() {
     // Send inquiry response
     let inquiry_response = vec![0x90, 0x50 | socket_id, 0x01, 0x02, 0x03, 0x04, 0xFF];
     {
-        let mut session = session.lock().await;
-        let result = session.process_response(&inquiry_response).unwrap();
+        let result = session
+            .lock()
+            .await
+            .process_response(&inquiry_response)
+            .unwrap();
         match result {
             Some((
                 sid,

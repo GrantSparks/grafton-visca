@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "blocking-client")]
     {
         println!("\n📋 Blocking Error Handling Examples:");
-        blocking_error_handling_examples()?;
+        blocking_error_handling_examples();
     }
 
     // Demonstrate async error handling if feature is enabled
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(feature = "blocking-client")]
-fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
+fn blocking_error_handling_examples() {
     use std::cell::Cell;
 
     println!("1. Basic Error Context with ViscaResultExt");
@@ -167,8 +167,6 @@ fn blocking_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> 
             println!("   💡 To test with a real camera, see the control_demo example");
         }
     }
-
-    Ok(())
 }
 
 #[cfg(feature = "async-client")]

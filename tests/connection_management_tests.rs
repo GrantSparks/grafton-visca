@@ -164,7 +164,8 @@ mod tests {
         stats1.record_sent(100);
         stats1.record_error();
 
-        let stats2 = stats1.clone();
+        #[allow(clippy::redundant_clone)]
+        let stats2 = stats1.clone(); // Needed to test shared state
 
         // Both should have same values initially
         let snapshot1 = stats1.snapshot();
