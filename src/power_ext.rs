@@ -16,7 +16,10 @@ pub trait ViscaPowerExt: ViscaDevice {
     /// # Returns
     /// * `Ok(true)` - Camera is powered on
     /// * `Ok(false)` - Camera is powered off or in standby
-    /// * `Err(_)` - Communication error
+    ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::UnexpectedResponseType` - Camera returned unexpected response format
     ///
     /// # Example
     /// ```no_run
@@ -53,6 +56,10 @@ pub trait ViscaPowerExt: ViscaDevice {
     /// # Arguments
     /// * `wait_duration` - How long to wait between power off and power on
     ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Failed to power off or power on the camera
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPowerExt};
@@ -86,7 +93,11 @@ pub trait ViscaPowerExt: ViscaDevice {
     /// # Returns
     /// * `Ok(true)` - Camera was already powered on
     /// * `Ok(false)` - Camera was powered off and has been powered on
-    /// * `Err(_)` - Communication error or failed to power on
+    ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Failed to power on the camera
+    /// * `ViscaError::UnexpectedResponseType` - Camera returned unexpected response format
     ///
     /// # Example
     /// ```no_run
@@ -124,6 +135,10 @@ pub trait ViscaPowerExt: ViscaDevice {
     /// # Arguments
     /// * `timeout` - Maximum time to wait for camera to be ready
     /// * `check_interval` - How often to check the power status
+    ///
+    /// # Errors
+    /// * `ViscaError::Timeout` - Camera did not power on within the specified timeout
+    /// * `ViscaError::NetworkError` - Communication error while checking power status
     ///
     /// # Example
     /// ```no_run

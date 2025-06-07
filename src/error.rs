@@ -955,11 +955,10 @@ mod tests {
         ];
 
         for error in retryable_errors {
-            assert!(error.is_retryable(), "Error should be retryable: {}", error);
+            assert!(error.is_retryable(), "Error should be retryable: {error}");
             assert!(
                 error.suggested_retry_delay().is_some(),
-                "Retryable error should have suggested delay: {}",
-                error
+                "Retryable error should have suggested delay: {error}"
             );
         }
 
@@ -977,13 +976,11 @@ mod tests {
         for error in non_retryable_errors {
             assert!(
                 !error.is_retryable(),
-                "Error should not be retryable: {}",
-                error
+                "Error should not be retryable: {error}"
             );
             assert!(
                 error.suggested_retry_delay().is_none(),
-                "Non-retryable error should not have suggested delay: {}",
-                error
+                "Non-retryable error should not have suggested delay: {error}"
             );
         }
     }

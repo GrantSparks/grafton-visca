@@ -25,6 +25,7 @@ pub struct ViscaSession {
 }
 
 impl ViscaSession {
+    /// Creates a new VISCA session with no pending commands.
     pub fn new() -> Self {
         Self {
             pending_commands: HashMap::new(),
