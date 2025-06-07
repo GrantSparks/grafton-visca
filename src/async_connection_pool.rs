@@ -183,12 +183,14 @@ where
     }
 
     /// Gets a list of all cameras in the pool.
+    #[must_use]
     pub async fn list_cameras(&self) -> Vec<String> {
         let connections = self.connections.read().await;
         connections.keys().cloned().collect()
     }
 
     /// Gets statistics for all cameras in the pool.
+    #[must_use]
     pub async fn get_all_stats(&self) -> Vec<AsyncPooledCameraStats> {
         let connections = self.connections.read().await;
         let mut stats = Vec::new();
@@ -277,6 +279,7 @@ where
     /// Starts a background task that periodically performs health checks and cleanup.
     ///
     /// Returns a handle that can be used to stop the background task.
+    #[must_use]
     pub fn start_maintenance_task(&self) -> tokio::task::JoinHandle<()> {
         let pool = Arc::new(self.connections.clone());
         let config = self.config.clone();
@@ -323,6 +326,7 @@ where
     T: AsyncViscaTransport + AsyncConnectionManagement,
 {
     /// Gets access to the underlying transport.
+    #[must_use]
     pub async fn transport(&self) -> tokio::sync::MutexGuard<'_, AsyncReconnectingTransport<T>> {
         self.transport.lock().await
     }

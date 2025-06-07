@@ -175,6 +175,7 @@ pub enum ViscaError {
 
 impl ViscaError {
     /// Create a `ViscaError` from a VISCA error response code.
+    #[must_use]
     pub const fn from_code(code: u8) -> Self {
         use ViscaError::{
             CommandBufferFull, CommandCanceled, CommandNotExecutable, NoSocket, SyntaxError,

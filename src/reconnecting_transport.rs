@@ -241,12 +241,14 @@ where
     }
 
     /// Gets a snapshot of the current connection statistics.
+    #[must_use]
     pub async fn stats_snapshot(&self) -> ConnectionStats {
         let state = self.state.lock().await;
         state.stats.clone()
     }
 
     /// Checks if the transport is currently connected.
+    #[must_use]
     pub async fn is_connected(&self) -> bool {
         let state = self.state.lock().await;
         state.inner.is_some()

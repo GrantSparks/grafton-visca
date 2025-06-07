@@ -224,6 +224,7 @@ impl ViscaConnectionPool {
     ///
     /// Returns a map of camera IDs to their health status.
     #[cfg(feature = "blocking-client")]
+    #[must_use]
     pub fn health_check_all(&self) -> HashMap<String, bool> {
         // First collect the camera IDs to avoid holding the lock during health checks
         let camera_ids: Vec<String> = {
@@ -251,6 +252,7 @@ impl ViscaConnectionPool {
     ///
     /// Returns the IDs of removed cameras.
     #[cfg(feature = "blocking-client")]
+    #[must_use]
     pub fn remove_unhealthy(&self) -> Vec<String> {
         let health_results = self.health_check_all();
         let mut removed = Vec::new();
@@ -268,6 +270,7 @@ impl ViscaConnectionPool {
     /// Removes connections that have been idle longer than the configured `max_idle_time`.
     ///
     /// Returns the IDs of removed cameras.
+    #[must_use]
     pub fn remove_stale(&self) -> Vec<String> {
         self.config.max_idle_time.map_or_else(Vec::new, |max_idle| {
             let now = Instant::now();
@@ -299,6 +302,7 @@ pub struct AsyncViscaConnectionPool {
 #[cfg(feature = "async-client")]
 impl AsyncViscaConnectionPool {
     /// Creates a new async connection pool.
+    #[must_use]
     pub fn new(config: PoolConfig) -> Self {
         Self {
             connections: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -364,12 +368,14 @@ impl AsyncViscaConnectionPool {
     }
 
     /// Gets a list of all cameras in the pool.
+    #[must_use]
     pub async fn list_cameras(&self) -> Vec<String> {
         let connections = self.connections.lock().await;
         connections.keys().cloned().collect()
     }
 
     /// Gets statistics for all cameras in the pool.
+    #[must_use]
     pub async fn get_all_stats(&self) -> Vec<PooledCameraStats> {
         // First collect camera info and clients to avoid holding lock during health checks
         let camera_data: Vec<(CameraInfo, Instant, ViscaClient)> = {

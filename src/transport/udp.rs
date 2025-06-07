@@ -69,6 +69,7 @@ impl UdpTransport {
     }
 
     /// Returns the connection statistics.
+    #[must_use]
     pub const fn stats(&self) -> &ConnectionStats {
         &self.stats
     }
@@ -156,6 +157,7 @@ impl AsyncUdpTransport {
     }
 
     /// Returns the connection statistics.
+    #[must_use]
     pub const fn stats(&self) -> &ConnectionStats {
         &self.stats
     }

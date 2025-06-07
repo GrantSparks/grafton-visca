@@ -257,6 +257,7 @@ where
     }
 
     /// Gets a snapshot of the current connection statistics.
+    #[must_use]
     pub async fn stats_snapshot(&self) -> ConnectionStats {
         let state = self.inner.read().await;
         state.stats.clone()
@@ -420,12 +421,14 @@ where
     ///
     /// This is the preferred way to access stats for the async transport,
     /// as it properly handles the `Arc<RwLock>` wrapping.
+    #[must_use]
     pub async fn connection_stats_mut(&self) -> ConnectionStats {
         let state = self.inner.read().await;
         state.stats.clone()
     }
 
     /// Combines statistics from both the wrapper and inner transport.
+    #[must_use]
     pub async fn combined_stats(&self) -> ConnectionStats {
         let state = self.inner.read().await;
 

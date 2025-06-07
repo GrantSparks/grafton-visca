@@ -23,6 +23,7 @@ pub enum CommandCategory {
 
 impl CommandCategory {
     /// Returns the default timeout for this category.
+    #[must_use]
     pub const fn default_timeout(&self) -> Duration {
         match self {
             CommandCategory::Quick => Duration::from_secs(2),
@@ -63,6 +64,7 @@ impl Default for TimeoutConfig {
 
 impl TimeoutConfig {
     /// Creates a new timeout configuration with all timeouts set to the same value.
+    #[must_use]
     pub const fn uniform(timeout: Duration) -> Self {
         Self {
             quick_timeout: timeout,
