@@ -66,7 +66,7 @@ impl TcpTransport {
     }
 
     /// Returns the connection statistics.
-    pub fn stats(&self) -> &ConnectionStats {
+    pub const fn stats(&self) -> &ConnectionStats {
         &self.stats
     }
 }
@@ -190,7 +190,7 @@ impl AsyncTcpTransport {
     }
 
     /// Returns the connection statistics.
-    pub fn stats(&self) -> &ConnectionStats {
+    pub const fn stats(&self) -> &ConnectionStats {
         &self.stats
     }
 }
