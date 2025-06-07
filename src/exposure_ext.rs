@@ -246,6 +246,9 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Arguments
     /// * `value` - Shutter speed value (0x00 to 0x15)
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -264,6 +267,9 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Increase shutter speed (faster, darker).
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -278,6 +284,9 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Decrease shutter speed (slower, brighter).
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -291,6 +300,9 @@ pub trait ViscaExposureExt: ViscaDevice {
     }
 
     /// Reset shutter to default.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -308,6 +320,9 @@ pub trait ViscaExposureExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `value` - Gain value (0x00 to 0x0F)
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -330,6 +345,9 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Increase gain (brighter but more noise).
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -344,6 +362,9 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Decrease gain (darker but less noise).
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -357,6 +378,9 @@ pub trait ViscaExposureExt: ViscaDevice {
     }
 
     /// Reset gain to default.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -374,6 +398,9 @@ pub trait ViscaExposureExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `limit` - Maximum allowed gain value (0x04 to 0x0F)
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -396,6 +423,9 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Arguments
     /// * `value` - Brightness value (0x00 to 0x17)
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -417,6 +447,9 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Increase brightness.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -431,6 +464,9 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Decrease brightness.
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -444,6 +480,9 @@ pub trait ViscaExposureExt: ViscaDevice {
     }
 
     /// Reset brightness to default.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -461,6 +500,9 @@ pub trait ViscaExposureExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `enabled` - Whether to enable backlight compensation
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
@@ -482,6 +524,9 @@ pub trait ViscaExposureExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `preset` - The exposure preset to apply
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run

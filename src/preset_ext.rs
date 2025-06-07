@@ -14,6 +14,9 @@ pub trait ViscaPresetExt: ViscaDevice {
     /// # Arguments
     /// * `preset_number` - Preset slot number (0-254)
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt};
@@ -46,6 +49,9 @@ pub trait ViscaPresetExt: ViscaDevice {
     /// # Arguments
     /// * `preset_number` - Preset slot number (0-254)
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPresetExt};
@@ -75,6 +81,9 @@ pub trait ViscaPresetExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `preset_number` - Preset slot number (0-254)
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run

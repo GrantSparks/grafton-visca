@@ -185,9 +185,7 @@ impl CameraConstants for CameraModel {
 
     fn zoom_range(&self) -> (u16, u16) {
         match self {
-            Self::PTZOpticsG2 | Self::PTZOpticsG3 => {
-                (zoom::ZOOM_MIN, zoom::ZOOM_MAX_20X)
-            }
+            Self::PTZOpticsG2 | Self::PTZOpticsG3 => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_20X),
             Self::PTZOptics30X => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_30X),
             Self::Unknown => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_12X),
         }
@@ -195,18 +193,14 @@ impl CameraConstants for CameraModel {
 
     fn pan_degrees(&self) -> f32 {
         match self {
-            Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => {
-                position::PAN_DEGREES_G2
-            }
+            Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => position::PAN_DEGREES_G2,
             Self::PTZOptics30X => position::PAN_DEGREES_30X,
         }
     }
 
     fn tilt_degrees(&self) -> f32 {
         match self {
-            Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => {
-                position::TILT_DEGREES_G2
-            }
+            Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => position::TILT_DEGREES_G2,
             Self::PTZOptics30X => position::TILT_DEGREES_30X,
         }
     }
@@ -302,7 +296,7 @@ impl PositionConversion for DegreePosition {
         let pan = pan_ratio.mul_add(pan_range, f32::from(pan_min)).round() as i16;
         #[allow(clippy::cast_possible_truncation)]
         let tilt = tilt_ratio.mul_add(tilt_range, f32::from(tilt_min)).round() as i16;
-        
+
         ViscaPosition { pan, tilt }
     }
 }
@@ -688,9 +682,9 @@ mod tests {
         assert_eq!(pan_normalized_to_visca(0.5), position::PAN_MAX / 2);
 
         // Test VISCA to normalized
-        assert_eq!(pan_visca_to_normalized(position::PAN_MAX), 1.0);
-        assert_eq!(pan_visca_to_normalized(-position::PAN_MAX), -1.0);
-        assert_eq!(pan_visca_to_normalized(0), 0.0);
+        assert!((pan_visca_to_normalized(position::PAN_MAX) - 1.0).abs() < f32::EPSILON);
+        assert!((pan_visca_to_normalized(-position::PAN_MAX) - (-1.0)).abs() < f32::EPSILON);
+        assert!((pan_visca_to_normalized(0) - 0.0).abs() < f32::EPSILON);
 
         // Test degrees to VISCA
         assert_eq!(pan_degrees_to_visca(0.0), 0);
@@ -710,8 +704,8 @@ mod tests {
         assert_eq!(tilt_normalized_to_visca(0.0), 0);
 
         // Test VISCA to normalized
-        assert_eq!(tilt_visca_to_normalized(position::TILT_MAX), 1.0);
-        assert_eq!(tilt_visca_to_normalized(0), 0.0);
+        assert!((tilt_visca_to_normalized(position::TILT_MAX) - 1.0).abs() < f32::EPSILON);
+        assert!((tilt_visca_to_normalized(0) - 0.0).abs() < f32::EPSILON);
 
         // Test degrees to VISCA
         assert_eq!(tilt_degrees_to_visca(0.0), 0);
@@ -727,8 +721,8 @@ mod tests {
         assert_eq!(zoom_normalized_to_visca(0.5), zoom::ZOOM_MAX_20X / 2);
 
         // Test VISCA to normalized
-        assert_eq!(zoom_visca_to_normalized(0), 0.0);
-        assert_eq!(zoom_visca_to_normalized(zoom::ZOOM_MAX_20X), 1.0);
+        assert!((zoom_visca_to_normalized(0) - 0.0).abs() < f32::EPSILON);
+        assert!((zoom_visca_to_normalized(zoom::ZOOM_MAX_20X) - 1.0).abs() < f32::EPSILON);
 
         // Test magnification conversions
         assert_eq!(zoom_magnification_to_visca(1.0), 0); // 1x = minimum zoom
@@ -744,8 +738,8 @@ mod tests {
         assert_eq!(focus_normalized_to_visca(1.0), focus::FOCUS_MAX);
 
         // Test VISCA to normalized
-        assert_eq!(focus_visca_to_normalized(focus::FOCUS_MIN), 0.0);
-        assert_eq!(focus_visca_to_normalized(focus::FOCUS_MAX), 1.0);
+        assert!((focus_visca_to_normalized(focus::FOCUS_MIN) - 0.0).abs() < f32::EPSILON);
+        assert!((focus_visca_to_normalized(focus::FOCUS_MAX) - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]

@@ -20,6 +20,10 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// * `tilt_deg` - Tilt position in degrees (varies by camera model)
     /// * `speed` - Optional pan and tilt speeds (1-24 for pan, 1-20 for tilt)
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// or if the degrees are out of range for the camera model.
+    ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
@@ -61,6 +65,10 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// * `tilt` - Normalized tilt position (-1.0 = full down, 0.0 = center, 1.0 = full up)
     /// * `speed` - Optional pan and tilt speeds (1-24 for pan, 1-20 for tilt)
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// or if the normalized values are out of range (-1.0 to 1.0).
+    ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
@@ -100,6 +108,10 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Returns
     /// Current pan/tilt position in degrees
     ///
+    /// # Errors
+    /// Returns `ViscaError::UnexpectedResponseType` if the camera returns an unexpected response.
+    /// Returns transport errors if communication fails.
+    ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
@@ -133,6 +145,10 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Returns
     /// Current pan/tilt position as normalized values (-1.0 to 1.0)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::UnexpectedResponseType` if the camera returns an unexpected response.
+    /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run
@@ -170,6 +186,10 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// * `tilt_deg` - Tilt position in degrees
     /// * `model` - Camera model for proper conversion
     /// * `speed` - Optional pan and tilt speeds
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// or if the degrees are out of range for the specified camera model.
     ///
     /// # Example
     /// ```no_run
@@ -217,6 +237,10 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// * `tilt_deg` - Relative tilt movement in degrees
     /// * `speed` - Optional pan and tilt speeds (1-24 for pan, 1-20 for tilt)
     ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// or if the relative movement would exceed camera limits.
+    ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
@@ -257,6 +281,9 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     ///
     /// # Returns
     /// Actual pan and tilt speed values that were set
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if speed values are out of range (0.0 to 1.0).
     ///
     /// # Example
     /// ```no_run

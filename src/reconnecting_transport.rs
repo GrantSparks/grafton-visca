@@ -154,6 +154,10 @@ where
     }
 
     /// Ensures the transport is connected, attempting to reconnect if necessary.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the health check fails, if reconnection attempts
+    /// are exhausted, or if the transport creation function fails.
     async fn ensure_connected(&self) -> Result<(), ViscaError> {
         let mut state = self.state.lock().await;
 
@@ -190,7 +194,7 @@ where
 
         // Drop the lock before the reconnection loop
         drop(state);
-        
+
         for attempt in 1..=self.config.max_retries {
             log::info!(
                 "Attempting to reconnect (attempt {}/{})",
@@ -267,6 +271,12 @@ impl<T> Transport for ReconnectingTransport<T>
 where
     T: Transport + Send + 'static,
 {
+    /// Sends a VISCA command through the reconnecting transport wrapper.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command serialization fails, if all
+    /// reconnection attempts are exhausted, or if the underlying transport
+    /// encounters a non-recoverable error.
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             // Try operation with retry on connection errors
@@ -316,6 +326,12 @@ where
         })
     }
 
+    /// Receives VISCA response frames through the reconnecting transport wrapper.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if all reconnection attempts are exhausted,
+    /// if the underlying transport encounters a non-recoverable error,
+    /// or if a timeout occurs during reception.
     fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
         Box::pin(async move {
             // Try operation with retry on connection errors

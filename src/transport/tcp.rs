@@ -61,8 +61,9 @@ impl TcpTransport {
     ///
     /// Returns an error if the connection cannot be established or if the address cannot be parsed.
     pub fn with_timeout(address: &str, timeout: Duration) -> io::Result<Self> {
-        let socket_addr = address.parse()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid address: {e}")))?;
+        let socket_addr = address.parse().map_err(|e| {
+            io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid address: {e}"))
+        })?;
         let stream = TcpStream::connect_timeout(&socket_addr, timeout)?;
         stream.set_read_timeout(Some(timeout))?;
         stream.set_write_timeout(Some(timeout))?;
@@ -81,6 +82,11 @@ impl TcpTransport {
 
 #[cfg(feature = "blocking-client")]
 impl BlockingTransport for TcpTransport {
+    /// Sends a VISCA command over the TCP connection.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command serialization fails or if there's
+    /// an I/O error writing to the TCP socket.
     fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
         let bytes = command.to_bytes()?;
         log::debug!("Sending command: {bytes:02X?}");
@@ -93,6 +99,11 @@ impl BlockingTransport for TcpTransport {
         Ok(())
     }
 
+    /// Receives VISCA response frames from the TCP connection.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the connection is closed unexpectedly,
+    /// if a read timeout occurs, or if an incomplete VISCA frame is received.
     fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
         let mut buffer = [0u8; 1024];
         let mut responses = Vec::new();
@@ -211,6 +222,11 @@ impl AsyncTcpTransport {
 
 #[cfg(feature = "async-client")]
 impl Transport for AsyncTcpTransport {
+    /// Sends a VISCA command over the async TCP connection.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command serialization fails or if there's
+    /// an I/O error writing to the TCP socket.
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
@@ -228,6 +244,11 @@ impl Transport for AsyncTcpTransport {
         })
     }
 
+    /// Receives VISCA response frames from the async TCP connection.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the connection is closed unexpectedly,
+    /// if a read timeout occurs, or if an incomplete VISCA frame is received.
     fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
         Box::pin(async move {
             let mut buffer = [0u8; 1024];

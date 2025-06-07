@@ -353,7 +353,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
                     pan_speed: PanSpeed::new(0)?,
                     tilt_speed: TiltSpeed::new(0)?,
                 };
-                self.send_async(&stop).await?;
+                let _ = self.send_async(&stop).await?;
 
                 Ok::<(), ViscaError>(())
             };
@@ -361,12 +361,12 @@ impl AsyncViscaExt for Arc<ViscaClient> {
             // Test zoom movement
             let zoom_test = async {
                 // Zoom in slightly
-                self.send_async(&ZoomCommand::TeleVariable(ZoomSpeed::new(3)?))
+                let _ = self.send_async(&ZoomCommand::TeleVariable(ZoomSpeed::new(3)?))
                     .await?;
                 tokio::time::sleep(Duration::from_millis(200)).await;
 
                 // Stop zoom
-                self.send_async(&ZoomCommand::Stop).await?;
+                let _ = self.send_async(&ZoomCommand::Stop).await?;
 
                 Ok::<(), ViscaError>(())
             };

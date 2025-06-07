@@ -349,5 +349,9 @@ pub use crate::{
 /// high-level camera control operations.
 pub trait ViscaDevice {
     /// Send a command and wait for the response.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// or if communication with the camera fails.
     fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError>;
 }

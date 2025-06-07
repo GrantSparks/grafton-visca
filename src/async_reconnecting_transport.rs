@@ -75,6 +75,9 @@ where
     T: AsyncViscaTransport + AsyncConnectionManagement + Send + 'static,
 {
     /// Creates a new async reconnecting transport wrapper.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the initial transport creation fails.
     pub async fn new<F, Fut>(
         create_transport: F,
         config: ReconnectionConfig,
@@ -119,6 +122,10 @@ where
     }
 
     /// Ensures that we have a healthy connection, reconnecting if necessary.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the health check fails or if all
+    /// reconnection attempts are exhausted.
     async fn ensure_connected(&self) -> Result<(), ViscaError> {
         // Fast path: check if we need a health check with read lock
         {
@@ -178,6 +185,10 @@ where
     }
 
     /// Attempts to reconnect with exponential backoff.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if all reconnection attempts fail or if
+    /// the maximum retry count is exceeded.
     async fn reconnect(&self) -> Result<(), ViscaError> {
         let mut delay = self.config.initial_delay;
 
@@ -269,6 +280,12 @@ impl<T> AsyncViscaTransport for AsyncReconnectingTransport<T>
 where
     T: AsyncViscaTransport + AsyncConnectionManagement + Send + Sync + 'static,
 {
+    /// Sends a VISCA command through the async reconnecting transport wrapper.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command serialization fails, if all
+    /// reconnection attempts are exhausted, or if the underlying transport
+    /// encounters a non-recoverable error.
     fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             for attempt in 0..self.config.max_retries {
@@ -319,6 +336,12 @@ where
         })
     }
 
+    /// Receives VISCA response frames through the async reconnecting transport wrapper.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if all reconnection attempts are exhausted,
+    /// if the underlying transport encounters a non-recoverable error,
+    /// or if a timeout occurs during reception.
     fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
         Box::pin(async move {
             for attempt in 0..self.config.max_retries {
@@ -375,6 +398,11 @@ impl<T> AsyncConnectionManagement for AsyncReconnectingTransport<T>
 where
     T: AsyncViscaTransport + AsyncConnectionManagement + Send + Sync + 'static,
 {
+    /// Checks if the async reconnecting transport is healthy.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the health check on the underlying transport fails
+    /// or if reconnection is required but fails.
     fn is_healthy(&mut self) -> TransportFuture<'_, bool> {
         Box::pin(async move {
             match self.ensure_connected().await {

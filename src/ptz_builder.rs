@@ -95,6 +95,9 @@ impl PtzBuilder {
     }
 
     /// Add a pan/tilt absolute position command.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if the speed values cannot be converted to valid PanSpeed or TiltSpeed.
     pub fn pan_tilt_absolute(
         mut self,
         pan: i16,
@@ -120,6 +123,9 @@ impl PtzBuilder {
     }
 
     /// Add a pan/tilt relative position command.
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if the speed values cannot be converted to valid PanSpeed or TiltSpeed.
     pub fn pan_tilt_relative(
         mut self,
         pan: i16,
@@ -155,6 +161,9 @@ impl PtzBuilder {
     ///
     /// # Arguments
     /// * `speed` - Zoom speed (0=slowest, 7=fastest)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid ZoomSpeed.
     pub fn zoom_in(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, ViscaError> {
         let speed = speed
             .try_into()
@@ -168,6 +177,9 @@ impl PtzBuilder {
     ///
     /// # Arguments
     /// * `speed` - Zoom speed (0=slowest, 7=fastest)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid ZoomSpeed.
     pub fn zoom_out(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, ViscaError> {
         let speed = speed
             .try_into()
@@ -235,6 +247,9 @@ impl PtzBuilder {
     ///
     /// Commands are executed one after another, waiting for each to complete
     /// before starting the next.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if any command in the sequence fails to execute.
     #[cfg(feature = "blocking-client")]
     pub fn execute_sequential(self) -> Result<Vec<ViscaResponse>, ViscaError> {
         let mut responses = Vec::with_capacity(self.commands.len());
@@ -251,6 +266,9 @@ impl PtzBuilder {
     ///
     /// Commands are executed one after another, waiting for each to complete
     /// before starting the next.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if any command in the sequence fails to execute.
     #[cfg(feature = "async-client")]
     pub async fn execute_sequential_async(self) -> Result<Vec<ViscaResponse>, ViscaError> {
         let mut responses = Vec::with_capacity(self.commands.len());
@@ -267,6 +285,9 @@ impl PtzBuilder {
     ///
     /// All commands are sent concurrently, respecting the camera's
     /// concurrent command limit (2 for `PTZOptics` G2).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if any command in the sequence fails to execute.
     #[cfg(feature = "async-client")]
     pub async fn execute_concurrent(self) -> Result<Vec<ViscaResponse>, ViscaError> {
         use futures_util::future::try_join_all;

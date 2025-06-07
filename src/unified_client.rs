@@ -143,6 +143,10 @@ impl ViscaClient {
     ///   - If called from outside a runtime, creates a temporary runtime
     /// - For blocking-only builds:
     ///   - Directly calls the blocking implementation
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// or if runtime creation fails in async contexts.
     #[cfg(feature = "blocking-client")]
     pub fn send(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
         #[cfg(feature = "async-client")]
@@ -290,6 +294,10 @@ impl ViscaClient {
     /// - Uses session management for proper VISCA socket assignment
     /// - Sends the command through the transport
     /// - Waits for and returns the response with proper ACK/completion tracking
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// semaphore acquisition fails, or socket assignment fails.
     #[cfg(feature = "async-client")]
     pub async fn send_async(
         &self,
@@ -400,6 +408,9 @@ impl ViscaClient {
     }
 
     /// Check if the camera connection is healthy.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the health check command fails to send.
     #[cfg(feature = "async-client")]
     pub async fn is_healthy(&self) -> Result<bool, ViscaError> {
         use crate::command::InquiryCommand;
@@ -411,6 +422,9 @@ impl ViscaClient {
     }
 
     /// Check if the camera connection is healthy (blocking).
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the health check command fails to send.
     #[cfg(feature = "blocking-client")]
     pub fn is_healthy_blocking(&self) -> Result<bool, ViscaError> {
         use crate::command::InquiryCommand;
