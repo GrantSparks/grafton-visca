@@ -14,10 +14,10 @@
 //! # use grafton_visca::ViscaClient;
 //! # let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
-//! client.send(&ZoomCommand::TeleStandard).unwrap();
+//! client.send(&Self::TeleStandard).unwrap();
 //!
 //! // Zoom out at variable speed
-//! client.send(&ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
+//! client.send(&Self::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
 //! # }
 //! ```
 
@@ -51,7 +51,7 @@ impl ZoomSpeed {
     #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
-            Ok(ZoomSpeed(value))
+            Ok(Self(value))
         } else {
             Err(ViscaError::InvalidParameter(format!(
                 "Zoom speed must be in the range 0..={}",
@@ -71,7 +71,7 @@ impl TryFrom<u8> for ZoomSpeed {
     type Error = ViscaError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        ZoomSpeed::new(value)
+        Self::new(value)
     }
 }
 
@@ -110,26 +110,26 @@ impl ViscaCommand for ZoomCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         match self {
             // Stop command
-            ZoomCommand::Stop => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]),
+            Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]),
 
             // Tele standard zoom
-            ZoomCommand::TeleStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
+            Self::TeleStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
 
             // Wide standard zoom
-            ZoomCommand::WideStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
+            Self::WideStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
 
             // Tele variable zoom
-            ZoomCommand::TeleVariable(speed) => {
+            Self::TeleVariable(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x20 | speed.value(), 0xFF])
             }
 
             // Wide variable zoom
-            ZoomCommand::WideVariable(speed) => {
+            Self::WideVariable(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x30 | speed.value(), 0xFF])
             }
 
             // Direct zoom to a specific position
-            ZoomCommand::Direct(position) => {
+            Self::Direct(position) => {
                 let nibbles = position_to_nibbles(*position);
 
                 Ok(vec![
@@ -141,8 +141,8 @@ impl ViscaCommand for ZoomCommand {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         match self {
-            ZoomCommand::TeleStandard => Some(ViscaResponseType::ZoomTeleStandard),
-            ZoomCommand::WideStandard => Some(ViscaResponseType::ZoomWideStandard),
+            Self::TeleStandard => Some(ViscaResponseType::ZoomTeleStandard),
+            Self::WideStandard => Some(ViscaResponseType::ZoomWideStandard),
             _ => None,
         }
     }
@@ -172,17 +172,17 @@ mod tests {
     fn test_zoom_speed_new() {
         // Valid speeds
         for speed in 0..=7 {
-            let zoom_speed = ZoomSpeed::new(speed).unwrap();
+            let zoom_speed = Self::new(speed).unwrap();
             assert_eq!(zoom_speed.value(), speed);
         }
 
         // Invalid speed
         assert!(matches!(
-            ZoomSpeed::new(8),
+            Self::new(8),
             Err(ViscaError::InvalidParameter(_))
         ));
         assert!(matches!(
-            ZoomSpeed::new(255),
+            Self::new(255),
             Err(ViscaError::InvalidParameter(_))
         ));
     }
@@ -199,14 +199,14 @@ mod tests {
 
     #[test]
     fn test_zoom_speed_into_u8() {
-        let speed = ZoomSpeed::new(3).unwrap();
+        let speed = Self::new(3).unwrap();
         let value: u8 = speed.into();
         assert_eq!(value, 3);
     }
 
     #[test]
     fn test_zoom_command_stop() {
-        let cmd = ZoomCommand::Stop;
+        let cmd = Self::Stop;
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_zoom_command_tele_standard() {
-        let cmd = ZoomCommand::TeleStandard;
+        let cmd = Self::TeleStandard;
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_zoom_command_wide_standard() {
-        let cmd = ZoomCommand::WideStandard;
+        let cmd = Self::WideStandard;
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
@@ -241,8 +241,8 @@ mod tests {
 
     #[test]
     fn test_zoom_command_tele_variable() {
-        let speed = ZoomSpeed::new(5).unwrap();
-        let cmd = ZoomCommand::TeleVariable(speed);
+        let speed = Self::new(5).unwrap();
+        let cmd = Self::TeleVariable(speed);
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]
@@ -251,8 +251,8 @@ mod tests {
 
     #[test]
     fn test_zoom_command_wide_variable() {
-        let speed = ZoomSpeed::new(7).unwrap();
-        let cmd = ZoomCommand::WideVariable(speed);
+        let speed = Self::new(7).unwrap();
+        let cmd = Self::WideVariable(speed);
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF]
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_zoom_command_direct() {
-        let cmd = ZoomCommand::Direct(0x1234);
+        let cmd = Self::Direct(0x1234);
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF]
@@ -279,15 +279,15 @@ mod tests {
     #[test]
     fn test_command_category() {
         assert_eq!(
-            ZoomCommand::Stop.command_category(),
+            Self::Stop.command_category(),
             CommandCategory::Movement
         );
         assert_eq!(
-            ZoomCommand::TeleStandard.command_category(),
+            Self::TeleStandard.command_category(),
             CommandCategory::Movement
         );
         assert_eq!(
-            ZoomCommand::Direct(0).command_category(),
+            Self::Direct(0).command_category(),
             CommandCategory::Movement
         );
     }

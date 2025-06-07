@@ -40,10 +40,10 @@ pub enum FocusCommand {
 impl ViscaCommand for FocusCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         match self {
-            FocusCommand::Stop => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]),
-            FocusCommand::FarStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]),
-            FocusCommand::NearStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]),
-            FocusCommand::FarVariable(speed) => {
+            Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]),
+            Self::FarStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]),
+            Self::NearStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]),
+            Self::FarVariable(speed) => {
                 if *speed <= 7 {
                     Ok(vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed, 0xFF])
                 } else {
@@ -52,7 +52,7 @@ impl ViscaCommand for FocusCommand {
                     ))
                 }
             }
-            FocusCommand::NearVariable(speed) => {
+            Self::NearVariable(speed) => {
                 if *speed <= 7 {
                     Ok(vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed, 0xFF])
                 } else {
@@ -61,17 +61,17 @@ impl ViscaCommand for FocusCommand {
                     ))
                 }
             }
-            FocusCommand::Direct(position) => {
+            Self::Direct(position) => {
                 let p = ((*position >> 12) & 0x0F) as u8;
                 let q = ((*position >> 8) & 0x0F) as u8;
                 let r = ((*position >> 4) & 0x0F) as u8;
                 let s = (*position & 0x0F) as u8;
                 Ok(vec![0x81, 0x01, 0x04, 0x48, p, q, r, s, 0xFF])
             }
-            FocusCommand::Auto => Ok(vec![0x81, 0x01, 0x04, 0x38, 0x02, 0xFF]),
-            FocusCommand::Manual => Ok(vec![0x81, 0x01, 0x04, 0x38, 0x03, 0xFF]),
-            FocusCommand::OnePushTrigger => Ok(vec![0x81, 0x01, 0x04, 0x18, 0x01, 0xFF]),
-            FocusCommand::Infinity => Ok(vec![0x81, 0x01, 0x04, 0x18, 0x02, 0xFF]),
+            Self::Auto => Ok(vec![0x81, 0x01, 0x04, 0x38, 0x02, 0xFF]),
+            Self::Manual => Ok(vec![0x81, 0x01, 0x04, 0x38, 0x03, 0xFF]),
+            Self::OnePushTrigger => Ok(vec![0x81, 0x01, 0x04, 0x18, 0x01, 0xFF]),
+            Self::Infinity => Ok(vec![0x81, 0x01, 0x04, 0x18, 0x02, 0xFF]),
         }
     }
 

@@ -15,8 +15,8 @@
 //! # use grafton_visca::ViscaClient;
 //! # let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //! // Move camera diagonally up-right
-//! let command = PanTiltCommand::Move {
-//!     direction: PanTiltDirection::UpRight,
+//! let command = Self::Move {
+//!     direction: Self::UpRight,
 //!     pan_speed: PanSpeed::new(0x10).unwrap(),
 //!     tilt_speed: TiltSpeed::new(0x10).unwrap(),
 //! };
@@ -69,15 +69,15 @@ impl PanTiltDirection {
     #[must_use]
     pub const fn to_bytes(self) -> (u8, u8) {
         match self {
-            PanTiltDirection::Up => (0x03, 0x01),
-            PanTiltDirection::Down => (0x03, 0x02),
-            PanTiltDirection::Left => (0x01, 0x03),
-            PanTiltDirection::Right => (0x02, 0x03),
-            PanTiltDirection::UpLeft => (0x01, 0x01),
-            PanTiltDirection::UpRight => (0x02, 0x01),
-            PanTiltDirection::DownLeft => (0x01, 0x02),
-            PanTiltDirection::DownRight => (0x02, 0x02),
-            PanTiltDirection::Stop => (0x03, 0x03),
+            Self::Up => (0x03, 0x01),
+            Self::Down => (0x03, 0x02),
+            Self::Left => (0x01, 0x03),
+            Self::Right => (0x02, 0x03),
+            Self::UpLeft => (0x01, 0x01),
+            Self::UpRight => (0x02, 0x01),
+            Self::DownLeft => (0x01, 0x02),
+            Self::DownRight => (0x02, 0x02),
+            Self::Stop => (0x03, 0x03),
         }
     }
 }
@@ -136,9 +136,9 @@ pub enum PanTiltCommand {
 impl ViscaCommand for PanTiltCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         match self {
-            PanTiltCommand::Home => Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]),
-            PanTiltCommand::Reset => Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF]),
-            PanTiltCommand::Move {
+            Self::Home => Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]),
+            Self::Reset => Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF]),
+            Self::Move {
                 direction,
                 pan_speed,
                 tilt_speed,
@@ -156,7 +156,7 @@ impl ViscaCommand for PanTiltCommand {
                     0xFF,
                 ])
             }
-            PanTiltCommand::AbsolutePosition {
+            Self::AbsolutePosition {
                 pan,
                 tilt,
                 pan_speed,
@@ -183,7 +183,7 @@ impl ViscaCommand for PanTiltCommand {
                     0xFF,
                 ])
             }
-            PanTiltCommand::RelativePosition {
+            Self::RelativePosition {
                 pan,
                 tilt,
                 pan_speed,
@@ -228,15 +228,15 @@ mod tests {
 
     #[test]
     fn test_pan_tilt_direction_to_bytes() {
-        assert_eq!(PanTiltDirection::Up.to_bytes(), (0x03, 0x01));
-        assert_eq!(PanTiltDirection::Down.to_bytes(), (0x03, 0x02));
-        assert_eq!(PanTiltDirection::Left.to_bytes(), (0x01, 0x03));
-        assert_eq!(PanTiltDirection::Right.to_bytes(), (0x02, 0x03));
-        assert_eq!(PanTiltDirection::UpLeft.to_bytes(), (0x01, 0x01));
-        assert_eq!(PanTiltDirection::UpRight.to_bytes(), (0x02, 0x01));
-        assert_eq!(PanTiltDirection::DownLeft.to_bytes(), (0x01, 0x02));
-        assert_eq!(PanTiltDirection::DownRight.to_bytes(), (0x02, 0x02));
-        assert_eq!(PanTiltDirection::Stop.to_bytes(), (0x03, 0x03));
+        assert_eq!(Self::Up.to_bytes(), (0x03, 0x01));
+        assert_eq!(Self::Down.to_bytes(), (0x03, 0x02));
+        assert_eq!(Self::Left.to_bytes(), (0x01, 0x03));
+        assert_eq!(Self::Right.to_bytes(), (0x02, 0x03));
+        assert_eq!(Self::UpLeft.to_bytes(), (0x01, 0x01));
+        assert_eq!(Self::UpRight.to_bytes(), (0x02, 0x01));
+        assert_eq!(Self::DownLeft.to_bytes(), (0x01, 0x02));
+        assert_eq!(Self::DownRight.to_bytes(), (0x02, 0x02));
+        assert_eq!(Self::Stop.to_bytes(), (0x03, 0x03));
     }
 
     #[test]
@@ -299,19 +299,19 @@ mod tests {
     #[test]
     fn test_pan_tilt_command_to_bytes() {
         // Test Home command
-        let home = PanTiltCommand::Home;
+        let home = Self::Home;
         assert_eq!(home.to_bytes().unwrap(), vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
 
         // Test Reset command
-        let reset = PanTiltCommand::Reset;
+        let reset = Self::Reset;
         assert_eq!(
             reset.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x06, 0x05, 0xFF]
         );
 
         // Test Move command
-        let move_cmd = PanTiltCommand::Move {
-            direction: PanTiltDirection::UpRight,
+        let move_cmd = Self::Move {
+            direction: Self::UpRight,
             pan_speed: PanSpeed::new(0x10).unwrap(),
             tilt_speed: TiltSpeed::new(0x10).unwrap(),
         };
@@ -321,7 +321,7 @@ mod tests {
         );
 
         // Test AbsolutePosition command
-        let abs_pos = PanTiltCommand::AbsolutePosition {
+        let abs_pos = Self::AbsolutePosition {
             pan: 0x1234,
             tilt: 0x5678,
             pan_speed: PanSpeed::new(0x10).unwrap(),
@@ -336,7 +336,7 @@ mod tests {
         );
 
         // Test RelativePosition command
-        let rel_pos = PanTiltCommand::RelativePosition {
+        let rel_pos = Self::RelativePosition {
             pan: -0x100,
             tilt: 0x200,
             pan_speed: PanSpeed::new(0x10).unwrap(),
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn test_pan_tilt_limit_command_to_bytes() {
         // Test Set command
-        let set_limit = PanTiltLimitCommand::Set {
+        let set_limit = Self::Set {
             corner: LimitCorner::DownLeft,
             pan: 0x1000,
             tilt: 0x2000,
@@ -368,7 +368,7 @@ mod tests {
         );
 
         // Test Clear command
-        let clear_limit = PanTiltLimitCommand::Clear {
+        let clear_limit = Self::Clear {
             corner: LimitCorner::UpRight,
         };
         assert_eq!(
@@ -383,17 +383,17 @@ mod tests {
     #[test]
     fn test_response_type() {
         // All pan/tilt commands should return None for response_type
-        assert!(PanTiltCommand::Home.response_type().is_none());
-        assert!(PanTiltCommand::Reset.response_type().is_none());
+        assert!(Self::Home.response_type().is_none());
+        assert!(Self::Reset.response_type().is_none());
 
-        let move_cmd = PanTiltCommand::Move {
-            direction: PanTiltDirection::Stop,
+        let move_cmd = Self::Move {
+            direction: Self::Stop,
             pan_speed: PanSpeed::new(0).unwrap(),
             tilt_speed: TiltSpeed::new(0).unwrap(),
         };
         assert!(move_cmd.response_type().is_none());
 
-        let limit_cmd = PanTiltLimitCommand::Clear {
+        let limit_cmd = Self::Clear {
             corner: LimitCorner::DownLeft,
         };
         assert!(limit_cmd.response_type().is_none());
@@ -428,7 +428,7 @@ impl PanSpeed {
     #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
-            Ok(PanSpeed(value))
+            Ok(Self(value))
         } else {
             Err(ViscaError::InvalidParameter(format!(
                 "Pan speed must be in the range 0x00..=0x{:02X}",
@@ -442,7 +442,7 @@ impl TryFrom<u8> for PanSpeed {
     type Error = ViscaError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        PanSpeed::new(value)
+        Self::new(value)
     }
 }
 
@@ -470,7 +470,7 @@ impl TiltSpeed {
     #[must_use]
     pub fn new(value: u8) -> Result<Self, ViscaError> {
         if value <= Self::MAX {
-            Ok(TiltSpeed(value))
+            Ok(Self(value))
         } else {
             Err(ViscaError::InvalidParameter(format!(
                 "Tilt speed must be in the range 0x00..=0x{:02X}",
@@ -484,7 +484,7 @@ impl TryFrom<u8> for TiltSpeed {
     type Error = ViscaError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        TiltSpeed::new(value)
+        Self::new(value)
     }
 }
 
@@ -534,7 +534,7 @@ pub enum PanTiltLimitCommand {
 impl ViscaCommand for PanTiltLimitCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         match self {
-            PanTiltLimitCommand::Set { corner, pan, tilt } => {
+            Self::Set { corner, pan, tilt } => {
                 let pan_bytes = position_to_bytes(*pan);
                 let tilt_bytes = position_to_bytes(*tilt);
 
@@ -556,7 +556,7 @@ impl ViscaCommand for PanTiltLimitCommand {
                     0xFF,
                 ])
             }
-            PanTiltLimitCommand::Clear { corner } => Ok(vec![
+            Self::Clear { corner } => Ok(vec![
                 0x81,
                 0x01,
                 0x06,

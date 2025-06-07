@@ -29,10 +29,10 @@ pub enum GainCommand {
 impl ViscaCommand for GainCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(match self {
-            GainCommand::Reset => vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF],
-            GainCommand::Up => vec![0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF],
-            GainCommand::Down => vec![0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF],
-            GainCommand::Direct(value) => {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF],
+            Self::Direct(value) => {
                 if *value > 0x07 {
                     return Err(ViscaError::InvalidParameter(
                         "Gain value must be between 0x00 (0) and 0x07 (7)".into(),

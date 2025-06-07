@@ -164,7 +164,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
             let tilt_position = (tilt_percent * 32767.0) as i16;
 
             // Execute pan/tilt and zoom concurrently using PTZ builder
-            Arc::clone(self)
+            Self::clone(self)
                 .ptz()
                 .pan_tilt_absolute(pan_position, tilt_position, 0x18, 0x14)? // Max speeds
                 .zoom_direct(zoom_level)
@@ -301,7 +301,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
         auto_focus: bool,
     ) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
         async move {
-            let mut builder = Arc::clone(self).ptz().zoom_direct(zoom_level);
+            let mut builder = Self::clone(self).ptz().zoom_direct(zoom_level);
 
             if auto_focus {
                 builder = builder.focus_auto();
@@ -314,7 +314,7 @@ impl AsyncViscaExt for Arc<ViscaClient> {
 
     fn reset_to_neutral(&self) -> impl std::future::Future<Output = Result<(), ViscaError>> + Send {
         async move {
-            Arc::clone(self)
+            Self::clone(self)
                 .ptz()
                 .pan_tilt_home()
                 .zoom_direct(0x0000) // Wide zoom

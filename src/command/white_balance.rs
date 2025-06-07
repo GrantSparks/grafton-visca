@@ -58,12 +58,12 @@ impl TryFrom<u8> for WhiteBalanceMode {
 
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
-            0x00 => Ok(WhiteBalanceMode::Auto),
-            0x01 => Ok(WhiteBalanceMode::Indoor),
-            0x02 => Ok(WhiteBalanceMode::Outdoor),
-            0x03 => Ok(WhiteBalanceMode::OnePush),
-            0x05 => Ok(WhiteBalanceMode::Manual),
-            0x20 => Ok(WhiteBalanceMode::ColorTemperature),
+            0x00 => Ok(Self::Auto),
+            0x01 => Ok(Self::Indoor),
+            0x02 => Ok(Self::Outdoor),
+            0x03 => Ok(Self::OnePush),
+            0x05 => Ok(Self::Manual),
+            0x20 => Ok(Self::ColorTemperature),
             _ => Err(()),
         }
     }
