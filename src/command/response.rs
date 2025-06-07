@@ -3,10 +3,13 @@
 //! This module provides response parsing functionality for VISCA protocol responses,
 //! including ACK/completion messages, error responses, and inquiry data parsing.
 
-// Third-party imports
+// Standard library imports
+// (none)
+
+// Third-party crate imports
 use log::error;
 
-// Crate imports
+// Workspace / local-crate imports
 use crate::{
     command::{
         gain::AntiFlickerMode, luminance_contrast_sharpness::SharpnessMode, AFSensitivity,

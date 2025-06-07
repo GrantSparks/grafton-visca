@@ -25,7 +25,7 @@
 //! ```
 
 // Standard library imports
-use std::convert::TryFrom;
+// (none)
 
 // Third-party crate imports
 // (none)
@@ -416,92 +416,38 @@ const fn position_to_bytes(position: i16) -> [u8; 4] {
     ]
 }
 
-/// Pan (horizontal) movement speed.
-///
-/// Valid range: 0x00 to 0x18 (0-24 decimal).
-/// Higher values result in faster movement.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PanSpeed(u8);
+crate::visca_bounded_param! {
+    /// Pan (horizontal) movement speed.
+    ///
+    /// Valid range: 0x00 to 0x18 (0-24 decimal).
+    /// Higher values result in faster movement.
+    PanSpeed: u8 {
+        min: 0x00,
+        max: 0x18,
+        error_msg: "Pan speed must be in the range 0x00..=0x18"
+    }
+}
 
 impl PanSpeed {
-    /// Maximum allowed pan speed (0x18 = 24 decimal).
-    pub const MAX: u8 = 0x18;
-
     /// Zero speed value (stop).
     pub const ZERO: Self = Self(0);
+}
 
-    /// Creates a new `PanSpeed` with validation.
+crate::visca_bounded_param! {
+    /// Tilt (vertical) movement speed.
     ///
-    /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if value > 0x18.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
-        if value <= Self::MAX {
-            Ok(Self(value))
-        } else {
-            Err(ViscaError::InvalidParameter(format!(
-                "Pan speed must be in the range 0x00..=0x{:02X}",
-                Self::MAX
-            )))
-        }
+    /// Valid range: 0x00 to 0x14 (0-20 decimal).
+    /// Higher values result in faster movement.
+    TiltSpeed: u8 {
+        min: 0x00,
+        max: 0x14,
+        error_msg: "Tilt speed must be in the range 0x00..=0x14"
     }
 }
-
-impl TryFrom<u8> for PanSpeed {
-    type Error = ViscaError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl From<PanSpeed> for u8 {
-    fn from(speed: PanSpeed) -> Self {
-        speed.0
-    }
-}
-
-/// Tilt (vertical) movement speed.
-///
-/// Valid range: 0x00 to 0x14 (0-20 decimal).
-/// Higher values result in faster movement.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TiltSpeed(u8);
 
 impl TiltSpeed {
-    /// Maximum allowed tilt speed (0x14 = 20 decimal).
-    pub const MAX: u8 = 0x14;
-
     /// Zero speed value (stop).
     pub const ZERO: Self = Self(0);
-
-    /// Creates a new `TiltSpeed` with validation.
-    ///
-    /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if value > 0x14.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
-        if value <= Self::MAX {
-            Ok(Self(value))
-        } else {
-            Err(ViscaError::InvalidParameter(format!(
-                "Tilt speed must be in the range 0x00..=0x{:02X}",
-                Self::MAX
-            )))
-        }
-    }
-}
-
-impl TryFrom<u8> for TiltSpeed {
-    type Error = ViscaError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl From<TiltSpeed> for u8 {
-    fn from(speed: TiltSpeed) -> Self {
-        speed.0
-    }
 }
 
 /// Corner position for pan/tilt limits.

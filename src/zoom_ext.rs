@@ -53,19 +53,22 @@ pub trait ViscaZoomExt: ViscaDevice {
     /// Start zooming in (telephoto direction).
     ///
     /// # Arguments
-    /// * `speed` - Optional zoom speed (0-7). If None, uses standard speed.
+    /// * `speed` - Optional zoom speed. If None, uses standard speed.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt, ZoomSpeed};
     /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
     /// // Zoom in at standard speed
     /// client.zoom_in(None)?;
     ///
     /// // Zoom in at maximum speed
-    /// client.zoom_in(Some(7))?;
+    /// client.zoom_in(Some(ZoomSpeed::new(7)?))?;
+    ///
+    /// // Using TryFrom for convenience
+    /// client.zoom_in(Some(7.try_into()?))?;
     /// # Ok(())
     /// # }
     /// # }
@@ -73,21 +76,11 @@ pub trait ViscaZoomExt: ViscaDevice {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::InvalidParameter` if speed > 7.
     /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
-    fn zoom_in(&mut self, speed: Option<u8>) -> Result<(), ViscaError> {
-        let command = if let Some(s) = speed {
-            if s > 7 {
-                return Err(ViscaError::InvalidParameter(
-                    "Zoom speed must be 0-7".into(),
-                ));
-            }
-            ZoomCommand::TeleVariable(ZoomSpeed::new(s)?)
-        } else {
-            ZoomCommand::TeleStandard
-        };
+    fn zoom_in(&mut self, speed: Option<ZoomSpeed>) -> Result<(), ViscaError> {
+        let command = speed.map_or(ZoomCommand::TeleStandard, ZoomCommand::TeleVariable);
         match self.execute_command(&command)? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
@@ -98,40 +91,30 @@ pub trait ViscaZoomExt: ViscaDevice {
     /// Start zooming out (wide direction).
     ///
     /// # Arguments
-    /// * `speed` - Optional zoom speed (0-7). If None, uses standard speed.
+    /// * `speed` - Optional zoom speed. If None, uses standard speed.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
+    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt, ZoomSpeed};
     /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
     /// // Zoom out at standard speed
     /// client.zoom_out(None)?;
     ///
     /// // Zoom out at slow speed
-    /// client.zoom_out(Some(2))?;
+    /// client.zoom_out(Some(ZoomSpeed::new(2)?))?;
     /// # Ok(())
     /// # }
     /// # }
     /// ```
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if speed > 7.
     /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
-    fn zoom_out(&mut self, speed: Option<u8>) -> Result<(), ViscaError> {
-        let command = if let Some(s) = speed {
-            if s > 7 {
-                return Err(ViscaError::InvalidParameter(
-                    "Zoom speed must be 0-7".into(),
-                ));
-            }
-            ZoomCommand::WideVariable(ZoomSpeed::new(s)?)
-        } else {
-            ZoomCommand::WideStandard
-        };
+    fn zoom_out(&mut self, speed: Option<ZoomSpeed>) -> Result<(), ViscaError> {
+        let command = speed.map_or(ZoomCommand::WideStandard, ZoomCommand::WideVariable);
         match self.execute_command(&command)? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),

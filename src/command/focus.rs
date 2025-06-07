@@ -3,12 +3,29 @@
 //! This module provides commands for controlling camera focus functionality,
 //! including auto/manual modes, directional focus, and direct position control.
 
-// Crate imports
+// Standard library imports
+// (none)
+
+// Third-party crate imports
+// (none)
+
+// Workspace / local-crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},
     error::ViscaError,
     timeout::CommandCategory,
 };
+
+crate::visca_bounded_param! {
+    /// Variable focus speed.
+    ///
+    /// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
+    FocusSpeed: u8 {
+        min: 0,
+        max: 7,
+        error_msg: "Focus speed must be in the range 0..=7"
+    }
+}
 
 /// Focus control commands.
 ///
@@ -21,10 +38,10 @@ pub enum FocusCommand {
     FarStandard,
     /// Move focus near at standard speed.
     NearStandard,
-    /// Move focus far at variable speed (0=slowest, 7=fastest).
-    FarVariable(u8),
-    /// Move focus near at variable speed (0=slowest, 7=fastest).
-    NearVariable(u8),
+    /// Move focus far at variable speed.
+    FarVariable(FocusSpeed),
+    /// Move focus near at variable speed.
+    NearVariable(FocusSpeed),
     /// Set focus to specific position (0x0000 to 0xFFFF).
     Direct(u16),
     /// Enable auto focus mode.
@@ -44,22 +61,10 @@ impl ViscaCommand for FocusCommand {
             Self::FarStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]),
             Self::NearStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]),
             Self::FarVariable(speed) => {
-                if *speed <= 7 {
-                    Ok(vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed, 0xFF])
-                } else {
-                    Err(ViscaError::InvalidParameter(
-                        "Focus speed must be in the range 0..=7".into(),
-                    ))
-                }
+                Ok(vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed.value(), 0xFF])
             }
             Self::NearVariable(speed) => {
-                if *speed <= 7 {
-                    Ok(vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed, 0xFF])
-                } else {
-                    Err(ViscaError::InvalidParameter(
-                        "Focus speed must be in the range 0..=7".into(),
-                    ))
-                }
+                Ok(vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed.value(), 0xFF])
             }
             Self::Direct(position) => {
                 let p = ((*position >> 12) & 0x0F) as u8;
@@ -225,37 +230,38 @@ mod tests {
     #[test]
     fn test_focus_command_far_variable() {
         // Valid speeds
-        for speed in 0..=7 {
+        for speed_val in 0..=7 {
+            let speed = FocusSpeed::new(speed_val).unwrap();
             let cmd = FocusCommand::FarVariable(speed);
             assert_eq!(
                 cmd.to_bytes().unwrap(),
-                vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed, 0xFF]
+                vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed_val, 0xFF]
             );
         }
-
-        // Invalid speed
-        let cmd = FocusCommand::FarVariable(8);
-        assert!(matches!(
-            cmd.to_bytes(),
-            Err(ViscaError::InvalidParameter(_))
-        ));
     }
 
     #[test]
     fn test_focus_command_near_variable() {
         // Valid speeds
-        for speed in 0..=7 {
+        for speed_val in 0..=7 {
+            let speed = FocusSpeed::new(speed_val).unwrap();
             let cmd = FocusCommand::NearVariable(speed);
             assert_eq!(
                 cmd.to_bytes().unwrap(),
-                vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed, 0xFF]
+                vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed_val, 0xFF]
             );
         }
+    }
 
-        // Invalid speed
-        let cmd = FocusCommand::NearVariable(8);
+    #[test]
+    fn test_focus_speed_validation() {
+        // Valid speeds
+        assert!(FocusSpeed::new(0).is_ok());
+        assert!(FocusSpeed::new(7).is_ok());
+
+        // Invalid speeds
         assert!(matches!(
-            cmd.to_bytes(),
+            FocusSpeed::new(8),
             Err(ViscaError::InvalidParameter(_))
         ));
     }

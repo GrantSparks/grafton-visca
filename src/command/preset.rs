@@ -4,7 +4,7 @@
 //! `PTZOptics` G2 cameras support up to 90 presets (0-89).
 
 // Standard library imports
-use std::convert::TryFrom;
+// (none)
 
 // Third-party crate imports
 // (none)
@@ -27,43 +27,14 @@ pub enum PresetAction {
     Recall = 0x02,
 }
 
-/// Preset number with validation.
-///
-/// Valid range: 0 to 89 (0x00 to 0x59).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PresetNumber(u8);
-
-impl PresetNumber {
-    /// Maximum allowed preset number (89).
-    pub const MAX: u8 = 89;
-
-    /// Creates a new `PresetNumber` with validation.
+crate::visca_bounded_param! {
+    /// Preset number with validation.
     ///
-    /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if value > 89.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
-        if value <= Self::MAX {
-            Ok(Self(value))
-        } else {
-            Err(ViscaError::InvalidParameter(format!(
-                "Preset number must be between 0 and {}",
-                Self::MAX
-            )))
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for PresetNumber {
-    type Error = ViscaError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
+    /// Valid range: 0 to 89 (0x00 to 0x59).
+    PresetNumber: u8 {
+        min: 0,
+        max: 89,
+        error_msg: "Preset number must be between 0 and 89"
     }
 }
 

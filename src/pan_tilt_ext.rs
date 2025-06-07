@@ -14,24 +14,25 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     /// # Arguments
     /// * `pan` - Target pan position (-2448 to 2448)
     /// * `tilt` - Target tilt position (-1296 to 1296)
-    /// * `speed` - Optional pan and tilt speeds (1-24). If None, uses default speed.
+    /// * `speed` - Optional pan and tilt speeds. If None, uses default speed.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt, PanSpeed, TiltSpeed};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Move to center position at default speed
     /// client.move_to_position(0, 0, None)?;
     ///
     /// // Move to specific position with custom speeds
-    /// client.move_to_position(1000, -500, Some((10, 15)))?;
+    /// let pan_speed = PanSpeed::new(10)?;
+    /// let tilt_speed = TiltSpeed::new(15)?;
+    /// client.move_to_position(1000, -500, Some((pan_speed, tilt_speed)))?;
     /// # Ok(())
     /// # }
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::InvalidParameter` if `pan_speed` > 24 or `tilt_speed` > 20.
     /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
@@ -39,12 +40,19 @@ pub trait ViscaPanTiltExt: ViscaDevice {
         &mut self,
         pan: i16,
         tilt: i16,
-        speed: Option<(u8, u8)>,
+        speed: Option<(PanSpeed, TiltSpeed)>,
     ) -> Result<(), ViscaError> {
-        let (pan_speed, tilt_speed) = speed.unwrap_or((18, 14));
+        let (pan_speed, tilt_speed) = speed.unwrap_or_else(|| {
+            // Use safe default values that won't fail
+            // 18 for pan and 14 for tilt are within valid ranges (0-24 and 0-20)
+            (
+                PanSpeed::new(18).unwrap_or(PanSpeed::ZERO),
+                TiltSpeed::new(14).unwrap_or(TiltSpeed::ZERO),
+            )
+        });
         let command = PanTiltCommand::AbsolutePosition {
-            pan_speed: PanSpeed::new(pan_speed)?,
-            tilt_speed: TiltSpeed::new(tilt_speed)?,
+            pan_speed,
+            tilt_speed,
             pan,
             tilt,
         };
@@ -61,24 +69,25 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     /// # Arguments
     /// * `pan_delta` - Relative pan movement (-2448 to 2448)
     /// * `tilt_delta` - Relative tilt movement (-1296 to 1296)
-    /// * `speed` - Optional pan and tilt speeds (1-24). If None, uses default speed.
+    /// * `speed` - Optional pan and tilt speeds. If None, uses default speed.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt, PanSpeed, TiltSpeed};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Move 100 units right and 50 units up
     /// client.move_relative(100, 50, None)?;
     ///
     /// // Move left and down with custom speeds
-    /// client.move_relative(-200, -100, Some((20, 20)))?;
+    /// let pan_speed = PanSpeed::new(20)?;
+    /// let tilt_speed = TiltSpeed::new(20)?;
+    /// client.move_relative(-200, -100, Some((pan_speed, tilt_speed)))?;
     /// # Ok(())
     /// # }
     /// ```
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::InvalidParameter` if `pan_speed` > 24 or `tilt_speed` > 20.
     /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
@@ -86,12 +95,19 @@ pub trait ViscaPanTiltExt: ViscaDevice {
         &mut self,
         pan_delta: i16,
         tilt_delta: i16,
-        speed: Option<(u8, u8)>,
+        speed: Option<(PanSpeed, TiltSpeed)>,
     ) -> Result<(), ViscaError> {
-        let (pan_speed, tilt_speed) = speed.unwrap_or((18, 14));
+        let (pan_speed, tilt_speed) = speed.unwrap_or_else(|| {
+            // Use safe default values that won't fail
+            // 18 for pan and 14 for tilt are within valid ranges (0-24 and 0-20)
+            (
+                PanSpeed::new(18).unwrap_or(PanSpeed::ZERO),
+                TiltSpeed::new(14).unwrap_or(TiltSpeed::ZERO),
+            )
+        });
         let command = PanTiltCommand::RelativePosition {
-            pan_speed: PanSpeed::new(pan_speed)?,
-            tilt_speed: TiltSpeed::new(tilt_speed)?,
+            pan_speed,
+            tilt_speed,
             pan: pan_delta,
             tilt: tilt_delta,
         };
@@ -107,37 +123,36 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `direction` - Direction of movement
-    /// * `pan_speed` - Pan speed (1-24)
-    /// * `tilt_speed` - Tilt speed (1-18)
+    /// * `pan_speed` - Pan speed
+    /// * `tilt_speed` - Tilt speed
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if `pan_speed` > 24 or `tilt_speed` > 20.
     /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt, PanTiltDirection};
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt, PanTiltDirection, PanSpeed, TiltSpeed};
     /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
     /// // Start moving up-right
-    /// client.start_moving(PanTiltDirection::UpRight, 10, 10)?;
+    /// let pan_speed = PanSpeed::new(10)?;
+    /// let tilt_speed = TiltSpeed::new(10)?;
+    /// client.start_moving(PanTiltDirection::UpRight, pan_speed, tilt_speed)?;
     ///
     /// // Start moving left at maximum speed
-    /// client.start_moving(PanTiltDirection::Left, 24, 0)?;
+    /// let pan_speed = PanSpeed::new(24)?;
+    /// let tilt_speed = TiltSpeed::new(0)?;
+    /// client.start_moving(PanTiltDirection::Left, pan_speed, tilt_speed)?;
     /// # Ok(())
     /// # }
     /// ```
     fn start_moving(
         &mut self,
         direction: PanTiltDirection,
-        pan_speed: u8,
-        tilt_speed: u8,
+        pan_speed: PanSpeed,
+        tilt_speed: TiltSpeed,
     ) -> Result<(), ViscaError> {
-        let pan_speed = PanSpeed::new(pan_speed)
-            .map_err(|_| ViscaError::InvalidParameter("Pan speed must be 0-24".into()))?;
-        let tilt_speed = TiltSpeed::new(tilt_speed)
-            .map_err(|_| ViscaError::InvalidParameter("Tilt speed must be 0-20".into()))?;
         let command = PanTiltCommand::Move {
             direction,
             pan_speed,

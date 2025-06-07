@@ -30,7 +30,7 @@ use std::sync::Arc;
 // Workspace / local-crate imports
 use crate::{
     command::{
-        focus::FocusCommand,
+        focus::{FocusCommand, FocusSpeed},
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         zoom::{ZoomCommand, ZoomSpeed},
     },
@@ -206,11 +206,49 @@ impl PtzBuilder {
         self
     }
 
+    /// Add a focus near command with variable speed.
+    ///
+    /// # Arguments
+    /// * `speed` - Focus speed (0=slowest, 7=fastest)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid `FocusSpeed`.
+    pub fn focus_near_variable(
+        mut self,
+        speed: impl TryInto<FocusSpeed>,
+    ) -> Result<Self, ViscaError> {
+        let speed = speed
+            .try_into()
+            .map_err(|_| ViscaError::InvalidParameter("Invalid focus speed".into()))?;
+        self.commands
+            .push(Box::new(FocusCommand::NearVariable(speed)));
+        Ok(self)
+    }
+
     /// Add a focus far command.
     #[must_use]
     pub fn focus_far(mut self) -> Self {
         self.commands.push(Box::new(FocusCommand::FarStandard));
         self
+    }
+
+    /// Add a focus far command with variable speed.
+    ///
+    /// # Arguments
+    /// * `speed` - Focus speed (0=slowest, 7=fastest)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid `FocusSpeed`.
+    pub fn focus_far_variable(
+        mut self,
+        speed: impl TryInto<FocusSpeed>,
+    ) -> Result<Self, ViscaError> {
+        let speed = speed
+            .try_into()
+            .map_err(|_| ViscaError::InvalidParameter("Invalid focus speed".into()))?;
+        self.commands
+            .push(Box::new(FocusCommand::FarVariable(speed)));
+        Ok(self)
     }
 
     /// Add a focus stop command.

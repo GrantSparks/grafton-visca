@@ -60,6 +60,29 @@
 //!
 //! ## Example Usage
 //!
+//! ### Using the Prelude
+//!
+//! The easiest way to get started is to use the prelude module which imports
+//! all commonly used types and traits:
+//!
+//! ```no_run
+//! # #[cfg(feature = "blocking-client")]
+//! # {
+//! use grafton_visca::prelude::*;
+//!
+//! let mut client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//!
+//! // All extension traits and types are available
+//! client.power_on().unwrap();
+//! client.move_to_degrees(45.0, 30.0, None).unwrap();
+//!
+//! // Create speed parameters easily
+//! let pan_speed = PanSpeed::new(10).unwrap();
+//! let tilt_speed = TiltSpeed::new(10).unwrap();
+//! client.start_moving(PanTiltDirection::UpRight, pan_speed, tilt_speed).unwrap();
+//! # }
+//! ```
+//!
 //! ### Using `ViscaClient` (Recommended for Thread Safety)
 //!
 //! ```no_run
@@ -69,7 +92,7 @@
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //!
 //! // Create a client using the v0.4.0 unified API
-//! let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! let mut client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // Send commands through the client
 //! client.send(&PanTiltCommand::Home).unwrap();
@@ -87,7 +110,7 @@
 //! use grafton_visca::command::{ExposureCompensationCommand, IrisCommand, SaturationCommand};
 //! use grafton_visca::command::exposure::ExposureCompensationLevel;
 //!
-//! let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! let mut client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // Adjust exposure compensation
 //! client.send(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(3).unwrap())).unwrap();
@@ -245,6 +268,8 @@ pub mod connection_pool;
 pub mod constants;
 /// Utility macros for VISCA operations
 pub mod macros;
+/// Common imports for grafton-visca users
+pub mod prelude;
 /// Timeout configuration and management
 pub mod timeout;
 /// Transport layer implementations for VISCA communication
@@ -294,6 +319,15 @@ pub use crate::{
     },
     error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
     session::ViscaSession,
+};
+
+// Parameter types re-exports
+pub use crate::command::{
+    exposure::DynamicRangeLevel,
+    focus::FocusSpeed,
+    pan_tilt::{PanSpeed, TiltSpeed},
+    preset::PresetNumber,
+    zoom::ZoomSpeed,
 };
 
 // Connection and pooling re-exports

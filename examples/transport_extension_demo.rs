@@ -4,6 +4,7 @@
 //! UDP or TCP transports directly.
 
 use grafton_visca::{
+    command::pan_tilt::{PanSpeed, TiltSpeed},
     ImagePreset, ViscaClient, ViscaError, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt,
     ViscaPositionExt, ViscaPowerExt, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
     WhiteBalancePreset,
@@ -56,7 +57,12 @@ fn main() -> Result<(), ViscaError> {
 
     // Position control
     println!("\n--- Position Control ---");
-    ViscaPositionExt::move_to_degrees(&mut client, 30.0, 10.0, Some((10, 10)))?;
+    ViscaPositionExt::move_to_degrees(
+        &mut client,
+        30.0,
+        10.0,
+        Some((PanSpeed::new(10)?, TiltSpeed::new(10)?)),
+    )?;
     println!("Moved to 30° pan, 10° tilt");
     thread::sleep(Duration::from_secs(2));
 

@@ -2,16 +2,13 @@
 
 #[cfg(feature = "async-client")]
 // Standard library imports
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{future::Future, pin::Pin, sync::Arc, time::Instant};
 
-// Third-party imports
+// Third-party crate imports
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
-// Crate imports
+// Workspace / local-crate imports
 use crate::{
     async_transport::{AsyncViscaTransport, TransportFuture},
     connection::{AsyncConnectionManagement, ConnectionStats},

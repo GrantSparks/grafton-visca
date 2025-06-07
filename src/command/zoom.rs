@@ -22,7 +22,7 @@
 //! ```
 
 // Standard library imports
-use std::convert::TryFrom;
+// (none)
 
 // Third-party crate imports
 // (none)
@@ -34,49 +34,14 @@ use crate::{
     timeout::CommandCategory,
 };
 
-/// Variable zoom speed.
-///
-/// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ZoomSpeed(u8);
-
-impl ZoomSpeed {
-    /// Maximum allowed zoom speed.
-    pub const MAX: u8 = 7;
-
-    /// Creates a new `ZoomSpeed` with validation.
+crate::visca_bounded_param! {
+    /// Variable zoom speed.
     ///
-    /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if value > 7.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
-        if value <= Self::MAX {
-            Ok(Self(value))
-        } else {
-            Err(ViscaError::InvalidParameter(format!(
-                "Zoom speed must be in the range 0..={}",
-                Self::MAX
-            )))
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for ZoomSpeed {
-    type Error = ViscaError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl From<ZoomSpeed> for u8 {
-    fn from(speed: ZoomSpeed) -> Self {
-        speed.0
+    /// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
+    ZoomSpeed: u8 {
+        min: 0,
+        max: 7,
+        error_msg: "Zoom speed must be in the range 0..=7"
     }
 }
 

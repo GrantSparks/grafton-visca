@@ -5,6 +5,7 @@ use grafton_visca::ViscaCommand;
 mod golden_vector_tests {
     use super::*;
     use grafton_visca::command::exposure::{DynamicRangeLevel, ExposureCompensationLevel};
+    use grafton_visca::command::focus::FocusSpeed;
     use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
     use grafton_visca::command::power::Power;
     use grafton_visca::command::preset::{PresetAction, PresetNumber};
@@ -232,7 +233,8 @@ mod golden_vector_tests {
         );
 
         // Focus Near Variable
-        let focus_near_var = FocusCommand::NearVariable(3);
+        let focus_speed = FocusSpeed::new(3).unwrap();
+        let focus_near_var = FocusCommand::NearVariable(focus_speed);
         assert_eq!(
             focus_near_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x08, 0x33, 0xFF], // 0x30 | 3 = 0x33
@@ -259,9 +261,8 @@ mod golden_vector_tests {
     #[test]
     fn test_focus_speed_validation() {
         // Test focus speed out of range
-        let focus_invalid = FocusCommand::FarVariable(8);
         assert!(
-            focus_invalid.to_bytes().is_err(),
+            FocusSpeed::new(8).is_err(),
             "Focus speed above 7 should return error"
         );
     }
