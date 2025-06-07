@@ -141,18 +141,14 @@ async fn test_reconnection_after_failure() {
         async move {
             let attempt = count.fetch_add(1, Ordering::SeqCst);
 
+            let transport = FailingMockTransport::new();
             // First creation succeeds but will fail on first operation
             if attempt == 0 && should_fail.load(Ordering::SeqCst) {
-                let transport = FailingMockTransport::new();
                 transport.set_fail_for_n_operations(1); // Fail first operation
-                transport.inner.add_response(vec![0x90, 0x50, 0xFF]).await;
-                Ok(transport)
-            } else {
-                // Subsequent creations work normally
-                let transport = FailingMockTransport::new();
-                transport.inner.add_response(vec![0x90, 0x50, 0xFF]).await;
-                Ok(transport)
             }
+            // Always add response for both branches
+            transport.inner.add_response(vec![0x90, 0x50, 0xFF]).await;
+            Ok(transport)
         }
     };
 
@@ -285,6 +281,7 @@ async fn test_exponential_backoff() {
         let delay1 = times[1].duration_since(times[0]);
         let delay2 = times[2].duration_since(times[1]);
         let delay3 = times[3].duration_since(times[2]);
+        drop(times);
 
         // First delay should be ~100ms
         assert!(delay1 >= Duration::from_millis(90));
@@ -373,6 +370,7 @@ async fn test_connection_event_callbacks() {
         &events_vec[1],
         ConnectionEvent::ReconnectingStarted { attempt: 1, .. }
     ));
+    drop(events_vec);
 }
 
 #[tokio::test]
@@ -391,13 +389,12 @@ async fn test_health_check_triggers_reconnection() {
 
             let transport = FailingMockTransport::new();
 
+            transport.inner.add_response(vec![0x90, 0x50, 0xFF]).await;
             if first.swap(false, Ordering::SeqCst) {
                 // First transport - will succeed initially but fail health check after interval
                 // Add a response so initial operations work
-                transport.inner.add_response(vec![0x90, 0x50, 0xFF]).await;
             } else {
                 // Reconnected transport - should work normally
-                transport.inner.add_response(vec![0x90, 0x50, 0xFF]).await;
                 transport.inner.add_response(vec![0x90, 0x50, 0xFF]).await;
             }
 

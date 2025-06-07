@@ -80,6 +80,7 @@ mod sync_semaphore {
             }
 
             *count -= 1;
+            drop(count); // Explicitly drop the mutex guard early
             Permit { semaphore: self }
         }
     }

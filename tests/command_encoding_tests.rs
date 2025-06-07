@@ -600,6 +600,7 @@ mod golden_vector_tests {
             tilt_speed: TiltSpeed::new(0x08).unwrap(),
         };
         // Convert signed to unsigned for VISCA protocol encoding
+        #[allow(clippy::cast_sign_loss)]
         let pan_bytes = -100i16 as u16;
         let tilt_bytes = 200u16;
         assert_eq!(

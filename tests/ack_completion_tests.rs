@@ -38,7 +38,7 @@ fn test_ack_then_completion_sequence() {
 #[test]
 fn test_command_error_handling() {
     // Simulate ACK followed by error
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     transport.add_response(vec![0x90, 0x41, 0xFF]); // ACK on socket 1
     transport.add_response(vec![0x90, 0x60, 0x41, 0xFF]); // Command Not Executable error
 
@@ -55,7 +55,7 @@ fn test_command_error_handling() {
 #[test]
 fn test_inquiry_direct_response() {
     // Inquiry commands should not receive ACK, just direct response
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     transport.add_response(vec![0x90, 0x50, 0x02, 0xFF]); // Power ON response
 
     let mut device = MockDevice::from_transport(transport);
@@ -73,7 +73,7 @@ fn test_inquiry_direct_response() {
 #[test]
 fn test_pan_tilt_position_inquiry() {
     // Test pan/tilt position inquiry parsing
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     transport.add_response(vec![
         0x90, 0x50, // Header
         0x01, 0x02, 0x03, 0x04, // Pan position
@@ -118,7 +118,7 @@ fn test_multiple_socket_handling() {
 #[test]
 fn test_timeout_on_missing_completion() {
     // Simulate ACK but no completion (timeout scenario)
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     transport.add_response(vec![0x90, 0x40, 0xFF]); // ACK on socket 0
                                                     // No completion - should timeout
 
@@ -132,7 +132,7 @@ fn test_timeout_on_missing_completion() {
 #[test]
 fn test_socket_buffer_full_error() {
     // Simulate command buffer full error
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     transport.add_response(vec![0x90, 0x60, 0x03, 0xFF]); // Command Buffer Full error (code 0x03)
 
     let mut device = MockDevice::from_transport(transport);

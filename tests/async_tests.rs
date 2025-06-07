@@ -53,6 +53,7 @@ async fn test_concurrent_commands() {
         t.add_ack_completion(0).await;
         t.add_ack_completion(1).await;
         t.add_ack_completion(0).await; // Socket 0 reused after completion
+        drop(t);
     }
 
     // Spawn 3 concurrent command tasks
@@ -108,6 +109,7 @@ async fn test_semaphore_limiting() {
                 .send_command(&PowerCommand { power: Power::On })
                 .await
                 .unwrap();
+            drop(transport);
             sleep(Duration::from_millis(100)).await; // Simulate command execution time
         });
 
