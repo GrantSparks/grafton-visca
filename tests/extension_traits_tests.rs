@@ -13,7 +13,7 @@ use grafton_visca::{
 
 #[test]
 fn test_exposure_ext_methods() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     // Add responses for both commands
     transport.add_ack_completion(0);
     transport.add_ack_completion(0);
@@ -36,7 +36,7 @@ fn test_exposure_ext_methods() {
 
 #[test]
 fn test_white_balance_ext_methods() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     // Daylight preset sends 2 commands: mode + temperature
     transport.add_ack_completion(0);
     transport.add_ack_completion(0);
@@ -66,7 +66,7 @@ fn test_white_balance_ext_methods() {
 
 #[test]
 fn test_image_ext_methods() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     // Vivid preset sends 4 commands: sharpness, saturation, contrast, hue
     transport.add_ack_completion(0);
     transport.add_ack_completion(0);
@@ -89,7 +89,7 @@ fn test_image_ext_methods() {
 
 #[test]
 fn test_zoom_ext_methods() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     // Zoom to magnification sends 1 command
     transport.add_ack_completion(0);
     let mut device = MockDevice::from_transport(transport);
@@ -106,7 +106,7 @@ fn test_zoom_ext_methods() {
 
 #[test]
 fn test_position_ext_methods() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     // Move to degrees sends 1 command
     transport.add_ack_completion(0);
     let mut device = MockDevice::from_transport(transport);
@@ -123,7 +123,7 @@ fn test_position_ext_methods() {
 
 #[test]
 fn test_transport_ext_methods() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     // Power on sends 1 command, power off sends 1 command
     transport.add_ack_completion(0);
     transport.add_ack_completion(0);
@@ -152,7 +152,7 @@ fn test_transport_ext_methods() {
 
 #[test]
 fn test_chained_operations() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
     // 3 commands for chained operations
     transport.add_ack_completion(0);
     transport.add_ack_completion(0);

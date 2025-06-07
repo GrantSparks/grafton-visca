@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn test_socket_assignment_and_reuse() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
 
     // Set up responses: socket 0 for first command, socket 1 for second, socket 1 for third
     transport.add_ack_completion(0);
@@ -56,7 +56,7 @@ fn test_socket_assignment_and_reuse() {
 
 #[test]
 fn test_command_buffer_full_handling() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
 
     // First command gets ACK and completion
     transport.add_ack_completion(0);
@@ -118,7 +118,7 @@ fn test_timeout_recovery() {
     // However, our MockDevice always expects responses, so we'll simulate
     // a different scenario where we get proper responses after a delay.
 
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
 
     // First command succeeds
     transport.add_ack_completion(0);
@@ -144,7 +144,7 @@ fn test_timeout_recovery() {
 
 #[test]
 fn test_error_response_frees_socket() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
 
     // First command gets syntax error
     transport.add_response(vec![0x90, 0x60, 0x02, 0xFF]); // Syntax error
@@ -168,7 +168,7 @@ fn test_error_response_frees_socket() {
 
 #[test]
 fn test_rapid_command_timing() {
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
 
     // Set up all responses for 5 commands
     for i in 0..5 {
@@ -206,7 +206,7 @@ fn test_rapid_command_timing() {
 #[test]
 fn test_command_history_clearing() {
     // Demonstrates the use of clear_commands() for testing command sequences
-    let mut transport = MockTransport::new();
+    let transport = MockTransport::new();
 
     // Add responses for multiple operations
     transport.add_ack_completion(0);

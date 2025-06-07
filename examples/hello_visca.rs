@@ -9,25 +9,26 @@ use grafton_visca::{
 use log::{debug, error, info};
 use std::{env, time::Duration};
 
-fn main() -> Result<(), AppError> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    info!("Starting application");
-
+fn parse_args() -> (String, String) {
     let default_protocol = "udp";
     let default_ip_address = "192.168.0.110";
 
     let args: Vec<String> = env::args().collect();
     let protocol = if args.len() > 1 {
-        &args[1]
+        args[1].clone()
     } else {
-        default_protocol
+        default_protocol.to_string()
     };
     let ip_address = if args.len() > 2 {
-        &args[2]
+        args[2].clone()
     } else {
-        default_ip_address
+        default_ip_address.to_string()
     };
 
+    (protocol, ip_address)
+}
+
+fn create_client(protocol: &str, ip_address: &str) -> Result<ViscaClient, AppError> {
     let udp_port = "1259";
     let tcp_port = "5678";
 
@@ -38,26 +39,15 @@ fn main() -> Result<(), AppError> {
         format!("{ip_address}:{tcp_port}")
     };
 
-    let client = if use_udp {
-        ViscaClient::connect_udp(&address)?
+    if use_udp {
+        ViscaClient::connect_udp(&address)
     } else {
-        ViscaClient::connect_tcp(&address)?
-    };
-
-    debug!("Sending Pan/Tilt home command");
-    let pan_tilt_home_command = PanTiltCommand::Home;
-    client.send(&pan_tilt_home_command)?;
-
-    std::thread::sleep(Duration::from_secs(1));
-    debug!("Inquiring Pan/Tilt position");
-    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
-        client.send(&InquiryCommand::PanTiltPosition)
-    {
-        info!("Pan position: {pan}, Tilt position: {tilt}");
-    } else {
-        error!("Failed to get Pan/Tilt position");
+        ViscaClient::connect_tcp(&address)
     }
+    .map_err(AppError::from)
+}
 
+fn perform_pan_tilt_movements(client: &ViscaClient) -> Result<(), AppError> {
     let complex_movements = [
         (PanTiltDirection::Up, 5, 3),
         (PanTiltDirection::Right, 4, 3),
@@ -89,24 +79,10 @@ fn main() -> Result<(), AppError> {
         std::thread::sleep(Duration::from_secs(1));
     }
 
-    debug!("Inquiring Pan/Tilt position");
-    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
-        client.send(&InquiryCommand::PanTiltPosition)
-    {
-        info!("Pan position: {pan}, Tilt position: {tilt}");
-    } else {
-        error!("Failed to get Pan/Tilt position");
-    }
+    Ok(())
+}
 
-    debug!("Inquiring initial Zoom position");
-    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
-        client.send(&InquiryCommand::ZoomPosition)
-    {
-        info!("Initial Zoom position: {position}");
-    } else {
-        error!("Failed to get initial Zoom position");
-    }
-
+fn perform_zoom_movements(client: &ViscaClient) -> Result<(), AppError> {
     let zoom_movements = [
         ZoomCommand::TeleStandard,
         ZoomCommand::WideStandard,
@@ -136,14 +112,53 @@ fn main() -> Result<(), AppError> {
     debug!("Sending Zoom stop command");
     client.send(&ZoomCommand::Stop)?;
 
-    debug!("Inquiring final Zoom position");
+    Ok(())
+}
+
+fn inquire_pan_tilt_position(client: &ViscaClient) {
+    debug!("Inquiring Pan/Tilt position");
+    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
+        client.send(&InquiryCommand::PanTiltPosition)
+    {
+        info!("Pan position: {pan}, Tilt position: {tilt}");
+    } else {
+        error!("Failed to get Pan/Tilt position");
+    }
+}
+
+fn inquire_zoom_position(client: &ViscaClient, label: &str) {
+    debug!("Inquiring {label} Zoom position");
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
         client.send(&InquiryCommand::ZoomPosition)
     {
-        info!("Final Zoom position: {position}");
+        info!("{label} Zoom position: {position}");
     } else {
-        error!("Failed to get final Zoom position");
+        error!("Failed to get {label} Zoom position");
     }
+}
+
+fn main() -> Result<(), AppError> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    info!("Starting application");
+
+    let (protocol, ip_address) = parse_args();
+    let client = create_client(&protocol, &ip_address)?;
+
+    debug!("Sending Pan/Tilt home command");
+    client.send(&PanTiltCommand::Home)?;
+    std::thread::sleep(Duration::from_secs(1));
+
+    inquire_pan_tilt_position(&client);
+
+    perform_pan_tilt_movements(&client)?;
+
+    inquire_pan_tilt_position(&client);
+
+    inquire_zoom_position(&client, "initial");
+
+    perform_zoom_movements(&client)?;
+
+    inquire_zoom_position(&client, "final");
 
     debug!("Sending Pan/Tilt home command");
     client.send(&PanTiltCommand::Home)?;

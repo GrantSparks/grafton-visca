@@ -17,7 +17,7 @@ impl MockDevice {
         }
     }
 
-    fn with_completion() -> Self {
+    const fn with_completion() -> Self {
         Self::new()
     }
 
