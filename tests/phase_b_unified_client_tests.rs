@@ -80,11 +80,13 @@ mod tests {
     }
 
     #[test]
-    fn test_client_is_cloneable() {
+    fn test_client_is_moveable() {
         #[cfg(feature = "blocking-client")]
         {
             let client = ViscaClient::connect_udp("127.0.0.1:1234").unwrap();
-            let _clone = client;
+            let moved = client;
+            // This just verifies that client can be moved
+            drop(moved);
         }
     }
 

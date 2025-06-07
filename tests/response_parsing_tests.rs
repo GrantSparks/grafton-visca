@@ -534,8 +534,8 @@ mod response_parsing_tests {
         match response {
             Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode })) => {
                 match (mode, expected_mode) {
-                    (SharpnessMode::Auto, SharpnessMode::Auto) => {}
-                    (SharpnessMode::Manual, SharpnessMode::Manual) => {}
+                    (SharpnessMode::Auto, SharpnessMode::Auto)
+                    | (SharpnessMode::Manual, SharpnessMode::Manual) => {}
                     _ => panic!("Sharpness mode mismatch"),
                 }
             }
@@ -550,7 +550,7 @@ mod response_parsing_tests {
             Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ColorTemperature {
                 temperature,
             })) => {
-                assert_eq!(temperature, temp_value as u16);
+                assert_eq!(temperature, (0x03 << 4) | u16::from(temp_value));
             }
             _ => panic!("Expected ColorTemperature inquiry response"),
         }
