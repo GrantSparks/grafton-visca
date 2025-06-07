@@ -17,6 +17,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Arguments
     /// * `mode` - The exposure mode to set
     ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -41,6 +45,11 @@ pub trait ViscaExposureExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `level` - Compensation level (-7 to +7)
+    ///
+    /// # Errors
+    /// * `ViscaError::InvalidParameter` - Level is outside the valid range (-7 to +7)
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
@@ -70,6 +79,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Arguments
     /// * `enabled` - Whether to enable exposure compensation
     ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -96,6 +109,10 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Reset exposure compensation to 0.
     ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -110,6 +127,10 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Increase exposure compensation by one step.
     ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -123,6 +144,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     }
 
     /// Decrease exposure compensation by one step.
+    ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
@@ -140,6 +165,11 @@ pub trait ViscaExposureExt: ViscaDevice {
     ///
     /// # Arguments
     /// * `value` - Iris value (0x00 to 0x0C)
+    ///
+    /// # Errors
+    /// * `ViscaError::InvalidParameter` - Value is outside the valid range (0x00 to 0x0C)
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
@@ -159,6 +189,10 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Increase iris opening (brighter).
     ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -173,6 +207,10 @@ pub trait ViscaExposureExt: ViscaDevice {
 
     /// Decrease iris opening (darker).
     ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    ///
     /// # Example
     /// ```no_run
     /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
@@ -186,6 +224,10 @@ pub trait ViscaExposureExt: ViscaDevice {
     }
 
     /// Reset iris to default.
+    ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run

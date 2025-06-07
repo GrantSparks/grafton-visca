@@ -9,15 +9,15 @@ use std::time::Duration;
 /// Categories of VISCA commands with different timeout requirements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CommandCategory {
-    /// Quick commands like inquiry, power status (1-2 seconds)
+    /// Quick commands like inquiry, power status (1-2 seconds).
     Quick,
-    /// Movement commands like pan/tilt/zoom (5-10 seconds)
+    /// Movement commands like pan/tilt/zoom (5-10 seconds).
     Movement,
-    /// Preset operations like recall/save (30-60 seconds)
+    /// Preset operations like recall/save (30-60 seconds).
     Preset,
-    /// Long operations like preset discovery (2-5 minutes)
+    /// Long operations like preset discovery (2-5 minutes).
     LongRunning,
-    /// Custom timeout for specific commands
+    /// Custom timeout for specific commands.
     Custom,
 }
 
