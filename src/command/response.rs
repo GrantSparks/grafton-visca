@@ -38,61 +38,117 @@ pub enum ViscaResponse {
 /// Used to indicate what kind of data parser should expect in the response payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViscaResponseType {
+    /// Power state inquiry response (On/Off).
     Power,
+    /// Pan and tilt position inquiry response.
     PanTiltPosition,
+    /// Zoom position inquiry response.
     ZoomPosition,
+    /// Focus position inquiry response.
     FocusPosition,
+    /// Exposure mode inquiry response (Auto/Manual/Shutter/Iris/Bright).
     ExposureMode,
+    /// White balance mode inquiry response (Auto/Indoor/Outdoor/OnePush/Manual/ColorTemperature).
     WhiteBalanceMode,
+    /// Luminance level inquiry response (0-14).
     Luminance,
+    /// Contrast level inquiry response (0-14).
     Contrast,
+    /// Sharpness level inquiry response (0-11).
     Sharpness,
+    /// Sharpness mode inquiry response (Auto/Manual).
     SharpnessMode,
+    /// Sharpness position inquiry response.
     SharpnessPosition,
+    /// Horizontal flip state inquiry response.
     HorizontalFlip,
+    /// Vertical flip state inquiry response.
     VerticalFlip,
+    /// Combined image flip state inquiry response.
     ImageFlip,
+    /// Black and white mode inquiry response.
     BlackWhiteMode,
+    /// Exposure compensation value inquiry response (-7 to +7).
     ExposureCompensation,
+    /// Exposure compensation mode inquiry response (On/Off).
     ExposureCompensationMode,
+    /// Exposure compensation position inquiry response.
     ExposureCompensationPosition,
+    /// Backlight compensation inquiry response (On/Off).
     Backlight,
+    /// Iris setting inquiry response (0x0=Close to 0xC=F1.8).
     Iris,
+    /// Shutter speed inquiry response (0x01=1/30 to 0x11=1/10000).
     Shutter,
+    /// Brightness level inquiry response (0-17).
     Bright,
+    /// Gain level inquiry response (0-7).
     Gain,
+    /// Gain limit inquiry response (0-15).
     GainLimit,
+    /// Anti-flicker mode inquiry response (Off/50Hz/60Hz).
     AntiFlicker,
+    /// Red tuning value inquiry response (-10 to +10).
     RedTuning,
+    /// Blue tuning value inquiry response (-10 to +10).
     BlueTuning,
+    /// Saturation level inquiry response (60%-200%).
     Saturation,
+    /// Hue level inquiry response (0-14).
     Hue,
+    /// Red gain value inquiry response.
     RedGain,
+    /// Blue gain value inquiry response.
     BlueGain,
+    /// Color temperature value inquiry response.
     ColorTemperature,
+    /// Auto white balance sensitivity inquiry response.
     AutoWhiteBalanceSensitivity,
+    /// 3D noise reduction setting inquiry response.
     ThreeDNoiseReduction,
+    /// 2D noise reduction setting inquiry response.
     TwoDNoiseReduction,
+    /// Motion sync mode inquiry response.
     MotionSyncMode,
+    /// Motion sync speed inquiry response.
     MotionSyncSpeed,
+    /// Focus mode inquiry response (Auto/Manual).
     FocusMode,
+    /// Focus zone setting inquiry response.
     FocusZone,
+    /// Auto-focus sensitivity inquiry response.
     AutoFocusSensitivity,
+    /// Focus range inquiry response.
     FocusRange,
+    /// Menu open/close state inquiry response.
     MenuOpenClose,
+    /// USB audio state inquiry response.
     UsbAudio,
+    /// RTMP streaming state inquiry response.
     Rtmp,
+    /// Block lens movement inquiry response.
     BlockLens,
+    /// Block color/exposure control inquiry response.
     BlockColorExposure,
+    /// Block power/image effect inquiry response.
     BlockPowerImageEffect,
+    /// Block image control inquiry response.
     BlockImage,
+    /// Zoom wide standard operation inquiry response.
     ZoomWideStandard,
+    /// Zoom tele standard operation inquiry response.
     ZoomTeleStandard,
+    /// 2D noise reduction setting inquiry response.
     NoiseReduction2D,
+    /// 3D noise reduction setting inquiry response.
     NoiseReduction3D,
+    /// Black and white mode inquiry response.
     BlackWhite,
+    /// Auto-focus sensitivity inquiry response.
     AFSensitivity,
+    /// Focus near limit position inquiry response.
     FocusNearLimit,
+    /// Dynamic range control level inquiry response (0-8).
     DynamicRange,
 }
 
