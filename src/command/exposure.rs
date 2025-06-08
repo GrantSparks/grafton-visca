@@ -14,6 +14,8 @@ use crate::{
     command::{response::ViscaResponseType, ViscaCommand},
     error::ViscaError,
     timeout::CommandCategory,
+    types::{BrightnessLevel, IrisLevel, ShutterSpeed},
+    visca_up_down_reset,
 };
 
 /// Camera exposure control modes.
@@ -222,150 +224,26 @@ impl ViscaCommand for DynamicRangeCommand {
     }
 }
 
-/// Commands for controlling the camera iris (aperture).
-///
-/// The iris controls the amount of light entering the camera by adjusting
-/// the aperture size. Smaller aperture values mean less light but greater
-/// depth of field.
-#[derive(Debug, Copy, Clone)]
-pub enum IrisCommand {
-    /// Reset iris to default position.
-    Reset,
-    /// Open iris to increase aperture (let in more light).
-    Up,
-    /// Close iris to decrease aperture (let in less light).
-    Down,
-    /// Set iris to specific aperture value.
-    ///
-    /// Valid range: 0x00 (fully closed) to 0x0C (F1.8 - fully open).
-    Direct(u8),
-}
-
-impl ViscaCommand for IrisCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF],
-            Self::Direct(level) => {
-                if *level > 0x0C {
-                    return Err(ViscaError::InvalidParameter(
-                        "Iris level must be between 0x00 (Close) and 0x0C (F1.8)".into(),
-                    ));
-                }
-                vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, *level, 0xFF]
-            }
-        })
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_up_down_reset! {
+    #[category = "Quick"]
+    enum IrisCommand {
+        command_byte: 0x0B,
+        Direct(level: IrisLevel) => |high, low| [0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, high, low, 0xFF]
     }
 }
 
-/// Commands for controlling the camera's shutter speed.
-///
-/// Shutter speed determines how long the camera's sensor is exposed to light.
-/// Faster shutter speeds freeze motion but let in less light, while slower
-/// speeds let in more light but may cause motion blur.
-#[derive(Debug, Copy, Clone)]
-pub enum ShutterCommand {
-    /// Reset shutter speed to default value.
-    Reset,
-    /// Increase shutter speed (shorter exposure, less light).
-    Up,
-    /// Decrease shutter speed (longer exposure, more light).
-    Down,
-    /// Set shutter speed directly.
-    ///
-    /// Valid range: 0x01 (1/30 second) to 0x11 (1/10000 second).
-    /// Higher values mean faster shutter speeds.
-    Direct(u16),
-}
-
-impl ViscaCommand for ShutterCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF],
-            Self::Direct(value) => {
-                if *value < 0x01 || *value > 0x11 {
-                    return Err(ViscaError::InvalidParameter(
-                        "Shutter value must be between 0x01 (1/30) and 0x11 (1/10000)".into(),
-                    ));
-                }
-                // Safe: shifting right by 4 bits ensures the result fits in u8
-                #[allow(clippy::cast_possible_truncation)]
-                let high = (*value >> 4) as u8;
-                // Safe: masking with 0x0F (15) ensures the result fits in u8
-                #[allow(clippy::cast_possible_truncation)]
-                let low = (*value & 0x0F) as u8;
-                vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_up_down_reset! {
+    #[category = "Quick"]
+    enum ShutterCommand {
+        command_byte: 0x0A,
+        Direct(value: ShutterSpeed) => |high, low| [0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
     }
 }
 
-/// Commands for controlling the camera's brightness level.
-///
-/// Brightness control adjusts the overall lightness or darkness of the image.
-/// This is typically used in automatic exposure modes to fine-tune the
-/// camera's exposure decisions.
-#[derive(Debug, Copy, Clone)]
-pub enum BrightCommand {
-    /// Reset brightness to default level.
-    Reset,
-    /// Increase brightness level.
-    Up,
-    /// Decrease brightness level.
-    Down,
-    /// Set brightness to a specific level.
-    ///
-    /// Valid range: 0x00 (minimum brightness) to 0x11 (maximum brightness, level 17).
-    Direct(u16),
-}
-
-impl ViscaCommand for BrightCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF],
-            Self::Direct(value) => {
-                if *value > 0x11 {
-                    return Err(ViscaError::InvalidParameter(
-                        "Bright value must be between 0x00 (0) and 0x11 (17)".into(),
-                    ));
-                }
-                // Safe: shifting right by 4 bits ensures the result fits in u8
-                #[allow(clippy::cast_possible_truncation)]
-                let high = (*value >> 4) as u8;
-                // Safe: masking with 0x0F (15) ensures the result fits in u8
-                #[allow(clippy::cast_possible_truncation)]
-                let low = (*value & 0x0F) as u8;
-                vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_up_down_reset! {
+    #[category = "Quick"]
+    enum BrightCommand {
+        command_byte: 0x0D,
+        Direct(value: BrightnessLevel) => |high, low| [0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, high, low, 0xFF]
     }
 }

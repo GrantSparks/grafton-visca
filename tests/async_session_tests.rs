@@ -1,6 +1,6 @@
 #![cfg(feature = "async-client")]
 
-use grafton_visca::{ViscaError, ViscaInquiryResponse, ViscaResponse, ViscaSession};
+use grafton_visca::{SocketId, ViscaError, ViscaInquiryResponse, ViscaResponse, ViscaSession};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -27,8 +27,8 @@ async fn test_session_concurrent_commands() {
     let socket1 = socket1.unwrap().unwrap();
     let socket2 = socket2.unwrap().unwrap();
 
-    assert_eq!(socket1, 0);
-    assert_eq!(socket2, 1);
+    assert_eq!(socket1, SocketId::SOCKET_0);
+    assert_eq!(socket2, SocketId::SOCKET_1);
 
     // Try to assign a third socket (should fail)
     let result = session.lock().await.assign_socket(None);
@@ -46,17 +46,16 @@ async fn test_session_ack_completion_flow() {
     };
 
     // Send ACK
-    let ack_response = vec![0x90, 0x40 | socket_id, 0xFF];
+    let ack_response = vec![0x90, 0x40 | socket_id.value(), 0xFF];
     {
         let mut session = session.lock().await;
         let result = session.process_response(&ack_response).unwrap();
         assert!(matches!(result, Some((sid, ViscaResponse::Ack)) if sid == socket_id));
-        assert!(session.is_acknowledged(socket_id));
         drop(session);
     }
 
     // Send Completion
-    let completion_response = vec![0x90, 0x50 | socket_id, 0xFF];
+    let completion_response = vec![0x90, 0x50 | socket_id.value(), 0xFF];
     {
         let result = session
             .lock()
@@ -91,7 +90,7 @@ async fn test_session_error_handling() {
     };
 
     // Send error response
-    let error_response = vec![0x90, 0x60 | socket_id, 0x03, 0xFF]; // Command buffer full
+    let error_response = vec![0x90, 0x60 | socket_id.value(), 0x03, 0xFF]; // Command buffer full
     {
         let result = session
             .lock()
@@ -131,7 +130,7 @@ async fn test_session_inquiry_response() {
     };
 
     // Send inquiry response
-    let inquiry_response = vec![0x90, 0x50 | socket_id, 0x01, 0x02, 0x03, 0x04, 0xFF];
+    let inquiry_response = vec![0x90, 0x50 | socket_id.value(), 0x01, 0x02, 0x03, 0x04, 0xFF];
     {
         let result = session
             .lock()

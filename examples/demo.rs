@@ -15,6 +15,7 @@ use grafton_visca::command::zoom::ZoomCommand;
 use grafton_visca::command::{
     BacklightCommand, ImageFlipCombinedCommand, ImageFlipMode, NoiseReduction2DCommand,
 };
+use grafton_visca::{ContrastLevel, IrisLevel, LuminanceLevel, ShutterSpeed};
 use grafton_visca::{ViscaClient, ViscaDevice, ViscaInquiryResponse, ViscaResponse};
 use std::thread;
 use std::time::Duration;
@@ -130,10 +131,10 @@ fn demo_exposure_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::er
     })?;
 
     println!("Adjusting iris to F4.0...");
-    client.execute_command(&IrisCommand::Direct(0x06))?;
+    client.execute_command(&IrisCommand::Direct(IrisLevel::new(0x06).unwrap()))?;
 
     println!("Setting shutter speed...");
-    client.execute_command(&ShutterCommand::Direct(0x0A))?;
+    client.execute_command(&ShutterCommand::Direct(ShutterSpeed::new(0x0A).unwrap()))?;
     Ok(())
 }
 
@@ -157,10 +158,14 @@ fn demo_image_quality(client: &mut ViscaClient) -> Result<(), Box<dyn std::error
     println!("\n📍 Demo 8: Image Quality Settings");
 
     println!("Setting luminance...");
-    client.execute_command(&LuminanceCommand { value: 0x08 })?;
+    client.execute_command(&LuminanceCommand {
+        value: LuminanceLevel::new(0x08).unwrap(),
+    })?;
 
     println!("Setting contrast...");
-    client.execute_command(&ContrastCommand { value: 0x08 })?;
+    client.execute_command(&ContrastCommand {
+        value: ContrastLevel::new(0x08).unwrap(),
+    })?;
 
     println!("Setting sharpness...");
     client.execute_command(&SharpnessCommand::Direct { value: 0x08 })?;
@@ -210,7 +215,9 @@ fn demo_advanced_features(client: &mut ViscaClient) -> Result<(), Box<dyn std::e
     println!("\n📍 Demo 10: Advanced Features");
 
     println!("Setting 2D noise reduction...");
-    client.execute_command(&NoiseReduction2DCommand::Level(3))?;
+    client.execute_command(&NoiseReduction2DCommand::Level(
+        grafton_visca::NoiseReduction2DLevel::new(3).unwrap(),
+    ))?;
 
     println!("Setting backlight compensation...");
     client.execute_command(&BacklightCommand { status: true })?;

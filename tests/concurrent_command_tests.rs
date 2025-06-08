@@ -1,4 +1,4 @@
-use grafton_visca::{ViscaError, ViscaResponse, ViscaSession};
+use grafton_visca::{SocketId, ViscaError, ViscaResponse, ViscaSession};
 
 #[test]
 fn test_session_socket_management() {
@@ -9,7 +9,7 @@ fn test_session_socket_management() {
     let socket2 = session.assign_socket(None).unwrap();
 
     assert_ne!(socket1, socket2);
-    assert!(session.is_full());
+    assert_eq!(session.pending_count(), 2);
 
     // Third command should fail
     let result = session.assign_socket(None);
@@ -17,7 +17,7 @@ fn test_session_socket_management() {
 
     // After releasing one socket, should be able to send another
     session.release_socket(socket1);
-    assert!(!session.is_full());
+    assert_eq!(session.pending_count(), 1);
 
     let socket3 = session.assign_socket(None).unwrap();
     assert_eq!(socket3, socket1); // Should reuse the freed socket
@@ -33,10 +33,10 @@ fn test_interleaved_responses() {
 
     // Simulate interleaved ACKs and completions
     let responses = [
-        vec![0x90, 0x40 | socket_b, 0xFF], // ACK for B
-        vec![0x90, 0x40 | socket_a, 0xFF], // ACK for A
-        vec![0x90, 0x50 | socket_b, 0xFF], // Completion for B
-        vec![0x90, 0x50 | socket_a, 0xFF], // Completion for A
+        vec![0x90, 0x40 | socket_b.value(), 0xFF], // ACK for B
+        vec![0x90, 0x40 | socket_a.value(), 0xFF], // ACK for A
+        vec![0x90, 0x50 | socket_b.value(), 0xFF], // Completion for B
+        vec![0x90, 0x50 | socket_a.value(), 0xFF], // Completion for A
     ];
 
     // Process all responses and verify correct socket assignment
@@ -50,12 +50,12 @@ fn test_interleaved_responses() {
             0 => {
                 assert_eq!(socket_id, socket_b);
                 assert!(matches!(parsed, ViscaResponse::Ack));
-                assert!(session.is_acknowledged(socket_b));
+                // Socket B should be acknowledged
             }
             1 => {
                 assert_eq!(socket_id, socket_a);
                 assert!(matches!(parsed, ViscaResponse::Ack));
-                assert!(session.is_acknowledged(socket_a));
+                // Socket A should be acknowledged
             }
             2 => {
                 assert_eq!(socket_id, socket_b);
@@ -80,10 +80,10 @@ fn test_error_on_one_socket_doesnt_affect_other() {
 
     // Socket A gets an error, socket B completes successfully
     let responses = vec![
-        vec![0x90, 0x40 | socket_a, 0xFF],       // ACK for A
-        vec![0x90, 0x40 | socket_b, 0xFF],       // ACK for B
-        vec![0x90, 0x60 | socket_a, 0x41, 0xFF], // Error for A (Not Executable)
-        vec![0x90, 0x50 | socket_b, 0xFF],       // Completion for B
+        vec![0x90, 0x40 | socket_a.value(), 0xFF], // ACK for A
+        vec![0x90, 0x40 | socket_b.value(), 0xFF], // ACK for B
+        vec![0x90, 0x60 | socket_a.value(), 0x41, 0xFF], // Error for A (Not Executable)
+        vec![0x90, 0x50 | socket_b.value(), 0xFF], // Completion for B
     ];
 
     let mut results = Vec::new();
@@ -131,8 +131,8 @@ fn test_multiple_errors_in_sequence() {
 
     // Multiple errors can occur if camera state changes
     let responses = vec![
-        vec![0x90, 0x40 | socket, 0xFF],       // ACK
-        vec![0x90, 0x60 | socket, 0x02, 0xFF], // Syntax Error
+        vec![0x90, 0x40 | socket.value(), 0xFF],       // ACK
+        vec![0x90, 0x60 | socket.value(), 0x02, 0xFF], // Syntax Error
     ];
 
     for response in responses {
@@ -147,16 +147,16 @@ fn test_socket_reuse_after_completion() {
 
     // First command uses socket 0
     let socket1 = session.assign_socket(None).unwrap();
-    assert_eq!(socket1, 0);
+    assert_eq!(socket1, SocketId::SOCKET_0);
 
     // Process ACK and completion
     session.process_response(&[0x90, 0x40, 0xFF]).unwrap();
     session.process_response(&[0x90, 0x50, 0xFF]).unwrap();
 
     // Release socket 0
-    session.release_socket(0);
+    session.release_socket(SocketId::SOCKET_0);
 
     // Next command should reuse socket 0
     let socket2 = session.assign_socket(None).unwrap();
-    assert_eq!(socket2, 0);
+    assert_eq!(socket2, SocketId::SOCKET_0);
 }

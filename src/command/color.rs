@@ -51,10 +51,11 @@ impl ViscaCommand for RedTuningCommand {
             ));
         }
         // Convert -10..+10 to 0x00..0x14
-        // Safe because we validated level is between -10 and +10
-        #[allow(clippy::cast_sign_loss)]
-        let value = (self.level + 10) as u8;
-        Ok(vec![0x81, 0x0A, 0x01, 0x12, value, 0xFF])
+        // We've validated level is between -10 and +10, so level + 10 is 0..20
+        let level_offset = self.level + 10;
+        debug_assert!(level_offset >= 0 && level_offset <= 20);
+        let encoded = level_offset as u8;
+        Ok(vec![0x81, 0x0A, 0x01, 0x12, encoded, 0xFF])
     }
 
     fn response_type(&self) -> Option<ViscaResponseType> {
@@ -85,10 +86,11 @@ impl ViscaCommand for BlueTuningCommand {
             ));
         }
         // Convert -10..+10 to 0x00..0x14
-        // Safe because we validated level is between -10 and +10
-        #[allow(clippy::cast_sign_loss)]
-        let value = (self.level + 10) as u8;
-        Ok(vec![0x81, 0x0A, 0x01, 0x13, value, 0xFF])
+        // We've validated level is between -10 and +10, so level + 10 is 0..20
+        let level_offset = self.level + 10;
+        debug_assert!(level_offset >= 0 && level_offset <= 20);
+        let encoded = level_offset as u8;
+        Ok(vec![0x81, 0x0A, 0x01, 0x13, encoded, 0xFF])
     }
 
     fn response_type(&self) -> Option<ViscaResponseType> {
@@ -164,134 +166,86 @@ impl ViscaCommand for HueCommand {
     }
 }
 
-/// Color Temperature command.
-///
-/// Controls the color temperature setting when white balance is in color temperature mode.
-/// Color temperature is measured in Kelvin (K) and affects the warmth/coolness of the image.
-#[derive(Debug, Copy, Clone)]
-pub enum ColorTemperatureCommand {
-    /// Reset color temperature to default value.
-    Reset,
-    /// Increase color temperature (makes image cooler/bluer).
-    Up,
-    /// Decrease color temperature (makes image warmer/redder).
-    Down,
-    /// Set color temperature directly.
+// Use the visca_command! macro for ColorTemperatureCommand
+crate::visca_command! {
+    /// Color Temperature command.
     ///
-    /// Valid range: 0x00 (2500K - very warm) to 0x37 (8000K - very cool).
-    /// Lower values produce warmer (more orange/red) colors,
-    /// higher values produce cooler (more blue) colors.
-    Direct(u16),
-}
-
-impl ViscaCommand for ColorTemperatureCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x20, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x20, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x20, 0x03, 0xFF],
-            Self::Direct(temp) => {
-                if *temp > 0x37 {
-                    return Err(ViscaError::InvalidParameter(
-                        "Color temperature must be between 0x00 (2500K) and 0x37 (8000K)".into(),
-                    ));
-                }
-                let high = ((*temp >> 4) & 0x0F) as u8;
-                let low = (*temp & 0x0F) as u8;
-                vec![0x81, 0x01, 0x04, 0x20, 0x00, 0x00, high, low, 0xFF]
+    /// Controls the color temperature setting when white balance is in color temperature mode.
+    /// Color temperature is measured in Kelvin (K) and affects the warmth/coolness of the image.
+    category = "Quick",
+    enum ColorTemperatureCommand {
+        /// Reset color temperature to default value.
+        Reset => [0x81, 0x01, 0x04, 0x20, 0x00, 0xFF],
+        /// Increase color temperature (makes image cooler/bluer).
+        Up => [0x81, 0x01, 0x04, 0x20, 0x02, 0xFF],
+        /// Decrease color temperature (makes image warmer/redder).
+        Down => [0x81, 0x01, 0x04, 0x20, 0x03, 0xFF],
+        /// Set color temperature directly.
+        ///
+        /// Valid range: 0x00 (2500K - very warm) to 0x37 (8000K - very cool).
+        /// Lower values produce warmer (more orange/red) colors,
+        /// higher values produce cooler (more blue) colors.
+        Direct(temp: u16) => {
+            if *temp > 0x37 {
+                return Err(ViscaError::InvalidParameter(
+                    "Color temperature must be between 0x00 (2500K) and 0x37 (8000K)".into(),
+                ));
             }
-        })
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Quick
+            let high = ((temp >> 4) & 0x0F) as u8;
+            let low = (temp & 0x0F) as u8;
+            Ok(vec![0x81, 0x01, 0x04, 0x20, 0x00, 0x00, high, low, 0xFF])
+        }
     }
 }
 
-/// Red Gain Direct command (different from tuning).
-///
-/// Controls the red channel gain in manual white balance mode.
-/// This provides direct control over the red color channel intensity.
-#[derive(Debug, Copy, Clone)]
-pub enum RedGainCommand {
-    /// Reset red gain to default value.
-    Reset,
-    /// Increment red gain value by one step.
-    Up,
-    /// Decrement red gain value by one step.
-    Down,
-    /// Set red gain to a specific value.
+// Use the visca_command! macro for RedGainCommand
+crate::visca_command! {
+    /// Red Gain Direct command (different from tuning).
     ///
-    /// Valid range: 0x00 (minimum) to 0xFF (maximum).
-    /// Higher values increase the intensity of red in the image.
-    Direct(u8),
-}
-
-impl ViscaCommand for RedGainCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x03, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x03, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x03, 0x03, 0xFF],
-            Self::Direct(gain) => {
-                let high = (*gain >> 4) & 0x0F;
-                let low = *gain & 0x0F;
-                vec![0x81, 0x01, 0x04, 0x43, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Quick
+    /// Controls the red channel gain in manual white balance mode.
+    /// This provides direct control over the red color channel intensity.
+    category = "Quick",
+    enum RedGainCommand {
+        /// Reset red gain to default value.
+        Reset => [0x81, 0x01, 0x04, 0x03, 0x00, 0xFF],
+        /// Increment red gain value by one step.
+        Up => [0x81, 0x01, 0x04, 0x03, 0x02, 0xFF],
+        /// Decrement red gain value by one step.
+        Down => [0x81, 0x01, 0x04, 0x03, 0x03, 0xFF],
+        /// Set red gain to a specific value.
+        ///
+        /// Valid range: 0x00 (minimum) to 0xFF (maximum).
+        /// Higher values increase the intensity of red in the image.
+        Direct(gain: u8) => {
+            let high = (gain >> 4) & 0x0F;
+            let low = gain & 0x0F;
+            Ok(vec![0x81, 0x01, 0x04, 0x43, 0x00, 0x00, high, low, 0xFF])
+        }
     }
 }
 
-/// Blue Gain Direct command (different from tuning).
-///
-/// Controls the blue channel gain in manual white balance mode.
-/// This provides direct control over the blue color channel intensity.
-#[derive(Debug, Copy, Clone)]
-pub enum BlueGainCommand {
-    /// Reset blue gain to default value.
-    Reset,
-    /// Increment blue gain value by one step.
-    Up,
-    /// Decrement blue gain value by one step.
-    Down,
-    /// Set blue gain to a specific value.
+// Use the visca_command! macro for BlueGainCommand
+crate::visca_command! {
+    /// Blue Gain Direct command (different from tuning).
     ///
-    /// Valid range: 0x00 (minimum) to 0xFF (maximum).
-    /// Higher values increase the intensity of blue in the image.
-    Direct(u8),
-}
-
-impl ViscaCommand for BlueGainCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x04, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x04, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x04, 0x03, 0xFF],
-            Self::Direct(gain) => {
-                let high = (*gain >> 4) & 0x0F;
-                let low = *gain & 0x0F;
-                vec![0x81, 0x01, 0x04, 0x44, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Quick
+    /// Controls the blue channel gain in manual white balance mode.
+    /// This provides direct control over the blue color channel intensity.
+    category = "Quick",
+    enum BlueGainCommand {
+        /// Reset blue gain to default value.
+        Reset => [0x81, 0x01, 0x04, 0x04, 0x00, 0xFF],
+        /// Increment blue gain value by one step.
+        Up => [0x81, 0x01, 0x04, 0x04, 0x02, 0xFF],
+        /// Decrement blue gain value by one step.
+        Down => [0x81, 0x01, 0x04, 0x04, 0x03, 0xFF],
+        /// Set blue gain to a specific value.
+        ///
+        /// Valid range: 0x00 (minimum) to 0xFF (maximum).
+        /// Higher values increase the intensity of blue in the image.
+        Direct(gain: u8) => {
+            let high = (gain >> 4) & 0x0F;
+            let low = gain & 0x0F;
+            Ok(vec![0x81, 0x01, 0x04, 0x44, 0x00, 0x00, high, low, 0xFF])
+        }
     }
 }

@@ -450,11 +450,9 @@ impl AsyncViscaConnectionPool {
         for camera_id in camera_ids {
             let is_healthy = {
                 let connections = self.connections.lock().await;
-                #[allow(clippy::option_if_let_else)]
-                if let Some(conn) = connections.get(&camera_id) {
-                    conn.client.is_healthy().await.unwrap_or(false)
-                } else {
-                    false
+                match connections.get(&camera_id) {
+                    Some(conn) => conn.client.is_healthy().await.unwrap_or(false),
+                    None => false,
                 }
             };
             let _ = results.insert(camera_id, is_healthy);

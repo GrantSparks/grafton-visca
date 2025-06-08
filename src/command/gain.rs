@@ -8,83 +8,25 @@ use crate::{
     command::{response::ViscaResponseType, ViscaCommand},
     error::ViscaError,
     timeout::CommandCategory,
+    types::{GainLimit, GainValue},
+    visca_param_command, visca_up_down_reset,
 };
 
-/// Commands for controlling camera gain.
-///
-/// Gain amplifies the camera sensor's signal, allowing for brighter images
-/// in low light conditions at the cost of increased noise.
-#[derive(Debug, Copy, Clone)]
-pub enum GainCommand {
-    /// Reset gain to default value.
-    Reset,
-    /// Increase gain by one step.
-    Up,
-    /// Decrease gain by one step.
-    Down,
-    /// Set gain to specific value (0x00 to 0x07, representing gain levels 0-7).
-    Direct(u16),
-}
-
-impl ViscaCommand for GainCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF],
-            Self::Direct(value) => {
-                if *value > 0x07 {
-                    return Err(ViscaError::InvalidParameter(
-                        "Gain value must be between 0x00 (0) and 0x07 (7)".into(),
-                    ));
-                }
-                // Safe: shifting right by 4 bits ensures the result fits in u8
-                #[allow(clippy::cast_possible_truncation)]
-                let high = (*value >> 4) as u8;
-                // Safe: masking with 0x0F (15) ensures the result fits in u8
-                #[allow(clippy::cast_possible_truncation)]
-                let low = (*value & 0x0F) as u8;
-                vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_up_down_reset! {
+    #[category = "Quick"]
+    enum GainCommand {
+        command_byte: 0x0C,
+        Direct(value: GainValue) => |high, low| [0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, high, low, 0xFF]
     }
 }
 
-/// Command to set the maximum gain limit.
-///
-/// Limits the maximum gain that can be applied when in auto exposure mode,
-/// helping to control noise levels in low light conditions.
-#[derive(Debug, Copy, Clone)]
-pub struct GainLimitCommand {
-    /// Maximum gain limit (0x0 to 0xF, representing levels 0-15).
-    pub limit: u8,
-}
-
-impl ViscaCommand for GainLimitCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        if self.limit > 0x0F {
-            return Err(ViscaError::InvalidParameter(
-                "Gain limit must be between 0x0 (0) and 0xF (15)".into(),
-            ));
-        }
-        Ok(vec![0x81, 0x01, 0x04, 0x2C, self.limit, 0xFF])
+crate::visca_param_command! {
+    /// Command to set the automatic gain control limit.
+    struct GainLimitCommand {
+        /// The maximum gain level allowed in auto mode.
+        limit: GainLimit => direct
     }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
+    bytes = [0x81, 0x01, 0x04, 0x2C, {limit}, 0xFF]
 }
 
 /// Anti-flicker mode settings.

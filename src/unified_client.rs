@@ -211,7 +211,7 @@ impl ViscaClient {
             }
 
             // Wait for response with proper session management
-            self.wait_for_response_blocking(socket_id)
+            self.wait_for_response_blocking(socket_id.value())
         })();
 
         // Always release socket
@@ -254,8 +254,8 @@ impl ViscaClient {
                 if let Some((resp_socket_id, parsed_response)) =
                     session.process_response(&response)?
                 {
-                    if resp_socket_id != socket_id {
-                        log::debug!("Response for socket {resp_socket_id} (expected {socket_id})");
+                    if resp_socket_id.value() != socket_id {
+                        log::debug!("Response for {resp_socket_id} (expected socket {socket_id})");
                         continue;
                     }
 
@@ -336,7 +336,7 @@ impl ViscaClient {
             }
 
             // Wait for response with proper session management
-            self.wait_for_response_async(socket_id).await
+            self.wait_for_response_async(socket_id.value()).await
         }
         .await;
 
@@ -374,8 +374,8 @@ impl ViscaClient {
                 if let Some((resp_socket_id, parsed_response)) =
                     session.process_response(&response)?
                 {
-                    if resp_socket_id != socket_id {
-                        log::debug!("Response for socket {resp_socket_id} (expected {socket_id})");
+                    if resp_socket_id.value() != socket_id {
+                        log::debug!("Response for {resp_socket_id} (expected socket {socket_id})");
                         continue;
                     }
 

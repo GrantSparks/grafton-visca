@@ -8,129 +8,68 @@ use crate::{
     command::{ViscaCommand, ViscaResponseType},
     error::ViscaError,
     timeout::CommandCategory,
+    types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
 };
 
-/// Backlight compensation command.
-///
-/// Enables or disables backlight compensation, which helps properly expose
-/// subjects that are backlit (have a bright light source behind them).
-#[derive(Debug, Copy, Clone)]
-pub struct BacklightCommand {
-    /// Enable (true) or disable (false) backlight compensation.
-    pub status: bool,
+// Use the visca_bool_command! macro for BacklightCommand
+crate::visca_bool_command! {
+    /// Backlight compensation command.
+    ///
+    /// Enables or disables backlight compensation, which helps properly expose
+    /// subjects that are backlit (have a bright light source behind them).
+    struct BacklightCommand {
+        /// Enable (true) or disable (false) backlight compensation.
+        status: bool => |v| if v { 0x02 } else { 0x03 }
+    }
+    bytes = [0x81, 0x01, 0x04, 0x33, {status}, 0xFF]
 }
 
-impl ViscaCommand for BacklightCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        let status_byte = if self.status { 0x02 } else { 0x03 };
-        Ok(vec![0x81, 0x01, 0x04, 0x33, status_byte, 0xFF])
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Custom
-    }
-}
-
-/// 2D Noise Reduction command.
-///
-/// Reduces spatial noise in individual frames by analyzing and smoothing
-/// pixel variations. Higher levels provide more noise reduction but may
-/// reduce fine detail.
-#[derive(Debug, Copy, Clone)]
-pub enum NoiseReduction2DCommand {
-    /// Disable 2D noise reduction.
-    Off,
-    /// Set 2D noise reduction level (1 = minimal, 5 = maximum).
-    Level(u8),
-}
-
-impl ViscaCommand for NoiseReduction2DCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        Ok(match self {
-            Self::Off => vec![0x81, 0x01, 0x04, 0x53, 0x00, 0xFF],
-            Self::Level(level) => {
-                if *level < 1 || *level > 5 {
-                    return Err(ViscaError::InvalidParameter(
-                        "2D Noise Reduction level must be between 1 and 5".into(),
-                    ));
-                }
-                vec![0x81, 0x01, 0x04, 0x53, *level, 0xFF]
-            }
-        })
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Custom
+// Use the visca_command! macro for NoiseReduction2DCommand
+crate::visca_command! {
+    /// 2D Noise Reduction command.
+    ///
+    /// Reduces spatial noise in individual frames by analyzing and smoothing
+    /// pixel variations. Higher levels provide more noise reduction but may
+    /// reduce fine detail.
+    category = "Custom",
+    enum NoiseReduction2DCommand {
+        /// Disable 2D noise reduction.
+        Off => [0x81, 0x01, 0x04, 0x53, 0x00, 0xFF],
+        /// Set 2D noise reduction level.
+        Level(level: NoiseReduction2DLevel) => {
+            Ok(vec![0x81, 0x01, 0x04, 0x53, level.value(), 0xFF])
+        }
     }
 }
 
-/// 3D Noise Reduction command.
-///
-/// Reduces temporal noise by analyzing multiple frames over time.
-/// This is effective for reducing noise in video streams while preserving
-/// motion detail. Higher levels provide more noise reduction.
-#[derive(Debug, Copy, Clone)]
-pub enum NoiseReduction3DCommand {
-    /// Disable 3D noise reduction.
-    Off,
-    /// Set 3D noise reduction level (1 = minimal, 8 = maximum).
-    Level(u8),
-}
-
-impl ViscaCommand for NoiseReduction3DCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        Ok(match self {
-            Self::Off => vec![0x81, 0x01, 0x04, 0x54, 0x00, 0xFF],
-            Self::Level(level) => {
-                if *level < 1 || *level > 8 {
-                    return Err(ViscaError::InvalidParameter(
-                        "3D Noise Reduction level must be between 1 and 8".into(),
-                    ));
-                }
-                vec![0x81, 0x01, 0x04, 0x54, *level, 0xFF]
-            }
-        })
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Custom
+// Use the visca_command! macro for NoiseReduction3DCommand
+crate::visca_command! {
+    /// 3D Noise Reduction command.
+    ///
+    /// Reduces temporal noise by analyzing multiple frames over time.
+    /// This is effective for reducing noise in video streams while preserving
+    /// motion detail. Higher levels provide more noise reduction.
+    category = "Custom",
+    enum NoiseReduction3DCommand {
+        /// Disable 3D noise reduction.
+        Off => [0x81, 0x01, 0x04, 0x54, 0x00, 0xFF],
+        /// Set 3D noise reduction level.
+        Level(level: NoiseReduction3DLevel) => {
+            Ok(vec![0x81, 0x01, 0x04, 0x54, level.value(), 0xFF])
+        }
     }
 }
 
-/// Black and White Mode command.
-///
-/// Switches the camera output between color and monochrome (black and white) modes.
-#[derive(Debug, Copy, Clone)]
-pub struct BlackWhiteCommand {
-    /// Enable (true) for black and white mode, disable (false) for color mode.
-    pub on: bool,
-}
-
-impl ViscaCommand for BlackWhiteCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        let mode = if self.on { 0x04 } else { 0x00 };
-        Ok(vec![0x81, 0x01, 0x04, 0x01, mode, 0xFF])
+// Use the visca_bool_command! macro for BlackWhiteCommand
+crate::visca_bool_command! {
+    /// Black and White Mode command.
+    ///
+    /// Switches the camera output between color and monochrome (black and white) modes.
+    struct BlackWhiteCommand {
+        /// Enable (true) for black and white mode, disable (false) for color mode.
+        on: bool => |v| if v { 0x04 } else { 0x00 }
     }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Custom
-    }
+    bytes = [0x81, 0x01, 0x04, 0x01, {on}, 0xFF]
 }
 
 /// Combined Image Flip modes.

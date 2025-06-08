@@ -13,8 +13,11 @@ use std::{future::Future, pin::Pin};
 use crate::{ViscaCommand, ViscaError};
 
 // Submodules
+pub mod common;
 mod tcp;
+mod tcp_unified;
 mod udp;
+pub mod unified;
 
 // Public re-exports
 #[cfg(feature = "blocking-client")]
@@ -22,6 +25,10 @@ pub use self::{tcp::TcpTransport, udp::UdpTransport};
 
 #[cfg(feature = "async-client")]
 pub use self::{tcp::AsyncTcpTransport, udp::AsyncUdpTransport};
+
+// Unified transport re-exports
+pub use self::tcp_unified::UnifiedTcpTransport;
+pub use self::unified::UnifiedTransport;
 
 /// Type alias for the future returned by async transport methods.
 pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send + 'a>>;

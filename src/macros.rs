@@ -6,10 +6,13 @@
 //! ## Available Macros
 //!
 //! - `visca_command!` - Create simple command enums
-//! - `visca_param_command!` - Create commands with parameters
-//! - `visca_inquiry!` - Create inquiry commands with response parsing
+//! - `visca_up_down_reset!` - Create commands with Up/Down/Reset variants
+//! - `visca_param_command!` - Create commands with parameter encoding
+//! - `visca_inquiry!` - Create inquiry commands
 //! - `execute_command!` - Execute a command with standard error handling
-//! - `impl_up_down_reset!` - Generate up/down/reset method triplets
+//! - `impl_up_down_reset!` - Implement up/down/reset method triplets
+//! - `impl_simple_command!` - Implement simple command methods
+//! - `visca_bounded_param!` - Create validated newtype wrappers for numeric parameters
 
 /// Create a simple VISCA command enum with byte sequences.
 ///
@@ -21,7 +24,7 @@
 /// use grafton_visca::visca_command;
 ///
 /// visca_command! {
-///     #[category = "Movement"]
+///     category = "Movement",
 ///     enum PanTiltCommand {
 ///         Home => [0x81, 0x01, 0x06, 0x04, 0xFF],
 ///         Reset => [0x81, 0x01, 0x06, 0x05, 0xFF],
@@ -31,17 +34,21 @@
 #[macro_export]
 macro_rules! visca_command {
     (
-        #[category = $category:literal]
+        $(#[$meta:meta])*
+        category = $category:literal,
         enum $name:ident {
             $(
-                $variant:ident => [$($byte:expr),+ $(,)?]
+                $(#[$variant_meta:meta])*
+                $variant:ident $( ($($param:ident : $ptype:ty),*) )? => $body:tt
             ),+ $(,)?
         }
     ) => {
-        #[derive(Debug)]
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
         pub enum $name {
             $(
-                $variant,
+                $(#[$variant_meta])*
+                $variant $( ($($ptype),*) )?,
             )+
         }
 
@@ -49,7 +56,7 @@ macro_rules! visca_command {
             fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
                 match self {
                     $(
-                        Self::$variant => Ok(vec![$($byte),+]),
+                        Self::$variant $( ($($param),*) )? => $crate::visca_command!(@expand_body $body, $($($param),*)?),
                     )+
                 }
             }
@@ -64,146 +71,21 @@ macro_rules! visca_command {
                     "Movement" => $crate::timeout::CommandCategory::Movement,
                     "Preset" => $crate::timeout::CommandCategory::Preset,
                     "LongRunning" => $crate::timeout::CommandCategory::LongRunning,
-                    _ => $crate::timeout::CommandCategory::Custom,
-                }
-            }
-        }
-    };
-}
-
-/// Create a VISCA command with parameters.
-///
-/// This macro generates commands that accept parameters and encode them
-/// according to VISCA protocol requirements.
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::visca_param_command;
-///
-/// visca_param_command! {
-///     #[category = "Movement"]
-///     struct DirectZoomCommand {
-///         position: u16 => nibbles(4),
-///     }
-///     bytes = [0x81, 0x01, 0x04, 0x47, {position}, 0xFF]
-/// }
-/// ```
-#[macro_export]
-macro_rules! visca_param_command {
-    (
-        #[category = $category:literal]
-        struct $name:ident {
-            $($field:ident : $type:ty => $encoding:ident($size:expr)),* $(,)?
-        }
-        bytes = [$($byte:tt)*]
-    ) => {
-        #[derive(Debug)]
-        pub struct $name {
-            $(pub $field: $type,)*
-        }
-
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
-                let mut bytes = Vec::new();
-                visca_param_command!(@encode bytes, self, [$($byte)*]);
-                Ok(bytes)
-            }
-
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
-                None
-            }
-
-            fn command_category(&self) -> $crate::timeout::CommandCategory {
-                match $category {
-                    "Quick" => $crate::timeout::CommandCategory::Quick,
-                    "Movement" => $crate::timeout::CommandCategory::Movement,
-                    "Preset" => $crate::timeout::CommandCategory::Preset,
-                    "LongRunning" => $crate::timeout::CommandCategory::LongRunning,
+                    "Custom" => $crate::timeout::CommandCategory::Custom,
                     _ => $crate::timeout::CommandCategory::Custom,
                 }
             }
         }
     };
 
-    // Internal rule for encoding bytes
-    (@encode $bytes:ident, $self:ident, []) => {};
-
-    (@encode $bytes:ident, $self:ident, [$byte:literal $(, $rest:tt)*]) => {
-        $bytes.push($byte);
-        visca_param_command!(@encode $bytes, $self, [$($rest)*]);
+    // Expand simple byte arrays
+    (@expand_body [$($byte:expr),+ $(,)?], $($params:ident)*) => {
+        Ok(vec![$($byte),+])
     };
 
-    (@encode $bytes:ident, $self:ident, [{$field:ident} $(, $rest:tt)*]) => {
-        // Handle field encoding based on the type
-        $bytes.extend_from_slice(&visca_encode_field!($self.$field));
-        visca_param_command!(@encode $bytes, $self, [$($rest)*]);
-    };
-}
-
-/// Helper macro for encoding fields.
-#[macro_export]
-macro_rules! visca_encode_field {
-    ($value:expr) => {{
-        // This is a simplified version - in practice, you'd match on the encoding type
-        let val = $value as u16;
-        vec![
-            ((val >> 12) & 0x0F) as u8,
-            ((val >> 8) & 0x0F) as u8,
-            ((val >> 4) & 0x0F) as u8,
-            (val & 0x0F) as u8,
-        ]
-    }};
-}
-
-/// Create inquiry commands with response parsing.
-///
-/// This macro generates both the command and its response parsing logic.
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::visca_inquiry;
-///
-/// visca_inquiry! {
-///     #[category = "Quick"]
-///     PowerInquiry => [0x81, 0x09, 0x04, 0x00, 0xFF]
-///     response = |data: &[u8]| {
-///         if data.len() == 4 && data[0] == 0x90 && data[1] == 0x50 {
-///             Some(ViscaInquiryResponse::Power { on: data[2] == 0x02 })
-///         } else {
-///             None
-///         }
-///     }
-/// }
-/// ```
-#[macro_export]
-macro_rules! visca_inquiry {
-    (
-        #[category = $category:literal]
-        $name:ident => [$($byte:expr),+ $(,)?]
-        response = $parser:expr
-    ) => {
-        #[derive(Debug)]
-        pub struct $name;
-
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
-                Ok(vec![$($byte),+])
-            }
-
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
-                Some($crate::command::ViscaResponseType::Inquiry)
-            }
-
-            fn command_category(&self) -> $crate::timeout::CommandCategory {
-                match $category {
-                    "Quick" => $crate::timeout::CommandCategory::Quick,
-                    "Movement" => $crate::timeout::CommandCategory::Movement,
-                    "Preset" => $crate::timeout::CommandCategory::Preset,
-                    "LongRunning" => $crate::timeout::CommandCategory::LongRunning,
-                    _ => $crate::timeout::CommandCategory::Custom,
-                }
-            }
-        }
+    // Expand code blocks
+    (@expand_body $block:block, $($params:ident)*) => {
+        $block
     };
 }
 
@@ -227,177 +109,6 @@ macro_rules! execute_command {
             $crate::ViscaResponse::Completion => Ok(()),
             $crate::ViscaResponse::Error(e) => Err(e),
             _ => Err($crate::ViscaError::UnexpectedResponseType),
-        }
-    };
-}
-
-/// Generate up/down/reset method triplets for camera controls.
-///
-/// This macro creates three methods following the common pattern used for
-/// controls like iris, shutter, gain, brightness, etc.
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::impl_up_down_reset;
-///
-/// impl ViscaExposureExt for MyDevice {
-///     impl_up_down_reset!(iris, IrisCommand);
-///     // Generates: iris_up(), iris_down(), iris_reset()
-/// }
-/// ```
-#[macro_export]
-macro_rules! impl_up_down_reset {
-    ($prefix:ident, $command_type:ty) => {
-        fn [<$prefix _up>](&mut self) -> Result<(), $crate::ViscaError> {
-            $crate::execute_command!(self, <$command_type>::Up)
-        }
-
-        fn [<$prefix _down>](&mut self) -> Result<(), $crate::ViscaError> {
-            $crate::execute_command!(self, <$command_type>::Down)
-        }
-
-        fn [<$prefix _reset>](&mut self) -> Result<(), $crate::ViscaError> {
-            $crate::execute_command!(self, <$command_type>::Reset)
-        }
-    };
-}
-
-/// Generate simple command methods that just execute a command.
-///
-/// This macro creates methods that construct and execute a command variant.
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::impl_simple_command;
-///
-/// impl ViscaImageExt for MyDevice {
-///     impl_simple_command!(flip_horizontal_on, FlipCommand::HorizontalOn);
-///     impl_simple_command!(flip_horizontal_off, FlipCommand::HorizontalOff);
-/// }
-/// ```
-#[macro_export]
-macro_rules! impl_simple_command {
-    ($method_name:ident, $command:expr) => {
-        fn $method_name(&mut self) -> Result<(), $crate::ViscaError> {
-            $crate::execute_command!(self, $command)
-        }
-    };
-}
-
-/// Generate command methods with optional speed parameters.
-///
-/// This macro creates methods that accept an optional speed parameter with validation.
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::impl_speed_command;
-///
-/// impl ViscaFocusExt for MyDevice {
-///     impl_speed_command!(focus_near, FocusCommand::Near, FocusSpeed);
-///     impl_speed_command!(focus_far, FocusCommand::Far, FocusSpeed);
-/// }
-/// ```
-#[macro_export]
-macro_rules! impl_speed_command {
-    ($method_name:ident, $command_variant:path, $speed_type:ty) => {
-        fn $method_name(&mut self, speed: Option<$speed_type>) -> Result<(), $crate::ViscaError> {
-            let command = if let Some(s) = speed {
-                $command_variant(s)
-            } else {
-                $command_variant(<$speed_type>::default())
-            };
-            $crate::execute_command!(self, command)
-        }
-    };
-}
-
-/// Create a command enum with Up/Down/Reset/Direct variants.
-///
-/// This macro generates a complete command enum for parameters that support
-/// incremental control (up/down), reset to default, and direct setting.
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::visca_up_down_command;
-///
-/// visca_up_down_command! {
-///     /// Controls camera iris level.
-///     IrisCommand {
-///         category: "Quick",
-///         direct_type: u8,
-///         // Byte sequences for each command variant
-///         reset:  [0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF],
-///         up:     [0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF],
-///         down:   [0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF],
-///         direct: |value| [0x81, 0x01, 0x04, 0x0B, 0x40, 0x00, 0x00, value, 0xFF],
-///         direct_validation: |value| {
-///             if value > 0x0C {
-///                 Err(ViscaError::InvalidParameter(
-///                     "Iris value must be between 0x00 and 0x0C".into()
-///                 ))
-///             } else {
-///                 Ok(())
-///             }
-///         }
-///     }
-/// }
-/// ```
-#[macro_export]
-macro_rules! visca_up_down_command {
-    (
-        $(#[$meta:meta])*
-        $name:ident {
-            category: $category:literal,
-            direct_type: $direct_type:ty,
-            reset: [$($reset_byte:expr),+ $(,)?],
-            up: [$($up_byte:expr),+ $(,)?],
-            down: [$($down_byte:expr),+ $(,)?],
-            direct: |$value:ident| [$($direct_byte:expr),+ $(,)?],
-            $(direct_validation: |$val_param:ident| $validation:block)?
-        }
-    ) => {
-        $(#[$meta])*
-        #[derive(Debug, Copy, Clone)]
-        pub enum $name {
-            /// Reset to default value.
-            Reset,
-            /// Increase by one step.
-            Up,
-            /// Decrease by one step.
-            Down,
-            /// Set to specific value.
-            Direct($direct_type),
-        }
-
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
-                match self {
-                    Self::Reset => Ok(vec![$($reset_byte),+]),
-                    Self::Up => Ok(vec![$($up_byte),+]),
-                    Self::Down => Ok(vec![$($down_byte),+]),
-                    Self::Direct($value) => {
-                        $(
-                            let $val_param = $value;
-                            $validation?;
-                        )?
-                        Ok(vec![$($direct_byte),+])
-                    },
-                }
-            }
-
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
-                None
-            }
-
-            fn command_category(&self) -> $crate::timeout::CommandCategory {
-                match $category {
-                    "Quick" => $crate::timeout::CommandCategory::Quick,
-                    "Movement" => $crate::timeout::CommandCategory::Movement,
-                    "Preset" => $crate::timeout::CommandCategory::Preset,
-                    "LongRunning" => $crate::timeout::CommandCategory::LongRunning,
-                    _ => $crate::timeout::CommandCategory::Custom,
-                }
-            }
         }
     };
 }
@@ -472,5 +183,471 @@ macro_rules! visca_bounded_param {
                 val.0
             }
         }
+    };
+}
+
+/// Create VISCA commands with Up/Down/Reset variants.
+///
+/// This macro is specifically designed for the common pattern of camera controls
+/// that support incremental adjustment and reset operations.
+///
+/// # Example
+/// ```
+/// use grafton_visca::{visca_up_down_reset, visca_bounded_param};
+///
+/// visca_bounded_param! {
+///     /// Iris level parameter
+///     IrisLevel: u8 {
+///         min: 0,
+///         max: 0x11,
+///         error_msg: "Iris level must be between 0x00 and 0x11"
+///     }
+/// }
+///
+/// visca_up_down_reset! {
+///     #[category = "Quick"]
+///     enum IrisCommand {
+///         command_byte: 0x0B,
+///         Direct(value: IrisLevel) => |high, low| [0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, high, low, 0xFF]
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! visca_up_down_reset {
+    (
+        #[category = $category:literal]
+        enum $name:ident {
+            command_byte: $cmd:expr,
+            $(Direct($param:ident: $type:ty) => |$high:ident, $low:ident| [$($direct_byte:expr),+])?
+        }
+    ) => {
+        #[doc = concat!("Commands for controlling ", stringify!($name), " values.")]
+        #[doc = ""]
+        #[doc = "Provides standard VISCA control operations:"]
+        #[doc = "- Reset to default value"]
+        #[doc = "- Increment/decrement by one step"]
+        #[doc = "- Set to a specific value (if supported)"]
+        #[derive(Debug, Copy, Clone)]
+        pub enum $name {
+            /// Reset to default value.
+            Reset,
+            /// Increase value by one step.
+            Up,
+            /// Decrease value by one step.
+            Down,
+            $(
+                /// Set to specific value.
+                Direct($type),
+            )?
+        }
+
+        impl $crate::command::ViscaCommand for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+                Ok(match self {
+                    Self::Reset => vec![0x81, 0x01, 0x04, $cmd, 0x00, 0xFF],
+                    Self::Up => vec![0x81, 0x01, 0x04, $cmd, 0x02, 0xFF],
+                    Self::Down => vec![0x81, 0x01, 0x04, $cmd, 0x03, 0xFF],
+                    $(
+                        Self::Direct($param) => {
+                            // Get the value and compute nibbles
+                            let val = $param.value();
+                            // This cast is necessary because the macro is generic over types that
+                            // return either u8 or u16 from value(). For u8, it's a no-op (hence
+                            // the trivial cast warning), but for u16, it truncates to the low byte
+                            // as required by the VISCA protocol.
+                            let byte_val = val as u8;
+                            let $high = (byte_val >> 4) & 0x0F;
+                            let $low = byte_val & 0x0F;
+                            vec![$($direct_byte),+]
+                        }
+                    )?
+                })
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+                None
+            }
+
+            fn command_category(&self) -> $crate::timeout::CommandCategory {
+                match $category {
+                    "Quick" => $crate::timeout::CommandCategory::Quick,
+                    "Movement" => $crate::timeout::CommandCategory::Movement,
+                    _ => $crate::timeout::CommandCategory::Custom,
+                }
+            }
+        }
+    };
+}
+
+/// Create VISCA commands with parameter encoding.
+///
+/// This macro handles commands that require parameter encoding,
+/// particularly for direct value settings.
+///
+/// # Example
+/// ```
+/// use grafton_visca::{visca_param_command, visca_bounded_param};
+///
+/// visca_bounded_param! {
+///     /// Gain limit level
+///     GainLimit: u8 {
+///         min: 0,
+///         max: 15,
+///         error_msg: "Gain limit must be between 0 and 15"
+///     }
+/// }
+///
+/// visca_param_command! {
+///     /// Command to set gain limit
+///     struct GainLimitCommand {
+///         /// The gain limit value
+///         limit: GainLimit => direct
+///     }
+///     bytes = [0x81, 0x01, 0x04, 0x2C, {limit}, 0xFF]
+/// }
+/// ```
+#[macro_export]
+macro_rules! visca_param_command {
+    (
+        $(#[$meta:meta])*
+        struct $name:ident {
+            $(#[$field_meta:meta])*
+            $field:ident : $type:ty => direct
+        }
+        bytes = [$($byte:tt)*]
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name {
+            $(#[$field_meta])*
+            pub $field: $type,
+        }
+
+        impl $crate::command::ViscaCommand for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+                // Pre-allocate with the expected size to avoid vec_init_then_push warning
+                let mut bytes = Vec::with_capacity(16); // VISCA commands are typically short
+                visca_param_command!(@encode bytes, self, [$($byte)*]);
+                Ok(bytes)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+                None
+            }
+
+            fn command_category(&self) -> $crate::timeout::CommandCategory {
+                $crate::timeout::CommandCategory::Quick
+            }
+        }
+    };
+
+    (
+        $(#[$meta:meta])*
+        struct $name:ident {
+            $(#[$field_meta:meta])*
+            $field:ident : $type:ty => |$v:ident| $encode:expr
+        }
+        bytes = [$($byte:tt)*]
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name {
+            $(#[$field_meta])*
+            pub $field: $type,
+        }
+
+        impl $crate::command::ViscaCommand for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+                let $v = self.$field;
+                let encoded = $encode?;
+                let mut bytes = Vec::with_capacity(16);
+                $crate::visca_param_command!(@encode bytes, encoded, [$($byte)*]);
+                Ok(bytes)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+                None
+            }
+
+            fn command_category(&self) -> $crate::timeout::CommandCategory {
+                $crate::timeout::CommandCategory::Quick
+            }
+        }
+    };
+
+    (
+        $(#[$meta:meta])*
+        struct $name:ident {
+            $(#[$field_meta:meta])*
+            $field:ident : $type:ty => nibbles
+        }
+        bytes = [$($byte:tt)*]
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name {
+            $(#[$field_meta])*
+            pub $field: $type,
+        }
+
+        impl $crate::command::ViscaCommand for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+                let p = (self.$field >> 12) as u8;
+                let q = ((self.$field >> 8) & 0x0F) as u8;
+                let r = ((self.$field >> 4) & 0x0F) as u8;
+                let s = (self.$field & 0x0F) as u8;
+                let mut bytes = Vec::with_capacity(16);
+                $crate::visca_param_command!(@encode_nibbles bytes, p, q, r, s, [$($byte)*]);
+                Ok(bytes)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+                None
+            }
+
+            fn command_category(&self) -> $crate::timeout::CommandCategory {
+                $crate::timeout::CommandCategory::Quick
+            }
+        }
+    };
+
+    // Internal encoding rules
+    (@encode $bytes:ident, $self:ident, []) => {};
+
+    (@encode $bytes:ident, $self:ident, [$byte:literal, $($rest:tt)*]) => {
+        $bytes.push($byte);
+        $crate::visca_param_command!(@encode $bytes, $self, [$($rest)*]);
+    };
+
+    (@encode $bytes:ident, $self:ident, [$byte:literal]) => {
+        $bytes.push($byte);
+    };
+
+    (@encode $bytes:ident, $self:ident, [{$field:ident}, $($rest:tt)*]) => {
+        $bytes.push($self.$field.value());
+        $crate::visca_param_command!(@encode $bytes, $self, [$($rest)*]);
+    };
+
+    (@encode $bytes:ident, $self:ident, [{$field:ident}]) => {
+        $bytes.push($self.$field.value());
+    };
+
+    // Encoding with single encoded value
+    (@encode $bytes:ident, $encoded:expr, []) => {};
+
+    (@encode $bytes:ident, $encoded:expr, [$byte:literal, $($rest:tt)*]) => {
+        $bytes.push($byte);
+        $crate::visca_param_command!(@encode $bytes, $encoded, [$($rest)*]);
+    };
+
+    (@encode $bytes:ident, $encoded:expr, [$byte:literal]) => {
+        $bytes.push($byte);
+    };
+
+    (@encode $bytes:ident, $encoded:expr, [{$field:ident}, $($rest:tt)*]) => {
+        $bytes.push($encoded);
+        $crate::visca_param_command!(@encode $bytes, $encoded, [$($rest)*]);
+    };
+
+    (@encode $bytes:ident, $encoded:expr, [{$field:ident}]) => {
+        $bytes.push($encoded);
+    };
+
+    // Encoding with nibbles
+    (@encode_nibbles $bytes:ident, $p:expr, $q:expr, $r:expr, $s:expr, []) => {};
+
+    (@encode_nibbles $bytes:ident, $p:expr, $q:expr, $r:expr, $s:expr, [$byte:literal, $($rest:tt)*]) => {
+        $bytes.push($byte);
+        $crate::visca_param_command!(@encode_nibbles $bytes, $p, $q, $r, $s, [$($rest)*]);
+    };
+
+    (@encode_nibbles $bytes:ident, $p:expr, $q:expr, $r:expr, $s:expr, [$byte:literal]) => {
+        $bytes.push($byte);
+    };
+
+    (@encode_nibbles $bytes:ident, $p:expr, $q:expr, $r:expr, $s:expr, [{$field:ident}, $($rest:tt)*]) => {
+        $bytes.push($p);
+        $bytes.push($q);
+        $bytes.push($r);
+        $bytes.push($s);
+        $crate::visca_param_command!(@encode_nibbles $bytes, $p, $q, $r, $s, [$($rest)*]);
+    };
+
+    (@encode_nibbles $bytes:ident, $p:expr, $q:expr, $r:expr, $s:expr, [{$field:ident}]) => {
+        $bytes.push($p);
+        $bytes.push($q);
+        $bytes.push($r);
+        $bytes.push($s);
+    };
+}
+
+/// Create VISCA inquiry commands.
+///
+/// This macro generates inquiry commands that query camera state.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::visca_inquiry;
+///
+/// visca_inquiry! {
+///     #[category = "Quick"]
+///     PowerInquiry => 0x00
+/// }
+/// ```
+#[macro_export]
+macro_rules! visca_inquiry {
+    (
+        #[category = $category:literal]
+        $name:ident => $inquiry_byte:expr
+    ) => {
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name;
+
+        impl $crate::command::ViscaCommand for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+                Ok(vec![0x81, 0x09, 0x04, $inquiry_byte, 0xFF])
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+                Some($crate::command::ViscaResponseType::Inquiry)
+            }
+
+            fn command_category(&self) -> $crate::timeout::CommandCategory {
+                match $category {
+                    "Quick" => $crate::timeout::CommandCategory::Quick,
+                    _ => $crate::timeout::CommandCategory::Custom,
+                }
+            }
+        }
+    };
+}
+
+/// Implement up/down/reset method triplets in extension traits.
+///
+/// This macro generates the three common methods for camera controls.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::impl_up_down_reset;
+///
+/// impl ViscaExposureExt for MyDevice {
+///     impl_up_down_reset!(iris, IrisCommand);
+///     // Generates: iris_up(), iris_down(), iris_reset()
+/// }
+/// ```
+#[macro_export]
+macro_rules! impl_up_down_reset {
+    ($prefix:ident, $command_type:ty) => {
+        paste::paste! {
+            fn [<$prefix _up>](&mut self) -> Result<(), $crate::ViscaError> {
+                $crate::execute_command!(self, <$command_type>::Up)
+            }
+
+            fn [<$prefix _down>](&mut self) -> Result<(), $crate::ViscaError> {
+                $crate::execute_command!(self, <$command_type>::Down)
+            }
+
+            fn [<$prefix _reset>](&mut self) -> Result<(), $crate::ViscaError> {
+                $crate::execute_command!(self, <$command_type>::Reset)
+            }
+        }
+    };
+}
+
+/// Implement simple command methods.
+///
+/// This macro generates methods that execute a specific command variant.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::impl_simple_command;
+///
+/// impl ViscaImageExt for MyDevice {
+///     impl_simple_command!(backlight_on, BacklightCommand { status: true });
+///     impl_simple_command!(backlight_off, BacklightCommand { status: false });
+/// }
+/// ```
+#[macro_export]
+macro_rules! impl_simple_command {
+    ($method_name:ident, $command:expr) => {
+        fn $method_name(&mut self) -> Result<(), $crate::ViscaError> {
+            $crate::execute_command!(self, $command)
+        }
+    };
+}
+
+/// Create VISCA commands with boolean on/off parameters.
+///
+/// This macro generates commands that have a simple boolean parameter
+/// for enabling/disabling features.
+///
+/// # Example
+/// ```
+/// use grafton_visca::visca_bool_command;
+///
+/// visca_bool_command! {
+///     /// Enable or disable backlight compensation.
+///     struct BacklightCommand {
+///         /// Enable (true) or disable (false) backlight compensation.
+///         status: bool => |v| if v { 0x02 } else { 0x03 }
+///     }
+///     bytes = [0x81, 0x01, 0x04, 0x33, {status}, 0xFF]
+/// }
+/// ```
+#[macro_export]
+macro_rules! visca_bool_command {
+    (
+        $(#[$meta:meta])*
+        struct $name:ident {
+            $(#[$field_meta:meta])*
+            $field:ident: bool => |$v:ident| $encode:expr
+        }
+        bytes = [$($byte:tt)*]
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name {
+            $(#[$field_meta])*
+            pub $field: bool,
+        }
+
+        impl $crate::command::ViscaCommand for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+                let $v = self.$field;
+                let encoded = $encode;
+                let mut bytes = Vec::with_capacity(16);
+                $crate::visca_bool_command!(@encode bytes, encoded, [$($byte)*]);
+                Ok(bytes)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+                None
+            }
+
+            fn command_category(&self) -> $crate::timeout::CommandCategory {
+                $crate::timeout::CommandCategory::Quick
+            }
+        }
+    };
+
+    // Internal encoding rules
+    (@encode $bytes:ident, $encoded:ident, []) => {};
+
+    (@encode $bytes:ident, $encoded:ident, [$byte:literal, $($rest:tt)*]) => {
+        $bytes.push($byte);
+        $crate::visca_bool_command!(@encode $bytes, $encoded, [$($rest)*]);
+    };
+
+    (@encode $bytes:ident, $encoded:ident, [$byte:literal]) => {
+        $bytes.push($byte);
+    };
+
+    (@encode $bytes:ident, $encoded:ident, [{$field:ident}, $($rest:tt)*]) => {
+        $bytes.push($encoded);
+        $crate::visca_bool_command!(@encode $bytes, $encoded, [$($rest)*]);
+    };
+
+    (@encode $bytes:ident, $encoded:ident, [{$field:ident}]) => {
+        $bytes.push($encoded);
     };
 }
