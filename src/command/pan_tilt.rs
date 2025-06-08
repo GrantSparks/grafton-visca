@@ -431,6 +431,9 @@ crate::visca_bounded_param! {
 impl PanSpeed {
     /// Zero speed value (stop).
     pub const ZERO: Self = Self(0);
+
+    /// Default medium speed value.
+    pub const DEFAULT_MEDIUM: Self = Self(0x10);
 }
 
 crate::visca_bounded_param! {
@@ -448,6 +451,9 @@ crate::visca_bounded_param! {
 impl TiltSpeed {
     /// Zero speed value (stop).
     pub const ZERO: Self = Self(0);
+
+    /// Default medium speed value.
+    pub const DEFAULT_MEDIUM: Self = Self(0x10);
 }
 
 /// Corner position for pan/tilt limits.

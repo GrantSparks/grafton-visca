@@ -8,6 +8,8 @@ use crate::{
     command::{ViscaCommand, ViscaResponseType},
     error::ViscaError,
     timeout::CommandCategory,
+    types::{ContrastLevel, LuminanceLevel},
+    visca_param_command,
 };
 
 /// Sharpness control modes.
@@ -75,66 +77,20 @@ impl ViscaCommand for SharpnessCommand {
     }
 }
 
-/// Luminance adjustment command.
-///
-/// Controls the overall brightness of the image by adjusting
-/// the luminance level.
-#[derive(Debug, Copy, Clone)]
-pub struct LuminanceCommand {
-    /// Luminance value (0 = darkest, 14 = brightest).
-    pub value: u8,
+crate::visca_param_command! {
+    /// Command to set the luminance level.
+    struct LuminanceCommand {
+        /// The luminance level.
+        value: LuminanceLevel => direct
+    }
+    bytes = [0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, {value}, 0xFF]
 }
 
-impl ViscaCommand for LuminanceCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        if self.value <= 14 {
-            Ok(vec![
-                0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, self.value, 0xFF,
-            ])
-        } else {
-            Err(ViscaError::InvalidParameter(
-                "Luminance value must be in the range 0..=14".into(),
-            ))
-        }
+crate::visca_param_command! {
+    /// Command to set the contrast level.
+    struct ContrastCommand {
+        /// The contrast level.
+        value: ContrastLevel => direct
     }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Custom
-    }
-}
-
-/// Contrast adjustment command.
-///
-/// Controls the difference between light and dark areas of the image.
-/// Higher contrast makes darks darker and lights lighter.
-#[derive(Debug, Copy, Clone)]
-pub struct ContrastCommand {
-    /// Contrast value (0 = minimum contrast, 14 = maximum contrast).
-    pub value: u8,
-}
-
-impl ViscaCommand for ContrastCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        if self.value <= 14 {
-            Ok(vec![
-                0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, self.value, 0xFF,
-            ])
-        } else {
-            Err(ViscaError::InvalidParameter(
-                "Contrast value must be in the range 0..=14".into(),
-            ))
-        }
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Custom
-    }
+    bytes = [0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, {value}, 0xFF]
 }

@@ -4,7 +4,7 @@ use grafton_visca::command::ViscaCommand;
 use grafton_visca::{visca_command, ViscaError};
 
 visca_command! {
-    #[category = "Movement"]
+    category = "Movement",
     enum TestCommands {
         Home => [0x81, 0x01, 0x06, 0x04, 0xFF],
         Reset => [0x81, 0x01, 0x06, 0x05, 0xFF],
@@ -12,7 +12,7 @@ visca_command! {
 }
 
 visca_command! {
-    #[category = "Quick"]
+    category = "Quick",
     enum PowerCommands {
         On => [0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
         Standby => [0x81, 0x01, 0x04, 0x00, 0x03, 0xFF],

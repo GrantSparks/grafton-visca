@@ -191,7 +191,8 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn set_iris(&mut self, value: u8) -> Result<(), ViscaError> {
-        execute_command!(self, IrisCommand::Direct(value))
+        use crate::types::IrisLevel;
+        execute_command!(self, IrisCommand::Direct(IrisLevel::new(value)?))
     }
 
     /// Increase iris opening (brighter).
@@ -269,7 +270,11 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn set_shutter(&mut self, value: u8) -> Result<(), ViscaError> {
-        execute_command!(self, ShutterCommand::Direct(value.into()))
+        use crate::types::ShutterSpeed;
+        execute_command!(
+            self,
+            ShutterCommand::Direct(ShutterSpeed::new(u16::from(value))?)
+        )
     }
 
     /// Increase shutter speed (faster, darker).
@@ -347,7 +352,8 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn set_gain(&mut self, value: u8) -> Result<(), ViscaError> {
-        execute_command!(self, GainCommand::Direct(value.into()))
+        use crate::types::GainValue;
+        execute_command!(self, GainCommand::Direct(GainValue::new(value)?))
     }
 
     /// Increase gain (brighter but more noise).
@@ -422,7 +428,13 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn set_gain_limit(&mut self, limit: u8) -> Result<(), ViscaError> {
-        execute_command!(self, GainLimitCommand { limit })
+        use crate::types::GainLimit;
+        execute_command!(
+            self,
+            GainLimitCommand {
+                limit: GainLimit::new(limit)?
+            }
+        )
     }
 
     /// Set the brightness adjustment.
@@ -449,7 +461,11 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # }
     /// ```
     fn set_brightness(&mut self, value: u8) -> Result<(), ViscaError> {
-        execute_command!(self, BrightCommand::Direct(value.into()))
+        use crate::types::BrightnessLevel;
+        execute_command!(
+            self,
+            BrightCommand::Direct(BrightnessLevel::new(u16::from(value))?)
+        )
     }
 
     /// Increase brightness.

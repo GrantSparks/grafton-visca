@@ -1,11 +1,9 @@
-// Standard library imports
-use std::{future::Future, io, pin::Pin, time::Duration};
+use std::{fmt, future::Future, io, pin::Pin, time::Duration};
 
-// Third-party crate imports
 use thiserror::Error;
 
-// Workspace / local-crate imports
-// (none)
+/// Custom result type for VISCA operations.
+pub type Result<T, E = ViscaError> = std::result::Result<T, E>;
 
 /// VISCA protocol error type.
 ///
@@ -225,8 +223,35 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for ViscaError {
     }
 }
 
-/// Type alias for a boxed future that is Send
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+/// A boxed future that is Send and has a specific lifetime.
+pub struct BoxFuture<'a, T>(Pin<Box<dyn Future<Output = T> + Send + 'a>>);
+
+impl<T> fmt::Debug for BoxFuture<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BoxFuture").finish_non_exhaustive()
+    }
+}
+
+impl<T> Future for BoxFuture<'_, T> {
+    type Output = T;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        self.0.as_mut().poll(cx)
+    }
+}
+
+impl<'a, T> BoxFuture<'a, T> {
+    /// Create a new boxed future.
+    pub fn new<F>(future: F) -> Self
+    where
+        F: Future<Output = T> + Send + 'a,
+    {
+        Self(Box::pin(future))
+    }
+}
 
 /// Extension trait providing convenient retry helpers for VISCA operations.
 ///
@@ -258,7 +283,7 @@ pub trait ViscaResultExt<T> {
         self,
         max_attempts: u32,
         base_delay: Duration,
-    ) -> BoxFuture<'static, Result<T, ViscaError>>;
+    ) -> BoxFuture<'static, Result<T>>;
 
     /// Retry the operation using the error's suggested delay.
     ///
@@ -282,10 +307,7 @@ pub trait ViscaResultExt<T> {
     /// }
     /// # }
     /// ```
-    fn retry_with_suggested_delay(
-        self,
-        max_attempts: u32,
-    ) -> BoxFuture<'static, Result<T, ViscaError>>;
+    fn retry_with_suggested_delay(self, max_attempts: u32) -> BoxFuture<'static, Result<T>>;
 
     /// Retry the operation with exponential backoff.
     ///
@@ -320,7 +342,7 @@ pub trait ViscaResultExt<T> {
         max_attempts: u32,
         initial_delay: Duration,
         max_delay: Duration,
-    ) -> BoxFuture<'static, Result<T, ViscaError>>;
+    ) -> BoxFuture<'static, Result<T>>;
 
     /// Convert retryable errors to a more user-friendly format.
     ///
@@ -329,31 +351,23 @@ pub trait ViscaResultExt<T> {
     ///
     /// # Errors
     /// Returns the original `ViscaError` with added retry context information.
-    fn with_retry_context(self) -> Result<T, ViscaError>;
+    fn with_retry_context(self) -> Result<T>;
 }
 
-#[allow(clippy::use_self)]
-impl<T> ViscaResultExt<T> for Result<T, ViscaError>
+impl<T> ViscaResultExt<T> for Result<T>
 where
     T: Send + 'static,
 {
-    fn retry_on_busy(
-        self,
-        _max_attempts: u32,
-        _base_delay: Duration,
-    ) -> BoxFuture<'static, Result<T, ViscaError>> {
-        Box::pin(async move {
+    fn retry_on_busy(self, _max_attempts: u32, _base_delay: Duration) -> BoxFuture<'static, Self> {
+        BoxFuture::new(async move {
             // This implementation is a placeholder since we can't re-execute from just a Result
             // The real retry functionality should use the utility functions below
             self.with_retry_context()
         })
     }
 
-    fn retry_with_suggested_delay(
-        self,
-        _max_attempts: u32,
-    ) -> BoxFuture<'static, Result<T, ViscaError>> {
-        Box::pin(async move {
+    fn retry_with_suggested_delay(self, _max_attempts: u32) -> BoxFuture<'static, Self> {
+        BoxFuture::new(async move {
             // This implementation is a placeholder since we can't re-execute from just a Result
             // The real retry functionality should use the utility functions below
             self.with_retry_context()
@@ -365,27 +379,26 @@ where
         _max_attempts: u32,
         _initial_delay: Duration,
         _max_delay: Duration,
-    ) -> BoxFuture<'static, Result<T, ViscaError>> {
-        Box::pin(async move {
+    ) -> BoxFuture<'static, Self> {
+        BoxFuture::new(async move {
             // This implementation is a placeholder since we can't re-execute from just a Result
             // The real retry functionality should use the utility functions below
             self.with_retry_context()
         })
     }
 
-    fn with_retry_context(self) -> Result<T, ViscaError> {
-        match &self {
-            Err(err) if err.is_retryable() => {
+    fn with_retry_context(self) -> Self {
+        if let Err(ref err) = self {
+            if err.is_retryable() {
                 // Add context about retry strategies
                 log::debug!(
                     "Retryable error occurred: {}. Suggested delay: {:?}",
                     err,
                     err.suggested_retry_delay()
                 );
-                self
             }
-            _ => self,
         }
+        self
     }
 }
 
@@ -427,10 +440,10 @@ impl ViscaRetry {
         mut operation: F,
         max_attempts: u32,
         base_delay: Duration,
-    ) -> Result<T, ViscaError>
+    ) -> Result<T>
     where
         F: FnMut() -> Fut,
-        Fut: Future<Output = Result<T, ViscaError>>,
+        Fut: Future<Output = Result<T>>,
     {
         let mut last_error = None;
 
@@ -443,11 +456,7 @@ impl ViscaRetry {
                         "Attempt {attempt}/{max_attempts} failed with retryable error: {err}. Retrying in {delay:?}"
                     );
 
-                    #[cfg(feature = "async-client")]
-                    tokio::time::sleep(delay).await;
-
-                    #[cfg(not(feature = "async-client"))]
-                    std::thread::sleep(delay);
+                    Self::sleep_async(delay).await;
 
                     last_error = Some(err);
                 }
@@ -481,10 +490,10 @@ impl ViscaRetry {
     pub async fn retry_with_suggested_delay_async<T, F, Fut>(
         mut operation: F,
         max_attempts: u32,
-    ) -> Result<T, ViscaError>
+    ) -> Result<T>
     where
         F: FnMut() -> Fut,
-        Fut: Future<Output = Result<T, ViscaError>>,
+        Fut: Future<Output = Result<T>>,
     {
         let mut last_error = None;
 
@@ -497,11 +506,7 @@ impl ViscaRetry {
                             "Attempt {attempt}/{max_attempts} failed: {err}. Retrying in {delay:?}"
                         );
 
-                        #[cfg(feature = "async-client")]
-                        tokio::time::sleep(delay).await;
-
-                        #[cfg(not(feature = "async-client"))]
-                        std::thread::sleep(delay);
+                        Self::sleep_async(delay).await;
 
                         last_error = Some(err);
                     } else {
@@ -543,10 +548,10 @@ impl ViscaRetry {
         max_attempts: u32,
         initial_delay: Duration,
         max_delay: Duration,
-    ) -> Result<T, ViscaError>
+    ) -> Result<T>
     where
         F: FnMut() -> Fut,
-        Fut: Future<Output = Result<T, ViscaError>>,
+        Fut: Future<Output = Result<T>>,
     {
         let mut last_error = None;
         let mut current_delay = initial_delay;
@@ -559,14 +564,10 @@ impl ViscaRetry {
                         "Attempt {attempt}/{max_attempts} failed: {err}. Retrying in {current_delay:?}"
                     );
 
-                    #[cfg(feature = "async-client")]
-                    tokio::time::sleep(current_delay).await;
-
-                    #[cfg(not(feature = "async-client"))]
-                    std::thread::sleep(current_delay);
+                    Self::sleep_async(current_delay).await;
 
                     // Double the delay for next iteration, up to max_delay
-                    current_delay = std::cmp::min(current_delay * 2, max_delay);
+                    current_delay = current_delay.saturating_mul(2).min(max_delay);
                     last_error = Some(err);
                 }
                 Err(err) => return Err(err),
@@ -604,9 +605,9 @@ impl ViscaRetry {
         mut operation: F,
         max_attempts: u32,
         base_delay: Duration,
-    ) -> Result<T, ViscaError>
+    ) -> Result<T>
     where
-        F: FnMut() -> Result<T, ViscaError>,
+        F: FnMut() -> Result<T>,
     {
         let mut last_error = None;
 
@@ -628,6 +629,20 @@ impl ViscaRetry {
 
         Err(last_error.unwrap_or(ViscaError::Unknown(0xFF)))
     }
+
+    /// Sleep for the given duration in an async context.
+    #[cfg(feature = "async-client")]
+    async fn sleep_async(duration: Duration) {
+        tokio::time::sleep(duration).await;
+    }
+
+    /// Sleep for the given duration (blocking version when async is not available).
+    #[cfg(not(feature = "async-client"))]
+    fn sleep_async(duration: Duration) -> impl Future<Output = ()> {
+        // Return a ready future that has already completed the sleep
+        std::thread::sleep(duration);
+        std::future::ready(())
+    }
 }
 
 /// Application-level error type for examples and user code.
@@ -640,6 +655,21 @@ pub enum AppError {
     /// VISCA protocol or camera communication error.
     #[error("VISCA error: {0}")]
     Visca(#[from] ViscaError),
+}
+
+/// Error context information for debugging.
+#[derive(Debug, Clone)]
+pub struct ErrorContext {
+    /// The operation that was being performed.
+    pub operation: String,
+    /// Additional context about the error.
+    pub context: String,
+}
+
+impl fmt::Display for ErrorContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ({})", self.operation, self.context)
+    }
 }
 
 #[cfg(test)]
@@ -786,21 +816,21 @@ mod tests {
     #[test]
     fn test_visca_result_ext_with_retry_context() {
         // Test successful result
-        let success_result: Result<String, ViscaError> = Ok("success".to_string());
-        let result = success_result.with_retry_context();
+        let result: Result<String> = Ok("success".to_string());
+        let result = result.with_retry_context();
         assert!(result.is_ok());
 
         // Test retryable error
-        let retryable_error: Result<(), ViscaError> = Err(ViscaError::CameraBusy);
+        let retryable_error: Result<()> = Err(ViscaError::CameraBusy);
         let result = retryable_error.with_retry_context();
         assert!(result.is_err());
-        assert!(result.unwrap_err().is_retryable());
+        assert!(result.as_ref().unwrap_err().is_retryable());
 
         // Test non-retryable error
-        let non_retryable_error: Result<(), ViscaError> = Err(ViscaError::SyntaxError);
+        let non_retryable_error: Result<()> = Err(ViscaError::SyntaxError);
         let result = non_retryable_error.with_retry_context();
         assert!(result.is_err());
-        assert!(!result.unwrap_err().is_retryable());
+        assert!(!result.as_ref().unwrap_err().is_retryable());
     }
 
     #[cfg(feature = "blocking-client")]
@@ -829,7 +859,7 @@ mod tests {
     #[test]
     fn test_visca_retry_blocking_max_attempts() {
         let mut attempt_count = 0;
-        let result: Result<&str, ViscaError> = ViscaRetry::retry_blocking(
+        let result: Result<&str> = ViscaRetry::retry_blocking(
             || {
                 attempt_count += 1;
                 Err(ViscaError::CameraBusy)
@@ -847,7 +877,7 @@ mod tests {
     #[test]
     fn test_visca_retry_blocking_non_retryable() {
         let mut attempt_count = 0;
-        let result: Result<&str, ViscaError> = ViscaRetry::retry_blocking(
+        let result: Result<&str> = ViscaRetry::retry_blocking(
             || {
                 attempt_count += 1;
                 Err(ViscaError::SyntaxError)

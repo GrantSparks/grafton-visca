@@ -1,5 +1,5 @@
 use grafton_visca::command::*;
-use grafton_visca::ViscaCommand;
+use grafton_visca::{BrightnessLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed, ViscaCommand};
 
 #[cfg(test)]
 mod golden_vector_tests {
@@ -10,6 +10,7 @@ mod golden_vector_tests {
     use grafton_visca::command::power::Power;
     use grafton_visca::command::preset::{PresetAction, PresetNumber};
     use grafton_visca::command::zoom::ZoomSpeed;
+    use grafton_visca::{NoiseReduction2DLevel, NoiseReduction3DLevel};
 
     #[test]
     fn test_power_commands() {
@@ -425,7 +426,7 @@ mod golden_vector_tests {
         );
 
         // Iris Direct F1.8
-        let iris_f18 = IrisCommand::Direct(0x0C);
+        let iris_f18 = IrisCommand::Direct(IrisLevel::new(0x0C).unwrap());
         assert_eq!(
             iris_f18.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0C, 0xFF],
@@ -444,7 +445,7 @@ mod golden_vector_tests {
         );
 
         // Shutter Direct 1/30
-        let shutter_30 = ShutterCommand::Direct(0x01);
+        let shutter_30 = ShutterCommand::Direct(ShutterSpeed::new(0x01).unwrap());
         assert_eq!(
             shutter_30.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x01, 0xFF],
@@ -452,7 +453,7 @@ mod golden_vector_tests {
         );
 
         // Shutter Direct 1/10000
-        let shutter_10000 = ShutterCommand::Direct(0x11);
+        let shutter_10000 = ShutterCommand::Direct(ShutterSpeed::new(0x11).unwrap());
         assert_eq!(
             shutter_10000.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x01, 0xFF],
@@ -471,10 +472,10 @@ mod golden_vector_tests {
         );
 
         // Bright Direct 17
-        let bright_17 = BrightCommand::Direct(0x11);
+        let bright_17 = BrightCommand::Direct(BrightnessLevel::new(0x11).unwrap());
         assert_eq!(
             bright_17.to_bytes().unwrap(),
-            vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x01, 0x01, 0xFF],
+            vec![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF],
             "Bright Direct 17 should produce correct byte sequence"
         );
     }
@@ -490,15 +491,17 @@ mod golden_vector_tests {
         );
 
         // Gain Direct 7
-        let gain_7 = GainCommand::Direct(0x07);
+        let gain_7 = GainCommand::Direct(GainValue::new(0x07).unwrap());
         assert_eq!(
             gain_7.to_bytes().unwrap(),
-            vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0x00, 0x00, 0x07, 0xFF],
+            vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, 0x00, 0x07, 0xFF],
             "Gain Direct 7 should produce correct byte sequence"
         );
 
         // Gain Limit
-        let gain_limit = GainLimitCommand { limit: 0x0F };
+        let gain_limit = GainLimitCommand {
+            limit: GainLimit::new(0x0F).unwrap(),
+        };
         assert_eq!(
             gain_limit.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x2C, 0x0F, 0xFF],
@@ -819,7 +822,7 @@ mod golden_vector_tests {
         );
 
         // 2D Noise Reduction Level 5
-        let nr2d_5 = NoiseReduction2DCommand::Level(5);
+        let nr2d_5 = NoiseReduction2DCommand::Level(NoiseReduction2DLevel::new(5).unwrap());
         assert_eq!(
             nr2d_5.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x53, 0x05, 0xFF],
@@ -827,7 +830,7 @@ mod golden_vector_tests {
         );
 
         // 3D Noise Reduction Level 8
-        let nr3d_8 = NoiseReduction3DCommand::Level(8);
+        let nr3d_8 = NoiseReduction3DCommand::Level(NoiseReduction3DLevel::new(8).unwrap());
         assert_eq!(
             nr3d_8.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x54, 0x08, 0xFF],

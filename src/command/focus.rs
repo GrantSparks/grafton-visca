@@ -167,32 +167,17 @@ impl ViscaCommand for AFSensitivityCommand {
     }
 }
 
-/// Command to set the focus near limit.
-///
-/// Sets the minimum focus distance to prevent the camera from
-/// focusing on objects too close to the lens.
-#[derive(Debug, Copy, Clone)]
-pub struct FocusNearLimitCommand {
-    /// The focus position limit (0x0000 to 0xFFFF).
-    pub position: u16,
-}
-
-impl ViscaCommand for FocusNearLimitCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
-        let p = (self.position >> 12) as u8;
-        let q = ((self.position >> 8) & 0x0F) as u8;
-        let r = ((self.position >> 4) & 0x0F) as u8;
-        let s = (self.position & 0x0F) as u8;
-        Ok(vec![0x81, 0x01, 0x04, 0x28, p, q, r, s, 0xFF])
+// Use the visca_param_command! macro for FocusNearLimitCommand
+crate::visca_param_command! {
+    /// Command to set the focus near limit.
+    ///
+    /// Sets the minimum focus distance to prevent the camera from
+    /// focusing on objects too close to the lens.
+    struct FocusNearLimitCommand {
+        /// The focus position limit (0x0000 to 0xFFFF).
+        position: u16 => nibbles
     }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        None
-    }
-
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
+    bytes = [0x81, 0x01, 0x04, 0x28, {position}, 0xFF]
 }
 
 #[cfg(test)]

@@ -67,16 +67,10 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # }
     /// ```
     fn set_noise_reduction_2d(&mut self, level: Option<u8>) -> Result<(), ViscaError> {
+        use crate::types::NoiseReduction2DLevel;
         let command = match level {
             None => NoiseReduction2DCommand::Off,
-            Some(lvl) => {
-                if !(1..=5).contains(&lvl) {
-                    return Err(ViscaError::InvalidParameter(
-                        "2D noise reduction level must be 1-5".into(),
-                    ));
-                }
-                NoiseReduction2DCommand::Level(lvl)
-            }
+            Some(lvl) => NoiseReduction2DCommand::Level(NoiseReduction2DLevel::new(lvl)?),
         };
         match self.execute_command(&command)? {
             ViscaResponse::Completion => {}
@@ -108,16 +102,10 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # }
     /// ```
     fn set_noise_reduction_3d(&mut self, level: Option<u8>) -> Result<(), ViscaError> {
+        use crate::types::NoiseReduction3DLevel;
         let command = match level {
             None => NoiseReduction3DCommand::Off,
-            Some(lvl) => {
-                if !(1..=8).contains(&lvl) {
-                    return Err(ViscaError::InvalidParameter(
-                        "3D noise reduction level must be 1-8".into(),
-                    ));
-                }
-                NoiseReduction3DCommand::Level(lvl)
-            }
+            Some(lvl) => NoiseReduction3DCommand::Level(NoiseReduction3DLevel::new(lvl)?),
         };
         match self.execute_command(&command)? {
             ViscaResponse::Completion => {}
@@ -381,12 +369,16 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # }
     /// ```
     fn set_contrast(&mut self, level: u8) -> Result<(), ViscaError> {
+        use crate::types::ContrastLevel;
+
         if level > 14 {
             return Err(ViscaError::InvalidParameter(
                 "Contrast level must be 0-14".into(),
             ));
         }
-        let command = ContrastCommand { value: level };
+        let command = ContrastCommand {
+            value: ContrastLevel::new(level)?,
+        };
         match self.execute_command(&command)? {
             ViscaResponse::Completion => {}
             ViscaResponse::Error(e) => return Err(e),

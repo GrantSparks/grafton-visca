@@ -11,8 +11,7 @@
     trivial_casts,
     trivial_numeric_casts,
     unsafe_code,
-    unused_qualifications,
-    unused_results
+    unused_qualifications
 )]
 #![deny(
     clippy::unwrap_used,
@@ -106,7 +105,7 @@
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
 //! # {
-//! use grafton_visca::ViscaClient;
+//! use grafton_visca::{ViscaClient, IrisLevel};
 //! use grafton_visca::command::{ExposureCompensationCommand, IrisCommand, SaturationCommand};
 //! use grafton_visca::command::exposure::ExposureCompensationLevel;
 //!
@@ -116,7 +115,7 @@
 //! client.send(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(3).unwrap())).unwrap();
 //!
 //! // Set iris to F4.0
-//! client.send(&IrisCommand::Direct(0x06)).unwrap();
+//! client.send(&IrisCommand::Direct(IrisLevel::new(0x06).unwrap())).unwrap();
 //!
 //! // Adjust color saturation to 150%
 //! client.send(&SaturationCommand { level: 0x0A }).unwrap();
@@ -131,7 +130,7 @@
 //! use grafton_visca::visca_command;
 //!
 //! visca_command! {
-//!     #[category = "Movement"]
+//!     category = "Movement",
 //!     enum CustomCommand {
 //!         Home => [0x81, 0x01, 0x06, 0x04, 0xFF],
 //!         Reset => [0x81, 0x01, 0x06, 0x05, 0xFF],
@@ -284,6 +283,7 @@ pub mod async_transport;
 pub mod reconnecting_transport;
 
 // Private modules
+mod api;
 mod error;
 mod exposure_ext;
 mod focus_ext;
@@ -295,6 +295,8 @@ mod power_ext;
 mod preset_ext;
 mod session;
 mod transport_ext;
+mod types;
+mod unified_ext;
 mod white_balance_ext;
 mod zoom_ext;
 
@@ -330,6 +332,12 @@ pub use crate::command::{
     zoom::ZoomSpeed,
 };
 
+// Type safety re-exports
+pub use crate::types::{
+    BrightnessLevel, ContrastLevel, GainLimit, GainValue, IrisLevel, LuminanceLevel,
+    NoiseReduction2DLevel, NoiseReduction3DLevel, SharpnessLevel, ShutterSpeed, SocketId,
+};
+
 // Connection and pooling re-exports
 pub use crate::{
     connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
@@ -341,6 +349,7 @@ pub use crate::{
 
 // Extension trait re-exports
 pub use crate::{
+    api::{CameraControl, GainLevel, IrisValue, NoiseReductionStrength, PanTiltBuilder, Speed},
     exposure_ext::{ExposurePreset, ViscaExposureExt},
     focus_ext::ViscaFocusExt,
     image_ext::{ImagePreset, ViscaImageExt},
@@ -353,9 +362,14 @@ pub use crate::{
     power_ext::ViscaPowerExt,
     preset_ext::ViscaPresetExt,
     transport_ext::ViscaTransportExt,
+    unified_ext::CameraExt,
     white_balance_ext::{ViscaWhiteBalanceExt, WhiteBalancePreset},
     zoom_ext::ViscaZoomExt,
 };
+
+// Unified extension trait re-exports
+#[cfg(feature = "async-client")]
+pub use crate::unified_ext::AsyncCameraExt;
 
 // Unified client re-exports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]

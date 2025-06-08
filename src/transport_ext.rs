@@ -389,7 +389,8 @@ pub trait ViscaTransportExt: ViscaDevice {
     where
         Self: Sized,
     {
-        match self.execute_command(&IrisCommand::Direct(value))? {
+        use crate::types::IrisLevel;
+        match self.execute_command(&IrisCommand::Direct(IrisLevel::new(value)?))? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -407,7 +408,19 @@ pub trait ViscaTransportExt: ViscaDevice {
     where
         Self: Sized,
     {
-        match self.execute_command(&GainCommand::Direct(value))? {
+        use crate::types::GainValue;
+        // Gain values are 0x00-0x07, so we need to ensure the u16 fits
+        if value > 0x07 {
+            return Err(ViscaError::ParameterOutOfRange {
+                parameter: "gain".to_string(),
+                value: i32::from(value),
+                min: 0x00,
+                max: 0x07,
+            });
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let gain_value = GainValue::new(value as u8)?;
+        match self.execute_command(&GainCommand::Direct(gain_value))? {
             ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
