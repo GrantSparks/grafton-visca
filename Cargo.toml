@@ -128,3 +128,27 @@ required-features = ["blocking-client"]
 [[example]]
 name = "transport_extension_demo"
 required-features = ["blocking-client"]
+
+[[example]]
+name = "simple_demo"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "test_extension_traits"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "type_safe_api_demo"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "unified_extensions_demo"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "unified_transport_demo"
+required-features = ["blocking-client"]
+
+[[example]]
+name = "white_balance_tuning_demo"
+required-features = ["blocking-client"]
