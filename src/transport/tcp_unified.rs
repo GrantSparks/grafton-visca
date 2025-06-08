@@ -1,10 +1,18 @@
 //! Unified TCP transport implementation that works for both async and blocking contexts.
 
-use std::io;
 use std::time::Duration;
 
-use super::common::{log_frame, parse_frame_type, BufferManager, FrameType};
-use crate::{ConnectionStats, ViscaCommand, ViscaError};
+use super::common::BufferManager;
+use crate::ConnectionStats;
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use std::io;
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use super::common::{log_frame, parse_frame_type, FrameType};
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use crate::{ViscaCommand, ViscaError};
 
 #[cfg(feature = "blocking-client")]
 use std::net::TcpStream;
@@ -36,8 +44,10 @@ impl Default for TcpConfig {
 /// Unified TCP transport that can work in both async and blocking contexts.
 #[derive(Debug)]
 pub struct UnifiedTcpTransport<S> {
+    #[allow(dead_code)] // Used in feature-gated implementations
     stream: S,
     stats: ConnectionStats,
+    #[allow(dead_code)] // Used in feature-gated implementations
     buffer: BufferManager,
     config: TcpConfig,
 }

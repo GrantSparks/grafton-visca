@@ -296,9 +296,11 @@ mod preset_ext;
 mod session;
 mod transport_ext;
 mod types;
-mod unified_ext;
 mod white_balance_ext;
 mod zoom_ext;
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+mod unified_ext;
 
 #[cfg(feature = "async-client")]
 mod async_visca_ext;
@@ -362,12 +364,14 @@ pub use crate::{
     power_ext::ViscaPowerExt,
     preset_ext::ViscaPresetExt,
     transport_ext::ViscaTransportExt,
-    unified_ext::CameraExt,
     white_balance_ext::{ViscaWhiteBalanceExt, WhiteBalancePreset},
     zoom_ext::ViscaZoomExt,
 };
 
 // Unified extension trait re-exports
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub use crate::unified_ext::CameraExt;
+
 #[cfg(feature = "async-client")]
 pub use crate::unified_ext::AsyncCameraExt;
 
