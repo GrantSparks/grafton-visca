@@ -6,7 +6,14 @@
 
 A production-ready Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
 
-This library provides comprehensive support for PTZOptics G2 VISCA over IP commands and is compatible with other VISCA-compliant cameras. It features a robust state machine for reliable command execution, full async/await support, and proper handling of the VISCA two-socket limitation.
+Control your PTZ cameras with intuitive, high-level APIs:
+- 🎯 **Unified Client** - One client works in both sync and async contexts
+- 🎬 **Natural Units** - Use degrees, percentages, and magnification instead of raw VISCA values
+- 🔄 **Built-in Resilience** - Automatic reconnection and connection pooling included
+- 🚦 **Smart Errors** - Detailed errors with retry logic and recovery suggestions
+- 🏗️ **PTZ Builder** - Compose complex camera movements with method chaining
+
+Supports PTZOptics G2 cameras and other VISCA-compliant devices with a robust protocol implementation.
 
 Make sure to check out our blog article introducing this library: [Controlling PTZ Cameras with Rust](https://blog.grafton.ai/using-the-grafton-visca-rust-crate-to-control-ptz-cameras-7545f3b4a5e4)
 
@@ -21,28 +28,67 @@ Make sure to check out our blog article introducing this library: [Controlling P
 - ✅ **Error Handling** - Detailed error types for all failure modes
 - ✅ **Performance** - <5ms overhead per command
 
-## Recent Improvements
+## What's New in v0.4.0
 
-### v0.4.0 (Unified Client)
-- **Unified Client Architecture:** Single `ViscaClient` handles both blocking and async operations
-- **Simplified API:** One client type with `send()` for blocking and `send_async()` for async
-- **Smart Runtime Detection:** Blocking façade automatically uses existing tokio runtime when available
-- **Feature Simplification:** Just `blocking-client` (default) and `async-client` features
-- **Standard Features:** Connection pooling and reconnection now included by default
-- **Enhanced Error Handling:** Retry helpers and error classification for robust operation
-- **AI-Agent Friendly:** Designed for clear, self-describing API patterns
+This release transforms grafton-visca from a low-level protocol implementation into a production-ready camera control solution. Here's what's new:
 
-### v0.3.0 (Production Release)
-- **Async/Await Support:** Added full async support with `AsyncViscaClient` for non-blocking camera control
-- **Concurrent Command Execution:** Send up to 2 commands simultaneously with automatic socket management
-- **Background Response Handling:** Responses are processed in a background task for optimal performance
-- **Thread-Safe Design:** The async client can be cloned and shared safely across tasks
-- **Backward Compatibility:** Sync API remains unchanged; async is opt-in via the `async` feature flag
+### 🎯 One Client To Rule Them All
+No more choosing between sync and async - the new unified `ViscaClient` works in any context:
 
-### v0.2.2 (Sprint 2)
-- **Correct ACK/Completion Handling:** The library now properly distinguishes between ACK (acknowledgment) and Completion responses from the camera, implementing a robust state machine that tracks command execution through its full lifecycle.
-- **Socket Management:** Proper handling of VISCA's two-socket limitation, preventing command buffer full errors through internal state tracking.
-- **Error Response Classification:** All VISCA error responses (Syntax Error, Command Buffer Full, Command Not Executable, etc.) are now properly parsed and returned as specific error types.
+```rust
+let client = ViscaClient::new("192.168.1.100:52381")?;
+client.zoom_in()?;        // Works in sync code
+client.zoom_in().await?;  // Works in async code
+```
+
+### 🎬 Intuitive Camera Control
+Control cameras using natural units instead of cryptic VISCA values:
+
+```rust
+// PTZ Builder for complex shots
+client.ptz()
+    .pan_tilt_to(-45.0, 15.0)     // Degrees!
+    .zoom_to_magnification(10.0)   // 10x zoom!
+    .wait()                        // Execute sequentially
+    .execute()?;
+
+// High-level operations
+client.zoom_to_magnification(5.0)?;              // 5x zoom
+client.pan_to_degrees(45.0)?;                    // 45 degrees right
+client.set_pan_tilt_percentage(0.5, -0.25)?;     // Center-right, slightly down
+```
+
+### 🔄 Production-Ready Resilience
+Built-in connection pooling and automatic reconnection are now standard:
+
+```rust
+// Automatic reconnection on network failures
+let transport = ReconnectingTransport::new(transport)
+    .with_exponential_backoff();
+
+// Manage multiple cameras with built-in pooling
+let pool = ViscaConnectionPool::new()
+    .with_capacity(10)
+    .with_health_check_interval(Duration::from_secs(30));
+```
+
+### 🚦 Smarter Error Handling
+Detailed errors tell you exactly what went wrong and how to fix it:
+
+```rust
+match result {
+    Err(e) if e.is_retryable() => {
+        // Network error - wait and retry
+        sleep(e.suggested_retry_delay());
+    }
+    Err(ViscaError::CameraMoving) => {
+        // Camera is busy - wait for it
+    }
+    Err(ViscaError::OutOfRange { param, min, max }) => {
+        // Clear error message with valid range
+    }
+}
+```
 
 ## Features
 
@@ -138,38 +184,40 @@ All set commands have corresponding inquiry commands to read current values:
 Add the following to `Cargo.toml` under `[dependencies]`:
 
 ```toml
-# Default includes blocking client with all features
+# Default: blocking client (most users want this)
 grafton-visca = "0.4"
 
-# For async client support
-grafton-visca = { version = "0.4", features = ["async-client"] }
+# For async-only client
+grafton-visca = { version = "0.4", default-features = false, features = ["async-client"] }
 
-# For both blocking and async clients
+# For both blocking and async support
 grafton-visca = { version = "0.4", features = ["blocking-client", "async-client"] }
 ```
 
-The library includes connection pooling and automatic reconnection capabilities as standard features.
+Connection pooling and automatic reconnection are now built-in - no feature flags needed!
 
 ## Usage Examples
 
 ### Basic Camera Control
 
 ```rust
-use grafton_visca::ViscaClient;
-use grafton_visca::command::*;
+use grafton_visca::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Connect to camera
-    let camera = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    // Connect to camera - just one client type now!
+    let camera = ViscaClient::new("192.168.1.100:52381")?;
     
-    // Power on the camera
-    camera.send(&PowerCommand { power: Power::On })?;
+    // Power on
+    camera.power_on()?;
     
     // Move to home position
-    camera.send(&PanTiltCommand::Home)?;
+    camera.home()?;
     
-    // Zoom in
-    camera.send(&ZoomCommand::TeleStandard)?;
+    // Zoom in using high-level API
+    camera.zoom_in()?;
+    
+    // Or use specific magnification
+    camera.zoom_to_magnification(5.0)?;
     
     Ok(())
 }
@@ -178,25 +226,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Advanced Positioning
 
 ```rust
-use grafton_visca::command::*;
+use grafton_visca::prelude::*;
 
-// Absolute positioning
-let abs_pos = PanTiltCommand::AbsolutePosition {
-    pan: 1000,    // Pan position
-    tilt: 500,    // Tilt position
-    pan_speed: 0x10,
-    tilt_speed: 0x10,
-};
-camera.send(&abs_pos)?;
+// Move using degrees (so much clearer!)
+camera.pan_to_degrees(45.0)?;
+camera.tilt_to_degrees(-15.0)?;
 
-// Relative positioning
-let rel_pos = PanTiltCommand::RelativePosition {
-    pan: -100,    // Move left by 100 units
-    tilt: 50,     // Move up by 50 units
-    pan_speed: 0x08,
-    tilt_speed: 0x08,
-};
-camera.send(&rel_pos)?;
+// Or move to specific pan/tilt position
+camera.pan_tilt_to_degrees(90.0, 30.0)?;
+
+// Use percentages for normalized positioning
+camera.set_pan_tilt_percentage(0.5, 0.0)?;  // Center horizontally, neutral tilt
+
+// PTZ Builder for complex movements
+camera.ptz()
+    .pan_to_degrees(-45.0)
+    .tilt_to_degrees(20.0)
+    .zoom_to_magnification(10.0)
+    .focus_auto()
+    .wait()  // Execute in sequence
+    .execute()?;
+
+// Or execute movements in parallel
+camera.ptz()
+    .home()
+    .zoom_to_magnification(1.0)
+    .concurrent()  // Execute simultaneously
+    .execute()?;
 ```
 
 ### Exposure Control
@@ -279,104 +335,122 @@ if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode 
 }
 ```
 
-### Using Camera Constants and Position Conversion
+### Production-Ready Features
 
 ```rust
-use grafton_visca::constants::{CameraModel, CameraConstants, PositionConversion, DegreePosition};
-use grafton_visca::constants;
+use grafton_visca::prelude::*;
+use std::time::Duration;
 
-// Use camera-specific constants
-let model = CameraModel::PTZOpticsG2;
-println!("Pan range: {:?} VISCA units", model.pan_range());
-println!("Pan degrees: {} degrees", model.pan_degrees());
+// Automatic reconnection on network failures
+let client = ViscaClient::with_reconnect("192.168.1.100:52381", 
+    ReconnectConfig::default()
+        .with_max_retries(5)
+        .with_exponential_backoff()
+)?;
 
-// Convert between units
-let degrees = DegreePosition { pan: 45.0, tilt: 15.0 };
-let visca_pos = degrees.to_visca(model);
-println!("45° pan = {} VISCA units", visca_pos.pan);
+// Connection pooling for multiple cameras
+let pool = ViscaConnectionPool::builder()
+    .add_camera("192.168.1.100:52381", "Camera 1")
+    .add_camera("192.168.1.101:52381", "Camera 2")
+    .add_camera("192.168.1.102:52381", "Camera 3")
+    .with_health_check_interval(Duration::from_secs(30))
+    .build()?;
 
-// Validate parameters before sending
-match constants::validate_pan_position(2000, model) {
-    Ok(_) => println!("Position is valid"),
-    Err(e) => println!("Invalid: {}", e),
+// Get camera from pool and use it
+let camera = pool.get("Camera 1").await?;
+camera.pan_to_degrees(45.0)?;
+
+// Smart error handling with retry logic
+loop {
+    match camera.zoom_to_magnification(10.0) {
+        Ok(_) => break,
+        Err(e) if e.is_retryable() => {
+            log::warn!("Retryable error: {}, waiting...", e);
+            std::thread::sleep(e.suggested_retry_delay());
+            continue;
+        }
+        Err(e) => return Err(e.into()),
+    }
 }
-
-// Move to position specified in degrees
-let target = DegreePosition { pan: -90.0, tilt: 30.0 };
-let visca = target.to_visca(model);
-camera.send_command(&PanTiltCommand::AbsolutePosition {
-    pan: visca.pan,
-    tilt: visca.tilt,
-    pan_speed: constants::speed::PAN_SPEED_DEFAULT,
-    tilt_speed: constants::speed::TILT_SPEED_DEFAULT,
-})?;
 ```
 
-### Async Usage (with `async-client` feature)
+### Async Usage
 
-The library supports asynchronous operation for non-blocking camera control:
+The same `ViscaClient` works perfectly in async contexts:
 
 ```rust
-use grafton_visca::{ViscaClient, ViscaResponse};
-use grafton_visca::command::*;
-use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
+use grafton_visca::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Connect to camera asynchronously
-    let camera = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
+    // Same client, just use async methods!
+    let camera = ViscaClient::new("192.168.1.100:52381")?;
     
-    // Send multiple commands concurrently
-    let pan_tilt = camera.send_async(&PanTiltCommand::Move {
-        direction: PanTiltDirection::UpRight,
-        pan_speed: PanSpeed::new(0x10)?,
-        tilt_speed: TiltSpeed::new(0x10)?,
+    // All methods have async versions
+    camera.power_on().await?;
+    camera.home().await?;
+    
+    // Concurrent operations with PTZ builder
+    camera.ptz()
+        .pan_to_degrees(45.0)
+        .zoom_to_magnification(5.0)
+        .concurrent()  // Execute simultaneously
+        .execute()
+        .await?;
+    
+    // The client is Clone + Send + Sync, perfect for async
+    let cam1 = camera.clone();
+    let cam2 = camera.clone();
+    
+    // Use in multiple tasks
+    let task1 = tokio::spawn(async move {
+        cam1.get_zoom_position().await
     });
-    let zoom = camera.send_async(&ZoomCommand::TeleStandard);
     
-    // Both commands execute concurrently (respecting the 2-socket limit)
-    let (pan_result, zoom_result) = tokio::join!(pan_tilt, zoom);
+    let task2 = tokio::spawn(async move {
+        cam2.get_pan_tilt_position().await
+    });
     
-    println!("Pan/Tilt: {:?}, Zoom: {:?}", pan_result?, zoom_result?);
+    let (zoom, position) = tokio::try_join!(task1, task2)?;
     
     Ok(())
 }
 ```
 
-#### Concurrent Commands with Socket Limiting
+The client automatically manages VISCA's two-socket limitation, queuing commands as needed.
 
-The async client automatically manages the VISCA two-socket limitation:
+## Migrating from v0.3.0
 
-```rust
-// Send three commands - the third will wait for a socket to become available
-let cmd1 = camera.send_async(&PresetCommand { action: PresetAction::Set, preset_number: 1 });
-let cmd2 = camera.send_async(&FocusCommand::NearStandard);
-let cmd3 = camera.send_async(&ZoomCommand::WideStandard);
-
-// The first two commands will execute immediately,
-// the third will wait until one of them completes
-let results = tokio::join!(cmd1, cmd2, cmd3);
-```
-
-#### Clone and Share Across Tasks
-
-The async client is thread-safe and can be cloned:
+The v0.4.0 release simplifies the API while adding powerful new features:
 
 ```rust
-let camera_clone = camera.clone();
+// Old (v0.3.0)
+let client = ViscaClient::new(...);      // Sync only
+let client = AsyncViscaClient::new(...); // Async only
 
-// Use in multiple tasks
-let task1 = tokio::spawn(async move {
-    camera_clone.send_async(&PowerCommand { power: Power::On }).await
-});
+// New (v0.4.0) - One client for everything!
+let client = ViscaClient::new("192.168.1.100:52381")?;
 
-let camera_clone2 = camera.clone();
-let task2 = tokio::spawn(async move {
-    camera_clone2.send_async(&InquiryCommand::ZoomPosition).await
-});
+// Old: Manual VISCA units
+camera.send(&PanTiltCommand::AbsolutePosition { 
+    pan: 0x1000, tilt: 0x0500, pan_speed: 0x10, tilt_speed: 0x10 
+})?;
 
-let (res1, res2) = tokio::join!(task1, task2);
+// New: Use degrees, percentages, or magnification
+camera.pan_tilt_to_degrees(45.0, 15.0)?;
+camera.set_pan_tilt_percentage(0.5, 0.0)?;
+camera.zoom_to_magnification(5.0)?;
 ```
+
+Key changes:
+- Single `ViscaClient` replaces separate sync/async clients
+- Connection pooling and reconnection are now built-in
+- High-level extension trait methods for common operations
+- PTZ builder for complex camera movements
+- Detailed error types with retry helpers
+- Feature flags simplified to just `blocking-client` and `async-client`
+
+See the [CHANGELOG](CHANGELOG.md) for complete migration details.
 
 ## Documentation
 
