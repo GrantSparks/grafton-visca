@@ -251,10 +251,9 @@ macro_rules! visca_up_down_reset {
                         Self::Direct($param) => {
                             // Get the value and compute nibbles
                             let val = $param.value();
-                            // This cast is necessary because the macro is generic over types that
-                            // return either u8 or u16 from value(). For u8, it's a no-op (hence
-                            // the trivial cast warning), but for u16, it truncates to the low byte
-                            // as required by the VISCA protocol.
+                            // This handles both u8 and u16 types. For u8, the cast is trivial.
+                            // For u16, it truncates to the low byte as required by the VISCA protocol.
+                            #[allow(clippy::cast_possible_truncation, trivial_numeric_casts)]
                             let byte_val = val as u8;
                             let $high = (byte_val >> 4) & 0x0F;
                             let $low = byte_val & 0x0F;

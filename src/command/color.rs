@@ -53,7 +53,9 @@ impl ViscaCommand for RedTuningCommand {
         // Convert -10..+10 to 0x00..0x14
         // We've validated level is between -10 and +10, so level + 10 is 0..20
         let level_offset = self.level + 10;
-        debug_assert!(level_offset >= 0 && level_offset <= 20);
+        debug_assert!((0..=20).contains(&level_offset));
+        // Safe cast: level_offset is guaranteed to be 0..=20 after validation
+        #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
         Ok(vec![0x81, 0x0A, 0x01, 0x12, encoded, 0xFF])
     }
@@ -88,7 +90,9 @@ impl ViscaCommand for BlueTuningCommand {
         // Convert -10..+10 to 0x00..0x14
         // We've validated level is between -10 and +10, so level + 10 is 0..20
         let level_offset = self.level + 10;
-        debug_assert!(level_offset >= 0 && level_offset <= 20);
+        debug_assert!((0..=20).contains(&level_offset));
+        // Safe cast: level_offset is guaranteed to be 0..=20 after validation
+        #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
         Ok(vec![0x81, 0x0A, 0x01, 0x13, encoded, 0xFF])
     }
