@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - Unreleased
+## [0.4.0] - Unreleased
 
 ### Added
 - New consolidated extension traits for cleaner API
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed preset terminology: `goto_preset` → `recall_preset`
 
 ### Deprecated
-- Old type names (still available but will be removed in v0.6.0)
+- Old type names (still available but will be removed in v0.5.0)
 - Duplicate methods in `ViscaTransportExt` 
 - All traits in `ext/unified.rs` module
 
@@ -90,9 +90,11 @@ The old type names are still available as deprecated aliases, so your existing c
 1. Update your imports to use new names
 2. Run `cargo check` to see deprecation warnings
 3. Fix warnings at your own pace
-4. The deprecated aliases will be removed in v0.6.0
+4. The deprecated aliases will be removed in v0.5.0
 
-## [0.4.0] - 2024-12-08
+### Additional v0.4.0 Features
+
+Below are the previously documented v0.4.0 features that are also included in this release:
 
 This release represents a major evolution of the library from a low-level VISCA protocol implementation to a production-ready camera control solution. The changes are driven by real-world usage patterns and developer feedback.
 
