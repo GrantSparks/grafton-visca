@@ -253,9 +253,10 @@ fn parse_inquiry_response(response: &[u8], response_type: ResponseType) -> Resul
         ResponseType::FocusZone => {
             parse_value_response(response, ValueType::Simple(SimpleValueType::FocusZone))
         }
-        ResponseType::AutoFocusSensitivity => {
-            parse_value_response(response, ValueType::Simple(SimpleValueType::AutoFocusSensitivity))
-        }
+        ResponseType::AutoFocusSensitivity => parse_value_response(
+            response,
+            ValueType::Simple(SimpleValueType::AutoFocusSensitivity),
+        ),
         ResponseType::FocusNearLimit => {
             parse_position_response(response, PositionType::FocusNearLimit)
         }
@@ -452,9 +453,9 @@ fn parse_simple_value(response: &[u8], value_type: SimpleValueType) -> Result<Re
                 0x00 => AutoFocusSensitivity::Low,
                 _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity {
-                sensitivity,
-            }))
+            Ok(Response::InquiryResponse(
+                InquiryResponse::AutoFocusSensitivity { sensitivity },
+            ))
         }
     }
 }
