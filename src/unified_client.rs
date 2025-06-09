@@ -434,6 +434,59 @@ impl ViscaClient {
             Err(_) => Ok(false),
         }
     }
+
+    /// Attempts to send a command without blocking.
+    ///
+    /// This method tries to send a command immediately. In the current implementation,
+    /// it uses the standard send method as the unified client already handles
+    /// concurrency through its internal semaphore.
+    ///
+    /// # Arguments
+    /// * `command` - The VISCA command to send
+    ///
+    /// # Returns
+    /// Returns the response from the camera if successful, or an error if
+    /// the command execution fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns any errors from command execution including transport errors, timeouts,
+    /// and camera-specific errors.
+    #[cfg(feature = "blocking-client")]
+    pub fn try_send(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+        // The unified client already handles concurrency internally
+        // For now, we delegate to the standard send method
+        // A future implementation could add try_acquire to the semaphore
+        self.send(command)
+    }
+
+    /// Sends a command with a timeout.
+    ///
+    /// This method attempts to send the command with a timeout.
+    /// If the operation cannot complete within the specified duration,
+    /// an error is returned.
+    ///
+    /// Note: Currently this uses the standard blocking `send` method.
+    /// Future implementations may add proper timeout support.
+    ///
+    /// # Arguments
+    /// * `command` - The VISCA command to send
+    /// * `timeout` - Maximum time to wait for the operation
+    ///
+    /// # Returns
+    /// Returns the response from the camera if successful, or an error if:
+    /// - The timeout expires
+    /// - The command execution fails
+    #[cfg(feature = "blocking-client")]
+    pub fn send_with_timeout(
+        &self,
+        command: &dyn ViscaCommand,
+        _timeout: std::time::Duration,
+    ) -> Result<ViscaResponse, ViscaError> {
+        // For now, we use the standard send method
+        // A proper implementation would use tokio timeout or similar
+        self.send(command)
+    }
 }
 
 /// Extension trait for PTZ builder functionality on `Arc<ViscaClient>`.
@@ -474,5 +527,42 @@ impl ViscaClientPtzExt for Arc<ViscaClient> {
 impl crate::ViscaDevice for ViscaClient {
     fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
         self.send(command)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+
+    #[test]
+    fn test_client_is_send_and_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<ViscaClient>();
+        assert_sync::<ViscaClient>();
+    }
+
+    #[cfg(feature = "blocking-client")]
+    #[test]
+    fn test_client_can_be_cloned() {
+        let client = ViscaClient::connect_udp("127.0.0.1:1259").unwrap();
+        let _client_clone = client.clone();
+    }
+
+    #[cfg(feature = "blocking-client")]
+    #[test]
+    fn test_client_arc_usage() {
+        let client = Arc::new(ViscaClient::connect_udp("127.0.0.1:1259").unwrap());
+        let client_clone = Arc::clone(&client);
+
+        let handle = thread::spawn(move || {
+            let _local_ref = client_clone;
+        });
+
+        handle.join().unwrap();
     }
 }

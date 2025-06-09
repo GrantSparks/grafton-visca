@@ -9,9 +9,9 @@
 // Workspace / local-crate imports
 use crate::{
     command::{
-        BacklightCommand, BrightCommand, ExposureCommand, ExposureCompensationCommand,
-        ExposureCompensationLevel, ExposureMode, GainCommand, GainLimitCommand, IrisCommand,
-        ShutterCommand,
+        AntiFlickerCommand, AntiFlickerMode, BacklightCommand, BrightCommand, ExposureCommand,
+        ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode, GainCommand,
+        GainLimitCommand, IrisCommand, ShutterCommand,
     },
     error::ViscaError,
     execute_command, ViscaDevice,
@@ -541,6 +541,37 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// ```
     fn set_backlight(&mut self, enabled: bool) -> Result<(), ViscaError> {
         execute_command!(self, BacklightCommand { status: enabled })
+    }
+
+    /// Set the anti-flicker mode.
+    ///
+    /// Reduces flicker caused by artificial lighting that operates at
+    /// different frequencies than the camera's frame rate.
+    ///
+    /// # Arguments
+    /// * `mode` - The anti-flicker mode to apply
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # use grafton_visca::command::AntiFlickerMode;
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// // Disable anti-flicker
+    /// client.set_anti_flicker(AntiFlickerMode::Off)?;
+    ///
+    /// // Enable 50Hz anti-flicker (for regions with 50Hz AC power)
+    /// client.set_anti_flicker(AntiFlickerMode::Hz50)?;
+    ///
+    /// // Enable 60Hz anti-flicker (for regions with 60Hz AC power)
+    /// client.set_anti_flicker(AntiFlickerMode::Hz60)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_anti_flicker(&mut self, mode: AntiFlickerMode) -> Result<(), ViscaError> {
+        execute_command!(self, AntiFlickerCommand { mode })
     }
 
     /// Configure exposure settings for common scenarios.

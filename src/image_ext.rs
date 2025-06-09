@@ -4,7 +4,8 @@
 use crate::{
     command::{
         BlackWhiteCommand, ContrastCommand, HueCommand, ImageFlipCombinedCommand, ImageFlipMode,
-        NoiseReduction2DCommand, NoiseReduction3DCommand, SaturationCommand, SharpnessCommand,
+        LuminanceCommand, NoiseReduction2DCommand, NoiseReduction3DCommand, SaturationCommand,
+        SharpnessCommand,
     },
     error::ViscaError,
     ViscaDevice, ViscaResponse,
@@ -388,6 +389,49 @@ pub trait ViscaImageExt: ViscaDevice {
     }
 
     // Note: The contrast command only supports direct value setting, not up/down/reset
+
+    /// Set luminance (brightness) level.
+    ///
+    /// # Arguments
+    /// * `level` - Luminance level (0 to 14, 7 is default)
+    ///
+    /// # Errors
+    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
+    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
+    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// // Set minimum luminance
+    /// client.set_luminance(0)?;
+    ///
+    /// // Set default luminance
+    /// client.set_luminance(7)?;
+    ///
+    /// // Set maximum luminance
+    /// client.set_luminance(14)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn set_luminance(&mut self, level: u8) -> Result<(), ViscaError> {
+        use crate::types::LuminanceLevel;
+
+        if level > 14 {
+            return Err(ViscaError::InvalidParameter(
+                "Luminance level must be 0-14".into(),
+            ));
+        }
+        let command = LuminanceCommand {
+            value: LuminanceLevel::new(level)?,
+        };
+        match self.execute_command(&command)? {
+            ViscaResponse::Completion => {}
+            ViscaResponse::Error(e) => return Err(e),
+            _ => return Err(ViscaError::UnexpectedResponseType),
+        }
+        Ok(())
+    }
 
     /// Apply an image preset configuration.
     ///
