@@ -12,7 +12,7 @@ use log::error;
 // Workspace / local-crate imports
 use crate::{
     command::{
-        gain::AntiFlickerMode, luminance_contrast_sharpness::SharpnessMode, AFSensitivity,
+        gain::AntiFlickerMode, luminance_contrast_sharpness::SharpnessMode, AutoFocusSensitivity,
         ExposureMode, FocusZone, InquiryResponse, WhiteBalanceMode,
     },
     error::Error,
@@ -449,9 +449,9 @@ fn parse_simple_value(response: &[u8], value_type: SimpleValueType) -> Result<Re
         }
         SimpleValueType::AFSensitivity => {
             let sensitivity = match response[2] {
-                0x02 => AFSensitivity::High,
-                0x01 => AFSensitivity::Normal,
-                0x00 => AFSensitivity::Low,
+                0x02 => AutoFocusSensitivity::High,
+                0x01 => AutoFocusSensitivity::Normal,
+                0x00 => AutoFocusSensitivity::Low,
                 _ => return Err(Error::UnexpectedResponseType),
             };
             Ok(Response::InquiryResponse(InquiryResponse::AFSensitivity {

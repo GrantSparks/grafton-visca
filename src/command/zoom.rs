@@ -68,20 +68,6 @@ pub enum ZoomCommand {
     ZoomOutVariable(ZoomSpeed),
     /// Set zoom to direct position (0x0000 to 0xFFFF).
     Direct(u16),
-
-    // Deprecated aliases for backward compatibility
-    #[deprecated(since = "0.5.0", note = "Use ZoomCommand::ZoomInStandard instead")]
-    #[doc(hidden)]
-    TeleStandard,
-    #[deprecated(since = "0.5.0", note = "Use ZoomCommand::ZoomOutStandard instead")]
-    #[doc(hidden)]
-    WideStandard,
-    #[deprecated(since = "0.5.0", note = "Use ZoomCommand::ZoomInVariable instead")]
-    #[doc(hidden)]
-    TeleVariable(ZoomSpeed),
-    #[deprecated(since = "0.5.0", note = "Use ZoomCommand::ZoomOutVariable instead")]
-    #[doc(hidden)]
-    WideVariable(ZoomSpeed),
 }
 
 impl Command for ZoomCommand {
@@ -91,22 +77,18 @@ impl Command for ZoomCommand {
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]),
 
             // Zoom in standard
-            Self::ZoomInStandard | Self::TeleStandard => {
-                Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF])
-            }
+            Self::ZoomInStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
 
             // Zoom out standard
-            Self::ZoomOutStandard | Self::WideStandard => {
-                Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF])
-            }
+            Self::ZoomOutStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
 
             // Zoom in variable
-            Self::ZoomInVariable(speed) | Self::TeleVariable(speed) => {
+            Self::ZoomInVariable(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x20 | speed.value(), 0xFF])
             }
 
             // Zoom out variable
-            Self::ZoomOutVariable(speed) | Self::WideVariable(speed) => {
+            Self::ZoomOutVariable(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x30 | speed.value(), 0xFF])
             }
 
@@ -123,8 +105,8 @@ impl Command for ZoomCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::ZoomInStandard | Self::TeleStandard => Some(ResponseType::ZoomTeleStandard),
-            Self::ZoomOutStandard | Self::WideStandard => Some(ResponseType::ZoomWideStandard),
+            Self::ZoomInStandard => Some(ResponseType::ZoomTeleStandard),
+            Self::ZoomOutStandard => Some(ResponseType::ZoomWideStandard),
             _ => None,
         }
     }
@@ -230,24 +212,6 @@ mod tests {
         assert_eq!(
             cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF]
-        );
-    }
-
-    #[test]
-    fn test_deprecated_aliases_still_work() {
-        // Test that deprecated aliases still function correctly
-        #[allow(deprecated)]
-        let cmd = ZoomCommand::TeleStandard;
-        assert_eq!(
-            cmd.to_bytes().expect("Valid command"),
-            vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
-        );
-
-        #[allow(deprecated)]
-        let cmd = ZoomCommand::WideStandard;
-        assert_eq!(
-            cmd.to_bytes().expect("Valid command"),
-            vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
         );
     }
 

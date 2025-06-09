@@ -369,7 +369,7 @@ impl AsyncExt for Arc<Client> {
             let zoom_test = async {
                 // Zoom in slightly
                 let _ = self
-                    .send_async(&ZoomCommand::TeleVariable(ZoomSpeed::new(3)?))
+                    .send_async(&ZoomCommand::ZoomInVariable(ZoomSpeed::new(3)?))
                     .await?;
                 tokio::time::sleep(Duration::from_millis(200)).await;
 

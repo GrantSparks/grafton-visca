@@ -170,7 +170,7 @@ impl PtzBuilder {
             .try_into()
             .map_err(|_| Error::InvalidParameter("Invalid zoom speed".into()))?;
         self.commands
-            .push(Box::new(ZoomCommand::TeleVariable(speed)));
+            .push(Box::new(ZoomCommand::ZoomInVariable(speed)));
         Ok(self)
     }
 
@@ -186,7 +186,7 @@ impl PtzBuilder {
             .try_into()
             .map_err(|_| Error::InvalidParameter("Invalid zoom speed".into()))?;
         self.commands
-            .push(Box::new(ZoomCommand::WideVariable(speed)));
+            .push(Box::new(ZoomCommand::ZoomOutVariable(speed)));
         Ok(self)
     }
 
