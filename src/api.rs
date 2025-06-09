@@ -333,9 +333,9 @@ impl<'a, T: Transport> PanTiltBuilder<'a, T> {
     /// # Panics
     /// Panics if default speed values (0x10) are invalid, which should never happen.
     pub fn execute(self) -> Result<(), Error> {
-        let direction = self.direction.ok_or_else(|| {
-            Error::InvalidParameter("Direction must be specified".to_string())
-        })?;
+        let direction = self
+            .direction
+            .ok_or_else(|| Error::InvalidParameter("Direction must be specified".to_string()))?;
 
         let pan_speed = self.pan_speed.unwrap_or(PanSpeed::DEFAULT_MEDIUM);
         let tilt_speed = self.tilt_speed.unwrap_or(TiltSpeed::DEFAULT_MEDIUM);
@@ -466,10 +466,7 @@ pub trait CameraControl: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command cannot be executed.
-    fn set_noise_reduction_2d(
-        &mut self,
-        strength: NoiseReductionStrength,
-    ) -> Result<(), Error> {
+    fn set_noise_reduction_2d(&mut self, strength: NoiseReductionStrength) -> Result<(), Error> {
         let command = strength
             .to_2d_level()
             .map_or(NoiseReduction2DCommand::Off, NoiseReduction2DCommand::Level);
@@ -481,10 +478,7 @@ pub trait CameraControl: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command cannot be executed.
-    fn set_noise_reduction_3d(
-        &mut self,
-        strength: NoiseReductionStrength,
-    ) -> Result<(), Error> {
+    fn set_noise_reduction_3d(&mut self, strength: NoiseReductionStrength) -> Result<(), Error> {
         let command = strength
             .to_3d_level()
             .map_or(NoiseReduction3DCommand::Off, NoiseReduction3DCommand::Level);

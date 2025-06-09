@@ -13,7 +13,7 @@ use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
     command::power::{Power, PowerCommand},
     command::zoom::ZoomCommand,
-    connection_pool::{CameraInfo, ConnectionType, PoolConfig, ConnectionPool},
+    connection_pool::{CameraInfo, ConnectionPool, ConnectionType, PoolConfig},
 };
 #[cfg(feature = "blocking-client")]
 use std::time::Duration;
@@ -97,9 +97,7 @@ fn power_on_cameras(pool: &ConnectionPool) {
 }
 
 #[cfg(feature = "blocking-client")]
-fn demonstrate_camera_control(
-    pool: &ConnectionPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn demonstrate_camera_control(pool: &ConnectionPool) -> Result<(), Box<dyn std::error::Error>> {
     println!("\nControlling cameras...");
 
     // Pan all cameras to the left

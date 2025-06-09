@@ -215,10 +215,7 @@ impl Transport for AsyncTcpTransport {
             let bytes = command.to_bytes()?;
             log::debug!("Sending command: {bytes:02X?}");
 
-            self.stream
-                .write_all(&bytes)
-                .await
-                .map_err(Error::Io)?;
+            self.stream.write_all(&bytes).await.map_err(Error::Io)?;
 
             self.stream.flush().await.map_err(Error::Io)?;
 

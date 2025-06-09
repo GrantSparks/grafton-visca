@@ -343,9 +343,7 @@ pub use crate::types::{
 // Connection and pooling re-exports
 pub use crate::{
     connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
-    connection_pool::{
-        CameraInfo, ConnectionType, PoolConfig, PooledCameraStats, ConnectionPool,
-    },
+    connection_pool::{CameraInfo, ConnectionPool, ConnectionType, PoolConfig, PooledCameraStats},
     timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
 };
 
