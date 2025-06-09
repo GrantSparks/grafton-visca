@@ -23,10 +23,10 @@ pub trait ZoomExt: Transport {
     /// # {
     /// # use grafton_visca::{Error, Client, ZoomExt};
     /// # fn example(client: &mut Client) -> Result<(), Error> {
-    /// // Move to minimum zoom (wide)
+    /// // Move to minimum zoom (zoom out)
     /// client.zoom_to(0x0000)?;
     ///
-    /// // Move to maximum zoom (telephoto)
+    /// // Move to maximum zoom (zoom in)
     /// client.zoom_to(0x4000)?;
     ///
     /// // Move to mid-range zoom
@@ -50,7 +50,7 @@ pub trait ZoomExt: Transport {
         }
     }
 
-    /// Start zooming in (telephoto direction).
+    /// Start zooming in.
     ///
     /// # Arguments
     /// * `speed` - Optional zoom speed. If None, uses standard speed.
@@ -88,7 +88,7 @@ pub trait ZoomExt: Transport {
         }
     }
 
-    /// Start zooming out (wide direction).
+    /// Start zooming out.
     ///
     /// # Arguments
     /// * `speed` - Optional zoom speed. If None, uses standard speed.
@@ -164,7 +164,7 @@ pub trait ZoomExt: Transport {
     /// # {
     /// # use grafton_visca::{Error, Client, ZoomExt};
     /// # fn example(client: &mut Client) -> Result<(), Error> {
-    /// // Set to 1x (wide)
+    /// // Set to 1x (minimum zoom)
     /// client.zoom_to_magnification(1.0)?;
     ///
     /// // Set to 10x zoom
@@ -221,7 +221,7 @@ pub trait ZoomExt: Transport {
     /// Set zoom by normalized value.
     ///
     /// # Arguments
-    /// * `normalized` - Normalized zoom value (0.0 = wide, 1.0 = telephoto)
+    /// * `normalized` - Normalized zoom value (0.0 = minimum zoom, 1.0 = maximum zoom)
     ///
     /// # Example
     /// ```no_run
@@ -229,13 +229,13 @@ pub trait ZoomExt: Transport {
     /// # {
     /// # use grafton_visca::{Error, Client, ZoomExt};
     /// # fn example(client: &mut Client) -> Result<(), Error> {
-    /// // Set to wide (0%)
+    /// // Set to minimum zoom (0%)
     /// client.zoom_to_normalized(0.0)?;
     ///
     /// // Set to mid-range (50%)
     /// client.zoom_to_normalized(0.5)?;
     ///
-    /// // Set to telephoto (100%)
+    /// // Set to maximum zoom (100%)
     /// client.zoom_to_normalized(1.0)?;
     /// # Ok(())
     /// # }
@@ -252,7 +252,7 @@ pub trait ZoomExt: Transport {
     /// Get current zoom as normalized value.
     ///
     /// # Returns
-    /// Normalized zoom value (0.0 = wide, 1.0 = telephoto)
+    /// Normalized zoom value (0.0 = minimum zoom, 1.0 = maximum zoom)
     ///
     /// # Errors
     /// Returns `Error::UnexpectedResponseType` if the camera returns an unexpected response.
@@ -283,7 +283,7 @@ pub trait ZoomExt: Transport {
         }
     }
 
-    /// Start zooming in (telephoto direction) at standard speed.
+    /// Start zooming in at standard speed.
     ///
     /// This is a convenience method that zooms in at the camera's standard speed.
     /// For variable speed control, use `zoom_in_speed()`.
@@ -310,7 +310,7 @@ pub trait ZoomExt: Transport {
         self.zoom_in_speed(None)
     }
 
-    /// Start zooming out (wide direction) at standard speed.
+    /// Start zooming out at standard speed.
     ///
     /// This is a convenience method that zooms out at the camera's standard speed.
     /// For variable speed control, use `zoom_out_speed()`.

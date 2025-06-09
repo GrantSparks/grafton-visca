@@ -122,7 +122,7 @@ pub trait AsyncExt {
 
     /// Reset camera to a neutral state.
     ///
-    /// Returns camera to home position, resets zoom to wide, and enables auto-focus.
+    /// Returns camera to home position, resets zoom to minimum, and enables auto-focus.
     fn reset_to_neutral(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send;
 
     /// Perform a quick health check of camera movement systems.
@@ -324,7 +324,7 @@ impl AsyncExt for Arc<Client> {
             let _ = Self::clone(self)
                 .ptz()
                 .pan_tilt_home()
-                .zoom_direct(0x0000) // Wide zoom
+                .zoom_direct(0x0000) // Minimum zoom
                 .focus_auto()
                 .execute_sequential_async()
                 .await?;

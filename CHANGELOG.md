@@ -7,54 +7,147 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.0] - Unreleased
 
+This release represents a major evolution of the library from a low-level VISCA protocol implementation to a production-ready camera control solution with a unified, ergonomic API.
+
 ### Added
-- New consolidated extension traits for cleaner API
-- Comprehensive prelude module with all commonly used types
+
+#### 🎯 Unified Client Architecture
+- New unified `Client` that works seamlessly in both sync and async contexts
+- Thread-safe and `Clone`able client - share it freely across your application
+- Automatic context detection - the client adapts to your code style
+- Production-ready connection pooling built-in
+- Automatic reconnection with configurable retry strategies
+
+#### 🔄 Production Resilience Features
+- `ReconnectingTransport` with exponential backoff and configurable retries
+- `ConnectionPool` for managing multiple cameras efficiently
+- Health check system with automatic recovery
+- Detailed error types that indicate retry-ability
+- Timeout management with per-command category timeouts
+
+#### 🎨 High-Level Extension Traits
+- `ViscaPowerExt`, `ViscaZoomExt`, `ViscaFocusExt`, etc. for domain-specific operations
+- `PTZBuilder` for complex camera movements with intuitive units:
+  - Degrees for pan/tilt (`pan_to_degrees(45.0)`)
+  - Magnification for zoom (`zoom_to_magnification(10.0)`)
+  - Percentages for positioning (`set_pan_tilt_percentage(0.5, -0.25)`)
+- White balance fine-tuning methods (`white_balance_red_tuning()`, `white_balance_blue_tuning()`)
+- Anti-flicker control (`set_anti_flicker()`)
+- Sequential and concurrent command execution modes
+
+#### 🚦 Enhanced Error Handling
+- Specific error types for different failure modes
+- `is_retryable()` method on errors
+- `suggested_retry_delay()` for intelligent retry logic
+- Context-aware errors with parameter ranges
+- Removed `#[non_exhaustive]` for exhaustive error matching
+
+#### 📚 Developer Experience
+- Comprehensive prelude module (`use grafton_visca::prelude::*`)
+- 30+ real-world examples demonstrating common use cases
+- Complete API documentation with examples
+- Zero clippy warnings (even on pedantic level)
+- Simplified feature flags - just works out of the box
 
 ### Changed
-- **BREAKING**: Complete API overhaul for consistency and clarity:
-  - Core types renamed:
-    - `ViscaClient` → `Client` 
-    - `ViscaError` → `Error`
-    - `ViscaSession` → `Session`
-    - `ViscaResponse` → `Response`
-  - Method names aligned with VISCA specification:
-    - `save_preset` → `set_preset` (matches VISCA terminology)
-    - `goto_preset` → `recall_preset` (matches VISCA terminology)
-  - Removed duplicate methods:
-    - Removed `power_on`/`power_off` (use `PowerCommand` directly)
-    - Removed `zoom_in`/`zoom_out` convenience methods (use variable speed methods)
-- Consolidated duplicate APIs into single extension traits
-- Made internal implementation details private:
-  - `AppError` is now private
-  - `TransportVariant` is now internal
-  - `BlockingAdapter` is now internal
+
+#### **BREAKING**: Complete API Overhaul
+- **Core Type Renames** (cleaner, more idiomatic):
+  - `ViscaClient` → `Client`
+  - `ViscaError` → `Error`
+  - `ViscaSession` → `Session`
+  - `ViscaResponse` → `Response`
+  - `ViscaCommand` → `Command` trait
+  - `ViscaTransport` → `Transport` trait
+
+- **Command Naming Improvements**:
+  - **Zoom**: `Tele/Wide` terminology → `ZoomIn/ZoomOut` throughout
+    - `ZoomCommand::TeleStandard` → `ZoomCommand::ZoomInStandard`
+    - `ZoomCommand::WideStandard` → `ZoomCommand::ZoomOutStandard`
+    - Extension methods: `zoom_in_variable()` → `zoom_in_speed()`
+  - **Focus**: Added clarity with prefixes
+    - `FarStandard` → `FocusFarStandard`
+    - `AFSensitivity` → `AutoFocusSensitivity`
+  - **Presets**: Aligned with VISCA specification
+    - `save_preset()` → `set_preset()`
+    - `goto_preset()` → `recall_preset()`
+  - **White Balance**: Simplified method names
+    - `set_color_temperature_direct()` → `set_color_temperature()`
+
+- **Transport Layer Evolution**:
+  - Async-first design with blocking adapters
+  - Unified transport abstraction across TCP/UDP
+  - Built-in connection pooling and reconnection (no more feature flags)
+
+- **Feature Flag Simplification**:
+  - Removed complex feature matrix
+  - Default is blocking client
+  - Single `async-client` feature for async runtime
+  - Connection pooling and reconnection are now standard
 
 ### Removed
-- All deprecated type aliases (clean break for v0.4.0)
-- Duplicate methods in extension traits
-- Orphaned async extension files
-- Old convenience methods that didn't match VISCA spec
+- All deprecated type aliases from previous versions
+- Duplicate convenience methods that didn't match VISCA spec
+- Old split client implementations (`ViscaClient` vs `AsyncViscaClient`)
+- Complex feature flag requirements for basic functionality
+- Direct `power_on()`/`power_off()` methods (use `PowerCommand` instead)
+- Orphaned async extension files from earlier refactoring
 
-### Migration Guide
+### Fixed
+- Thread safety issues - client is now truly thread-safe without `RefCell`
+- Feature gating problems with `no-default-features` builds
+- All clippy warnings including pedantic lints
+- Protocol edge cases in response handling
+- Missing functionality in unified client (`try_send()`, `send_with_timeout()`)
+- Example files now have proper feature requirements
 
-Since v0.4.0 is a clean break, you'll need to update your code as follows:
+### Performance Improvements
+- Const functions used where possible
+- Reduced allocations in command building
+- More efficient response parsing
+- Better memory usage patterns
 
-#### Step 1: Update Imports
+## Migration Guide from v0.3.0
 
+### Step 1: Update Your Cargo.toml
+```toml
+# Old
+[dependencies]
+grafton-visca = { version = "0.3", features = ["async", "sync", "reconnect", "pool"] }
+
+# New - Blocking by default
+grafton-visca = "0.4"
+
+# OR for async
+grafton-visca = { version = "0.4", default-features = false, features = ["async-client"] }
+```
+
+### Step 2: Update Imports
 ```rust
 // Old
 use grafton_visca::{ViscaClient, ViscaError, ViscaResponse, ViscaSession};
+use grafton_visca::command::ViscaCommand;
 
 // New
 use grafton_visca::{Client, Error, Response, Session};
+use grafton_visca::command::Command;
 
-// Or use the prelude for convenience
+// Or use the prelude for common imports
 use grafton_visca::prelude::*;
 ```
 
-#### Step 2: Update Method Calls
+### Step 3: Update Client Creation
+```rust
+// Old - had to choose between sync and async
+let client = ViscaClient::new(transport);
+let client = AsyncViscaClient::new(async_transport);
 
+// New - unified client works everywhere
+let client = Client::connect_tcp("192.168.1.100:52381")?;
+// Use the same client in both sync and async code!
+```
+
+### Step 4: Update Method Calls
 ```rust
 // Old power control
 client.power_on()?;
@@ -62,304 +155,90 @@ client.power_off()?;
 
 // New - use PowerCommand directly
 use grafton_visca::command::{PowerCommand, power::Power};
-client.execute_command(&PowerCommand { power: Power::On })?;
-client.execute_command(&PowerCommand { power: Power::Standby })?;
+client.send(&PowerCommand::new(Power::On))?;
+client.send(&PowerCommand::new(Power::Standby))?;
 
-// Old zoom methods
+// Or use extension trait
+use grafton_visca::ViscaPowerExt;
+client.set_power(Power::On)?;
+
+// Old zoom methods (removed)
 client.zoom_in()?;
 client.zoom_out()?;
 
-// New - use variable speed methods
-client.zoom_in_variable(None)?;  // Standard speed
-client.zoom_out_variable(Some(ZoomSpeed::new(5)?))?;  // Custom speed
+// New - use extension trait methods
+use grafton_visca::ViscaZoomExt;
+client.zoom_in()?;  // Standard speed
+client.zoom_in_speed(Some(ZoomSpeed::new(5)?))?;  // Variable speed
 
-// Old preset method
+// Old preset names
 client.save_preset(1)?;
+client.goto_preset(1)?;
 
-// New - matches VISCA spec
+// New - matches VISCA specification
 client.set_preset(1)?;
+client.recall_preset(1)?;
 ```
 
-#### Step 3: Update Type Annotations
-
+### Step 5: Update Type Names in Your Code
 ```rust
 // Old
 fn connect_camera(addr: &str) -> Result<ViscaClient, ViscaError> {
     ViscaClient::connect_udp(addr)
 }
 
+fn handle_response(resp: ViscaResponse) -> Result<(), ViscaError> {
+    // ...
+}
+
 // New
 fn connect_camera(addr: &str) -> Result<Client, Error> {
     Client::connect_udp(addr)
 }
+
+fn handle_response(resp: Response) -> Result<(), Error> {
+    // ...
+}
 ```
 
-#### Step 3: Update Method Names
-
-A few methods have been renamed for consistency:
-
+### Step 6: Use High-Level APIs
 ```rust
-// Old
-client.goto_preset(1)?;
+// Old - manual VISCA units
+let pan_pos = 0x0800;  // What does this mean?
+let tilt_pos = 0x0000;
+client.send_command(PanTiltAbsolute::new(pan_pos, tilt_pos))?;
 
-// New
-client.recall_preset(1)?;
-```
-
-#### Step 4: Use Consolidated Extension Traits
-
-Instead of multiple traits, use the single consolidated traits:
-
-```rust
-// Old - multiple imports needed
-use grafton_visca::{ViscaTransportExt, ext::unified::PowerExt};
-
-// New - single trait provides all methods
-use grafton_visca::ViscaPowerExt;
-```
-
-
-### Additional v0.4.0 Features
-
-Below are the previously documented v0.4.0 features that are also included in this release:
-
-This release represents a major evolution of the library from a low-level VISCA protocol implementation to a production-ready camera control solution. The changes are driven by real-world usage patterns and developer feedback.
-
-### Why These Changes?
-
-The v0.3.0 release revealed several pain points:
-- Developers struggled with choosing between sync and async APIs, often needing both
-- Thread safety required verbose `RefCell<Box<dyn ViscaTransport>>` patterns (61+ instances!)
-- No built-in support for common production needs like reconnection and connection pooling
-- Low-level VISCA units made simple operations unnecessarily complex
-- Generic errors made it hard to implement proper retry logic
-
-### What's New For You
-
-**🎯 One Client To Rule Them All**
-```rust
-// Before: Choose your fighter...
-let client = ViscaClient::new(...);      // Sync only
-let client = AsyncViscaClient::new(...);  // Async only
-let client = ViscaClientWrapper::new(...); // Both (but awkward)
-
-// Now: Just use ViscaClient everywhere!
-let client = ViscaClient::new("192.168.1.100:52381")?;
-client.zoom_in()?;  // Works in sync code
-client.zoom_in().await?;  // Works in async code
-```
-The new unified `ViscaClient` automatically detects your context and does the right thing. It's also thread-safe and `Clone`able - share it freely across your application!
-
-**🔄 Production-Ready Resilience**
-```rust
-// Your camera connection died? No problem!
-let transport = ReconnectingTransport::new(transport)
-    .with_max_retries(5)
-    .with_exponential_backoff();
-
-// Managing multiple cameras? Built-in pooling!
-let pool = ViscaConnectionPool::new()
-    .with_capacity(10)
-    .with_health_check_interval(Duration::from_secs(30));
-```
-Network issues are now handled automatically. Connection pooling and health checks ensure your production systems stay running.
-
-**🎬 Cinematic Camera Control**
-```rust
-// Complex camera movements are now simple
+// New - intuitive units with PTZ builder
 client.ptz()
-    .pan_tilt_to(-45.0, 15.0)  // Degrees!
-    .zoom_to_magnification(10.0)  // 10x zoom!
+    .pan_tilt_to(45.0, -15.0)  // Degrees!
+    .zoom_to_magnification(5.0)  // 5x zoom
     .wait()  // Execute sequentially
-    .focus_auto()
-    .execute()?;
-
-// Or run commands in parallel
-client.ptz()
-    .pan_to_degrees(90.0)
-    .zoom_in()
-    .concurrent()  // Execute simultaneously
     .execute()?;
 ```
-The new PTZ builder makes complex shots easy. Use degrees, percentages, or magnification values instead of cryptic VISCA units.
 
-**🎨 High-Level Operations**
+### Step 7: Update Error Handling
 ```rust
-// Save and recall camera positions
-let position = client.get_current_position()?;
-client.save_preset(1, "Wide Shot")?;
-client.recall_preset_by_name("Wide Shot")?;
+// Old - generic errors
+match result {
+    Err(e) => eprintln!("Error: {}", e),
+    Ok(_) => {}
+}
 
-// Work with intuitive units
-client.zoom_to_magnification(5.0)?;  // 5x zoom
-client.pan_to_degrees(45.0)?;        // 45 degrees right
-client.set_pan_tilt_percentage(0.5, -0.25)?;  // Center-right, slightly down
-```
-Extension traits add domain-specific operations that match how you think about camera control.
-
-**🚦 Smarter Error Handling**
-```rust
-match client.zoom_in() {
+// New - specific, actionable errors
+match result {
     Err(e) if e.is_retryable() => {
-        // Network error - wait and retry
         sleep(e.suggested_retry_delay());
-        client.zoom_in()?;
+        retry()?;
     }
-    Err(ViscaError::CameraMoving) => {
-        // Camera is busy - wait for it to stop
+    Err(Error::CameraMoving) => {
         client.wait_for_completion()?;
     }
-    Err(ViscaError::OutOfRange { param, min, max }) => {
-        // Invalid parameter - show helpful error
+    Err(Error::OutOfRange { param, min, max }) => {
         println!("{} must be between {} and {}", param, min, max);
     }
     _ => {}
 }
 ```
-Detailed error types tell you exactly what went wrong and how to fix it.
-
-### Breaking Changes (And Why They're Worth It)
-
-**🔧 Simplified Feature Flags**
-```toml
-# Before: Confusing feature matrix
-[dependencies]
-grafton-visca = { version = "0.3", features = ["async", "sync", "reconnect", "pool"] }
-
-# Now: Just pick your runtime model
-grafton-visca = "0.4"  # Blocking by default
-# OR
-grafton-visca = { version = "0.4", default-features = false, features = ["async-client"] }
-```
-Connection pooling and reconnection are now standard - no more feature flag puzzles! The library just works out of the box.
-
-**🏗️ Transport Layer Evolution**
-
-If you were using transports directly (most users weren't), the API has changed to be async-first:
-```rust
-// Old way (probably wasn't working well anyway)
-let transport = UdpTransport::new(...);
-transport.send_command(&cmd)?;
-
-// New way (but you probably want ViscaClient instead)
-let client = ViscaClient::new("192.168.1.100:52381")?;
-client.zoom_in()?;  // Much simpler!
-```
-
-**🎯 Better Errors Mean Better Code**
-```rust
-// Your error handling just got smarter
-match result {
-    Err(e) if e.is_retryable() => {
-        // The error tells you if retry makes sense!
-        tokio::time::sleep(e.suggested_retry_delay()).await;
-        retry()?;
-    }
-    Err(ViscaError::CameraMoving) => {
-        // Specific errors for specific situations
-        wait_for_camera_stop().await?;
-    }
-    _ => {}
-}
-```
-We removed `#[non_exhaustive]` from errors - you can now handle every possible error case with confidence.
-
-### Migration Guide
-
-**From v0.3.0 to v0.4.0:**
-
-1. **Update your Cargo.toml:**
-   ```toml
-   # Remove feature flags for reconnect and pool
-   grafton-visca = "0.4"
-   ```
-
-2. **Replace split clients with unified client:**
-   ```rust
-   // Old
-   let client = if async { AsyncViscaClient::new() } else { ViscaClient::new() };
-   
-   // New
-   let client = ViscaClient::new("192.168.1.100:52381")?;
-   ```
-
-3. **Use high-level operations:**
-   ```rust
-   // Old: Manual VISCA units
-   client.send_command(PanTiltAbsolute::new(0x0800, 0x0000))?;
-   
-   // New: Intuitive units
-   client.pan_to_degrees(45.0)?;
-   ```
-
-4. **Update error handling:**
-   ```rust
-   // Add new error variants to your match statements
-   match error {
-       ViscaError::CameraMoving => { /* wait */ }
-       ViscaError::OutOfRange { param, min, max } => { /* show range */ }
-       // ... other cases
-   }
-   ```
-
-### What We Fixed
-
-- **Thread Safety**: No more `RefCell` gymnastics - the client is truly thread-safe
-- **Documentation**: Every public API is now documented with examples
-- **Code Quality**: Zero clippy warnings (even pedantic ones!)
-- **Type Safety**: Stronger types prevent unit confusion
-- **Performance**: Const functions where possible, better memory usage
-- **Reliability**: Edge cases in protocol handling, robust timeout management
-
-### Developer Experience Improvements
-
-**📚 Better Examples**
-Check out our new examples that show real-world usage:
-- `hello_visca.rs` - Your first camera control
-- `async_control_demo.rs` - Modern async patterns
-- `production_setup.rs` - Reconnection, pooling, and monitoring
-- `cinematic_shots.rs` - Complex camera movements
-- `white_balance_tuning_demo.rs` - Fine-tuning color balance
-- Plus 20+ more examples!
-
-**🎨 Cleaner Imports**
-```rust
-use grafton_visca::prelude::*;  // Everything you need!
-```
-
-**🔍 Superior Debugging**
-Every error now includes context about what went wrong and how to fix it. Response parsing shows exactly where issues occur.
-
-### Recent Updates
-
-#### Enhanced Macro System and Type Safety
-- **Redesigned Macro System**: New `visca_command!` macro with improved ergonomics and helper macros
-- **Type-Safe Wrappers**: Added type-safe wrappers for protocol values (SocketId, etc.) 
-- **Unified Extension Traits**: Introduced `CameraExt` trait providing high-level camera control methods
-- **Improved Error Handling**: Custom Result type and retry mechanisms for better reliability
-- **Simplified Commands**: Streamlined command implementations across all modules
-
-#### New Features
-- **White Balance Fine-Tuning**: Added `white_balance_red_tuning()` and `white_balance_blue_tuning()` methods for precise color control
-- **Anti-Flicker Control**: Added `set_anti_flicker()` method to reduce flicker from artificial lighting
-- **Luminance Control**: Added `set_luminance()` method for brightness adjustment
-- **Unified Transport Layer**: New abstraction layer for consistent API across transport types
-
-#### Fixes and Improvements
-- **Feature Flag Fixes**: Resolved issues with `no-default-features` builds
-- **Example Improvements**: Added required feature flags to examples that need specific features
-- **Code Quality**: Fixed all clippy warnings in macros and color modules
-- **File Cleanup**: Removed deprecated client implementations (`client.rs`, `async_client.rs`) in favor of unified client
-
-#### Important Notes
-- **Extension Trait Migration**: If upgrading from earlier 0.4.0 prereleases, note that `UnifiedControlExt` has been renamed to `CameraExt`
-- **Missing Functionality Restored**: The unified client now includes `try_send()` and `send_with_timeout()` methods that were temporarily missing
-
-#### Known Issues / TODO
-- **Orphaned ext/ Directory**: The `src/ext/` directory contains duplicate extension trait implementations that are not currently used. This will be cleaned up in a future release.
-- **Prelude Missing Unified Traits**: `CameraExt` and `AsyncCameraExt` traits are not yet included in the prelude module
-- **Test Coverage**: The new unified extension traits (`CameraExt`, `AsyncCameraExt`) lack test coverage
-- **Documentation**: Migration guide needed for moving from individual extension traits to unified traits
 
 ## [0.3.0] - 2025-01-06
 
