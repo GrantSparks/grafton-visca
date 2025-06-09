@@ -14,7 +14,9 @@
 //! # Example
 //!
 //! ```no_run
+//! # #[cfg(feature = "blocking-client")]
 //! # use grafton_visca::{ViscaClient, ViscaError, CameraExt};
+//! # #[cfg(feature = "blocking-client")]
 //! # fn example(camera: &ViscaClient) -> Result<(), ViscaError> {
 //! // Works in both sync and async contexts!
 //! if camera.is_powered_on()? {
@@ -23,6 +25,8 @@
 //! }
 //! # Ok(())
 //! # }
+//! # #[cfg(not(feature = "blocking-client"))]
+//! # fn main() {}
 //! ```
 
 use crate::{
