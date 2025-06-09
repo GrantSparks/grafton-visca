@@ -21,7 +21,7 @@ fn main() {
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{
-    async_transport::AsyncViscaTransport,
+    async_transport::AsyncTransport,
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         preset::{PresetAction, PresetCommand, PresetNumber},
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 #[cfg(feature = "async-client")]
 async fn demonstrate_quick_command(
-    transport: &mut dyn AsyncViscaTransport,
+    transport: &mut dyn AsyncTransport,
 ) -> Result<(), Box<dyn Error>> {
     println!("1. Quick Command (Power Inquiry):");
 
@@ -111,7 +111,7 @@ async fn demonstrate_quick_command(
 
 #[cfg(feature = "async-client")]
 async fn demonstrate_movement_command(
-    transport: &mut dyn AsyncViscaTransport,
+    transport: &mut dyn AsyncTransport,
 ) -> Result<(), Box<dyn Error>> {
     println!("2. Movement Command (Pan/Tilt):");
 
@@ -149,7 +149,7 @@ async fn demonstrate_movement_command(
 
 #[cfg(feature = "async-client")]
 async fn demonstrate_preset_command(
-    transport: &mut dyn AsyncViscaTransport,
+    transport: &mut dyn AsyncTransport,
 ) -> Result<(), Box<dyn Error>> {
     println!("3. Preset Command (Recall Preset):");
 
@@ -179,7 +179,7 @@ async fn demonstrate_preset_command(
 /// Helper function to send a command and wait for the appropriate response
 #[cfg(feature = "async-client")]
 async fn send_and_wait_async(
-    transport: &mut dyn AsyncViscaTransport,
+    transport: &mut dyn AsyncTransport,
     command: &dyn Command,
 ) -> Result<ViscaResponse, Error> {
     let response_type = command.response_type();
