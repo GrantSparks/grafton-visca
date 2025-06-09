@@ -27,15 +27,27 @@
 
 use crate::{
     command::{
-        focus::{FocusCommand, FocusSpeed},
-        pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+        focus::FocusSpeed,
+        pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
+        zoom::ZoomSpeed,
+    },
+    ViscaClient, ViscaError,
+};
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use crate::{
+    command::{
+        pan_tilt::PanTiltCommand,
         power::Power,
         preset::{PresetAction, PresetCommand, PresetNumber},
-        zoom::{ZoomCommand, ZoomSpeed},
+        zoom::ZoomCommand,
         InquiryCommand, PowerCommand,
     },
-    ViscaClient, ViscaError, ViscaInquiryResponse, ViscaResponse,
+    ViscaInquiryResponse, ViscaResponse,
 };
+
+#[cfg(feature = "blocking-client")]
+use crate::command::focus::FocusCommand;
 use std::sync::Arc;
 #[cfg(feature = "async-client")]
 use std::time::Duration;
