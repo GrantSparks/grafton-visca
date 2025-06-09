@@ -141,20 +141,12 @@ pub enum AutoFocusSensitivity {
     Low,
 }
 
-/// Deprecated alias for backward compatibility.
-#[deprecated(since = "0.5.0", note = "Use AutoFocusSensitivity instead")]
-pub type AFSensitivity = AutoFocusSensitivity;
-
 /// Command to set auto focus sensitivity.
 #[derive(Debug, Copy, Clone)]
 pub struct AutoFocusSensitivityCommand {
     /// The sensitivity level to set.
     pub sensitivity: AutoFocusSensitivity,
 }
-
-/// Deprecated alias for backward compatibility.
-#[deprecated(since = "0.5.0", note = "Use AutoFocusSensitivityCommand instead")]
-pub type AFSensitivityCommand = AutoFocusSensitivityCommand;
 
 impl Command for AutoFocusSensitivityCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
@@ -361,19 +353,6 @@ mod tests {
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x58, 0x00, 0xFF]
-        );
-    }
-
-    #[test]
-    fn test_deprecated_af_sensitivity_aliases() {
-        // Test that deprecated aliases still work
-        #[allow(deprecated)]
-        let cmd = AFSensitivityCommand {
-            sensitivity: AFSensitivity::High,
-        };
-        assert_eq!(
-            cmd.to_bytes().unwrap(),
-            vec![0x81, 0x01, 0x04, 0x58, 0x02, 0xFF]
         );
     }
 
