@@ -84,10 +84,10 @@ fn perform_pan_tilt_movements(client: &Client) -> Result<(), AppError> {
 
 fn perform_zoom_movements(client: &Client) -> Result<(), AppError> {
     let zoom_movements = [
-        ZoomCommand::TeleStandard,
-        ZoomCommand::WideStandard,
-        ZoomCommand::TeleVariable(ZoomSpeed::new(5).unwrap()),
-        ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap()),
+        ZoomCommand::ZoomInStandard,
+        ZoomCommand::ZoomOutStandard,
+        ZoomCommand::ZoomInVariable(ZoomSpeed::new(5).unwrap()),
+        ZoomCommand::ZoomOutVariable(ZoomSpeed::new(5).unwrap()),
     ];
 
     for command in &zoom_movements {
@@ -164,7 +164,7 @@ fn main() -> Result<(), AppError> {
     client.send(&PanTiltCommand::Home)?;
 
     debug!("Sending Zoom home command");
-    client.send(&ZoomCommand::WideStandard)?;
+    client.send(&ZoomCommand::ZoomOutStandard)?;
 
     Ok(())
 }

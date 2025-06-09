@@ -163,7 +163,7 @@ pub enum InquiryResponse {
     /// Auto-focus sensitivity inquiry response.
     AFSensitivity {
         /// Current auto-focus sensitivity setting.
-        sensitivity: AFSensitivity,
+        sensitivity: AutoFocusSensitivity,
     },
     /// Focus near limit inquiry response.
     FocusNearLimit {

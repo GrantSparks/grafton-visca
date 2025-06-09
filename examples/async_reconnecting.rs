@@ -180,7 +180,7 @@ async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         println!("\nZoom cycle {}:", i + 1);
 
         // Zoom in
-        transport.send_command(&ZoomCommand::TeleStandard).await?;
+        transport.send_command(&ZoomCommand::ZoomInStandard).await?;
         match transport.receive_response().await {
             Ok(_) => println!("  ✓ Zoom in successful"),
             Err(e) => println!("  ✗ Zoom in failed: {}", e),
@@ -198,7 +198,7 @@ async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>>
         sleep(Duration::from_secs(1)).await;
 
         // Zoom out
-        transport.send_command(&ZoomCommand::WideStandard).await?;
+        transport.send_command(&ZoomCommand::ZoomOutStandard).await?;
         match transport.receive_response().await {
             Ok(_) => println!("  ✓ Zoom out successful"),
             Err(e) => println!("  ✗ Zoom out failed: {}", e),

@@ -14,10 +14,10 @@
 //! # use grafton_visca::Client;
 //! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
-//! client.send(&ZoomCommand::TeleStandard).unwrap();
+//! client.send(&ZoomCommand::ZoomInStandard).unwrap();
 //!
 //! // Zoom out at variable speed
-//! client.send(&ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
+//! client.send(&ZoomCommand::ZoomOutVariable(ZoomSpeed::new(5).unwrap())).unwrap();
 //! # }
 //! ```
 
@@ -49,23 +49,23 @@ crate::visca_bounded_param! {
 ///
 /// Provides various ways to control camera zoom:
 /// - `Stop` - Stop zoom movement
-/// - `TeleStandard` - Zoom in at standard speed
-/// - `WideStandard` - Zoom out at standard speed
-/// - `TeleVariable` - Zoom in at specified speed (0-7)
-/// - `WideVariable` - Zoom out at specified speed (0-7)
+/// - `ZoomInStandard` - Zoom in at standard speed
+/// - `ZoomOutStandard` - Zoom out at standard speed
+/// - `ZoomInVariable` - Zoom in at specified speed (0-7)
+/// - `ZoomOutVariable` - Zoom out at specified speed (0-7)
 /// - `Direct` - Set zoom to specific position
 #[derive(Debug, Copy, Clone)]
 pub enum ZoomCommand {
     /// Stop zoom movement.
     Stop,
-    /// Zoom in (telephoto) at standard speed.
-    TeleStandard,
-    /// Zoom out (wide) at standard speed.
-    WideStandard,
+    /// Zoom in at standard speed.
+    ZoomInStandard,
+    /// Zoom out at standard speed.
+    ZoomOutStandard,
     /// Zoom in at variable speed.
-    TeleVariable(ZoomSpeed),
+    ZoomInVariable(ZoomSpeed),
     /// Zoom out at variable speed.
-    WideVariable(ZoomSpeed),
+    ZoomOutVariable(ZoomSpeed),
     /// Set zoom to direct position (0x0000 to 0xFFFF).
     Direct(u16),
 }
@@ -76,19 +76,19 @@ impl Command for ZoomCommand {
             // Stop command
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]),
 
-            // Tele standard zoom
-            Self::TeleStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
+            // Zoom in standard
+            Self::ZoomInStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
 
-            // Wide standard zoom
-            Self::WideStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
+            // Zoom out standard
+            Self::ZoomOutStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
 
-            // Tele variable zoom
-            Self::TeleVariable(speed) => {
+            // Zoom in variable
+            Self::ZoomInVariable(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x20 | speed.value(), 0xFF])
             }
 
-            // Wide variable zoom
-            Self::WideVariable(speed) => {
+            // Zoom out variable
+            Self::ZoomOutVariable(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x30 | speed.value(), 0xFF])
             }
 
@@ -105,8 +105,8 @@ impl Command for ZoomCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::TeleStandard => Some(ResponseType::ZoomTeleStandard),
-            Self::WideStandard => Some(ResponseType::ZoomWideStandard),
+            Self::ZoomInStandard => Some(ResponseType::ZoomTeleStandard),
+            Self::ZoomOutStandard => Some(ResponseType::ZoomWideStandard),
             _ => None,
         }
     }
@@ -176,8 +176,8 @@ mod tests {
     }
 
     #[test]
-    fn test_zoom_command_tele_standard() {
-        let cmd = ZoomCommand::TeleStandard;
+    fn test_zoom_command_zoom_in_standard() {
+        let cmd = ZoomCommand::ZoomInStandard;
         assert_eq!(
             cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
@@ -186,8 +186,8 @@ mod tests {
     }
 
     #[test]
-    fn test_zoom_command_wide_standard() {
-        let cmd = ZoomCommand::WideStandard;
+    fn test_zoom_command_zoom_out_standard() {
+        let cmd = ZoomCommand::ZoomOutStandard;
         assert_eq!(
             cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
@@ -196,9 +196,9 @@ mod tests {
     }
 
     #[test]
-    fn test_zoom_command_tele_variable() {
+    fn test_zoom_command_zoom_in_variable() {
         let speed = ZoomSpeed::new(5).expect("Valid zoom speed");
-        let cmd = ZoomCommand::TeleVariable(speed);
+        let cmd = ZoomCommand::ZoomInVariable(speed);
         assert_eq!(
             cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]
@@ -206,9 +206,9 @@ mod tests {
     }
 
     #[test]
-    fn test_zoom_command_wide_variable() {
+    fn test_zoom_command_zoom_out_variable() {
         let speed = ZoomSpeed::new(7).expect("Valid zoom speed");
-        let cmd = ZoomCommand::WideVariable(speed);
+        let cmd = ZoomCommand::ZoomOutVariable(speed);
         assert_eq!(
             cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF]
@@ -239,7 +239,7 @@ mod tests {
             CommandCategory::Movement
         );
         assert_eq!(
-            ZoomCommand::TeleStandard.command_category(),
+            ZoomCommand::ZoomInStandard.command_category(),
             CommandCategory::Movement
         );
         assert_eq!(

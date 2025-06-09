@@ -80,7 +80,7 @@ pub trait ZoomExt: Transport {
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
     fn zoom_in_variable(&mut self, speed: Option<ZoomSpeed>) -> Result<(), Error> {
-        let command = speed.map_or(ZoomCommand::TeleStandard, ZoomCommand::TeleVariable);
+        let command = speed.map_or(ZoomCommand::ZoomInStandard, ZoomCommand::ZoomInVariable);
         match self.execute_command(&command)? {
             Response::Completion => Ok(()),
             Response::Error(e) => Err(e),
@@ -114,7 +114,7 @@ pub trait ZoomExt: Transport {
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
     fn zoom_out_variable(&mut self, speed: Option<ZoomSpeed>) -> Result<(), Error> {
-        let command = speed.map_or(ZoomCommand::WideStandard, ZoomCommand::WideVariable);
+        let command = speed.map_or(ZoomCommand::ZoomOutStandard, ZoomCommand::ZoomOutVariable);
         match self.execute_command(&command)? {
             Response::Completion => Ok(()),
             Response::Error(e) => Err(e),

@@ -95,7 +95,7 @@
 //!
 //! // Send commands through the client
 //! client.send(&PanTiltCommand::Home).unwrap();
-//! client.send(&ZoomCommand::TeleStandard).unwrap();
+//! client.send(&ZoomCommand::ZoomInStandard).unwrap();
 //! # }
 //! ```
 //!
@@ -159,7 +159,7 @@
 //!     tilt_speed: TiltSpeed::new(0x10)?,
 //! };
 //! let pan_tilt = camera.send_async(&pan_tilt_cmd);
-//! let zoom = camera.send_async(&ZoomCommand::TeleStandard);
+//! let zoom = camera.send_async(&ZoomCommand::ZoomInStandard);
 //!
 //! // Both commands execute concurrently (respecting the 2-socket limit)
 //! let (pan_result, zoom_result): (Result<Response, _>, Result<Response, _>) = tokio::join!(pan_tilt, zoom);

@@ -62,13 +62,13 @@ fn demo_zoom_control(client: &mut Client) -> Result<(), Box<dyn std::error::Erro
     println!("\n📍 Demo 3: Zoom Control");
 
     println!("Zooming in...");
-    client.execute_command(&ZoomCommand::TeleStandard)?;
+    client.execute_command(&ZoomCommand::ZoomInStandard)?;
     thread::sleep(Duration::from_secs(1));
 
     client.execute_command(&ZoomCommand::Stop)?;
 
     println!("Zooming out...");
-    client.execute_command(&ZoomCommand::WideStandard)?;
+    client.execute_command(&ZoomCommand::ZoomOutStandard)?;
     thread::sleep(Duration::from_secs(1));
 
     client.execute_command(&ZoomCommand::Stop)?;
