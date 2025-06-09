@@ -1,11 +1,15 @@
 //! Example demonstrating image quality and gain control features.
 
+#[cfg(feature = "blocking-client")]
 use grafton_visca::{
     command::AntiFlickerMode, ViscaClient, ViscaError, ViscaExposureExt, ViscaImageExt,
 };
+#[cfg(feature = "blocking-client")]
 use std::thread;
+#[cfg(feature = "blocking-client")]
 use std::time::Duration;
 
+#[cfg(feature = "blocking-client")]
 fn main() -> Result<(), ViscaError> {
     // Initialize logger for debugging
     env_logger::Builder::from_default_env()
@@ -93,4 +97,10 @@ fn main() -> Result<(), ViscaError> {
     println!("\nDemo complete! All image and gain controls have been demonstrated.");
 
     Ok(())
+}
+
+#[cfg(not(feature = "blocking-client"))]
+fn main() {
+    println!("This example requires the blocking-client feature.");
+    println!("Run with: cargo run --example image_and_gain_demo --features blocking-client");
 }
