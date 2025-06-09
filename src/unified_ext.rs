@@ -544,8 +544,7 @@ impl AsyncCameraExt for ViscaClient {
         })
         .await?;
         tokio::time::sleep(delay).await;
-        self.send_async(&PowerCommand { power: Power::On })
-            .await?;
+        self.send_async(&PowerCommand { power: Power::On }).await?;
         Ok(())
     }
 
@@ -581,9 +580,8 @@ impl AsyncCameraExt for ViscaClient {
 
         loop {
             let response = self.send_async(&InquiryCommand::ZoomPosition).await?;
-            if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition {
-                position,
-            }) = response
+            if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) =
+                response
             {
                 if position == target {
                     return Ok(());
