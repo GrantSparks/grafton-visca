@@ -294,10 +294,10 @@ pub trait ZoomExt: Transport {
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Start zooming in
     /// client.zoom_in()?;
-    /// 
+    ///
     /// // Wait a bit
     /// std::thread::sleep(std::time::Duration::from_secs(1));
-    /// 
+    ///
     /// // Stop zooming
     /// client.stop_zoom()?;
     /// # Ok(())
@@ -321,10 +321,10 @@ pub trait ZoomExt: Transport {
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Start zooming out
     /// client.zoom_out()?;
-    /// 
+    ///
     /// // Wait a bit
     /// std::thread::sleep(std::time::Duration::from_secs(1));
-    /// 
+    ///
     /// // Stop zooming
     /// client.stop_zoom()?;
     /// # Ok(())

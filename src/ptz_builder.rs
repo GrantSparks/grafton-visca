@@ -36,7 +36,7 @@ use crate::{
     },
     error::Error,
     unified_client::Client,
-    Response, Command,
+    Command, Response,
 };
 
 /// Builder for creating PTZ command sequences.
@@ -214,10 +214,7 @@ impl PtzBuilder {
     ///
     /// # Errors
     /// Returns `Error::InvalidParameter` if the speed value cannot be converted to a valid `FocusSpeed`.
-    pub fn focus_near_variable(
-        mut self,
-        speed: impl TryInto<FocusSpeed>,
-    ) -> Result<Self, Error> {
+    pub fn focus_near_variable(mut self, speed: impl TryInto<FocusSpeed>) -> Result<Self, Error> {
         let speed = speed
             .try_into()
             .map_err(|_| Error::InvalidParameter("Invalid focus speed".into()))?;
@@ -240,10 +237,7 @@ impl PtzBuilder {
     ///
     /// # Errors
     /// Returns `Error::InvalidParameter` if the speed value cannot be converted to a valid `FocusSpeed`.
-    pub fn focus_far_variable(
-        mut self,
-        speed: impl TryInto<FocusSpeed>,
-    ) -> Result<Self, Error> {
+    pub fn focus_far_variable(mut self, speed: impl TryInto<FocusSpeed>) -> Result<Self, Error> {
         let speed = speed
             .try_into()
             .map_err(|_| Error::InvalidParameter("Invalid focus speed".into()))?;

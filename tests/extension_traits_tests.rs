@@ -8,8 +8,8 @@ mod common;
 use common::{MockDevice, MockTransport};
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    ImagePreset, Transport, ExposureExt, ImageExt, PositionExt,
-    WhiteBalanceExt, ZoomExt, WhiteBalancePreset,
+    ExposureExt, ImageExt, ImagePreset, PositionExt, Transport, WhiteBalanceExt,
+    WhiteBalancePreset, ZoomExt,
 };
 
 #[test]
@@ -138,7 +138,9 @@ fn test_transport_ext_methods() {
 
     // Test power on convenience method
     use grafton_visca::command::power::{Power, PowerCommand};
-    device.execute_command(&PowerCommand { power: Power::On }).unwrap();
+    device
+        .execute_command(&PowerCommand { power: Power::On })
+        .unwrap();
     assert_eq!(
         device.last_command().unwrap()[0..4],
         vec![0x81, 0x01, 0x04, 0x00]
@@ -146,7 +148,11 @@ fn test_transport_ext_methods() {
     assert_eq!(device.last_command().unwrap()[4], 0x02);
 
     // Test power off
-    device.execute_command(&PowerCommand { power: Power::Standby }).unwrap();
+    device
+        .execute_command(&PowerCommand {
+            power: Power::Standby,
+        })
+        .unwrap();
     assert_eq!(
         device.last_command().unwrap()[0..4],
         vec![0x81, 0x01, 0x04, 0x00]
@@ -165,7 +171,9 @@ fn test_chained_operations() {
 
     // Chain multiple operations
     use grafton_visca::command::power::{Power, PowerCommand};
-    device.execute_command(&PowerCommand { power: Power::On }).unwrap();
+    device
+        .execute_command(&PowerCommand { power: Power::On })
+        .unwrap();
     device.zoom_to_magnification(2.0).unwrap();
     device.move_to_degrees(0.0, 0.0, None).unwrap();
 

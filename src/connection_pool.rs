@@ -17,9 +17,7 @@ use std::sync::{Arc, Mutex};
 
 // Workspace / local-crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{
-    error::Error, unified_client::Client, Response, Command,
-};
+use crate::{error::Error, unified_client::Client, Command, Response};
 
 /// Configuration for the connection pool.
 #[derive(Debug, Copy, Clone)]

@@ -159,7 +159,7 @@ pub trait PowerExt: Transport {
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Power on the camera
     /// client.power_on()?;
-    /// 
+    ///
     /// // Wait for it to be ready
     /// client.wait_for_power_on(
     ///     std::time::Duration::from_secs(5),
@@ -194,7 +194,9 @@ pub trait PowerExt: Transport {
     /// # }
     /// ```
     fn power_off(&mut self) -> Result<(), ViscaError> {
-        match self.execute_command(&PowerCommand { power: Power::Standby })? {
+        match self.execute_command(&PowerCommand {
+            power: Power::Standby,
+        })? {
             Response::Completion => Ok(()),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),

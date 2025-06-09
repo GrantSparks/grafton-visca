@@ -127,10 +127,7 @@ pub trait PositionExt: PanTiltExt {
     {
         let response = self.execute_command(&InquiryCommand::PanTiltPosition)?;
         match response {
-            Response::InquiryResponse(crate::InquiryResponse::PanTiltPosition {
-                pan,
-                tilt,
-            }) => {
+            Response::InquiryResponse(crate::InquiryResponse::PanTiltPosition { pan, tilt }) => {
                 let visca_pos = ViscaPosition { pan, tilt };
                 Ok(visca_pos.to_degrees(CameraModel::PTZOpticsG2))
             }
@@ -165,10 +162,7 @@ pub trait PositionExt: PanTiltExt {
     {
         let response = self.execute_command(&InquiryCommand::PanTiltPosition)?;
         match response {
-            Response::InquiryResponse(crate::InquiryResponse::PanTiltPosition {
-                pan,
-                tilt,
-            }) => {
+            Response::InquiryResponse(crate::InquiryResponse::PanTiltPosition { pan, tilt }) => {
                 let visca_pos = ViscaPosition { pan, tilt };
                 Ok(visca_pos.to_normalized(CameraModel::PTZOpticsG2))
             }

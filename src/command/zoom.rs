@@ -185,10 +185,7 @@ mod tests {
             cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
         );
-        assert_eq!(
-            cmd.response_type(),
-            Some(ResponseType::ZoomTeleStandard)
-        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ZoomTeleStandard));
     }
 
     #[test]
@@ -198,10 +195,7 @@ mod tests {
             cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
         );
-        assert_eq!(
-            cmd.response_type(),
-            Some(ResponseType::ZoomWideStandard)
-        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ZoomWideStandard));
     }
 
     #[test]

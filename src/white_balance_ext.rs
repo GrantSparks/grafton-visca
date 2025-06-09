@@ -6,7 +6,7 @@ use crate::{
         BlueGainCommand, BlueTuningCommand, ColorTemperatureCommand, OnePushTriggerCommand,
         RedGainCommand, RedTuningCommand, WhiteBalanceCommand, WhiteBalanceMode,
     },
-    error::Error as Error,
+    error::Error,
     Response, Transport,
 };
 

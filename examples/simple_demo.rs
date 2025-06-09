@@ -5,8 +5,7 @@
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    Client, Error, PositionExt, PowerExt, PresetExt, TransportExt,
-    ZoomExt,
+    Client, Error, PositionExt, PowerExt, PresetExt, TransportExt, ZoomExt,
 };
 #[cfg(feature = "blocking-client")]
 use std::time::Duration;

@@ -67,8 +67,7 @@ mod response_parsing_tests {
             0x05, 0x06, 0x07, 0x08, // Tilt position (nibbles of 0x5678)
             0xFF,
         ];
-        let response =
-            parse_visca_response(&pt_response_bytes, &ResponseType::PanTiltPosition);
+        let response = parse_visca_response(&pt_response_bytes, &ResponseType::PanTiltPosition);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt })) => {
                 assert_eq!(pan, 0x1234);
@@ -103,8 +102,7 @@ mod response_parsing_tests {
             0x01, 0x02, 0x03, 0x04, // Focus position (nibbles of 0x1234)
             0xFF,
         ];
-        let response =
-            parse_visca_response(&focus_response_bytes, &ResponseType::FocusPosition);
+        let response = parse_visca_response(&focus_response_bytes, &ResponseType::FocusPosition);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::FocusPosition { position })) => {
                 assert_eq!(position, 0x1234);
@@ -117,8 +115,7 @@ mod response_parsing_tests {
     fn test_parse_exposure_mode_response() {
         // Auto exposure mode
         let exposure_response_bytes = vec![0x90, 0x50, 0x00, 0xFF];
-        let response =
-            parse_visca_response(&exposure_response_bytes, &ResponseType::ExposureMode);
+        let response = parse_visca_response(&exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) => {
                 assert_eq!(mode as u8, 0x00); // Auto mode
@@ -128,8 +125,7 @@ mod response_parsing_tests {
 
         // Manual exposure mode
         let exposure_response_bytes = vec![0x90, 0x50, 0x03, 0xFF];
-        let response =
-            parse_visca_response(&exposure_response_bytes, &ResponseType::ExposureMode);
+        let response = parse_visca_response(&exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) => {
                 assert_eq!(mode as u8, 0x03); // Manual mode
@@ -144,8 +140,7 @@ mod response_parsing_tests {
         // TODO: Sprint 1 will implement Luminance parsing
         // Currently falls through to default case and returns Completion
         let luminance_response_bytes = vec![0x90, 0x50, 0x0A, 0xFF];
-        let response =
-            parse_visca_response(&luminance_response_bytes, &ResponseType::Luminance);
+        let response = parse_visca_response(&luminance_response_bytes, &ResponseType::Luminance);
         // For now, this returns Completion since parsing is not implemented
         assert!(matches!(response, Ok(Response::Completion)));
     }
@@ -205,8 +200,7 @@ mod response_parsing_tests {
     fn test_parse_exposure_compensation_responses() {
         // Test Exposure Compensation value -7
         let exp_comp_bytes = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF];
-        let response =
-            parse_visca_response(&exp_comp_bytes, &ResponseType::ExposureCompensation);
+        let response = parse_visca_response(&exp_comp_bytes, &ResponseType::ExposureCompensation);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, -7);
@@ -216,8 +210,7 @@ mod response_parsing_tests {
 
         // Test Exposure Compensation value 0
         let exp_comp_bytes = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
-        let response =
-            parse_visca_response(&exp_comp_bytes, &ResponseType::ExposureCompensation);
+        let response = parse_visca_response(&exp_comp_bytes, &ResponseType::ExposureCompensation);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 0);
@@ -227,8 +220,7 @@ mod response_parsing_tests {
 
         // Test Exposure Compensation value +7
         let exp_comp_bytes = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0E, 0xFF];
-        let response =
-            parse_visca_response(&exp_comp_bytes, &ResponseType::ExposureCompensation);
+        let response = parse_visca_response(&exp_comp_bytes, &ResponseType::ExposureCompensation);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 7);
@@ -243,9 +235,7 @@ mod response_parsing_tests {
             &ResponseType::ExposureCompensationMode,
         );
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensationMode {
-                on,
-            })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on })) => {
                 assert!(on);
             }
             _ => panic!("Expected ExposureCompensationMode inquiry response"),
@@ -258,9 +248,7 @@ mod response_parsing_tests {
             &ResponseType::ExposureCompensationMode,
         );
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensationMode {
-                on,
-            })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on })) => {
                 assert!(!on);
             }
             _ => panic!("Expected ExposureCompensationMode inquiry response"),
@@ -536,9 +524,7 @@ mod response_parsing_tests {
         let bytes = vec![0x90, 0x50, 0x00, 0x00, 0x03, temp_value, 0xFF];
         let response = parse_visca_response(&bytes, &ResponseType::ColorTemperature);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ColorTemperature {
-                temperature,
-            })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature })) => {
                 assert_eq!(temperature, (0x03 << 4) | u16::from(temp_value));
             }
             _ => panic!("Expected ColorTemperature inquiry response"),
@@ -593,9 +579,7 @@ mod response_parsing_tests {
         let bytes = vec![0x90, 0x50, sens_value, 0xFF];
         let response = parse_visca_response(&bytes, &ResponseType::AFSensitivity);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::AFSensitivity {
-                sensitivity: _,
-            })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::AFSensitivity { sensitivity: _ })) => {
                 // Sensitivity parsed successfully
             }
             _ => panic!("Expected AFSensitivity inquiry response"),
@@ -686,8 +670,7 @@ mod response_parsing_tests {
 
         // Exposure compensation with wrong length (should be 7 bytes)
         let invalid_exp_comp = vec![0x90, 0x50, 0x07, 0xFF];
-        let response =
-            parse_visca_response(&invalid_exp_comp, &ResponseType::ExposureCompensation);
+        let response = parse_visca_response(&invalid_exp_comp, &ResponseType::ExposureCompensation);
         assert!(matches!(response, Err(Error::InvalidResponseLength)));
 
         // Anti-flicker with wrong length (should be 4 bytes)

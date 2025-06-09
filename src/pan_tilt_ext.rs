@@ -3,7 +3,7 @@
 // Crate imports
 use crate::{
     command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-    error::Error as Error,
+    error::Error,
     Response, Transport,
 };
 

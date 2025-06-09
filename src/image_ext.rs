@@ -7,7 +7,7 @@ use crate::{
         LuminanceCommand, NoiseReduction2DCommand, NoiseReduction3DCommand, SaturationCommand,
         SharpnessCommand,
     },
-    error::Error as Error,
+    error::Error,
     Response, Transport,
 };
 

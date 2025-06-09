@@ -13,7 +13,7 @@ use crate::{
         ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode, GainCommand,
         GainLimitCommand, IrisCommand, ShutterCommand,
     },
-    error::Error as Error,
+    error::Error,
     execute_command, Transport,
 };
 

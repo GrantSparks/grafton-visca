@@ -4,7 +4,7 @@ use grafton_visca::{
         zoom::{ZoomCommand, ZoomSpeed},
         InquiryCommand, PanTiltCommand,
     },
-    AppError, Client, Response, InquiryResponse,
+    AppError, Client, InquiryResponse, Response,
 };
 use log::{debug, error, info};
 use std::{env, time::Duration};
