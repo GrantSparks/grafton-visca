@@ -6,7 +6,7 @@ use std::{io, time::Duration};
 
 // Crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{error::Error as ViscaError, Command, ConnectionStats};
+use crate::{error::Error, Command, ConnectionStats};
 
 #[cfg(feature = "blocking-client")]
 use std::{
@@ -85,15 +85,15 @@ impl BlockingTransport for TcpTransport {
     /// Sends a VISCA command over the TCP connection.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command serialization fails or if there's
+    /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error writing to the TCP socket.
-    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
         let bytes = command.to_bytes()?;
         log::debug!("Sending command: {bytes:02X?}");
 
-        self.stream.write_all(&bytes).map_err(ViscaError::Io)?;
+        self.stream.write_all(&bytes).map_err(Error::Io)?;
 
-        self.stream.flush().map_err(ViscaError::Io)?;
+        self.stream.flush().map_err(Error::Io)?;
 
         self.stats.record_sent(bytes.len());
         Ok(())
@@ -102,9 +102,9 @@ impl BlockingTransport for TcpTransport {
     /// Receives VISCA response frames from the TCP connection.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the connection is closed unexpectedly,
+    /// Returns `Error` if the connection is closed unexpectedly,
     /// if a read timeout occurs, or if an incomplete VISCA frame is received.
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
         let mut buffer = [0u8; 1024];
         let mut responses = Vec::new();
         let mut current_response = Vec::new();
@@ -114,7 +114,7 @@ impl BlockingTransport for TcpTransport {
             match self.stream.read(&mut buffer) {
                 Ok(0) => {
                     self.stats.record_error();
-                    return Err(ViscaError::Io(io::Error::new(
+                    return Err(Error::Io(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
                         "Connection closed by camera",
                     )));
@@ -149,7 +149,7 @@ impl BlockingTransport for TcpTransport {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if responses.is_empty() && current_response.is_empty() {
                         self.stats.record_error();
-                        return Err(ViscaError::CommandTimeout {
+                        return Err(Error::CommandTimeout {
                             duration: Duration::from_secs(10),
                             command: "receive_response".to_string(),
                         });
@@ -157,7 +157,7 @@ impl BlockingTransport for TcpTransport {
                     if !current_response.is_empty() {
                         // Incomplete frame
                         self.stats.record_error();
-                        return Err(ViscaError::Io(io::Error::new(
+                        return Err(Error::Io(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "Incomplete VISCA frame",
                         )));
@@ -166,7 +166,7 @@ impl BlockingTransport for TcpTransport {
                 }
                 Err(e) => {
                     self.stats.record_error();
-                    return Err(ViscaError::Io(e));
+                    return Err(Error::Io(e));
                 }
             }
         }
@@ -208,7 +208,7 @@ impl Transport for AsyncTcpTransport {
     /// Sends a VISCA command over the async TCP connection.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command serialization fails or if there's
+    /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error writing to the TCP socket.
     fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
         Box::pin(async move {
@@ -218,9 +218,9 @@ impl Transport for AsyncTcpTransport {
             self.stream
                 .write_all(&bytes)
                 .await
-                .map_err(ViscaError::Io)?;
+                .map_err(Error::Io)?;
 
-            self.stream.flush().await.map_err(ViscaError::Io)?;
+            self.stream.flush().await.map_err(Error::Io)?;
 
             self.stats.record_sent(bytes.len());
             Ok(())
@@ -230,7 +230,7 @@ impl Transport for AsyncTcpTransport {
     /// Receives VISCA response frames from the async TCP connection.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the connection is closed unexpectedly,
+    /// Returns `Error` if the connection is closed unexpectedly,
     /// if a read timeout occurs, or if an incomplete VISCA frame is received.
     fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
         Box::pin(async move {
@@ -245,7 +245,7 @@ impl Transport for AsyncTcpTransport {
                 {
                     Ok(Ok(0)) => {
                         self.stats.record_error();
-                        return Err(ViscaError::Io(io::Error::new(
+                        return Err(Error::Io(io::Error::new(
                             io::ErrorKind::UnexpectedEof,
                             "Connection closed by camera",
                         )));
@@ -279,12 +279,12 @@ impl Transport for AsyncTcpTransport {
                     }
                     Ok(Err(e)) => {
                         self.stats.record_error();
-                        return Err(ViscaError::Io(e));
+                        return Err(Error::Io(e));
                     }
                     Err(_) => {
                         if responses.is_empty() && current_response.is_empty() {
                             self.stats.record_error();
-                            return Err(ViscaError::CommandTimeout {
+                            return Err(Error::CommandTimeout {
                                 duration: Duration::from_secs(10),
                                 command: "receive_response".to_string(),
                             });
@@ -292,7 +292,7 @@ impl Transport for AsyncTcpTransport {
                         if !current_response.is_empty() {
                             // Incomplete frame
                             self.stats.record_error();
-                            return Err(ViscaError::Io(io::Error::new(
+                            return Err(Error::Io(io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 "Incomplete VISCA frame",
                             )));

@@ -83,7 +83,7 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::Io` if UDP transport creation fails.
+    /// Returns `Error::Io` if UDP transport creation fails.
     #[cfg(feature = "blocking-client")]
     pub fn connect_udp(camera_addr: &str) -> Result<Self, Error> {
         let transport = BlockingUdpTransport::new(camera_addr).map_err(Error::Io)?;
@@ -100,7 +100,7 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::Io` if TCP connection fails.
+    /// Returns `Error::Io` if TCP connection fails.
     #[cfg(feature = "blocking-client")]
     pub fn connect_tcp(camera_addr: &str) -> Result<Self, Error> {
         let transport = BlockingTcpTransport::new(camera_addr).map_err(Error::Io)?;
@@ -114,7 +114,7 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::Io` if UDP transport creation fails.
+    /// Returns `Error::Io` if UDP transport creation fails.
     #[cfg(feature = "async-client")]
     pub async fn connect_udp_async(camera_addr: &str) -> Result<Self, Error> {
         let transport = AsyncUdpTransport::new(camera_addr).await?;
@@ -127,7 +127,7 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::Io` if TCP connection fails.
+    /// Returns `Error::Io` if TCP connection fails.
     #[cfg(feature = "async-client")]
     pub async fn connect_tcp_async(camera_addr: &str) -> Result<Self, Error> {
         let transport = AsyncTcpTransport::new(camera_addr).await?;
@@ -148,7 +148,7 @@ impl Client {
     ///   - Directly calls the blocking implementation
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if runtime creation fails in async contexts.
     #[cfg(feature = "blocking-client")]
     pub fn send(&self, command: &dyn Command) -> Result<Response, Error> {
@@ -299,7 +299,7 @@ impl Client {
     /// - Waits for and returns the response with proper ACK/completion tracking
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// semaphore acquisition fails, or socket assignment fails.
     #[cfg(feature = "async-client")]
     pub async fn send_async(&self, command: &dyn Command) -> Result<Response, Error> {
@@ -410,7 +410,7 @@ impl Client {
     /// Check if the camera connection is healthy.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the health check command fails to send.
+    /// Returns `Error` if the health check command fails to send.
     #[cfg(feature = "async-client")]
     pub async fn is_healthy(&self) -> Result<bool, Error> {
         use crate::command::InquiryCommand;
@@ -424,7 +424,7 @@ impl Client {
     /// Check if the camera connection is healthy (blocking).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the health check command fails to send.
+    /// Returns `Error` if the health check command fails to send.
     #[cfg(feature = "blocking-client")]
     pub fn is_healthy_blocking(&self) -> Result<bool, Error> {
         use crate::command::InquiryCommand;
@@ -479,7 +479,7 @@ impl Client {
     /// - The command execution fails
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if runtime creation fails in async contexts.
     #[cfg(feature = "blocking-client")]
     pub fn send_with_timeout(

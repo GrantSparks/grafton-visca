@@ -13,7 +13,7 @@ use tokio::net::UdpSocket as TokioUdpSocket;
 
 // Crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{error::Error as ViscaError, Command, ConnectionStats};
+use crate::{error::Error, Command, ConnectionStats};
 
 #[cfg(feature = "blocking-client")]
 use super::BlockingTransport;
@@ -81,16 +81,16 @@ impl BlockingTransport for UdpTransport {
     /// Sends a VISCA command over the UDP socket.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command serialization fails or if there's
+    /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error sending the UDP packet.
-    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
         let bytes = command.to_bytes()?;
         log::debug!("Sending command: {bytes:02X?}");
 
         let _ = self
             .socket
             .send_to(&bytes, &self.address)
-            .map_err(ViscaError::Io)?;
+            .map_err(Error::Io)?;
 
         self.stats.record_sent(bytes.len());
         Ok(())
@@ -99,9 +99,9 @@ impl BlockingTransport for UdpTransport {
     /// Receives VISCA response packets from the UDP socket.
     ///
     /// # Errors
-    /// Returns `ViscaError` if a receive timeout occurs or if there's
+    /// Returns `Error` if a receive timeout occurs or if there's
     /// an I/O error reading from the UDP socket.
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
         let mut buffer = [0u8; 1024];
         let mut responses = Vec::new();
 
@@ -126,7 +126,7 @@ impl BlockingTransport for UdpTransport {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if responses.is_empty() {
                         self.stats.record_error();
-                        return Err(ViscaError::CommandTimeout {
+                        return Err(Error::CommandTimeout {
                             duration: Duration::from_secs(10),
                             command: "receive_response".to_string(),
                         });
@@ -135,7 +135,7 @@ impl BlockingTransport for UdpTransport {
                 }
                 Err(e) => {
                     self.stats.record_error();
-                    return Err(ViscaError::Io(e));
+                    return Err(Error::Io(e));
                 }
             }
         }
@@ -181,7 +181,7 @@ impl Transport for AsyncUdpTransport {
     /// Sends a VISCA command over the async UDP socket.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command serialization fails or if there's
+    /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error sending the UDP packet.
     fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
         Box::pin(async move {
@@ -192,7 +192,7 @@ impl Transport for AsyncUdpTransport {
                 .socket
                 .send_to(&bytes, &self.address)
                 .await
-                .map_err(ViscaError::Io)?;
+                .map_err(Error::Io)?;
 
             self.stats.record_sent(bytes.len());
             Ok(())
@@ -202,7 +202,7 @@ impl Transport for AsyncUdpTransport {
     /// Receives VISCA response packets from the async UDP socket.
     ///
     /// # Errors
-    /// Returns `ViscaError` if a receive timeout occurs or if there's
+    /// Returns `Error` if a receive timeout occurs or if there's
     /// an I/O error reading from the UDP socket.
     fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
         Box::pin(async move {
@@ -237,12 +237,12 @@ impl Transport for AsyncUdpTransport {
                     }
                     Ok(Err(e)) => {
                         self.stats.record_error();
-                        return Err(ViscaError::Io(e));
+                        return Err(Error::Io(e));
                     }
                     Err(_) => {
                         if responses.is_empty() {
                             self.stats.record_error();
-                            return Err(ViscaError::CommandTimeout {
+                            return Err(Error::CommandTimeout {
                                 duration: Duration::from_secs(10),
                                 command: "receive_response".to_string(),
                             });

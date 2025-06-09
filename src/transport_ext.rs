@@ -21,7 +21,6 @@ use crate::{
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
     },
     error::Error,
-    error::Error as ViscaError,
     Transport,
 };
 
@@ -50,7 +49,7 @@ pub trait TransportExt: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
-    fn home(&mut self) -> Result<(), ViscaError>
+    fn home(&mut self) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -65,7 +64,7 @@ pub trait TransportExt: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
-    fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), ViscaError>
+    fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -80,7 +79,7 @@ pub trait TransportExt: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
-    fn set_white_balance(&mut self, mode: WhiteBalanceMode) -> Result<(), ViscaError>
+    fn set_white_balance(&mut self, mode: WhiteBalanceMode) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -99,8 +98,8 @@ pub trait TransportExt: Transport {
     /// * `tilt_speed` - Tilt speed (0x01-0x14)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if speeds are out of valid range,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error::InvalidParameter` if speeds are out of valid range,
+    /// or `Error` if the command fails to send or the camera returns an error.
     fn move_start(
         &mut self,
         direction: PanTiltDirection,
@@ -125,7 +124,7 @@ pub trait TransportExt: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
-    fn move_stop(&mut self) -> Result<(), ViscaError>
+    fn move_stop(&mut self) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -149,8 +148,8 @@ pub trait TransportExt: Transport {
     /// * `tilt_speed` - Tilt speed (0x01-0x14)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if speeds are out of valid range,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error::InvalidParameter` if speeds are out of valid range,
+    /// or `Error` if the command fails to send or the camera returns an error.
     fn move_absolute(
         &mut self,
         pan: i16,
@@ -177,7 +176,7 @@ pub trait TransportExt: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
-    fn set_focus_auto(&mut self) -> Result<(), ViscaError>
+    fn set_focus_auto(&mut self) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -192,7 +191,7 @@ pub trait TransportExt: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
-    fn set_focus_manual(&mut self) -> Result<(), ViscaError>
+    fn set_focus_manual(&mut self) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -207,7 +206,7 @@ pub trait TransportExt: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
-    fn set_backlight(&mut self, enabled: bool) -> Result<(), ViscaError>
+    fn set_backlight(&mut self, enabled: bool) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -224,9 +223,9 @@ pub trait TransportExt: Transport {
     /// * `value` - Exposure compensation value (-7 to +7)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if value is not in the range -7 to +7,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
-    fn set_exposure_compensation(&mut self, value: i8) -> Result<(), ViscaError>
+    /// Returns `Error::InvalidParameter` if value is not in the range -7 to +7,
+    /// or `Error` if the command fails to send or the camera returns an error.
+    fn set_exposure_compensation(&mut self, value: i8) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -246,7 +245,7 @@ pub trait TransportExt: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
-    fn set_iris(&mut self, value: u8) -> Result<(), ViscaError>
+    fn set_iris(&mut self, value: u8) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -265,14 +264,14 @@ pub trait TransportExt: Transport {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
-    fn set_gain(&mut self, value: u16) -> Result<(), ViscaError>
+    fn set_gain(&mut self, value: u16) -> Result<(), Error>
     where
         Self: Sized,
     {
         use crate::types::GainValue;
         // Gain values are 0x00-0x07, so we need to ensure the u16 fits
         if value > 0x07 {
-            return Err(ViscaError::ParameterOutOfRange {
+            return Err(Error::ParameterOutOfRange {
                 parameter: "gain".to_string(),
                 value: i32::from(value),
                 min: 0x00,

@@ -12,7 +12,7 @@ use std::io;
 use super::common::{log_frame, parse_frame_type, FrameType};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{error::Error as ViscaError, Command};
+use crate::{error::Error, Command};
 
 #[cfg(feature = "blocking-client")]
 use std::net::TcpStream;
@@ -95,15 +95,15 @@ impl UnifiedTcpTransport<TcpStream> {
     /// Send a command synchronously.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command encoding or TCP write fails.
-    pub fn send_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command encoding or TCP write fails.
+    pub fn send_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
         use std::io::Write;
 
         let bytes = command.to_bytes()?;
         log_frame("TCP send", &bytes);
 
-        self.stream.write_all(&bytes).map_err(ViscaError::Io)?;
-        self.stream.flush().map_err(ViscaError::Io)?;
+        self.stream.write_all(&bytes).map_err(Error::Io)?;
+        self.stream.flush().map_err(Error::Io)?;
 
         self.stats.record_sent(bytes.len());
         Ok(())
@@ -112,12 +112,12 @@ impl UnifiedTcpTransport<TcpStream> {
     /// Receive responses synchronously.
     ///
     /// # Errors
-    /// Returns `ViscaError` if:
+    /// Returns `Error` if:
     /// - The connection is closed by the camera (`UnexpectedEof`)
     /// - A read timeout occurs (`CommandTimeout`)
     /// - An incomplete VISCA frame is received (`InvalidData`)
     /// - Any other I/O error occurs during reading
-    pub fn receive_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+    pub fn receive_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
         use std::io::Read;
 
         let mut temp_buffer = vec![0u8; self.config.buffer_size];
@@ -127,7 +127,7 @@ impl UnifiedTcpTransport<TcpStream> {
             match self.stream.read(&mut temp_buffer) {
                 Ok(0) => {
                     self.stats.record_error();
-                    return Err(ViscaError::Io(io::Error::new(
+                    return Err(Error::Io(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
                         "Connection closed by camera",
                     )));
@@ -159,7 +159,7 @@ impl UnifiedTcpTransport<TcpStream> {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if all_frames.is_empty() && self.buffer.buffer_mut().is_empty() {
                         self.stats.record_error();
-                        return Err(ViscaError::CommandTimeout {
+                        return Err(Error::CommandTimeout {
                             duration: self.config.read_timeout,
                             command: "receive_response".to_string(),
                         });
@@ -168,7 +168,7 @@ impl UnifiedTcpTransport<TcpStream> {
                     if !self.buffer.buffer_mut().is_empty() {
                         // Incomplete frame
                         self.stats.record_error();
-                        return Err(ViscaError::Io(io::Error::new(
+                        return Err(Error::Io(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "Incomplete VISCA frame",
                         )));
@@ -178,7 +178,7 @@ impl UnifiedTcpTransport<TcpStream> {
                 }
                 Err(e) => {
                     self.stats.record_error();
-                    return Err(ViscaError::Io(e));
+                    return Err(Error::Io(e));
                 }
             }
         }
@@ -214,11 +214,11 @@ impl UnifiedTcpTransport<TokioTcpStream> {
     /// Send a command asynchronously.
     ///
     /// # Errors
-    /// Returns `ViscaError` if:
+    /// Returns `Error` if:
     /// - The command encoding fails
     /// - The TCP write operation fails
     /// - The flush operation fails
-    pub async fn send_async(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+    pub async fn send_async(&mut self, command: &dyn Command) -> Result<(), Error> {
         use tokio::io::AsyncWriteExt;
 
         let bytes = command.to_bytes()?;
@@ -227,8 +227,8 @@ impl UnifiedTcpTransport<TokioTcpStream> {
         self.stream
             .write_all(&bytes)
             .await
-            .map_err(ViscaError::Io)?;
-        self.stream.flush().await.map_err(ViscaError::Io)?;
+            .map_err(Error::Io)?;
+        self.stream.flush().await.map_err(Error::Io)?;
 
         self.stats.record_sent(bytes.len());
         Ok(())
@@ -237,12 +237,12 @@ impl UnifiedTcpTransport<TokioTcpStream> {
     /// Receive responses asynchronously.
     ///
     /// # Errors
-    /// Returns `ViscaError` if:
+    /// Returns `Error` if:
     /// - The connection is closed by the camera (`UnexpectedEof`)
     /// - A read timeout occurs (`CommandTimeout`)
     /// - An incomplete VISCA frame is received (`InvalidData`)
     /// - Any other I/O error occurs during reading
-    pub async fn receive_async(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+    pub async fn receive_async(&mut self) -> Result<Vec<Vec<u8>>, Error> {
         use tokio::io::AsyncReadExt;
 
         let mut temp_buffer = vec![0u8; self.config.buffer_size];
@@ -254,7 +254,7 @@ impl UnifiedTcpTransport<TokioTcpStream> {
             {
                 Ok(Ok(0)) => {
                     self.stats.record_error();
-                    return Err(ViscaError::Io(io::Error::new(
+                    return Err(Error::Io(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
                         "Connection closed by camera",
                     )));
@@ -285,12 +285,12 @@ impl UnifiedTcpTransport<TokioTcpStream> {
                 }
                 Ok(Err(e)) => {
                     self.stats.record_error();
-                    return Err(ViscaError::Io(e));
+                    return Err(Error::Io(e));
                 }
                 Err(_) => {
                     if all_frames.is_empty() && self.buffer.buffer_mut().is_empty() {
                         self.stats.record_error();
-                        return Err(ViscaError::CommandTimeout {
+                        return Err(Error::CommandTimeout {
                             duration: self.config.read_timeout,
                             command: "receive_response".to_string(),
                         });
@@ -299,7 +299,7 @@ impl UnifiedTcpTransport<TokioTcpStream> {
                     if !self.buffer.buffer_mut().is_empty() {
                         // Incomplete frame
                         self.stats.record_error();
-                        return Err(ViscaError::Io(io::Error::new(
+                        return Err(Error::Io(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "Incomplete VISCA frame",
                         )));
@@ -315,11 +315,11 @@ impl UnifiedTcpTransport<TokioTcpStream> {
 // Implement the unified transport trait for blocking
 #[cfg(feature = "blocking-client")]
 impl super::unified::BlockingTransport for UnifiedTcpTransport<TcpStream> {
-    fn send_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+    fn send_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
         self.send_blocking(command)
     }
 
-    fn receive_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+    fn receive_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
         self.receive_blocking()
     }
 }
@@ -328,9 +328,9 @@ impl super::unified::BlockingTransport for UnifiedTcpTransport<TcpStream> {
 #[cfg(feature = "async-client")]
 impl super::unified::UnifiedTransport for UnifiedTcpTransport<TokioTcpStream> {
     type SendFuture<'a> =
-        std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), ViscaError>> + Send + 'a>>;
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>;
     type ReceiveFuture<'a> = std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Vec<Vec<u8>>, ViscaError>> + Send + 'a>,
+        Box<dyn std::future::Future<Output = Result<Vec<Vec<u8>>, Error>> + Send + 'a>,
     >;
 
     fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> Self::SendFuture<'a> {

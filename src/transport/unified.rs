@@ -6,7 +6,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::{error::Error as ViscaError, Command};
+use crate::{error::Error, Command};
 
 /// Type alias for boxed futures used in transport operations.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -17,12 +17,12 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// either truly async futures or immediately-ready futures for blocking operations.
 pub trait UnifiedTransport: Send + Sync {
     /// The future type returned by send operations.
-    type SendFuture<'a>: Future<Output = Result<(), ViscaError>> + Send + 'a
+    type SendFuture<'a>: Future<Output = Result<(), Error>> + Send + 'a
     where
         Self: 'a;
 
     /// The future type returned by receive operations.
-    type ReceiveFuture<'a>: Future<Output = Result<Vec<Vec<u8>>, ViscaError>> + Send + 'a
+    type ReceiveFuture<'a>: Future<Output = Result<Vec<Vec<u8>>, Error>> + Send + 'a
     where
         Self: 'a;
 
@@ -62,24 +62,24 @@ pub trait BlockingTransport: Send + Sync {
     /// Send a command synchronously.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be sent to the camera.
-    fn send_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError>;
+    /// Returns `Error` if the command cannot be sent to the camera.
+    fn send_blocking(&mut self, command: &dyn Command) -> Result<(), Error>;
 
     /// Receive responses synchronously.
     ///
     /// # Errors
-    /// Returns `ViscaError` if responses cannot be received from the camera.
-    fn receive_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
+    /// Returns `Error` if responses cannot be received from the camera.
+    fn receive_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error>;
 }
 
 impl<T: BlockingTransport> UnifiedTransport for BlockingTransportAdapter<T> {
     type SendFuture<'a>
-        = ReadyFuture<Result<(), ViscaError>>
+        = ReadyFuture<Result<(), Error>>
     where
         Self: 'a;
 
     type ReceiveFuture<'a>
-        = ReadyFuture<Result<Vec<Vec<u8>>, ViscaError>>
+        = ReadyFuture<Result<Vec<Vec<u8>>, Error>>
     where
         Self: 'a;
 
@@ -100,11 +100,11 @@ mod tests {
     struct MockBlockingTransport;
 
     impl BlockingTransport for MockBlockingTransport {
-        fn send_blocking(&mut self, _: &dyn Command) -> Result<(), ViscaError> {
+        fn send_blocking(&mut self, _: &dyn Command) -> Result<(), Error> {
             Ok(())
         }
 
-        fn receive_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+        fn receive_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
             Ok(vec![vec![0x90, 0x50, 0xFF]])
         }
     }
@@ -123,7 +123,7 @@ mod tests {
         struct DummyCommand;
 
         impl Command for DummyCommand {
-            fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+            fn to_bytes(&self) -> Result<Vec<u8>, Error> {
                 Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
             }
 

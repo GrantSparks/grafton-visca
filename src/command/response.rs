@@ -269,7 +269,7 @@ fn parse_inquiry_response(response: &[u8], response_type: ResponseType) -> Resul
     }
 }
 
-#[allow(clippy::missing_const_for_fn)] // ViscaError contains String fields
+#[allow(clippy::missing_const_for_fn)] // Error contains String fields
 fn parse_power_response(response: &[u8]) -> Result<Response, Error> {
     if response.len() != 4 {
         return Err(Error::InvalidResponseLength);
@@ -378,7 +378,7 @@ fn parse_value_response(response: &[u8], value_type: ValueType) -> Result<Respon
     }
 }
 
-#[allow(clippy::missing_const_for_fn)] // ViscaError contains String fields
+#[allow(clippy::missing_const_for_fn)] // Error contains String fields
 fn parse_simple_value(response: &[u8], value_type: SimpleValueType) -> Result<Response, Error> {
     if response.len() != 4 {
         return Err(Error::InvalidResponseLength);

@@ -3,7 +3,7 @@
 // Crate imports
 use crate::{
     command::{power::Power, InquiryCommand, PowerCommand},
-    error::Error as ViscaError,
+    error::Error,
     Response, Transport,
 };
 
@@ -18,8 +18,8 @@ pub trait PowerExt: Transport {
     /// * `Ok(false)` - Camera is powered off or in standby
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::UnexpectedResponseType` - Camera returned unexpected response format
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::UnexpectedResponseType` - Camera returned unexpected response format
     ///
     /// # Example
     /// ```no_run
@@ -34,7 +34,7 @@ pub trait PowerExt: Transport {
     /// # Ok(())
     /// # }
     /// ```
-    fn is_powered_on(&mut self) -> Result<bool, ViscaError>
+    fn is_powered_on(&mut self) -> Result<bool, Error>
     where
         Self: Sized,
     {
@@ -42,7 +42,7 @@ pub trait PowerExt: Transport {
 
         match response {
             Response::InquiryResponse(crate::InquiryResponse::Power { on }) => Ok(on),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -55,9 +55,9 @@ pub trait PowerExt: Transport {
     /// * `Ok(false)` - Camera was powered off and has been powered on
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Failed to power on the camera
-    /// * `ViscaError::UnexpectedResponseType` - Camera returned unexpected response format
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Failed to power on the camera
+    /// * `Error::UnexpectedResponseType` - Camera returned unexpected response format
     ///
     /// # Example
     /// ```no_run
@@ -73,7 +73,7 @@ pub trait PowerExt: Transport {
     /// # Ok(())
     /// # }
     /// ```
-    fn ensure_powered_on(&mut self) -> Result<bool, ViscaError>
+    fn ensure_powered_on(&mut self) -> Result<bool, Error>
     where
         Self: Sized,
     {
@@ -97,8 +97,8 @@ pub trait PowerExt: Transport {
     /// * `check_interval` - How often to check the power status
     ///
     /// # Errors
-    /// * `ViscaError::Timeout` - Camera did not power on within the specified timeout
-    /// * `ViscaError::NetworkError` - Communication error while checking power status
+    /// * `Error::Timeout` - Camera did not power on within the specified timeout
+    /// * `Error::NetworkError` - Communication error while checking power status
     ///
     /// # Example
     /// ```no_run
@@ -119,7 +119,7 @@ pub trait PowerExt: Transport {
         &mut self,
         timeout: std::time::Duration,
         check_interval: std::time::Duration,
-    ) -> Result<(), ViscaError>
+    ) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -130,14 +130,14 @@ pub trait PowerExt: Transport {
                 Ok(true) => return Ok(()),
                 Ok(false) => {
                     if start.elapsed() > timeout {
-                        return Err(ViscaError::Timeout);
+                        return Err(Error::Timeout);
                     }
                     std::thread::sleep(check_interval);
                 }
                 Err(_) => {
                     // Camera might still be initializing
                     if start.elapsed() > timeout {
-                        return Err(ViscaError::Timeout);
+                        return Err(Error::Timeout);
                     }
                     std::thread::sleep(check_interval);
                 }
@@ -150,8 +150,8 @@ pub trait PowerExt: Transport {
     /// This is a convenience method that sends the power on command.
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the power on command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the power on command
     ///
     /// # Example
     /// ```no_run
@@ -168,11 +168,11 @@ pub trait PowerExt: Transport {
     /// # Ok(())
     /// # }
     /// ```
-    fn power_on(&mut self) -> Result<(), ViscaError> {
+    fn power_on(&mut self) -> Result<(), Error> {
         match self.execute_command(&PowerCommand { power: Power::On })? {
             Response::Completion => Ok(()),
             Response::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -181,8 +181,8 @@ pub trait PowerExt: Transport {
     /// This is a convenience method that sends the power off (standby) command.
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the power off command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the power off command
     ///
     /// # Example
     /// ```no_run
@@ -193,13 +193,13 @@ pub trait PowerExt: Transport {
     /// # Ok(())
     /// # }
     /// ```
-    fn power_off(&mut self) -> Result<(), ViscaError> {
+    fn power_off(&mut self) -> Result<(), Error> {
         match self.execute_command(&PowerCommand {
             power: Power::Standby,
         })? {
             Response::Completion => Ok(()),
             Response::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 }

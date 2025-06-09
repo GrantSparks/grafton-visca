@@ -12,7 +12,7 @@ use std::convert::TryFrom;
 // Workspace / local-crate imports
 use crate::{
     command::{response::ResponseType, Command},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
     types::{BrightnessLevel, IrisLevel, ShutterSpeed},
     visca_up_down_reset,
@@ -44,7 +44,7 @@ pub struct ExposureCommand {
 }
 
 impl Command for ExposureCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![0x81, 0x01, 0x04, 0x39, self.mode as u8, 0xFF])
     }
 
@@ -87,12 +87,12 @@ impl ExposureCompensationLevel {
     /// Creates a new `ExposureCompensationLevel` with validation.
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if value is outside -7 to +7 range.
-    pub fn new(value: i8) -> Result<Self, ViscaError> {
+    /// Returns `Error::InvalidParameter` if value is outside -7 to +7 range.
+    pub fn new(value: i8) -> Result<Self, Error> {
         if (Self::MIN..=Self::MAX).contains(&value) {
             Ok(Self(value))
         } else {
-            Err(ViscaError::InvalidParameter(format!(
+            Err(Error::InvalidParameter(format!(
                 "Exposure compensation level must be between {} and {}",
                 Self::MIN,
                 Self::MAX
@@ -115,7 +115,7 @@ impl ExposureCompensationLevel {
 }
 
 impl TryFrom<i8> for ExposureCompensationLevel {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: i8) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -152,7 +152,7 @@ pub enum ExposureCompensationCommand {
 }
 
 impl Command for ExposureCompensationCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(match self {
             Self::On => vec![0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF],
             Self::Off => vec![0x81, 0x01, 0x04, 0x3E, 0x03, 0xFF],
@@ -199,7 +199,7 @@ pub enum DynamicRangeCommand {
 }
 
 impl Command for DynamicRangeCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Direct(level) => Ok(vec![
                 0x81,

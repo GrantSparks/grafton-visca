@@ -86,12 +86,12 @@ pub enum ConnectionType {
 #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
 /// A pool of VISCA camera connections (requires blocking-client or async-client feature).
 #[derive(Debug, Clone, Copy)]
-pub struct ViscaConnectionPool;
+pub struct ConnectionPool;
 
 #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
 /// Async-specific connection pool (requires async-client feature).
 #[derive(Debug, Clone, Copy)]
-pub struct AsyncViscaConnectionPool;
+pub struct AsyncConnectionPool;
 
 /// A pool of VISCA camera connections using the unified `Client`.
 ///
@@ -99,13 +99,13 @@ pub struct AsyncViscaConnectionPool;
 /// methods for executing commands on specific cameras.
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 #[derive(Debug)]
-pub struct ViscaConnectionPool {
+pub struct ConnectionPool {
     connections: Arc<Mutex<HashMap<String, PooledConnection>>>,
     config: PoolConfig,
 }
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-impl ViscaConnectionPool {
+impl ConnectionPool {
     /// Creates a new connection pool.
     ///
     /// # Arguments
@@ -323,13 +323,13 @@ impl ViscaConnectionPool {
 /// This provides async methods when the async-client feature is enabled.
 #[cfg(feature = "async-client")]
 #[derive(Debug)]
-pub struct AsyncViscaConnectionPool {
+pub struct AsyncConnectionPool {
     connections: Arc<tokio::sync::Mutex<HashMap<String, PooledConnection>>>,
     config: PoolConfig,
 }
 
 #[cfg(feature = "async-client")]
-impl AsyncViscaConnectionPool {
+impl AsyncConnectionPool {
     /// Creates a new async connection pool.
     #[must_use]
     pub fn new(config: PoolConfig) -> Self {
@@ -502,9 +502,9 @@ impl AsyncViscaConnectionPool {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     #[cfg(feature = "async-client")]
-    use super::AsyncViscaConnectionPool;
+    use super::AsyncConnectionPool;
     #[cfg(feature = "blocking-client")]
-    use super::ViscaConnectionPool;
+    use super::ConnectionPool;
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     use super::{CameraInfo, ConnectionType, PoolConfig};
 
@@ -512,7 +512,7 @@ mod tests {
     #[cfg(feature = "blocking-client")]
     fn test_pool_creation() {
         let config = PoolConfig::default();
-        let pool = ViscaConnectionPool::new(config);
+        let pool = ConnectionPool::new(config);
         assert_eq!(pool.list_cameras().len(), 0);
     }
 
@@ -520,7 +520,7 @@ mod tests {
     #[cfg(feature = "blocking-client")]
     fn test_add_remove_camera() {
         let config = PoolConfig::default();
-        let pool = ViscaConnectionPool::new(config);
+        let pool = ConnectionPool::new(config);
 
         let info = CameraInfo {
             id: "cam1".to_string(),
@@ -549,7 +549,7 @@ mod tests {
     #[cfg(feature = "async-client")]
     async fn test_pool_creation_async() {
         let config = PoolConfig::default();
-        let pool = AsyncViscaConnectionPool::new(config);
+        let pool = AsyncConnectionPool::new(config);
         assert_eq!(pool.list_cameras().await.len(), 0);
     }
 
@@ -557,7 +557,7 @@ mod tests {
     #[cfg(feature = "async-client")]
     async fn test_add_remove_camera_async() {
         let config = PoolConfig::default();
-        let pool = AsyncViscaConnectionPool::new(config);
+        let pool = AsyncConnectionPool::new(config);
 
         let info = CameraInfo {
             id: "cam1".to_string(),

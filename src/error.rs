@@ -250,7 +250,7 @@ impl<'a, T> BoxFuture<'a, T> {
 
 /// Extension trait providing convenient retry helpers for VISCA operations.
 ///
-/// This trait adds retry functionality to `Result<T, ViscaError>`, making it easy
+/// This trait adds retry functionality to `Result<T, Error>`, making it easy
 /// to handle transient errors that are common in camera communication.
 pub trait ResultExt<T> {
     /// Retry the operation if it fails with a retryable error.
@@ -345,7 +345,7 @@ pub trait ResultExt<T> {
     /// for the error that occurred.
     ///
     /// # Errors
-    /// Returns the original `ViscaError` with added retry context information.
+    /// Returns the original `Error` with added retry context information.
     fn with_retry_context(self) -> Result<T>;
 }
 

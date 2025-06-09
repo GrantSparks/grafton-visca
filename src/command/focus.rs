@@ -12,7 +12,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{Command, ResponseType},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -55,7 +55,7 @@ pub enum FocusCommand {
 }
 
 impl Command for FocusCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]),
             Self::FarStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]),
@@ -110,7 +110,7 @@ pub struct FocusZoneCommand {
 }
 
 impl Command for FocusZoneCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let zone_byte = match self.zone {
             FocusZone::Top => 0x00,
             FocusZone::Center => 0x01,
@@ -149,7 +149,7 @@ pub struct AFSensitivityCommand {
 }
 
 impl Command for AFSensitivityCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let sens_byte = match self.sensitivity {
             AFSensitivity::High => 0x02,
             AFSensitivity::Normal => 0x01,
@@ -247,7 +247,7 @@ mod tests {
         // Invalid speeds
         assert!(matches!(
             FocusSpeed::new(8),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
     }
 

@@ -33,7 +33,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{Command, ResponseType},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -134,7 +134,7 @@ pub enum PanTiltCommand {
 }
 
 impl Command for PanTiltCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Home => Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]),
             Self::Reset => Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF]),
@@ -249,7 +249,7 @@ mod tests {
         // Invalid speed
         assert!(matches!(
             PanSpeed::new(0x19),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
 
         // From trait
@@ -271,7 +271,7 @@ mod tests {
         // Invalid speed
         assert!(matches!(
             TiltSpeed::new(0x15),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
 
         // From trait
@@ -494,7 +494,7 @@ pub enum PanTiltLimitCommand {
 }
 
 impl Command for PanTiltLimitCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Set { corner, pan, tilt } => {
                 let pan_bytes = position_to_bytes(*pan);

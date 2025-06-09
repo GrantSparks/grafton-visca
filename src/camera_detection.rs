@@ -13,7 +13,7 @@ use log::debug;
 use crate::{
     command::{InquiryCommand, InquiryResponse},
     constants::CameraModel,
-    error::Error as ViscaError,
+    error::Error,
     Transport,
 };
 
@@ -32,9 +32,9 @@ use crate::{
 ///     CameraModel::PTZOptics30X => println!("Connected to PTZOptics 30X"),
 ///     _ => println!("Connected to unknown camera model"),
 /// }
-/// # Ok::<(), grafton_visca::ViscaError>(())
+/// # Ok::<(), grafton_visca::Error>(())
 /// ```
-pub fn detect_camera_model(transport: &mut dyn Transport) -> Result<CameraModel, ViscaError> {
+pub fn detect_camera_model(transport: &mut dyn Transport) -> Result<CameraModel, Error> {
     // Try to get zoom position to determine zoom range
     let zoom_response = transport.execute_command(&InquiryCommand::ZoomPosition)?;
 

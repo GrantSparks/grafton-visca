@@ -9,7 +9,7 @@ use std::convert::TryFrom;
 // Crate imports
 use crate::{
     command::{Command, ResponseType},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -41,7 +41,7 @@ pub struct WhiteBalanceCommand {
 }
 
 impl Command for WhiteBalanceCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![0x81, 0x01, 0x04, 0x35, self.mode as u8, 0xFF])
     }
 

@@ -6,7 +6,7 @@
 // Crate imports
 use crate::{
     command::{response::ResponseType, Command},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -19,7 +19,7 @@ use crate::{
 pub struct OnePushTriggerCommand;
 
 impl Command for OnePushTriggerCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![0x81, 0x01, 0x04, 0x10, 0x05, 0xFF])
     }
 
@@ -44,9 +44,9 @@ pub struct RedTuningCommand {
 }
 
 impl Command for RedTuningCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         if self.level < -10 || self.level > 10 {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Red tuning level must be between -10 and +10".into(),
             ));
         }
@@ -81,9 +81,9 @@ pub struct BlueTuningCommand {
 }
 
 impl Command for BlueTuningCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         if self.level < -10 || self.level > 10 {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Blue tuning level must be between -10 and +10".into(),
             ));
         }
@@ -118,9 +118,9 @@ pub struct SaturationCommand {
 }
 
 impl Command for SaturationCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         if self.level > 0x0E {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Saturation level must be between 0x0 (60%) and 0xE (200%)".into(),
             ));
         }
@@ -150,9 +150,9 @@ pub struct HueCommand {
 }
 
 impl Command for HueCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         if self.level > 0x0E {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Hue level must be between 0x0 (0) and 0xE (14)".into(),
             ));
         }
@@ -191,7 +191,7 @@ crate::visca_command! {
         /// higher values produce cooler (more blue) colors.
         Direct(temp: u16) => {
             if *temp > 0x37 {
-                return Err(ViscaError::InvalidParameter(
+                return Err(Error::InvalidParameter(
                     "Color temperature must be between 0x00 (2500K) and 0x37 (8000K)".into(),
                 ));
             }

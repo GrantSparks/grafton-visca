@@ -30,7 +30,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{Command, ResponseType},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -71,7 +71,7 @@ pub enum ZoomCommand {
 }
 
 impl Command for ZoomCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             // Stop command
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]),
@@ -144,11 +144,11 @@ mod tests {
         // Invalid speed
         assert!(matches!(
             ZoomSpeed::new(8),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
         assert!(matches!(
             ZoomSpeed::new(255),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
     }
 
