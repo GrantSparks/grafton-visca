@@ -171,53 +171,44 @@ pub enum ViscaError {
     InvalidState(String),
 }
 
-impl ViscaError {
-    /// Create a `ViscaError` from a VISCA error response code.
+impl Error {
+    /// Create an `Error` from a VISCA error response code.
     #[must_use]
     pub const fn from_code(code: u8) -> Self {
-        use ViscaError::{
-            CommandBufferFull, CommandCanceled, CommandNotExecutable, NoSocket, SyntaxError,
-            Unknown,
-        };
-
         match code {
-            0x02 => SyntaxError,
-            0x03 => CommandBufferFull,
-            0x04 => CommandCanceled,
-            0x05 => NoSocket,
-            0x41 => CommandNotExecutable,
-            _ => Unknown(code),
+            0x02 => Self::SyntaxError,
+            0x03 => Self::CommandBufferFull,
+            0x04 => Self::CommandCanceled,
+            0x05 => Self::NoSocket,
+            0x41 => Self::CommandNotExecutable,
+            _ => Self::Unknown(code),
         }
     }
 
     /// Check if this error is potentially retryable.
     #[must_use]
     pub const fn is_retryable(&self) -> bool {
-        use ViscaError::{CameraBusy, CameraMoving, CommandBufferFull, CommandTimeout, Timeout};
-
         matches!(
             self,
-            CameraBusy | CameraMoving { .. } | CommandTimeout { .. } | CommandBufferFull | Timeout
+            Self::CameraBusy | Self::CameraMoving { .. } | Self::CommandTimeout { .. } | Self::CommandBufferFull | Self::Timeout
         )
     }
 
     /// Get a suggested retry delay for retryable errors.
     #[must_use]
     pub const fn suggested_retry_delay(&self) -> Option<Duration> {
-        use ViscaError::{CameraBusy, CameraMoving, CommandBufferFull, CommandTimeout, Timeout};
-
         match self {
-            CameraBusy => Some(Duration::from_millis(100)),
-            CameraMoving { .. } => Some(Duration::from_millis(500)),
-            CommandTimeout { .. } => Some(Duration::from_secs(1)),
-            CommandBufferFull => Some(Duration::from_millis(200)),
-            Timeout => Some(Duration::from_secs(2)),
+            Self::CameraBusy => Some(Duration::from_millis(100)),
+            Self::CameraMoving { .. } => Some(Duration::from_millis(500)),
+            Self::CommandTimeout { .. } => Some(Duration::from_secs(1)),
+            Self::CommandBufferFull => Some(Duration::from_millis(200)),
+            Self::Timeout => Some(Duration::from_secs(2)),
             _ => None,
         }
     }
 }
 
-impl From<nom::Err<nom::error::Error<&[u8]>>> for ViscaError {
+impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
     fn from(err: nom::Err<nom::error::Error<&[u8]>>) -> Self {
         Self::ParseError(err.to_string())
     }
@@ -680,53 +671,53 @@ mod tests {
     #[test]
     fn test_visca_error_from_code() {
         assert!(matches!(
-            ViscaError::from_code(0x02),
-            ViscaError::SyntaxError
+            Error::from_code(0x02),
+            Error::SyntaxError
         ));
         assert!(matches!(
-            ViscaError::from_code(0x03),
-            ViscaError::CommandBufferFull
+            Error::from_code(0x03),
+            Error::CommandBufferFull
         ));
         assert!(matches!(
-            ViscaError::from_code(0x04),
-            ViscaError::CommandCanceled
+            Error::from_code(0x04),
+            Error::CommandCanceled
         ));
         assert!(matches!(ViscaError::from_code(0x05), ViscaError::NoSocket));
         assert!(matches!(
-            ViscaError::from_code(0x41),
-            ViscaError::CommandNotExecutable
+            Error::from_code(0x41),
+            Error::CommandNotExecutable
         ));
         assert!(matches!(
-            ViscaError::from_code(0xFF),
-            ViscaError::Unknown(0xFF)
+            Error::from_code(0xFF),
+            Error::Unknown(0xFF)
         ));
     }
 
     #[test]
     fn test_visca_error_display() {
         assert_eq!(
-            ViscaError::SyntaxError.to_string(),
+            Error::SyntaxError.to_string(),
             "Syntax error in VISCA command"
         );
         assert_eq!(
-            ViscaError::CommandBufferFull.to_string(),
+            Error::CommandBufferFull.to_string(),
             "Command buffer is full"
         );
         assert_eq!(
-            ViscaError::CommandCanceled.to_string(),
+            Error::CommandCanceled.to_string(),
             "Command was canceled"
         );
         assert_eq!(ViscaError::NoSocket.to_string(), "No socket available");
         assert_eq!(
-            ViscaError::CommandNotExecutable.to_string(),
+            Error::CommandNotExecutable.to_string(),
             "Command is not executable"
         );
         assert_eq!(
-            ViscaError::Unknown(0x99).to_string(),
+            Error::Unknown(0x99).to_string(),
             "Unknown error code: 0x99"
         );
         assert_eq!(
-            ViscaError::InvalidParameter("test".to_string()).to_string(),
+            Error::InvalidParameter("test".to_string()).to_string(),
             "Invalid parameter: test"
         );
         assert_eq!(ViscaError::Timeout.to_string(), "Operation timed out");
@@ -758,7 +749,7 @@ mod tests {
     fn test_app_error_from_visca() {
         let visca_err = ViscaError::SyntaxError;
         let app_err = AppError::from(visca_err);
-        assert!(matches!(app_err, AppError::Visca(ViscaError::SyntaxError)));
+        assert!(matches!(app_err, AppError::Visca(Error::SyntaxError)));
     }
 
     #[test]
@@ -782,15 +773,15 @@ mod tests {
     #[test]
     fn test_suggested_retry_delay() {
         assert_eq!(
-            ViscaError::CameraBusy.suggested_retry_delay(),
+            Error::CameraBusy.suggested_retry_delay(),
             Some(Duration::from_millis(100))
         );
         assert_eq!(
-            ViscaError::CameraMoving { pan: 100, tilt: 50 }.suggested_retry_delay(),
+            Error::CameraMoving { pan: 100, tilt: 50 }.suggested_retry_delay(),
             Some(Duration::from_millis(500))
         );
         assert_eq!(
-            ViscaError::CommandTimeout {
+            Error::CommandTimeout {
                 duration: Duration::from_secs(5),
                 command: "test".to_string()
             }
@@ -798,17 +789,17 @@ mod tests {
             Some(Duration::from_secs(1))
         );
         assert_eq!(
-            ViscaError::CommandBufferFull.suggested_retry_delay(),
+            Error::CommandBufferFull.suggested_retry_delay(),
             Some(Duration::from_millis(200))
         );
         assert_eq!(
-            ViscaError::Timeout.suggested_retry_delay(),
+            Error::Timeout.suggested_retry_delay(),
             Some(Duration::from_secs(2))
         );
 
         assert_eq!(ViscaError::SyntaxError.suggested_retry_delay(), None);
         assert_eq!(
-            ViscaError::InvalidParameter("test".to_string()).suggested_retry_delay(),
+            Error::InvalidParameter("test".to_string()).suggested_retry_delay(),
             None
         );
     }
@@ -995,14 +986,14 @@ mod tests {
     fn test_error_classification_completeness() {
         // Ensure all retryable errors have suggested delays
         let retryable_errors = vec![
-            ViscaError::CameraBusy,
-            ViscaError::CameraMoving { pan: 0, tilt: 0 },
-            ViscaError::CommandTimeout {
+            Error::CameraBusy,
+            Error::CameraMoving { pan: 0, tilt: 0 },
+            Error::CommandTimeout {
                 duration: Duration::from_secs(1),
                 command: "test".to_string(),
             },
-            ViscaError::CommandBufferFull,
-            ViscaError::Timeout,
+            Error::CommandBufferFull,
+            Error::Timeout,
         ];
 
         for error in retryable_errors {
@@ -1015,13 +1006,13 @@ mod tests {
 
         // Ensure non-retryable errors don't have suggested delays
         let non_retryable_errors = vec![
-            ViscaError::SyntaxError,
-            ViscaError::CommandNotExecutable,
-            ViscaError::PresetNotFound { id: 1 },
-            ViscaError::FeatureNotSupported {
+            Error::SyntaxError,
+            Error::CommandNotExecutable,
+            Error::PresetNotFound { id: 1 },
+            Error::FeatureNotSupported {
                 feature: "test".to_string(),
             },
-            ViscaError::InvalidParameter("test".to_string()),
+            Error::InvalidParameter("test".to_string()),
         ];
 
         for error in non_retryable_errors {

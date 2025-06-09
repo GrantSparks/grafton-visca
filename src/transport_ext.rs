@@ -22,7 +22,7 @@ use crate::{
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
         zoom::ZoomCommand,
     },
-    ViscaDevice, ViscaError, ViscaResponse,
+    ViscaDevice, error::Error, command::response::Response,
 };
 
 /// Extension trait providing convenience methods for common VISCA operations.
@@ -33,10 +33,10 @@ use crate::{
 /// # Example
 /// ```no_run
 /// # #[cfg(feature = "blocking-client")]
-/// # fn example() -> Result<(), grafton_visca::ViscaError> {
-/// # use grafton_visca::{ViscaClient, ViscaTransportExt, ViscaError};
+/// # fn example() -> Result<(), grafton_visca::Error> {
+/// # use grafton_visca::{Client, ViscaTransportExt, Error};
 /// # use grafton_visca::command::exposure::ExposureMode;
-/// let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+/// let mut client = Client::connect_udp("192.168.1.100:5678")?;
 ///
 /// // Simple one-line operations
 /// client.power_on()?;
@@ -49,47 +49,49 @@ pub trait ViscaTransportExt: ViscaDevice {
     /// Powers on the camera.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
-    fn power_on(&mut self) -> Result<(), ViscaError>
+    /// Returns `Error` if the command fails to send or the camera returns an error.
+    #[deprecated(since = "0.5.0", note = "Use `ViscaPowerExt::power_on` instead")]
+    fn power_on(&mut self) -> Result<(), Error>
     where
         Self: Sized,
     {
         match self.execute_command(&PowerCommand { power: Power::On })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Powers off the camera (standby mode).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
-    fn power_off(&mut self) -> Result<(), ViscaError>
+    /// Returns `Error` if the command fails to send or the camera returns an error.
+    #[deprecated(since = "0.5.0", note = "Use `ViscaPowerExt::power_off` instead")]
+    fn power_off(&mut self) -> Result<(), Error>
     where
         Self: Sized,
     {
         match self.execute_command(&PowerCommand {
             power: Power::Standby,
         })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Moves the camera to the home position.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn home(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&PanTiltCommand::Home)? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -109,9 +111,9 @@ pub trait ViscaTransportExt: ViscaDevice {
             preset_number: PresetNumber::new(preset_id)?,
             action: PresetAction::Recall,
         })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -131,39 +133,39 @@ pub trait ViscaTransportExt: ViscaDevice {
             preset_number: PresetNumber::new(preset_id)?,
             action: PresetAction::Set,
         })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Sets the exposure mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&ExposureCommand { mode })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Sets the white balance mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn set_white_balance(&mut self, mode: WhiteBalanceMode) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&WhiteBalanceCommand { mode })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -182,7 +184,7 @@ pub trait ViscaTransportExt: ViscaDevice {
         direction: PanTiltDirection,
         pan_speed: u8,
         tilt_speed: u8,
-    ) -> Result<(), ViscaError>
+    ) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -191,16 +193,16 @@ pub trait ViscaTransportExt: ViscaDevice {
             pan_speed: PanSpeed::new(pan_speed)?,
             tilt_speed: TiltSpeed::new(tilt_speed)?,
         })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Stops camera movement.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn move_stop(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -210,9 +212,9 @@ pub trait ViscaTransportExt: ViscaDevice {
             pan_speed: PanSpeed::new(0)?,
             tilt_speed: TiltSpeed::new(0)?,
         })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -233,7 +235,7 @@ pub trait ViscaTransportExt: ViscaDevice {
         tilt: i16,
         pan_speed: u8,
         tilt_speed: u8,
-    ) -> Result<(), ViscaError>
+    ) -> Result<(), Error>
     where
         Self: Sized,
     {
@@ -243,54 +245,54 @@ pub trait ViscaTransportExt: ViscaDevice {
             pan_speed: PanSpeed::new(pan_speed)?,
             tilt_speed: TiltSpeed::new(tilt_speed)?,
         })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Starts zooming in (tele direction).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn zoom_in(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&ZoomCommand::TeleStandard)? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Starts zooming out (wide direction).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn zoom_out(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&ZoomCommand::WideStandard)? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Stops zooming.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn zoom_stop(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&ZoomCommand::Stop)? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -300,60 +302,60 @@ pub trait ViscaTransportExt: ViscaDevice {
     /// * `position` - Zoom position in VISCA units (0x0000-0x4000 for most cameras)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn zoom_direct(&mut self, position: u16) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&ZoomCommand::Direct(position))? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Sets focus to auto mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn set_focus_auto(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&FocusCommand::Auto)? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Sets focus to manual mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn set_focus_manual(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&FocusCommand::Manual)? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Enables or disables backlight compensation.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn set_backlight(&mut self, enabled: bool) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         match self.execute_command(&BacklightCommand { status: enabled })? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -372,9 +374,9 @@ pub trait ViscaTransportExt: ViscaDevice {
         match self.execute_command(&ExposureCompensationCommand::Direct(
             ExposureCompensationLevel::new(value)?,
         ))? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -384,16 +386,16 @@ pub trait ViscaTransportExt: ViscaDevice {
     /// * `value` - Iris value in VISCA units
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn set_iris(&mut self, value: u8) -> Result<(), ViscaError>
     where
         Self: Sized,
     {
         use crate::types::IrisLevel;
         match self.execute_command(&IrisCommand::Direct(IrisLevel::new(value)?))? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -403,7 +405,7 @@ pub trait ViscaTransportExt: ViscaDevice {
     /// * `value` - Gain value in VISCA units
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     fn set_gain(&mut self, value: u16) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -421,9 +423,9 @@ pub trait ViscaTransportExt: ViscaDevice {
         #[allow(clippy::cast_possible_truncation)]
         let gain_value = GainValue::new(value as u8)?;
         match self.execute_command(&GainCommand::Direct(gain_value))? {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 }

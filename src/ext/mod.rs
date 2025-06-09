@@ -5,15 +5,10 @@
 //! while maintaining a consistent API.
 
 pub mod unified_power;
-pub mod unified_zoom;
-pub mod unified_preset;
-pub mod unified_inquiry;
 
-// Re-export all unified traits
+// Re-export unified power trait (deprecated)
+#[deprecated(since = "0.5.0", note = "Use `ViscaPowerExt` instead")]
 pub use unified_power::UnifiedPowerExt;
-pub use unified_zoom::UnifiedZoomExt;
-pub use unified_preset::UnifiedPresetExt;
-pub use unified_inquiry::UnifiedInquiryExt;
 
 /// Helper trait for unified extension implementations.
 ///
@@ -21,7 +16,7 @@ pub use unified_inquiry::UnifiedInquiryExt;
 /// by providing associated types that work with both contexts.
 pub trait UnifiedExt: crate::ViscaDevice {
     /// The future type returned by extension methods.
-    type ExtFuture<'a, T>: std::future::Future<Output = Result<T, crate::ViscaError>> + Send + 'a
+    type ExtFuture<'a, T>: std::future::Future<Output = Result<T, crate::error::Error>> + Send + 'a
     where
         Self: 'a,
         T: Send + 'a;

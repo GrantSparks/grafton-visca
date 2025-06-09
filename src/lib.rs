@@ -318,11 +318,11 @@ mod unified_client;
 pub use crate::{
     command::{
         pan_tilt::PanTiltDirection,
-        response::{parse_visca_response, ViscaResponse},
+        response::{parse_visca_response, Response, ViscaResponse},
         ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
     },
-    error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
-    session::ViscaSession,
+    error::{AppError, Error, ViscaError, ViscaResultExt, ViscaRetry},
+    session::{Session, ViscaSession},
 };
 
 // Parameter types re-exports
@@ -379,7 +379,7 @@ pub use crate::unified_ext::AsyncCameraExt;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use crate::{
     ptz_builder::PtzBuilder,
-    unified_client::{ViscaClient, ViscaClientPtzExt},
+    unified_client::{Client, ViscaClient, ViscaClientPtzExt},
 };
 
 // Async-specific re-exports
@@ -403,7 +403,7 @@ pub trait ViscaDevice {
     /// Send a command and wait for the response.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if communication with the camera fails.
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError>;
+    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<Response, Error>;
 }
