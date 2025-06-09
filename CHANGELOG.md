@@ -203,7 +203,8 @@ Check out our new examples that show real-world usage:
 - `async_control_demo.rs` - Modern async patterns
 - `production_setup.rs` - Reconnection, pooling, and monitoring
 - `cinematic_shots.rs` - Complex camera movements
-- Plus 15+ more examples!
+- `white_balance_tuning_demo.rs` - Fine-tuning color balance
+- Plus 20+ more examples!
 
 **🎨 Cleaner Imports**
 ```rust
@@ -212,6 +213,37 @@ use grafton_visca::prelude::*;  // Everything you need!
 
 **🔍 Superior Debugging**
 Every error now includes context about what went wrong and how to fix it. Response parsing shows exactly where issues occur.
+
+### Recent Updates
+
+#### Enhanced Macro System and Type Safety
+- **Redesigned Macro System**: New `visca_command!` macro with improved ergonomics and helper macros
+- **Type-Safe Wrappers**: Added type-safe wrappers for protocol values (SocketId, etc.) 
+- **Unified Extension Traits**: Introduced `CameraExt` trait providing high-level camera control methods
+- **Improved Error Handling**: Custom Result type and retry mechanisms for better reliability
+- **Simplified Commands**: Streamlined command implementations across all modules
+
+#### New Features
+- **White Balance Fine-Tuning**: Added `white_balance_red_tuning()` and `white_balance_blue_tuning()` methods for precise color control
+- **Anti-Flicker Control**: Added `set_anti_flicker()` method to reduce flicker from artificial lighting
+- **Luminance Control**: Added `set_luminance()` method for brightness adjustment
+- **Unified Transport Layer**: New abstraction layer for consistent API across transport types
+
+#### Fixes and Improvements
+- **Feature Flag Fixes**: Resolved issues with `no-default-features` builds
+- **Example Improvements**: Added required feature flags to examples that need specific features
+- **Code Quality**: Fixed all clippy warnings in macros and color modules
+- **File Cleanup**: Removed deprecated client implementations (`client.rs`, `async_client.rs`) in favor of unified client
+
+#### Important Notes
+- **Extension Trait Migration**: If upgrading from earlier 0.4.0 prereleases, note that `UnifiedControlExt` has been renamed to `CameraExt`
+- **Missing Functionality Restored**: The unified client now includes `try_send()` and `send_with_timeout()` methods that were temporarily missing
+
+#### Known Issues / TODO
+- **Orphaned ext/ Directory**: The `src/ext/` directory contains duplicate extension trait implementations that are not currently used. This will be cleaned up in a future release.
+- **Prelude Missing Unified Traits**: `CameraExt` and `AsyncCameraExt` traits are not yet included in the prelude module
+- **Test Coverage**: The new unified extension traits (`CameraExt`, `AsyncCameraExt`) lack test coverage
+- **Documentation**: Migration guide needed for moving from individual extension traits to unified traits
 
 ## [0.3.0] - 2025-01-06
 
