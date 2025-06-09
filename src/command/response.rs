@@ -36,7 +36,6 @@ pub enum Response {
     Unknown(Vec<u8>),
 }
 
-
 /// Type of expected response for inquiry commands.
 ///
 /// Used to indicate what kind of data parser should expect in the response payload.
@@ -281,9 +280,9 @@ fn parse_power_response(response: &[u8]) -> Result<Response, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let on = response[2] == 0x02;
-    Ok(Response::InquiryResponse(
-        ViscaInquiryResponse::Power { on },
-    ))
+    Ok(Response::InquiryResponse(ViscaInquiryResponse::Power {
+        on,
+    }))
 }
 
 fn parse_pan_tilt_position(response: &[u8]) -> Result<Response, Error> {
@@ -339,8 +338,8 @@ fn parse_mode_response(response: &[u8], mode_type: ModeType) -> Result<Response,
 
     match mode_type {
         ModeType::Exposure => {
-            let mode = ExposureMode::try_from(response[2])
-                .map_err(|()| Error::UnexpectedResponseType)?;
+            let mode =
+                ExposureMode::try_from(response[2]).map_err(|()| Error::UnexpectedResponseType)?;
             Ok(Response::InquiryResponse(
                 ViscaInquiryResponse::ExposureMode { mode },
             ))
@@ -377,10 +376,7 @@ fn parse_mode_response(response: &[u8], mode_type: ModeType) -> Result<Response,
     }
 }
 
-fn parse_value_response(
-    response: &[u8],
-    value_type: ValueType,
-) -> Result<Response, Error> {
+fn parse_value_response(response: &[u8], value_type: ValueType) -> Result<Response, Error> {
     match value_type {
         ValueType::Simple(simple_type) => parse_simple_value(response, simple_type),
         ValueType::Extended(extended_type) => parse_extended_value(response, extended_type),
@@ -388,10 +384,7 @@ fn parse_value_response(
 }
 
 #[allow(clippy::missing_const_for_fn)] // ViscaError contains String fields
-fn parse_simple_value(
-    response: &[u8],
-    value_type: SimpleValueType,
-) -> Result<Response, Error> {
+fn parse_simple_value(response: &[u8], value_type: SimpleValueType) -> Result<Response, Error> {
     if response.len() != 4 {
         return Err(Error::InvalidResponseLength);
     }
@@ -399,9 +392,9 @@ fn parse_simple_value(
     match value_type {
         SimpleValueType::GainLimit => {
             let limit = response[2];
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::GainLimit { limit },
-            ))
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::GainLimit {
+                limit,
+            }))
         }
         SimpleValueType::AntiFlicker => {
             let mode = match response[2] {
@@ -418,27 +411,25 @@ fn parse_simple_value(
             let gain = i16::from(response[2]) - 10;
             #[allow(clippy::cast_possible_truncation)]
             let gain = gain as i8; // Safe: VISCA gain values are in valid range
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::RedGain { gain },
-            ))
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::RedGain {
+                gain,
+            }))
         }
         SimpleValueType::BlueGain => {
             let gain = i16::from(response[2]) - 10;
             #[allow(clippy::cast_possible_truncation)]
             let gain = gain as i8; // Safe: VISCA gain values are in valid range
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::BlueGain { gain },
-            ))
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::BlueGain {
+                gain,
+            }))
         }
         SimpleValueType::ImageFlip => {
             let vertical = (response[2] & 0x02) != 0;
             let horizontal = (response[2] & 0x01) != 0;
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::ImageFlip {
-                    vertical,
-                    horizontal,
-                },
-            ))
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            }))
         }
         SimpleValueType::NoiseReduction2D => {
             let level = response[2];
@@ -459,9 +450,9 @@ fn parse_simple_value(
                 0x02 => FocusZone::Bottom,
                 _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::FocusZone { zone },
-            ))
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::FocusZone {
+                zone,
+            }))
         }
         SimpleValueType::AFSensitivity => {
             let sensitivity = match response[2] {
@@ -477,10 +468,7 @@ fn parse_simple_value(
     }
 }
 
-fn parse_extended_value(
-    response: &[u8],
-    value_type: ExtendedValueType,
-) -> Result<Response, Error> {
+fn parse_extended_value(response: &[u8], value_type: ExtendedValueType) -> Result<Response, Error> {
     if response.len() != 7 {
         return Err(Error::InvalidResponseLength);
     }
@@ -488,9 +476,9 @@ fn parse_extended_value(
     match value_type {
         ExtendedValueType::Sharpness => {
             let value = (response[4] << 4) | response[5];
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::Sharpness { value },
-            ))
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::Sharpness {
+                value,
+            }))
         }
         ExtendedValueType::ExposureCompensation => {
             let raw_value = response[5];
@@ -509,15 +497,15 @@ fn parse_extended_value(
         }
         ExtendedValueType::Shutter => {
             let position = (u16::from(response[4]) << 4) | u16::from(response[5]);
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::Shutter { position },
-            ))
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::Shutter {
+                position,
+            }))
         }
         ExtendedValueType::Bright => {
             let position = (u16::from(response[4]) << 4) | u16::from(response[5]);
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::Bright { position },
-            ))
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::Bright {
+                position,
+            }))
         }
         ExtendedValueType::Gain => {
             let gain = (response[4] << 4) | response[5];
@@ -533,9 +521,7 @@ fn parse_extended_value(
         }
         ExtendedValueType::Hue => {
             let hue = response[5];
-            Ok(Response::InquiryResponse(ViscaInquiryResponse::Hue {
-                hue,
-            }))
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::Hue { hue }))
         }
         ExtendedValueType::ColorTemperature => {
             let temperature = (u16::from(response[4]) << 4) | u16::from(response[5]);

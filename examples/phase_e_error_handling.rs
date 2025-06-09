@@ -300,8 +300,7 @@ async fn demonstrate_real_async_operations() -> Result<(), Box<dyn std::error::E
     println!("\n4. Real Async Camera Operations (if connected)");
 
     // Try to connect to a camera for real async operations
-    let client_result = match grafton_visca::Client::connect_udp_async("127.0.0.1:1259").await
-    {
+    let client_result = match grafton_visca::Client::connect_udp_async("127.0.0.1:1259").await {
         Ok(client) => Ok(client),
         Err(_) => grafton_visca::Client::connect_udp_async("192.168.1.100:5678").await,
     };

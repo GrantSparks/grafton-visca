@@ -5,8 +5,7 @@ use grafton_visca::{
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
         zoom::ZoomSpeed,
     },
-    Client, Error, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt, ViscaTransportExt,
-    ViscaZoomExt,
+    Client, Error, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt, ViscaTransportExt, ViscaZoomExt,
 };
 use std::{env, thread, time::Duration};
 
@@ -69,7 +68,7 @@ fn main() -> Result<(), Error> {
     thread::sleep(Duration::from_secs(2));
 
     println!("   - Zooming in at default speed...");
-    ViscaZoomExt::zoom_in(&mut client)?;
+    client.zoom_in_variable(None)?;
     thread::sleep(Duration::from_secs(1));
     client.stop_zoom()?;
 

@@ -4,8 +4,7 @@
 //! sync and async contexts without code duplication.
 
 use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
-use grafton_visca::command::zoom::ZoomSpeed;
-use grafton_visca::{CameraExt, Client, Error};
+use grafton_visca::{CameraExt, Client, Error, ViscaPowerExt};
 
 #[cfg(feature = "async-client")]
 use grafton_visca::AsyncCameraExt;
@@ -18,7 +17,7 @@ fn blocking_example() -> Result<(), Error> {
     println!("=== Blocking Extension Traits Example ===\n");
 
     // Connect to camera
-    let camera = Client::connect_udp("192.168.1.100:5678")?;
+    let mut camera = Client::connect_udp("192.168.1.100:5678")?;
 
     // The CameraExt trait provides a clean, unified API
     println!("1. Checking camera power status...");
@@ -26,7 +25,10 @@ fn blocking_example() -> Result<(), Error> {
         println!("   ✅ Camera is powered on");
     } else {
         println!("   ⚡ Camera is off, powering on...");
-        camera.power_on()?;
+        let was_already_on = camera.ensure_powered_on()?;
+        if !was_already_on {
+            println!("   ⚡ Camera was powered off, now powered on");
+        }
     }
 
     println!("\n2. Getting camera positions...");
@@ -46,9 +48,8 @@ fn blocking_example() -> Result<(), Error> {
 
     // Test zoom
     println!("   🔍 Testing zoom");
-    camera.zoom_in(ZoomSpeed::new(4)?)?;
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    camera.zoom_stop()?;
+    camera.zoom_to_position(0x3000)?;
+    std::thread::sleep(std::time::Duration::from_millis(1000));
 
     // Test pan/tilt
     println!("   🎯 Testing pan/tilt");
@@ -62,7 +63,7 @@ fn blocking_example() -> Result<(), Error> {
 
     // Save preset
     println!("   💾 Saving current position as preset 1");
-    camera.save_current_as_preset(1)?;
+    camera.set_preset(1)?;
 
     println!("\n✅ Blocking example completed successfully!");
     Ok(())
@@ -74,7 +75,7 @@ async fn async_example() -> Result<(), Error> {
     println!("=== Async Extension Traits Example ===\n");
 
     // Connect to camera
-    let camera = Client::connect_udp_async("192.168.1.100:5678").await?;
+    let mut camera = Client::connect_udp_async("192.168.1.100:5678").await?;
 
     // The same CameraExt trait works in async context!
     println!("1. Checking camera power status...");
@@ -82,7 +83,10 @@ async fn async_example() -> Result<(), Error> {
         println!("   ✅ Camera is powered on");
     } else {
         println!("   ⚡ Camera is off, powering on...");
-        camera.power_on()?;
+        let was_already_on = camera.ensure_powered_on()?;
+        if !was_already_on {
+            println!("   ⚡ Camera was powered off, now powered on");
+        }
 
         // AsyncCameraExt provides async-specific operations
         println!("   ⏳ Waiting for camera to power on...");
@@ -115,7 +119,7 @@ async fn async_example() -> Result<(), Error> {
     println!("\n3. Setting up preset positions...");
     for i in 1..=3 {
         println!("   💾 Saving preset {}", i);
-        camera.save_current_as_preset(i)?;
+        camera.set_preset(i)?;
 
         // Move camera between saves
         if i < 3 {

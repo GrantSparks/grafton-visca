@@ -190,7 +190,11 @@ impl Error {
     pub const fn is_retryable(&self) -> bool {
         matches!(
             self,
-            Self::CameraBusy | Self::CameraMoving { .. } | Self::CommandTimeout { .. } | Self::CommandBufferFull | Self::Timeout
+            Self::CameraBusy
+                | Self::CameraMoving { .. }
+                | Self::CommandTimeout { .. }
+                | Self::CommandBufferFull
+                | Self::Timeout
         )
     }
 
@@ -671,27 +675,15 @@ mod tests {
 
     #[test]
     fn test_visca_error_from_code() {
-        assert!(matches!(
-            Error::from_code(0x02),
-            Error::SyntaxError
-        ));
-        assert!(matches!(
-            Error::from_code(0x03),
-            Error::CommandBufferFull
-        ));
-        assert!(matches!(
-            Error::from_code(0x04),
-            Error::CommandCanceled
-        ));
+        assert!(matches!(Error::from_code(0x02), Error::SyntaxError));
+        assert!(matches!(Error::from_code(0x03), Error::CommandBufferFull));
+        assert!(matches!(Error::from_code(0x04), Error::CommandCanceled));
         assert!(matches!(Error::from_code(0x05), Error::NoSocket));
         assert!(matches!(
             Error::from_code(0x41),
             Error::CommandNotExecutable
         ));
-        assert!(matches!(
-            Error::from_code(0xFF),
-            Error::Unknown(0xFF)
-        ));
+        assert!(matches!(Error::from_code(0xFF), Error::Unknown(0xFF)));
     }
 
     #[test]
@@ -704,19 +696,13 @@ mod tests {
             Error::CommandBufferFull.to_string(),
             "Command buffer is full"
         );
-        assert_eq!(
-            Error::CommandCanceled.to_string(),
-            "Command was canceled"
-        );
+        assert_eq!(Error::CommandCanceled.to_string(), "Command was canceled");
         assert_eq!(Error::NoSocket.to_string(), "No socket available");
         assert_eq!(
             Error::CommandNotExecutable.to_string(),
             "Command is not executable"
         );
-        assert_eq!(
-            Error::Unknown(0x99).to_string(),
-            "Unknown error code: 0x99"
-        );
+        assert_eq!(Error::Unknown(0x99).to_string(), "Unknown error code: 0x99");
         assert_eq!(
             Error::InvalidParameter("test".to_string()).to_string(),
             "Invalid parameter: test"

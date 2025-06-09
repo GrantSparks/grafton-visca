@@ -8,10 +8,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    error::Error,
-    error::Error as ViscaError,
     command::{
-        response::Response,
         exposure::{
             ExposureCommand, ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode,
             IrisCommand,
@@ -20,8 +17,11 @@ use crate::{
         gain::GainCommand,
         image::BacklightCommand,
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+        response::Response,
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
     },
+    error::Error,
+    error::Error as ViscaError,
     Transport,
 };
 
@@ -46,8 +46,6 @@ use crate::{
 /// # }
 /// ```
 pub trait ViscaTransportExt: Transport {
-
-
     /// Moves the camera to the home position.
     ///
     /// # Errors
@@ -62,8 +60,6 @@ pub trait ViscaTransportExt: Transport {
             _ => Err(Error::UnexpectedResponseType),
         }
     }
-
-
 
     /// Sets the exposure mode.
     ///
@@ -176,10 +172,6 @@ pub trait ViscaTransportExt: Transport {
             _ => Err(Error::UnexpectedResponseType),
         }
     }
-
-
-
-
 
     /// Sets focus to auto mode.
     ///

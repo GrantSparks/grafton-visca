@@ -9,7 +9,7 @@ use std::sync::Arc;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    Client, ViscaClientPtzExt, Error,
+    Client, Error, ViscaClientPtzExt,
 };
 
 // Async features - only needed for async-only build

@@ -33,8 +33,8 @@ use crate::{
         preset::{PresetAction, PresetCommand, PresetNumber},
         zoom::{ZoomCommand, ZoomSpeed},
     },
-    unified_client::{Client as ViscaClient, ViscaClientPtzExt},
     error::Error as ViscaError,
+    unified_client::{Client as ViscaClient, ViscaClientPtzExt},
 };
 
 /// Async extension trait for high-level camera operations.

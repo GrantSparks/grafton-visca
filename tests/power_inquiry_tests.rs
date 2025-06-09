@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use grafton_visca::command::response::{
-        parse_visca_response, Response, ViscaResponseType,
-    };
+    use grafton_visca::command::response::{parse_visca_response, Response, ViscaResponseType};
     use grafton_visca::command::{InquiryCommand, ViscaCommand};
     use grafton_visca::ViscaInquiryResponse;
 

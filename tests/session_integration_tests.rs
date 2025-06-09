@@ -19,7 +19,7 @@ use grafton_visca::{
         zoom::ZoomCommand,
         InquiryCommand,
     },
-    Transport, Error,
+    Error, Transport,
 };
 use std::thread;
 use std::time::{Duration, Instant};

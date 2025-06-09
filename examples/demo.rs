@@ -15,8 +15,8 @@ use grafton_visca::command::zoom::ZoomCommand;
 use grafton_visca::command::{
     BacklightCommand, ImageFlipCombinedCommand, ImageFlipMode, NoiseReduction2DCommand,
 };
+use grafton_visca::{Client, Response, Transport, ViscaInquiryResponse};
 use grafton_visca::{ContrastLevel, IrisLevel, LuminanceLevel, ShutterSpeed};
-use grafton_visca::{Client, Transport, ViscaInquiryResponse, Response};
 use std::thread;
 use std::time::Duration;
 

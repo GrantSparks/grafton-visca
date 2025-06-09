@@ -29,7 +29,11 @@ fn main() -> Result<(), Error> {
 
     // Test ViscaTransportExt methods
     println!("Testing ViscaTransportExt...");
-    client.power_on()?;
+    let was_already_on = client.ensure_powered_on()?;
+    if !was_already_on {
+        println!("Camera was powered off, now powered on");
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
     client.home()?;
 
     // Test ViscaZoomExt methods

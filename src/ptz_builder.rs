@@ -36,7 +36,7 @@ use crate::{
     },
     error::Error as ViscaError,
     unified_client::Client as ViscaClient,
-    ViscaCommand, Response,
+    Response, ViscaCommand,
 };
 
 /// Builder for creating PTZ command sequences.

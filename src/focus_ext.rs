@@ -4,7 +4,7 @@
 use crate::{
     command::focus::{FocusCommand, FocusSpeed},
     error::Error as ViscaError,
-    Transport, Response,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level focus control methods.

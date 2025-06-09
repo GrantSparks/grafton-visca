@@ -45,10 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Preset operations use PresetNumber type
     println!("\n4. Using type-safe preset operations:");
     let preset = PresetNumber::new(5)?; // Valid: 0-89
-    ViscaPresetExt::set_preset_number(&mut client, preset)?;
+    client.save_preset_number(preset)?;
     println!("   ✓ Saved current position to preset {}", preset.value());
 
-    ViscaPresetExt::recall_preset_number(&mut client, preset)?;
+    client.recall_preset_number(preset)?;
     println!("   ✓ Recalled preset {}", preset.value());
 
     // 5. You can still create DynamicRangeLevel for commands, even without a dedicated extension method

@@ -34,19 +34,20 @@ use crate::{
         focus::FocusSpeed,
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
     },
-    error::Error as ViscaError, unified_client::Client as ViscaClient,
+    error::Error as ViscaError,
+    unified_client::Client as ViscaClient,
 };
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{
     command::{
         pan_tilt::PanTiltCommand,
-        power::Power,
+        power::{Power, PowerCommand},
         preset::{PresetAction, PresetCommand, PresetNumber},
         zoom::ZoomCommand,
-        InquiryCommand, PowerCommand,
+        InquiryCommand,
     },
-    ViscaInquiryResponse, Response,
+    Response, ViscaInquiryResponse,
 };
 
 #[cfg(feature = "blocking-client")]
@@ -68,7 +69,6 @@ pub trait CameraExt {
     /// Returns `ViscaError` if the power status cannot be queried.
     fn is_powered_on(&self) -> Result<bool, ViscaError>;
 
-
     // Zoom Control
 
     /// Get the current zoom position.
@@ -82,7 +82,6 @@ pub trait CameraExt {
     /// # Errors
     /// Returns `ViscaError` if the zoom command cannot be executed.
     fn zoom_to_position(&self, position: u16) -> Result<(), ViscaError>;
-
 
     // Preset Management
 
@@ -203,7 +202,6 @@ impl CameraExt for ViscaClient {
         }
     }
 
-
     fn zoom_position(&self) -> Result<u16, ViscaError> {
         let response = self.send(&InquiryCommand::ZoomPosition)?;
         match response {
@@ -218,7 +216,6 @@ impl CameraExt for ViscaClient {
         self.send(&ZoomCommand::Direct(position))?;
         Ok(())
     }
-
 
     fn set_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
         let preset_num = PresetNumber::new(preset_number)?;
@@ -349,7 +346,6 @@ impl CameraExt for Arc<ViscaClient> {
         (**self).is_powered_on()
     }
 
-
     fn zoom_position(&self) -> Result<u16, ViscaError> {
         (**self).zoom_position()
     }
@@ -357,7 +353,6 @@ impl CameraExt for Arc<ViscaClient> {
     fn zoom_to_position(&self, position: u16) -> Result<(), ViscaError> {
         (**self).zoom_to_position(position)
     }
-
 
     fn set_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
         (**self).set_preset(preset_number)

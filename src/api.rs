@@ -13,8 +13,9 @@ use crate::{
         preset::{PresetAction, PresetCommand, PresetNumber},
         zoom::ZoomSpeed,
     },
+    error::Error as ViscaError,
     types::{GainValue, NoiseReduction2DLevel, NoiseReduction3DLevel},
-    error::Error as ViscaError, Transport,
+    Transport,
 };
 
 /// Speed level for camera movements.
@@ -381,7 +382,6 @@ pub trait CameraControl: Transport {
         PanTiltBuilder::new(self)
     }
 
-
     /// Recall a saved preset position.
     ///
     /// # Errors
@@ -394,7 +394,6 @@ pub trait CameraControl: Transport {
         })?;
         Ok(())
     }
-
 
     /// Set focus mode to auto.
     ///
