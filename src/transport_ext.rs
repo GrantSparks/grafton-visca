@@ -34,7 +34,7 @@ use crate::{
 /// ```no_run
 /// # #[cfg(feature = "blocking-client")]
 /// # fn example() -> Result<(), grafton_visca::Error> {
-/// # use grafton_visca::{Client, TransportExt, Error};
+/// # use grafton_visca::{Client, TransportExt, PowerExt, Error};
 /// # use grafton_visca::command::exposure::ExposureMode;
 /// let mut client = Client::connect_udp("192.168.1.100:5678")?;
 ///

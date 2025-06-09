@@ -155,11 +155,10 @@ pub trait PresetExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, PresetExt, PresetNumber};
+    /// # use grafton_visca::{Error, Transport, PresetExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Clear preset 1
-    /// let preset1 = PresetNumber::new(1)?;
-    /// client.reset_preset(preset1)?;
+    /// client.reset_preset(1)?;
     /// # Ok(())
     /// # }
     /// ```
