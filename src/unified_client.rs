@@ -477,6 +477,10 @@ impl ViscaClient {
     /// Returns the response from the camera if successful, or an error if:
     /// - The timeout expires
     /// - The command execution fails
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// or if runtime creation fails in async contexts.
     #[cfg(feature = "blocking-client")]
     pub fn send_with_timeout(
         &self,
