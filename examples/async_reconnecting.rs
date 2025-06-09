@@ -15,7 +15,7 @@ use grafton_visca::{
         ZoomCommand,
     },
     AsyncConnectionEvent, AsyncConnectionManagement, AsyncReconnectingTransport, AsyncTcpTransport,
-    AsyncUdpTransport, AsyncViscaTransport, ReconnectionConfig, Error,
+    AsyncUdpTransport, AsyncTransport, ReconnectionConfig, Error,
 };
 #[cfg(feature = "async-client")]
 use std::sync::atomic::{AtomicUsize, Ordering};
