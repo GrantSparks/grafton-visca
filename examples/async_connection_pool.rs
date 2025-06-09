@@ -188,7 +188,7 @@ async fn demo_maintenance_task() -> Result<(), Box<dyn std::error::Error>> {
         // Use first camera
         if let Ok(conn) = pool.get_connection("tcp_cam1").await {
             let mut transport = conn.transport().await;
-            let _ = transport.send_command(&ZoomCommand::WideStandard).await;
+            let _ = transport.send_command(&ZoomCommand::ZoomOutStandard).await;
             println!("  Used tcp_cam1");
         }
 
@@ -292,7 +292,7 @@ async fn demo_concurrent_async_control() -> Result<(), Box<dyn std::error::Error
                     }
 
                     // Zoom
-                    match transport.send_command(&ZoomCommand::TeleStandard).await {
+                    match transport.send_command(&ZoomCommand::ZoomInStandard).await {
                         Ok(_) => println!("[{}] ✓ Zoomed in", cam_id),
                         Err(e) => println!("[{}] ✗ Zoom failed: {}", cam_id, e),
                     }

@@ -146,7 +146,7 @@ fn blocking_error_handling_examples() {
 
                     // Try zoom operation with different retry strategy
                     let zoom_result = ViscaRetry::retry_blocking(
-                        || client.send(&ZoomCommand::TeleStandard),
+                        || client.send(&ZoomCommand::ZoomInStandard),
                         5,
                         Duration::from_millis(200),
                     );
@@ -317,7 +317,7 @@ async fn demonstrate_real_async_operations() -> Result<(), Box<dyn std::error::E
             );
 
             let zoom_tele = ViscaRetry::retry_with_suggested_delay_async(
-                || async { client.send_async(&ZoomCommand::TeleStandard).await },
+                || async { client.send_async(&ZoomCommand::ZoomInStandard).await },
                 3,
             );
 

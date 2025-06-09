@@ -89,13 +89,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         thread::sleep(Duration::from_millis(500));
 
         // Zoom in
-        client2.send(&ZoomCommand::TeleStandard)?;
+        client2.send(&ZoomCommand::ZoomInStandard)?;
         thread::sleep(Duration::from_secs(2));
         // There is no ZoomCommand::Stop, we'll use another variant
         // Since we're not actually connected, this is fine for the demo
 
         // Zoom out
-        client2.send(&ZoomCommand::WideStandard)?;
+        client2.send(&ZoomCommand::ZoomOutStandard)?;
         thread::sleep(Duration::from_secs(2));
         // There is no ZoomCommand::Stop, we'll use another variant
         // Since we're not actually connected, this is fine for the demo
@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(1));
 
     // The new unified client handles concurrency with a semaphore
-    match client.send(&ZoomCommand::TeleStandard) {
+    match client.send(&ZoomCommand::ZoomInStandard) {
         Ok(_) => println!("[Main] Successfully sent command"),
         Err(e) => println!("[Main] Error: {:?}", e),
     }

@@ -20,7 +20,7 @@ fn blocking_example() -> Result<(), Error> {
     let _response = client.send(&PowerCommand { power: Power::On })?;
 
     println!("Zooming in...");
-    client.send(&ZoomCommand::TeleStandard)?;
+    client.send(&ZoomCommand::ZoomInStandard)?;
 
     Ok(())
 }
@@ -39,7 +39,7 @@ async fn async_example() -> Result<(), Error> {
         .await?;
 
     println!("Zooming in...");
-    client.send_async(&ZoomCommand::TeleStandard).await?;
+    client.send_async(&ZoomCommand::ZoomInStandard).await?;
 
     // Check camera health
     let is_healthy = client.is_healthy().await?;
@@ -61,7 +61,7 @@ async fn mixed_example() -> Result<(), Error> {
 
     // Can also use async API on the same client
     println!("Using async API...");
-    client.send_async(&ZoomCommand::WideStandard).await?;
+    client.send_async(&ZoomCommand::ZoomOutStandard).await?;
 
     Ok(())
 }
