@@ -581,11 +581,11 @@ impl ViscaRetry {
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// use grafton_visca::{ViscaClient, ViscaRetry, ViscaError};
+    /// use grafton_visca::{Client, ViscaRetry, Error};
     /// use grafton_visca::command::PanTiltCommand;
     /// use std::time::Duration;
     ///
-    /// fn example(client: &ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+    /// fn example(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
     ///     ViscaRetry::retry_blocking(
     ///         || client.send(&PanTiltCommand::Home),
     ///         3,

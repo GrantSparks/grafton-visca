@@ -544,7 +544,7 @@ mod tests {
     use std::thread;
 
     #[test]
-    fn test_client_is_send_and_sync() {
+    const fn test_client_is_send_and_sync() {
         const fn assert_send<T: Send>() {}
         const fn assert_sync<T: Sync>() {}
 

@@ -22,7 +22,7 @@
 //! // Works in both sync and async contexts!
 //! if camera.is_powered_on()? {
 //!     camera.zoom_to_position(0x4000)?;
-//!     camera.save_current_as_preset(1)?;
+//!     camera.set_preset(1)?;
 //! }
 //! # }
 //! # Ok(())
@@ -43,7 +43,6 @@ use crate::{
     command::{
         inquiry::InquiryCommand,
         pan_tilt::PanTiltCommand,
-        power::{Power, PowerCommand},
         preset::{PresetAction, PresetCommand, PresetNumber},
         zoom::ZoomCommand,
         InquiryResponse,
@@ -53,6 +52,8 @@ use crate::{
 
 #[cfg(feature = "blocking-client")]
 use crate::command::focus::FocusCommand;
+#[cfg(feature = "async-client")]
+use crate::command::power::{Power, PowerCommand};
 use std::sync::Arc;
 #[cfg(feature = "async-client")]
 use std::time::Duration;
