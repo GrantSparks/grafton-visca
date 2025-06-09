@@ -493,7 +493,7 @@ impl Client {
     }
 }
 
-/// Extension trait for PTZ builder functionality on `Arc<ViscaClient>`.
+/// Extension trait for PTZ builder functionality on `Arc<Client>`.
 pub trait ViscaClientPtzExt {
     /// Create a PTZ builder for fluent command sequences.
     ///
@@ -503,7 +503,7 @@ pub trait ViscaClientPtzExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")] {
-    /// # use grafton_visca::{ViscaClient, ViscaClientPtzExt};
+    /// # use grafton_visca::{Client, ViscaClientPtzExt};
     /// # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed, PanTiltDirection};
     /// # use std::sync::Arc;
     /// # let client = Arc::new(Client::connect_udp("192.168.1.100:5678").unwrap());

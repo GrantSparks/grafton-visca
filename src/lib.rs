@@ -69,7 +69,7 @@
 //! # {
 //! use grafton_visca::prelude::*;
 //!
-//! let mut client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! let mut client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // All extension traits and types are available
 //! client.power_on().unwrap();
@@ -82,16 +82,16 @@
 //! # }
 //! ```
 //!
-//! ### Using `ViscaClient` (Recommended for Thread Safety)
+//! ### Using `Client` (Recommended for Thread Safety)
 //!
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
 //! # {
-//! use grafton_visca::ViscaClient;
+//! use grafton_visca::Client;
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //!
 //! // Create a client using the v0.4.0 unified API
-//! let mut client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! let mut client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // Send commands through the client
 //! client.send(&PanTiltCommand::Home).unwrap();
@@ -105,11 +105,11 @@
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
 //! # {
-//! use grafton_visca::{ViscaClient, IrisLevel};
+//! use grafton_visca::{Client, IrisLevel};
 //! use grafton_visca::command::{ExposureCompensationCommand, IrisCommand, SaturationCommand};
 //! use grafton_visca::command::exposure::ExposureCompensationLevel;
 //!
-//! let mut client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! let mut client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // Adjust exposure compensation
 //! client.send(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(3).unwrap())).unwrap();
@@ -145,12 +145,12 @@
 //! ```no_run
 //! # #[cfg(feature = "async-client")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! use grafton_visca::{ViscaClient, ViscaResponse};
+//! use grafton_visca::{Client, Response};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //! use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
 //!
 //! // Connect to camera
-//! let camera = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
+//! let camera = Client::connect_udp_async("192.168.1.100:5678").await?;
 //!
 //! // Send multiple commands concurrently
 //! let pan_tilt_cmd = PanTiltCommand::Move {
@@ -172,7 +172,7 @@
 //! The crate provides several levels of API for different use cases:
 //!
 //! ### High-Level Client
-//! - [`ViscaClient`] - Thread-safe wrapper for concurrent camera control (recommended)
+//! - [`Client`] - Thread-safe wrapper for concurrent camera control (recommended)
 //!   - Eliminates need for `RefCell` in user code
 //!   - Supports Clone for sharing between threads
 //!   - Provides `send()`, `try_send()`, and `send_with_timeout()` methods
@@ -192,7 +192,7 @@
 //! - [`Error`] - Comprehensive error types for all failure modes
 //!
 //! ### Async Support (with `async` feature)
-//! - `AsyncViscaClient` - High-level async client with automatic socket management
+//! - `AsyncClient` - High-level async client with automatic socket management
 //!
 //! ## Connection Setup
 //!
@@ -240,14 +240,14 @@
 //!
 //! ## Usage
 //!
-//! The recommended way to use this library is through the unified `ViscaClient`:
+//! The recommended way to use this library is through the unified `Client`:
 //!
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
-//! # fn main() -> Result<(), grafton_visca::ViscaError> {
-//! # use grafton_visca::{ViscaClient};
+//! # fn main() -> Result<(), grafton_visca::Error> {
+//! # use grafton_visca::{Client};
 //! # use grafton_visca::command::{PowerCommand, power::Power};
-//! let client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+//! let client = Client::connect_udp("192.168.1.100:5678")?;
 //! let response = client.send(&PowerCommand { power: Power::On })?;
 //! # Ok(())
 //! # }

@@ -68,7 +68,7 @@ fn main() -> Result<(), Error> {
     thread::sleep(Duration::from_secs(2));
 
     println!("   - Zooming in at default speed...");
-    client.zoom_in_variable(None)?;
+    client.zoom_in()?;
     thread::sleep(Duration::from_secs(1));
     client.stop_zoom()?;
 

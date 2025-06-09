@@ -155,9 +155,10 @@ mod tests {
         command::{
             pan_tilt::PanTiltCommand,
             preset::{PresetAction, PresetCommand, PresetNumber},
-            CommandCategory, InquiryCommand,
+            InquiryCommand,
         },
-        TimeoutConfigBuilder,
+        timeout::CommandCategory,
+        TimeoutConfigBuilder, ViscaCommand,
     };
     use std::time::Duration;
 

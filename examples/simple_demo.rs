@@ -23,15 +23,12 @@ fn main() -> Result<(), Error> {
     // Or connect using TCP
     // let mut client = Client::connect_tcp("192.168.1.100:5678")?;
 
-    // Power on the camera using ViscaPowerExt
-    let was_already_on = client.ensure_powered_on()?;
-    if !was_already_on {
-        println!("Camera was powered off, now powered on");
-        // Wait for camera to initialize
-        std::thread::sleep(Duration::from_secs(2));
-    } else {
-        println!("Camera already powered on");
-    }
+    // Power on the camera
+    client.power_on()?;
+    println!("Camera powered on");
+
+    // Wait for camera to initialize
+    std::thread::sleep(Duration::from_secs(2));
 
     // Move to home position
     client.home()?;
