@@ -131,10 +131,7 @@ where
     ///
     /// # Errors
     /// Returns a `Error` if the initial transport creation fails.
-    pub async fn new<F, Fut>(
-        create_transport: F,
-        config: ReconnectionConfig,
-    ) -> Result<Self, Error>
+    pub async fn new<F, Fut>(create_transport: F, config: ReconnectionConfig) -> Result<Self, Error>
     where
         F: Fn() -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Result<T, Error>> + Send + 'static,
@@ -312,9 +309,7 @@ where
                             // Check if this is a connection error
                             if matches!(
                                 e,
-                                Error::Io(_)
-                                    | Error::ConnectionLost { .. }
-                                    | Error::Timeout
+                                Error::Io(_) | Error::ConnectionLost { .. } | Error::Timeout
                             ) {
                                 log::warn!("Connection error during send_command: {e}");
                                 state.inner = None;
@@ -369,9 +364,7 @@ where
                             // Check if this is a connection error
                             if matches!(
                                 e,
-                                Error::Io(_)
-                                    | Error::ConnectionLost { .. }
-                                    | Error::Timeout
+                                Error::Io(_) | Error::ConnectionLost { .. } | Error::Timeout
                             ) {
                                 log::warn!("Connection error during receive_response: {e}");
                                 state.inner = None;

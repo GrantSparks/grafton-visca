@@ -224,10 +224,7 @@ impl UnifiedTcpTransport<TokioTcpStream> {
         let bytes = command.to_bytes()?;
         log_frame("TCP send", &bytes);
 
-        self.stream
-            .write_all(&bytes)
-            .await
-            .map_err(Error::Io)?;
+        self.stream.write_all(&bytes).await.map_err(Error::Io)?;
         self.stream.flush().await.map_err(Error::Io)?;
 
         self.stats.record_sent(bytes.len());

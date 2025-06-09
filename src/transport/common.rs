@@ -262,18 +262,12 @@ mod tests {
 
     #[test]
     fn test_error_code_conversion() {
-        assert!(matches!(
-            error_code_to_error(0x01),
-            Error::Unknown(0x01)
-        ));
+        assert!(matches!(error_code_to_error(0x01), Error::Unknown(0x01)));
         assert!(matches!(error_code_to_error(0x02), Error::SyntaxError));
         assert!(matches!(
             error_code_to_error(0x03),
             Error::CommandBufferFull
         ));
-        assert!(matches!(
-            error_code_to_error(0x99),
-            Error::Unknown(0x99)
-        ));
+        assert!(matches!(error_code_to_error(0x99), Error::Unknown(0x99)));
     }
 }
