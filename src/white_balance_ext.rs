@@ -7,11 +7,11 @@ use crate::{
         RedGainCommand, RedTuningCommand, WhiteBalanceCommand, WhiteBalanceMode,
     },
     error::Error as ViscaError,
-    ViscaDevice, ViscaResponse,
+    Transport, Response,
 };
 
 /// Extension trait providing high-level white balance control methods.
-pub trait ViscaWhiteBalanceExt: ViscaDevice {
+pub trait ViscaWhiteBalanceExt: Transport {
     /// Set the white balance mode.
     ///
     /// # Arguments
@@ -22,9 +22,9 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
     /// # use grafton_visca::command::white_balance::WhiteBalanceMode;
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// // Set to auto white balance
     /// client.set_white_balance_mode(WhiteBalanceMode::Auto)?;
     ///
@@ -39,8 +39,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), ViscaError> {
         let command = WhiteBalanceCommand { mode };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -56,8 +56,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// // Set to approximately 5600K (daylight)
     /// client.set_color_temperature_direct(0x1C)?;
     ///
@@ -69,8 +69,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn set_color_temperature_direct(&mut self, value: u16) -> Result<(), ViscaError> {
         let command = ColorTemperatureCommand::Direct(value);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -83,8 +83,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// client.color_temperature_up()?;
     /// # Ok(())
     /// # }
@@ -92,8 +92,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn color_temperature_up(&mut self) -> Result<(), ViscaError> {
         let command = ColorTemperatureCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -106,8 +106,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// client.color_temperature_down()?;
     /// # Ok(())
     /// # }
@@ -115,8 +115,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn color_temperature_down(&mut self) -> Result<(), ViscaError> {
         let command = ColorTemperatureCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -129,8 +129,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// client.color_temperature_reset()?;
     /// # Ok(())
     /// # }
@@ -138,8 +138,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn color_temperature_reset(&mut self) -> Result<(), ViscaError> {
         let command = ColorTemperatureCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -155,8 +155,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// // Set to one-push mode first
     /// client.set_white_balance_mode(grafton_visca::command::white_balance::WhiteBalanceMode::OnePush)?;
     ///
@@ -168,8 +168,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn trigger_one_push_white_balance(&mut self) -> Result<(), ViscaError> {
         let command = OnePushTriggerCommand;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -186,8 +186,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// // Set to manual mode first
     /// client.set_white_balance_mode(grafton_visca::command::white_balance::WhiteBalanceMode::Manual)?;
     ///
@@ -206,16 +206,16 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
         // Set red gain
         let r_command = RedGainCommand::Direct(r_gain);
         match self.execute_command(&r_command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
 
         // Set blue gain
         let b_command = BlueGainCommand::Direct(b_gain);
         match self.execute_command(&b_command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
 
@@ -229,8 +229,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// client.white_balance_red_up()?;
     /// # Ok(())
     /// # }
@@ -238,8 +238,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_red_up(&mut self) -> Result<(), ViscaError> {
         let command = RedGainCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -252,8 +252,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// client.white_balance_red_down()?;
     /// # Ok(())
     /// # }
@@ -261,8 +261,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_red_down(&mut self) -> Result<(), ViscaError> {
         let command = RedGainCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -275,8 +275,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// client.white_balance_red_reset()?;
     /// # Ok(())
     /// # }
@@ -284,8 +284,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_red_reset(&mut self) -> Result<(), ViscaError> {
         let command = RedGainCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -298,8 +298,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// client.white_balance_blue_up()?;
     /// # Ok(())
     /// # }
@@ -307,8 +307,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_blue_up(&mut self) -> Result<(), ViscaError> {
         let command = BlueGainCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -321,8 +321,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// client.white_balance_blue_down()?;
     /// # Ok(())
     /// # }
@@ -330,8 +330,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_blue_down(&mut self) -> Result<(), ViscaError> {
         let command = BlueGainCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -344,8 +344,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// client.white_balance_blue_reset()?;
     /// # Ok(())
     /// # }
@@ -353,8 +353,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_blue_reset(&mut self) -> Result<(), ViscaError> {
         let command = BlueGainCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -374,8 +374,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// // Slightly increase red
     /// client.white_balance_red_tuning(2)?;
     ///
@@ -390,8 +390,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_red_tuning(&mut self, level: i8) -> Result<(), ViscaError> {
         let command = RedTuningCommand { level };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -411,8 +411,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// // Slightly increase blue
     /// client.white_balance_blue_tuning(2)?;
     ///
@@ -427,8 +427,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     fn white_balance_blue_tuning(&mut self, level: i8) -> Result<(), ViscaError> {
         let command = BlueTuningCommand { level };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
             _ => return Err(ViscaError::UnexpectedResponseType),
         }
         Ok(())
@@ -444,8 +444,8 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt, WhiteBalancePreset};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{ViscaError, Transport, ViscaWhiteBalanceExt, WhiteBalancePreset};
+    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
     /// // Set for daylight
     /// client.set_white_balance_preset(WhiteBalancePreset::Daylight)?;
     ///
@@ -502,4 +502,4 @@ pub enum WhiteBalancePreset {
 }
 
 /// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaDevice> ViscaWhiteBalanceExt for T {}
+impl<T: Transport> ViscaWhiteBalanceExt for T {}

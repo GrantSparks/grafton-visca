@@ -3,7 +3,6 @@
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-        preset::PresetNumber,
         zoom::ZoomSpeed,
     },
     Client, Error, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt, ViscaTransportExt,
@@ -70,7 +69,7 @@ fn main() -> Result<(), Error> {
     thread::sleep(Duration::from_secs(2));
 
     println!("   - Zooming in at default speed...");
-    ViscaZoomExt::zoom_in(&mut client, None)?;
+    ViscaZoomExt::zoom_in(&mut client)?;
     thread::sleep(Duration::from_secs(1));
     client.stop_zoom()?;
 
@@ -79,7 +78,7 @@ fn main() -> Result<(), Error> {
     thread::sleep(Duration::from_secs(2));
 
     println!("   - Zooming out at slow speed (2)...");
-    ViscaZoomExt::zoom_out(&mut client, Some(ZoomSpeed::new(2)?))?;
+    ViscaZoomExt::zoom_out_variable(&mut client, Some(ZoomSpeed::new(2)?))?;
     thread::sleep(Duration::from_millis(1500));
     client.stop_zoom()?;
 
@@ -108,7 +107,7 @@ fn main() -> Result<(), Error> {
     // Preset Management Examples
     println!("\n4. Preset Management");
     println!("   - Saving current position to preset 1...");
-    ViscaPresetExt::save_preset(&mut client, PresetNumber::new(1)?)?;
+    ViscaPresetExt::set_preset(&mut client, 1)?;
     thread::sleep(Duration::from_millis(500));
 
     println!("   - Moving camera to a different position...");
@@ -117,7 +116,7 @@ fn main() -> Result<(), Error> {
     thread::sleep(Duration::from_secs(3));
 
     println!("   - Saving this position to preset 2...");
-    ViscaPresetExt::save_preset(&mut client, PresetNumber::new(2)?)?;
+    ViscaPresetExt::set_preset(&mut client, 2)?;
     thread::sleep(Duration::from_millis(500));
 
     println!("   - Returning to home...");
@@ -125,11 +124,11 @@ fn main() -> Result<(), Error> {
     thread::sleep(Duration::from_secs(2));
 
     println!("   - Recalling preset 1...");
-    ViscaPresetExt::recall_preset(&mut client, PresetNumber::new(1)?)?;
+    ViscaPresetExt::recall_preset(&mut client, 1)?;
     thread::sleep(Duration::from_secs(3));
 
     println!("   - Recalling preset 2...");
-    ViscaPresetExt::recall_preset(&mut client, PresetNumber::new(2)?)?;
+    ViscaPresetExt::recall_preset(&mut client, 2)?;
     thread::sleep(Duration::from_secs(3));
 
     println!("\n=== Demo Complete ===");

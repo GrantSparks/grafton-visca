@@ -33,7 +33,7 @@ use crate::{
         preset::{PresetAction, PresetCommand, PresetNumber},
         zoom::{ZoomCommand, ZoomSpeed},
     },
-    unified_client::{ViscaClient, ViscaClientPtzExt},
+    unified_client::{Client as ViscaClient, ViscaClientPtzExt},
     error::Error as ViscaError,
 };
 

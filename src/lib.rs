@@ -162,7 +162,7 @@
 //! let zoom = camera.send_async(&ZoomCommand::TeleStandard);
 //!
 //! // Both commands execute concurrently (respecting the 2-socket limit)
-//! let (pan_result, zoom_result): (Result<ViscaResponse, _>, Result<ViscaResponse, _>) = tokio::join!(pan_tilt, zoom);
+//! let (pan_result, zoom_result): (Result<Response, _>, Result<Response, _>) = tokio::join!(pan_tilt, zoom);
 //! # Ok(())
 //! # }
 //! ```
@@ -187,9 +187,9 @@
 //! - Command modules in [`command`] - Organized by functionality
 //!
 //! ### Response Handling
-//! - [`ViscaResponse`] - Enum for all response types (ACK, Completion, Inquiry, Error)
+//! - [`Response`] - Enum for all response types (ACK, Completion, Inquiry, Error)
 //! - [`ViscaInquiryResponse`] - Specific inquiry response variants
-//! - [`ViscaError`] - Comprehensive error types for all failure modes
+//! - [`Error`] - Comprehensive error types for all failure modes
 //!
 //! ### Async Support (with `async` feature)
 //! - `AsyncViscaClient` - High-level async client with automatic socket management
@@ -318,15 +318,13 @@ mod unified_client;
 pub use crate::{
     command::{
         pan_tilt::PanTiltDirection,
-        response::{parse_visca_response, Response, ViscaResponse},
+        response::{parse_visca_response, Response},
         ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
     },
     error::{AppError, Error, ViscaResultExt, ViscaRetry},
-    session::{Session, ViscaSession},
+    session::Session,
 };
 
-// Type aliases for backward compatibility
-pub use crate::error::Error as ViscaError;
 
 // Parameter types re-exports
 pub use crate::command::{
@@ -382,7 +380,7 @@ pub use crate::unified_ext::AsyncCameraExt;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use crate::{
     ptz_builder::PtzBuilder,
-    unified_client::{Client, ViscaClient, ViscaClientPtzExt},
+    unified_client::{Client, ViscaClientPtzExt},
 };
 
 // Async-specific re-exports
@@ -400,9 +398,9 @@ pub use crate::{
 /// Core trait for types that can send and receive VISCA commands.
 ///
 /// This trait provides the minimal interface needed for the extension traits.
-/// It is implemented by `ViscaClient` and provides the foundation for all
+/// It is implemented by `Client` and provides the foundation for all
 /// high-level camera control operations.
-pub trait ViscaDevice {
+pub trait Transport {
     /// Send a command and wait for the response.
     ///
     /// # Errors

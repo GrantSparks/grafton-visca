@@ -3,13 +3,13 @@ mod tests {
     use grafton_visca::command::exposure::ExposureMode;
     use grafton_visca::command::white_balance::WhiteBalanceMode;
     use grafton_visca::{
-        ViscaCommand, ViscaDevice, ViscaError, ViscaInquiryExt, ViscaInquiryResponse, ViscaResponse,
+        ViscaCommand, Transport, Error, ViscaInquiryExt, ViscaInquiryResponse, Response,
     };
     use std::collections::VecDeque;
 
     /// Mock device for testing inquiry extension methods
     struct MockDevice {
-        responses: VecDeque<Result<ViscaResponse, ViscaError>>,
+        responses: VecDeque<Result<Response, Error>>,
     }
 
     impl MockDevice {
@@ -21,22 +21,22 @@ mod tests {
 
         fn queue_inquiry_response(&mut self, response: ViscaInquiryResponse) {
             self.responses
-                .push_back(Ok(ViscaResponse::InquiryResponse(response)));
+                .push_back(Ok(Response::InquiryResponse(response)));
         }
 
-        fn queue_error(&mut self, error: ViscaError) {
+        fn queue_error(&mut self, error: Error) {
             self.responses.push_back(Err(error));
         }
     }
 
-    impl ViscaDevice for MockDevice {
+    impl Transport for MockDevice {
         fn execute_command(
             &mut self,
             _command: &dyn ViscaCommand,
-        ) -> Result<ViscaResponse, ViscaError> {
+        ) -> Result<Response, Error> {
             self.responses
                 .pop_front()
-                .unwrap_or(Err(ViscaError::Timeout))
+                .unwrap_or(Err(Error::Timeout))
         }
     }
 
@@ -148,7 +148,7 @@ mod tests {
     fn test_error_handling() {
         let mut device = MockDevice::new();
         // Queue an error response
-        device.queue_error(ViscaError::CommandTimeout {
+        device.queue_error(Error::CommandTimeout {
             duration: std::time::Duration::from_secs(5),
             command: "Power inquiry".to_string(),
         });
@@ -157,7 +157,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            ViscaError::CommandTimeout { .. }
+            Error::CommandTimeout { .. }
         ));
     }
 }

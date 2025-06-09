@@ -4,7 +4,6 @@
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, TiltSpeed},
-        preset::PresetNumber,
         zoom::ZoomSpeed,
     },
     Client,
@@ -36,7 +35,7 @@ fn main() -> Result<(), Error> {
     // Test ViscaZoomExt methods
     println!("Testing ViscaZoomExt...");
     client.zoom_to(0x2000)?;
-    ViscaZoomExt::zoom_in(&mut client, Some(ZoomSpeed::new(5)?))?; // Disambiguate
+    ViscaZoomExt::zoom_in_variable(&mut client, Some(ZoomSpeed::new(5)?))?; // Disambiguate
     client.stop_zoom()?;
 
     // Test ViscaTransportExt pan/tilt methods
@@ -51,8 +50,8 @@ fn main() -> Result<(), Error> {
 
     // Test ViscaPresetExt methods
     println!("Testing ViscaPresetExt...");
-    ViscaPresetExt::save_preset(&mut client, PresetNumber::new(1)?)?; // Disambiguate
-    ViscaPresetExt::recall_preset(&mut client, PresetNumber::new(1)?)?; // Disambiguate
+    ViscaPresetExt::set_preset(&mut client, 1)?; // Disambiguate
+    ViscaPresetExt::recall_preset(&mut client, 1)?; // Disambiguate
 
     // Test ViscaTransportExt focus methods
     println!("Testing focus methods from ViscaTransportExt...");

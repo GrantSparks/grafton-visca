@@ -17,12 +17,12 @@ use crate::{
         white_balance::WhiteBalanceMode,
         ViscaInquiryResponse,
     },
-    error::Error as ViscaError, ViscaDevice, ViscaResponse,
+    error::Error as ViscaError, Transport, Response,
 };
 
 /// Extension trait providing convenient inquiry methods for camera state.
 ///
-/// This trait is automatically implemented for all types that implement `ViscaDevice`,
+/// This trait is automatically implemented for all types that implement `Transport`,
 /// providing a more ergonomic API for querying camera state.
 ///
 /// # Example
@@ -39,7 +39,7 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
-pub trait ViscaInquiryExt: ViscaDevice {
+pub trait ViscaInquiryExt: Transport {
     /// Get current power state.
     ///
     /// # Errors
@@ -50,8 +50,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Power)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => Ok(on),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::Power { on }) => Ok(on),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -66,10 +66,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::PanTiltPosition)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
                 Ok((pan, tilt))
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -84,10 +84,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ZoomPosition)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
                 Ok(position)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -102,10 +102,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::FocusPosition)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusPosition { position }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::FocusPosition { position }) => {
                 Ok(position)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -120,8 +120,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) => Ok(mode),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -136,8 +136,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::WhiteBalanceMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode }) => Ok(mode),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -152,8 +152,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Luminance)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Luminance(value)) => Ok(value),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::Luminance(value)) => Ok(value),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -168,8 +168,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Contrast)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Contrast(value)) => Ok(value),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::Contrast(value)) => Ok(value),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -184,8 +184,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Sharpness)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Sharpness { value }) => Ok(value),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::Sharpness { value }) => Ok(value),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -200,10 +200,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureCompensation)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensation {
+            Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensation {
                 value,
             }) => Ok(value),
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -218,10 +218,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureCompensationMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode {
+            Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode {
                 on,
             }) => Ok(on),
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -236,8 +236,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Iris)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Iris { position }) => Ok(position),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::Iris { position }) => Ok(position),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -252,10 +252,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Shutter)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => {
                 Ok(position)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -270,10 +270,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Bright)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Bright { position }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::Bright { position }) => {
                 Ok(position)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -288,8 +288,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Gain)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Gain { gain }) => Ok(gain),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::Gain { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -304,8 +304,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::GainLimit)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::GainLimit { limit }) => Ok(limit),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::GainLimit { limit }) => Ok(limit),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -320,8 +320,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::AntiFlicker)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::AntiFlicker { mode }) => Ok(mode),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::AntiFlicker { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -336,8 +336,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Saturation)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Saturation { level }) => Ok(level),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::Saturation { level }) => Ok(level),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -352,8 +352,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Hue)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Hue { hue }) => Ok(hue),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::Hue { hue }) => Ok(hue),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -368,8 +368,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::RedGain)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::RedGain { gain }) => Ok(gain),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::RedGain { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -384,8 +384,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::BlueGain)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::BlueGain { gain }) => Ok(gain),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::BlueGain { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -400,10 +400,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Backlight)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => {
                 Ok(status)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -418,11 +418,11 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ImageFlip)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ImageFlip {
+            Response::InquiryResponse(ViscaInquiryResponse::ImageFlip {
                 vertical,
                 horizontal,
             }) => Ok((vertical, horizontal)),
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -437,10 +437,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::SharpnessMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => {
                 Ok(mode)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -455,10 +455,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ColorTemperature)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ColorTemperature {
+            Response::InquiryResponse(ViscaInquiryResponse::ColorTemperature {
                 temperature,
             }) => Ok(temperature),
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -473,10 +473,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::NoiseReduction2D)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D { level }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D { level }) => {
                 Ok(level)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -491,10 +491,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::NoiseReduction3D)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D { level }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D { level }) => {
                 Ok(level)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -509,8 +509,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::BlackWhite)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::BlackWhite { on }) => Ok(on),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::BlackWhite { on }) => Ok(on),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -525,8 +525,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::FocusZone)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusZone { zone }) => Ok(zone),
-            ViscaResponse::Error(e) => Err(e),
+            Response::InquiryResponse(ViscaInquiryResponse::FocusZone { zone }) => Ok(zone),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -541,10 +541,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::AFSensitivity)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::AFSensitivity { sensitivity }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::AFSensitivity { sensitivity }) => {
                 Ok(sensitivity)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -559,10 +559,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::FocusNearLimit)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusNearLimit { position }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::FocusNearLimit { position }) => {
                 Ok(position)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -577,10 +577,10 @@ pub trait ViscaInquiryExt: ViscaDevice {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::DynamicRange)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => {
                 Ok(level)
             }
-            ViscaResponse::Error(e) => Err(e),
+            Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -632,7 +632,7 @@ pub trait ViscaInquiryExt: ViscaDevice {
 }
 
 // Blanket implementation for all types that implement ViscaTransport
-impl<T: ViscaDevice + ?Sized> ViscaInquiryExt for T {}
+impl<T: Transport + ?Sized> ViscaInquiryExt for T {}
 
 /// Complete camera state snapshot.
 #[derive(Debug, Clone, Copy)]

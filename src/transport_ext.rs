@@ -20,17 +20,14 @@ use crate::{
         gain::GainCommand,
         image::BacklightCommand,
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        power::{Power, PowerCommand},
-        preset::{PresetAction, PresetCommand, PresetNumber},
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
-        zoom::ZoomCommand,
     },
-    ViscaDevice,
+    Transport,
 };
 
 /// Extension trait providing convenience methods for common VISCA operations.
 ///
-/// This trait is automatically implemented for all types that implement `ViscaDevice`,
+/// This trait is automatically implemented for all types that implement `Transport`,
 /// providing a more ergonomic API for common camera control operations.
 ///
 /// # Example
@@ -48,40 +45,8 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
-pub trait ViscaTransportExt: ViscaDevice {
-    /// Powers on the camera.
-    ///
-    /// # Errors
-    /// Returns `Error` if the command fails to send or the camera returns an error.
-    #[deprecated(since = "0.5.0", note = "Use `ViscaPowerExt::power_on` instead")]
-    fn power_on(&mut self) -> Result<(), Error>
-    where
-        Self: Sized,
-    {
-        match self.execute_command(&PowerCommand { power: Power::On })? {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
+pub trait ViscaTransportExt: Transport {
 
-    /// Powers off the camera (standby mode).
-    ///
-    /// # Errors
-    /// Returns `Error` if the command fails to send or the camera returns an error.
-    #[deprecated(since = "0.5.0", note = "Use `ViscaPowerExt::power_off` instead")]
-    fn power_off(&mut self) -> Result<(), Error>
-    where
-        Self: Sized,
-    {
-        match self.execute_command(&PowerCommand {
-            power: Power::Standby,
-        })? {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
 
     /// Moves the camera to the home position.
     ///
@@ -98,51 +63,7 @@ pub trait ViscaTransportExt: ViscaDevice {
         }
     }
 
-    /// Recalls a preset position.
-    ///
-    /// # Arguments
-    /// * `preset_id` - The preset number to recall (typically 0-89)
-    ///
-    /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if `preset_id` is invalid,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
-    #[deprecated(since = "0.5.0", note = "Use `ViscaPresetExt::recall_preset` instead")]
-    fn recall_preset(&mut self, preset_id: u8) -> Result<(), ViscaError>
-    where
-        Self: Sized,
-    {
-        match self.execute_command(&PresetCommand {
-            preset_number: PresetNumber::new(preset_id)?,
-            action: PresetAction::Recall,
-        })? {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
 
-    /// Saves the current position as a preset.
-    ///
-    /// # Arguments
-    /// * `preset_id` - The preset number to save (typically 0-89)
-    ///
-    /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if `preset_id` is invalid,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
-    #[deprecated(since = "0.5.0", note = "Use `ViscaPresetExt::save_preset` instead")]
-    fn save_preset(&mut self, preset_id: u8) -> Result<(), ViscaError>
-    where
-        Self: Sized,
-    {
-        match self.execute_command(&PresetCommand {
-            preset_number: PresetNumber::new(preset_id)?,
-            action: PresetAction::Set,
-        })? {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
 
     /// Sets the exposure mode.
     ///
@@ -256,72 +177,9 @@ pub trait ViscaTransportExt: ViscaDevice {
         }
     }
 
-    /// Starts zooming in (tele direction).
-    ///
-    /// # Errors
-    /// Returns `Error` if the command fails to send or the camera returns an error.
-    #[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt::zoom_in` instead")]
-    fn zoom_in(&mut self) -> Result<(), ViscaError>
-    where
-        Self: Sized,
-    {
-        match self.execute_command(&ZoomCommand::TeleStandard)? {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
 
-    /// Starts zooming out (wide direction).
-    ///
-    /// # Errors
-    /// Returns `Error` if the command fails to send or the camera returns an error.
-    #[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt::zoom_out` instead")]
-    fn zoom_out(&mut self) -> Result<(), ViscaError>
-    where
-        Self: Sized,
-    {
-        match self.execute_command(&ZoomCommand::WideStandard)? {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
 
-    /// Stops zooming.
-    ///
-    /// # Errors
-    /// Returns `Error` if the command fails to send or the camera returns an error.
-    #[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt::stop_zoom` instead")]
-    fn zoom_stop(&mut self) -> Result<(), ViscaError>
-    where
-        Self: Sized,
-    {
-        match self.execute_command(&ZoomCommand::Stop)? {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
 
-    /// Sets zoom to an absolute position.
-    ///
-    /// # Arguments
-    /// * `position` - Zoom position in VISCA units (0x0000-0x4000 for most cameras)
-    ///
-    /// # Errors
-    /// Returns `Error` if the command fails to send or the camera returns an error.
-    #[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt::zoom_to` instead")]
-    fn zoom_direct(&mut self, position: u16) -> Result<(), ViscaError>
-    where
-        Self: Sized,
-    {
-        match self.execute_command(&ZoomCommand::Direct(position))? {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
 
     /// Sets focus to auto mode.
     ///
@@ -439,5 +297,5 @@ pub trait ViscaTransportExt: ViscaDevice {
     }
 }
 
-// Blanket implementation for all types that implement ViscaDevice
-impl<T: ViscaDevice> ViscaTransportExt for T {}
+// Blanket implementation for all types that implement Transport
+impl<T: Transport> ViscaTransportExt for T {}

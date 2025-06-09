@@ -33,7 +33,6 @@ use crate::{
     command::{
         focus::FocusSpeed,
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-        zoom::ZoomSpeed,
     },
     error::Error as ViscaError, unified_client::Client as ViscaClient,
 };
@@ -47,7 +46,7 @@ use crate::{
         zoom::ZoomCommand,
         InquiryCommand, PowerCommand,
     },
-    ViscaInquiryResponse, ViscaResponse,
+    ViscaInquiryResponse, Response,
 };
 
 #[cfg(feature = "blocking-client")]
@@ -69,17 +68,6 @@ pub trait CameraExt {
     /// Returns `ViscaError` if the power status cannot be queried.
     fn is_powered_on(&self) -> Result<bool, ViscaError>;
 
-    /// Power on the camera.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the power command cannot be executed.
-    fn power_on(&self) -> Result<(), ViscaError>;
-
-    /// Power off the camera (standby mode).
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the power command cannot be executed.
-    fn power_off(&self) -> Result<(), ViscaError>;
 
     // Zoom Control
 
@@ -95,31 +83,14 @@ pub trait CameraExt {
     /// Returns `ViscaError` if the zoom command cannot be executed.
     fn zoom_to_position(&self, position: u16) -> Result<(), ViscaError>;
 
-    /// Start zooming in at the specified speed.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the zoom command cannot be executed.
-    fn zoom_in(&self, speed: ZoomSpeed) -> Result<(), ViscaError>;
-
-    /// Start zooming out at the specified speed.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the zoom command cannot be executed.
-    fn zoom_out(&self, speed: ZoomSpeed) -> Result<(), ViscaError>;
-
-    /// Stop any zoom movement.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the zoom stop command cannot be executed.
-    fn zoom_stop(&self) -> Result<(), ViscaError>;
 
     // Preset Management
 
-    /// Save the current camera position to a preset (0-89).
+    /// Set (save) the current camera position to a preset (0-89).
     ///
     /// # Errors
     /// Returns `ViscaError` if the preset number is invalid or command cannot be executed.
-    fn save_current_as_preset(&self, preset_number: u8) -> Result<(), ViscaError>;
+    fn set_preset(&self, preset_number: u8) -> Result<(), ViscaError>;
 
     /// Recall a saved preset position.
     ///
@@ -227,27 +198,16 @@ impl CameraExt for ViscaClient {
     fn is_powered_on(&self) -> Result<bool, ViscaError> {
         let response = self.send(&InquiryCommand::Power)?;
         match response {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => Ok(on),
+            Response::InquiryResponse(ViscaInquiryResponse::Power { on }) => Ok(on),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
 
-    fn power_on(&self) -> Result<(), ViscaError> {
-        self.send(&PowerCommand { power: Power::On })?;
-        Ok(())
-    }
-
-    fn power_off(&self) -> Result<(), ViscaError> {
-        self.send(&PowerCommand {
-            power: Power::Standby,
-        })?;
-        Ok(())
-    }
 
     fn zoom_position(&self) -> Result<u16, ViscaError> {
         let response = self.send(&InquiryCommand::ZoomPosition)?;
         match response {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
                 Ok(position)
             }
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -259,22 +219,8 @@ impl CameraExt for ViscaClient {
         Ok(())
     }
 
-    fn zoom_in(&self, speed: ZoomSpeed) -> Result<(), ViscaError> {
-        self.send(&ZoomCommand::TeleVariable(speed))?;
-        Ok(())
-    }
 
-    fn zoom_out(&self, speed: ZoomSpeed) -> Result<(), ViscaError> {
-        self.send(&ZoomCommand::WideVariable(speed))?;
-        Ok(())
-    }
-
-    fn zoom_stop(&self) -> Result<(), ViscaError> {
-        self.send(&ZoomCommand::Stop)?;
-        Ok(())
-    }
-
-    fn save_current_as_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
+    fn set_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
         let preset_num = PresetNumber::new(preset_number)?;
         self.send(&PresetCommand {
             action: PresetAction::Set,
@@ -304,7 +250,7 @@ impl CameraExt for ViscaClient {
     fn pan_tilt_position(&self) -> Result<(i16, i16), ViscaError> {
         let response = self.send(&InquiryCommand::PanTiltPosition)?;
         match response {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
                 Ok((pan, tilt))
             }
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -358,7 +304,7 @@ impl CameraExt for ViscaClient {
     fn focus_position(&self) -> Result<u16, ViscaError> {
         let response = self.send(&InquiryCommand::FocusPosition)?;
         match response {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusPosition { position }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::FocusPosition { position }) => {
                 Ok(position)
             }
             _ => Err(ViscaError::UnexpectedResponseType),
@@ -403,13 +349,6 @@ impl CameraExt for Arc<ViscaClient> {
         (**self).is_powered_on()
     }
 
-    fn power_on(&self) -> Result<(), ViscaError> {
-        (**self).power_on()
-    }
-
-    fn power_off(&self) -> Result<(), ViscaError> {
-        (**self).power_off()
-    }
 
     fn zoom_position(&self) -> Result<u16, ViscaError> {
         (**self).zoom_position()
@@ -419,20 +358,9 @@ impl CameraExt for Arc<ViscaClient> {
         (**self).zoom_to_position(position)
     }
 
-    fn zoom_in(&self, speed: ZoomSpeed) -> Result<(), ViscaError> {
-        (**self).zoom_in(speed)
-    }
 
-    fn zoom_out(&self, speed: ZoomSpeed) -> Result<(), ViscaError> {
-        (**self).zoom_out(speed)
-    }
-
-    fn zoom_stop(&self) -> Result<(), ViscaError> {
-        (**self).zoom_stop()
-    }
-
-    fn save_current_as_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
-        (**self).save_current_as_preset(preset_number)
+    fn set_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
+        (**self).set_preset(preset_number)
     }
 
     fn recall_preset(&self, preset_number: u8) -> Result<(), ViscaError> {
@@ -574,7 +502,7 @@ impl AsyncCameraExt for ViscaClient {
 
         loop {
             let response = self.send_async(&InquiryCommand::Power).await?;
-            if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) = response {
+            if let Response::InquiryResponse(ViscaInquiryResponse::Power { on }) = response {
                 if on {
                     return Ok(());
                 }
@@ -596,7 +524,7 @@ impl AsyncCameraExt for ViscaClient {
 
         loop {
             let response = self.send_async(&InquiryCommand::ZoomPosition).await?;
-            if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) =
+            if let Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) =
                 response
             {
                 if position == target {
@@ -633,7 +561,7 @@ impl AsyncCameraExt for ViscaClient {
 
         loop {
             let response = self.send_async(&InquiryCommand::PanTiltPosition).await?;
-            if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition {
+            if let Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition {
                 pan: current_pan,
                 tilt: current_tilt,
             }) = response

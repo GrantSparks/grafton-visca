@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.move_to_position(0, 0, Some((pan_speed, tilt_speed)))?;
     println!("   ✓ Moved to home position with validated speeds");
 
-    ViscaZoomExt::zoom_in(&mut client, Some(zoom_speed))?;
+    ViscaZoomExt::zoom_in_variable(&mut client, Some(zoom_speed))?;
     println!("   ✓ Started zooming in with validated speed");
 
     client.focus_far(Some(focus_speed))?;
@@ -45,10 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Preset operations use PresetNumber type
     println!("\n4. Using type-safe preset operations:");
     let preset = PresetNumber::new(5)?; // Valid: 0-89
-    ViscaPresetExt::save_preset(&mut client, preset)?;
+    ViscaPresetExt::set_preset_number(&mut client, preset)?;
     println!("   ✓ Saved current position to preset {}", preset.value());
 
-    ViscaPresetExt::recall_preset(&mut client, preset)?;
+    ViscaPresetExt::recall_preset_number(&mut client, preset)?;
     println!("   ✓ Recalled preset {}", preset.value());
 
     // 5. You can still create DynamicRangeLevel for commands, even without a dedicated extension method

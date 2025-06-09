@@ -10,15 +10,16 @@
 
 // Core types
 pub use crate::{
-    error::Error, error::Error as ViscaError, // Both for migration
-    session::Session, session::Session as ViscaSession, // Both for migration
-    ViscaCommand, ViscaDevice, ViscaInquiryResponse, ViscaResponse, ViscaResponseType,
+    error::Error,
+    session::Session,
+    command::response::Response,
+    ViscaCommand, Transport, ViscaInquiryResponse, ViscaResponseType,
 };
 
 // Client types (feature-gated)
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use crate::{
-    unified_client::Client, unified_client::Client as ViscaClient, // Both for migration
+    unified_client::Client,
     ViscaClientPtzExt,
 };
 

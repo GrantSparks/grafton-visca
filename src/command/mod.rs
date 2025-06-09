@@ -35,7 +35,7 @@ pub use self::{
     pan_tilt::*,
     power::*,
     preset::*,
-    response::{parse_visca_response, ViscaResponse, ViscaResponseType},
+    response::{parse_visca_response, Response, ViscaResponseType},
     white_balance::*,
     zoom::*,
 };

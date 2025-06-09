@@ -6,28 +6,28 @@ use crate::{
     command::response::{parse_visca_response as parse_response_typed, Response},
     error::Error as ViscaError,
     types::SocketId,
-    ViscaResponse, ViscaResponseType,
+    ViscaResponseType,
 };
 
 /// Parse a VISCA response, optionally with a specific expected type.
 fn parse_visca_response(
     data: &[u8],
     response_type: Option<ViscaResponseType>,
-) -> Result<ViscaResponse, ViscaError> {
+) -> Result<Response, ViscaError> {
     if data.len() < 3 || data[0] != 0x90 || data[data.len() - 1] != 0xFF {
         return Err(ViscaError::InvalidResponseFormat);
     }
 
     match data[1] {
-        0x40..=0x4F => Ok(ViscaResponse::Ack),
+        0x40..=0x4F => Ok(Response::Ack),
         0x50..=0x5F => {
             if data.len() == 3 {
-                Ok(ViscaResponse::Completion)
+                Ok(Response::Completion)
             } else if let Some(rtype) = response_type {
                 parse_response_typed(data, &rtype)
             } else {
                 // Return a generic inquiry response without parsing
-                Ok(ViscaResponse::Unknown(data.to_vec()))
+                Ok(Response::Unknown(data.to_vec()))
             }
         }
         0x60..=0x6F => {
@@ -37,7 +37,7 @@ fn parse_visca_response(
                 Err(ViscaError::InvalidResponseFormat)
             }
         }
-        _ => Ok(ViscaResponse::Unknown(data.to_vec())),
+        _ => Ok(Response::Unknown(data.to_vec())),
     }
 }
 
@@ -57,9 +57,6 @@ pub struct Session {
     pending_commands: HashMap<SocketId, PendingCommand>,
 }
 
-/// Deprecated type alias for backward compatibility
-#[deprecated(since = "0.5.0", note = "Use `Session` instead")]
-pub type ViscaSession = Session;
 
 impl Session {
     /// Creates a new VISCA session with no pending commands.
@@ -122,7 +119,7 @@ impl Session {
     pub fn process_response(
         &mut self,
         response: &[u8],
-    ) -> Result<Option<(SocketId, ViscaResponse)>, ViscaError> {
+    ) -> Result<Option<(SocketId, Response)>, ViscaError> {
         if response.len() < 3 || response[0] != 0x90 || response[response.len() - 1] != 0xFF {
             return Err(ViscaError::InvalidResponseFormat);
         }
@@ -136,7 +133,7 @@ impl Session {
                 if let Some(pending) = self.pending_commands.get_mut(&socket_id) {
                     pending.acknowledged = true;
                     debug!("ACK received for {socket_id}");
-                    Ok(Some((socket_id, ViscaResponse::Ack)))
+                    Ok(Some((socket_id, Response::Ack)))
                 } else {
                     error!("Received ACK for unknown {socket_id}");
                     Ok(None)
