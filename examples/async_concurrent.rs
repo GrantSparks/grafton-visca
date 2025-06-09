@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let move_fut = camera.send_async(&move_cmd);
 
-    let zoom_fut = camera.send_async(&ZoomCommand::TeleStandard);
+    let zoom_fut = camera.send_async(&ZoomCommand::ZoomInStandard);
 
     // Wait for both to complete
     let (move_result, zoom_result) = tokio::join!(move_fut, zoom_fut);
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let cmd1 = camera.send_async(&preset_cmd);
     let cmd2 = camera.send_async(&FocusCommand::NearStandard);
-    let cmd3 = camera.send_async(&ZoomCommand::WideStandard);
+    let cmd3 = camera.send_async(&ZoomCommand::ZoomOutStandard);
 
     println!("Sending 3 commands concurrently (only 2 will execute at once)...");
     let (res1, res2, res3) = tokio::join!(cmd1, cmd2, cmd3);

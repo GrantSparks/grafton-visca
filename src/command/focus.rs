@@ -132,7 +132,7 @@ impl Command for FocusZoneCommand {
 ///
 /// Controls how responsive the auto focus system is to changes in the scene.
 #[derive(Debug, Copy, Clone)]
-pub enum AFSensitivity {
+pub enum AutoFocusSensitivity {
     /// High sensitivity - quick focus response to scene changes.
     High,
     /// Normal sensitivity - balanced focus response (default).
@@ -141,19 +141,27 @@ pub enum AFSensitivity {
     Low,
 }
 
+/// Deprecated alias for backward compatibility.
+#[deprecated(since = "0.5.0", note = "Use AutoFocusSensitivity instead")]
+pub type AFSensitivity = AutoFocusSensitivity;
+
 /// Command to set auto focus sensitivity.
 #[derive(Debug, Copy, Clone)]
-pub struct AFSensitivityCommand {
+pub struct AutoFocusSensitivityCommand {
     /// The sensitivity level to set.
-    pub sensitivity: AFSensitivity,
+    pub sensitivity: AutoFocusSensitivity,
 }
 
-impl Command for AFSensitivityCommand {
+/// Deprecated alias for backward compatibility.
+#[deprecated(since = "0.5.0", note = "Use AutoFocusSensitivityCommand instead")]
+pub type AFSensitivityCommand = AutoFocusSensitivityCommand;
+
+impl Command for AutoFocusSensitivityCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let sens_byte = match self.sensitivity {
-            AFSensitivity::High => 0x02,
-            AFSensitivity::Normal => 0x01,
-            AFSensitivity::Low => 0x00,
+            AutoFocusSensitivity::High => 0x02,
+            AutoFocusSensitivity::Normal => 0x01,
+            AutoFocusSensitivity::Low => 0x00,
         };
         Ok(vec![0x81, 0x01, 0x04, 0x58, sens_byte, 0xFF])
     }
@@ -330,29 +338,42 @@ mod tests {
     }
 
     #[test]
-    fn test_af_sensitivity_command() {
-        let cmd = AFSensitivityCommand {
-            sensitivity: AFSensitivity::High,
+    fn test_auto_focus_sensitivity_command() {
+        let cmd = AutoFocusSensitivityCommand {
+            sensitivity: AutoFocusSensitivity::High,
         };
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x58, 0x02, 0xFF]
         );
 
-        let cmd = AFSensitivityCommand {
-            sensitivity: AFSensitivity::Normal,
+        let cmd = AutoFocusSensitivityCommand {
+            sensitivity: AutoFocusSensitivity::Normal,
         };
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x58, 0x01, 0xFF]
         );
 
-        let cmd = AFSensitivityCommand {
-            sensitivity: AFSensitivity::Low,
+        let cmd = AutoFocusSensitivityCommand {
+            sensitivity: AutoFocusSensitivity::Low,
         };
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x58, 0x00, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_deprecated_af_sensitivity_aliases() {
+        // Test that deprecated aliases still work
+        #[allow(deprecated)]
+        let cmd = AFSensitivityCommand {
+            sensitivity: AFSensitivity::High,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x58, 0x02, 0xFF]
         );
     }
 
@@ -389,8 +410,8 @@ mod tests {
             CommandCategory::Quick
         );
         assert_eq!(
-            AFSensitivityCommand {
-                sensitivity: AFSensitivity::High
+            AutoFocusSensitivityCommand {
+                sensitivity: AutoFocusSensitivity::High
             }
             .command_category(),
             CommandCategory::Quick

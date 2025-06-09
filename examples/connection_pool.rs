@@ -130,7 +130,7 @@ fn demonstrate_camera_control(pool: &ConnectionPool) -> Result<(), Box<dyn std::
     // Zoom in on the front camera only
     if pool.list_cameras().contains(&"front".to_string()) {
         println!("\nZooming front camera...");
-        let zoom_in = ZoomCommand::TeleStandard;
+        let zoom_in = ZoomCommand::ZoomInStandard;
         pool.execute_command("front", &zoom_in)?;
 
         std::thread::sleep(Duration::from_secs(1));
