@@ -14,7 +14,7 @@ use crate::{
         zoom::{ZoomCommand, ZoomSpeed},
     },
     types::{GainValue, NoiseReduction2DLevel, NoiseReduction3DLevel},
-    ViscaDevice, ViscaError,
+    error::Error as ViscaError, ViscaDevice,
 };
 
 /// Speed level for camera movements.
@@ -385,7 +385,16 @@ pub trait CameraControl: ViscaDevice {
     ///
     /// # Errors
     /// Returns `ViscaError` if the preset number is invalid or command cannot be executed.
+    #[deprecated(since = "0.5.0", note = "Use `recall_preset` instead")]
     fn goto_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
+        self.recall_preset(preset_number)
+    }
+
+    /// Recall a saved preset position.
+    ///
+    /// # Errors
+    /// Returns `ViscaError` if the preset number is invalid or command cannot be executed.
+    fn recall_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
         let preset_num = PresetNumber::new(preset_number)?;
         self.execute_command(&PresetCommand {
             action: PresetAction::Recall,

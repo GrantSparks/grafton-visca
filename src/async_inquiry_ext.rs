@@ -15,7 +15,7 @@ use crate::{
     inquiry_ext::{
         CameraPosition, CameraState, ExposureState, ImageState, OpticsState, WhiteBalanceState,
     },
-    ViscaError, ViscaResponse,
+    error::Error as ViscaError, ViscaResponse,
 };
 
 impl AsyncViscaClient {

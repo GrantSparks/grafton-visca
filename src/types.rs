@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use crate::error::ViscaError;
+use crate::error::Error as ViscaError;
 
 /// Socket ID for VISCA commands.
 ///

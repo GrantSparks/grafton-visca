@@ -12,7 +12,7 @@ use std::convert::TryFrom;
 // Workspace / local-crate imports
 use crate::{
     command::{response::ViscaResponseType, ViscaCommand},
-    error::ViscaError,
+    error::Error as ViscaError,
     timeout::CommandCategory,
     types::{BrightnessLevel, IrisLevel, ShutterSpeed},
     visca_up_down_reset,

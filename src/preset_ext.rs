@@ -3,7 +3,7 @@
 // Crate imports
 use crate::{
     command::preset::{PresetAction, PresetCommand, PresetNumber},
-    error::ViscaError,
+    error::Error as ViscaError,
     ViscaDevice, ViscaResponse,
 };
 

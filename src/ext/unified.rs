@@ -19,6 +19,7 @@ use std::time::Duration;
 ///
 /// Provides high-level power control methods that work in both
 /// async and blocking contexts.
+#[deprecated(since = "0.5.0", note = "Use `ViscaPowerExt` from the main crate instead")]
 pub trait PowerExt {
     /// Check if the camera is powered on.
     fn is_powered_on(&self) -> Result<bool, ViscaError>;
@@ -40,6 +41,7 @@ pub trait PowerExt {
 ///
 /// Provides async versions of power control methods.
 #[cfg(feature = "async-client")]
+#[deprecated(since = "0.5.0", note = "Use `ViscaPowerExt` from the main crate instead")]
 pub trait AsyncPowerExt {
     /// Check if the camera is powered on.
     async fn is_powered_on_async(&self) -> Result<bool, ViscaError>;
@@ -150,6 +152,7 @@ impl AsyncPowerExt for ViscaClient {
 }
 
 /// Zoom control extension for ViscaClient.
+#[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt` from the main crate instead")]
 pub trait ZoomExt {
     /// Zoom to a specific position.
     fn zoom_to(&self, position: u16) -> Result<(), ViscaError>;
@@ -169,6 +172,7 @@ pub trait ZoomExt {
 
 /// Async zoom control extension.
 #[cfg(feature = "async-client")]
+#[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt` from the main crate instead")]
 pub trait AsyncZoomExt {
     /// Zoom to a specific position.
     async fn zoom_to_async(&self, position: u16) -> Result<(), ViscaError>;
@@ -251,6 +255,7 @@ impl AsyncZoomExt for ViscaClient {
 }
 
 /// Preset control extension for ViscaClient.
+#[deprecated(since = "0.5.0", note = "Use `ViscaPresetExt` from the main crate instead")]
 pub trait PresetExt {
     /// Save current position to a preset.
     fn save_preset(&self, preset_number: u8) -> Result<(), ViscaError>;
@@ -264,6 +269,7 @@ pub trait PresetExt {
 
 /// Async preset control extension.
 #[cfg(feature = "async-client")]
+#[deprecated(since = "0.5.0", note = "Use `ViscaPresetExt` from the main crate instead")]
 pub trait AsyncPresetExt {
     /// Save current position to a preset.
     async fn save_preset_async(&self, preset_number: u8) -> Result<(), ViscaError>;

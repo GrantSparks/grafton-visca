@@ -3,7 +3,7 @@
 //! This module contains shared code used by multiple transport implementations
 //! to reduce duplication.
 
-use crate::ViscaError;
+use crate::error::Error as ViscaError;
 use log::debug;
 
 /// Buffer management utilities for VISCA transports.
@@ -151,7 +151,7 @@ fn format_frame_description(frame: &[u8]) -> String {
 /// Health check utilities for transports.
 pub mod health_check {
     use crate::command::ViscaCommand;
-    use crate::ViscaError;
+    use crate::error::Error as ViscaError;
 
     /// A simple health check command that queries camera power status.
     #[derive(Debug, Clone, Copy)]

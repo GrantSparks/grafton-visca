@@ -8,7 +8,10 @@
 
 // Workspace / local-crate imports
 use crate::{
+    error::Error,
+    error::Error as ViscaError,
     command::{
+        response::Response,
         exposure::{
             ExposureCommand, ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode,
             IrisCommand,
@@ -22,7 +25,7 @@ use crate::{
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
         zoom::ZoomCommand,
     },
-    ViscaDevice, error::Error, command::response::Response,
+    ViscaDevice,
 };
 
 /// Extension trait providing convenience methods for common VISCA operations.
@@ -103,6 +106,7 @@ pub trait ViscaTransportExt: ViscaDevice {
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if `preset_id` is invalid,
     /// or `ViscaError` if the command fails to send or the camera returns an error.
+    #[deprecated(since = "0.5.0", note = "Use `ViscaPresetExt::recall_preset` instead")]
     fn recall_preset(&mut self, preset_id: u8) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -125,6 +129,7 @@ pub trait ViscaTransportExt: ViscaDevice {
     /// # Errors
     /// Returns `ViscaError::InvalidParameter` if `preset_id` is invalid,
     /// or `ViscaError` if the command fails to send or the camera returns an error.
+    #[deprecated(since = "0.5.0", note = "Use `ViscaPresetExt::save_preset` instead")]
     fn save_preset(&mut self, preset_id: u8) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -255,6 +260,7 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
+    #[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt::zoom_in` instead")]
     fn zoom_in(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -270,6 +276,7 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
+    #[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt::zoom_out` instead")]
     fn zoom_out(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -285,6 +292,7 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
+    #[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt::stop_zoom` instead")]
     fn zoom_stop(&mut self) -> Result<(), ViscaError>
     where
         Self: Sized,
@@ -303,6 +311,7 @@ pub trait ViscaTransportExt: ViscaDevice {
     ///
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
+    #[deprecated(since = "0.5.0", note = "Use `ViscaZoomExt::zoom_to` instead")]
     fn zoom_direct(&mut self, position: u16) -> Result<(), ViscaError>
     where
         Self: Sized,

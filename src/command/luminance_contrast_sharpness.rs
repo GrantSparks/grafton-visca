@@ -6,7 +6,7 @@
 // Crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},
-    error::ViscaError,
+    error::Error as ViscaError,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
     visca_param_command,

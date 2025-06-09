@@ -10,7 +10,7 @@
 // (none)
 
 // Workspace / local-crate imports
-use crate::error::ViscaError;
+use crate::error::Error as ViscaError;
 
 /// `PTZOptics` camera models with their specific capabilities
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

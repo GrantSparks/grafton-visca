@@ -9,7 +9,7 @@ use crate::{
         preset::{PresetAction, PresetCommand, PresetNumber},
         zoom::{ZoomCommand, ZoomSpeed},
     },
-    ViscaError,
+    error::Error as ViscaError,
 };
 
 impl AsyncViscaClient {

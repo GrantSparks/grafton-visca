@@ -9,7 +9,7 @@ use crate::{
     constants::{
         CameraModel, DegreePosition, NormalizedPosition, PositionConversion, ViscaPosition,
     },
-    error::ViscaError,
+    error::Error as ViscaError,
     pan_tilt_ext::ViscaPanTiltExt,
     ViscaResponse,
 };

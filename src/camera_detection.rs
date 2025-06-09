@@ -13,7 +13,7 @@ use log::debug;
 use crate::{
     command::{InquiryCommand, ViscaInquiryResponse},
     constants::CameraModel,
-    error::ViscaError,
+    ViscaError,
     send_command_and_wait, ViscaResponse, ViscaTransport,
 };
 

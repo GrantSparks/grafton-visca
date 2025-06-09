@@ -321,9 +321,12 @@ pub use crate::{
         response::{parse_visca_response, Response, ViscaResponse},
         ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
     },
-    error::{AppError, Error, ViscaError, ViscaResultExt, ViscaRetry},
+    error::{AppError, Error, ViscaResultExt, ViscaRetry},
     session::{Session, ViscaSession},
 };
+
+// Type aliases for backward compatibility
+pub use crate::error::Error as ViscaError;
 
 // Parameter types re-exports
 pub use crate::command::{

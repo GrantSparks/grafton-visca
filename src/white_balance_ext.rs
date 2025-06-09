@@ -6,7 +6,7 @@ use crate::{
         BlueGainCommand, BlueTuningCommand, ColorTemperatureCommand, OnePushTriggerCommand,
         RedGainCommand, RedTuningCommand, WhiteBalanceCommand, WhiteBalanceMode,
     },
-    error::ViscaError,
+    error::Error as ViscaError,
     ViscaDevice, ViscaResponse,
 };
 

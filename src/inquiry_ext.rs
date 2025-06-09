@@ -17,7 +17,7 @@ use crate::{
         white_balance::WhiteBalanceMode,
         ViscaInquiryResponse,
     },
-    ViscaDevice, ViscaError, ViscaResponse,
+    error::Error as ViscaError, ViscaDevice, ViscaResponse,
 };
 
 /// Extension trait providing convenient inquiry methods for camera state.

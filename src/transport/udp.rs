@@ -13,7 +13,7 @@ use tokio::net::UdpSocket as TokioUdpSocket;
 
 // Crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{ConnectionStats, ViscaCommand, ViscaError};
+use crate::{ConnectionStats, error::Error as ViscaError, ViscaCommand};
 
 #[cfg(feature = "blocking-client")]
 use super::BlockingTransport;
