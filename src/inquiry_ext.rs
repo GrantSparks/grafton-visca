@@ -29,9 +29,9 @@ use crate::{
 /// # Example
 /// ```no_run
 /// # #[cfg(feature = "blocking-client")]
-/// # fn example() -> Result<(), grafton_visca::ViscaError> {
-/// # use grafton_visca::{ViscaClient, ViscaInquiryExt, ViscaError};
-/// let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+/// # fn example() -> Result<(), grafton_visca::Error> {
+/// # use grafton_visca::{Client, ViscaInquiryExt, Error};
+/// let mut client = Client::connect_udp("192.168.1.100:5678")?;
 ///
 /// // Simple one-line state queries
 /// let (pan, tilt) = client.get_pan_tilt_position()?;

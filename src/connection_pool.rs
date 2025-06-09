@@ -1,7 +1,7 @@
 //! Connection pooling for managing multiple VISCA cameras.
 //!
 //! This module provides a connection pool that manages multiple camera connections
-//! using the unified `ViscaClient` architecture.
+//! using the unified `Client` architecture.
 
 // Standard library imports
 use std::time::{Duration, Instant};
@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 // Workspace / local-crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{
-    error::Error as ViscaError, unified_client::Client as ViscaClient, Response, ViscaCommand,
+    error::Error, unified_client::Client, Response, ViscaCommand,
 };
 
 /// Configuration for the connection pool.
@@ -46,7 +46,7 @@ impl Default for PoolConfig {
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 #[derive(Debug)]
 struct PooledConnection {
-    client: ViscaClient,
+    client: Client,
     last_used: Instant,
     camera_info: CameraInfo,
 }
@@ -95,7 +95,7 @@ pub struct ViscaConnectionPool;
 #[derive(Debug, Clone, Copy)]
 pub struct AsyncViscaConnectionPool;
 
-/// A pool of VISCA camera connections using the unified `ViscaClient`.
+/// A pool of VISCA camera connections using the unified `Client`.
 ///
 /// This pool manages multiple camera connections and provides convenient
 /// methods for executing commands on specific cameras.
@@ -132,7 +132,7 @@ impl ViscaConnectionPool {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError` if the connection cannot be established.
+    /// Returns `Error` if the connection cannot be established.
     #[cfg(feature = "blocking-client")]
     pub fn add_camera(
         &self,
@@ -140,12 +140,12 @@ impl ViscaConnectionPool {
         address: &str,
         connection_type: ConnectionType,
         info: CameraInfo,
-    ) -> Result<(), ViscaError> {
+    ) -> Result<(), Error> {
         let camera_id = camera_id.into();
 
         let client = match connection_type {
-            ConnectionType::Udp => ViscaClient::connect_udp(address)?,
-            ConnectionType::Tcp => ViscaClient::connect_tcp(address)?,
+            ConnectionType::Udp => Client::connect_udp(address)?,
+            ConnectionType::Tcp => Client::connect_tcp(address)?,
         };
 
         let pooled = PooledConnection {
@@ -157,7 +157,7 @@ impl ViscaConnectionPool {
         let _ = self
             .connections
             .lock()
-            .map_err(|_| ViscaError::InvalidState("Mutex poisoned".into()))?
+            .map_err(|_| Error::InvalidState("Mutex poisoned".into()))?
             .insert(camera_id, pooled);
         Ok(())
     }
@@ -176,20 +176,20 @@ impl ViscaConnectionPool {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::InvalidParameter` if the camera is not found in the pool.
-    /// Returns other `ViscaError` variants if the command execution fails.
+    /// Returns `Error::InvalidParameter` if the camera is not found in the pool.
+    /// Returns other `Error` variants if the command execution fails.
     #[cfg(feature = "blocking-client")]
     pub fn execute_command(
         &self,
         camera_id: &str,
         command: &dyn ViscaCommand,
-    ) -> Result<Response, ViscaError> {
+    ) -> Result<Response, Error> {
         let mut connections = self
             .connections
             .lock()
-            .map_err(|_| ViscaError::InvalidState("Mutex poisoned".into()))?;
+            .map_err(|_| Error::InvalidState("Mutex poisoned".into()))?;
         let pooled = connections.get_mut(camera_id).ok_or_else(|| {
-            ViscaError::InvalidParameter(format!("Camera '{camera_id}' not found in pool"))
+            Error::InvalidParameter(format!("Camera '{camera_id}' not found in pool"))
         })?;
 
         pooled.last_used = Instant::now();
@@ -212,7 +212,7 @@ impl ViscaConnectionPool {
     #[must_use]
     pub fn get_all_stats(&self) -> Vec<PooledCameraStats> {
         // First collect camera info and clients to avoid holding lock during health checks
-        let camera_data: Vec<(CameraInfo, Instant, ViscaClient)> = {
+        let camera_data: Vec<(CameraInfo, Instant, Client)> = {
             let Ok(connections) = self.connections.lock() else {
                 return Vec::new();
             };
@@ -345,19 +345,19 @@ impl AsyncViscaConnectionPool {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError` if the connection cannot be established.
+    /// Returns `Error` if the connection cannot be established.
     pub async fn add_camera(
         &self,
         camera_id: impl Into<String>,
         address: &str,
         connection_type: ConnectionType,
         info: CameraInfo,
-    ) -> Result<(), ViscaError> {
+    ) -> Result<(), Error> {
         let camera_id = camera_id.into();
 
         let client = match connection_type {
-            ConnectionType::Udp => ViscaClient::connect_udp_async(address).await?,
-            ConnectionType::Tcp => ViscaClient::connect_tcp_async(address).await?,
+            ConnectionType::Udp => Client::connect_udp_async(address).await?,
+            ConnectionType::Tcp => Client::connect_tcp_async(address).await?,
         };
 
         let pooled = PooledConnection {
@@ -380,16 +380,16 @@ impl AsyncViscaConnectionPool {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::InvalidParameter` if the camera is not found in the pool.
-    /// Returns other `ViscaError` variants if the command execution fails.
+    /// Returns `Error::InvalidParameter` if the camera is not found in the pool.
+    /// Returns other `Error` variants if the command execution fails.
     pub async fn execute_command(
         &self,
         camera_id: &str,
         command: &dyn ViscaCommand,
-    ) -> Result<Response, ViscaError> {
+    ) -> Result<Response, Error> {
         let mut connections = self.connections.lock().await;
         let pooled = connections.get_mut(camera_id).ok_or_else(|| {
-            ViscaError::InvalidParameter(format!("Camera '{camera_id}' not found in pool"))
+            Error::InvalidParameter(format!("Camera '{camera_id}' not found in pool"))
         })?;
 
         pooled.last_used = Instant::now();
@@ -409,7 +409,7 @@ impl AsyncViscaConnectionPool {
     #[must_use]
     pub async fn get_all_stats(&self) -> Vec<PooledCameraStats> {
         // First collect camera info and clients to avoid holding lock during health checks
-        let camera_data: Vec<(CameraInfo, Instant, ViscaClient)> = {
+        let camera_data: Vec<(CameraInfo, Instant, Client)> = {
             let connections = self.connections.lock().await;
             connections
                 .values()

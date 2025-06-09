@@ -23,14 +23,13 @@ pub trait ViscaPowerExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, Transport, ViscaPowerExt};
-    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// if client.is_powered_on()? {
     ///     println!("Camera is powered on");
     /// } else {
     ///     println!("Camera is powered off");
-    ///     // Use PowerCommand directly
-    ///     client.execute_command(&PowerCommand { power: Power::On })?;
+    ///     client.power_on()?;
     /// }
     /// # Ok(())
     /// # }
@@ -62,8 +61,8 @@ pub trait ViscaPowerExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, Transport, ViscaPowerExt};
-    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Ensure camera is ready before sending commands
     /// let was_on = client.ensure_powered_on()?;
     /// if !was_on {
@@ -103,12 +102,11 @@ pub trait ViscaPowerExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, Transport, ViscaPowerExt};
+    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
     /// # use std::time::Duration;
-    /// # fn example(client: &mut impl Transport) -> Result<(), ViscaError> {
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Power on and wait up to 10 seconds for camera to be ready
-    /// // Power on using PowerCommand
-    /// client.execute_command(&PowerCommand { power: Power::On })?;
+    /// client.power_on()?;
     /// client.wait_for_power_on(
     ///     Duration::from_secs(10),
     ///     Duration::from_millis(500)
@@ -146,7 +144,63 @@ pub trait ViscaPowerExt: Transport {
             }
         }
     }
+
+    /// Power on the camera.
+    ///
+    /// This is a convenience method that sends the power on command.
+    ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the power on command
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
+    /// // Power on the camera
+    /// client.power_on()?;
+    /// 
+    /// // Wait for it to be ready
+    /// client.wait_for_power_on(
+    ///     std::time::Duration::from_secs(5),
+    ///     std::time::Duration::from_millis(500)
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn power_on(&mut self) -> Result<(), ViscaError> {
+        match self.execute_command(&PowerCommand { power: Power::On })? {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
+
+    /// Power off the camera (standby mode).
+    ///
+    /// This is a convenience method that sends the power off (standby) command.
+    ///
+    /// # Errors
+    /// * `ViscaError::NetworkError` - Communication error with the camera
+    /// * `ViscaError::CommandFailed` - Camera rejected the power off command
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
+    /// // Power off the camera
+    /// client.power_off()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn power_off(&mut self) -> Result<(), ViscaError> {
+        match self.execute_command(&PowerCommand { power: Power::Standby })? {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(ViscaError::UnexpectedResponseType),
+        }
+    }
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
+/// Implement the trait for all types that implement `Transport`
 impl<T: Transport> ViscaPowerExt for T {}

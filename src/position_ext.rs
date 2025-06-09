@@ -9,7 +9,7 @@ use crate::{
     constants::{
         CameraModel, DegreePosition, NormalizedPosition, PositionConversion, ViscaPosition,
     },
-    error::Error as ViscaError,
+    error::Error,
     pan_tilt_ext::ViscaPanTiltExt,
     Response,
 };
@@ -24,16 +24,16 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// * `speed` - Optional pan and tilt speeds
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if the degrees are out of range for the camera model.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt, PanSpeed, TiltSpeed};
+    /// # use grafton_visca::{Error, Client, ViscaPositionExt, PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
-    /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # fn example() -> Result<(), grafton_visca::Error> {
+    /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
     /// // Move to 45 degrees right, 30 degrees up
     /// client.move_to_degrees(45.0, 30.0, None)?;
     ///
@@ -49,7 +49,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
         pan_deg: f32,
         tilt_deg: f32,
         speed: Option<(PanSpeed, TiltSpeed)>,
-    ) -> Result<(), ViscaError> {
+    ) -> Result<(), Error> {
         let position = DegreePosition {
             pan: pan_deg,
             tilt: tilt_deg,
@@ -66,16 +66,16 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// * `speed` - Optional pan and tilt speeds
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if the normalized values are out of range (-1.0 to 1.0).
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt, PanSpeed, TiltSpeed};
+    /// # use grafton_visca::{Error, Client, ViscaPositionExt, PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
-    /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # fn example() -> Result<(), grafton_visca::Error> {
+    /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
     /// // Move to center
     /// client.move_to_normalized(0.0, 0.0, None)?;
     ///
@@ -94,7 +94,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
         pan: f32,
         tilt: f32,
         speed: Option<(PanSpeed, TiltSpeed)>,
-    ) -> Result<(), ViscaError> {
+    ) -> Result<(), Error> {
         let position = NormalizedPosition { pan, tilt };
         let visca_pos = position.to_visca(CameraModel::PTZOpticsG2);
         self.move_to_position(visca_pos.pan, visca_pos.tilt, speed)
@@ -106,22 +106,22 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// Current pan/tilt position in degrees
     ///
     /// # Errors
-    /// Returns `ViscaError::UnexpectedResponseType` if the camera returns an unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if the camera returns an unexpected response.
     /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # use grafton_visca::{Error, Client, ViscaPositionExt};
     /// # #[cfg(feature = "blocking-client")]
-    /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # fn example() -> Result<(), grafton_visca::Error> {
+    /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
     /// let pos = client.get_position_degrees()?;
     /// println!("Pan: {:.1}°, Tilt: {:.1}°", pos.pan, pos.tilt);
     /// # Ok(())
     /// # }
     /// ```
-    fn get_position_degrees(&mut self) -> Result<DegreePosition, ViscaError>
+    fn get_position_degrees(&mut self) -> Result<DegreePosition, Error>
     where
         Self: Sized,
     {
@@ -134,7 +134,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
                 let visca_pos = ViscaPosition { pan, tilt };
                 Ok(visca_pos.to_degrees(CameraModel::PTZOpticsG2))
             }
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -144,22 +144,22 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// Current pan/tilt position as normalized values (-1.0 to 1.0)
     ///
     /// # Errors
-    /// Returns `ViscaError::UnexpectedResponseType` if the camera returns an unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if the camera returns an unexpected response.
     /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # use grafton_visca::{Error, Client, ViscaPositionExt};
     /// # #[cfg(feature = "blocking-client")]
-    /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # fn example() -> Result<(), grafton_visca::Error> {
+    /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
     /// let pos = client.get_position_normalized()?;
     /// println!("Pan: {:.0}%, Tilt: {:.0}%", pos.pan * 100.0, pos.tilt * 100.0);
     /// # Ok(())
     /// # }
     /// ```
-    fn get_position_normalized(&mut self) -> Result<NormalizedPosition, ViscaError>
+    fn get_position_normalized(&mut self) -> Result<NormalizedPosition, Error>
     where
         Self: Sized,
     {
@@ -172,7 +172,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
                 let visca_pos = ViscaPosition { pan, tilt };
                 Ok(visca_pos.to_normalized(CameraModel::PTZOpticsG2))
             }
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -185,18 +185,18 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// * `speed` - Optional pan and tilt speeds
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if the degrees are out of range for the specified camera model.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt, PanSpeed, TiltSpeed};
+    /// # use grafton_visca::{Error, Client, ViscaPositionExt, PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
     /// # use grafton_visca::constants::CameraModel;
     /// # #[cfg(feature = "blocking-client")]
-    /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # fn example() -> Result<(), grafton_visca::Error> {
+    /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
     /// // Move using 30X camera model parameters
     /// let pan_speed = PanSpeed::new(12)?;
     /// let tilt_speed = TiltSpeed::new(12)?;
@@ -215,7 +215,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
         tilt_deg: f32,
         model: CameraModel,
         speed: Option<(PanSpeed, TiltSpeed)>,
-    ) -> Result<(), ViscaError> {
+    ) -> Result<(), Error> {
         let position = DegreePosition {
             pan: pan_deg,
             tilt: tilt_deg,
@@ -232,17 +232,17 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// * `speed` - Optional pan and tilt speeds (1-24 for pan, 1-20 for tilt)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if the relative movement would exceed camera limits.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # use grafton_visca::{Error, Client, ViscaPositionExt};
     /// # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
-    /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # fn example() -> Result<(), grafton_visca::Error> {
+    /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
     /// // Move 10 degrees right and 5 degrees up from current position
     /// client.move_by_degrees(10.0, 5.0, None)?;
     ///
@@ -258,7 +258,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
         pan_deg: f32,
         tilt_deg: f32,
         speed: Option<(PanSpeed, TiltSpeed)>,
-    ) -> Result<(), ViscaError> {
+    ) -> Result<(), Error> {
         // Convert degrees to VISCA units using the conversion factor
         let pan_units = crate::constants::pan_degrees_to_visca(pan_deg);
         let tilt_units = crate::constants::tilt_degrees_to_visca(tilt_deg);
@@ -275,15 +275,15 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// Actual pan and tilt speed values that were set
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if speed values are out of range (0.0 to 1.0).
+    /// Returns `Error::InvalidParameter` if speed values are out of range (0.0 to 1.0).
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaPositionExt};
+    /// # use grafton_visca::{Error, Client, ViscaPositionExt};
     /// # #[cfg(feature = "blocking-client")]
-    /// # fn example() -> Result<(), grafton_visca::ViscaError> {
-    /// # let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    /// # fn example() -> Result<(), grafton_visca::Error> {
+    /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
     /// // Set to 50% speed
     /// let (pan, tilt) = client.set_normalized_speeds(0.5, 0.5)?;
     /// println!("Set speeds: pan={}, tilt={}", pan, tilt);
@@ -297,7 +297,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
         &mut self,
         pan_speed: f32,
         tilt_speed: f32,
-    ) -> Result<(u8, u8), ViscaError> {
+    ) -> Result<(u8, u8), Error> {
         let pan = crate::constants::pan_speed_normalized_to_visca(pan_speed);
         let tilt = crate::constants::tilt_speed_normalized_to_visca(tilt_speed);
         Ok((pan, tilt))

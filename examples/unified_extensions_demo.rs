@@ -25,10 +25,7 @@ fn blocking_example() -> Result<(), Error> {
         println!("   ✅ Camera is powered on");
     } else {
         println!("   ⚡ Camera is off, powering on...");
-        let was_already_on = camera.ensure_powered_on()?;
-        if !was_already_on {
-            println!("   ⚡ Camera was powered off, now powered on");
-        }
+        camera.power_on()?;
     }
 
     println!("\n2. Getting camera positions...");
@@ -83,10 +80,7 @@ async fn async_example() -> Result<(), Error> {
         println!("   ✅ Camera is powered on");
     } else {
         println!("   ⚡ Camera is off, powering on...");
-        let was_already_on = camera.ensure_powered_on()?;
-        if !was_already_on {
-            println!("   ⚡ Camera was powered off, now powered on");
-        }
+        camera.power_on()?;
 
         // AsyncCameraExt provides async-specific operations
         println!("   ⏳ Waiting for camera to power on...");

@@ -11,8 +11,8 @@
 //! # #[cfg(feature = "blocking-client")]
 //! # {
 //! # use grafton_visca::command::{ZoomCommand, zoom::ZoomSpeed};
-//! # use grafton_visca::ViscaClient;
-//! # let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! # use grafton_visca::Client;
+//! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
 //! client.send(&ZoomCommand::TeleStandard).unwrap();
 //!

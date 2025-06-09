@@ -6,7 +6,7 @@ use crate::{
         zoom::{ZoomCommand, ZoomSpeed},
         InquiryCommand,
     },
-    error::Error as ViscaError,
+    error::Error,
     Response, Transport,
 };
 
@@ -21,8 +21,8 @@ pub trait ViscaZoomExt: Transport {
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
-    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Client, ViscaZoomExt};
+    /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// // Move to minimum zoom (wide)
     /// client.zoom_to(0x0000)?;
     ///
@@ -38,15 +38,15 @@ pub trait ViscaZoomExt: Transport {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
-    fn zoom_to(&mut self, position: u16) -> Result<(), ViscaError> {
+    fn zoom_to(&mut self, position: u16) -> Result<(), Error> {
         let command = ZoomCommand::Direct(position);
         match self.execute_command(&command)? {
             Response::Completion => Ok(()),
             Response::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -59,8 +59,8 @@ pub trait ViscaZoomExt: Transport {
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt, ZoomSpeed};
-    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Client, ViscaZoomExt, ZoomSpeed};
+    /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// // Zoom in at standard speed
     /// client.zoom_in_variable(None)?;
     ///
@@ -76,15 +76,15 @@ pub trait ViscaZoomExt: Transport {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
-    fn zoom_in_variable(&mut self, speed: Option<ZoomSpeed>) -> Result<(), ViscaError> {
+    fn zoom_in_variable(&mut self, speed: Option<ZoomSpeed>) -> Result<(), Error> {
         let command = speed.map_or(ZoomCommand::TeleStandard, ZoomCommand::TeleVariable);
         match self.execute_command(&command)? {
             Response::Completion => Ok(()),
             Response::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -97,8 +97,8 @@ pub trait ViscaZoomExt: Transport {
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt, ZoomSpeed};
-    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Client, ViscaZoomExt, ZoomSpeed};
+    /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// // Zoom out at standard speed
     /// client.zoom_out_variable(None)?;
     ///
@@ -110,15 +110,15 @@ pub trait ViscaZoomExt: Transport {
     /// ```
     ///
     /// # Errors
-    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
-    fn zoom_out_variable(&mut self, speed: Option<ZoomSpeed>) -> Result<(), ViscaError> {
+    fn zoom_out_variable(&mut self, speed: Option<ZoomSpeed>) -> Result<(), Error> {
         let command = speed.map_or(ZoomCommand::WideStandard, ZoomCommand::WideVariable);
         match self.execute_command(&command)? {
             Response::Completion => Ok(()),
             Response::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -128,8 +128,8 @@ pub trait ViscaZoomExt: Transport {
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
-    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Client, ViscaZoomExt};
+    /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// // Start zooming in
     /// client.zoom_in_variable(None)?;
     ///
@@ -143,13 +143,13 @@ pub trait ViscaZoomExt: Transport {
     /// ```
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
-    fn stop_zoom(&mut self) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command fails to send or the camera returns an error.
+    fn stop_zoom(&mut self) -> Result<(), Error> {
         let command = ZoomCommand::Stop;
         match self.execute_command(&command)? {
             Response::Completion => Ok(()),
             Response::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -162,8 +162,8 @@ pub trait ViscaZoomExt: Transport {
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
-    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Client, ViscaZoomExt};
+    /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// // Set to 1x (wide)
     /// client.zoom_to_magnification(1.0)?;
     ///
@@ -178,8 +178,8 @@ pub trait ViscaZoomExt: Transport {
     /// ```
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
-    fn zoom_to_magnification(&mut self, magnification: f32) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command fails to send or the camera returns an error.
+    fn zoom_to_magnification(&mut self, magnification: f32) -> Result<(), Error> {
         let position = crate::constants::zoom_magnification_to_visca(magnification);
         self.zoom_to(position)
     }
@@ -190,22 +190,22 @@ pub trait ViscaZoomExt: Transport {
     /// Current zoom magnification (1.0 to 20.0 for 20x cameras)
     ///
     /// # Errors
-    /// Returns `ViscaError::UnexpectedResponseType` if the camera returns an unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if the camera returns an unexpected response.
     /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
-    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Client, ViscaZoomExt};
+    /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// let magnification = client.get_zoom_magnification()?;
     /// println!("Current zoom: {:.1}x", magnification);
     /// # Ok(())
     /// # }
     /// # }
     /// ```
-    fn get_zoom_magnification(&mut self) -> Result<f32, ViscaError>
+    fn get_zoom_magnification(&mut self) -> Result<f32, Error>
     where
         Self: Sized,
     {
@@ -214,7 +214,7 @@ pub trait ViscaZoomExt: Transport {
             Response::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition { position }) => {
                 Ok(crate::constants::zoom_visca_to_magnification(position))
             }
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -227,8 +227,8 @@ pub trait ViscaZoomExt: Transport {
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
-    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Client, ViscaZoomExt};
+    /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// // Set to wide (0%)
     /// client.zoom_to_normalized(0.0)?;
     ///
@@ -243,8 +243,8 @@ pub trait ViscaZoomExt: Transport {
     /// ```
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
-    fn zoom_to_normalized(&mut self, normalized: f32) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command fails to send or the camera returns an error.
+    fn zoom_to_normalized(&mut self, normalized: f32) -> Result<(), Error> {
         let position = crate::constants::zoom_normalized_to_visca(normalized);
         self.zoom_to(position)
     }
@@ -255,22 +255,22 @@ pub trait ViscaZoomExt: Transport {
     /// Normalized zoom value (0.0 = wide, 1.0 = telephoto)
     ///
     /// # Errors
-    /// Returns `ViscaError::UnexpectedResponseType` if the camera returns an unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if the camera returns an unexpected response.
     /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
     /// # {
-    /// # use grafton_visca::{ViscaError, ViscaClient, ViscaZoomExt};
-    /// # fn example(client: &mut ViscaClient) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Client, ViscaZoomExt};
+    /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// let normalized = client.get_zoom_normalized()?;
     /// println!("Current zoom: {:.0}%", normalized * 100.0);
     /// # Ok(())
     /// # }
     /// # }
     /// ```
-    fn get_zoom_normalized(&mut self) -> Result<f32, ViscaError>
+    fn get_zoom_normalized(&mut self) -> Result<f32, Error>
     where
         Self: Sized,
     {
@@ -279,8 +279,62 @@ pub trait ViscaZoomExt: Transport {
             Response::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition { position }) => {
                 Ok(crate::constants::zoom_visca_to_normalized(position))
             }
-            _ => Err(ViscaError::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
+    }
+
+    /// Start zooming in (telephoto direction) at standard speed.
+    ///
+    /// This is a convenience method that zooms in at the camera's standard speed.
+    /// For variable speed control, use `zoom_in_variable()`.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{Error, Transport, ViscaZoomExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
+    /// // Start zooming in
+    /// client.zoom_in()?;
+    /// 
+    /// // Wait a bit
+    /// std::thread::sleep(std::time::Duration::from_secs(1));
+    /// 
+    /// // Stop zooming
+    /// client.stop_zoom()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    /// Returns `Error` if the command fails to send or the camera returns an error.
+    fn zoom_in(&mut self) -> Result<(), Error> {
+        self.zoom_in_variable(None)
+    }
+
+    /// Start zooming out (wide direction) at standard speed.
+    ///
+    /// This is a convenience method that zooms out at the camera's standard speed.
+    /// For variable speed control, use `zoom_out_variable()`.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::{Error, Transport, ViscaZoomExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
+    /// // Start zooming out
+    /// client.zoom_out()?;
+    /// 
+    /// // Wait a bit
+    /// std::thread::sleep(std::time::Duration::from_secs(1));
+    /// 
+    /// // Stop zooming
+    /// client.stop_zoom()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    /// Returns `Error` if the command fails to send or the camera returns an error.
+    fn zoom_out(&mut self) -> Result<(), Error> {
+        self.zoom_out_variable(None)
     }
 }
 
