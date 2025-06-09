@@ -579,7 +579,9 @@ mod response_parsing_tests {
         let bytes = vec![0x90, 0x50, sens_value, 0xFF];
         let response = parse_visca_response(&bytes, &ResponseType::AutoFocusSensitivity);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity: _ })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity {
+                sensitivity: _,
+            })) => {
                 // Sensitivity parsed successfully
             }
             _ => panic!("Expected AutoFocusSensitivity inquiry response"),

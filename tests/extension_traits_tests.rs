@@ -58,7 +58,7 @@ fn test_white_balance_ext_methods() {
 
     // Test direct color temperature setting (5600K)
     device.set_color_temperature(30).unwrap(); // 30 = roughly 5600K
-                                                      // The color temperature direct command uses 0x20
+                                               // The color temperature direct command uses 0x20
     assert_eq!(
         device.last_command().unwrap()[0..4],
         vec![0x81, 0x01, 0x04, 0x20]
