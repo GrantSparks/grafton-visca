@@ -455,7 +455,7 @@ impl ViscaRetry {
             }
         }
 
-        Err(last_error.unwrap_or(ViscaError::Unknown(0xFF)))
+        Err(last_error.unwrap_or(Error::Unknown(0xFF)))
     }
 
     /// Retry an async operation using suggested delays from errors.
@@ -508,7 +508,7 @@ impl ViscaRetry {
             }
         }
 
-        Err(last_error.unwrap_or(ViscaError::Unknown(0xFF)))
+        Err(last_error.unwrap_or(Error::Unknown(0xFF)))
     }
 
     /// Retry an async operation with exponential backoff.
@@ -565,7 +565,7 @@ impl ViscaRetry {
             }
         }
 
-        Err(last_error.unwrap_or(ViscaError::Unknown(0xFF)))
+        Err(last_error.unwrap_or(Error::Unknown(0xFF)))
     }
 
     /// Retry a blocking operation with custom parameters.
@@ -618,7 +618,7 @@ impl ViscaRetry {
             }
         }
 
-        Err(last_error.unwrap_or(ViscaError::Unknown(0xFF)))
+        Err(last_error.unwrap_or(Error::Unknown(0xFF)))
     }
 
     /// Sleep for the given duration in an async context.
@@ -682,7 +682,7 @@ mod tests {
             Error::from_code(0x04),
             Error::CommandCanceled
         ));
-        assert!(matches!(ViscaError::from_code(0x05), ViscaError::NoSocket));
+        assert!(matches!(Error::from_code(0x05), Error::NoSocket));
         assert!(matches!(
             Error::from_code(0x41),
             Error::CommandNotExecutable
@@ -707,7 +707,7 @@ mod tests {
             Error::CommandCanceled.to_string(),
             "Command was canceled"
         );
-        assert_eq!(ViscaError::NoSocket.to_string(), "No socket available");
+        assert_eq!(Error::NoSocket.to_string(), "No socket available");
         assert_eq!(
             Error::CommandNotExecutable.to_string(),
             "Command is not executable"
@@ -720,22 +720,22 @@ mod tests {
             Error::InvalidParameter("test".to_string()).to_string(),
             "Invalid parameter: test"
         );
-        assert_eq!(ViscaError::Timeout.to_string(), "Operation timed out");
+        assert_eq!(Error::Timeout.to_string(), "Operation timed out");
     }
 
     #[test]
     fn test_visca_error_from_io_error() {
         let io_err = io::Error::other("test error");
-        let visca_err = ViscaError::from(io_err);
-        assert!(matches!(visca_err, ViscaError::Io(_)));
+        let visca_err = Error::from(io_err);
+        assert!(matches!(visca_err, Error::Io(_)));
     }
 
     #[test]
     fn test_visca_error_from_nom_error() {
         use nom::error::{Error as NomError, ErrorKind};
         let nom_err = nom::Err::Error(NomError::new(&b"test"[..], ErrorKind::Tag));
-        let visca_err = ViscaError::from(nom_err);
-        assert!(matches!(visca_err, ViscaError::ParseError(_)));
+        let visca_err = Error::from(nom_err);
+        assert!(matches!(visca_err, Error::ParseError(_)));
     }
 
     #[test]
@@ -747,27 +747,27 @@ mod tests {
 
     #[test]
     fn test_app_error_from_visca() {
-        let visca_err = ViscaError::SyntaxError;
+        let visca_err = Error::SyntaxError;
         let app_err = AppError::from(visca_err);
         assert!(matches!(app_err, AppError::Visca(Error::SyntaxError)));
     }
 
     #[test]
     fn test_is_retryable() {
-        assert!(ViscaError::CameraBusy.is_retryable());
-        assert!(ViscaError::CameraMoving { pan: 100, tilt: 50 }.is_retryable());
-        assert!(ViscaError::CommandTimeout {
+        assert!(Error::CameraBusy.is_retryable());
+        assert!(Error::CameraMoving { pan: 100, tilt: 50 }.is_retryable());
+        assert!(Error::CommandTimeout {
             duration: Duration::from_secs(5),
             command: "test".to_string()
         }
         .is_retryable());
-        assert!(ViscaError::CommandBufferFull.is_retryable());
-        assert!(ViscaError::Timeout.is_retryable());
+        assert!(Error::CommandBufferFull.is_retryable());
+        assert!(Error::Timeout.is_retryable());
 
-        assert!(!ViscaError::SyntaxError.is_retryable());
-        assert!(!ViscaError::CommandNotExecutable.is_retryable());
-        assert!(!ViscaError::InvalidParameter("test".to_string()).is_retryable());
-        assert!(!ViscaError::PresetNotFound { id: 1 }.is_retryable());
+        assert!(!Error::SyntaxError.is_retryable());
+        assert!(!Error::CommandNotExecutable.is_retryable());
+        assert!(!Error::InvalidParameter("test".to_string()).is_retryable());
+        assert!(!Error::PresetNotFound { id: 1 }.is_retryable());
     }
 
     #[test]
@@ -797,7 +797,7 @@ mod tests {
             Some(Duration::from_secs(2))
         );
 
-        assert_eq!(ViscaError::SyntaxError.suggested_retry_delay(), None);
+        assert_eq!(Error::SyntaxError.suggested_retry_delay(), None);
         assert_eq!(
             Error::InvalidParameter("test".to_string()).suggested_retry_delay(),
             None
@@ -812,13 +812,13 @@ mod tests {
         assert!(result.is_ok());
 
         // Test retryable error
-        let retryable_error: Result<()> = Err(ViscaError::CameraBusy);
+        let retryable_error: Result<()> = Err(Error::CameraBusy);
         let result = retryable_error.with_retry_context();
         assert!(result.is_err());
         assert!(result.as_ref().unwrap_err().is_retryable());
 
         // Test non-retryable error
-        let non_retryable_error: Result<()> = Err(ViscaError::SyntaxError);
+        let non_retryable_error: Result<()> = Err(Error::SyntaxError);
         let result = non_retryable_error.with_retry_context();
         assert!(result.is_err());
         assert!(!result.as_ref().unwrap_err().is_retryable());
@@ -832,7 +832,7 @@ mod tests {
             || {
                 attempt_count += 1;
                 if attempt_count < 3 {
-                    Err(ViscaError::CameraBusy)
+                    Err(Error::CameraBusy)
                 } else {
                     Ok("success")
                 }
@@ -853,14 +853,14 @@ mod tests {
         let result: Result<&str> = ViscaRetry::retry_blocking(
             || {
                 attempt_count += 1;
-                Err(ViscaError::CameraBusy)
+                Err(Error::CameraBusy)
             },
             3,
             Duration::from_millis(1),
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ViscaError::CameraBusy));
+        assert!(matches!(result.unwrap_err(), Error::CameraBusy));
         assert_eq!(attempt_count, 3);
     }
 
@@ -871,14 +871,14 @@ mod tests {
         let result: Result<&str> = ViscaRetry::retry_blocking(
             || {
                 attempt_count += 1;
-                Err(ViscaError::SyntaxError)
+                Err(Error::SyntaxError)
             },
             3,
             Duration::from_millis(1),
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ViscaError::SyntaxError));
+        assert!(matches!(result.unwrap_err(), Error::SyntaxError));
         assert_eq!(attempt_count, 1); // Only one attempt for non-retryable errors
     }
 
@@ -897,7 +897,7 @@ mod tests {
                 async move {
                     let current = count.fetch_add(1, Ordering::SeqCst) + 1;
                     if current < 3 {
-                        Err(ViscaError::Timeout)
+                        Err(Error::Timeout)
                     } else {
                         Ok("async success")
                     }
@@ -928,9 +928,9 @@ mod tests {
                 async move {
                     let current = count.fetch_add(1, Ordering::SeqCst) + 1;
                     if current == 1 {
-                        Err(ViscaError::CameraBusy) // 100ms suggested delay
+                        Err(Error::CameraBusy) // 100ms suggested delay
                     } else if current == 2 {
-                        Err(ViscaError::CameraMoving { pan: 100, tilt: 50 }) // 500ms suggested delay
+                        Err(Error::CameraMoving { pan: 100, tilt: 50 }) // 500ms suggested delay
                     } else {
                         Ok("suggested delay success")
                     }
@@ -961,7 +961,7 @@ mod tests {
                 async move {
                     let current = count.fetch_add(1, Ordering::SeqCst) + 1;
                     if current < 3 {
-                        Err(ViscaError::CommandBufferFull)
+                        Err(Error::CommandBufferFull)
                     } else {
                         Ok("backoff success")
                     }
