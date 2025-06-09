@@ -263,12 +263,12 @@ pub trait ResultExt<T> {
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # {
-    /// use grafton_visca::{ResultExt, ViscaError};
+    /// use grafton_visca::{ResultExt, Error};
     /// use std::time::Duration;
     ///
     /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Retry up to 3 times with 100ms base delay
-    ///     let result: Result<(), ViscaError> = Ok(());
+    ///     let result: Result<(), Error> = Ok(());
     ///     result.retry_on_busy(3, Duration::from_millis(100)).await?;
     ///     Ok(())
     /// }
@@ -292,11 +292,11 @@ pub trait ResultExt<T> {
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # {
-    /// use grafton_visca::{ResultExt, ViscaError};
+    /// use grafton_visca::{ResultExt, Error};
     ///
     /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Retry up to 5 times using suggested delays
-    ///     let result: Result<(), ViscaError> = Ok(());
+    ///     let result: Result<(), Error> = Ok(());
     ///     result.retry_with_suggested_delay(5).await?;
     ///     Ok(())
     /// }
@@ -317,12 +317,12 @@ pub trait ResultExt<T> {
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # {
-    /// use grafton_visca::{ResultExt, ViscaError};
+    /// use grafton_visca::{ResultExt, Error};
     /// use std::time::Duration;
     ///
     /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Retry with exponential backoff: 50ms, 100ms, 200ms, 400ms, 800ms, 1s, 1s...
-    ///     let result: Result<(), ViscaError> = Ok(());
+    ///     let result: Result<(), Error> = Ok(());
     ///     result.retry_with_exponential_backoff(
     ///         7,
     ///         Duration::from_millis(50),
@@ -412,7 +412,7 @@ impl ViscaRetry {
     /// - `base_delay`: Base delay between retries
     ///
     /// # Errors
-    /// Returns the last `ViscaError` encountered if all retry attempts fail.
+    /// Returns the last `Error` encountered if all retry attempts fail.
     ///
     /// # Example
     /// ```no_run
@@ -465,7 +465,7 @@ impl ViscaRetry {
     /// Retry an async operation using suggested delays from errors.
     ///
     /// # Errors
-    /// Returns the last `ViscaError` encountered if all retry attempts fail.
+    /// Returns the last `Error` encountered if all retry attempts fail.
     ///
     /// # Example
     /// ```no_run
@@ -518,13 +518,13 @@ impl ViscaRetry {
     /// Retry an async operation with exponential backoff.
     ///
     /// # Errors
-    /// Returns the last `ViscaError` encountered if all retry attempts fail.
+    /// Returns the last `Error` encountered if all retry attempts fail.
     ///
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use grafton_visca::{ViscaClient, ViscaRetry, ViscaError};
+    /// use grafton_visca::{Client, ViscaRetry, Error};
     /// use grafton_visca::command::FocusCommand;
     /// use std::time::Duration;
     ///
@@ -575,7 +575,7 @@ impl ViscaRetry {
     /// Retry a blocking operation with custom parameters.
     ///
     /// # Errors
-    /// Returns the last `ViscaError` encountered if all retry attempts fail.
+    /// Returns the last `Error` encountered if all retry attempts fail.
     ///
     /// # Example
     /// ```no_run
