@@ -6,25 +6,25 @@ use crate::{
         BlueGainCommand, BlueTuningCommand, ColorTemperatureCommand, OnePushTriggerCommand,
         RedGainCommand, RedTuningCommand, WhiteBalanceCommand, WhiteBalanceMode,
     },
-    error::ViscaError,
-    ViscaDevice, ViscaResponse,
+    error::Error,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level white balance control methods.
-pub trait ViscaWhiteBalanceExt: ViscaDevice {
+pub trait WhiteBalanceExt: Transport {
     /// Set the white balance mode.
     ///
     /// # Arguments
     /// * `mode` - The white balance mode to set
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # use grafton_visca::command::white_balance::WhiteBalanceMode;
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to auto white balance
     /// client.set_white_balance_mode(WhiteBalanceMode::Auto)?;
     ///
@@ -36,12 +36,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), ViscaError> {
+    fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
         let command = WhiteBalanceCommand { mode };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -52,12 +52,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// * `value` - Color temperature value (0x00=2500K to 0x37=8000K)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to approximately 5600K (daylight)
     /// client.set_color_temperature_direct(0x1C)?;
     ///
@@ -66,12 +66,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_color_temperature_direct(&mut self, value: u16) -> Result<(), ViscaError> {
+    fn set_color_temperature_direct(&mut self, value: u16) -> Result<(), Error> {
         let command = ColorTemperatureCommand::Direct(value);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -79,22 +79,22 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Increase color temperature.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.color_temperature_up()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn color_temperature_up(&mut self) -> Result<(), ViscaError> {
+    fn color_temperature_up(&mut self) -> Result<(), Error> {
         let command = ColorTemperatureCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -102,22 +102,22 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Decrease color temperature.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.color_temperature_down()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn color_temperature_down(&mut self) -> Result<(), ViscaError> {
+    fn color_temperature_down(&mut self) -> Result<(), Error> {
         let command = ColorTemperatureCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -125,22 +125,22 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Reset color temperature.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.color_temperature_reset()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn color_temperature_reset(&mut self) -> Result<(), ViscaError> {
+    fn color_temperature_reset(&mut self) -> Result<(), Error> {
         let command = ColorTemperatureCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -151,12 +151,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Point the camera at a white or neutral gray surface before calling this.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to one-push mode first
     /// client.set_white_balance_mode(grafton_visca::command::white_balance::WhiteBalanceMode::OnePush)?;
     ///
@@ -165,12 +165,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn trigger_one_push_white_balance(&mut self) -> Result<(), ViscaError> {
+    fn trigger_one_push_white_balance(&mut self) -> Result<(), Error> {
         let command = OnePushTriggerCommand;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -182,12 +182,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// * `b_gain` - Blue gain value (0x00 to 0xFF)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to manual mode first
     /// client.set_white_balance_mode(grafton_visca::command::white_balance::WhiteBalanceMode::Manual)?;
     ///
@@ -202,21 +202,21 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_manual_white_balance_gain(&mut self, r_gain: u8, b_gain: u8) -> Result<(), ViscaError> {
+    fn set_manual_white_balance_gain(&mut self, r_gain: u8, b_gain: u8) -> Result<(), Error> {
         // Set red gain
         let r_command = RedGainCommand::Direct(r_gain);
         match self.execute_command(&r_command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
 
         // Set blue gain
         let b_command = BlueGainCommand::Direct(b_gain);
         match self.execute_command(&b_command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
 
         Ok(())
@@ -225,22 +225,22 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Increase red gain in manual white balance mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_red_up()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn white_balance_red_up(&mut self) -> Result<(), ViscaError> {
+    fn white_balance_red_up(&mut self) -> Result<(), Error> {
         let command = RedGainCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -248,22 +248,22 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Decrease red gain in manual white balance mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_red_down()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn white_balance_red_down(&mut self) -> Result<(), ViscaError> {
+    fn white_balance_red_down(&mut self) -> Result<(), Error> {
         let command = RedGainCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -271,22 +271,22 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Reset red gain in manual white balance mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_red_reset()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn white_balance_red_reset(&mut self) -> Result<(), ViscaError> {
+    fn white_balance_red_reset(&mut self) -> Result<(), Error> {
         let command = RedGainCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -294,22 +294,22 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Increase blue gain in manual white balance mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_blue_up()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn white_balance_blue_up(&mut self) -> Result<(), ViscaError> {
+    fn white_balance_blue_up(&mut self) -> Result<(), Error> {
         let command = BlueGainCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -317,22 +317,22 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Decrease blue gain in manual white balance mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_blue_down()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn white_balance_blue_down(&mut self) -> Result<(), ViscaError> {
+    fn white_balance_blue_down(&mut self) -> Result<(), Error> {
         let command = BlueGainCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -340,22 +340,22 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// Reset blue gain in manual white balance mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_blue_reset()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn white_balance_blue_reset(&mut self) -> Result<(), ViscaError> {
+    fn white_balance_blue_reset(&mut self) -> Result<(), Error> {
         let command = BlueGainCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -370,12 +370,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// * `level` - Red tuning level (-10 to +10, where 0 is neutral)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Slightly increase red
     /// client.white_balance_red_tuning(2)?;
     ///
@@ -387,12 +387,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn white_balance_red_tuning(&mut self, level: i8) -> Result<(), ViscaError> {
+    fn white_balance_red_tuning(&mut self, level: i8) -> Result<(), Error> {
         let command = RedTuningCommand { level };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -407,12 +407,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// * `level` - Blue tuning level (-10 to +10, where 0 is neutral)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Slightly increase blue
     /// client.white_balance_blue_tuning(2)?;
     ///
@@ -424,12 +424,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn white_balance_blue_tuning(&mut self, level: i8) -> Result<(), ViscaError> {
+    fn white_balance_blue_tuning(&mut self, level: i8) -> Result<(), Error> {
         let command = BlueTuningCommand { level };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -440,12 +440,12 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// * `preset` - A common lighting preset
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaWhiteBalanceExt, WhiteBalancePreset};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt, WhiteBalancePreset};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set for daylight
     /// client.set_white_balance_preset(WhiteBalancePreset::Daylight)?;
     ///
@@ -457,7 +457,7 @@ pub trait ViscaWhiteBalanceExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_white_balance_preset(&mut self, preset: WhiteBalancePreset) -> Result<(), ViscaError> {
+    fn set_white_balance_preset(&mut self, preset: WhiteBalancePreset) -> Result<(), Error> {
         match preset {
             WhiteBalancePreset::Auto => self.set_white_balance_mode(WhiteBalanceMode::Auto),
             WhiteBalancePreset::Daylight => {
@@ -501,5 +501,5 @@ pub enum WhiteBalancePreset {
     Outdoor,
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaDevice> ViscaWhiteBalanceExt for T {}
+/// Implement the trait for all types that implement `Transport`
+impl<T: Transport> WhiteBalanceExt for T {}

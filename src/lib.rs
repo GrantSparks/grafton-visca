@@ -69,7 +69,7 @@
 //! # {
 //! use grafton_visca::prelude::*;
 //!
-//! let mut client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! let mut client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // All extension traits and types are available
 //! client.power_on().unwrap();
@@ -82,16 +82,16 @@
 //! # }
 //! ```
 //!
-//! ### Using `ViscaClient` (Recommended for Thread Safety)
+//! ### Using `Client` (Recommended for Thread Safety)
 //!
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
 //! # {
-//! use grafton_visca::ViscaClient;
+//! use grafton_visca::Client;
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //!
 //! // Create a client using the v0.4.0 unified API
-//! let mut client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! let mut client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // Send commands through the client
 //! client.send(&PanTiltCommand::Home).unwrap();
@@ -105,11 +105,11 @@
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
 //! # {
-//! use grafton_visca::{ViscaClient, IrisLevel};
+//! use grafton_visca::{Client, IrisLevel};
 //! use grafton_visca::command::{ExposureCompensationCommand, IrisCommand, SaturationCommand};
 //! use grafton_visca::command::exposure::ExposureCompensationLevel;
 //!
-//! let mut client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! let mut client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //!
 //! // Adjust exposure compensation
 //! client.send(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(3).unwrap())).unwrap();
@@ -145,12 +145,12 @@
 //! ```no_run
 //! # #[cfg(feature = "async-client")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! use grafton_visca::{ViscaClient, ViscaResponse};
+//! use grafton_visca::{Client, Response};
 //! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
 //! use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
 //!
 //! // Connect to camera
-//! let camera = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
+//! let camera = Client::connect_udp_async("192.168.1.100:5678").await?;
 //!
 //! // Send multiple commands concurrently
 //! let pan_tilt_cmd = PanTiltCommand::Move {
@@ -162,7 +162,7 @@
 //! let zoom = camera.send_async(&ZoomCommand::TeleStandard);
 //!
 //! // Both commands execute concurrently (respecting the 2-socket limit)
-//! let (pan_result, zoom_result): (Result<ViscaResponse, _>, Result<ViscaResponse, _>) = tokio::join!(pan_tilt, zoom);
+//! let (pan_result, zoom_result): (Result<Response, _>, Result<Response, _>) = tokio::join!(pan_tilt, zoom);
 //! # Ok(())
 //! # }
 //! ```
@@ -172,7 +172,7 @@
 //! The crate provides several levels of API for different use cases:
 //!
 //! ### High-Level Client
-//! - [`ViscaClient`] - Thread-safe wrapper for concurrent camera control (recommended)
+//! - [`Client`] - Thread-safe wrapper for concurrent camera control (recommended)
 //!   - Eliminates need for `RefCell` in user code
 //!   - Supports Clone for sharing between threads
 //!   - Provides `send()`, `try_send()`, and `send_with_timeout()` methods
@@ -183,16 +183,16 @@
 //! - TCP transport (default port 5678 for VISCA over IP)
 //!
 //! ### Command Layer
-//! - [`ViscaCommand`] trait - Implemented by all command types
+//! - [`Command`] trait - Implemented by all command types
 //! - Command modules in [`command`] - Organized by functionality
 //!
 //! ### Response Handling
-//! - [`ViscaResponse`] - Enum for all response types (ACK, Completion, Inquiry, Error)
-//! - [`ViscaInquiryResponse`] - Specific inquiry response variants
-//! - [`ViscaError`] - Comprehensive error types for all failure modes
+//! - [`Response`] - Enum for all response types (ACK, Completion, Inquiry, Error)
+//! - [`InquiryResponse`] - Specific inquiry response variants
+//! - [`Error`] - Comprehensive error types for all failure modes
 //!
 //! ### Async Support (with `async` feature)
-//! - `AsyncViscaClient` - High-level async client with automatic socket management
+//! - `AsyncClient` - High-level async client with automatic socket management
 //!
 //! ## Connection Setup
 //!
@@ -240,14 +240,14 @@
 //!
 //! ## Usage
 //!
-//! The recommended way to use this library is through the unified `ViscaClient`:
+//! The recommended way to use this library is through the unified `Client`:
 //!
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")]
-//! # fn main() -> Result<(), grafton_visca::ViscaError> {
-//! # use grafton_visca::{ViscaClient};
+//! # fn main() -> Result<(), grafton_visca::Error> {
+//! # use grafton_visca::{Client};
 //! # use grafton_visca::command::{PowerCommand, power::Power};
-//! let client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+//! let client = Client::connect_udp("192.168.1.100:5678")?;
 //! let response = client.send(&PowerCommand { power: Power::On })?;
 //! # Ok(())
 //! # }
@@ -318,11 +318,11 @@ mod unified_client;
 pub use crate::{
     command::{
         pan_tilt::PanTiltDirection,
-        response::{parse_visca_response, ViscaResponse},
-        ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
+        response::{parse_visca_response, Response},
+        Command, InquiryResponse, ResponseType,
     },
-    error::{AppError, ViscaError, ViscaResultExt, ViscaRetry},
-    session::ViscaSession,
+    error::{AppError, Error, ResultExt, ViscaRetry},
+    session::Session,
 };
 
 // Parameter types re-exports
@@ -343,29 +343,27 @@ pub use crate::types::{
 // Connection and pooling re-exports
 pub use crate::{
     connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
-    connection_pool::{
-        CameraInfo, ConnectionType, PoolConfig, PooledCameraStats, ViscaConnectionPool,
-    },
+    connection_pool::{CameraInfo, ConnectionPool, ConnectionType, PoolConfig, PooledCameraStats},
     timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
 };
 
 // Extension trait re-exports
 pub use crate::{
     api::{CameraControl, GainLevel, IrisValue, NoiseReductionStrength, PanTiltBuilder, Speed},
-    exposure_ext::{ExposurePreset, ViscaExposureExt},
-    focus_ext::ViscaFocusExt,
-    image_ext::{ImagePreset, ViscaImageExt},
+    exposure_ext::{ExposureExt, ExposurePreset},
+    focus_ext::FocusExt,
+    image_ext::{ImageExt, ImagePreset},
     inquiry_ext::{
-        CameraPosition, CameraState, ExposureState, ImageState, OpticsState, ViscaInquiryExt,
+        CameraPosition, CameraState, ExposureState, ImageState, InquiryExt, OpticsState,
         WhiteBalanceState,
     },
-    pan_tilt_ext::ViscaPanTiltExt,
-    position_ext::ViscaPositionExt,
-    power_ext::ViscaPowerExt,
-    preset_ext::ViscaPresetExt,
-    transport_ext::ViscaTransportExt,
-    white_balance_ext::{ViscaWhiteBalanceExt, WhiteBalancePreset},
-    zoom_ext::ViscaZoomExt,
+    pan_tilt_ext::PanTiltExt,
+    position_ext::PositionExt,
+    power_ext::PowerExt,
+    preset_ext::PresetExt,
+    transport_ext::TransportExt,
+    white_balance_ext::{WhiteBalanceExt, WhiteBalancePreset},
+    zoom_ext::ZoomExt,
 };
 
 // Unified extension trait re-exports
@@ -379,16 +377,16 @@ pub use crate::unified_ext::AsyncCameraExt;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use crate::{
     ptz_builder::PtzBuilder,
-    unified_client::{ViscaClient, ViscaClientPtzExt},
+    unified_client::{Client, ClientPtzExt},
 };
 
 // Async-specific re-exports
 #[cfg(feature = "async-client")]
 pub use crate::{
     async_transport::TransportFuture,
-    async_visca_ext::{AsyncViscaExt, PanScanDirection},
+    async_visca_ext::{AsyncExt, PanScanDirection},
     connection::AsyncConnectionManagement,
-    connection_pool::AsyncViscaConnectionPool,
+    connection_pool::AsyncConnectionPool,
     reconnecting_transport::{
         ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
     },
@@ -397,13 +395,13 @@ pub use crate::{
 /// Core trait for types that can send and receive VISCA commands.
 ///
 /// This trait provides the minimal interface needed for the extension traits.
-/// It is implemented by `ViscaClient` and provides the foundation for all
+/// It is implemented by `Client` and provides the foundation for all
 /// high-level camera control operations.
-pub trait ViscaDevice {
+pub trait Transport {
     /// Send a command and wait for the response.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if communication with the camera fails.
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError>;
+    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error>;
 }

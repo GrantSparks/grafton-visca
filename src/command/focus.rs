@@ -11,8 +11,8 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
-    error::ViscaError,
+    command::{Command, ResponseType},
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -54,8 +54,8 @@ pub enum FocusCommand {
     Infinity,
 }
 
-impl ViscaCommand for FocusCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for FocusCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]),
             Self::FarStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]),
@@ -80,7 +80,7 @@ impl ViscaCommand for FocusCommand {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -109,8 +109,8 @@ pub struct FocusZoneCommand {
     pub zone: FocusZone,
 }
 
-impl ViscaCommand for FocusZoneCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for FocusZoneCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let zone_byte = match self.zone {
             FocusZone::Top => 0x00,
             FocusZone::Center => 0x01,
@@ -119,7 +119,7 @@ impl ViscaCommand for FocusZoneCommand {
         Ok(vec![0x81, 0x01, 0x04, 0x3C, zone_byte, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -148,8 +148,8 @@ pub struct AFSensitivityCommand {
     pub sensitivity: AFSensitivity,
 }
 
-impl ViscaCommand for AFSensitivityCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for AFSensitivityCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let sens_byte = match self.sensitivity {
             AFSensitivity::High => 0x02,
             AFSensitivity::Normal => 0x01,
@@ -158,7 +158,7 @@ impl ViscaCommand for AFSensitivityCommand {
         Ok(vec![0x81, 0x01, 0x04, 0x58, sens_byte, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -247,7 +247,7 @@ mod tests {
         // Invalid speeds
         assert!(matches!(
             FocusSpeed::new(8),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
     }
 

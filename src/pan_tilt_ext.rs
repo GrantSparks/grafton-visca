@@ -3,12 +3,12 @@
 // Crate imports
 use crate::{
     command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-    error::ViscaError,
-    ViscaDevice, ViscaResponse,
+    error::Error,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level pan/tilt control methods.
-pub trait ViscaPanTiltExt: ViscaDevice {
+pub trait PanTiltExt: Transport {
     /// Move camera to an absolute pan/tilt position.
     ///
     /// # Arguments
@@ -18,8 +18,8 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt, PanSpeed, TiltSpeed};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, PanTiltExt, PanSpeed, TiltSpeed};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Move to center position at default speed
     /// client.move_to_position(0, 0, None)?;
     ///
@@ -33,7 +33,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
     fn move_to_position(
@@ -41,7 +41,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
         pan: i16,
         tilt: i16,
         speed: Option<(PanSpeed, TiltSpeed)>,
-    ) -> Result<(), ViscaError> {
+    ) -> Result<(), Error> {
         let (pan_speed, tilt_speed) = speed.unwrap_or_else(|| {
             // Use safe default values that won't fail
             // 18 for pan and 14 for tilt are within valid ranges (0-24 and 0-20)
@@ -57,9 +57,9 @@ pub trait ViscaPanTiltExt: ViscaDevice {
             tilt,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -73,8 +73,8 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt, PanSpeed, TiltSpeed};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, PanTiltExt, PanSpeed, TiltSpeed};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Move 100 units right and 50 units up
     /// client.move_relative(100, 50, None)?;
     ///
@@ -88,7 +88,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
     fn move_relative(
@@ -96,7 +96,7 @@ pub trait ViscaPanTiltExt: ViscaDevice {
         pan_delta: i16,
         tilt_delta: i16,
         speed: Option<(PanSpeed, TiltSpeed)>,
-    ) -> Result<(), ViscaError> {
+    ) -> Result<(), Error> {
         let (pan_speed, tilt_speed) = speed.unwrap_or_else(|| {
             // Use safe default values that won't fail
             // 18 for pan and 14 for tilt are within valid ranges (0-24 and 0-20)
@@ -112,9 +112,9 @@ pub trait ViscaPanTiltExt: ViscaDevice {
             tilt: tilt_delta,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -127,14 +127,14 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     /// * `tilt_speed` - Tilt speed
     ///
     /// # Errors
-    /// Returns `ViscaError::UnexpectedResponseType` if camera returns unexpected response.
+    /// Returns `Error::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt, PanTiltDirection, PanSpeed, TiltSpeed};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, PanTiltExt, PanTiltDirection, PanSpeed, TiltSpeed};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Start moving up-right
     /// let pan_speed = PanSpeed::new(10)?;
     /// let tilt_speed = TiltSpeed::new(10)?;
@@ -152,16 +152,16 @@ pub trait ViscaPanTiltExt: ViscaDevice {
         direction: PanTiltDirection,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-    ) -> Result<(), ViscaError> {
+    ) -> Result<(), Error> {
         let command = PanTiltCommand::Move {
             direction,
             pan_speed,
             tilt_speed,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -169,17 +169,17 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     /// Stop all pan/tilt movement.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, PanTiltExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.stop_movement()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn stop_movement(&mut self) -> Result<(), ViscaError> {
+    fn stop_movement(&mut self) -> Result<(), Error> {
         let pan_speed = PanSpeed::new(0)?;
         let tilt_speed = TiltSpeed::new(0)?;
         let command = PanTiltCommand::Move {
@@ -188,9 +188,9 @@ pub trait ViscaPanTiltExt: ViscaDevice {
             tilt_speed,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -198,26 +198,26 @@ pub trait ViscaPanTiltExt: ViscaDevice {
     /// Return camera to home position.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaPanTiltExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, PanTiltExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.go_home()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn go_home(&mut self) -> Result<(), ViscaError> {
+    fn go_home(&mut self) -> Result<(), Error> {
         let command = PanTiltCommand::Home;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaDevice> ViscaPanTiltExt for T {}
+/// Implement the trait for all types that implement `Transport`
+impl<T: Transport> PanTiltExt for T {}

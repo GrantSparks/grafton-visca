@@ -13,9 +13,9 @@ use log::error;
 use crate::{
     command::{
         gain::AntiFlickerMode, luminance_contrast_sharpness::SharpnessMode, AFSensitivity,
-        ExposureMode, FocusZone, ViscaInquiryResponse, WhiteBalanceMode,
+        ExposureMode, FocusZone, InquiryResponse, WhiteBalanceMode,
     },
-    error::ViscaError,
+    error::Error,
 };
 
 /// Response from a VISCA command.
@@ -23,15 +23,15 @@ use crate::{
 /// Represents all possible responses from the camera including acknowledgments,
 /// completions, errors, and inquiry data.
 #[derive(Debug)]
-pub enum ViscaResponse {
+pub enum Response {
     /// Acknowledgment that the command was received and is being processed
     Ack,
     /// Command completed successfully (no data returned)
     Completion,
     /// Command failed with an error
-    Error(ViscaError),
+    Error(Error),
     /// Inquiry command response containing requested data
-    InquiryResponse(ViscaInquiryResponse),
+    InquiryResponse(InquiryResponse),
     /// Unknown response format (raw bytes provided for debugging)
     Unknown(Vec<u8>),
 }
@@ -40,7 +40,7 @@ pub enum ViscaResponse {
 ///
 /// Used to indicate what kind of data parser should expect in the response payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViscaResponseType {
+pub enum ResponseType {
     /// Power state inquiry response (On/Off).
     Power,
     /// Pan and tilt position inquiry response.
@@ -159,135 +159,128 @@ pub enum ViscaResponseType {
 ///
 /// # Errors
 ///
-/// Returns `ViscaError::InvalidResponseFormat` if the response format is invalid.
-/// Returns `ViscaError::InvalidResponseLength` if the response length doesn't match expected.
-/// Returns `ViscaError::UnexpectedResponseType` if the response data is invalid for the type.
+/// Returns `Error::InvalidResponseFormat` if the response format is invalid.
+/// Returns `Error::InvalidResponseLength` if the response length doesn't match expected.
+/// Returns `Error::UnexpectedResponseType` if the response data is invalid for the type.
 /// Returns a specific VISCA error code if the response indicates an error (0x60-0x6F).
 pub fn parse_visca_response(
     response: &[u8],
-    response_type: &ViscaResponseType,
-) -> Result<ViscaResponse, ViscaError> {
+    response_type: &ResponseType,
+) -> Result<Response, Error> {
     if response.len() < 3 || response[0] != 0x90 || response[response.len() - 1] != 0xFF {
-        return Err(ViscaError::InvalidResponseFormat);
+        return Err(Error::InvalidResponseFormat);
     }
 
     match response[1] {
-        0x40..=0x4F => Ok(ViscaResponse::Ack),
+        0x40..=0x4F => Ok(Response::Ack),
         0x50..=0x5F => {
             if response.len() == 3 {
-                return Ok(ViscaResponse::Completion);
+                return Ok(Response::Completion);
             }
             parse_inquiry_response(response, *response_type)
         }
-        0x60..=0x6F => Err(ViscaError::from_code(response[2])),
+        0x60..=0x6F => Err(Error::from_code(response[2])),
         _ => {
             error!("Unknown response: {response:02X?}");
-            Ok(ViscaResponse::Unknown(response.to_vec()))
+            Ok(Response::Unknown(response.to_vec()))
         }
     }
 }
 
-fn parse_inquiry_response(
-    response: &[u8],
-    response_type: ViscaResponseType,
-) -> Result<ViscaResponse, ViscaError> {
+fn parse_inquiry_response(response: &[u8], response_type: ResponseType) -> Result<Response, Error> {
     match response_type {
-        ViscaResponseType::Power => parse_power_response(response),
-        ViscaResponseType::PanTiltPosition => parse_pan_tilt_position(response),
-        ViscaResponseType::ZoomPosition => parse_position_response(response, PositionType::Zoom),
-        ViscaResponseType::FocusPosition => parse_position_response(response, PositionType::Focus),
-        ViscaResponseType::ExposureMode => parse_mode_response(response, ModeType::Exposure),
-        ViscaResponseType::WhiteBalanceMode => {
-            parse_mode_response(response, ModeType::WhiteBalance)
-        }
-        ViscaResponseType::ExposureCompensationMode => {
+        ResponseType::Power => parse_power_response(response),
+        ResponseType::PanTiltPosition => parse_pan_tilt_position(response),
+        ResponseType::ZoomPosition => parse_position_response(response, PositionType::Zoom),
+        ResponseType::FocusPosition => parse_position_response(response, PositionType::Focus),
+        ResponseType::ExposureMode => parse_mode_response(response, ModeType::Exposure),
+        ResponseType::WhiteBalanceMode => parse_mode_response(response, ModeType::WhiteBalance),
+        ResponseType::ExposureCompensationMode => {
             parse_mode_response(response, ModeType::ExposureCompensation)
         }
-        ViscaResponseType::SharpnessMode => parse_mode_response(response, ModeType::Sharpness),
-        ViscaResponseType::BlackWhite => parse_mode_response(response, ModeType::BlackWhite),
-        ViscaResponseType::Sharpness => {
+        ResponseType::SharpnessMode => parse_mode_response(response, ModeType::Sharpness),
+        ResponseType::BlackWhite => parse_mode_response(response, ModeType::BlackWhite),
+        ResponseType::Sharpness => {
             parse_value_response(response, ValueType::Extended(ExtendedValueType::Sharpness))
         }
-        ViscaResponseType::ExposureCompensation => parse_value_response(
+        ResponseType::ExposureCompensation => parse_value_response(
             response,
             ValueType::Extended(ExtendedValueType::ExposureCompensation),
         ),
-        ViscaResponseType::Iris => {
+        ResponseType::Iris => {
             parse_value_response(response, ValueType::Extended(ExtendedValueType::Iris))
         }
-        ViscaResponseType::Shutter => {
+        ResponseType::Shutter => {
             parse_value_response(response, ValueType::Extended(ExtendedValueType::Shutter))
         }
-        ViscaResponseType::Bright => {
+        ResponseType::Bright => {
             parse_value_response(response, ValueType::Extended(ExtendedValueType::Bright))
         }
-        ViscaResponseType::Gain => {
+        ResponseType::Gain => {
             parse_value_response(response, ValueType::Extended(ExtendedValueType::Gain))
         }
-        ViscaResponseType::GainLimit => {
+        ResponseType::GainLimit => {
             parse_value_response(response, ValueType::Simple(SimpleValueType::GainLimit))
         }
-        ViscaResponseType::AntiFlicker => {
+        ResponseType::AntiFlicker => {
             parse_value_response(response, ValueType::Simple(SimpleValueType::AntiFlicker))
         }
-        ViscaResponseType::Saturation => {
+        ResponseType::Saturation => {
             parse_value_response(response, ValueType::Extended(ExtendedValueType::Saturation))
         }
-        ViscaResponseType::Hue => {
+        ResponseType::Hue => {
             parse_value_response(response, ValueType::Extended(ExtendedValueType::Hue))
         }
-        ViscaResponseType::RedGain => {
+        ResponseType::RedGain => {
             parse_value_response(response, ValueType::Simple(SimpleValueType::RedGain))
         }
-        ViscaResponseType::BlueGain => {
+        ResponseType::BlueGain => {
             parse_value_response(response, ValueType::Simple(SimpleValueType::BlueGain))
         }
-        ViscaResponseType::ImageFlip => {
+        ResponseType::ImageFlip => {
             parse_value_response(response, ValueType::Simple(SimpleValueType::ImageFlip))
         }
-        ViscaResponseType::ColorTemperature => parse_value_response(
+        ResponseType::ColorTemperature => parse_value_response(
             response,
             ValueType::Extended(ExtendedValueType::ColorTemperature),
         ),
-        ViscaResponseType::NoiseReduction2D => parse_value_response(
+        ResponseType::NoiseReduction2D => parse_value_response(
             response,
             ValueType::Simple(SimpleValueType::NoiseReduction2D),
         ),
-        ViscaResponseType::NoiseReduction3D => parse_value_response(
+        ResponseType::NoiseReduction3D => parse_value_response(
             response,
             ValueType::Simple(SimpleValueType::NoiseReduction3D),
         ),
-        ViscaResponseType::FocusZone => {
+        ResponseType::FocusZone => {
             parse_value_response(response, ValueType::Simple(SimpleValueType::FocusZone))
         }
-        ViscaResponseType::AFSensitivity => {
+        ResponseType::AFSensitivity => {
             parse_value_response(response, ValueType::Simple(SimpleValueType::AFSensitivity))
         }
-        ViscaResponseType::FocusNearLimit => {
+        ResponseType::FocusNearLimit => {
             parse_position_response(response, PositionType::FocusNearLimit)
         }
-        ViscaResponseType::DynamicRange => parse_value_response(
+        ResponseType::DynamicRange => parse_value_response(
             response,
             ValueType::Extended(ExtendedValueType::DynamicRange),
         ),
-        _ => Ok(ViscaResponse::Completion),
+        _ => Ok(Response::Completion),
     }
 }
 
-#[allow(clippy::missing_const_for_fn)] // ViscaError contains String fields
-fn parse_power_response(response: &[u8]) -> Result<ViscaResponse, ViscaError> {
+#[allow(clippy::missing_const_for_fn)] // Error contains String fields
+fn parse_power_response(response: &[u8]) -> Result<Response, Error> {
     if response.len() != 4 {
-        return Err(ViscaError::InvalidResponseLength);
+        return Err(Error::InvalidResponseLength);
     }
     let on = response[2] == 0x02;
-    Ok(ViscaResponse::InquiryResponse(
-        ViscaInquiryResponse::Power { on },
-    ))
+    Ok(Response::InquiryResponse(InquiryResponse::Power { on }))
 }
 
-fn parse_pan_tilt_position(response: &[u8]) -> Result<ViscaResponse, ViscaError> {
+fn parse_pan_tilt_position(response: &[u8]) -> Result<Response, Error> {
     if response.len() != 11 {
-        return Err(ViscaError::InvalidResponseLength);
+        return Err(Error::InvalidResponseLength);
     }
 
     let mut pan = i16::from(response[2]) << 12;
@@ -300,17 +293,17 @@ fn parse_pan_tilt_position(response: &[u8]) -> Result<ViscaResponse, ViscaError>
     tilt |= i16::from(response[8]) << 4;
     tilt |= i16::from(response[9]);
 
-    Ok(ViscaResponse::InquiryResponse(
-        ViscaInquiryResponse::PanTiltPosition { pan, tilt },
+    Ok(Response::InquiryResponse(
+        InquiryResponse::PanTiltPosition { pan, tilt },
     ))
 }
 
 fn parse_position_response(
     response: &[u8],
     position_type: PositionType,
-) -> Result<ViscaResponse, ViscaError> {
+) -> Result<Response, Error> {
     if response.len() != 7 {
-        return Err(ViscaError::InvalidResponseLength);
+        return Err(Error::InvalidResponseLength);
     }
 
     let mut position = u16::from(response[2]) << 12;
@@ -319,136 +312,128 @@ fn parse_position_response(
     position |= u16::from(response[5]);
 
     match position_type {
-        PositionType::Zoom => Ok(ViscaResponse::InquiryResponse(
-            ViscaInquiryResponse::ZoomPosition { position },
-        )),
-        PositionType::Focus => Ok(ViscaResponse::InquiryResponse(
-            ViscaInquiryResponse::FocusPosition { position },
-        )),
-        PositionType::FocusNearLimit => Ok(ViscaResponse::InquiryResponse(
-            ViscaInquiryResponse::FocusNearLimit { position },
-        )),
+        PositionType::Zoom => Ok(Response::InquiryResponse(InquiryResponse::ZoomPosition {
+            position,
+        })),
+        PositionType::Focus => Ok(Response::InquiryResponse(InquiryResponse::FocusPosition {
+            position,
+        })),
+        PositionType::FocusNearLimit => {
+            Ok(Response::InquiryResponse(InquiryResponse::FocusNearLimit {
+                position,
+            }))
+        }
     }
 }
 
-fn parse_mode_response(response: &[u8], mode_type: ModeType) -> Result<ViscaResponse, ViscaError> {
+fn parse_mode_response(response: &[u8], mode_type: ModeType) -> Result<Response, Error> {
     if response.len() != 4 {
-        return Err(ViscaError::InvalidResponseLength);
+        return Err(Error::InvalidResponseLength);
     }
 
     match mode_type {
         ModeType::Exposure => {
-            let mode = ExposureMode::try_from(response[2])
-                .map_err(|()| ViscaError::UnexpectedResponseType)?;
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::ExposureMode { mode },
-            ))
+            let mode =
+                ExposureMode::try_from(response[2]).map_err(|()| Error::UnexpectedResponseType)?;
+            Ok(Response::InquiryResponse(InquiryResponse::ExposureMode {
+                mode,
+            }))
         }
         ModeType::WhiteBalance => {
             let mode = WhiteBalanceMode::try_from(response[2])
-                .map_err(|()| ViscaError::UnexpectedResponseType)?;
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::WhiteBalance { mode },
-            ))
+                .map_err(|()| Error::UnexpectedResponseType)?;
+            Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance {
+                mode,
+            }))
         }
         ModeType::ExposureCompensation => {
             let on = response[2] == 0x02;
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::ExposureCompensationMode { on },
+            Ok(Response::InquiryResponse(
+                InquiryResponse::ExposureCompensationMode { on },
             ))
         }
         ModeType::Sharpness => {
             let mode = match response[2] {
                 0x02 => SharpnessMode::Auto,
                 0x03 => SharpnessMode::Manual,
-                _ => return Err(ViscaError::UnexpectedResponseType),
+                _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::SharpnessMode { mode },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::SharpnessMode {
+                mode,
+            }))
         }
         ModeType::BlackWhite => {
             let on = response[2] == 0x04;
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::BlackWhite { on },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::BlackWhite {
+                on,
+            }))
         }
     }
 }
 
-fn parse_value_response(
-    response: &[u8],
-    value_type: ValueType,
-) -> Result<ViscaResponse, ViscaError> {
+fn parse_value_response(response: &[u8], value_type: ValueType) -> Result<Response, Error> {
     match value_type {
         ValueType::Simple(simple_type) => parse_simple_value(response, simple_type),
         ValueType::Extended(extended_type) => parse_extended_value(response, extended_type),
     }
 }
 
-#[allow(clippy::missing_const_for_fn)] // ViscaError contains String fields
-fn parse_simple_value(
-    response: &[u8],
-    value_type: SimpleValueType,
-) -> Result<ViscaResponse, ViscaError> {
+#[allow(clippy::missing_const_for_fn)] // Error contains String fields
+fn parse_simple_value(response: &[u8], value_type: SimpleValueType) -> Result<Response, Error> {
     if response.len() != 4 {
-        return Err(ViscaError::InvalidResponseLength);
+        return Err(Error::InvalidResponseLength);
     }
 
     match value_type {
         SimpleValueType::GainLimit => {
             let limit = response[2];
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::GainLimit { limit },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::GainLimit {
+                limit,
+            }))
         }
         SimpleValueType::AntiFlicker => {
             let mode = match response[2] {
                 0x00 => AntiFlickerMode::Off,
                 0x01 => AntiFlickerMode::Hz50,
                 0x02 => AntiFlickerMode::Hz60,
-                _ => return Err(ViscaError::UnexpectedResponseType),
+                _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::AntiFlicker { mode },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::AntiFlicker {
+                mode,
+            }))
         }
         SimpleValueType::RedGain => {
             let gain = i16::from(response[2]) - 10;
             #[allow(clippy::cast_possible_truncation)]
             let gain = gain as i8; // Safe: VISCA gain values are in valid range
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::RedGain { gain },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::RedGain { gain }))
         }
         SimpleValueType::BlueGain => {
             let gain = i16::from(response[2]) - 10;
             #[allow(clippy::cast_possible_truncation)]
             let gain = gain as i8; // Safe: VISCA gain values are in valid range
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::BlueGain { gain },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::BlueGain {
+                gain,
+            }))
         }
         SimpleValueType::ImageFlip => {
             let vertical = (response[2] & 0x02) != 0;
             let horizontal = (response[2] & 0x01) != 0;
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::ImageFlip {
-                    vertical,
-                    horizontal,
-                },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            }))
         }
         SimpleValueType::NoiseReduction2D => {
             let level = response[2];
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::NoiseReduction2D { level },
+            Ok(Response::InquiryResponse(
+                InquiryResponse::NoiseReduction2D { level },
             ))
         }
         SimpleValueType::NoiseReduction3D => {
             let level = response[2];
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::NoiseReduction3D { level },
+            Ok(Response::InquiryResponse(
+                InquiryResponse::NoiseReduction3D { level },
             ))
         }
         SimpleValueType::FocusZone => {
@@ -456,97 +441,90 @@ fn parse_simple_value(
                 0x00 => FocusZone::Top,
                 0x01 => FocusZone::Center,
                 0x02 => FocusZone::Bottom,
-                _ => return Err(ViscaError::UnexpectedResponseType),
+                _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::FocusZone { zone },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::FocusZone {
+                zone,
+            }))
         }
         SimpleValueType::AFSensitivity => {
             let sensitivity = match response[2] {
                 0x02 => AFSensitivity::High,
                 0x01 => AFSensitivity::Normal,
                 0x00 => AFSensitivity::Low,
-                _ => return Err(ViscaError::UnexpectedResponseType),
+                _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::AFSensitivity { sensitivity },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::AFSensitivity {
+                sensitivity,
+            }))
         }
     }
 }
 
-fn parse_extended_value(
-    response: &[u8],
-    value_type: ExtendedValueType,
-) -> Result<ViscaResponse, ViscaError> {
+fn parse_extended_value(response: &[u8], value_type: ExtendedValueType) -> Result<Response, Error> {
     if response.len() != 7 {
-        return Err(ViscaError::InvalidResponseLength);
+        return Err(Error::InvalidResponseLength);
     }
 
     match value_type {
         ExtendedValueType::Sharpness => {
             let value = (response[4] << 4) | response[5];
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::Sharpness { value },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::Sharpness {
+                value,
+            }))
         }
         ExtendedValueType::ExposureCompensation => {
             let raw_value = response[5];
             let value = i16::from(raw_value) - 7;
             #[allow(clippy::cast_possible_truncation)]
             let value = value as i8; // Safe: VISCA exposure compensation values are in valid range
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::ExposureCompensation { value },
+            Ok(Response::InquiryResponse(
+                InquiryResponse::ExposureCompensation { value },
             ))
         }
         ExtendedValueType::Iris => {
             let position = response[5];
-            Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Iris {
+            Ok(Response::InquiryResponse(InquiryResponse::Iris {
                 position,
             }))
         }
         ExtendedValueType::Shutter => {
             let position = (u16::from(response[4]) << 4) | u16::from(response[5]);
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::Shutter { position },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::Shutter {
+                position,
+            }))
         }
         ExtendedValueType::Bright => {
             let position = (u16::from(response[4]) << 4) | u16::from(response[5]);
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::Bright { position },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::Bright {
+                position,
+            }))
         }
         ExtendedValueType::Gain => {
             let gain = (response[4] << 4) | response[5];
-            Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Gain {
-                gain,
-            }))
+            Ok(Response::InquiryResponse(InquiryResponse::Gain { gain }))
         }
         ExtendedValueType::Saturation => {
             let level = response[5];
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::Saturation { level },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::Saturation {
+                level,
+            }))
         }
         ExtendedValueType::Hue => {
             let hue = response[5];
-            Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Hue {
-                hue,
-            }))
+            Ok(Response::InquiryResponse(InquiryResponse::Hue { hue }))
         }
         ExtendedValueType::ColorTemperature => {
             let temperature = (u16::from(response[4]) << 4) | u16::from(response[5]);
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::ColorTemperature { temperature },
+            Ok(Response::InquiryResponse(
+                InquiryResponse::ColorTemperature { temperature },
             ))
         }
         ExtendedValueType::DynamicRange => {
             let level = response[5];
-            Ok(ViscaResponse::InquiryResponse(
-                ViscaInquiryResponse::DynamicRange { level },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::DynamicRange {
+                level,
+            }))
         }
     }
 }
@@ -599,3 +577,5 @@ enum ExtendedValueType {
     ColorTemperature,
     DynamicRange,
 }
+
+// Temporary alias for backward compatibility

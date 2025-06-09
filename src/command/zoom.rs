@@ -11,8 +11,8 @@
 //! # #[cfg(feature = "blocking-client")]
 //! # {
 //! # use grafton_visca::command::{ZoomCommand, zoom::ZoomSpeed};
-//! # use grafton_visca::ViscaClient;
-//! # let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! # use grafton_visca::Client;
+//! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
 //! client.send(&ZoomCommand::TeleStandard).unwrap();
 //!
@@ -29,8 +29,8 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
-    error::ViscaError,
+    command::{Command, ResponseType},
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -70,8 +70,8 @@ pub enum ZoomCommand {
     Direct(u16),
 }
 
-impl ViscaCommand for ZoomCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for ZoomCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             // Stop command
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]),
@@ -103,10 +103,10 @@ impl ViscaCommand for ZoomCommand {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::TeleStandard => Some(ViscaResponseType::ZoomTeleStandard),
-            Self::WideStandard => Some(ViscaResponseType::ZoomWideStandard),
+            Self::TeleStandard => Some(ResponseType::ZoomTeleStandard),
+            Self::WideStandard => Some(ResponseType::ZoomWideStandard),
             _ => None,
         }
     }
@@ -142,13 +142,10 @@ mod tests {
         }
 
         // Invalid speed
-        assert!(matches!(
-            ZoomSpeed::new(8),
-            Err(ViscaError::InvalidParameter(_))
-        ));
+        assert!(matches!(ZoomSpeed::new(8), Err(Error::InvalidParameter(_))));
         assert!(matches!(
             ZoomSpeed::new(255),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
     }
 
@@ -185,10 +182,7 @@ mod tests {
             cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
         );
-        assert_eq!(
-            cmd.response_type(),
-            Some(ViscaResponseType::ZoomTeleStandard)
-        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ZoomTeleStandard));
     }
 
     #[test]
@@ -198,10 +192,7 @@ mod tests {
             cmd.to_bytes().expect("Valid command"),
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
         );
-        assert_eq!(
-            cmd.response_type(),
-            Some(ViscaResponseType::ZoomWideStandard)
-        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ZoomWideStandard));
     }
 
     #[test]

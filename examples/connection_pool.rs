@@ -13,13 +13,13 @@ use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
     command::power::{Power, PowerCommand},
     command::zoom::ZoomCommand,
-    connection_pool::{CameraInfo, ConnectionType, PoolConfig, ViscaConnectionPool},
+    connection_pool::{CameraInfo, ConnectionPool, ConnectionType, PoolConfig},
 };
 #[cfg(feature = "blocking-client")]
 use std::time::Duration;
 
 #[cfg(feature = "blocking-client")]
-fn setup_camera_pool() -> ViscaConnectionPool {
+fn setup_camera_pool() -> ConnectionPool {
     // Configure the connection pool
     let config = PoolConfig {
         health_check_interval: Duration::from_secs(30),
@@ -28,7 +28,7 @@ fn setup_camera_pool() -> ViscaConnectionPool {
     };
 
     // Create the connection pool
-    let pool = ViscaConnectionPool::new(config);
+    let pool = ConnectionPool::new(config);
 
     // Add multiple cameras to the pool
     println!("Adding cameras to the pool...");
@@ -85,7 +85,7 @@ fn setup_camera_pool() -> ViscaConnectionPool {
 }
 
 #[cfg(feature = "blocking-client")]
-fn power_on_cameras(pool: &ViscaConnectionPool) {
+fn power_on_cameras(pool: &ConnectionPool) {
     println!("\nPowering on cameras...");
     let power_on = PowerCommand { power: Power::On };
     for camera_id in pool.list_cameras() {
@@ -97,9 +97,7 @@ fn power_on_cameras(pool: &ViscaConnectionPool) {
 }
 
 #[cfg(feature = "blocking-client")]
-fn demonstrate_camera_control(
-    pool: &ViscaConnectionPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn demonstrate_camera_control(pool: &ConnectionPool) -> Result<(), Box<dyn std::error::Error>> {
     println!("\nControlling cameras...");
 
     // Pan all cameras to the left
@@ -145,7 +143,7 @@ fn demonstrate_camera_control(
 }
 
 #[cfg(feature = "blocking-client")]
-fn check_camera_health(pool: &ViscaConnectionPool) {
+fn check_camera_health(pool: &ConnectionPool) {
     println!("\nChecking camera health...");
     let health_results = pool.health_check_all();
     for (camera_id, is_healthy) in health_results {
@@ -158,7 +156,7 @@ fn check_camera_health(pool: &ViscaConnectionPool) {
 }
 
 #[cfg(feature = "blocking-client")]
-fn display_camera_stats(pool: &ViscaConnectionPool) {
+fn display_camera_stats(pool: &ConnectionPool) {
     println!("\nCamera statistics:");
     for stats in pool.get_all_stats() {
         println!(
@@ -175,7 +173,7 @@ fn display_camera_stats(pool: &ViscaConnectionPool) {
 }
 
 #[cfg(feature = "blocking-client")]
-fn cleanup_cameras(pool: &ViscaConnectionPool) {
+fn cleanup_cameras(pool: &ConnectionPool) {
     // Remove unhealthy cameras if configured
     let removed = pool.remove_unhealthy();
     if removed.is_empty() {

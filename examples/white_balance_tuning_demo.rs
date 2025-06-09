@@ -1,13 +1,13 @@
 //! Demonstrates white balance fine-tuning commands.
 
-use grafton_visca::{ViscaClient, ViscaWhiteBalanceExt};
+use grafton_visca::{Client, WhiteBalanceExt};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
 
     // Create client
-    let mut client = ViscaClient::connect_udp("192.168.1.100:52381")?;
+    let mut client = Client::connect_udp("192.168.1.100:52381")?;
 
     // Demonstrate fine-tuning commands
     println!("Demonstrating white balance fine-tuning...");

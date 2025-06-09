@@ -3,7 +3,7 @@
 //! This module contains shared code used by multiple transport implementations
 //! to reduce duplication.
 
-use crate::ViscaError;
+use crate::error::Error;
 use log::debug;
 
 /// Buffer management utilities for VISCA transports.
@@ -116,10 +116,10 @@ pub const fn parse_frame_type(frame: &[u8]) -> FrameType {
     }
 }
 
-/// Convert a VISCA error code to a `ViscaError`.
+/// Convert a VISCA error code to a `Error`.
 #[must_use]
-pub const fn error_code_to_error(error_code: u8) -> ViscaError {
-    ViscaError::from_code(error_code)
+pub const fn error_code_to_error(error_code: u8) -> Error {
+    Error::from_code(error_code)
 }
 
 /// Log frame data in a readable format.
@@ -150,21 +150,21 @@ fn format_frame_description(frame: &[u8]) -> String {
 
 /// Health check utilities for transports.
 pub mod health_check {
-    use crate::command::ViscaCommand;
-    use crate::ViscaError;
+    use crate::command::Command;
+    use crate::error::Error;
 
     /// A simple health check command that queries camera power status.
     #[derive(Debug, Clone, Copy)]
     pub struct HealthCheckCommand;
 
-    impl ViscaCommand for HealthCheckCommand {
-        fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    impl Command for HealthCheckCommand {
+        fn to_bytes(&self) -> Result<Vec<u8>, Error> {
             // Power inquiry command
             Ok(vec![0x81, 0x09, 0x04, 0x00, 0xFF])
         }
 
-        fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
-            Some(crate::command::ViscaResponseType::Power)
+        fn response_type(&self) -> Option<crate::command::ResponseType> {
+            Some(crate::command::ResponseType::Power)
         }
 
         fn command_category(&self) -> crate::timeout::CommandCategory {
@@ -174,15 +174,15 @@ pub mod health_check {
 
     /// Create a power inquiry command for health checks.
     #[must_use]
-    pub fn create_health_check_command() -> impl ViscaCommand {
+    pub fn create_health_check_command() -> impl Command {
         HealthCheckCommand
     }
 
     /// Validate a health check response.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the frames cannot be parsed.
-    pub fn validate_health_check_response(frames: &[Vec<u8>]) -> Result<bool, ViscaError> {
+    /// Returns `Error` if the frames cannot be parsed.
+    pub fn validate_health_check_response(frames: &[Vec<u8>]) -> Result<bool, Error> {
         // Look for a valid power inquiry response
         for frame in frames {
             if frame.len() >= 4 && frame[0] == 0x90 && frame[1] == 0x50 {
@@ -262,18 +262,12 @@ mod tests {
 
     #[test]
     fn test_error_code_conversion() {
-        assert!(matches!(
-            error_code_to_error(0x01),
-            ViscaError::Unknown(0x01)
-        ));
-        assert!(matches!(error_code_to_error(0x02), ViscaError::SyntaxError));
+        assert!(matches!(error_code_to_error(0x01), Error::Unknown(0x01)));
+        assert!(matches!(error_code_to_error(0x02), Error::SyntaxError));
         assert!(matches!(
             error_code_to_error(0x03),
-            ViscaError::CommandBufferFull
+            Error::CommandBufferFull
         ));
-        assert!(matches!(
-            error_code_to_error(0x99),
-            ViscaError::Unknown(0x99)
-        ));
+        assert!(matches!(error_code_to_error(0x99), Error::Unknown(0x99)));
     }
 }

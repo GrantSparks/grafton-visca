@@ -16,7 +16,7 @@
 
 /// Create a simple VISCA command enum with byte sequences.
 ///
-/// This macro generates a complete implementation of the `ViscaCommand` trait
+/// This macro generates a complete implementation of the `Command` trait
 /// for simple commands that don't require parameters.
 ///
 /// # Example
@@ -52,8 +52,8 @@ macro_rules! visca_command {
             )+
         }
 
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+        impl $crate::command::Command for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
                 match self {
                     $(
                         Self::$variant $( ($($param),*) )? => $crate::visca_command!(@expand_body $body, $($($param),*)?),
@@ -61,7 +61,7 @@ macro_rules! visca_command {
                 }
             }
 
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
                 None
             }
 
@@ -98,7 +98,7 @@ macro_rules! visca_command {
 /// ```ignore
 /// use grafton_visca::execute_command;
 ///
-/// fn zoom_in(&mut self) -> Result<(), ViscaError> {
+/// fn zoom_in(&mut self) -> Result<(), Error> {
 ///     execute_command!(self, ZoomCommand::TeleStandard)
 /// }
 /// ```
@@ -106,9 +106,9 @@ macro_rules! visca_command {
 macro_rules! execute_command {
     ($device:expr, $command:expr) => {
         match $device.execute_command(&$command)? {
-            $crate::ViscaResponse::Completion => Ok(()),
-            $crate::ViscaResponse::Error(e) => Err(e),
-            _ => Err($crate::ViscaError::UnexpectedResponseType),
+            $crate::Response::Completion => Ok(()),
+            $crate::Response::Error(e) => Err(e),
+            _ => Err($crate::Error::UnexpectedResponseType),
         }
     };
 }
@@ -154,12 +154,12 @@ macro_rules! visca_bounded_param {
             /// Creates a new instance with validation.
             ///
             /// # Errors
-            /// Returns `ViscaError::InvalidParameter` if value is out of range.
-            pub fn new(value: $type) -> Result<Self, $crate::ViscaError> {
+            /// Returns `Error::InvalidParameter` if value is out of range.
+            pub fn new(value: $type) -> Result<Self, $crate::Error> {
                 if (Self::MIN..=Self::MAX).contains(&value) {
                     Ok(Self(value))
                 } else {
-                    Err($crate::ViscaError::InvalidParameter($error_msg.into()))
+                    Err($crate::Error::InvalidParameter($error_msg.into()))
                 }
             }
 
@@ -171,7 +171,7 @@ macro_rules! visca_bounded_param {
         }
 
         impl std::convert::TryFrom<$type> for $name {
-            type Error = $crate::ViscaError;
+            type Error = $crate::Error;
 
             fn try_from(value: $type) -> Result<Self, Self::Error> {
                 Self::new(value)
@@ -241,8 +241,8 @@ macro_rules! visca_up_down_reset {
             )?
         }
 
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+        impl $crate::command::Command for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
                 Ok(match self {
                     Self::Reset => vec![0x81, 0x01, 0x04, $cmd, 0x00, 0xFF],
                     Self::Up => vec![0x81, 0x01, 0x04, $cmd, 0x02, 0xFF],
@@ -263,7 +263,7 @@ macro_rules! visca_up_down_reset {
                 })
             }
 
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
                 None
             }
 
@@ -322,15 +322,15 @@ macro_rules! visca_param_command {
             pub $field: $type,
         }
 
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+        impl $crate::command::Command for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
                 // Pre-allocate with the expected size to avoid vec_init_then_push warning
                 let mut bytes = Vec::with_capacity(16); // VISCA commands are typically short
                 visca_param_command!(@encode bytes, self, [$($byte)*]);
                 Ok(bytes)
             }
 
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
                 None
             }
 
@@ -355,8 +355,8 @@ macro_rules! visca_param_command {
             pub $field: $type,
         }
 
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+        impl $crate::command::Command for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
                 let $v = self.$field;
                 let encoded = $encode?;
                 let mut bytes = Vec::with_capacity(16);
@@ -364,7 +364,7 @@ macro_rules! visca_param_command {
                 Ok(bytes)
             }
 
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
                 None
             }
 
@@ -389,8 +389,8 @@ macro_rules! visca_param_command {
             pub $field: $type,
         }
 
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+        impl $crate::command::Command for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
                 let p = (self.$field >> 12) as u8;
                 let q = ((self.$field >> 8) & 0x0F) as u8;
                 let r = ((self.$field >> 4) & 0x0F) as u8;
@@ -400,7 +400,7 @@ macro_rules! visca_param_command {
                 Ok(bytes)
             }
 
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
                 None
             }
 
@@ -502,13 +502,13 @@ macro_rules! visca_inquiry {
         #[derive(Debug, Copy, Clone)]
         pub struct $name;
 
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+        impl $crate::command::Command for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
                 Ok(vec![0x81, 0x09, 0x04, $inquiry_byte, 0xFF])
             }
 
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
-                Some($crate::command::ViscaResponseType::Inquiry)
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
+                Some($crate::command::ResponseType::Inquiry)
             }
 
             fn command_category(&self) -> $crate::timeout::CommandCategory {
@@ -529,7 +529,7 @@ macro_rules! visca_inquiry {
 /// ```ignore
 /// use grafton_visca::impl_up_down_reset;
 ///
-/// impl ViscaExposureExt for MyDevice {
+/// impl ExposureExt for MyDevice {
 ///     impl_up_down_reset!(iris, IrisCommand);
 ///     // Generates: iris_up(), iris_down(), iris_reset()
 /// }
@@ -538,15 +538,15 @@ macro_rules! visca_inquiry {
 macro_rules! impl_up_down_reset {
     ($prefix:ident, $command_type:ty) => {
         paste::paste! {
-            fn [<$prefix _up>](&mut self) -> Result<(), $crate::ViscaError> {
+            fn [<$prefix _up>](&mut self) -> Result<(), $crate::Error> {
                 $crate::execute_command!(self, <$command_type>::Up)
             }
 
-            fn [<$prefix _down>](&mut self) -> Result<(), $crate::ViscaError> {
+            fn [<$prefix _down>](&mut self) -> Result<(), $crate::Error> {
                 $crate::execute_command!(self, <$command_type>::Down)
             }
 
-            fn [<$prefix _reset>](&mut self) -> Result<(), $crate::ViscaError> {
+            fn [<$prefix _reset>](&mut self) -> Result<(), $crate::Error> {
                 $crate::execute_command!(self, <$command_type>::Reset)
             }
         }
@@ -561,7 +561,7 @@ macro_rules! impl_up_down_reset {
 /// ```ignore
 /// use grafton_visca::impl_simple_command;
 ///
-/// impl ViscaImageExt for MyDevice {
+/// impl ImageExt for MyDevice {
 ///     impl_simple_command!(backlight_on, BacklightCommand { status: true });
 ///     impl_simple_command!(backlight_off, BacklightCommand { status: false });
 /// }
@@ -569,7 +569,7 @@ macro_rules! impl_up_down_reset {
 #[macro_export]
 macro_rules! impl_simple_command {
     ($method_name:ident, $command:expr) => {
-        fn $method_name(&mut self) -> Result<(), $crate::ViscaError> {
+        fn $method_name(&mut self) -> Result<(), $crate::Error> {
             $crate::execute_command!(self, $command)
         }
     };
@@ -610,8 +610,8 @@ macro_rules! visca_bool_command {
             pub $field: bool,
         }
 
-        impl $crate::command::ViscaCommand for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::ViscaError> {
+        impl $crate::command::Command for $name {
+            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
                 let $v = self.$field;
                 let encoded = $encode;
                 let mut bytes = Vec::with_capacity(16);
@@ -619,7 +619,7 @@ macro_rules! visca_bool_command {
                 Ok(bytes)
             }
 
-            fn response_type(&self) -> Option<$crate::command::ViscaResponseType> {
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
                 None
             }
 

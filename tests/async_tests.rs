@@ -16,7 +16,7 @@ use grafton_visca::{
         InquiryCommand,
     },
     transport::Transport,
-    ViscaError,
+    Error,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -147,11 +147,11 @@ async fn test_timeout_handling() {
 
     assert!(result.is_err()); // Timeout from tokio
 
-    // Test with longer timeout - should get ViscaError::Timeout
+    // Test with longer timeout - should get Error::Timeout
     let result = timeout(Duration::from_millis(200), transport.receive_response()).await;
 
     assert!(result.is_ok()); // No tokio timeout
-    assert!(matches!(result.unwrap(), Err(ViscaError::Timeout))); // But VISCA timeout
+    assert!(matches!(result.unwrap(), Err(Error::Timeout))); // But VISCA timeout
 }
 
 #[tokio::test]
@@ -171,7 +171,7 @@ async fn test_error_propagation() {
     assert!(result.is_err());
 
     match result.unwrap_err() {
-        ViscaError::Io(e) => {
+        Error::Io(e) => {
             assert_eq!(e.kind(), std::io::ErrorKind::ConnectionAborted);
         }
         _ => panic!("Expected IO error"),
@@ -234,7 +234,7 @@ async fn test_concurrent_timeout_handling() {
     // Second should timeout (no response available)
     let r2_result = r2.unwrap();
     assert!(r2_result.is_ok()); // tokio timeout didn't fire
-    assert!(matches!(r2_result.unwrap(), Err(ViscaError::Timeout)));
+    assert!(matches!(r2_result.unwrap(), Err(Error::Timeout)));
 }
 
 #[tokio::test]

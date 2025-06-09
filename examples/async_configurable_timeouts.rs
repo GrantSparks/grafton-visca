@@ -21,14 +21,14 @@ fn main() {
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{
-    async_transport::AsyncViscaTransport,
+    async_transport::AsyncTransport,
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         preset::{PresetAction, PresetCommand, PresetNumber},
         response::parse_visca_response,
         InquiryCommand,
     },
-    AsyncUdpTransport, TimeoutConfigBuilder, ViscaCommand, ViscaError, ViscaResponse,
+    AsyncUdpTransport, TimeoutConfigBuilder, Command, Error, ViscaResponse,
 };
 #[cfg(feature = "async-client")]
 use std::error::Error;
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 #[cfg(feature = "async-client")]
 async fn demonstrate_quick_command(
-    transport: &mut dyn AsyncViscaTransport,
+    transport: &mut dyn AsyncTransport,
 ) -> Result<(), Box<dyn Error>> {
     println!("1. Quick Command (Power Inquiry):");
 
@@ -111,7 +111,7 @@ async fn demonstrate_quick_command(
 
 #[cfg(feature = "async-client")]
 async fn demonstrate_movement_command(
-    transport: &mut dyn AsyncViscaTransport,
+    transport: &mut dyn AsyncTransport,
 ) -> Result<(), Box<dyn Error>> {
     println!("2. Movement Command (Pan/Tilt):");
 
@@ -149,7 +149,7 @@ async fn demonstrate_movement_command(
 
 #[cfg(feature = "async-client")]
 async fn demonstrate_preset_command(
-    transport: &mut dyn AsyncViscaTransport,
+    transport: &mut dyn AsyncTransport,
 ) -> Result<(), Box<dyn Error>> {
     println!("3. Preset Command (Recall Preset):");
 
@@ -179,9 +179,9 @@ async fn demonstrate_preset_command(
 /// Helper function to send a command and wait for the appropriate response
 #[cfg(feature = "async-client")]
 async fn send_and_wait_async(
-    transport: &mut dyn AsyncViscaTransport,
-    command: &dyn ViscaCommand,
-) -> Result<ViscaResponse, ViscaError> {
+    transport: &mut dyn AsyncTransport,
+    command: &dyn Command,
+) -> Result<ViscaResponse, Error> {
     let response_type = command.response_type();
 
     // Send the command
@@ -194,7 +194,7 @@ async fn send_and_wait_async(
             let responses = transport.receive_response().await?;
             for response_data in &responses {
                 let parsed = parse_visca_response(response_data, &expected_type)?;
-                if matches!(parsed, ViscaResponse::InquiryResponse(_)) {
+                if matches!(parsed, Response::InquiryResponse(_)) {
                     return Ok(parsed);
                 }
             }
@@ -216,7 +216,7 @@ async fn send_and_wait_async(
                         }
                         0x51 | 0x52 => {
                             // Completion
-                            return Ok(ViscaResponse::Completion);
+                            return Ok(Response::Completion);
                         }
                         0x60..=0x62 => {
                             // Error
@@ -225,7 +225,7 @@ async fn send_and_wait_async(
                             } else {
                                 0
                             };
-                            return Ok(ViscaResponse::Error(ViscaError::from_code(error_code)));
+                            return Ok(Response::Error(Error::from_code(error_code)));
                         }
                         _ => continue,
                     }

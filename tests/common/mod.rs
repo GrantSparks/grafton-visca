@@ -3,19 +3,18 @@
 //! This module provides shared mock implementations and utilities
 //! to avoid code duplication across test files.
 
-use grafton_visca::{ViscaCommand, ViscaError};
+use grafton_visca::{Command, Error};
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
-    command::ViscaResponseType, parse_visca_response, ViscaDevice, ViscaInquiryResponse,
-    ViscaResponse,
+    command::ResponseType, parse_visca_response, InquiryResponse, Response, Transport,
 };
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::transport::{BlockingAdapter, BlockingTransport};
 
 #[cfg(feature = "async-client")]
-use grafton_visca::transport::{Transport, TransportFuture};
+use grafton_visca::transport::{Transport as AsyncTransport, TransportFuture};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -88,12 +87,12 @@ impl MockTransport {
 
 #[cfg(feature = "blocking-client")]
 impl BlockingTransport for MockTransport {
-    fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
         // Check if we should fail after N commands
         let count = self.commands_sent.lock().unwrap().len();
         if let Some(fail_after) = self.fail_after {
             if count >= fail_after {
-                return Err(ViscaError::Io(std::io::Error::new(
+                return Err(Error::Io(std::io::Error::new(
                     std::io::ErrorKind::ConnectionAborted,
                     "Mock failure after N commands",
                 )));
@@ -101,21 +100,21 @@ impl BlockingTransport for MockTransport {
         }
 
         if self.fail_send {
-            Err(ViscaError::Io(std::io::Error::other("Mock send error")))
+            Err(Error::Io(std::io::Error::other("Mock send error")))
         } else {
             self.commands_sent.lock().unwrap().push(command.to_bytes()?);
             Ok(())
         }
     }
 
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
         if self.fail_receive {
-            Err(ViscaError::Io(std::io::Error::other("Mock receive error")))
+            Err(Error::Io(std::io::Error::other("Mock receive error")))
         } else {
             let mut responses = self.responses.lock().unwrap();
             responses
                 .pop_front()
-                .map_or(Err(ViscaError::Timeout), |response| Ok(vec![response]))
+                .map_or(Err(Error::Timeout), |response| Ok(vec![response]))
         }
     }
 }
@@ -157,13 +156,13 @@ impl MockDevice {
     }
 
     /// Add an inquiry response.
-    pub fn queue_inquiry_response(&self, response: ViscaInquiryResponse) {
+    pub fn queue_inquiry_response(&self, response: InquiryResponse) {
         // Convert the inquiry response to bytes based on its type
         let bytes = match response {
-            ViscaInquiryResponse::Power { on } => {
+            InquiryResponse::Power { on } => {
                 vec![0x90, 0x50, if on { 0x02 } else { 0x03 }, 0xFF]
             }
-            ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
+            InquiryResponse::PanTiltPosition { pan, tilt } => {
                 // Extract 4-bit nibbles from 16-bit signed values
                 // Using transmute for protocol-level bit manipulation
                 let pan_u16 = u16::from_ne_bytes(pan.to_ne_bytes());
@@ -182,7 +181,7 @@ impl MockDevice {
                     0xFF,
                 ]
             }
-            ViscaInquiryResponse::ZoomPosition { position } => {
+            InquiryResponse::ZoomPosition { position } => {
                 vec![
                     0x90,
                     0x50,
@@ -215,8 +214,8 @@ impl MockDevice {
 }
 
 #[cfg(feature = "blocking-client")]
-impl ViscaDevice for MockDevice {
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+impl Transport for MockDevice {
+    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         // For blocking transport, we don't need futures
         use grafton_visca::transport::Transport;
         use std::future::Future;
@@ -260,14 +259,14 @@ impl ViscaDevice for MockDevice {
         let is_inquiry = matches!(
             command.response_type(),
             Some(
-                ViscaResponseType::Power
-                    | ViscaResponseType::PanTiltPosition
-                    | ViscaResponseType::ZoomPosition
-                    | ViscaResponseType::FocusPosition
-                    | ViscaResponseType::ExposureMode
-                    | ViscaResponseType::WhiteBalanceMode
-                    | ViscaResponseType::Sharpness
-                    | ViscaResponseType::ExposureCompensation
+                ResponseType::Power
+                    | ResponseType::PanTiltPosition
+                    | ResponseType::ZoomPosition
+                    | ResponseType::FocusPosition
+                    | ResponseType::ExposureMode
+                    | ResponseType::WhiteBalanceMode
+                    | ResponseType::Sharpness
+                    | ResponseType::ExposureCompensation
             )
         );
 
@@ -279,7 +278,7 @@ impl ViscaDevice for MockDevice {
                     return parse_visca_response(&response, &resp_type);
                 }
             }
-            return Err(ViscaError::Timeout);
+            return Err(Error::Timeout);
         }
 
         // For control commands, expect ACK then completion or direct error
@@ -287,7 +286,7 @@ impl ViscaDevice for MockDevice {
         if let Some(first) = first_responses.into_iter().next() {
             // Check for direct error response
             if first.len() >= 4 && first[0] == 0x90 && first[1] == 0x60 {
-                return Err(ViscaError::from_code(first[2]));
+                return Err(Error::from_code(first[2]));
             }
 
             // Verify it's an ACK
@@ -298,7 +297,7 @@ impl ViscaDevice for MockDevice {
                 if let Some(comp) = comp_responses.into_iter().next() {
                     // Check for error responses
                     if comp.len() >= 4 && comp[0] == 0x90 && comp[1] == 0x60 {
-                        return Err(ViscaError::from_code(comp[2]));
+                        return Err(Error::from_code(comp[2]));
                     }
                     // Check for completion
                     if comp.len() == 3
@@ -306,13 +305,13 @@ impl ViscaDevice for MockDevice {
                         && (comp[1] & 0xF0) == 0x50
                         && comp[2] == 0xFF
                     {
-                        return Ok(ViscaResponse::Completion);
+                        return Ok(Response::Completion);
                     }
                 }
             }
         }
 
-        Err(ViscaError::InvalidResponse {
+        Err(Error::InvalidResponse {
             expected: "ACK followed by completion".to_string(),
             actual: vec![],
         })
@@ -374,17 +373,14 @@ mod async_mock {
         }
     }
 
-    impl Transport for MockAsyncTransport {
-        fn send_command<'a>(
-            &'a mut self,
-            command: &'a dyn ViscaCommand,
-        ) -> TransportFuture<'a, ()> {
+    impl AsyncTransport for MockAsyncTransport {
+        fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
             Box::pin(async move {
                 let count = self.sent_commands.lock().await.len();
 
                 if let Some(fail_after) = self.fail_after {
                     if count >= fail_after {
-                        return Err(ViscaError::Io(std::io::Error::new(
+                        return Err(Error::Io(std::io::Error::new(
                             std::io::ErrorKind::ConnectionAborted,
                             "Simulated connection failure",
                         )));
@@ -405,7 +401,7 @@ mod async_mock {
 
                 let mut responses = self.responses.lock().await;
                 if responses.is_empty() {
-                    Err(ViscaError::Timeout)
+                    Err(Error::Timeout)
                 } else {
                     Ok(vec![responses.remove(0)])
                 }

@@ -13,26 +13,26 @@ use crate::{
         ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode, GainCommand,
         GainLimitCommand, IrisCommand, ShutterCommand,
     },
-    error::ViscaError,
-    execute_command, ViscaDevice,
+    error::Error,
+    execute_command, Transport,
 };
 
 /// Extension trait providing high-level exposure control methods.
-pub trait ViscaExposureExt: ViscaDevice {
+pub trait ExposureExt: Transport {
     /// Set the exposure mode.
     ///
     /// # Arguments
     /// * `mode` - The exposure mode to set
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # use grafton_visca::command::exposure::ExposureMode;
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to auto exposure
     /// client.set_exposure_mode(ExposureMode::Auto)?;
     ///
@@ -44,7 +44,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), ViscaError> {
+    fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), Error> {
         execute_command!(self, ExposureCommand { mode })
     }
 
@@ -54,14 +54,14 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `level` - Compensation level (-7 to +7)
     ///
     /// # Errors
-    /// * `ViscaError::InvalidParameter` - Level is outside the valid range (-7 to +7)
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::InvalidParameter` - Level is outside the valid range (-7 to +7)
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Increase exposure by 2 stops
     /// client.set_exposure_compensation(2)?;
     ///
@@ -73,7 +73,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_exposure_compensation(&mut self, level: i8) -> Result<(), ViscaError> {
+    fn set_exposure_compensation(&mut self, level: i8) -> Result<(), Error> {
         let compensation_level = ExposureCompensationLevel::new(level)?;
         execute_command!(
             self,
@@ -87,13 +87,13 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `enabled` - Whether to enable exposure compensation
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Enable exposure compensation
     /// client.set_exposure_compensation_enabled(true)?;
     ///
@@ -105,7 +105,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_exposure_compensation_enabled(&mut self, enabled: bool) -> Result<(), ViscaError> {
+    fn set_exposure_compensation_enabled(&mut self, enabled: bool) -> Result<(), Error> {
         let command = if enabled {
             ExposureCompensationCommand::On
         } else {
@@ -117,54 +117,54 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// Reset exposure compensation to 0.
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.reset_exposure_compensation()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn reset_exposure_compensation(&mut self) -> Result<(), ViscaError> {
+    fn reset_exposure_compensation(&mut self) -> Result<(), Error> {
         execute_command!(self, ExposureCompensationCommand::Reset)
     }
 
     /// Increase exposure compensation by one step.
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.exposure_compensation_up()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn exposure_compensation_up(&mut self) -> Result<(), ViscaError> {
+    fn exposure_compensation_up(&mut self) -> Result<(), Error> {
         execute_command!(self, ExposureCompensationCommand::Up)
     }
 
     /// Decrease exposure compensation by one step.
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.exposure_compensation_down()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn exposure_compensation_down(&mut self) -> Result<(), ViscaError> {
+    fn exposure_compensation_down(&mut self) -> Result<(), Error> {
         execute_command!(self, ExposureCompensationCommand::Down)
     }
 
@@ -174,14 +174,14 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `value` - Iris value (0x00 to 0x0C)
     ///
     /// # Errors
-    /// * `ViscaError::InvalidParameter` - Value is outside the valid range (0x00 to 0x0C)
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::InvalidParameter` - Value is outside the valid range (0x00 to 0x0C)
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set iris to F5.6
     /// client.set_iris(0x08)?;
     ///
@@ -190,7 +190,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_iris(&mut self, value: u8) -> Result<(), ViscaError> {
+    fn set_iris(&mut self, value: u8) -> Result<(), Error> {
         use crate::types::IrisLevel;
         execute_command!(self, IrisCommand::Direct(IrisLevel::new(value)?))
     }
@@ -198,54 +198,54 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// Increase iris opening (brighter).
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.iris_up()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn iris_up(&mut self) -> Result<(), ViscaError> {
+    fn iris_up(&mut self) -> Result<(), Error> {
         execute_command!(self, IrisCommand::Up)
     }
 
     /// Decrease iris opening (darker).
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.iris_down()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn iris_down(&mut self) -> Result<(), ViscaError> {
+    fn iris_down(&mut self) -> Result<(), Error> {
         execute_command!(self, IrisCommand::Down)
     }
 
     /// Reset iris to default.
     ///
     /// # Errors
-    /// * `ViscaError::NetworkError` - Communication error with the camera
-    /// * `ViscaError::CommandFailed` - Camera rejected the command
+    /// * `Error::NetworkError` - Communication error with the camera
+    /// * `Error::CommandFailed` - Camera rejected the command
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.iris_reset()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn iris_reset(&mut self) -> Result<(), ViscaError> {
+    fn iris_reset(&mut self) -> Result<(), Error> {
         execute_command!(self, IrisCommand::Reset)
     }
 
@@ -255,12 +255,12 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `value` - Shutter speed value (0x00 to 0x15)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set shutter to 1/60
     /// client.set_shutter(0x08)?;
     ///
@@ -269,7 +269,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_shutter(&mut self, value: u8) -> Result<(), ViscaError> {
+    fn set_shutter(&mut self, value: u8) -> Result<(), Error> {
         use crate::types::ShutterSpeed;
         execute_command!(
             self,
@@ -280,51 +280,51 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// Increase shutter speed (faster, darker).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.shutter_up()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn shutter_up(&mut self) -> Result<(), ViscaError> {
+    fn shutter_up(&mut self) -> Result<(), Error> {
         execute_command!(self, ShutterCommand::Up)
     }
 
     /// Decrease shutter speed (slower, brighter).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.shutter_down()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn shutter_down(&mut self) -> Result<(), ViscaError> {
+    fn shutter_down(&mut self) -> Result<(), Error> {
         execute_command!(self, ShutterCommand::Down)
     }
 
     /// Reset shutter to default.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.shutter_reset()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn shutter_reset(&mut self) -> Result<(), ViscaError> {
+    fn shutter_reset(&mut self) -> Result<(), Error> {
         execute_command!(self, ShutterCommand::Reset)
     }
 
@@ -334,12 +334,12 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `value` - Gain value (0x00 to 0x0F)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum gain (0 dB)
     /// client.set_gain(0x00)?;
     ///
@@ -351,7 +351,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_gain(&mut self, value: u8) -> Result<(), ViscaError> {
+    fn set_gain(&mut self, value: u8) -> Result<(), Error> {
         use crate::types::GainValue;
         execute_command!(self, GainCommand::Direct(GainValue::new(value)?))
     }
@@ -359,51 +359,51 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// Increase gain (brighter but more noise).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.gain_up()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn gain_up(&mut self) -> Result<(), ViscaError> {
+    fn gain_up(&mut self) -> Result<(), Error> {
         execute_command!(self, GainCommand::Up)
     }
 
     /// Decrease gain (darker but less noise).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.gain_down()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn gain_down(&mut self) -> Result<(), ViscaError> {
+    fn gain_down(&mut self) -> Result<(), Error> {
         execute_command!(self, GainCommand::Down)
     }
 
     /// Reset gain to default.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.gain_reset()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn gain_reset(&mut self) -> Result<(), ViscaError> {
+    fn gain_reset(&mut self) -> Result<(), Error> {
         execute_command!(self, GainCommand::Reset)
     }
 
@@ -413,12 +413,12 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `limit` - Maximum allowed gain value (0x04 to 0x0F)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Limit gain to 24 dB
     /// client.set_gain_limit(0x08)?;
     ///
@@ -427,7 +427,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_gain_limit(&mut self, limit: u8) -> Result<(), ViscaError> {
+    fn set_gain_limit(&mut self, limit: u8) -> Result<(), Error> {
         use crate::types::GainLimit;
         execute_command!(
             self,
@@ -443,12 +443,12 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `value` - Brightness value (0x00 to 0x17)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set neutral brightness
     /// client.set_brightness(0x0C)?;
     ///
@@ -460,7 +460,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_brightness(&mut self, value: u8) -> Result<(), ViscaError> {
+    fn set_brightness(&mut self, value: u8) -> Result<(), Error> {
         use crate::types::BrightnessLevel;
         execute_command!(
             self,
@@ -471,51 +471,51 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// Increase brightness.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.brightness_up()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn brightness_up(&mut self) -> Result<(), ViscaError> {
+    fn brightness_up(&mut self) -> Result<(), Error> {
         execute_command!(self, BrightCommand::Up)
     }
 
     /// Decrease brightness.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.brightness_down()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn brightness_down(&mut self) -> Result<(), ViscaError> {
+    fn brightness_down(&mut self) -> Result<(), Error> {
         execute_command!(self, BrightCommand::Down)
     }
 
     /// Reset brightness to default.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.brightness_reset()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn brightness_reset(&mut self) -> Result<(), ViscaError> {
+    fn brightness_reset(&mut self) -> Result<(), Error> {
         execute_command!(self, BrightCommand::Reset)
     }
 
@@ -525,12 +525,12 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `enabled` - Whether to enable backlight compensation
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Enable backlight compensation for subjects against bright backgrounds
     /// client.set_backlight(true)?;
     ///
@@ -539,7 +539,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_backlight(&mut self, enabled: bool) -> Result<(), ViscaError> {
+    fn set_backlight(&mut self, enabled: bool) -> Result<(), Error> {
         execute_command!(self, BacklightCommand { status: enabled })
     }
 
@@ -552,13 +552,13 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `mode` - The anti-flicker mode to apply
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # use grafton_visca::command::AntiFlickerMode;
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Disable anti-flicker
     /// client.set_anti_flicker(AntiFlickerMode::Off)?;
     ///
@@ -570,7 +570,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_anti_flicker(&mut self, mode: AntiFlickerMode) -> Result<(), ViscaError> {
+    fn set_anti_flicker(&mut self, mode: AntiFlickerMode) -> Result<(), Error> {
         execute_command!(self, AntiFlickerCommand { mode })
     }
 
@@ -580,13 +580,13 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// * `preset` - The exposure preset to apply
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaExposureExt, ExposurePreset};
+    /// # use grafton_visca::{Error, Transport, ExposureExt, ExposurePreset};
     /// # use grafton_visca::command::exposure::ExposureMode;
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Configure for bright daylight
     /// client.configure_exposure_preset(ExposurePreset::BrightDaylight)?;
     ///
@@ -598,7 +598,7 @@ pub trait ViscaExposureExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn configure_exposure_preset(&mut self, preset: ExposurePreset) -> Result<(), ViscaError> {
+    fn configure_exposure_preset(&mut self, preset: ExposurePreset) -> Result<(), Error> {
         match preset {
             ExposurePreset::BrightDaylight => {
                 self.set_exposure_mode(ExposureMode::Auto)?;
@@ -647,4 +647,4 @@ pub enum ExposurePreset {
     Manual,
 }
 
-impl<T: ViscaDevice> ViscaExposureExt for T {}
+impl<T: Transport> ExposureExt for T {}

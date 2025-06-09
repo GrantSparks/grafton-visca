@@ -8,7 +8,7 @@ use common::MockAsyncTransport;
 use grafton_visca::{
     command::power::{Power, PowerCommand},
     transport::Transport,
-    ConnectionEvent, ReconnectingTransport, ReconnectionConfig, ViscaCommand, ViscaError,
+    Command, ConnectionEvent, Error, ReconnectingTransport, ReconnectionConfig,
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -44,7 +44,7 @@ impl FailingMockTransport {
 impl Transport for FailingMockTransport {
     fn send_command<'a>(
         &'a mut self,
-        command: &'a dyn ViscaCommand,
+        command: &'a dyn Command,
     ) -> grafton_visca::transport::TransportFuture<'a, ()> {
         Box::pin(async move {
             // Check if we should fail
@@ -55,7 +55,7 @@ impl Transport for FailingMockTransport {
                     if remaining == 1 {
                         self.should_fail.store(false, Ordering::SeqCst);
                     }
-                    return Err(ViscaError::ConnectionLost {
+                    return Err(Error::ConnectionLost {
                         reason: "Simulated connection failure".to_string(),
                     });
                 }
@@ -75,7 +75,7 @@ impl Transport for FailingMockTransport {
                     if remaining == 1 {
                         self.should_fail.store(false, Ordering::SeqCst);
                     }
-                    return Err(ViscaError::ConnectionLost {
+                    return Err(Error::ConnectionLost {
                         reason: "Simulated connection failure".to_string(),
                     });
                 }
@@ -193,7 +193,7 @@ async fn test_max_retry_attempts() {
                 Ok(transport)
             } else {
                 // All reconnection attempts fail
-                Err(ViscaError::ConnectionLost {
+                Err(Error::ConnectionLost {
                     reason: "Cannot reconnect".to_string(),
                 })
             }
@@ -217,10 +217,7 @@ async fn test_max_retry_attempts() {
     let result = reconnecting.send_command(&cmd).await;
 
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        ViscaError::ConnectionLost { .. }
-    ));
+    assert!(matches!(result.unwrap_err(), Error::ConnectionLost { .. }));
 
     // Should have tried to create max_retries times after initial failure
     assert_eq!(creation_count.load(Ordering::SeqCst), 4); // 1 initial + 3 retries
@@ -249,7 +246,7 @@ async fn test_exponential_backoff() {
                 let now = tokio::time::Instant::now();
                 times.lock().await.push(now);
                 // Fail to force more retries
-                Err(ViscaError::ConnectionLost {
+                Err(Error::ConnectionLost {
                     reason: "Simulated failure".to_string(),
                 })
             }
@@ -325,7 +322,7 @@ async fn test_connection_event_callbacks() {
                 Ok(transport)
             } else if attempt == 1 {
                 // Second attempt fails to create
-                Err(ViscaError::ConnectionLost {
+                Err(Error::ConnectionLost {
                     reason: "Reconnection failed".to_string(),
                 })
             } else {

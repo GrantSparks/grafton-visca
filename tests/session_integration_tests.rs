@@ -1,4 +1,4 @@
-//! Integration tests for `ViscaSession` behavior through the public API.
+//! Integration tests for `Session` behavior through the public API.
 //!
 //! These tests verify that the internal session management correctly handles:
 //! - Socket assignment and reuse
@@ -19,7 +19,7 @@ use grafton_visca::{
         zoom::ZoomCommand,
         InquiryCommand,
     },
-    ViscaDevice, ViscaError,
+    Error, Transport,
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -79,7 +79,7 @@ fn test_command_buffer_full_handling() {
     let r3 = device.execute_command(&PowerCommand { power: Power::On });
     // This should fail with CommandBufferFull error
     match r3 {
-        Err(ViscaError::CommandBufferFull) => {}
+        Err(Error::CommandBufferFull) => {}
         _ => panic!("Expected CommandBufferFull error, got {r3:?}"),
     }
 }
@@ -156,7 +156,7 @@ fn test_error_response_frees_socket() {
 
     thread::sleep(Duration::from_millis(5));
     let r1 = device.execute_command(&PanTiltCommand::Home);
-    assert!(matches!(r1, Err(ViscaError::SyntaxError)));
+    assert!(matches!(r1, Err(Error::SyntaxError)));
 
     // Socket should be immediately available after error
     thread::sleep(Duration::from_millis(10));

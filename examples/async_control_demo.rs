@@ -5,19 +5,19 @@ fn main() {
 }
 
 /*
-//! Example demonstrating the async control API with ViscaClient.
+//! Example demonstrating the async control API with Client.
 
 use grafton_visca::command::{
     pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
     preset::{PresetAction, PresetNumber},
     FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, ZoomCommand,
 };
-use grafton_visca::{ViscaClient, ViscaError, ViscaResponse};
+use grafton_visca::{Client, Error, ViscaResponse};
 use std::env;
 use tokio::time::{sleep, Duration};
 
 #[tokio::main]
-async fn main() -> Result<(), ViscaError> {
+async fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -32,7 +32,7 @@ async fn main() -> Result<(), ViscaError> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let client = ViscaClient::connect_udp_async(camera_addr).await?;
+    let client = Client::connect_udp_async(camera_addr).await?;
 
     println!("\n=== Async Camera Control Demo ===\n");
 
@@ -49,22 +49,22 @@ async fn main() -> Result<(), ViscaError> {
         tokio::join!(power_future, position_future, zoom_future);
 
     // Handle power response
-    if let Ok(ViscaResponse::InquiryResponse(grafton_visca::ViscaInquiryResponse::Power { on })) =
+    if let Ok(Response::InquiryResponse(grafton_visca::InquiryResponse::Power { on })) =
         power_result
     {
         println!("   - Power: {}", if on { "ON" } else { "OFF" });
     }
 
     // Handle position response
-    if let Ok(ViscaResponse::InquiryResponse(
-        grafton_visca::ViscaInquiryResponse::PanTiltPosition { pan, tilt },
+    if let Ok(Response::InquiryResponse(
+        grafton_visca::InquiryResponse::PanTiltPosition { pan, tilt },
     )) = position_result
     {
         println!("   - Position: pan={}, tilt={}", pan, tilt);
     }
 
     // Handle zoom response
-    if let Ok(ViscaResponse::InquiryResponse(grafton_visca::ViscaInquiryResponse::ZoomPosition {
+    if let Ok(Response::InquiryResponse(grafton_visca::InquiryResponse::ZoomPosition {
         position,
     })) = zoom_result
     {

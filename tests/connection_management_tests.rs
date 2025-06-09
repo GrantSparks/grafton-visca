@@ -187,7 +187,7 @@ mod tests {
 mod sync_health_tests {
     use grafton_visca::command::power::{Power, PowerCommand};
     use grafton_visca::connection::ConnectionStats;
-    use grafton_visca::{transport::BlockingTransport, ViscaCommand, ViscaError};
+    use grafton_visca::{transport::BlockingTransport, Command, Error};
 
     struct MockTransport {
         stats: ConnectionStats,
@@ -208,18 +208,18 @@ mod sync_health_tests {
     }
 
     impl BlockingTransport for MockTransport {
-        fn send_command_blocking(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+        fn send_command_blocking(&mut self, _command: &dyn Command) -> Result<(), Error> {
             if self.fail_send {
-                Err(ViscaError::Io(std::io::Error::other("Mock send error")))
+                Err(Error::Io(std::io::Error::other("Mock send error")))
             } else {
                 self.stats.record_sent(10);
                 Ok(())
             }
         }
 
-        fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+        fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
             if self.fail_receive {
-                Err(ViscaError::Io(std::io::Error::other("Mock receive error")))
+                Err(Error::Io(std::io::Error::other("Mock receive error")))
             } else if self.empty_response {
                 Ok(vec![])
             } else {
@@ -230,7 +230,7 @@ mod sync_health_tests {
     }
 
     // ConnectionManagement trait has been removed in v0.4.0
-    // Health checking is now handled internally by ViscaSession
+    // Health checking is now handled internally by Session
 
     #[test]
     fn test_sync_transport_send_success() {
@@ -271,7 +271,7 @@ mod async_health_tests {
     use grafton_visca::command::power::{Power, PowerCommand};
     use grafton_visca::connection::ConnectionStats;
     use grafton_visca::transport::{Transport, TransportFuture};
-    use grafton_visca::{ViscaCommand, ViscaError};
+    use grafton_visca::{Command, Error};
 
     struct MockAsyncTransport {
         stats: ConnectionStats,
@@ -292,13 +292,10 @@ mod async_health_tests {
     }
 
     impl Transport for MockAsyncTransport {
-        fn send_command<'a>(
-            &'a mut self,
-            _command: &'a dyn ViscaCommand,
-        ) -> TransportFuture<'a, ()> {
+        fn send_command<'a>(&'a mut self, _command: &'a dyn Command) -> TransportFuture<'a, ()> {
             Box::pin(async move {
                 if self.fail_send {
-                    Err(ViscaError::Io(std::io::Error::other("Mock send error")))
+                    Err(Error::Io(std::io::Error::other("Mock send error")))
                 } else {
                     self.stats.record_sent(10);
                     Ok(())
@@ -309,7 +306,7 @@ mod async_health_tests {
         fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
             Box::pin(async move {
                 if self.fail_receive {
-                    Err(ViscaError::Io(std::io::Error::other("Mock receive error")))
+                    Err(Error::Io(std::io::Error::other("Mock receive error")))
                 } else if self.empty_response {
                     Ok(vec![])
                 } else {
@@ -321,7 +318,7 @@ mod async_health_tests {
     }
 
     // AsyncConnectionManagement trait has been removed in v0.4.0
-    // Health checking is now handled internally by ViscaSession
+    // Health checking is now handled internally by Session
 
     #[tokio::test]
     async fn test_async_transport_send_success() {

@@ -7,10 +7,10 @@
 //! # Example
 //! ```no_run
 //! # #[cfg(feature = "blocking-client")] {
-//! # use grafton_visca::{ViscaClient, ViscaClientPtzExt};
+//! # use grafton_visca::{Client, ClientPtzExt};
 //! # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed, PanTiltDirection};
 //! # use std::sync::Arc;
-//! # let client = Arc::new(ViscaClient::connect_udp("192.168.1.100:5678").unwrap());
+//! # let client = Arc::new(Client::connect_udp("192.168.1.100:5678").unwrap());
 //! // Build a complex PTZ sequence
 //! client.ptz()
 //!     .pan_tilt_move(PanTiltDirection::UpRight, PanSpeed::new(10).unwrap(), TiltSpeed::new(10).unwrap())
@@ -34,8 +34,9 @@ use crate::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         zoom::{ZoomCommand, ZoomSpeed},
     },
-    unified_client::ViscaClient,
-    ViscaCommand, ViscaError, ViscaResponse,
+    error::Error,
+    unified_client::Client,
+    Command, Response,
 };
 
 /// Builder for creating PTZ command sequences.
@@ -44,14 +45,14 @@ use crate::{
 /// with support for borrowed references and multiple execution modes.
 pub struct PtzBuilder {
     /// Reference to the client that will execute commands
-    client: Arc<ViscaClient>,
+    client: Arc<Client>,
     /// Commands to be executed
-    commands: Vec<Box<dyn ViscaCommand + Send + Sync>>,
+    commands: Vec<Box<dyn Command + Send + Sync>>,
 }
 
 impl PtzBuilder {
     /// Creates a new PTZ builder for the given client.
-    pub(crate) fn new(client: Arc<ViscaClient>) -> Self {
+    pub(crate) fn new(client: Arc<Client>) -> Self {
         Self {
             client,
             commands: Vec::new(),
@@ -97,20 +98,20 @@ impl PtzBuilder {
     /// Add a pan/tilt absolute position command.
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed values cannot be converted to valid `PanSpeed` or `TiltSpeed`.
+    /// Returns `Error::InvalidParameter` if the speed values cannot be converted to valid `PanSpeed` or `TiltSpeed`.
     pub fn pan_tilt_absolute(
         mut self,
         pan: i16,
         tilt: i16,
         pan_speed: impl TryInto<PanSpeed>,
         tilt_speed: impl TryInto<TiltSpeed>,
-    ) -> Result<Self, ViscaError> {
+    ) -> Result<Self, Error> {
         let pan_speed = pan_speed
             .try_into()
-            .map_err(|_| ViscaError::InvalidParameter("Invalid pan speed".into()))?;
+            .map_err(|_| Error::InvalidParameter("Invalid pan speed".into()))?;
         let tilt_speed = tilt_speed
             .try_into()
-            .map_err(|_| ViscaError::InvalidParameter("Invalid tilt speed".into()))?;
+            .map_err(|_| Error::InvalidParameter("Invalid tilt speed".into()))?;
 
         let command = PanTiltCommand::AbsolutePosition {
             pan,
@@ -125,20 +126,20 @@ impl PtzBuilder {
     /// Add a pan/tilt relative position command.
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed values cannot be converted to valid `PanSpeed` or `TiltSpeed`.
+    /// Returns `Error::InvalidParameter` if the speed values cannot be converted to valid `PanSpeed` or `TiltSpeed`.
     pub fn pan_tilt_relative(
         mut self,
         pan: i16,
         tilt: i16,
         pan_speed: impl TryInto<PanSpeed>,
         tilt_speed: impl TryInto<TiltSpeed>,
-    ) -> Result<Self, ViscaError> {
+    ) -> Result<Self, Error> {
         let pan_speed = pan_speed
             .try_into()
-            .map_err(|_| ViscaError::InvalidParameter("Invalid pan speed".into()))?;
+            .map_err(|_| Error::InvalidParameter("Invalid pan speed".into()))?;
         let tilt_speed = tilt_speed
             .try_into()
-            .map_err(|_| ViscaError::InvalidParameter("Invalid tilt speed".into()))?;
+            .map_err(|_| Error::InvalidParameter("Invalid tilt speed".into()))?;
 
         let command = PanTiltCommand::RelativePosition {
             pan,
@@ -163,11 +164,11 @@ impl PtzBuilder {
     /// * `speed` - Zoom speed (0=slowest, 7=fastest)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid `ZoomSpeed`.
-    pub fn zoom_in(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, ViscaError> {
+    /// Returns `Error::InvalidParameter` if the speed value cannot be converted to a valid `ZoomSpeed`.
+    pub fn zoom_in(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, Error> {
         let speed = speed
             .try_into()
-            .map_err(|_| ViscaError::InvalidParameter("Invalid zoom speed".into()))?;
+            .map_err(|_| Error::InvalidParameter("Invalid zoom speed".into()))?;
         self.commands
             .push(Box::new(ZoomCommand::TeleVariable(speed)));
         Ok(self)
@@ -179,11 +180,11 @@ impl PtzBuilder {
     /// * `speed` - Zoom speed (0=slowest, 7=fastest)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid `ZoomSpeed`.
-    pub fn zoom_out(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, ViscaError> {
+    /// Returns `Error::InvalidParameter` if the speed value cannot be converted to a valid `ZoomSpeed`.
+    pub fn zoom_out(mut self, speed: impl TryInto<ZoomSpeed>) -> Result<Self, Error> {
         let speed = speed
             .try_into()
-            .map_err(|_| ViscaError::InvalidParameter("Invalid zoom speed".into()))?;
+            .map_err(|_| Error::InvalidParameter("Invalid zoom speed".into()))?;
         self.commands
             .push(Box::new(ZoomCommand::WideVariable(speed)));
         Ok(self)
@@ -212,14 +213,11 @@ impl PtzBuilder {
     /// * `speed` - Focus speed (0=slowest, 7=fastest)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid `FocusSpeed`.
-    pub fn focus_near_variable(
-        mut self,
-        speed: impl TryInto<FocusSpeed>,
-    ) -> Result<Self, ViscaError> {
+    /// Returns `Error::InvalidParameter` if the speed value cannot be converted to a valid `FocusSpeed`.
+    pub fn focus_near_variable(mut self, speed: impl TryInto<FocusSpeed>) -> Result<Self, Error> {
         let speed = speed
             .try_into()
-            .map_err(|_| ViscaError::InvalidParameter("Invalid focus speed".into()))?;
+            .map_err(|_| Error::InvalidParameter("Invalid focus speed".into()))?;
         self.commands
             .push(Box::new(FocusCommand::NearVariable(speed)));
         Ok(self)
@@ -238,14 +236,11 @@ impl PtzBuilder {
     /// * `speed` - Focus speed (0=slowest, 7=fastest)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the speed value cannot be converted to a valid `FocusSpeed`.
-    pub fn focus_far_variable(
-        mut self,
-        speed: impl TryInto<FocusSpeed>,
-    ) -> Result<Self, ViscaError> {
+    /// Returns `Error::InvalidParameter` if the speed value cannot be converted to a valid `FocusSpeed`.
+    pub fn focus_far_variable(mut self, speed: impl TryInto<FocusSpeed>) -> Result<Self, Error> {
         let speed = speed
             .try_into()
-            .map_err(|_| ViscaError::InvalidParameter("Invalid focus speed".into()))?;
+            .map_err(|_| Error::InvalidParameter("Invalid focus speed".into()))?;
         self.commands
             .push(Box::new(FocusCommand::FarVariable(speed)));
         Ok(self)
@@ -274,9 +269,9 @@ impl PtzBuilder {
 
     /// Add a custom command to the sequence.
     ///
-    /// This allows adding any command that implements `ViscaCommand` + Send + Sync.
+    /// This allows adding any command that implements `Command` + Send + Sync.
     #[must_use]
-    pub fn custom_command(mut self, command: Box<dyn ViscaCommand + Send + Sync>) -> Self {
+    pub fn custom_command(mut self, command: Box<dyn Command + Send + Sync>) -> Self {
         self.commands.push(command);
         self
     }
@@ -287,9 +282,9 @@ impl PtzBuilder {
     /// before starting the next.
     ///
     /// # Errors
-    /// Returns `ViscaError` if any command in the sequence fails to execute.
+    /// Returns `Error` if any command in the sequence fails to execute.
     #[cfg(feature = "blocking-client")]
-    pub fn execute_sequential(self) -> Result<Vec<ViscaResponse>, ViscaError> {
+    pub fn execute_sequential(self) -> Result<Vec<Response>, Error> {
         let mut responses = Vec::with_capacity(self.commands.len());
 
         for command in self.commands {
@@ -306,9 +301,9 @@ impl PtzBuilder {
     /// before starting the next.
     ///
     /// # Errors
-    /// Returns `ViscaError` if any command in the sequence fails to execute.
+    /// Returns `Error` if any command in the sequence fails to execute.
     #[cfg(feature = "async-client")]
-    pub async fn execute_sequential_async(self) -> Result<Vec<ViscaResponse>, ViscaError> {
+    pub async fn execute_sequential_async(self) -> Result<Vec<Response>, Error> {
         let mut responses = Vec::with_capacity(self.commands.len());
 
         for command in self.commands {
@@ -325,9 +320,9 @@ impl PtzBuilder {
     /// concurrent command limit (2 for `PTZOptics` G2).
     ///
     /// # Errors
-    /// Returns `ViscaError` if any command in the sequence fails to execute.
+    /// Returns `Error` if any command in the sequence fails to execute.
     #[cfg(feature = "async-client")]
-    pub async fn execute_concurrent(self) -> Result<Vec<ViscaResponse>, ViscaError> {
+    pub async fn execute_concurrent(self) -> Result<Vec<Response>, Error> {
         use futures_util::future::try_join_all;
 
         let futures: Vec<_> = self
@@ -373,9 +368,9 @@ impl std::fmt::Debug for PtzBuilder {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    // Note: PtzBuilder tests would require actual ViscaClient instances
+    // Note: PtzBuilder tests would require actual Client instances
 
-    // Note: These tests would require actual ViscaClient instances
+    // Note: These tests would require actual Client instances
     // For now, we'll test the builder structure
 
     #[test]
@@ -388,7 +383,7 @@ mod tests {
         #[allow(clippy::missing_const_for_fn)] // Test functions should not be const
         fn _test_method_chaining() {
             // This won't compile unless the method signatures are correct
-            // let client = ViscaClient::connect_udp("test")?;
+            // let client = Client::connect_udp("test")?;
             // let _builder = client.ptz()
             //     .pan_tilt_home()
             //     .zoom_in(5)

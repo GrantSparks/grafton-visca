@@ -13,16 +13,16 @@ use grafton_visca::{
         preset::{PresetAction, PresetCommand, PresetNumber},
         InquiryCommand,
     },
-    TimeoutConfigBuilder, ViscaClient, ViscaCommand,
+    TimeoutConfigBuilder, Client, Command,
 };
 use std::error::Error;
 use std::time::Duration;
 */
 
-// TODO: Update this example for v0.5.0 - configurable timeouts are not yet available in ViscaClient
+// TODO: Update this example for v0.5.0 - configurable timeouts are not yet available in Client
 fn main() {
     println!("This example needs to be updated for v0.5.0");
-    println!("Configurable timeouts are not yet available in ViscaClient");
+    println!("Configurable timeouts are not yet available in Client");
 }
 
 /*
@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Create client with custom timeout configuration
     let camera_address = "192.168.1.100:5678";
-    let mut client = ViscaClient::connect_udp_with_timeout(camera_address, timeout_config)?;
+    let mut client = Client::connect_udp_with_timeout(camera_address, timeout_config)?;
 
     println!("Connected to camera at {}\n", camera_address);
 
@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn demonstrate_quick_command(client: &mut ViscaClient) -> Result<(), Box<dyn Error>> {
+fn demonstrate_quick_command(client: &mut Client) -> Result<(), Box<dyn Error>> {
     println!("1. Quick Command (Power Inquiry):");
 
     let command = InquiryCommand::Power;
@@ -87,7 +87,7 @@ fn demonstrate_quick_command(client: &mut ViscaClient) -> Result<(), Box<dyn Err
     Ok(())
 }
 
-fn demonstrate_movement_command(client: &mut ViscaClient) -> Result<(), Box<dyn Error>> {
+fn demonstrate_movement_command(client: &mut Client) -> Result<(), Box<dyn Error>> {
     println!("2. Movement Command (Pan/Tilt):");
 
     let command = PanTiltCommand::Move {
@@ -122,7 +122,7 @@ fn demonstrate_movement_command(client: &mut ViscaClient) -> Result<(), Box<dyn 
     Ok(())
 }
 
-fn demonstrate_preset_command(client: &mut ViscaClient) -> Result<(), Box<dyn Error>> {
+fn demonstrate_preset_command(client: &mut Client) -> Result<(), Box<dyn Error>> {
     println!("3. Preset Command (Recall Preset):");
 
     let command = PresetCommand {
@@ -155,9 +155,10 @@ mod tests {
         command::{
             pan_tilt::PanTiltCommand,
             preset::{PresetAction, PresetCommand, PresetNumber},
-            CommandCategory, InquiryCommand,
+            InquiryCommand,
         },
-        TimeoutConfigBuilder,
+        timeout::CommandCategory,
+        Command, TimeoutConfigBuilder,
     };
     use std::time::Duration;
 

@@ -1,12 +1,12 @@
 #![cfg(feature = "async-client")]
 
-use grafton_visca::{SocketId, ViscaError, ViscaInquiryResponse, ViscaResponse, ViscaSession};
+use grafton_visca::{Error, InquiryResponse, Response, Session, SocketId};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[tokio::test]
 async fn test_session_concurrent_commands() {
-    let session = Arc::new(Mutex::new(ViscaSession::new()));
+    let session = Arc::new(Mutex::new(Session::new()));
 
     // Test assigning two sockets concurrently
     let session1 = Arc::clone(&session);
@@ -32,12 +32,12 @@ async fn test_session_concurrent_commands() {
 
     // Try to assign a third socket (should fail)
     let result = session.lock().await.assign_socket(None);
-    assert!(matches!(result, Err(ViscaError::CommandBufferFull)));
+    assert!(matches!(result, Err(Error::CommandBufferFull)));
 }
 
 #[tokio::test]
 async fn test_session_ack_completion_flow() {
-    let session = Arc::new(Mutex::new(ViscaSession::new()));
+    let session = Arc::new(Mutex::new(Session::new()));
 
     // Assign a socket
     let socket_id = {
@@ -50,7 +50,7 @@ async fn test_session_ack_completion_flow() {
     {
         let mut session = session.lock().await;
         let result = session.process_response(&ack_response).unwrap();
-        assert!(matches!(result, Some((sid, ViscaResponse::Ack)) if sid == socket_id));
+        assert!(matches!(result, Some((sid, Response::Ack)) if sid == socket_id));
         drop(session);
     }
 
@@ -62,7 +62,7 @@ async fn test_session_ack_completion_flow() {
             .await
             .process_response(&completion_response)
             .unwrap();
-        assert!(matches!(result, Some((sid, ViscaResponse::Completion)) if sid == socket_id));
+        assert!(matches!(result, Some((sid, Response::Completion)) if sid == socket_id));
     }
 
     // Socket should still be allocated after completion (requires explicit release)
@@ -81,7 +81,7 @@ async fn test_session_ack_completion_flow() {
 
 #[tokio::test]
 async fn test_session_error_handling() {
-    let session = Arc::new(Mutex::new(ViscaSession::new()));
+    let session = Arc::new(Mutex::new(Session::new()));
 
     // Assign a socket
     let socket_id = {
@@ -99,7 +99,7 @@ async fn test_session_error_handling() {
             .unwrap();
         assert!(matches!(
             result,
-            Some((sid, ViscaResponse::Error(ViscaError::CommandBufferFull))) if sid == socket_id
+            Some((sid, Response::Error(Error::CommandBufferFull))) if sid == socket_id
         ));
     }
 
@@ -119,13 +119,13 @@ async fn test_session_error_handling() {
 
 #[tokio::test]
 async fn test_session_inquiry_response() {
-    let session = Arc::new(Mutex::new(ViscaSession::new()));
+    let session = Arc::new(Mutex::new(Session::new()));
 
     // Assign a socket for zoom position inquiry
     let socket_id = {
         let mut session = session.lock().await;
         session
-            .assign_socket(Some(grafton_visca::ViscaResponseType::ZoomPosition))
+            .assign_socket(Some(grafton_visca::ResponseType::ZoomPosition))
             .unwrap()
     };
 
@@ -138,10 +138,7 @@ async fn test_session_inquiry_response() {
             .process_response(&inquiry_response)
             .unwrap();
         match result {
-            Some((
-                sid,
-                ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }),
-            )) => {
+            Some((sid, Response::InquiryResponse(InquiryResponse::ZoomPosition { position }))) => {
                 assert_eq!(sid, socket_id);
                 assert_eq!(position, 0x1234);
             }

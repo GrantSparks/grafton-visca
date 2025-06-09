@@ -7,24 +7,24 @@ use crate::{
         LuminanceCommand, NoiseReduction2DCommand, NoiseReduction3DCommand, SaturationCommand,
         SharpnessCommand,
     },
-    error::ViscaError,
-    ViscaDevice, ViscaResponse,
+    error::Error,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level image settings control methods.
-pub trait ViscaImageExt: ViscaDevice {
+pub trait ImageExt: Transport {
     /// Enable or disable black and white mode.
     ///
     /// # Arguments
     /// * `enabled` - Whether to enable black and white mode
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Enable black and white mode
     /// client.set_black_white_mode(true)?;
     ///
@@ -33,12 +33,12 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_black_white_mode(&mut self, enabled: bool) -> Result<(), ViscaError> {
+    fn set_black_white_mode(&mut self, enabled: bool) -> Result<(), Error> {
         let command = BlackWhiteCommand { on: enabled };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -49,13 +49,13 @@ pub trait ViscaImageExt: ViscaDevice {
     /// * `level` - Noise reduction level (None for off, Some(1-5) for levels)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if level is not in the range 1-5,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error::InvalidParameter` if level is not in the range 1-5,
+    /// or `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Turn off 2D noise reduction
     /// client.set_noise_reduction_2d(None)?;
     ///
@@ -67,16 +67,16 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_noise_reduction_2d(&mut self, level: Option<u8>) -> Result<(), ViscaError> {
+    fn set_noise_reduction_2d(&mut self, level: Option<u8>) -> Result<(), Error> {
         use crate::types::NoiseReduction2DLevel;
         let command = match level {
             None => NoiseReduction2DCommand::Off,
             Some(lvl) => NoiseReduction2DCommand::Level(NoiseReduction2DLevel::new(lvl)?),
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -87,13 +87,13 @@ pub trait ViscaImageExt: ViscaDevice {
     /// * `level` - Noise reduction level (None for off, Some(1-8) for levels)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if level is not in the range 1-8,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error::InvalidParameter` if level is not in the range 1-8,
+    /// or `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Turn off 3D noise reduction
     /// client.set_noise_reduction_3d(None)?;
     ///
@@ -102,16 +102,16 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_noise_reduction_3d(&mut self, level: Option<u8>) -> Result<(), ViscaError> {
+    fn set_noise_reduction_3d(&mut self, level: Option<u8>) -> Result<(), Error> {
         use crate::types::NoiseReduction3DLevel;
         let command = match level {
             None => NoiseReduction3DCommand::Off,
             Some(lvl) => NoiseReduction3DCommand::Level(NoiseReduction3DLevel::new(lvl)?),
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -123,12 +123,12 @@ pub trait ViscaImageExt: ViscaDevice {
     /// * `vertical` - Whether to flip vertically
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // No flip
     /// client.set_image_flip(false, false)?;
     ///
@@ -143,7 +143,7 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_image_flip(&mut self, horizontal: bool, vertical: bool) -> Result<(), ViscaError> {
+    fn set_image_flip(&mut self, horizontal: bool, vertical: bool) -> Result<(), Error> {
         let mode = match (horizontal, vertical) {
             (false, false) => ImageFlipMode::Off,
             (true, false) => ImageFlipMode::Horizontal,
@@ -152,9 +152,9 @@ pub trait ViscaImageExt: ViscaDevice {
         };
         let command = ImageFlipCombinedCommand { mode };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -165,13 +165,13 @@ pub trait ViscaImageExt: ViscaDevice {
     /// * `level` - Sharpness level (0 to 14, 7 is default)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error::InvalidParameter` if level is greater than 14,
+    /// or `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum sharpness (softest)
     /// client.set_sharpness(0)?;
     ///
@@ -183,17 +183,17 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_sharpness(&mut self, level: u8) -> Result<(), ViscaError> {
+    fn set_sharpness(&mut self, level: u8) -> Result<(), Error> {
         if level > 14 {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Sharpness level must be 0-14".into(),
             ));
         }
         let command = SharpnessCommand::Direct { value: level };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -201,22 +201,22 @@ pub trait ViscaImageExt: ViscaDevice {
     /// Increase sharpness.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.sharpness_up()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn sharpness_up(&mut self) -> Result<(), ViscaError> {
+    fn sharpness_up(&mut self) -> Result<(), Error> {
         let command = SharpnessCommand::Up;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -224,22 +224,22 @@ pub trait ViscaImageExt: ViscaDevice {
     /// Decrease sharpness.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.sharpness_down()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn sharpness_down(&mut self) -> Result<(), ViscaError> {
+    fn sharpness_down(&mut self) -> Result<(), Error> {
         let command = SharpnessCommand::Down;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -247,22 +247,22 @@ pub trait ViscaImageExt: ViscaDevice {
     /// Reset sharpness.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.sharpness_reset()?;
     /// # Ok(())
     /// # }
     /// ```
-    fn sharpness_reset(&mut self) -> Result<(), ViscaError> {
+    fn sharpness_reset(&mut self) -> Result<(), Error> {
         let command = SharpnessCommand::Reset;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -273,13 +273,13 @@ pub trait ViscaImageExt: ViscaDevice {
     /// * `level` - Saturation level (0 to 14, 7 is default)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error::InvalidParameter` if level is greater than 14,
+    /// or `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum saturation (monochrome)
     /// client.set_saturation(0)?;
     ///
@@ -291,17 +291,17 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_saturation(&mut self, level: u8) -> Result<(), ViscaError> {
+    fn set_saturation(&mut self, level: u8) -> Result<(), Error> {
         if level > 0x0E {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Saturation level must be 0x0-0xE (0-14)".into(),
             ));
         }
         let command = SaturationCommand { level };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -312,13 +312,13 @@ pub trait ViscaImageExt: ViscaDevice {
     /// * `level` - Hue level (0 to 14, 7 is default/neutral)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error::InvalidParameter` if level is greater than 14,
+    /// or `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Shift hue towards red
     /// client.set_hue(4)?;
     ///
@@ -330,17 +330,17 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_hue(&mut self, level: u8) -> Result<(), ViscaError> {
+    fn set_hue(&mut self, level: u8) -> Result<(), Error> {
         if level > 0x0E {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Hue level must be 0x0-0xE (0-14)".into(),
             ));
         }
         let command = HueCommand { level };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -351,13 +351,13 @@ pub trait ViscaImageExt: ViscaDevice {
     /// * `level` - Contrast level (0 to 14, 7 is default)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error::InvalidParameter` if level is greater than 14,
+    /// or `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum contrast
     /// client.set_contrast(0)?;
     ///
@@ -369,11 +369,11 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_contrast(&mut self, level: u8) -> Result<(), ViscaError> {
+    fn set_contrast(&mut self, level: u8) -> Result<(), Error> {
         use crate::types::ContrastLevel;
 
         if level > 14 {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Contrast level must be 0-14".into(),
             ));
         }
@@ -381,9 +381,9 @@ pub trait ViscaImageExt: ViscaDevice {
             value: ContrastLevel::new(level)?,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -396,13 +396,13 @@ pub trait ViscaImageExt: ViscaDevice {
     /// * `level` - Luminance level (0 to 14, 7 is default)
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if level is greater than 14,
-    /// or `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error::InvalidParameter` if level is greater than 14,
+    /// or `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum luminance
     /// client.set_luminance(0)?;
     ///
@@ -414,11 +414,11 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_luminance(&mut self, level: u8) -> Result<(), ViscaError> {
+    fn set_luminance(&mut self, level: u8) -> Result<(), Error> {
         use crate::types::LuminanceLevel;
 
         if level > 14 {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Luminance level must be 0-14".into(),
             ));
         }
@@ -426,9 +426,9 @@ pub trait ViscaImageExt: ViscaDevice {
             value: LuminanceLevel::new(level)?,
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -439,12 +439,12 @@ pub trait ViscaImageExt: ViscaDevice {
     /// * `preset` - The image preset to apply
     ///
     /// # Errors
-    /// Returns `ViscaError` if any of the underlying setting commands fail to send or the camera returns an error.
+    /// Returns `Error` if any of the underlying setting commands fail to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaImageExt, ImagePreset};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, ImageExt, ImagePreset};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Apply vivid preset
     /// client.apply_image_preset(ImagePreset::Vivid)?;
     ///
@@ -456,7 +456,7 @@ pub trait ViscaImageExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn apply_image_preset(&mut self, preset: ImagePreset) -> Result<(), ViscaError> {
+    fn apply_image_preset(&mut self, preset: ImagePreset) -> Result<(), Error> {
         match preset {
             ImagePreset::Default => {
                 self.set_sharpness(7)?;
@@ -507,5 +507,5 @@ pub enum ImagePreset {
     Soft,
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaDevice> ViscaImageExt for T {}
+/// Implement the trait for all types that implement `Transport`
+impl<T: Transport> ImageExt for T {}

@@ -11,7 +11,7 @@ use grafton_visca::command::power::Power;
 use grafton_visca::command::{PanTiltCommand, PowerCommand};
 #[cfg(feature = "async-client")]
 use grafton_visca::{
-    AsyncConnectionManagement, AsyncTcpTransport, AsyncUdpTransport, AsyncViscaTransport,
+    AsyncConnectionManagement, AsyncTcpTransport, AsyncUdpTransport, AsyncTransport,
 };
 #[cfg(feature = "async-client")]
 use std::net::SocketAddr;
