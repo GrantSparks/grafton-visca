@@ -407,5 +407,3 @@ pub trait Transport {
     /// or if communication with the camera fails.
     fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error>;
 }
-
-

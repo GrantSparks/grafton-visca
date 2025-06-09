@@ -6,8 +6,7 @@ use grafton_visca::{
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
         zoom::ZoomSpeed,
     },
-    Command, Error, Response, Transport, FocusExt, PanTiltExt, PresetExt,
-    ZoomExt,
+    Command, Error, FocusExt, PanTiltExt, PresetExt, Response, Transport, ZoomExt,
 };
 
 /// Mock device for testing control commands

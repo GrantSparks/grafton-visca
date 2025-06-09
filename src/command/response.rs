@@ -187,19 +187,14 @@ pub fn parse_visca_response(
     }
 }
 
-fn parse_inquiry_response(
-    response: &[u8],
-    response_type: ResponseType,
-) -> Result<Response, Error> {
+fn parse_inquiry_response(response: &[u8], response_type: ResponseType) -> Result<Response, Error> {
     match response_type {
         ResponseType::Power => parse_power_response(response),
         ResponseType::PanTiltPosition => parse_pan_tilt_position(response),
         ResponseType::ZoomPosition => parse_position_response(response, PositionType::Zoom),
         ResponseType::FocusPosition => parse_position_response(response, PositionType::Focus),
         ResponseType::ExposureMode => parse_mode_response(response, ModeType::Exposure),
-        ResponseType::WhiteBalanceMode => {
-            parse_mode_response(response, ModeType::WhiteBalance)
-        }
+        ResponseType::WhiteBalanceMode => parse_mode_response(response, ModeType::WhiteBalance),
         ResponseType::ExposureCompensationMode => {
             parse_mode_response(response, ModeType::ExposureCompensation)
         }
@@ -280,9 +275,7 @@ fn parse_power_response(response: &[u8]) -> Result<Response, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let on = response[2] == 0x02;
-    Ok(Response::InquiryResponse(InquiryResponse::Power {
-        on,
-    }))
+    Ok(Response::InquiryResponse(InquiryResponse::Power { on }))
 }
 
 fn parse_pan_tilt_position(response: &[u8]) -> Result<Response, Error> {
@@ -319,15 +312,17 @@ fn parse_position_response(
     position |= u16::from(response[5]);
 
     match position_type {
-        PositionType::Zoom => Ok(Response::InquiryResponse(
-            InquiryResponse::ZoomPosition { position },
-        )),
-        PositionType::Focus => Ok(Response::InquiryResponse(
-            InquiryResponse::FocusPosition { position },
-        )),
-        PositionType::FocusNearLimit => Ok(Response::InquiryResponse(
-            InquiryResponse::FocusNearLimit { position },
-        )),
+        PositionType::Zoom => Ok(Response::InquiryResponse(InquiryResponse::ZoomPosition {
+            position,
+        })),
+        PositionType::Focus => Ok(Response::InquiryResponse(InquiryResponse::FocusPosition {
+            position,
+        })),
+        PositionType::FocusNearLimit => {
+            Ok(Response::InquiryResponse(InquiryResponse::FocusNearLimit {
+                position,
+            }))
+        }
     }
 }
 
@@ -340,16 +335,16 @@ fn parse_mode_response(response: &[u8], mode_type: ModeType) -> Result<Response,
         ModeType::Exposure => {
             let mode =
                 ExposureMode::try_from(response[2]).map_err(|()| Error::UnexpectedResponseType)?;
-            Ok(Response::InquiryResponse(
-                InquiryResponse::ExposureMode { mode },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::ExposureMode {
+                mode,
+            }))
         }
         ModeType::WhiteBalance => {
             let mode = WhiteBalanceMode::try_from(response[2])
                 .map_err(|()| Error::UnexpectedResponseType)?;
-            Ok(Response::InquiryResponse(
-                InquiryResponse::WhiteBalance { mode },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance {
+                mode,
+            }))
         }
         ModeType::ExposureCompensation => {
             let on = response[2] == 0x02;
@@ -363,15 +358,15 @@ fn parse_mode_response(response: &[u8], mode_type: ModeType) -> Result<Response,
                 0x03 => SharpnessMode::Manual,
                 _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(Response::InquiryResponse(
-                InquiryResponse::SharpnessMode { mode },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::SharpnessMode {
+                mode,
+            }))
         }
         ModeType::BlackWhite => {
             let on = response[2] == 0x04;
-            Ok(Response::InquiryResponse(
-                InquiryResponse::BlackWhite { on },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::BlackWhite {
+                on,
+            }))
         }
     }
 }
@@ -403,17 +398,15 @@ fn parse_simple_value(response: &[u8], value_type: SimpleValueType) -> Result<Re
                 0x02 => AntiFlickerMode::Hz60,
                 _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(Response::InquiryResponse(
-                InquiryResponse::AntiFlicker { mode },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::AntiFlicker {
+                mode,
+            }))
         }
         SimpleValueType::RedGain => {
             let gain = i16::from(response[2]) - 10;
             #[allow(clippy::cast_possible_truncation)]
             let gain = gain as i8; // Safe: VISCA gain values are in valid range
-            Ok(Response::InquiryResponse(InquiryResponse::RedGain {
-                gain,
-            }))
+            Ok(Response::InquiryResponse(InquiryResponse::RedGain { gain }))
         }
         SimpleValueType::BlueGain => {
             let gain = i16::from(response[2]) - 10;
@@ -461,9 +454,9 @@ fn parse_simple_value(response: &[u8], value_type: SimpleValueType) -> Result<Re
                 0x00 => AFSensitivity::Low,
                 _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(Response::InquiryResponse(
-                InquiryResponse::AFSensitivity { sensitivity },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::AFSensitivity {
+                sensitivity,
+            }))
         }
     }
 }
@@ -509,15 +502,13 @@ fn parse_extended_value(response: &[u8], value_type: ExtendedValueType) -> Resul
         }
         ExtendedValueType::Gain => {
             let gain = (response[4] << 4) | response[5];
-            Ok(Response::InquiryResponse(InquiryResponse::Gain {
-                gain,
-            }))
+            Ok(Response::InquiryResponse(InquiryResponse::Gain { gain }))
         }
         ExtendedValueType::Saturation => {
             let level = response[5];
-            Ok(Response::InquiryResponse(
-                InquiryResponse::Saturation { level },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::Saturation {
+                level,
+            }))
         }
         ExtendedValueType::Hue => {
             let hue = response[5];
@@ -531,9 +522,9 @@ fn parse_extended_value(response: &[u8], value_type: ExtendedValueType) -> Resul
         }
         ExtendedValueType::DynamicRange => {
             let level = response[5];
-            Ok(Response::InquiryResponse(
-                InquiryResponse::DynamicRange { level },
-            ))
+            Ok(Response::InquiryResponse(InquiryResponse::DynamicRange {
+                level,
+            }))
         }
     }
 }

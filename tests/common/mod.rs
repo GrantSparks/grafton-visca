@@ -7,7 +7,7 @@ use grafton_visca::{Command, Error};
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
-    command::ResponseType, parse_visca_response, Response, Transport, InquiryResponse,
+    command::ResponseType, parse_visca_response, InquiryResponse, Response, Transport,
 };
 
 #[cfg(feature = "blocking-client")]
@@ -374,10 +374,7 @@ mod async_mock {
     }
 
     impl AsyncTransport for MockAsyncTransport {
-        fn send_command<'a>(
-            &'a mut self,
-            command: &'a dyn Command,
-        ) -> TransportFuture<'a, ()> {
+        fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
             Box::pin(async move {
                 let count = self.sent_commands.lock().await.len();
 

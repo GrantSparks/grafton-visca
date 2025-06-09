@@ -3,7 +3,7 @@
 // Crate imports
 use crate::{
     command::preset::{PresetAction, PresetCommand, PresetNumber},
-    error::Error as Error,
+    error::Error,
     Response, Transport,
 };
 

@@ -4,8 +4,8 @@
 
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    Client, Error, ImagePreset, ExposureExt, ImageExt, PanTiltExt, PositionExt,
-    PowerExt, WhiteBalanceExt, ZoomExt, WhiteBalancePreset,
+    Client, Error, ExposureExt, ImageExt, ImagePreset, PanTiltExt, PositionExt, PowerExt,
+    WhiteBalanceExt, WhiteBalancePreset, ZoomExt,
 };
 use std::thread;
 use std::time::Duration;

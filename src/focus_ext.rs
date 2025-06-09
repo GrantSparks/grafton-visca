@@ -3,7 +3,7 @@
 // Crate imports
 use crate::{
     command::focus::{FocusCommand, FocusSpeed},
-    error::Error as Error,
+    error::Error,
     Response, Transport,
 };
 

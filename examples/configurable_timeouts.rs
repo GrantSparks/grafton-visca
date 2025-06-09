@@ -158,7 +158,7 @@ mod tests {
             InquiryCommand,
         },
         timeout::CommandCategory,
-        TimeoutConfigBuilder, Command,
+        Command, TimeoutConfigBuilder,
     };
     use std::time::Duration;
 

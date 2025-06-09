@@ -1,6 +1,6 @@
 #![cfg(feature = "async-client")]
 
-use grafton_visca::{Error, Response, Session, SocketId, InquiryResponse};
+use grafton_visca::{Error, InquiryResponse, Response, Session, SocketId};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -138,10 +138,7 @@ async fn test_session_inquiry_response() {
             .process_response(&inquiry_response)
             .unwrap();
         match result {
-            Some((
-                sid,
-                Response::InquiryResponse(InquiryResponse::ZoomPosition { position }),
-            )) => {
+            Some((sid, Response::InquiryResponse(InquiryResponse::ZoomPosition { position }))) => {
                 assert_eq!(sid, socket_id);
                 assert_eq!(position, 0x1234);
             }

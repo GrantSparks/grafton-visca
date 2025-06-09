@@ -85,9 +85,7 @@ pub trait InquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ZoomPosition)? {
-            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => {
-                Ok(position)
-            }
+            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -103,9 +101,7 @@ pub trait InquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::FocusPosition)? {
-            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => {
-                Ok(position)
-            }
+            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -201,9 +197,7 @@ pub trait InquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureCompensation)? {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => {
-                Ok(value)
-            }
+            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -219,9 +213,7 @@ pub trait InquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureCompensationMode)? {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => {
-                Ok(on)
-            }
+            Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -466,9 +458,7 @@ pub trait InquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::NoiseReduction2D)? {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => {
-                Ok(level)
-            }
+            Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -484,9 +474,7 @@ pub trait InquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::NoiseReduction3D)? {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction3D { level }) => {
-                Ok(level)
-            }
+            Response::InquiryResponse(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -552,9 +540,7 @@ pub trait InquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::FocusNearLimit)? {
-            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => {
-                Ok(position)
-            }
+            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }

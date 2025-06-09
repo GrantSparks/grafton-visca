@@ -29,9 +29,8 @@ pub use crate::{
 
 // Extension traits
 pub use crate::{
-    ExposureExt, FocusExt, ImageExt, InquiryExt, PanTiltExt,
-    PositionExt, PowerExt, PresetExt, TransportExt, WhiteBalanceExt,
-    ZoomExt,
+    ExposureExt, FocusExt, ImageExt, InquiryExt, PanTiltExt, PositionExt, PowerExt, PresetExt,
+    TransportExt, WhiteBalanceExt, ZoomExt,
 };
 
 // Common commands and enums - only those that are frequently used directly

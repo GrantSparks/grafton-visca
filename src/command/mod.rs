@@ -43,7 +43,6 @@ pub use self::{
     zoom::*,
 };
 
-
 /// Trait for all VISCA commands.
 ///
 /// This trait must be implemented by all command types to provide:

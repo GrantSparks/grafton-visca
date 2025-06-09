@@ -41,12 +41,12 @@ use crate::{
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{
     command::{
+        inquiry::InquiryCommand,
         pan_tilt::PanTiltCommand,
         power::{Power, PowerCommand},
         preset::{PresetAction, PresetCommand, PresetNumber},
         zoom::ZoomCommand,
         InquiryResponse,
-        inquiry::InquiryCommand,
     },
     Response,
 };
@@ -206,9 +206,7 @@ impl CameraExt for Client {
     fn zoom_position(&self) -> Result<u16, Error> {
         let response = self.send(&InquiryCommand::ZoomPosition)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => {
-                Ok(position)
-            }
+            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -302,9 +300,7 @@ impl CameraExt for Client {
     fn focus_position(&self) -> Result<u16, Error> {
         let response = self.send(&InquiryCommand::FocusPosition)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => {
-                Ok(position)
-            }
+            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -520,8 +516,7 @@ impl AsyncCameraExt for Client {
 
         loop {
             let response = self.send_async(&InquiryCommand::ZoomPosition).await?;
-            if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) =
-                response
+            if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = response
             {
                 if position == target {
                     return Ok(());

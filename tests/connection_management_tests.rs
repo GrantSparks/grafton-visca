@@ -292,10 +292,7 @@ mod async_health_tests {
     }
 
     impl Transport for MockAsyncTransport {
-        fn send_command<'a>(
-            &'a mut self,
-            _command: &'a dyn Command,
-        ) -> TransportFuture<'a, ()> {
+        fn send_command<'a>(&'a mut self, _command: &'a dyn Command) -> TransportFuture<'a, ()> {
             Box::pin(async move {
                 if self.fail_send {
                     Err(Error::Io(std::io::Error::other("Mock send error")))

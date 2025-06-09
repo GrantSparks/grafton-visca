@@ -2,9 +2,7 @@
 mod tests {
     use grafton_visca::command::exposure::ExposureMode;
     use grafton_visca::command::white_balance::WhiteBalanceMode;
-    use grafton_visca::{
-        Command, Error, Response, Transport, InquiryExt, InquiryResponse,
-    };
+    use grafton_visca::{Command, Error, InquiryExt, InquiryResponse, Response, Transport};
     use std::collections::VecDeque;
 
     /// Mock device for testing inquiry extension methods

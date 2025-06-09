@@ -14,7 +14,7 @@ use grafton_visca::{
         power::{Power, PowerCommand},
         InquiryCommand,
     },
-    Error, Response, Transport, InquiryResponse,
+    Error, InquiryResponse, Response, Transport,
 };
 
 #[test]

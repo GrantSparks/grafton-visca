@@ -4,7 +4,7 @@
 
 use grafton_visca::{
     command::{AntiFlickerCommand, AntiFlickerMode, LuminanceCommand},
-    Command, Error, LuminanceLevel, Response, Transport, ExposureExt, ImageExt,
+    Command, Error, ExposureExt, ImageExt, LuminanceLevel, Response, Transport,
 };
 
 /// Mock device for testing extension traits
