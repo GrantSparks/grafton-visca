@@ -78,7 +78,7 @@ pub enum InquiryCommand {
     /// Query the current focus zone setting.
     FocusZone,
     /// Query the auto-focus sensitivity setting.
-    AFSensitivity,
+    AutoFocusSensitivity,
     /// Query the focus near limit position.
     FocusNearLimit,
     /// Query the dynamic range control level (0-8).
@@ -119,7 +119,7 @@ impl Command for InquiryCommand {
             Self::NoiseReduction3D => vec![0x81, 0x09, 0x04, 0x54, 0xFF],
             Self::BlackWhite => vec![0x81, 0x09, 0x04, 0x01, 0xFF],
             Self::FocusZone => vec![0x81, 0x09, 0x04, 0x3C, 0xFF],
-            Self::AFSensitivity => vec![0x81, 0x09, 0x04, 0x58, 0xFF],
+            Self::AutoFocusSensitivity => vec![0x81, 0x09, 0x04, 0x58, 0xFF],
             Self::FocusNearLimit => vec![0x81, 0x09, 0x04, 0x28, 0xFF],
             Self::DynamicRange => vec![0x81, 0x09, 0x04, 0x25, 0xFF],
         };
@@ -159,7 +159,7 @@ impl Command for InquiryCommand {
             Self::NoiseReduction3D => Some(ResponseType::NoiseReduction3D),
             Self::BlackWhite => Some(ResponseType::BlackWhite),
             Self::FocusZone => Some(ResponseType::FocusZone),
-            Self::AFSensitivity => Some(ResponseType::AFSensitivity),
+            Self::AutoFocusSensitivity => Some(ResponseType::AutoFocusSensitivity),
             Self::FocusNearLimit => Some(ResponseType::FocusNearLimit),
             Self::DynamicRange => Some(ResponseType::DynamicRange),
         }

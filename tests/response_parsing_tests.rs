@@ -577,12 +577,12 @@ mod response_parsing_tests {
 
     fn test_af_sensitivity_response(sens_value: u8, _expected_sensitivity: AutoFocusSensitivity) {
         let bytes = vec![0x90, 0x50, sens_value, 0xFF];
-        let response = parse_visca_response(&bytes, &ResponseType::AFSensitivity);
+        let response = parse_visca_response(&bytes, &ResponseType::AutoFocusSensitivity);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::AFSensitivity { sensitivity: _ })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity: _ })) => {
                 // Sensitivity parsed successfully
             }
-            _ => panic!("Expected AFSensitivity inquiry response"),
+            _ => panic!("Expected AutoFocusSensitivity inquiry response"),
         }
     }
 
@@ -632,7 +632,7 @@ mod response_parsing_tests {
         // Test FocusZone response
         test_focus_zone_response(0x01, FocusZone::Center);
 
-        // Test AFSensitivity response
+        // Test AutoFocusSensitivity response
         test_af_sensitivity_response(0x02, AutoFocusSensitivity::High);
 
         // Test FocusNearLimit response

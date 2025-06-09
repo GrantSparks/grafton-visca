@@ -161,7 +161,7 @@ pub enum InquiryResponse {
         zone: FocusZone,
     },
     /// Auto-focus sensitivity inquiry response.
-    AFSensitivity {
+    AutoFocusSensitivity {
         /// Current auto-focus sensitivity setting.
         sensitivity: AutoFocusSensitivity,
     },

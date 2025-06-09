@@ -97,7 +97,7 @@ pub trait FocusExt: Transport {
     /// # }
     /// ```
     fn focus_near(&mut self, speed: Option<FocusSpeed>) -> Result<(), Error> {
-        let command = speed.map_or(FocusCommand::NearStandard, FocusCommand::NearVariable);
+        let command = speed.map_or(FocusCommand::FocusNearStandard, FocusCommand::NearVariable);
         match self.execute_command(&command)? {
             Response::Completion => {}
             Response::Error(e) => return Err(e),
@@ -127,7 +127,7 @@ pub trait FocusExt: Transport {
     /// # }
     /// ```
     fn focus_far(&mut self, speed: Option<FocusSpeed>) -> Result<(), Error> {
-        let command = speed.map_or(FocusCommand::FarStandard, FocusCommand::FarVariable);
+        let command = speed.map_or(FocusCommand::FocusFarStandard, FocusCommand::FarVariable);
         match self.execute_command(&command)? {
             Response::Completion => {}
             Response::Error(e) => return Err(e),

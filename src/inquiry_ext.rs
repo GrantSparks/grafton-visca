@@ -521,8 +521,8 @@ pub trait InquiryExt: Transport {
     where
         Self: Sized,
     {
-        match self.execute_command(&InquiryCommand::AFSensitivity)? {
-            Response::InquiryResponse(InquiryResponse::AFSensitivity { sensitivity }) => {
+        match self.execute_command(&InquiryCommand::AutoFocusSensitivity)? {
+            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
                 Ok(sensitivity)
             }
             Response::Error(e) => Err(e),
