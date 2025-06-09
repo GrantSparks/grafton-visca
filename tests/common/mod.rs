@@ -3,11 +3,11 @@
 //! This module provides shared mock implementations and utilities
 //! to avoid code duplication across test files.
 
-use grafton_visca::{Error, ViscaCommand};
+use grafton_visca::{Command, Error};
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
-    command::ViscaResponseType, parse_visca_response, Response, Transport, ViscaInquiryResponse,
+    command::ResponseType, parse_visca_response, Response, Transport, InquiryResponse,
 };
 
 #[cfg(feature = "blocking-client")]
@@ -87,7 +87,7 @@ impl MockTransport {
 
 #[cfg(feature = "blocking-client")]
 impl BlockingTransport for MockTransport {
-    fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), Error> {
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
         // Check if we should fail after N commands
         let count = self.commands_sent.lock().unwrap().len();
         if let Some(fail_after) = self.fail_after {
@@ -156,13 +156,13 @@ impl MockDevice {
     }
 
     /// Add an inquiry response.
-    pub fn queue_inquiry_response(&self, response: ViscaInquiryResponse) {
+    pub fn queue_inquiry_response(&self, response: InquiryResponse) {
         // Convert the inquiry response to bytes based on its type
         let bytes = match response {
-            ViscaInquiryResponse::Power { on } => {
+            InquiryResponse::Power { on } => {
                 vec![0x90, 0x50, if on { 0x02 } else { 0x03 }, 0xFF]
             }
-            ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
+            InquiryResponse::PanTiltPosition { pan, tilt } => {
                 // Extract 4-bit nibbles from 16-bit signed values
                 // Using transmute for protocol-level bit manipulation
                 let pan_u16 = u16::from_ne_bytes(pan.to_ne_bytes());
@@ -181,7 +181,7 @@ impl MockDevice {
                     0xFF,
                 ]
             }
-            ViscaInquiryResponse::ZoomPosition { position } => {
+            InquiryResponse::ZoomPosition { position } => {
                 vec![
                     0x90,
                     0x50,
@@ -215,7 +215,7 @@ impl MockDevice {
 
 #[cfg(feature = "blocking-client")]
 impl Transport for MockDevice {
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<Response, Error> {
+    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         // For blocking transport, we don't need futures
         use grafton_visca::transport::Transport;
         use std::future::Future;
@@ -259,14 +259,14 @@ impl Transport for MockDevice {
         let is_inquiry = matches!(
             command.response_type(),
             Some(
-                ViscaResponseType::Power
-                    | ViscaResponseType::PanTiltPosition
-                    | ViscaResponseType::ZoomPosition
-                    | ViscaResponseType::FocusPosition
-                    | ViscaResponseType::ExposureMode
-                    | ViscaResponseType::WhiteBalanceMode
-                    | ViscaResponseType::Sharpness
-                    | ViscaResponseType::ExposureCompensation
+                ResponseType::Power
+                    | ResponseType::PanTiltPosition
+                    | ResponseType::ZoomPosition
+                    | ResponseType::FocusPosition
+                    | ResponseType::ExposureMode
+                    | ResponseType::WhiteBalanceMode
+                    | ResponseType::Sharpness
+                    | ResponseType::ExposureCompensation
             )
         );
 
@@ -376,7 +376,7 @@ mod async_mock {
     impl AsyncTransport for MockAsyncTransport {
         fn send_command<'a>(
             &'a mut self,
-            command: &'a dyn ViscaCommand,
+            command: &'a dyn Command,
         ) -> TransportFuture<'a, ()> {
             Box::pin(async move {
                 let count = self.sent_commands.lock().await.len();

@@ -1,5 +1,5 @@
 use grafton_visca::command::*;
-use grafton_visca::{BrightnessLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed, ViscaCommand};
+use grafton_visca::{BrightnessLevel, Command, GainLimit, GainValue, IrisLevel, ShutterSpeed};
 
 #[cfg(test)]
 mod golden_vector_tests {

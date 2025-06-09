@@ -183,12 +183,12 @@
 //! - TCP transport (default port 5678 for VISCA over IP)
 //!
 //! ### Command Layer
-//! - [`ViscaCommand`] trait - Implemented by all command types
+//! - [`Command`] trait - Implemented by all command types
 //! - Command modules in [`command`] - Organized by functionality
 //!
 //! ### Response Handling
 //! - [`Response`] - Enum for all response types (ACK, Completion, Inquiry, Error)
-//! - [`ViscaInquiryResponse`] - Specific inquiry response variants
+//! - [`InquiryResponse`] - Specific inquiry response variants
 //! - [`Error`] - Comprehensive error types for all failure modes
 //!
 //! ### Async Support (with `async` feature)
@@ -319,9 +319,9 @@ pub use crate::{
     command::{
         pan_tilt::PanTiltDirection,
         response::{parse_visca_response, Response},
-        ViscaCommand, ViscaInquiryResponse, ViscaResponseType,
+        Command, InquiryResponse, ResponseType,
     },
-    error::{AppError, Error, ViscaResultExt, ViscaRetry},
+    error::{AppError, Error, ResultExt, ViscaRetry},
     session::Session,
 };
 
@@ -352,20 +352,20 @@ pub use crate::{
 // Extension trait re-exports
 pub use crate::{
     api::{CameraControl, GainLevel, IrisValue, NoiseReductionStrength, PanTiltBuilder, Speed},
-    exposure_ext::{ExposurePreset, ViscaExposureExt},
-    focus_ext::ViscaFocusExt,
-    image_ext::{ImagePreset, ViscaImageExt},
+    exposure_ext::{ExposureExt, ExposurePreset},
+    focus_ext::FocusExt,
+    image_ext::{ImageExt, ImagePreset},
     inquiry_ext::{
-        CameraPosition, CameraState, ExposureState, ImageState, OpticsState, ViscaInquiryExt,
+        CameraPosition, CameraState, ExposureState, ImageState, InquiryExt, OpticsState,
         WhiteBalanceState,
     },
-    pan_tilt_ext::ViscaPanTiltExt,
-    position_ext::ViscaPositionExt,
-    power_ext::ViscaPowerExt,
-    preset_ext::ViscaPresetExt,
-    transport_ext::ViscaTransportExt,
-    white_balance_ext::{ViscaWhiteBalanceExt, WhiteBalancePreset},
-    zoom_ext::ViscaZoomExt,
+    pan_tilt_ext::PanTiltExt,
+    position_ext::PositionExt,
+    power_ext::PowerExt,
+    preset_ext::PresetExt,
+    transport_ext::TransportExt,
+    white_balance_ext::{WhiteBalanceExt, WhiteBalancePreset},
+    zoom_ext::ZoomExt,
 };
 
 // Unified extension trait re-exports
@@ -379,14 +379,14 @@ pub use crate::unified_ext::AsyncCameraExt;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use crate::{
     ptz_builder::PtzBuilder,
-    unified_client::{Client, ViscaClientPtzExt},
+    unified_client::{Client, ClientPtzExt},
 };
 
 // Async-specific re-exports
 #[cfg(feature = "async-client")]
 pub use crate::{
     async_transport::TransportFuture,
-    async_visca_ext::{AsyncViscaExt, PanScanDirection},
+    async_visca_ext::{AsyncExt, PanScanDirection},
     connection::AsyncConnectionManagement,
     connection_pool::AsyncViscaConnectionPool,
     reconnecting_transport::{
@@ -405,5 +405,7 @@ pub trait Transport {
     /// # Errors
     /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if communication with the camera fails.
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<Response, Error>;
+    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error>;
 }
+
+

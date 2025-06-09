@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
+    command::{Command, ResponseType},
     error::Error as ViscaError,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
@@ -42,7 +42,7 @@ pub enum SharpnessCommand {
     },
 }
 
-impl ViscaCommand for SharpnessCommand {
+impl Command for SharpnessCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(match self {
             Self::Mode(mode) => {
@@ -68,7 +68,7 @@ impl ViscaCommand for SharpnessCommand {
         })
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 

@@ -3,7 +3,7 @@ mod tests {
     use grafton_visca::command::exposure::ExposureMode;
     use grafton_visca::command::white_balance::WhiteBalanceMode;
     use grafton_visca::{
-        Error, Response, Transport, ViscaCommand, ViscaInquiryExt, ViscaInquiryResponse,
+        Command, Error, Response, Transport, InquiryExt, InquiryResponse,
     };
     use std::collections::VecDeque;
 
@@ -19,7 +19,7 @@ mod tests {
             }
         }
 
-        fn queue_inquiry_response(&mut self, response: ViscaInquiryResponse) {
+        fn queue_inquiry_response(&mut self, response: InquiryResponse) {
             self.responses
                 .push_back(Ok(Response::InquiryResponse(response)));
         }
@@ -30,7 +30,7 @@ mod tests {
     }
 
     impl Transport for MockDevice {
-        fn execute_command(&mut self, _command: &dyn ViscaCommand) -> Result<Response, Error> {
+        fn execute_command(&mut self, _command: &dyn Command) -> Result<Response, Error> {
             self.responses.pop_front().unwrap_or(Err(Error::Timeout))
         }
     }
@@ -39,7 +39,7 @@ mod tests {
     fn test_get_power_state_on() {
         let mut device = MockDevice::new();
         // Queue Power ON response
-        device.queue_inquiry_response(ViscaInquiryResponse::Power { on: true });
+        device.queue_inquiry_response(InquiryResponse::Power { on: true });
 
         let result = device.get_power_state().unwrap();
         assert!(result);
@@ -49,7 +49,7 @@ mod tests {
     fn test_get_power_state_off() {
         let mut device = MockDevice::new();
         // Queue Power OFF response
-        device.queue_inquiry_response(ViscaInquiryResponse::Power { on: false });
+        device.queue_inquiry_response(InquiryResponse::Power { on: false });
 
         let result = device.get_power_state().unwrap();
         assert!(!result);
@@ -59,7 +59,7 @@ mod tests {
     fn test_get_pan_tilt_position() {
         let mut device = MockDevice::new();
         // Queue Pan/Tilt position response
-        device.queue_inquiry_response(ViscaInquiryResponse::PanTiltPosition {
+        device.queue_inquiry_response(InquiryResponse::PanTiltPosition {
             pan: 0x1234,
             tilt: 0x5678,
         });
@@ -73,7 +73,7 @@ mod tests {
     fn test_get_zoom_position() {
         let mut device = MockDevice::new();
         // Queue Zoom position response
-        device.queue_inquiry_response(ViscaInquiryResponse::ZoomPosition { position: 0x4000 });
+        device.queue_inquiry_response(InquiryResponse::ZoomPosition { position: 0x4000 });
 
         let zoom = device.get_zoom_position().unwrap();
         assert_eq!(zoom, 0x4000);
@@ -83,7 +83,7 @@ mod tests {
     fn test_get_exposure_mode() {
         let mut device = MockDevice::new();
         // Queue Exposure mode response (Auto)
-        device.queue_inquiry_response(ViscaInquiryResponse::ExposureMode {
+        device.queue_inquiry_response(InquiryResponse::ExposureMode {
             mode: ExposureMode::Auto,
         });
 
@@ -96,7 +96,7 @@ mod tests {
     fn test_get_white_balance_mode() {
         let mut device = MockDevice::new();
         // Queue White Balance mode response (Auto)
-        device.queue_inquiry_response(ViscaInquiryResponse::WhiteBalance {
+        device.queue_inquiry_response(InquiryResponse::WhiteBalance {
             mode: WhiteBalanceMode::Auto,
         });
 
@@ -109,7 +109,7 @@ mod tests {
     fn test_get_exposure_compensation() {
         let mut device = MockDevice::new();
         // Queue Exposure compensation response (+7 compensation)
-        device.queue_inquiry_response(ViscaInquiryResponse::ExposureCompensation { value: 7 });
+        device.queue_inquiry_response(InquiryResponse::ExposureCompensation { value: 7 });
 
         let compensation = device.get_exposure_compensation().unwrap();
         assert_eq!(compensation, 7);
@@ -119,7 +119,7 @@ mod tests {
     fn test_get_image_flip() {
         let mut device = MockDevice::new();
         // Queue Image flip response (both on)
-        device.queue_inquiry_response(ViscaInquiryResponse::ImageFlip {
+        device.queue_inquiry_response(InquiryResponse::ImageFlip {
             vertical: true,
             horizontal: true,
         });

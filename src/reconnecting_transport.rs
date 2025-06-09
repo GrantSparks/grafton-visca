@@ -16,7 +16,7 @@ use crate::{
     connection::ConnectionStats,
     error::Error as ViscaError,
     transport::{Transport, TransportFuture},
-    ViscaCommand,
+    Command,
 };
 
 /// Type alias for transport creation function
@@ -292,7 +292,7 @@ where
     /// Returns `ViscaError` if the command serialization fails, if all
     /// reconnection attempts are exhausted, or if the underlying transport
     /// encounters a non-recoverable error.
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             // Try operation with retry on connection errors
             for attempt in 0..self.config.max_retries {

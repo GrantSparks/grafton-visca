@@ -8,8 +8,8 @@ mod common;
 use common::{MockDevice, MockTransport};
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    ImagePreset, Transport, ViscaExposureExt, ViscaImageExt, ViscaPositionExt,
-    ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset,
+    ImagePreset, Transport, ExposureExt, ImageExt, PositionExt,
+    WhiteBalanceExt, ZoomExt, WhiteBalancePreset,
 };
 
 #[test]
@@ -21,7 +21,7 @@ fn test_exposure_ext_methods() {
     let mut device = MockDevice::from_transport(transport);
 
     // Test iris control
-    ViscaExposureExt::set_iris(&mut device, 0x0C).unwrap();
+    ExposureExt::set_iris(&mut device, 0x0C).unwrap();
     assert_eq!(
         device.last_command().unwrap()[0..4],
         vec![0x81, 0x01, 0x04, 0x4B]

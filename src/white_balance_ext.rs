@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Extension trait providing high-level white balance control methods.
-pub trait ViscaWhiteBalanceExt: Transport {
+pub trait WhiteBalanceExt: Transport {
     /// Set the white balance mode.
     ///
     /// # Arguments
@@ -22,7 +22,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # use grafton_visca::command::white_balance::WhiteBalanceMode;
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to auto white balance
@@ -56,7 +56,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to approximately 5600K (daylight)
     /// client.set_color_temperature_direct(0x1C)?;
@@ -83,7 +83,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.color_temperature_up()?;
     /// # Ok(())
@@ -106,7 +106,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.color_temperature_down()?;
     /// # Ok(())
@@ -129,7 +129,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.color_temperature_reset()?;
     /// # Ok(())
@@ -155,7 +155,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to one-push mode first
     /// client.set_white_balance_mode(grafton_visca::command::white_balance::WhiteBalanceMode::OnePush)?;
@@ -186,7 +186,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to manual mode first
     /// client.set_white_balance_mode(grafton_visca::command::white_balance::WhiteBalanceMode::Manual)?;
@@ -229,7 +229,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_red_up()?;
     /// # Ok(())
@@ -252,7 +252,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_red_down()?;
     /// # Ok(())
@@ -275,7 +275,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_red_reset()?;
     /// # Ok(())
@@ -298,7 +298,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_blue_up()?;
     /// # Ok(())
@@ -321,7 +321,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_blue_down()?;
     /// # Ok(())
@@ -344,7 +344,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.white_balance_blue_reset()?;
     /// # Ok(())
@@ -374,7 +374,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Slightly increase red
     /// client.white_balance_red_tuning(2)?;
@@ -411,7 +411,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Slightly increase blue
     /// client.white_balance_blue_tuning(2)?;
@@ -444,7 +444,7 @@ pub trait ViscaWhiteBalanceExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaWhiteBalanceExt, WhiteBalancePreset};
+    /// # use grafton_visca::{Error, Transport, WhiteBalanceExt, WhiteBalancePreset};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set for daylight
     /// client.set_white_balance_preset(WhiteBalancePreset::Daylight)?;
@@ -501,5 +501,5 @@ pub enum WhiteBalancePreset {
     Outdoor,
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: Transport> ViscaWhiteBalanceExt for T {}
+/// Implement the trait for all types that implement `Transport`
+impl<T: Transport> WhiteBalanceExt for T {}

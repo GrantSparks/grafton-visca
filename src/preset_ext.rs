@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Extension trait providing high-level preset management methods.
-pub trait ViscaPresetExt: Transport {
+pub trait PresetExt: Transport {
     /// Set (save) the current camera position to a preset using a simple u8 preset number.
     ///
     /// This is a convenience method that accepts a u8 instead of `PresetNumber`.
@@ -22,7 +22,7 @@ pub trait ViscaPresetExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPresetExt};
+    /// # use grafton_visca::{Error, Transport, PresetExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Save current position to preset 1
     /// client.set_preset(1)?;
@@ -47,7 +47,7 @@ pub trait ViscaPresetExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPresetExt};
+    /// # use grafton_visca::{Error, Transport, PresetExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Return to preset position 1
     /// client.recall_preset(1)?;
@@ -83,7 +83,7 @@ pub trait ViscaPresetExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPresetExt, PresetNumber};
+    /// # use grafton_visca::{Error, Transport, PresetExt, PresetNumber};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Position camera as desired, then save to preset 1
     /// let preset = PresetNumber::new(1)?;
@@ -120,7 +120,7 @@ pub trait ViscaPresetExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPresetExt, PresetNumber};
+    /// # use grafton_visca::{Error, Transport, PresetExt, PresetNumber};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Return to preset position 1
     /// let preset1 = PresetNumber::new(1)?;
@@ -155,7 +155,7 @@ pub trait ViscaPresetExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPresetExt, PresetNumber};
+    /// # use grafton_visca::{Error, Transport, PresetExt, PresetNumber};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Clear preset 1
     /// let preset1 = PresetNumber::new(1)?;
@@ -177,5 +177,5 @@ pub trait ViscaPresetExt: Transport {
     }
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: Transport> ViscaPresetExt for T {}
+/// Implement the trait for all types that implement `Transport`
+impl<T: Transport> PresetExt for T {}

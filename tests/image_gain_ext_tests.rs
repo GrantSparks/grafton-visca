@@ -4,7 +4,7 @@
 
 use grafton_visca::{
     command::{AntiFlickerCommand, AntiFlickerMode, LuminanceCommand},
-    Error, LuminanceLevel, Response, Transport, ViscaCommand, ViscaExposureExt, ViscaImageExt,
+    Command, Error, LuminanceLevel, Response, Transport, ExposureExt, ImageExt,
 };
 
 /// Mock device for testing extension traits
@@ -27,7 +27,7 @@ impl MockDevice {
 }
 
 impl Transport for MockDevice {
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<Response, Error> {
+    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         self.last_command = Some(command.to_bytes()?);
         Ok(Response::Completion)
     }

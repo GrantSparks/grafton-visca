@@ -45,9 +45,10 @@ use crate::{
         power::{Power, PowerCommand},
         preset::{PresetAction, PresetCommand, PresetNumber},
         zoom::ZoomCommand,
-        InquiryCommand,
+        InquiryResponse,
+        inquiry::InquiryCommand,
     },
-    Response, ViscaInquiryResponse,
+    Response,
 };
 
 #[cfg(feature = "blocking-client")]
@@ -197,7 +198,7 @@ impl CameraExt for Client {
     fn is_powered_on(&self) -> Result<bool, Error> {
         let response = self.send(&InquiryCommand::Power)?;
         match response {
-            Response::InquiryResponse(ViscaInquiryResponse::Power { on }) => Ok(on),
+            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -205,7 +206,7 @@ impl CameraExt for Client {
     fn zoom_position(&self) -> Result<u16, Error> {
         let response = self.send(&InquiryCommand::ZoomPosition)?;
         match response {
-            Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
+            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => {
                 Ok(position)
             }
             _ => Err(Error::UnexpectedResponseType),
@@ -247,7 +248,7 @@ impl CameraExt for Client {
     fn pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let response = self.send(&InquiryCommand::PanTiltPosition)?;
         match response {
-            Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
+            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
                 Ok((pan, tilt))
             }
             _ => Err(Error::UnexpectedResponseType),
@@ -301,7 +302,7 @@ impl CameraExt for Client {
     fn focus_position(&self) -> Result<u16, Error> {
         let response = self.send(&InquiryCommand::FocusPosition)?;
         match response {
-            Response::InquiryResponse(ViscaInquiryResponse::FocusPosition { position }) => {
+            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => {
                 Ok(position)
             }
             _ => Err(Error::UnexpectedResponseType),
@@ -497,7 +498,7 @@ impl AsyncCameraExt for Client {
 
         loop {
             let response = self.send_async(&InquiryCommand::Power).await?;
-            if let Response::InquiryResponse(ViscaInquiryResponse::Power { on }) = response {
+            if let Response::InquiryResponse(InquiryResponse::Power { on }) = response {
                 if on {
                     return Ok(());
                 }
@@ -519,7 +520,7 @@ impl AsyncCameraExt for Client {
 
         loop {
             let response = self.send_async(&InquiryCommand::ZoomPosition).await?;
-            if let Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) =
+            if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) =
                 response
             {
                 if position == target {
@@ -556,7 +557,7 @@ impl AsyncCameraExt for Client {
 
         loop {
             let response = self.send_async(&InquiryCommand::PanTiltPosition).await?;
-            if let Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition {
+            if let Response::InquiryResponse(InquiryResponse::PanTiltPosition {
                 pan: current_pan,
                 tilt: current_tilt,
             }) = response

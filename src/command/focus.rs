@@ -11,7 +11,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
+    command::{Command, ResponseType},
     error::Error as ViscaError,
     timeout::CommandCategory,
 };
@@ -54,7 +54,7 @@ pub enum FocusCommand {
     Infinity,
 }
 
-impl ViscaCommand for FocusCommand {
+impl Command for FocusCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         match self {
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]),
@@ -80,7 +80,7 @@ impl ViscaCommand for FocusCommand {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -109,7 +109,7 @@ pub struct FocusZoneCommand {
     pub zone: FocusZone,
 }
 
-impl ViscaCommand for FocusZoneCommand {
+impl Command for FocusZoneCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         let zone_byte = match self.zone {
             FocusZone::Top => 0x00,
@@ -119,7 +119,7 @@ impl ViscaCommand for FocusZoneCommand {
         Ok(vec![0x81, 0x01, 0x04, 0x3C, zone_byte, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -148,7 +148,7 @@ pub struct AFSensitivityCommand {
     pub sensitivity: AFSensitivity,
 }
 
-impl ViscaCommand for AFSensitivityCommand {
+impl Command for AFSensitivityCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         let sens_byte = match self.sensitivity {
             AFSensitivity::High => 0x02,
@@ -158,7 +158,7 @@ impl ViscaCommand for AFSensitivityCommand {
         Ok(vec![0x81, 0x01, 0x04, 0x58, sens_byte, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 

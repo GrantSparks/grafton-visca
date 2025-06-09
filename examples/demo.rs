@@ -15,7 +15,7 @@ use grafton_visca::command::zoom::ZoomCommand;
 use grafton_visca::command::{
     BacklightCommand, ImageFlipCombinedCommand, ImageFlipMode, NoiseReduction2DCommand,
 };
-use grafton_visca::{Client, Response, Transport, ViscaInquiryResponse};
+use grafton_visca::{Client, Response, Transport, InquiryResponse};
 use grafton_visca::{ContrastLevel, IrisLevel, LuminanceLevel, ShutterSpeed};
 use std::thread;
 use std::time::Duration;
@@ -179,7 +179,7 @@ fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::
 
     // Query zoom position
     match client.execute_command(&InquiryCommand::ZoomPosition)? {
-        Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
+        Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => {
             println!("  Zoom position: 0x{position:04X}");
         }
         _ => println!("  Failed to get zoom position"),
@@ -187,7 +187,7 @@ fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::
 
     // Query pan/tilt position
     match client.execute_command(&InquiryCommand::PanTiltPosition)? {
-        Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
+        Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
             println!("  Pan/Tilt position: Pan={pan}, Tilt={tilt}");
         }
         _ => println!("  Failed to get pan/tilt position"),
@@ -195,7 +195,7 @@ fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::
 
     // Query exposure mode
     match client.execute_command(&InquiryCommand::ExposureMode)? {
-        Response::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) => {
+        Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => {
             println!("  Exposure mode: {mode:?}");
         }
         _ => println!("  Failed to get exposure mode"),
@@ -203,7 +203,7 @@ fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::
 
     // Query white balance mode
     match client.execute_command(&InquiryCommand::WhiteBalanceMode)? {
-        Response::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode }) => {
+        Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => {
             println!("  White balance mode: {mode:?}");
         }
         _ => println!("  Failed to get white balance mode"),

@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// Extension trait providing high-level exposure control methods.
-pub trait ViscaExposureExt: Transport {
+pub trait ExposureExt: Transport {
     /// Set the exposure mode.
     ///
     /// # Arguments
@@ -30,7 +30,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # use grafton_visca::command::exposure::ExposureMode;
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to auto exposure
@@ -60,7 +60,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Increase exposure by 2 stops
     /// client.set_exposure_compensation(2)?;
@@ -92,7 +92,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Enable exposure compensation
     /// client.set_exposure_compensation_enabled(true)?;
@@ -122,7 +122,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.reset_exposure_compensation()?;
     /// # Ok(())
@@ -140,7 +140,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.exposure_compensation_up()?;
     /// # Ok(())
@@ -158,7 +158,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.exposure_compensation_down()?;
     /// # Ok(())
@@ -180,7 +180,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set iris to F5.6
     /// client.set_iris(0x08)?;
@@ -203,7 +203,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.iris_up()?;
     /// # Ok(())
@@ -221,7 +221,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.iris_down()?;
     /// # Ok(())
@@ -239,7 +239,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.iris_reset()?;
     /// # Ok(())
@@ -259,7 +259,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set shutter to 1/60
     /// client.set_shutter(0x08)?;
@@ -284,7 +284,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.shutter_up()?;
     /// # Ok(())
@@ -301,7 +301,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.shutter_down()?;
     /// # Ok(())
@@ -318,7 +318,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.shutter_reset()?;
     /// # Ok(())
@@ -338,7 +338,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum gain (0 dB)
     /// client.set_gain(0x00)?;
@@ -363,7 +363,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.gain_up()?;
     /// # Ok(())
@@ -380,7 +380,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.gain_down()?;
     /// # Ok(())
@@ -397,7 +397,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.gain_reset()?;
     /// # Ok(())
@@ -417,7 +417,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Limit gain to 24 dB
     /// client.set_gain_limit(0x08)?;
@@ -447,7 +447,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set neutral brightness
     /// client.set_brightness(0x0C)?;
@@ -475,7 +475,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.brightness_up()?;
     /// # Ok(())
@@ -492,7 +492,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.brightness_down()?;
     /// # Ok(())
@@ -509,7 +509,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.brightness_reset()?;
     /// # Ok(())
@@ -529,7 +529,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Enable backlight compensation for subjects against bright backgrounds
     /// client.set_backlight(true)?;
@@ -556,7 +556,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt};
+    /// # use grafton_visca::{Error, Transport, ExposureExt};
     /// # use grafton_visca::command::AntiFlickerMode;
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Disable anti-flicker
@@ -584,7 +584,7 @@ pub trait ViscaExposureExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaExposureExt, ExposurePreset};
+    /// # use grafton_visca::{Error, Transport, ExposureExt, ExposurePreset};
     /// # use grafton_visca::command::exposure::ExposureMode;
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Configure for bright daylight
@@ -647,4 +647,4 @@ pub enum ExposurePreset {
     Manual,
 }
 
-impl<T: Transport> ViscaExposureExt for T {}
+impl<T: Transport> ExposureExt for T {}

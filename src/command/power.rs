@@ -10,7 +10,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
+    command::{Command, ResponseType},
     error::Error as ViscaError,
     timeout::CommandCategory,
 };
@@ -31,12 +31,12 @@ pub struct PowerCommand {
     pub power: Power,
 }
 
-impl ViscaCommand for PowerCommand {
+impl Command for PowerCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(vec![0x81, 0x01, 0x04, 0x00, self.power as u8, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 

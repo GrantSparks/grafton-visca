@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 // Workspace / local-crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{
-    error::Error, unified_client::Client, Response, ViscaCommand,
+    error::Error, unified_client::Client, Response, Command,
 };
 
 /// Configuration for the connection pool.
@@ -182,7 +182,7 @@ impl ViscaConnectionPool {
     pub fn execute_command(
         &self,
         camera_id: &str,
-        command: &dyn ViscaCommand,
+        command: &dyn Command,
     ) -> Result<Response, Error> {
         let mut connections = self
             .connections
@@ -385,7 +385,7 @@ impl AsyncViscaConnectionPool {
     pub async fn execute_command(
         &self,
         camera_id: &str,
-        command: &dyn ViscaCommand,
+        command: &dyn Command,
     ) -> Result<Response, Error> {
         let mut connections = self.connections.lock().await;
         let pooled = connections.get_mut(camera_id).ok_or_else(|| {

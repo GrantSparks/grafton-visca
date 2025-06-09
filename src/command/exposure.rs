@@ -11,7 +11,7 @@ use std::convert::TryFrom;
 
 // Workspace / local-crate imports
 use crate::{
-    command::{response::ViscaResponseType, ViscaCommand},
+    command::{response::ResponseType, Command},
     error::Error as ViscaError,
     timeout::CommandCategory,
     types::{BrightnessLevel, IrisLevel, ShutterSpeed},
@@ -43,12 +43,12 @@ pub struct ExposureCommand {
     pub mode: ExposureMode,
 }
 
-impl ViscaCommand for ExposureCommand {
+impl Command for ExposureCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(vec![0x81, 0x01, 0x04, 0x39, self.mode as u8, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -127,7 +127,7 @@ impl TryFrom<i8> for ExposureCompensationLevel {
 /// # Example
 /// ```no_run
 /// use grafton_visca::command::{ExposureCompensationCommand, exposure::ExposureCompensationLevel};
-/// use grafton_visca::ViscaCommand;
+/// use grafton_visca::Command;
 ///
 /// // Enable exposure compensation
 /// let enable = ExposureCompensationCommand::On;
@@ -151,7 +151,7 @@ pub enum ExposureCompensationCommand {
     Direct(ExposureCompensationLevel),
 }
 
-impl ViscaCommand for ExposureCompensationCommand {
+impl Command for ExposureCompensationCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(match self {
             Self::On => vec![0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF],
@@ -166,7 +166,7 @@ impl ViscaCommand for ExposureCompensationCommand {
         })
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -198,7 +198,7 @@ pub enum DynamicRangeCommand {
     Direct(DynamicRangeLevel),
 }
 
-impl ViscaCommand for DynamicRangeCommand {
+impl Command for DynamicRangeCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         match self {
             Self::Direct(level) => Ok(vec![
@@ -215,7 +215,7 @@ impl ViscaCommand for DynamicRangeCommand {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 

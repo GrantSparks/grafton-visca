@@ -32,7 +32,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
+    command::{Command, ResponseType},
     error::Error as ViscaError,
     timeout::CommandCategory,
 };
@@ -133,7 +133,7 @@ pub enum PanTiltCommand {
     },
 }
 
-impl ViscaCommand for PanTiltCommand {
+impl Command for PanTiltCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         match self {
             Self::Home => Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]),
@@ -213,7 +213,7 @@ impl ViscaCommand for PanTiltCommand {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -493,7 +493,7 @@ pub enum PanTiltLimitCommand {
     },
 }
 
-impl ViscaCommand for PanTiltLimitCommand {
+impl Command for PanTiltLimitCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         match self {
             Self::Set { corner, pan, tilt } => {
@@ -538,7 +538,7 @@ impl ViscaCommand for PanTiltLimitCommand {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 

@@ -8,7 +8,7 @@ use common::MockAsyncTransport;
 use grafton_visca::{
     command::power::{Power, PowerCommand},
     transport::Transport,
-    ConnectionEvent, Error, ReconnectingTransport, ReconnectionConfig, ViscaCommand,
+    Command, ConnectionEvent, Error, ReconnectingTransport, ReconnectionConfig,
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -44,7 +44,7 @@ impl FailingMockTransport {
 impl Transport for FailingMockTransport {
     fn send_command<'a>(
         &'a mut self,
-        command: &'a dyn ViscaCommand,
+        command: &'a dyn Command,
     ) -> grafton_visca::transport::TransportFuture<'a, ()> {
         Box::pin(async move {
             // Check if we should fail

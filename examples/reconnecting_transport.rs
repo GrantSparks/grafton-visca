@@ -17,7 +17,7 @@ use grafton_visca::{
         ZoomCommand,
     },
     ConnectionEvent, ConnectionManagement, ReconnectingTransport, ReconnectionConfig, TcpTransport,
-    UdpTransport, Error, ViscaTransport, ViscaTransportExt,
+    UdpTransport, Error, Transport, TransportExt,
 };
 use std::io;
 use std::sync::{Arc, Mutex};

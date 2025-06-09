@@ -4,8 +4,8 @@
 
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    Client, Error, ImagePreset, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt, ViscaPositionExt,
-    ViscaPowerExt, ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset,
+    Client, Error, ImagePreset, ExposureExt, ImageExt, PanTiltExt, PositionExt,
+    PowerExt, WhiteBalanceExt, ZoomExt, WhiteBalancePreset,
 };
 use std::thread;
 use std::time::Duration;
@@ -30,13 +30,13 @@ fn main() -> Result<(), Error> {
 
     // Demonstrate exposure control
     println!("\n--- Exposure Control ---");
-    ViscaExposureExt::set_exposure_mode(
+    ExposureExt::set_exposure_mode(
         &mut client,
         grafton_visca::command::exposure::ExposureMode::Auto,
     )?;
     println!("Set exposure mode to Auto");
 
-    ViscaExposureExt::set_backlight(&mut client, true)?;
+    ExposureExt::set_backlight(&mut client, true)?;
     println!("Enabled backlight compensation");
 
     client.set_brightness(0x08)?;
@@ -103,7 +103,7 @@ fn main() -> Result<(), Error> {
 
     // Demonstrate relative movement
     println!("\n--- Relative Movement ---");
-    ViscaPositionExt::move_by_degrees(
+    PositionExt::move_by_degrees(
         &mut client,
         10.0,
         -5.0,
@@ -114,14 +114,14 @@ fn main() -> Result<(), Error> {
 
     // Return to default settings
     println!("\n--- Returning to Defaults ---");
-    ViscaExposureExt::set_exposure_mode(
+    ExposureExt::set_exposure_mode(
         &mut client,
         grafton_visca::command::exposure::ExposureMode::Auto,
     )?;
     client.set_white_balance_preset(WhiteBalancePreset::Auto)?;
     client.apply_image_preset(ImagePreset::Default)?;
-    ViscaPanTiltExt::move_to_position(&mut client, 0, 0, None)?;
-    ViscaZoomExt::zoom_to_magnification(&mut client, 1.0)?;
+    PanTiltExt::move_to_position(&mut client, 0, 0, None)?;
+    ZoomExt::zoom_to_magnification(&mut client, 1.0)?;
     println!("Returned camera to default settings");
 
     println!("\n=== Demo Complete ===");

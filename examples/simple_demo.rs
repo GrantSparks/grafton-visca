@@ -5,8 +5,8 @@
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    Client, Error, ViscaPositionExt, ViscaPowerExt, ViscaPresetExt, ViscaTransportExt,
-    ViscaZoomExt,
+    Client, Error, PositionExt, PowerExt, PresetExt, TransportExt,
+    ZoomExt,
 };
 #[cfg(feature = "blocking-client")]
 use std::time::Duration;
@@ -34,7 +34,7 @@ fn main() -> Result<(), Error> {
     client.home()?;
     println!("Moved to home position");
 
-    // Save current position as preset 1 using ViscaPresetExt
+    // Save current position as preset 1 using PresetExt
     client.set_preset(1)?;
     println!("Saved preset 1");
 
@@ -52,7 +52,7 @@ fn main() -> Result<(), Error> {
     client.move_stop()?;
     println!("Continuous movement demo completed");
 
-    // Return to preset 1 (home) using ViscaPresetExt
+    // Return to preset 1 (home) using PresetExt
     client.recall_preset(1)?;
     println!("Returned to preset 1");
 

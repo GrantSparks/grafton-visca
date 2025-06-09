@@ -6,8 +6,8 @@ use grafton_visca::{
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
         zoom::ZoomSpeed,
     },
-    Error, Response, Transport, ViscaCommand, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt,
-    ViscaZoomExt,
+    Command, Error, Response, Transport, FocusExt, PanTiltExt, PresetExt,
+    ZoomExt,
 };
 
 /// Mock device for testing control commands
@@ -32,7 +32,7 @@ impl MockDevice {
 }
 
 impl Transport for MockDevice {
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<Response, Error> {
+    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         let data = command.to_bytes()?;
         self.sent_commands.push(data);
         Ok(Response::Completion)

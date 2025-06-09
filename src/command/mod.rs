@@ -4,7 +4,10 @@
 //! organized by functionality.
 
 // Crate imports
-use crate::{error::Error as ViscaError, timeout::CommandCategory};
+use crate::timeout::CommandCategory;
+
+// For backward compatibility during migration
+use crate::error::Error as ViscaError;
 
 // Command modules
 pub mod color;
@@ -35,10 +38,11 @@ pub use self::{
     pan_tilt::*,
     power::*,
     preset::*,
-    response::{parse_visca_response, Response, ViscaResponseType},
+    response::{parse_visca_response, Response, ResponseType},
     white_balance::*,
     zoom::*,
 };
+
 
 /// Trait for all VISCA commands.
 ///
@@ -49,18 +53,18 @@ pub use self::{
 ///
 /// # Example Implementation
 /// ```no_run
-/// # use grafton_visca::command::{ViscaCommand, ViscaResponseType};
+/// # use grafton_visca::command::{Command, ResponseType};
 /// # use grafton_visca::timeout::CommandCategory;
-/// # use grafton_visca::ViscaError;
+/// # use grafton_visca::Error;
 /// struct MyCommand;
 ///
-/// impl ViscaCommand for MyCommand {
-///     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+/// impl Command for MyCommand {
+///     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
 ///         // Return VISCA command bytes
 ///         Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
 ///     }
 ///     
-///     fn response_type(&self) -> Option<ViscaResponseType> {
+///     fn response_type(&self) -> Option<ResponseType> {
 ///         // Return None for action commands, Some(...) for inquiries
 ///         None
 ///     }
@@ -71,7 +75,7 @@ pub use self::{
 ///     }
 /// }
 /// ```
-pub trait ViscaCommand: Send + Sync {
+pub trait Command: Send + Sync {
     /// Converts the command to VISCA protocol bytes.
     ///
     /// The returned bytes should be a complete VISCA command packet,
@@ -79,14 +83,14 @@ pub trait ViscaCommand: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::InvalidParameter` if the command contains invalid parameters
+    /// Returns `Error::InvalidParameter` if the command contains invalid parameters
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError>;
 
     /// Returns the expected response type for this command.
     ///
     /// - Returns `None` for action commands that only receive ACK/Completion
-    /// - Returns `Some(ViscaResponseType::...)` for inquiry commands that receive data
-    fn response_type(&self) -> Option<ViscaResponseType>;
+    /// - Returns `Some(ResponseType::...)` for inquiry commands that receive data
+    fn response_type(&self) -> Option<ResponseType>;
 
     /// Returns the command category for timeout configuration.
     ///
@@ -101,9 +105,9 @@ pub trait ViscaCommand: Send + Sync {
 /// Response data from VISCA inquiry commands.
 ///
 /// Each variant represents a different type of inquiry response with its associated data.
-/// These are returned wrapped in `ViscaResponse::InquiryResponse(...)`.
+/// These are returned wrapped in `Response::InquiryResponse(...)`.
 #[derive(Debug, Copy, Clone)]
-pub enum ViscaInquiryResponse {
+pub enum InquiryResponse {
     /// Power status inquiry response.
     Power {
         /// Whether the camera is powered on.

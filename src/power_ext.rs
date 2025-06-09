@@ -10,7 +10,7 @@ use crate::{
 /// Extension trait providing power control methods.
 ///
 /// This trait provides all power-related control methods for VISCA devices.
-pub trait ViscaPowerExt: Transport {
+pub trait PowerExt: Transport {
     /// Check if the camera is powered on.
     ///
     /// # Returns
@@ -23,7 +23,7 @@ pub trait ViscaPowerExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
+    /// # use grafton_visca::{Error, Transport, PowerExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// if client.is_powered_on()? {
     ///     println!("Camera is powered on");
@@ -41,7 +41,7 @@ pub trait ViscaPowerExt: Transport {
         let response = self.execute_command(&InquiryCommand::Power)?;
 
         match response {
-            Response::InquiryResponse(crate::ViscaInquiryResponse::Power { on }) => Ok(on),
+            Response::InquiryResponse(crate::InquiryResponse::Power { on }) => Ok(on),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -61,7 +61,7 @@ pub trait ViscaPowerExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
+    /// # use grafton_visca::{Error, Transport, PowerExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Ensure camera is ready before sending commands
     /// let was_on = client.ensure_powered_on()?;
@@ -102,7 +102,7 @@ pub trait ViscaPowerExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
+    /// # use grafton_visca::{Error, Transport, PowerExt};
     /// # use std::time::Duration;
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Power on and wait up to 10 seconds for camera to be ready
@@ -155,7 +155,7 @@ pub trait ViscaPowerExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
+    /// # use grafton_visca::{Error, Transport, PowerExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Power on the camera
     /// client.power_on()?;
@@ -186,7 +186,7 @@ pub trait ViscaPowerExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPowerExt};
+    /// # use grafton_visca::{Error, Transport, PowerExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Power off the camera
     /// client.power_off()?;
@@ -203,4 +203,4 @@ pub trait ViscaPowerExt: Transport {
 }
 
 /// Implement the trait for all types that implement `Transport`
-impl<T: Transport> ViscaPowerExt for T {}
+impl<T: Transport> PowerExt for T {}

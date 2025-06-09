@@ -1,6 +1,6 @@
 //! Test example for declarative macro approach
 
-use grafton_visca::command::ViscaCommand;
+use grafton_visca::command::Command;
 use grafton_visca::{visca_command, Error};
 
 visca_command! {

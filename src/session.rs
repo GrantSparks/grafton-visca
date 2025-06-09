@@ -3,16 +3,15 @@ use std::collections::HashMap;
 use log::{debug, error};
 
 use crate::{
-    command::response::{parse_visca_response as parse_response_typed, Response},
+    command::response::{parse_visca_response as parse_response_typed, Response, ResponseType},
     error::Error as ViscaError,
     types::SocketId,
-    ViscaResponseType,
 };
 
 /// Parse a VISCA response, optionally with a specific expected type.
 fn parse_visca_response(
     data: &[u8],
-    response_type: Option<ViscaResponseType>,
+    response_type: Option<ResponseType>,
 ) -> Result<Response, ViscaError> {
     if data.len() < 3 || data[0] != 0x90 || data[data.len() - 1] != 0xFF {
         return Err(ViscaError::InvalidResponseFormat);
@@ -45,7 +44,7 @@ fn parse_visca_response(
 #[derive(Debug, Clone, Copy)]
 pub struct PendingCommand {
     /// The expected response type for inquiry commands
-    pub response_type: Option<ViscaResponseType>,
+    pub response_type: Option<ResponseType>,
     /// Whether we've received an ACK for this command
     pub acknowledged: bool,
 }
@@ -82,7 +81,7 @@ impl Session {
     /// Returns `ViscaError::CommandBufferFull` if both sockets are already in use.
     pub fn assign_socket(
         &mut self,
-        response_type: Option<ViscaResponseType>,
+        response_type: Option<ResponseType>,
     ) -> Result<SocketId, ViscaError> {
         use std::collections::hash_map::Entry;
 
@@ -288,7 +287,7 @@ impl Session {
 
     /// Gets the expected response type for a socket.
     #[must_use]
-    pub fn get_response_type(&self, socket_id: SocketId) -> Option<ViscaResponseType> {
+    pub fn get_response_type(&self, socket_id: SocketId) -> Option<ResponseType> {
         self.pending_commands
             .get(&socket_id)
             .and_then(|cmd| cmd.response_type)

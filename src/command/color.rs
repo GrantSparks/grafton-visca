@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{response::ViscaResponseType, ViscaCommand},
+    command::{response::ResponseType, Command},
     error::Error as ViscaError,
     timeout::CommandCategory,
 };
@@ -18,12 +18,12 @@ use crate::{
 #[derive(Debug, Copy, Clone)]
 pub struct OnePushTriggerCommand;
 
-impl ViscaCommand for OnePushTriggerCommand {
+impl Command for OnePushTriggerCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         Ok(vec![0x81, 0x01, 0x04, 0x10, 0x05, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -43,7 +43,7 @@ pub struct RedTuningCommand {
     pub level: i8,
 }
 
-impl ViscaCommand for RedTuningCommand {
+impl Command for RedTuningCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         if self.level < -10 || self.level > 10 {
             return Err(ViscaError::InvalidParameter(
@@ -60,7 +60,7 @@ impl ViscaCommand for RedTuningCommand {
         Ok(vec![0x81, 0x0A, 0x01, 0x12, encoded, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -80,7 +80,7 @@ pub struct BlueTuningCommand {
     pub level: i8,
 }
 
-impl ViscaCommand for BlueTuningCommand {
+impl Command for BlueTuningCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         if self.level < -10 || self.level > 10 {
             return Err(ViscaError::InvalidParameter(
@@ -97,7 +97,7 @@ impl ViscaCommand for BlueTuningCommand {
         Ok(vec![0x81, 0x0A, 0x01, 0x13, encoded, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -117,7 +117,7 @@ pub struct SaturationCommand {
     pub level: u8,
 }
 
-impl ViscaCommand for SaturationCommand {
+impl Command for SaturationCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         if self.level > 0x0E {
             return Err(ViscaError::InvalidParameter(
@@ -129,7 +129,7 @@ impl ViscaCommand for SaturationCommand {
         ])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -149,7 +149,7 @@ pub struct HueCommand {
     pub level: u8,
 }
 
-impl ViscaCommand for HueCommand {
+impl Command for HueCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         if self.level > 0x0E {
             return Err(ViscaError::InvalidParameter(
@@ -161,7 +161,7 @@ impl ViscaCommand for HueCommand {
         ])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
