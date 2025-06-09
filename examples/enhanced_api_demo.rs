@@ -4,41 +4,39 @@
 
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    ImagePreset, ViscaClient, ViscaError, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt,
-    ViscaPositionExt, ViscaPowerExt, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
-    WhiteBalancePreset,
+    Client, Error, ExposureExt, ImageExt, ImagePreset, PanTiltExt, PositionExt, PowerExt,
+    WhiteBalanceExt, WhiteBalancePreset, ZoomExt,
 };
 use std::thread;
 use std::time::Duration;
 
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Connect to camera using UDP client
-    let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    let mut client = Client::connect_udp("192.168.1.100:5678")?;
 
     println!("=== Enhanced API Demo ===\n");
 
     // Check power status and ensure camera is on
     println!("Checking camera power status...");
-    if client.is_powered_on()? {
-        println!("Camera is already powered on");
-    } else {
-        println!("Camera is off, powering on...");
-        client.power_on()?;
+    let was_already_on = client.ensure_powered_on()?;
+    if !was_already_on {
+        println!("Camera was powered off, now powered on");
         client.wait_for_power_on(Duration::from_secs(5), Duration::from_millis(500))?;
-        println!("Camera powered on!");
+    } else {
+        println!("Camera is already powered on");
     }
 
     // Demonstrate exposure control
     println!("\n--- Exposure Control ---");
-    ViscaExposureExt::set_exposure_mode(
+    ExposureExt::set_exposure_mode(
         &mut client,
         grafton_visca::command::exposure::ExposureMode::Auto,
     )?;
     println!("Set exposure mode to Auto");
 
-    ViscaExposureExt::set_backlight(&mut client, true)?;
+    ExposureExt::set_backlight(&mut client, true)?;
     println!("Enabled backlight compensation");
 
     client.set_brightness(0x08)?;
@@ -105,7 +103,7 @@ fn main() -> Result<(), ViscaError> {
 
     // Demonstrate relative movement
     println!("\n--- Relative Movement ---");
-    ViscaPositionExt::move_by_degrees(
+    PositionExt::move_by_degrees(
         &mut client,
         10.0,
         -5.0,
@@ -116,14 +114,14 @@ fn main() -> Result<(), ViscaError> {
 
     // Return to default settings
     println!("\n--- Returning to Defaults ---");
-    ViscaExposureExt::set_exposure_mode(
+    ExposureExt::set_exposure_mode(
         &mut client,
         grafton_visca::command::exposure::ExposureMode::Auto,
     )?;
     client.set_white_balance_preset(WhiteBalancePreset::Auto)?;
     client.apply_image_preset(ImagePreset::Default)?;
-    ViscaPanTiltExt::move_to_position(&mut client, 0, 0, None)?;
-    ViscaZoomExt::zoom_to_magnification(&mut client, 1.0)?;
+    PanTiltExt::move_to_position(&mut client, 0, 0, None)?;
+    ZoomExt::zoom_to_magnification(&mut client, 1.0)?;
     println!("Returned camera to default settings");
 
     println!("\n=== Demo Complete ===");

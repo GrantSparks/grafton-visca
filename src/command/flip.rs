@@ -10,8 +10,8 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
-    error::ViscaError,
+    command::{Command, ResponseType},
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -33,12 +33,12 @@ pub struct ImageFlipCommand {
     pub flip: Flip,
 }
 
-impl ViscaCommand for ImageFlipCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for ImageFlipCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![0x81, 0x01, 0x04, 0x66, self.flip as u8, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 

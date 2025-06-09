@@ -14,13 +14,14 @@ use tokio::time::sleep;
 // Workspace / local-crate imports
 use crate::{
     connection::ConnectionStats,
+    error::Error,
     transport::{Transport, TransportFuture},
-    ViscaCommand, ViscaError,
+    Command,
 };
 
 /// Type alias for transport creation function
 type TransportCreator<T> = Arc<
-    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, ViscaError>> + Send>>
+    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, Error>> + Send>>
         + Send
         + Sync,
 >;
@@ -129,14 +130,11 @@ where
     /// * `config` - Configuration for reconnection behavior
     ///
     /// # Errors
-    /// Returns a `ViscaError` if the initial transport creation fails.
-    pub async fn new<F, Fut>(
-        create_transport: F,
-        config: ReconnectionConfig,
-    ) -> Result<Self, ViscaError>
+    /// Returns a `Error` if the initial transport creation fails.
+    pub async fn new<F, Fut>(create_transport: F, config: ReconnectionConfig) -> Result<Self, Error>
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = Result<T, ViscaError>> + Send + 'static,
+        Fut: std::future::Future<Output = Result<T, Error>> + Send + 'static,
     {
         let transport = create_transport().await?;
 
@@ -170,9 +168,9 @@ where
     /// Ensures the transport is connected, attempting to reconnect if necessary.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the health check fails, if reconnection attempts
+    /// Returns `Error` if the health check fails, if reconnection attempts
     /// are exhausted, or if the transport creation function fails.
-    async fn ensure_connected(&self) -> Result<(), ViscaError> {
+    async fn ensure_connected(&self) -> Result<(), Error> {
         let mut state = self.state.lock().await;
 
         // Check if we need to reconnect
@@ -254,7 +252,7 @@ where
         }
 
         self.notify_event(ConnectionEvent::ReconnectionExhausted);
-        Err(ViscaError::ConnectionLost {
+        Err(Error::ConnectionLost {
             reason: "Failed to reconnect after maximum attempts".to_string(),
         })
     }
@@ -288,10 +286,10 @@ where
     /// Sends a VISCA command through the reconnecting transport wrapper.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command serialization fails, if all
+    /// Returns `Error` if the command serialization fails, if all
     /// reconnection attempts are exhausted, or if the underlying transport
     /// encounters a non-recoverable error.
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             // Try operation with retry on connection errors
             for attempt in 0..self.config.max_retries {
@@ -311,9 +309,7 @@ where
                             // Check if this is a connection error
                             if matches!(
                                 e,
-                                ViscaError::Io(_)
-                                    | ViscaError::ConnectionLost { .. }
-                                    | ViscaError::Timeout
+                                Error::Io(_) | Error::ConnectionLost { .. } | Error::Timeout
                             ) {
                                 log::warn!("Connection error during send_command: {e}");
                                 state.inner = None;
@@ -334,7 +330,7 @@ where
                 }
             }
 
-            Err(ViscaError::ConnectionLost {
+            Err(Error::ConnectionLost {
                 reason: "Failed to send command after multiple attempts".to_string(),
             })
         })
@@ -343,7 +339,7 @@ where
     /// Receives VISCA response frames through the reconnecting transport wrapper.
     ///
     /// # Errors
-    /// Returns `ViscaError` if all reconnection attempts are exhausted,
+    /// Returns `Error` if all reconnection attempts are exhausted,
     /// if the underlying transport encounters a non-recoverable error,
     /// or if a timeout occurs during reception.
     fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
@@ -368,9 +364,7 @@ where
                             // Check if this is a connection error
                             if matches!(
                                 e,
-                                ViscaError::Io(_)
-                                    | ViscaError::ConnectionLost { .. }
-                                    | ViscaError::Timeout
+                                Error::Io(_) | Error::ConnectionLost { .. } | Error::Timeout
                             ) {
                                 log::warn!("Connection error during receive_response: {e}");
                                 state.inner = None;
@@ -391,7 +385,7 @@ where
                 }
             }
 
-            Err(ViscaError::ConnectionLost {
+            Err(Error::ConnectionLost {
                 reason: "Failed to receive response after multiple attempts".to_string(),
             })
         })

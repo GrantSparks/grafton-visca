@@ -3,24 +3,24 @@
 // Crate imports
 use crate::{
     command::focus::{FocusCommand, FocusSpeed},
-    error::ViscaError,
-    ViscaDevice, ViscaResponse,
+    error::Error,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level focus control methods.
-pub trait ViscaFocusExt: ViscaDevice {
+pub trait FocusExt: Transport {
     /// Enable or disable auto-focus mode.
     ///
     /// # Arguments
     /// * `enabled` - true to enable auto-focus, false for manual focus
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, FocusExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Enable auto-focus
     /// client.set_auto_focus(true)?;
     ///
@@ -29,16 +29,16 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_auto_focus(&mut self, enabled: bool) -> Result<(), ViscaError> {
+    fn set_auto_focus(&mut self, enabled: bool) -> Result<(), Error> {
         let command = if enabled {
             FocusCommand::Auto
         } else {
             FocusCommand::Manual
         };
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -49,12 +49,12 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// * `position` - Target focus position (0x1000 to 0xF000)
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, FocusExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Focus to near position
     /// client.focus_to(0x1000)?;
     ///
@@ -66,12 +66,12 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn focus_to(&mut self, position: u16) -> Result<(), ViscaError> {
+    fn focus_to(&mut self, position: u16) -> Result<(), Error> {
         let command = FocusCommand::Direct(position);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -82,12 +82,12 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// * `speed` - Optional focus speed. If None, uses standard speed.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt, FocusSpeed};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, FocusExt, FocusSpeed};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Focus near at standard speed
     /// client.focus_near(None)?;
     ///
@@ -96,12 +96,12 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn focus_near(&mut self, speed: Option<FocusSpeed>) -> Result<(), ViscaError> {
+    fn focus_near(&mut self, speed: Option<FocusSpeed>) -> Result<(), Error> {
         let command = speed.map_or(FocusCommand::NearStandard, FocusCommand::NearVariable);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -112,12 +112,12 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// * `speed` - Optional focus speed. If None, uses standard speed.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt, FocusSpeed};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, FocusExt, FocusSpeed};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Focus far at standard speed
     /// client.focus_far(None)?;
     ///
@@ -126,12 +126,12 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn focus_far(&mut self, speed: Option<FocusSpeed>) -> Result<(), ViscaError> {
+    fn focus_far(&mut self, speed: Option<FocusSpeed>) -> Result<(), Error> {
         let command = speed.map_or(FocusCommand::FarStandard, FocusCommand::FarVariable);
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -139,12 +139,12 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// Stop focus movement.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, FocusExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Start focusing near
     /// client.focus_near(None)?;
     ///
@@ -155,12 +155,12 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn stop_focus(&mut self) -> Result<(), ViscaError> {
+    fn stop_focus(&mut self) -> Result<(), Error> {
         let command = FocusCommand::Stop;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
@@ -170,12 +170,12 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// This performs a single auto-focus operation, even when in manual focus mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send or the camera returns an error.
+    /// Returns `Error` if the command fails to send or the camera returns an error.
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{ViscaError, ViscaDevice, ViscaFocusExt};
-    /// # fn example(client: &mut impl ViscaDevice) -> Result<(), ViscaError> {
+    /// # use grafton_visca::{Error, Transport, FocusExt};
+    /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set manual focus mode
     /// client.set_auto_focus(false)?;
     ///
@@ -184,16 +184,16 @@ pub trait ViscaFocusExt: ViscaDevice {
     /// # Ok(())
     /// # }
     /// ```
-    fn trigger_one_push_focus(&mut self) -> Result<(), ViscaError> {
+    fn trigger_one_push_focus(&mut self) -> Result<(), Error> {
         let command = FocusCommand::OnePushTrigger;
         match self.execute_command(&command)? {
-            ViscaResponse::Completion => {}
-            ViscaResponse::Error(e) => return Err(e),
-            _ => return Err(ViscaError::UnexpectedResponseType),
+            Response::Completion => {}
+            Response::Error(e) => return Err(e),
+            _ => return Err(Error::UnexpectedResponseType),
         }
         Ok(())
     }
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: ViscaDevice> ViscaFocusExt for T {}
+/// Implement the trait for all types that implement `Transport`
+impl<T: Transport> FocusExt for T {}

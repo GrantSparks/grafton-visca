@@ -5,8 +5,8 @@
 
 // Crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
-    error::ViscaError,
+    command::{Command, ResponseType},
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -85,8 +85,8 @@ pub enum InquiryCommand {
     DynamicRange,
 }
 
-impl ViscaCommand for InquiryCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for InquiryCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let bytes = match self {
             Self::Power => vec![0x81, 0x09, 0x04, 0x00, 0xFF],
             Self::PanTiltPosition => vec![0x81, 0x09, 0x06, 0x12, 0xFF],
@@ -126,42 +126,42 @@ impl ViscaCommand for InquiryCommand {
         Ok(bytes)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::Power => Some(ViscaResponseType::Power),
-            Self::PanTiltPosition => Some(ViscaResponseType::PanTiltPosition),
-            Self::ZoomPosition => Some(ViscaResponseType::ZoomPosition),
-            Self::FocusPosition => Some(ViscaResponseType::FocusPosition),
-            Self::ExposureMode => Some(ViscaResponseType::ExposureMode),
-            Self::WhiteBalanceMode => Some(ViscaResponseType::WhiteBalanceMode),
-            Self::Luminance => Some(ViscaResponseType::Luminance),
-            Self::Contrast => Some(ViscaResponseType::Contrast),
+            Self::Power => Some(ResponseType::Power),
+            Self::PanTiltPosition => Some(ResponseType::PanTiltPosition),
+            Self::ZoomPosition => Some(ResponseType::ZoomPosition),
+            Self::FocusPosition => Some(ResponseType::FocusPosition),
+            Self::ExposureMode => Some(ResponseType::ExposureMode),
+            Self::WhiteBalanceMode => Some(ResponseType::WhiteBalanceMode),
+            Self::Luminance => Some(ResponseType::Luminance),
+            Self::Contrast => Some(ResponseType::Contrast),
             // New response types
-            Self::Sharpness => Some(ViscaResponseType::Sharpness),
-            Self::ExposureCompensation => Some(ViscaResponseType::ExposureCompensation),
-            Self::ExposureCompensationMode => Some(ViscaResponseType::ExposureCompensationMode),
-            Self::Iris => Some(ViscaResponseType::Iris),
-            Self::Shutter => Some(ViscaResponseType::Shutter),
-            Self::Bright => Some(ViscaResponseType::Bright),
-            Self::Gain => Some(ViscaResponseType::Gain),
-            Self::GainLimit => Some(ViscaResponseType::GainLimit),
-            Self::AntiFlicker => Some(ViscaResponseType::AntiFlicker),
-            Self::Saturation => Some(ViscaResponseType::Saturation),
-            Self::Hue => Some(ViscaResponseType::Hue),
-            Self::RedGain => Some(ViscaResponseType::RedGain),
-            Self::BlueGain => Some(ViscaResponseType::BlueGain),
-            Self::Backlight => Some(ViscaResponseType::Backlight),
-            Self::ImageFlip => Some(ViscaResponseType::ImageFlip),
+            Self::Sharpness => Some(ResponseType::Sharpness),
+            Self::ExposureCompensation => Some(ResponseType::ExposureCompensation),
+            Self::ExposureCompensationMode => Some(ResponseType::ExposureCompensationMode),
+            Self::Iris => Some(ResponseType::Iris),
+            Self::Shutter => Some(ResponseType::Shutter),
+            Self::Bright => Some(ResponseType::Bright),
+            Self::Gain => Some(ResponseType::Gain),
+            Self::GainLimit => Some(ResponseType::GainLimit),
+            Self::AntiFlicker => Some(ResponseType::AntiFlicker),
+            Self::Saturation => Some(ResponseType::Saturation),
+            Self::Hue => Some(ResponseType::Hue),
+            Self::RedGain => Some(ResponseType::RedGain),
+            Self::BlueGain => Some(ResponseType::BlueGain),
+            Self::Backlight => Some(ResponseType::Backlight),
+            Self::ImageFlip => Some(ResponseType::ImageFlip),
             // Additional response types
-            Self::SharpnessMode => Some(ViscaResponseType::SharpnessMode),
-            Self::ColorTemperature => Some(ViscaResponseType::ColorTemperature),
-            Self::NoiseReduction2D => Some(ViscaResponseType::NoiseReduction2D),
-            Self::NoiseReduction3D => Some(ViscaResponseType::NoiseReduction3D),
-            Self::BlackWhite => Some(ViscaResponseType::BlackWhite),
-            Self::FocusZone => Some(ViscaResponseType::FocusZone),
-            Self::AFSensitivity => Some(ViscaResponseType::AFSensitivity),
-            Self::FocusNearLimit => Some(ViscaResponseType::FocusNearLimit),
-            Self::DynamicRange => Some(ViscaResponseType::DynamicRange),
+            Self::SharpnessMode => Some(ResponseType::SharpnessMode),
+            Self::ColorTemperature => Some(ResponseType::ColorTemperature),
+            Self::NoiseReduction2D => Some(ResponseType::NoiseReduction2D),
+            Self::NoiseReduction3D => Some(ResponseType::NoiseReduction3D),
+            Self::BlackWhite => Some(ResponseType::BlackWhite),
+            Self::FocusZone => Some(ResponseType::FocusZone),
+            Self::AFSensitivity => Some(ResponseType::AFSensitivity),
+            Self::FocusNearLimit => Some(ResponseType::FocusNearLimit),
+            Self::DynamicRange => Some(ResponseType::DynamicRange),
         }
     }
 

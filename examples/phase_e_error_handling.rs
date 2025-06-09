@@ -1,16 +1,16 @@
 //! # Phase E: Enhanced Error Handling Demo
 //!
 //! This example demonstrates the enhanced error handling capabilities implemented in Phase E,
-//! including the `ViscaResultExt` trait and `ViscaRetry` utility for robust camera communication.
+//! including the `ResultExt` trait and `ViscaRetry` utility for robust camera communication.
 
-use grafton_visca::ViscaError;
+use grafton_visca::Error;
 use std::time::Duration;
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::ViscaRetry;
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{ViscaClient, ViscaResultExt};
+use grafton_visca::{Client, ResultExt};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::command::{PanTiltCommand, ZoomCommand};
@@ -59,11 +59,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn blocking_error_handling_examples() {
     use std::cell::Cell;
 
-    println!("1. Basic Error Context with ViscaResultExt");
+    println!("1. Basic Error Context with ResultExt");
     println!("   Using with_retry_context() to add logging to retryable errors");
 
     // Simulate a result that would benefit from retry context
-    let simulated_busy_error: Result<(), ViscaError> = Err(ViscaError::CameraBusy);
+    let simulated_busy_error: Result<(), Error> = Err(Error::CameraBusy);
     match simulated_busy_error.with_retry_context() {
         Ok(()) => println!("   ✅ Operation succeeded"),
         Err(err) => {
@@ -89,7 +89,7 @@ fn blocking_error_handling_examples() {
             attempt_count.set(count);
             if count < 3 {
                 println!("      Attempt {count}: Simulating CameraBusy error");
-                Err(ViscaError::CameraBusy)
+                Err(Error::CameraBusy)
             } else {
                 println!("      Attempt {count}: Success!");
                 Ok("Operation completed")
@@ -107,12 +107,12 @@ fn blocking_error_handling_examples() {
     // Reset counter for next example
     println!("\n   b) Non-retryable error (fails immediately):");
     let attempt_count2 = Cell::new(0);
-    let result: Result<&str, ViscaError> = ViscaRetry::retry_blocking(
+    let result: Result<&str, Error> = ViscaRetry::retry_blocking(
         || {
             let count = attempt_count2.get() + 1;
             attempt_count2.set(count);
             println!("      Attempt {count}: Simulating SyntaxError");
-            Err(ViscaError::SyntaxError)
+            Err(Error::SyntaxError)
         },
         3,
         Duration::from_millis(50),
@@ -129,7 +129,7 @@ fn blocking_error_handling_examples() {
     println!("\n3. Real Camera Operation Examples (if connected)");
 
     // Try to connect to a camera
-    match ViscaClient::connect_udp("127.0.0.1:1259") {
+    match Client::connect_udp("127.0.0.1:1259") {
         Ok(client) => {
             info!("   📹 Connected to camera, testing real operations");
 
@@ -186,7 +186,7 @@ async fn demonstrate_async_retry() -> Result<(), Box<dyn std::error::Error>> {
                 let current = count.fetch_add(1, Ordering::SeqCst) + 1;
                 if current < 3 {
                     println!("   Async attempt {current}: Simulating timeout");
-                    Err(ViscaError::Timeout)
+                    Err(Error::Timeout)
                 } else {
                     println!("   Async attempt {current}: Success!");
                     Ok("Async operation completed")
@@ -224,15 +224,15 @@ async fn demonstrate_async_suggested_delays() -> Result<(), Box<dyn std::error::
                 match current {
                     1 => {
                         println!("   Attempt 1: CameraBusy (suggested delay: 100ms)");
-                        Err(ViscaError::CameraBusy)
+                        Err(Error::CameraBusy)
                     }
                     2 => {
                         println!("   Attempt 2: CameraMoving (suggested delay: 500ms)");
-                        Err(ViscaError::CameraMoving { pan: 100, tilt: 50 })
+                        Err(Error::CameraMoving { pan: 100, tilt: 50 })
                     }
                     3 => {
                         println!("   Attempt 3: CommandTimeout (suggested delay: 1s)");
-                        Err(ViscaError::CommandTimeout {
+                        Err(Error::CommandTimeout {
                             duration: Duration::from_secs(5),
                             command: "test".to_string(),
                         })
@@ -273,7 +273,7 @@ async fn demonstrate_async_exponential_backoff() -> Result<(), Box<dyn std::erro
                 let current = count.fetch_add(1, Ordering::SeqCst) + 1;
                 if current < 4 {
                     println!("   Attempt {current}: CommandBufferFull");
-                    Err(ViscaError::CommandBufferFull)
+                    Err(Error::CommandBufferFull)
                 } else {
                     println!("   Attempt {current}: Success!");
                     Ok("Exponential backoff completed")
@@ -300,10 +300,9 @@ async fn demonstrate_real_async_operations() -> Result<(), Box<dyn std::error::E
     println!("\n4. Real Async Camera Operations (if connected)");
 
     // Try to connect to a camera for real async operations
-    let client_result = match grafton_visca::ViscaClient::connect_udp_async("127.0.0.1:1259").await
-    {
+    let client_result = match grafton_visca::Client::connect_udp_async("127.0.0.1:1259").await {
         Ok(client) => Ok(client),
-        Err(_) => grafton_visca::ViscaClient::connect_udp_async("192.168.1.100:5678").await,
+        Err(_) => grafton_visca::Client::connect_udp_async("192.168.1.100:5678").await,
     };
 
     match client_result {
@@ -357,18 +356,18 @@ fn demonstrate_error_classification() {
     println!("\n📊 Error Classification Examples:");
 
     let errors = vec![
-        ViscaError::CameraBusy,
-        ViscaError::CameraMoving { pan: 100, tilt: 50 },
-        ViscaError::CommandTimeout {
+        Error::CameraBusy,
+        Error::CameraMoving { pan: 100, tilt: 50 },
+        Error::CommandTimeout {
             duration: Duration::from_secs(5),
             command: "test".to_string(),
         },
-        ViscaError::CommandBufferFull,
-        ViscaError::Timeout,
-        ViscaError::SyntaxError,
-        ViscaError::CommandNotExecutable,
-        ViscaError::PresetNotFound { id: 5 },
-        ViscaError::FeatureNotSupported {
+        Error::CommandBufferFull,
+        Error::Timeout,
+        Error::SyntaxError,
+        Error::CommandNotExecutable,
+        Error::PresetNotFound { id: 5 },
+        Error::FeatureNotSupported {
             feature: "advanced_zoom".to_string(),
         },
     ];

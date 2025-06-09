@@ -15,22 +15,23 @@ use crate::{
         inquiry::InquiryCommand,
         luminance_contrast_sharpness::SharpnessMode,
         white_balance::WhiteBalanceMode,
-        ViscaInquiryResponse,
+        InquiryResponse,
     },
-    ViscaDevice, ViscaError, ViscaResponse,
+    error::Error,
+    Response, Transport,
 };
 
 /// Extension trait providing convenient inquiry methods for camera state.
 ///
-/// This trait is automatically implemented for all types that implement `ViscaDevice`,
+/// This trait is automatically implemented for all types that implement `Transport`,
 /// providing a more ergonomic API for querying camera state.
 ///
 /// # Example
 /// ```no_run
 /// # #[cfg(feature = "blocking-client")]
-/// # fn example() -> Result<(), grafton_visca::ViscaError> {
-/// # use grafton_visca::{ViscaClient, ViscaInquiryExt, ViscaError};
-/// let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+/// # fn example() -> Result<(), grafton_visca::Error> {
+/// # use grafton_visca::{Client, InquiryExt, Error};
+/// let mut client = Client::connect_udp("192.168.1.100:5678")?;
 ///
 /// // Simple one-line state queries
 /// let (pan, tilt) = client.get_pan_tilt_position()?;
@@ -39,549 +40,525 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
-pub trait ViscaInquiryExt: ViscaDevice {
+pub trait InquiryExt: Transport {
     /// Get current power state.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_power_state(&mut self) -> Result<bool, ViscaError>
+    fn get_power_state(&mut self) -> Result<bool, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Power)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => Ok(on),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current pan/tilt position in VISCA units.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_pan_tilt_position(&mut self) -> Result<(i16, i16), ViscaError>
+    fn get_pan_tilt_position(&mut self) -> Result<(i16, i16), Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::PanTiltPosition)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
+            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
                 Ok((pan, tilt))
             }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current zoom position (0x0000-0x4000 for most cameras).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_zoom_position(&mut self) -> Result<u16, ViscaError>
+    fn get_zoom_position(&mut self) -> Result<u16, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ZoomPosition)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
-                Ok(position)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current focus position.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_focus_position(&mut self) -> Result<u16, ViscaError>
+    fn get_focus_position(&mut self) -> Result<u16, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::FocusPosition)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusPosition { position }) => {
-                Ok(position)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current exposure mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_exposure_mode(&mut self) -> Result<ExposureMode, ViscaError>
+    fn get_exposure_mode(&mut self) -> Result<ExposureMode, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) => Ok(mode),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current white balance mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_white_balance_mode(&mut self) -> Result<WhiteBalanceMode, ViscaError>
+    fn get_white_balance_mode(&mut self) -> Result<WhiteBalanceMode, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::WhiteBalanceMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode }) => Ok(mode),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current luminance level.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_luminance(&mut self) -> Result<u8, ViscaError>
+    fn get_luminance(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Luminance)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Luminance(value)) => Ok(value),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Luminance(value)) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current contrast level.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_contrast(&mut self) -> Result<u8, ViscaError>
+    fn get_contrast(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Contrast)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Contrast(value)) => Ok(value),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Contrast(value)) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current sharpness value.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_sharpness(&mut self) -> Result<u8, ViscaError>
+    fn get_sharpness(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Sharpness)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Sharpness { value }) => Ok(value),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current exposure compensation value (-7 to +7).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_exposure_compensation(&mut self) -> Result<i8, ViscaError>
+    fn get_exposure_compensation(&mut self) -> Result<i8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureCompensation)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensation {
-                value,
-            }) => Ok(value),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get whether exposure compensation is enabled.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_exposure_compensation_enabled(&mut self) -> Result<bool, ViscaError>
+    fn get_exposure_compensation_enabled(&mut self) -> Result<bool, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureCompensationMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode {
-                on,
-            }) => Ok(on),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current iris position.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_iris_position(&mut self) -> Result<u8, ViscaError>
+    fn get_iris_position(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Iris)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Iris { position }) => Ok(position),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current shutter position.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_shutter_position(&mut self) -> Result<u16, ViscaError>
+    fn get_shutter_position(&mut self) -> Result<u16, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Shutter)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => {
-                Ok(position)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current brightness position.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_brightness_position(&mut self) -> Result<u16, ViscaError>
+    fn get_brightness_position(&mut self) -> Result<u16, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Bright)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Bright { position }) => {
-                Ok(position)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Bright { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current gain value.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_gain(&mut self) -> Result<u8, ViscaError>
+    fn get_gain(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Gain)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Gain { gain }) => Ok(gain),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Gain { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current gain limit.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_gain_limit(&mut self) -> Result<u8, ViscaError>
+    fn get_gain_limit(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::GainLimit)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::GainLimit { limit }) => Ok(limit),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current anti-flicker mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_anti_flicker_mode(&mut self) -> Result<AntiFlickerMode, ViscaError>
+    fn get_anti_flicker_mode(&mut self) -> Result<AntiFlickerMode, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::AntiFlicker)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::AntiFlicker { mode }) => Ok(mode),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current saturation level.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_saturation(&mut self) -> Result<u8, ViscaError>
+    fn get_saturation(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Saturation)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Saturation { level }) => Ok(level),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current hue value.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_hue(&mut self) -> Result<u8, ViscaError>
+    fn get_hue(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Hue)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Hue { hue }) => Ok(hue),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current red gain value (-10 to +10).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_red_gain(&mut self) -> Result<i8, ViscaError>
+    fn get_red_gain(&mut self) -> Result<i8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::RedGain)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::RedGain { gain }) => Ok(gain),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::RedGain { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current blue gain value (-10 to +10).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_blue_gain(&mut self) -> Result<i8, ViscaError>
+    fn get_blue_gain(&mut self) -> Result<i8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::BlueGain)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::BlueGain { gain }) => Ok(gain),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::BlueGain { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current backlight compensation status.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_backlight_status(&mut self) -> Result<bool, ViscaError>
+    fn get_backlight_status(&mut self) -> Result<bool, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Backlight)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => {
-                Ok(status)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::Backlight { status }) => Ok(status),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current image flip settings (vertical and horizontal).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_image_flip(&mut self) -> Result<(bool, bool), ViscaError>
+    fn get_image_flip(&mut self) -> Result<(bool, bool), Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ImageFlip)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ImageFlip {
+            Response::InquiryResponse(InquiryResponse::ImageFlip {
                 vertical,
                 horizontal,
             }) => Ok((vertical, horizontal)),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current sharpness mode.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_sharpness_mode(&mut self) -> Result<SharpnessMode, ViscaError>
+    fn get_sharpness_mode(&mut self) -> Result<SharpnessMode, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::SharpnessMode)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => {
-                Ok(mode)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current color temperature.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_color_temperature(&mut self) -> Result<u16, ViscaError>
+    fn get_color_temperature(&mut self) -> Result<u16, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ColorTemperature)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::ColorTemperature {
-                temperature,
-            }) => Ok(temperature),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
+                Ok(temperature)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current 2D noise reduction level.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_noise_reduction_2d(&mut self) -> Result<u8, ViscaError>
+    fn get_noise_reduction_2d(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::NoiseReduction2D)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D { level }) => {
-                Ok(level)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current 3D noise reduction level.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_noise_reduction_3d(&mut self) -> Result<u8, ViscaError>
+    fn get_noise_reduction_3d(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::NoiseReduction3D)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D { level }) => {
-                Ok(level)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get whether black & white mode is enabled.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_black_white_mode(&mut self) -> Result<bool, ViscaError>
+    fn get_black_white_mode(&mut self) -> Result<bool, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::BlackWhite)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::BlackWhite { on }) => Ok(on),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current focus zone.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_focus_zone(&mut self) -> Result<FocusZone, ViscaError>
+    fn get_focus_zone(&mut self) -> Result<FocusZone, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::FocusZone)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusZone { zone }) => Ok(zone),
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current AF sensitivity.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_af_sensitivity(&mut self) -> Result<AFSensitivity, ViscaError>
+    fn get_af_sensitivity(&mut self) -> Result<AFSensitivity, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::AFSensitivity)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::AFSensitivity { sensitivity }) => {
+            Response::InquiryResponse(InquiryResponse::AFSensitivity { sensitivity }) => {
                 Ok(sensitivity)
             }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current focus near limit position.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_focus_near_limit(&mut self) -> Result<u16, ViscaError>
+    fn get_focus_near_limit(&mut self) -> Result<u16, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::FocusNearLimit)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusNearLimit { position }) => {
-                Ok(position)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     /// Get current dynamic range level.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the query command fails, response parsing fails,
+    /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_dynamic_range(&mut self) -> Result<u8, ViscaError>
+    fn get_dynamic_range(&mut self) -> Result<u8, Error>
     where
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::DynamicRange)? {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => {
-                Ok(level)
-            }
-            ViscaResponse::Error(e) => Err(e),
-            _ => Err(ViscaError::UnexpectedResponseType),
+            Response::InquiryResponse(InquiryResponse::DynamicRange { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -592,9 +569,9 @@ pub trait ViscaInquiryExt: ViscaDevice {
     /// command limitations.
     ///
     /// # Errors
-    /// Returns `ViscaError` if any of the multiple query commands fail, response parsing fails,
+    /// Returns `Error` if any of the multiple query commands fail, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_camera_state(&mut self) -> Result<CameraState, ViscaError>
+    fn get_camera_state(&mut self) -> Result<CameraState, Error>
     where
         Self: Sized,
     {
@@ -631,8 +608,8 @@ pub trait ViscaInquiryExt: ViscaDevice {
     }
 }
 
-// Blanket implementation for all types that implement ViscaTransport
-impl<T: ViscaDevice + ?Sized> ViscaInquiryExt for T {}
+// Blanket implementation for all types that implement Transport
+impl<T: Transport> InquiryExt for T {}
 
 /// Complete camera state snapshot.
 #[derive(Debug, Clone, Copy)]

@@ -1,9 +1,9 @@
 //! Example demonstrating the high-level inquiry API for querying camera state.
 
-use grafton_visca::{ViscaClient, ViscaError, ViscaInquiryExt};
+use grafton_visca::{Client, Error, InquiryExt};
 use std::env;
 
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -18,7 +18,7 @@ fn main() -> Result<(), ViscaError> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
-    let mut client = ViscaClient::connect_udp(camera_addr)?;
+    let mut client = Client::connect_udp(camera_addr)?;
 
     // Query individual camera settings
     println!("\n=== Individual Camera Queries ===");

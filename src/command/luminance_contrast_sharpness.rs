@@ -5,8 +5,8 @@
 
 // Crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
-    error::ViscaError,
+    command::{Command, ResponseType},
+    error::Error,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
     visca_param_command,
@@ -42,8 +42,8 @@ pub enum SharpnessCommand {
     },
 }
 
-impl ViscaCommand for SharpnessCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for SharpnessCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(match self {
             Self::Mode(mode) => {
                 let mode_byte = match mode {
@@ -57,7 +57,7 @@ impl ViscaCommand for SharpnessCommand {
             Self::Down => vec![0x81, 0x01, 0x04, 0x02, 0x03, 0xFF],
             Self::Direct { value } => {
                 if *value > 11 {
-                    return Err(ViscaError::InvalidParameter(
+                    return Err(Error::InvalidParameter(
                         "Sharpness value must be in the range 0..=11".into(),
                     ));
                 }
@@ -68,7 +68,7 @@ impl ViscaCommand for SharpnessCommand {
         })
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 

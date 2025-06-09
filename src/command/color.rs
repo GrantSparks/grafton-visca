@@ -5,8 +5,8 @@
 
 // Crate imports
 use crate::{
-    command::{response::ViscaResponseType, ViscaCommand},
-    error::ViscaError,
+    command::{response::ResponseType, Command},
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -18,12 +18,12 @@ use crate::{
 #[derive(Debug, Copy, Clone)]
 pub struct OnePushTriggerCommand;
 
-impl ViscaCommand for OnePushTriggerCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for OnePushTriggerCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![0x81, 0x01, 0x04, 0x10, 0x05, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -43,10 +43,10 @@ pub struct RedTuningCommand {
     pub level: i8,
 }
 
-impl ViscaCommand for RedTuningCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for RedTuningCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         if self.level < -10 || self.level > 10 {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Red tuning level must be between -10 and +10".into(),
             ));
         }
@@ -60,7 +60,7 @@ impl ViscaCommand for RedTuningCommand {
         Ok(vec![0x81, 0x0A, 0x01, 0x12, encoded, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -80,10 +80,10 @@ pub struct BlueTuningCommand {
     pub level: i8,
 }
 
-impl ViscaCommand for BlueTuningCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for BlueTuningCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         if self.level < -10 || self.level > 10 {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Blue tuning level must be between -10 and +10".into(),
             ));
         }
@@ -97,7 +97,7 @@ impl ViscaCommand for BlueTuningCommand {
         Ok(vec![0x81, 0x0A, 0x01, 0x13, encoded, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -117,10 +117,10 @@ pub struct SaturationCommand {
     pub level: u8,
 }
 
-impl ViscaCommand for SaturationCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for SaturationCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         if self.level > 0x0E {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Saturation level must be between 0x0 (60%) and 0xE (200%)".into(),
             ));
         }
@@ -129,7 +129,7 @@ impl ViscaCommand for SaturationCommand {
         ])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -149,10 +149,10 @@ pub struct HueCommand {
     pub level: u8,
 }
 
-impl ViscaCommand for HueCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for HueCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         if self.level > 0x0E {
-            return Err(ViscaError::InvalidParameter(
+            return Err(Error::InvalidParameter(
                 "Hue level must be between 0x0 (0) and 0xE (14)".into(),
             ));
         }
@@ -161,7 +161,7 @@ impl ViscaCommand for HueCommand {
         ])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -191,7 +191,7 @@ crate::visca_command! {
         /// higher values produce cooler (more blue) colors.
         Direct(temp: u16) => {
             if *temp > 0x37 {
-                return Err(ViscaError::InvalidParameter(
+                return Err(Error::InvalidParameter(
                     "Color temperature must be between 0x00 (2500K) and 0x37 (8000K)".into(),
                 ));
             }

@@ -7,6 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.0] - Unreleased
 
+### Added
+- New consolidated extension traits for cleaner API
+- Comprehensive prelude module with all commonly used types
+
+### Changed
+- **BREAKING**: Complete API overhaul for consistency and clarity:
+  - Core types renamed:
+    - `ViscaClient` → `Client` 
+    - `ViscaError` → `Error`
+    - `ViscaSession` → `Session`
+    - `ViscaResponse` → `Response`
+  - Method names aligned with VISCA specification:
+    - `save_preset` → `set_preset` (matches VISCA terminology)
+    - `goto_preset` → `recall_preset` (matches VISCA terminology)
+  - Removed duplicate methods:
+    - Removed `power_on`/`power_off` (use `PowerCommand` directly)
+    - Removed `zoom_in`/`zoom_out` convenience methods (use variable speed methods)
+- Consolidated duplicate APIs into single extension traits
+- Made internal implementation details private:
+  - `AppError` is now private
+  - `TransportVariant` is now internal
+  - `BlockingAdapter` is now internal
+
+### Removed
+- All deprecated type aliases (clean break for v0.4.0)
+- Duplicate methods in extension traits
+- Orphaned async extension files
+- Old convenience methods that didn't match VISCA spec
+
+### Migration Guide
+
+Since v0.4.0 is a clean break, you'll need to update your code as follows:
+
+#### Step 1: Update Imports
+
+```rust
+// Old
+use grafton_visca::{ViscaClient, ViscaError, ViscaResponse, ViscaSession};
+
+// New
+use grafton_visca::{Client, Error, Response, Session};
+
+// Or use the prelude for convenience
+use grafton_visca::prelude::*;
+```
+
+#### Step 2: Update Method Calls
+
+```rust
+// Old power control
+client.power_on()?;
+client.power_off()?;
+
+// New - use PowerCommand directly
+use grafton_visca::command::{PowerCommand, power::Power};
+client.execute_command(&PowerCommand { power: Power::On })?;
+client.execute_command(&PowerCommand { power: Power::Standby })?;
+
+// Old zoom methods
+client.zoom_in()?;
+client.zoom_out()?;
+
+// New - use variable speed methods
+client.zoom_in_variable(None)?;  // Standard speed
+client.zoom_out_variable(Some(ZoomSpeed::new(5)?))?;  // Custom speed
+
+// Old preset method
+client.save_preset(1)?;
+
+// New - matches VISCA spec
+client.set_preset(1)?;
+```
+
+#### Step 3: Update Type Annotations
+
+```rust
+// Old
+fn connect_camera(addr: &str) -> Result<ViscaClient, ViscaError> {
+    ViscaClient::connect_udp(addr)
+}
+
+// New
+fn connect_camera(addr: &str) -> Result<Client, Error> {
+    Client::connect_udp(addr)
+}
+```
+
+#### Step 3: Update Method Names
+
+A few methods have been renamed for consistency:
+
+```rust
+// Old
+client.goto_preset(1)?;
+
+// New
+client.recall_preset(1)?;
+```
+
+#### Step 4: Use Consolidated Extension Traits
+
+Instead of multiple traits, use the single consolidated traits:
+
+```rust
+// Old - multiple imports needed
+use grafton_visca::{ViscaTransportExt, ext::unified::PowerExt};
+
+// New - single trait provides all methods
+use grafton_visca::ViscaPowerExt;
+```
+
+
+### Additional v0.4.0 Features
+
+Below are the previously documented v0.4.0 features that are also included in this release:
+
 This release represents a major evolution of the library from a low-level VISCA protocol implementation to a production-ready camera control solution. The changes are driven by real-world usage patterns and developer feedback.
 
 ### Why These Changes?

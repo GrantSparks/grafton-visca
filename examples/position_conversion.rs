@@ -12,7 +12,7 @@ use grafton_visca::{
     constants::{
         self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
-    ViscaClient, ViscaInquiryExt, ViscaPanTiltExt,
+    Client, InquiryExt, PanTiltExt,
 };
 #[cfg(feature = "blocking-client")]
 use log::{error, info};
@@ -44,7 +44,7 @@ fn display_camera_constants(model: CameraModel) {
 
 #[cfg(feature = "blocking-client")]
 fn demonstrate_position_conversions(
-    client: &mut ViscaClient,
+    client: &mut Client,
     model: CameraModel,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("\nQuerying current camera position...");
@@ -118,7 +118,7 @@ fn demonstrate_validation(model: CameraModel) {
 }
 
 #[cfg(feature = "blocking-client")]
-fn move_to_degrees_position(client: &mut ViscaClient, model: CameraModel) {
+fn move_to_degrees_position(client: &mut Client, model: CameraModel) {
     info!("\nMoving to position specified in degrees...");
     let target_degrees = DegreePosition {
         pan: 45.0,
@@ -140,7 +140,7 @@ fn move_to_degrees_position(client: &mut ViscaClient, model: CameraModel) {
         constants::validate_pan_position(target_visca.pan, model),
         constants::validate_tilt_position(target_visca.tilt, model),
     ) {
-        match ViscaPanTiltExt::move_to_position(
+        match PanTiltExt::move_to_position(
             client,
             target_visca.pan,
             target_visca.tilt,
@@ -181,7 +181,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Position conversion and constants example");
 
     let address = get_camera_address();
-    let mut client = ViscaClient::connect_udp(&address)?;
+    let mut client = Client::connect_udp(&address)?;
     info!("Connected to camera at {address}");
 
     let model = CameraModel::PTZOpticsG2;

@@ -2,7 +2,7 @@
 
 #[cfg(all(test, any(feature = "blocking-client", feature = "async-client")))]
 mod tests {
-    use grafton_visca::ViscaClient;
+    use grafton_visca::Client;
 
     #[cfg(any(
         all(feature = "blocking-client", feature = "async-client"),
@@ -14,8 +14,8 @@ mod tests {
     #[test]
     fn test_blocking_client_creation() {
         // Test that we can create blocking clients
-        let udp_result = ViscaClient::connect_udp("127.0.0.1:1234");
-        let tcp_result = ViscaClient::connect_tcp("127.0.0.1:1234");
+        let udp_result = Client::connect_udp("127.0.0.1:1234");
+        let tcp_result = Client::connect_tcp("127.0.0.1:1234");
 
         // UDP should succeed (no connection needed)
         assert!(udp_result.is_ok());
@@ -27,8 +27,8 @@ mod tests {
     #[tokio::test]
     async fn test_async_client_creation() {
         // Test that we can create async clients
-        let udp_result = ViscaClient::connect_udp_async("127.0.0.1:1234").await;
-        let tcp_result = ViscaClient::connect_tcp_async("127.0.0.1:1234").await;
+        let udp_result = Client::connect_udp_async("127.0.0.1:1234").await;
+        let tcp_result = Client::connect_tcp_async("127.0.0.1:1234").await;
 
         // UDP should succeed (no connection needed)
         assert!(udp_result.is_ok());
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn test_blocking_facade_outside_runtime() {
         // Test blocking façade when called outside a Tokio runtime
-        let client = ViscaClient::connect_udp("127.0.0.1:1234").unwrap();
+        let client = Client::connect_udp("127.0.0.1:1234").unwrap();
         let cmd = PowerCommand { power: Power::On };
 
         // This should create its own runtime internally
@@ -54,7 +54,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_blocking_facade_inside_runtime() {
         // Test blocking façade when called inside a Tokio runtime
-        let client = ViscaClient::connect_udp("127.0.0.1:1234").unwrap();
+        let client = Client::connect_udp("127.0.0.1:1234").unwrap();
         let cmd = PowerCommand { power: Power::On };
 
         // This should use the existing runtime
@@ -67,9 +67,7 @@ mod tests {
     #[cfg(feature = "async-client")]
     #[tokio::test]
     async fn test_async_send() {
-        let client = ViscaClient::connect_udp_async("127.0.0.1:1234")
-            .await
-            .unwrap();
+        let client = Client::connect_udp_async("127.0.0.1:1234").await.unwrap();
         let cmd = PowerCommand { power: Power::On };
 
         // Test async send
@@ -83,7 +81,7 @@ mod tests {
     fn test_client_is_moveable() {
         #[cfg(feature = "blocking-client")]
         {
-            let client = ViscaClient::connect_udp("127.0.0.1:1234").unwrap();
+            let client = Client::connect_udp("127.0.0.1:1234").unwrap();
             let moved = client;
             // This just verifies that client can be moved
             drop(moved);
@@ -93,9 +91,7 @@ mod tests {
     #[cfg(feature = "async-client")]
     #[tokio::test]
     async fn test_health_check() {
-        let client = ViscaClient::connect_udp_async("127.0.0.1:1234")
-            .await
-            .unwrap();
+        let client = Client::connect_udp_async("127.0.0.1:1234").await.unwrap();
 
         // Health check should fail (no camera)
         let is_healthy = client.is_healthy().await.unwrap();

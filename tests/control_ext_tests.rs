@@ -4,11 +4,9 @@ use grafton_visca::{
     command::{
         focus::FocusSpeed,
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-        preset::PresetNumber,
         zoom::ZoomSpeed,
     },
-    ViscaCommand, ViscaDevice, ViscaError, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt,
-    ViscaResponse, ViscaZoomExt,
+    Command, Error, FocusExt, PanTiltExt, PresetExt, Response, Transport, ZoomExt,
 };
 
 /// Mock device for testing control commands
@@ -32,11 +30,11 @@ impl MockDevice {
     }
 }
 
-impl ViscaDevice for MockDevice {
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+impl Transport for MockDevice {
+    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         let data = command.to_bytes()?;
         self.sent_commands.push(data);
-        Ok(ViscaResponse::Completion)
+        Ok(Response::Completion)
     }
 }
 
@@ -143,7 +141,7 @@ mod zoom_tests {
     fn test_zoom_in_standard_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.zoom_in(None).unwrap();
+        device.zoom_in_variable(None).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]); // Tele standard
@@ -153,7 +151,9 @@ mod zoom_tests {
     fn test_zoom_in_variable_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.zoom_in(Some(ZoomSpeed::new(5).unwrap())).unwrap();
+        device
+            .zoom_in_variable(Some(ZoomSpeed::new(5).unwrap()))
+            .unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]); // Tele variable speed 5
@@ -163,7 +163,7 @@ mod zoom_tests {
     fn test_zoom_out_standard_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.zoom_out(None).unwrap();
+        device.zoom_out_variable(None).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]); // Wide standard
@@ -256,7 +256,7 @@ mod preset_tests {
     fn test_save_preset() {
         let mut device = MockDevice::with_completion();
 
-        device.save_preset(PresetNumber::new(1).unwrap()).unwrap();
+        device.set_preset(1).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x3F, 0x01, 0x01, 0xFF]); // Set preset 1
@@ -266,7 +266,7 @@ mod preset_tests {
     fn test_recall_preset() {
         let mut device = MockDevice::with_completion();
 
-        device.recall_preset(PresetNumber::new(5).unwrap()).unwrap();
+        device.recall_preset(5).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x3F, 0x02, 0x05, 0xFF]); // Recall preset 5
@@ -276,7 +276,7 @@ mod preset_tests {
     fn test_reset_preset() {
         let mut device = MockDevice::with_completion();
 
-        device.reset_preset(PresetNumber::new(89).unwrap()).unwrap();
+        device.reset_preset(89).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x3F, 0x00, 0x59, 0xFF]); // Reset preset 89 (max allowed)

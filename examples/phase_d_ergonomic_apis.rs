@@ -1,6 +1,6 @@
 //! Example demonstrating Phase D ergonomic APIs.
 //!
-//! This example shows the new PTZ builder pattern and `AsyncViscaExt` trait
+//! This example shows the new PTZ builder pattern and `AsyncExt` trait
 //! introduced in Phase D of the v0.4.0 refactoring.
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -9,28 +9,28 @@ use std::sync::Arc;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    ViscaClient, ViscaClientPtzExt, ViscaError,
+    Client, ClientPtzExt, Error,
 };
 
 // Async features - only needed for async-only build
 #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
-use grafton_visca::{AsyncViscaExt, PanScanDirection};
+use grafton_visca::{AsyncExt, PanScanDirection};
 
 #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 use std::time::Duration;
 
-// Dual-mode features - AsyncViscaExt needed but not PanScanDirection/Duration
+// Dual-mode features - AsyncExt needed but not PanScanDirection/Duration
 #[cfg(all(feature = "async-client", feature = "blocking-client"))]
-use grafton_visca::AsyncViscaExt;
+use grafton_visca::AsyncExt;
 
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     env_logger::init();
 
     println!("=== Phase D Ergonomic APIs Demo (Blocking) ===");
 
     // Connect to camera
-    let client = Arc::new(ViscaClient::connect_udp("192.168.1.100:5678")?);
+    let client = Arc::new(Client::connect_udp("192.168.1.100:5678")?);
     println!("Connected to camera");
 
     // Demonstrate PTZ Builder with sequential execution
@@ -80,13 +80,13 @@ fn main() -> Result<(), ViscaError> {
 
 #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 #[tokio::main]
-async fn main() -> Result<(), ViscaError> {
+async fn main() -> Result<(), Error> {
     env_logger::init();
 
     println!("=== Phase D Ergonomic APIs Demo (Async) ===");
 
     // Connect to camera
-    let client = Arc::new(ViscaClient::connect_udp_async("192.168.1.100:5678").await?);
+    let client = Arc::new(Client::connect_udp_async("192.168.1.100:5678").await?);
     println!("Connected to camera");
 
     // Demonstrate PTZ Builder with sequential execution
@@ -115,12 +115,12 @@ async fn main() -> Result<(), ViscaError> {
         .await?;
     println!("   ✓ Executed: Movement + Zoom + Focus (concurrent)");
 
-    // Demonstrate AsyncViscaExt high-level operations
-    println!("\n3. AsyncViscaExt - Setup shot");
+    // Demonstrate AsyncExt high-level operations
+    println!("\n3. AsyncExt - Setup shot");
     client.setup_shot(0.3, -0.2, 0x6000).await?;
     println!("   ✓ Set up shot: pan=30%, tilt=-20%, zoom=0x6000");
 
-    println!("\n4. AsyncViscaExt - Save and recall position");
+    println!("\n4. AsyncExt - Save and recall position");
     client.save_current_position(5).await?;
     println!("   ✓ Saved current position to preset 5");
 
@@ -132,17 +132,17 @@ async fn main() -> Result<(), ViscaError> {
     client.recall_position_with_zoom(5, Some(0x8000)).await?;
     println!("   ✓ Recalled preset 5 with zoom adjustment");
 
-    println!("\n5. AsyncViscaExt - Pan scan");
+    println!("\n5. AsyncExt - Pan scan");
     client
         .smooth_pan_scan(8, Duration::from_secs(3), PanScanDirection::Right)
         .await?;
     println!("   ✓ Performed smooth pan scan to the right");
 
-    println!("\n6. AsyncViscaExt - Frame subject");
+    println!("\n6. AsyncExt - Frame subject");
     client.frame_subject(0x5000, true).await?;
     println!("   ✓ Framed subject with auto-focus");
 
-    println!("\n7. AsyncViscaExt - Patrol positions");
+    println!("\n7. AsyncExt - Patrol positions");
     // First save a few preset positions
     client.setup_shot(-0.8, 0.0, 0x3000).await?;
     client.save_current_position(1).await?;
@@ -159,14 +159,14 @@ async fn main() -> Result<(), ViscaError> {
         .await?;
     println!("   ✓ Patrolled between presets 1, 2, 3");
 
-    println!("\n8. AsyncViscaExt - Movement health check");
+    println!("\n8. AsyncExt - Movement health check");
     let healthy = client.movement_health_check().await?;
     println!(
         "   ✓ Movement health check: {}",
         if healthy { "PASS" } else { "FAIL" }
     );
 
-    println!("\n9. AsyncViscaExt - Reset to neutral");
+    println!("\n9. AsyncExt - Reset to neutral");
     client.reset_to_neutral().await?;
     println!("   ✓ Reset camera to neutral state");
 
@@ -176,13 +176,13 @@ async fn main() -> Result<(), ViscaError> {
 
 #[cfg(all(feature = "async-client", feature = "blocking-client"))]
 #[tokio::main]
-async fn main() -> Result<(), ViscaError> {
+async fn main() -> Result<(), Error> {
     env_logger::init();
 
     println!("=== Phase D Ergonomic APIs Demo (Both Features) ===");
 
     // Demonstrate that both blocking and async work in the same build
-    let client = Arc::new(ViscaClient::connect_udp("192.168.1.100:5678")?);
+    let client = Arc::new(Client::connect_udp("192.168.1.100:5678")?);
     println!("Connected to camera using blocking constructor");
 
     // Use blocking PTZ builder
@@ -208,10 +208,10 @@ async fn main() -> Result<(), ViscaError> {
         .await?;
     println!("   ✓ Async execution completed");
 
-    // Use AsyncViscaExt trait
-    println!("\n3. AsyncViscaExt operations");
+    // Use AsyncExt trait
+    println!("\n3. AsyncExt operations");
     client.setup_shot(0.0, 0.0, 0x4000).await?;
-    println!("   ✓ AsyncViscaExt setup_shot completed");
+    println!("   ✓ AsyncExt setup_shot completed");
 
     let healthy = client.movement_health_check().await?;
     println!(

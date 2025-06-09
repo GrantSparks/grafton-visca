@@ -5,8 +5,8 @@
 
 // Crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
-    error::ViscaError,
+    command::{Command, ResponseType},
+    error::Error,
     timeout::CommandCategory,
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
 };
@@ -95,8 +95,8 @@ pub struct ImageFlipCombinedCommand {
     pub mode: ImageFlipMode,
 }
 
-impl ViscaCommand for ImageFlipCombinedCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for ImageFlipCombinedCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let mode_byte = match self.mode {
             ImageFlipMode::Off => 0x00,
             ImageFlipMode::Horizontal => 0x01,
@@ -106,7 +106,7 @@ impl ViscaCommand for ImageFlipCombinedCommand {
         Ok(vec![0x81, 0x01, 0x04, 0x61, mode_byte, 0xFF])
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 

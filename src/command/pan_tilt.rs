@@ -12,8 +12,8 @@
 //! # #[cfg(feature = "blocking-client")]
 //! # {
 //! # use grafton_visca::command::pan_tilt::{PanTiltCommand, PanTiltDirection, PanSpeed, TiltSpeed};
-//! # use grafton_visca::ViscaClient;
-//! # let client = ViscaClient::connect_udp("192.168.1.100:5678").unwrap();
+//! # use grafton_visca::Client;
+//! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //! // Move camera diagonally up-right
 //! let command = PanTiltCommand::Move {
 //!     direction: PanTiltDirection::UpRight,
@@ -32,8 +32,8 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
-    error::ViscaError,
+    command::{Command, ResponseType},
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -133,8 +133,8 @@ pub enum PanTiltCommand {
     },
 }
 
-impl ViscaCommand for PanTiltCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for PanTiltCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Home => Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]),
             Self::Reset => Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF]),
@@ -213,7 +213,7 @@ impl ViscaCommand for PanTiltCommand {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
@@ -249,7 +249,7 @@ mod tests {
         // Invalid speed
         assert!(matches!(
             PanSpeed::new(0x19),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
 
         // From trait
@@ -271,7 +271,7 @@ mod tests {
         // Invalid speed
         assert!(matches!(
             TiltSpeed::new(0x15),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
 
         // From trait
@@ -493,8 +493,8 @@ pub enum PanTiltLimitCommand {
     },
 }
 
-impl ViscaCommand for PanTiltLimitCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+impl Command for PanTiltLimitCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Set { corner, pan, tilt } => {
                 let pan_bytes = position_to_bytes(*pan);
@@ -538,7 +538,7 @@ impl ViscaCommand for PanTiltLimitCommand {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         None
     }
 

@@ -11,10 +11,11 @@ use crate::{
         image::{NoiseReduction2DCommand, NoiseReduction3DCommand},
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         preset::{PresetAction, PresetCommand, PresetNumber},
-        zoom::{ZoomCommand, ZoomSpeed},
+        zoom::ZoomSpeed,
     },
+    error::Error,
     types::{GainValue, NoiseReduction2DLevel, NoiseReduction3DLevel},
-    ViscaDevice, ViscaError,
+    Transport,
 };
 
 /// Speed level for camera movements.
@@ -36,8 +37,8 @@ impl Speed {
     /// Convert to pan speed value.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the speed value is invalid.
-    pub fn to_pan_speed(self) -> Result<PanSpeed, ViscaError> {
+    /// Returns `Error` if the speed value is invalid.
+    pub fn to_pan_speed(self) -> Result<PanSpeed, Error> {
         match self {
             Self::Slowest => PanSpeed::new(0x01),
             Self::Slow => PanSpeed::new(0x08),
@@ -49,8 +50,8 @@ impl Speed {
     /// Convert to tilt speed value.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the speed value is invalid.
-    pub fn to_tilt_speed(self) -> Result<TiltSpeed, ViscaError> {
+    /// Returns `Error` if the speed value is invalid.
+    pub fn to_tilt_speed(self) -> Result<TiltSpeed, Error> {
         match self {
             Self::Slowest => TiltSpeed::new(0x01),
             Self::Slow => TiltSpeed::new(0x06),
@@ -63,8 +64,8 @@ impl Speed {
     /// Convert to zoom speed value.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the speed value is invalid.
-    pub fn to_zoom_speed(self) -> Result<ZoomSpeed, ViscaError> {
+    /// Returns `Error` if the speed value is invalid.
+    pub fn to_zoom_speed(self) -> Result<ZoomSpeed, Error> {
         match self {
             Self::Slowest => ZoomSpeed::new(0x00),
             Self::Slow => ZoomSpeed::new(0x02),
@@ -77,8 +78,8 @@ impl Speed {
     /// Convert to focus speed value.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the speed value is invalid.
-    pub fn to_focus_speed(self) -> Result<FocusSpeed, ViscaError> {
+    /// Returns `Error` if the speed value is invalid.
+    pub fn to_focus_speed(self) -> Result<FocusSpeed, Error> {
         match self {
             Self::Slowest => FocusSpeed::new(0x00),
             Self::Slow => FocusSpeed::new(0x02),
@@ -110,8 +111,8 @@ impl GainLevel {
     /// Convert to gain value.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the gain value is invalid.
-    pub fn to_gain_value(self) -> Result<GainValue, ViscaError> {
+    /// Returns `Error` if the gain value is invalid.
+    pub fn to_gain_value(self) -> Result<GainValue, Error> {
         match self {
             Self::Min => GainValue::new(0x00),
             Self::Low => GainValue::new(0x02),
@@ -223,14 +224,14 @@ impl IrisValue {
 
 /// Builder for pan/tilt movements.
 #[derive(Debug)]
-pub struct PanTiltBuilder<'a, T: ViscaDevice> {
+pub struct PanTiltBuilder<'a, T: Transport> {
     device: &'a mut T,
     direction: Option<PanTiltDirection>,
     pan_speed: Option<PanSpeed>,
     tilt_speed: Option<TiltSpeed>,
 }
 
-impl<'a, T: ViscaDevice> PanTiltBuilder<'a, T> {
+impl<'a, T: Transport> PanTiltBuilder<'a, T> {
     /// Create a new pan/tilt builder.
     pub fn new(device: &'a mut T) -> Self {
         Self {
@@ -299,8 +300,8 @@ impl<'a, T: ViscaDevice> PanTiltBuilder<'a, T> {
     /// Set movement speed.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the speed values are invalid.
-    pub fn speed(mut self, speed: Speed) -> Result<Self, ViscaError> {
+    /// Returns `Error` if the speed values are invalid.
+    pub fn speed(mut self, speed: Speed) -> Result<Self, Error> {
         self.pan_speed = Some(speed.to_pan_speed()?);
         self.tilt_speed = Some(speed.to_tilt_speed()?);
         Ok(self)
@@ -309,8 +310,8 @@ impl<'a, T: ViscaDevice> PanTiltBuilder<'a, T> {
     /// Set pan speed specifically.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the pan speed value is invalid.
-    pub fn pan_speed(mut self, speed: Speed) -> Result<Self, ViscaError> {
+    /// Returns `Error` if the pan speed value is invalid.
+    pub fn pan_speed(mut self, speed: Speed) -> Result<Self, Error> {
         self.pan_speed = Some(speed.to_pan_speed()?);
         Ok(self)
     }
@@ -318,8 +319,8 @@ impl<'a, T: ViscaDevice> PanTiltBuilder<'a, T> {
     /// Set tilt speed specifically.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the tilt speed value is invalid.
-    pub fn tilt_speed(mut self, speed: Speed) -> Result<Self, ViscaError> {
+    /// Returns `Error` if the tilt speed value is invalid.
+    pub fn tilt_speed(mut self, speed: Speed) -> Result<Self, Error> {
         self.tilt_speed = Some(speed.to_tilt_speed()?);
         Ok(self)
     }
@@ -327,14 +328,14 @@ impl<'a, T: ViscaDevice> PanTiltBuilder<'a, T> {
     /// Execute the movement.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed or if no direction was specified.
+    /// Returns `Error` if the command cannot be executed or if no direction was specified.
     ///
     /// # Panics
     /// Panics if default speed values (0x10) are invalid, which should never happen.
-    pub fn execute(self) -> Result<(), ViscaError> {
-        let direction = self.direction.ok_or_else(|| {
-            ViscaError::InvalidParameter("Direction must be specified".to_string())
-        })?;
+    pub fn execute(self) -> Result<(), Error> {
+        let direction = self
+            .direction
+            .ok_or_else(|| Error::InvalidParameter("Direction must be specified".to_string()))?;
 
         let pan_speed = self.pan_speed.unwrap_or(PanSpeed::DEFAULT_MEDIUM);
         let tilt_speed = self.tilt_speed.unwrap_or(TiltSpeed::DEFAULT_MEDIUM);
@@ -351,8 +352,8 @@ impl<'a, T: ViscaDevice> PanTiltBuilder<'a, T> {
     /// Stop all movement.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the stop command cannot be executed.
-    pub fn stop(self) -> Result<(), ViscaError> {
+    /// Returns `Error` if the stop command cannot be executed.
+    pub fn stop(self) -> Result<(), Error> {
         self.device.execute_command(&PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::ZERO,
@@ -364,15 +365,15 @@ impl<'a, T: ViscaDevice> PanTiltBuilder<'a, T> {
     /// Move to home position.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the home command cannot be executed.
-    pub fn home(self) -> Result<(), ViscaError> {
+    /// Returns `Error` if the home command cannot be executed.
+    pub fn home(self) -> Result<(), Error> {
         self.device.execute_command(&PanTiltCommand::Home)?;
         Ok(())
     }
 }
 
 /// High-level camera control extension trait.
-pub trait CameraControl: ViscaDevice {
+pub trait CameraControl: Transport {
     /// Create a pan/tilt movement builder.
     fn pan_tilt(&mut self) -> PanTiltBuilder<Self>
     where
@@ -381,11 +382,11 @@ pub trait CameraControl: ViscaDevice {
         PanTiltBuilder::new(self)
     }
 
-    /// Quick preset recall with validation.
+    /// Recall a saved preset position.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the preset number is invalid or command cannot be executed.
-    fn goto_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
+    /// Returns `Error` if the preset number is invalid or command cannot be executed.
+    fn recall_preset(&mut self, preset_number: u8) -> Result<(), Error> {
         let preset_num = PresetNumber::new(preset_number)?;
         self.execute_command(&PresetCommand {
             action: PresetAction::Recall,
@@ -394,53 +395,11 @@ pub trait CameraControl: ViscaDevice {
         Ok(())
     }
 
-    /// Save current position to preset.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the preset number is invalid or command cannot be executed.
-    fn save_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
-        let preset_num = PresetNumber::new(preset_number)?;
-        self.execute_command(&PresetCommand {
-            action: PresetAction::Set,
-            preset_number: preset_num,
-        })?;
-        Ok(())
-    }
-
-    /// Set zoom with intuitive speed control.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the speed is invalid or command cannot be executed.
-    fn zoom_in(&mut self, speed: Speed) -> Result<(), ViscaError> {
-        let zoom_speed = speed.to_zoom_speed()?;
-        self.execute_command(&ZoomCommand::TeleVariable(zoom_speed))?;
-        Ok(())
-    }
-
-    /// Set zoom out with intuitive speed control.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the speed is invalid or command cannot be executed.
-    fn zoom_out(&mut self, speed: Speed) -> Result<(), ViscaError> {
-        let zoom_speed = speed.to_zoom_speed()?;
-        self.execute_command(&ZoomCommand::WideVariable(zoom_speed))?;
-        Ok(())
-    }
-
-    /// Stop zooming.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn zoom_stop(&mut self) -> Result<(), ViscaError> {
-        self.execute_command(&ZoomCommand::Stop)?;
-        Ok(())
-    }
-
     /// Set focus mode to auto.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn focus_auto(&mut self) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command cannot be executed.
+    fn focus_auto(&mut self) -> Result<(), Error> {
         self.execute_command(&FocusCommand::Auto)?;
         Ok(())
     }
@@ -448,8 +407,8 @@ pub trait CameraControl: ViscaDevice {
     /// Set focus mode to manual.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn focus_manual(&mut self) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command cannot be executed.
+    fn focus_manual(&mut self) -> Result<(), Error> {
         self.execute_command(&FocusCommand::Manual)?;
         Ok(())
     }
@@ -457,8 +416,8 @@ pub trait CameraControl: ViscaDevice {
     /// Focus near with speed control.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the speed is invalid or command cannot be executed.
-    fn focus_near(&mut self, speed: Speed) -> Result<(), ViscaError> {
+    /// Returns `Error` if the speed is invalid or command cannot be executed.
+    fn focus_near(&mut self, speed: Speed) -> Result<(), Error> {
         let focus_speed = speed.to_focus_speed()?;
         self.execute_command(&FocusCommand::NearVariable(focus_speed))?;
         Ok(())
@@ -467,8 +426,8 @@ pub trait CameraControl: ViscaDevice {
     /// Focus far with speed control.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the speed is invalid or command cannot be executed.
-    fn focus_far(&mut self, speed: Speed) -> Result<(), ViscaError> {
+    /// Returns `Error` if the speed is invalid or command cannot be executed.
+    fn focus_far(&mut self, speed: Speed) -> Result<(), Error> {
         let focus_speed = speed.to_focus_speed()?;
         self.execute_command(&FocusCommand::FarVariable(focus_speed))?;
         Ok(())
@@ -477,8 +436,8 @@ pub trait CameraControl: ViscaDevice {
     /// Set gain level using intuitive presets.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the gain level is invalid or command cannot be executed.
-    fn set_gain(&mut self, level: GainLevel) -> Result<(), ViscaError> {
+    /// Returns `Error` if the gain level is invalid or command cannot be executed.
+    fn set_gain(&mut self, level: GainLevel) -> Result<(), Error> {
         let gain_value = level.to_gain_value()?;
         self.execute_command(&GainCommand::Direct(gain_value))?;
         Ok(())
@@ -487,8 +446,8 @@ pub trait CameraControl: ViscaDevice {
     /// Set exposure mode with validation.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command cannot be executed.
+    fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), Error> {
         self.execute_command(&ExposureCommand { mode })?;
         Ok(())
     }
@@ -496,8 +455,8 @@ pub trait CameraControl: ViscaDevice {
     /// Set iris using F-stop values.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn set_iris(&mut self, iris: IrisValue) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command cannot be executed.
+    fn set_iris(&mut self, iris: IrisValue) -> Result<(), Error> {
         use crate::types::IrisLevel;
         self.execute_command(&IrisCommand::Direct(IrisLevel::new(iris.to_position())?))?;
         Ok(())
@@ -506,11 +465,8 @@ pub trait CameraControl: ViscaDevice {
     /// Set 2D noise reduction with intuitive strength levels.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn set_noise_reduction_2d(
-        &mut self,
-        strength: NoiseReductionStrength,
-    ) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command cannot be executed.
+    fn set_noise_reduction_2d(&mut self, strength: NoiseReductionStrength) -> Result<(), Error> {
         let command = strength
             .to_2d_level()
             .map_or(NoiseReduction2DCommand::Off, NoiseReduction2DCommand::Level);
@@ -521,11 +477,8 @@ pub trait CameraControl: ViscaDevice {
     /// Set 3D noise reduction with intuitive strength levels.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn set_noise_reduction_3d(
-        &mut self,
-        strength: NoiseReductionStrength,
-    ) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command cannot be executed.
+    fn set_noise_reduction_3d(&mut self, strength: NoiseReductionStrength) -> Result<(), Error> {
         let command = strength
             .to_3d_level()
             .map_or(NoiseReduction3DCommand::Off, NoiseReduction3DCommand::Level);
@@ -536,8 +489,8 @@ pub trait CameraControl: ViscaDevice {
     /// Set anti-flicker mode for your region.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn set_anti_flicker_50hz(&mut self) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command cannot be executed.
+    fn set_anti_flicker_50hz(&mut self) -> Result<(), Error> {
         self.execute_command(&AntiFlickerCommand {
             mode: AntiFlickerMode::Hz50,
         })?;
@@ -547,8 +500,8 @@ pub trait CameraControl: ViscaDevice {
     /// Set anti-flicker mode for your region.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn set_anti_flicker_60hz(&mut self) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command cannot be executed.
+    fn set_anti_flicker_60hz(&mut self) -> Result<(), Error> {
         self.execute_command(&AntiFlickerCommand {
             mode: AntiFlickerMode::Hz60,
         })?;
@@ -558,8 +511,8 @@ pub trait CameraControl: ViscaDevice {
     /// Disable anti-flicker.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn disable_anti_flicker(&mut self) -> Result<(), ViscaError> {
+    /// Returns `Error` if the command cannot be executed.
+    fn disable_anti_flicker(&mut self) -> Result<(), Error> {
         self.execute_command(&AntiFlickerCommand {
             mode: AntiFlickerMode::Off,
         })?;
@@ -567,8 +520,8 @@ pub trait CameraControl: ViscaDevice {
     }
 }
 
-// Implement for all types that implement ViscaDevice
-impl<T: ViscaDevice> CameraControl for T {}
+// Implement for all types that implement Transport
+impl<T: Transport> CameraControl for T {}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]

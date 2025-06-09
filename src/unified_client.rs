@@ -1,6 +1,6 @@
 //! Unified VISCA client for v0.4.0 - async-first with blocking façade.
 //!
-//! This module provides a single `ViscaClient` that works in both blocking
+//! This module provides a single `Client` that works in both blocking
 //! and async contexts, replacing the previous split-brain approach.
 
 // Standard library imports
@@ -8,10 +8,12 @@ use std::sync::Arc;
 
 // Crate imports
 use crate::{
+    command::response::Response,
+    error::Error,
     ptz_builder::PtzBuilder,
-    session::ViscaSession,
+    session::Session,
     sync_primitives::{Mutex, Semaphore, SemaphoreExt},
-    ViscaCommand, ViscaError, ViscaResponse,
+    Command,
 };
 
 // Feature-gated imports - Blocking client
@@ -28,6 +30,7 @@ use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, Transport};
 const MAX_CONCURRENT_COMMANDS: usize = 2;
 
 /// Internal transport variant that supports both blocking and async transports.
+#[doc(hidden)]
 #[derive(Debug)]
 enum TransportVariant {
     /// Blocking UDP transport wrapped in an adapter
@@ -52,23 +55,23 @@ enum TransportVariant {
 /// This client provides a single API surface for both blocking and async usage,
 /// with automatic runtime management for blocking operations.
 #[derive(Debug, Clone)]
-pub struct ViscaClient {
+pub struct Client {
     /// The underlying transport (blocking or async)
     transport: Arc<Mutex<TransportVariant>>,
 
     /// Session management for command sequencing and socket assignment
-    session: Arc<Mutex<ViscaSession>>,
+    session: Arc<Mutex<Session>>,
 
     /// Concurrency control (max 2 concurrent commands)
     semaphore: Arc<Semaphore>,
 }
 
-impl ViscaClient {
+impl Client {
     /// Creates a new client from a transport variant.
     fn new_from_variant(variant: TransportVariant) -> Self {
         Self {
             transport: Arc::new(Mutex::new(variant)),
-            session: Arc::new(Mutex::new(ViscaSession::new())),
+            session: Arc::new(Mutex::new(Session::new())),
             semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_COMMANDS)),
         }
     }
@@ -80,10 +83,10 @@ impl ViscaClient {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::Io` if UDP transport creation fails.
+    /// Returns `Error::Io` if UDP transport creation fails.
     #[cfg(feature = "blocking-client")]
-    pub fn connect_udp(camera_addr: &str) -> Result<Self, ViscaError> {
-        let transport = BlockingUdpTransport::new(camera_addr).map_err(ViscaError::Io)?;
+    pub fn connect_udp(camera_addr: &str) -> Result<Self, Error> {
+        let transport = BlockingUdpTransport::new(camera_addr).map_err(Error::Io)?;
         let adapter = BlockingAdapter(transport);
         Ok(Self::new_from_variant(TransportVariant::BlockingUdp(
             adapter,
@@ -97,10 +100,10 @@ impl ViscaClient {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::Io` if TCP connection fails.
+    /// Returns `Error::Io` if TCP connection fails.
     #[cfg(feature = "blocking-client")]
-    pub fn connect_tcp(camera_addr: &str) -> Result<Self, ViscaError> {
-        let transport = BlockingTcpTransport::new(camera_addr).map_err(ViscaError::Io)?;
+    pub fn connect_tcp(camera_addr: &str) -> Result<Self, Error> {
+        let transport = BlockingTcpTransport::new(camera_addr).map_err(Error::Io)?;
         let adapter = BlockingAdapter(transport);
         Ok(Self::new_from_variant(TransportVariant::BlockingTcp(
             adapter,
@@ -111,9 +114,9 @@ impl ViscaClient {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::Io` if UDP transport creation fails.
+    /// Returns `Error::Io` if UDP transport creation fails.
     #[cfg(feature = "async-client")]
-    pub async fn connect_udp_async(camera_addr: &str) -> Result<Self, ViscaError> {
+    pub async fn connect_udp_async(camera_addr: &str) -> Result<Self, Error> {
         let transport = AsyncUdpTransport::new(camera_addr).await?;
         Ok(Self::new_from_variant(TransportVariant::AsyncUdp(
             transport,
@@ -124,9 +127,9 @@ impl ViscaClient {
     ///
     /// # Errors
     ///
-    /// Returns `ViscaError::Io` if TCP connection fails.
+    /// Returns `Error::Io` if TCP connection fails.
     #[cfg(feature = "async-client")]
-    pub async fn connect_tcp_async(camera_addr: &str) -> Result<Self, ViscaError> {
+    pub async fn connect_tcp_async(camera_addr: &str) -> Result<Self, Error> {
         let transport = AsyncTcpTransport::new(camera_addr).await?;
         Ok(Self::new_from_variant(TransportVariant::AsyncTcp(
             transport,
@@ -145,10 +148,10 @@ impl ViscaClient {
     ///   - Directly calls the blocking implementation
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if runtime creation fails in async contexts.
     #[cfg(feature = "blocking-client")]
-    pub fn send(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+    pub fn send(&self, command: &dyn Command) -> Result<Response, Error> {
         #[cfg(feature = "async-client")]
         {
             // Clone self to move into the async block
@@ -160,14 +163,14 @@ impl ViscaClient {
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
-                        .map_err(|e| ViscaError::Io(std::io::Error::other(e)))?;
+                        .map_err(|e| Error::Io(std::io::Error::other(e)))?;
                     rt.block_on(client.send_async(command))
                 })
             } else {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .map_err(|e| ViscaError::Io(std::io::Error::other(e)))?;
+                    .map_err(|e| Error::Io(std::io::Error::other(e)))?;
                 rt.block_on(client.send_async(command))
             }
         }
@@ -179,7 +182,7 @@ impl ViscaClient {
     }
 
     #[cfg(not(feature = "async-client"))]
-    fn send_blocking(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+    fn send_blocking(&self, command: &dyn Command) -> Result<Response, Error> {
         let _permit = self.semaphore.acquire_permit();
 
         // Acquire session lock and assign socket
@@ -225,8 +228,8 @@ impl ViscaClient {
 
     /// Wait for a response on a specific socket with proper session management (blocking).
     #[cfg(not(feature = "async-client"))]
-    fn wait_for_response_blocking(&self, socket_id: u8) -> Result<ViscaResponse, ViscaError> {
-        use ViscaResponse::{Ack, Completion, Error, InquiryResponse};
+    fn wait_for_response_blocking(&self, socket_id: u8) -> Result<Response, Error> {
+        use Response::{Ack, Completion, Error as ErrorResponse, InquiryResponse};
 
         loop {
             let responses = {
@@ -274,11 +277,11 @@ impl ViscaClient {
                             );
                             return Ok(InquiryResponse(inquiry));
                         }
-                        Error(err) => {
+                        ErrorResponse(err) => {
                             log::error!("Command error on socket {socket_id}: {err:?}");
                             return Err(err);
                         }
-                        ViscaResponse::Unknown(_) => {
+                        Response::Unknown(_) => {
                             log::debug!("Unexpected response: {parsed_response:?}");
                         }
                     }
@@ -296,13 +299,10 @@ impl ViscaClient {
     /// - Waits for and returns the response with proper ACK/completion tracking
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// semaphore acquisition fails, or socket assignment fails.
     #[cfg(feature = "async-client")]
-    pub async fn send_async(
-        &self,
-        command: &dyn ViscaCommand,
-    ) -> Result<ViscaResponse, ViscaError> {
+    pub async fn send_async(&self, command: &dyn Command) -> Result<Response, Error> {
         let _permit = self.semaphore.acquire_permit().await?;
 
         // Acquire session lock and assign socket
@@ -351,8 +351,8 @@ impl ViscaClient {
 
     /// Wait for a response on a specific socket with proper session management.
     #[cfg(feature = "async-client")]
-    async fn wait_for_response_async(&self, socket_id: u8) -> Result<ViscaResponse, ViscaError> {
-        use ViscaResponse::{Ack, Completion, Error, InquiryResponse};
+    async fn wait_for_response_async(&self, socket_id: u8) -> Result<Response, Error> {
+        use Response::{Ack, Completion, Error as ErrorResponse, InquiryResponse};
 
         loop {
             let responses = {
@@ -394,11 +394,11 @@ impl ViscaClient {
                             );
                             return Ok(InquiryResponse(inquiry));
                         }
-                        Error(err) => {
+                        ErrorResponse(err) => {
                             log::error!("Command error on socket {socket_id}: {err:?}");
                             return Err(err);
                         }
-                        ViscaResponse::Unknown(_) => {
+                        Response::Unknown(_) => {
                             log::debug!("Unexpected response: {parsed_response:?}");
                         }
                     }
@@ -410,9 +410,9 @@ impl ViscaClient {
     /// Check if the camera connection is healthy.
     ///
     /// # Errors
-    /// Returns `ViscaError` if the health check command fails to send.
+    /// Returns `Error` if the health check command fails to send.
     #[cfg(feature = "async-client")]
-    pub async fn is_healthy(&self) -> Result<bool, ViscaError> {
+    pub async fn is_healthy(&self) -> Result<bool, Error> {
         use crate::command::InquiryCommand;
 
         match self.send_async(&InquiryCommand::Power).await {
@@ -424,9 +424,9 @@ impl ViscaClient {
     /// Check if the camera connection is healthy (blocking).
     ///
     /// # Errors
-    /// Returns `ViscaError` if the health check command fails to send.
+    /// Returns `Error` if the health check command fails to send.
     #[cfg(feature = "blocking-client")]
-    pub fn is_healthy_blocking(&self) -> Result<bool, ViscaError> {
+    pub fn is_healthy_blocking(&self) -> Result<bool, Error> {
         use crate::command::InquiryCommand;
 
         match self.send(&InquiryCommand::Power) {
@@ -453,7 +453,7 @@ impl ViscaClient {
     /// Returns any errors from command execution including transport errors, timeouts,
     /// and camera-specific errors.
     #[cfg(feature = "blocking-client")]
-    pub fn try_send(&self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+    pub fn try_send(&self, command: &dyn Command) -> Result<Response, Error> {
         // The unified client already handles concurrency internally
         // For now, we delegate to the standard send method
         // A future implementation could add try_acquire to the semaphore
@@ -479,22 +479,22 @@ impl ViscaClient {
     /// - The command execution fails
     ///
     /// # Errors
-    /// Returns `ViscaError` if the command fails to send, the camera returns an error,
+    /// Returns `Error` if the command fails to send, the camera returns an error,
     /// or if runtime creation fails in async contexts.
     #[cfg(feature = "blocking-client")]
     pub fn send_with_timeout(
         &self,
-        command: &dyn ViscaCommand,
+        command: &dyn Command,
         _timeout: std::time::Duration,
-    ) -> Result<ViscaResponse, ViscaError> {
+    ) -> Result<Response, Error> {
         // For now, we use the standard send method
         // A proper implementation would use tokio timeout or similar
         self.send(command)
     }
 }
 
-/// Extension trait for PTZ builder functionality on `Arc<ViscaClient>`.
-pub trait ViscaClientPtzExt {
+/// Extension trait for PTZ builder functionality on `Arc<Client>`.
+pub trait ClientPtzExt {
     /// Create a PTZ builder for fluent command sequences.
     ///
     /// Returns a builder that allows chaining multiple PTZ commands together
@@ -503,10 +503,10 @@ pub trait ViscaClientPtzExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")] {
-    /// # use grafton_visca::{ViscaClient, ViscaClientPtzExt};
+    /// # use grafton_visca::{Client, ClientPtzExt};
     /// # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed, PanTiltDirection};
     /// # use std::sync::Arc;
-    /// # let client = Arc::new(ViscaClient::connect_udp("192.168.1.100:5678").unwrap());
+    /// # let client = Arc::new(Client::connect_udp("192.168.1.100:5678").unwrap());
     /// // Build and execute a PTZ sequence
     /// client.ptz()
     ///     .pan_tilt_home()
@@ -520,16 +520,16 @@ pub trait ViscaClientPtzExt {
     fn ptz(self) -> PtzBuilder;
 }
 
-impl ViscaClientPtzExt for Arc<ViscaClient> {
+impl ClientPtzExt for Arc<Client> {
     fn ptz(self) -> PtzBuilder {
         PtzBuilder::new(self)
     }
 }
 
-// Implement ViscaDevice to support extension traits
+// Implement Transport to support extension traits
 #[cfg(feature = "blocking-client")]
-impl crate::ViscaDevice for ViscaClient {
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+impl crate::Transport for Client {
+    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         self.send(command)
     }
 }
@@ -544,18 +544,18 @@ mod tests {
     use std::thread;
 
     #[test]
-    fn test_client_is_send_and_sync() {
-        fn assert_send<T: Send>() {}
-        fn assert_sync<T: Sync>() {}
+    const fn test_client_is_send_and_sync() {
+        const fn assert_send<T: Send>() {}
+        const fn assert_sync<T: Sync>() {}
 
-        assert_send::<ViscaClient>();
-        assert_sync::<ViscaClient>();
+        assert_send::<Client>();
+        assert_sync::<Client>();
     }
 
     #[cfg(feature = "blocking-client")]
     #[test]
     fn test_client_can_be_cloned() {
-        let client = ViscaClient::connect_udp("127.0.0.1:1259").unwrap();
+        let client = Client::connect_udp("127.0.0.1:1259").unwrap();
         let client_clone = client.clone();
         // Ensure the clone is usable
         drop(client);
@@ -565,7 +565,7 @@ mod tests {
     #[cfg(feature = "blocking-client")]
     #[test]
     fn test_client_arc_usage() {
-        let client = Arc::new(ViscaClient::connect_udp("127.0.0.1:1259").unwrap());
+        let client = Arc::new(Client::connect_udp("127.0.0.1:1259").unwrap());
         let client_clone = Arc::clone(&client);
 
         let handle = thread::spawn(move || {

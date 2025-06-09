@@ -14,7 +14,7 @@ use grafton_visca::{
         power::{Power, PowerCommand},
         InquiryCommand,
     },
-    ViscaDevice, ViscaError, ViscaInquiryResponse, ViscaResponse,
+    Error, InquiryResponse, Response, Transport,
 };
 
 #[test]
@@ -27,7 +27,7 @@ fn test_ack_then_completion_sequence() {
     let result = device.execute_command(&PanTiltCommand::Home);
 
     assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), ViscaResponse::Completion));
+    assert!(matches!(result.unwrap(), Response::Completion));
 
     // Verify command was sent
     let commands = device.commands_sent();
@@ -46,10 +46,7 @@ fn test_command_error_handling() {
     let result = device.execute_command(&PowerCommand { power: Power::On });
 
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        ViscaError::CommandNotExecutable
-    ));
+    assert!(matches!(result.unwrap_err(), Error::CommandNotExecutable));
 }
 
 #[test]
@@ -63,7 +60,7 @@ fn test_inquiry_direct_response() {
 
     assert!(result.is_ok());
     match result.unwrap() {
-        ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => {
+        Response::InquiryResponse(InquiryResponse::Power { on }) => {
             assert!(on);
         }
         _ => panic!("Expected Power inquiry response"),
@@ -86,7 +83,7 @@ fn test_pan_tilt_position_inquiry() {
 
     assert!(result.is_ok());
     match result.unwrap() {
-        ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
+        Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
             assert_eq!(pan, 0x1234);
             assert_eq!(tilt, 0x5678);
         }
@@ -126,7 +123,7 @@ fn test_timeout_on_missing_completion() {
     let result = device.execute_command(&PanTiltCommand::Home);
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ViscaError::Timeout));
+    assert!(matches!(result.unwrap_err(), Error::Timeout));
 }
 
 #[test]
@@ -139,7 +136,7 @@ fn test_socket_buffer_full_error() {
     let result = device.execute_command(&PanTiltCommand::Home);
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), ViscaError::CommandBufferFull));
+    assert!(matches!(result.unwrap_err(), Error::CommandBufferFull));
 }
 
 #[test]
@@ -182,14 +179,14 @@ fn test_inquiry_response_queueing() {
     let mut device = MockDevice::new();
 
     // Queue multiple inquiry responses
-    device.queue_inquiry_response(ViscaInquiryResponse::Power { on: true });
-    device.queue_inquiry_response(ViscaInquiryResponse::ZoomPosition { position: 0x1234 });
+    device.queue_inquiry_response(InquiryResponse::Power { on: true });
+    device.queue_inquiry_response(InquiryResponse::ZoomPosition { position: 0x1234 });
 
     // Execute inquiries and verify responses
     let power_response = device.execute_command(&InquiryCommand::Power).unwrap();
     assert!(matches!(
         power_response,
-        ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on: true })
+        Response::InquiryResponse(InquiryResponse::Power { on: true })
     ));
 
     let zoom_response = device
@@ -197,6 +194,6 @@ fn test_inquiry_response_queueing() {
         .unwrap();
     assert!(matches!(
         zoom_response,
-        ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position: 0x1234 })
+        Response::InquiryResponse(InquiryResponse::ZoomPosition { position: 0x1234 })
     ));
 }

@@ -10,7 +10,7 @@ use std::{future::Future, pin::Pin};
 // (none)
 
 // Workspace / local-crate imports
-use crate::{ViscaCommand, ViscaError};
+use crate::{error::Error, Command};
 
 // Submodules
 pub mod common;
@@ -31,7 +31,7 @@ pub use self::tcp_unified::UnifiedTcpTransport;
 pub use self::unified::UnifiedTransport;
 
 /// Type alias for the future returned by async transport methods.
-pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send + 'a>>;
+pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
 
 /// Primary async transport trait for VISCA communication.
 ///
@@ -39,7 +39,7 @@ pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaErr
 /// while supporting blocking operations through adapters.
 pub trait Transport: Send + Sync {
     /// Send a VISCA command to the camera asynchronously.
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()>;
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()>;
 
     /// Receive response frames from the camera asynchronously.
     ///
@@ -55,10 +55,10 @@ pub trait Transport: Send + Sync {
 #[cfg(feature = "blocking-client")]
 pub trait BlockingTransport {
     /// Send a VISCA command to the camera synchronously.
-    fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error>;
 
     /// Receive response frames from the camera synchronously.
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
+    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error>;
 }
 
 /// Adapter that implements the async Transport trait for any BlockingTransport.
@@ -71,7 +71,7 @@ pub struct BlockingAdapter<T: BlockingTransport>(pub T);
 
 #[cfg(feature = "blocking-client")]
 impl<T: BlockingTransport + Send + Sync> Transport for BlockingAdapter<T> {
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
         Box::pin(async move { self.0.send_command_blocking(command) })
     }
 
@@ -87,25 +87,25 @@ mod tests {
     struct MockBlockingTransport;
 
     impl BlockingTransport for MockBlockingTransport {
-        fn send_command_blocking(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+        fn send_command_blocking(&mut self, _command: &dyn Command) -> Result<(), Error> {
             Ok(())
         }
 
-        fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+        fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
             Ok(vec![vec![0x90, 0x50, 0xFF]])
         }
     }
 
     #[tokio::test]
-    async fn test_blocking_adapter() -> Result<(), ViscaError> {
+    async fn test_blocking_adapter() -> Result<(), Error> {
         struct DummyCommand;
 
-        impl ViscaCommand for DummyCommand {
-            fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+        impl Command for DummyCommand {
+            fn to_bytes(&self) -> Result<Vec<u8>, Error> {
                 Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
             }
 
-            fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
+            fn response_type(&self) -> Option<crate::command::ResponseType> {
                 None
             }
 

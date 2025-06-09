@@ -5,16 +5,16 @@ use std::pin::Pin;
 
 use grafton_visca::command::{power::Power, PowerCommand};
 use grafton_visca::transport::{UnifiedTcpTransport, UnifiedTransport};
-use grafton_visca::ViscaError;
+use grafton_visca::Error;
 
 #[cfg(feature = "blocking-client")]
-fn blocking_example() -> Result<(), ViscaError> {
+fn blocking_example() -> Result<(), Error> {
     use grafton_visca::transport::unified::BlockingTransportAdapter;
 
     println!("=== Blocking Transport Example ===");
 
     // Create a blocking TCP transport
-    let tcp = UnifiedTcpTransport::new_blocking("192.168.1.100:5678").map_err(ViscaError::Io)?;
+    let tcp = UnifiedTcpTransport::new_blocking("192.168.1.100:5678").map_err(Error::Io)?;
 
     // Wrap it in the adapter to use the unified interface
     let mut transport = BlockingTransportAdapter::new(tcp);
@@ -39,7 +39,7 @@ fn blocking_example() -> Result<(), ViscaError> {
     let mut send_fut = transport.send_command(&power_cmd);
     match Pin::new(&mut send_fut).poll(&mut cx) {
         Poll::Ready(result) => result?,
-        Poll::Pending => return Err(ViscaError::Timeout),
+        Poll::Pending => return Err(Error::Timeout),
     }
 
     let mut recv_fut = transport.receive_response();
@@ -47,7 +47,7 @@ fn blocking_example() -> Result<(), ViscaError> {
         Poll::Ready(result) => {
             let _ = result?;
         }
-        Poll::Pending => return Err(ViscaError::Timeout),
+        Poll::Pending => return Err(Error::Timeout),
     }
 
     println!("✅ Blocking transport works with unified API");
@@ -56,13 +56,13 @@ fn blocking_example() -> Result<(), ViscaError> {
 }
 
 #[cfg(feature = "async-client")]
-async fn async_example() -> Result<(), ViscaError> {
+async fn async_example() -> Result<(), Error> {
     println!("=== Async Transport Example ===");
 
     // Create an async TCP transport
     let mut transport = UnifiedTcpTransport::new_async("192.168.1.100:5678")
         .await
-        .map_err(ViscaError::Io)?;
+        .map_err(Error::Io)?;
 
     // Use the unified interface - same API as blocking!
     let power_cmd = PowerCommand { power: Power::On };

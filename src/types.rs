@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use crate::error::ViscaError;
+use crate::error::Error;
 
 /// Socket ID for VISCA commands.
 ///
@@ -23,11 +23,11 @@ impl SocketId {
     /// Create a new socket ID.
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidParameter` if the value is not 0 or 1.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    /// Returns `Error::InvalidParameter` if the value is not 0 or 1.
+    pub fn new(value: u8) -> Result<Self, Error> {
         match value {
             0 | 1 => Ok(Self(value)),
-            _ => Err(ViscaError::InvalidParameter(format!(
+            _ => Err(Error::InvalidParameter(format!(
                 "Socket ID must be 0 or 1, got {value}"
             ))),
         }
@@ -66,12 +66,12 @@ impl GainValue {
     /// Create a new gain value.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 0x00-0x07.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x07.
+    pub fn new(value: u8) -> Result<Self, Error> {
         if value <= 0x07 {
             Ok(Self(value))
         } else {
-            Err(ViscaError::ParameterOutOfRange {
+            Err(Error::ParameterOutOfRange {
                 parameter: "gain".to_string(),
                 value: i32::from(value),
                 min: 0x00,
@@ -88,7 +88,7 @@ impl GainValue {
 }
 
 impl TryFrom<u8> for GainValue {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -115,12 +115,12 @@ impl GainLimit {
     /// Create a new gain limit.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 0x0-0xF.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x0-0xF.
+    pub fn new(value: u8) -> Result<Self, Error> {
         if value <= 0xF {
             Ok(Self(value))
         } else {
-            Err(ViscaError::ParameterOutOfRange {
+            Err(Error::ParameterOutOfRange {
                 parameter: "gain_limit".to_string(),
                 value: i32::from(value),
                 min: 0x0,
@@ -137,7 +137,7 @@ impl GainLimit {
 }
 
 impl TryFrom<u8> for GainLimit {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -164,11 +164,11 @@ impl NoiseReduction2DLevel {
     /// Create a new 2D noise reduction level.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 1-5.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 1-5.
+    pub fn new(value: u8) -> Result<Self, Error> {
         match value {
             1..=5 => Ok(Self(value)),
-            _ => Err(ViscaError::ParameterOutOfRange {
+            _ => Err(Error::ParameterOutOfRange {
                 parameter: "2d_noise_reduction".to_string(),
                 value: i32::from(value),
                 min: 1,
@@ -185,7 +185,7 @@ impl NoiseReduction2DLevel {
 }
 
 impl TryFrom<u8> for NoiseReduction2DLevel {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -212,11 +212,11 @@ impl NoiseReduction3DLevel {
     /// Create a new 3D noise reduction level.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 1-8.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 1-8.
+    pub fn new(value: u8) -> Result<Self, Error> {
         match value {
             1..=8 => Ok(Self(value)),
-            _ => Err(ViscaError::ParameterOutOfRange {
+            _ => Err(Error::ParameterOutOfRange {
                 parameter: "3d_noise_reduction".to_string(),
                 value: i32::from(value),
                 min: 1,
@@ -233,7 +233,7 @@ impl NoiseReduction3DLevel {
 }
 
 impl TryFrom<u8> for NoiseReduction3DLevel {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -260,12 +260,12 @@ impl IrisLevel {
     /// Create a new iris level.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 0x00-0x0C.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x0C.
+    pub fn new(value: u8) -> Result<Self, Error> {
         if value <= 0x0C {
             Ok(Self(value))
         } else {
-            Err(ViscaError::ParameterOutOfRange {
+            Err(Error::ParameterOutOfRange {
                 parameter: "iris".to_string(),
                 value: i32::from(value),
                 min: 0x00,
@@ -282,7 +282,7 @@ impl IrisLevel {
 }
 
 impl TryFrom<u8> for IrisLevel {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -309,12 +309,12 @@ impl ShutterSpeed {
     /// Create a new shutter speed.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 0x01-0x11.
-    pub fn new(value: u16) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x01-0x11.
+    pub fn new(value: u16) -> Result<Self, Error> {
         if (0x01..=0x11).contains(&value) {
             Ok(Self(value))
         } else {
-            Err(ViscaError::ParameterOutOfRange {
+            Err(Error::ParameterOutOfRange {
                 parameter: "shutter".to_string(),
                 value: i32::from(value),
                 min: 0x01,
@@ -331,7 +331,7 @@ impl ShutterSpeed {
 }
 
 impl TryFrom<u16> for ShutterSpeed {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -358,12 +358,12 @@ impl BrightnessLevel {
     /// Create a new brightness level.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 0x00-0x11.
-    pub fn new(value: u16) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x11.
+    pub fn new(value: u16) -> Result<Self, Error> {
         if value <= 0x11 {
             Ok(Self(value))
         } else {
-            Err(ViscaError::ParameterOutOfRange {
+            Err(Error::ParameterOutOfRange {
                 parameter: "brightness".to_string(),
                 value: i32::from(value),
                 min: 0x00,
@@ -380,7 +380,7 @@ impl BrightnessLevel {
 }
 
 impl TryFrom<u16> for BrightnessLevel {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -407,12 +407,12 @@ impl SharpnessLevel {
     /// Create a new sharpness level.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 0-11.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-11.
+    pub fn new(value: u8) -> Result<Self, Error> {
         if value <= 11 {
             Ok(Self(value))
         } else {
-            Err(ViscaError::ParameterOutOfRange {
+            Err(Error::ParameterOutOfRange {
                 parameter: "sharpness".to_string(),
                 value: i32::from(value),
                 min: 0,
@@ -429,7 +429,7 @@ impl SharpnessLevel {
 }
 
 impl TryFrom<u8> for SharpnessLevel {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -456,12 +456,12 @@ impl LuminanceLevel {
     /// Create a new luminance level.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 0-14.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-14.
+    pub fn new(value: u8) -> Result<Self, Error> {
         if value <= 14 {
             Ok(Self(value))
         } else {
-            Err(ViscaError::ParameterOutOfRange {
+            Err(Error::ParameterOutOfRange {
                 parameter: "luminance".to_string(),
                 value: i32::from(value),
                 min: 0,
@@ -478,7 +478,7 @@ impl LuminanceLevel {
 }
 
 impl TryFrom<u8> for LuminanceLevel {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -505,12 +505,12 @@ impl ContrastLevel {
     /// Create a new contrast level.
     ///
     /// # Errors
-    /// Returns `ViscaError::ParameterOutOfRange` if the value is outside 0-14.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-14.
+    pub fn new(value: u8) -> Result<Self, Error> {
         if value <= 14 {
             Ok(Self(value))
         } else {
-            Err(ViscaError::ParameterOutOfRange {
+            Err(Error::ParameterOutOfRange {
                 parameter: "contrast".to_string(),
                 value: i32::from(value),
                 min: 0,
@@ -527,7 +527,7 @@ impl ContrastLevel {
 }
 
 impl TryFrom<u8> for ContrastLevel {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)

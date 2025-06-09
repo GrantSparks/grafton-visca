@@ -5,15 +5,15 @@ fn main() {
 }
 
 /*
-//! Example demonstrating the async inquiry API with ViscaClient.
+//! Example demonstrating the async inquiry API with Client.
 
 use grafton_visca::command::InquiryCommand;
-use grafton_visca::{ViscaClient, ViscaError, ViscaInquiryResponse, ViscaResponse};
+use grafton_visca::{Client, Error, InquiryResponse, ViscaResponse};
 use std::env;
 use tokio::time::{sleep, Duration};
 
 #[tokio::main]
-async fn main() -> Result<(), ViscaError> {
+async fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -28,7 +28,7 @@ async fn main() -> Result<(), ViscaError> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let client = ViscaClient::connect_udp_async(camera_addr).await?;
+    let client = Client::connect_udp_async(camera_addr).await?;
 
     println!("\n=== Camera Inquiry Demo ===\n");
 
@@ -36,26 +36,26 @@ async fn main() -> Result<(), ViscaError> {
     println!("1. Basic Camera Status");
 
     let power = client.send_async(&InquiryCommand::Power).await?;
-    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) = power {
+    if let Response::InquiryResponse(InquiryResponse::Power { on }) = power {
         println!("   - Power: {}", if on { "ON" } else { "OFF" });
     }
 
     println!("\n2. Camera Position and Zoom");
 
     let position = client.send_async(&InquiryCommand::PanTiltPosition).await?;
-    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) =
+    if let Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) =
         position
     {
         println!("   - Pan/Tilt Position: pan={}, tilt={}", pan, tilt);
     }
 
     let zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
-    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) = zoom {
+    if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = zoom {
         println!("   - Zoom Position: {:02X?}", position);
     }
 
     let focus = client.send_async(&InquiryCommand::FocusPosition).await?;
-    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::FocusPosition { position }) = focus
+    if let Response::InquiryResponse(InquiryResponse::FocusPosition { position }) = focus
     {
         println!("   - Focus Position: {:02X?}", position);
     }
@@ -70,19 +70,19 @@ async fn main() -> Result<(), ViscaError> {
     let (exposure_result, wb_result, luminance_result) =
         tokio::join!(exposure_future, wb_future, luminance_future);
 
-    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode })) =
+    if let Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) =
         exposure_result
     {
         println!("   - Exposure Mode: {:?}", mode);
     }
 
-    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode })) =
+    if let Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance { mode })) =
         wb_result
     {
         println!("   - White Balance: {:?}", mode);
     }
 
-    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::Luminance(level))) =
+    if let Ok(Response::InquiryResponse(InquiryResponse::Luminance(level))) =
         luminance_result
     {
         println!("   - Luminance: {}", level);
@@ -91,12 +91,12 @@ async fn main() -> Result<(), ViscaError> {
     println!("\n4. Additional Image Parameters");
 
     let contrast = client.send_async(&InquiryCommand::Contrast).await?;
-    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::Contrast(level)) = contrast {
+    if let Response::InquiryResponse(InquiryResponse::Contrast(level)) = contrast {
         println!("   - Contrast: {}", level);
     }
 
     let gain = client.send_async(&InquiryCommand::Gain).await?;
-    if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::Gain { gain }) = gain {
+    if let Response::InquiryResponse(InquiryResponse::Gain { gain }) = gain {
         println!("   - Gain: {}", gain);
     }
 
@@ -116,7 +116,7 @@ async fn main() -> Result<(), ViscaError> {
 
     println!("   Complete Camera Status:");
     for result in results {
-        if let ViscaResponse::InquiryResponse(inquiry) = result {
+        if let Response::InquiryResponse(inquiry) = result {
             println!("     - {:?}", inquiry);
         }
     }
@@ -127,7 +127,7 @@ async fn main() -> Result<(), ViscaError> {
         println!("   Reading #{}", i);
 
         let current_zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
-        if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) =
+        if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) =
             current_zoom
         {
             println!("     - Current Zoom: {:02X?}", position);

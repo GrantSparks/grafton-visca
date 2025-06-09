@@ -1,23 +1,21 @@
 //! Example demonstrating image quality and gain control features.
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{
-    command::AntiFlickerMode, ViscaClient, ViscaError, ViscaExposureExt, ViscaImageExt,
-};
+use grafton_visca::{command::AntiFlickerMode, Client, Error, ExposureExt, ImageExt};
 #[cfg(feature = "blocking-client")]
 use std::thread;
 #[cfg(feature = "blocking-client")]
 use std::time::Duration;
 
 #[cfg(feature = "blocking-client")]
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     // Initialize logger for debugging
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Debug)
         .init();
 
     // Create client and connect to camera
-    let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    let mut client = Client::connect_udp("192.168.1.100:5678")?;
 
     println!("Connected to camera. Demonstrating image and gain controls...");
 

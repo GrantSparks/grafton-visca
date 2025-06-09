@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Connect to camera
-    let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    let mut client = Client::connect_udp("192.168.1.100:5678")?;
 
     println!("=== Type-Safe API Demo ===\n");
 
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.move_to_position(0, 0, Some((pan_speed, tilt_speed)))?;
     println!("   ✓ Moved to home position with validated speeds");
 
-    ViscaZoomExt::zoom_in(&mut client, Some(zoom_speed))?;
+    ZoomExt::zoom_in_variable(&mut client, Some(zoom_speed))?;
     println!("   ✓ Started zooming in with validated speed");
 
     client.focus_far(Some(focus_speed))?;
@@ -45,10 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Preset operations use PresetNumber type
     println!("\n4. Using type-safe preset operations:");
     let preset = PresetNumber::new(5)?; // Valid: 0-89
-    ViscaPresetExt::save_preset(&mut client, preset)?;
+    client.save_preset_number(preset)?;
     println!("   ✓ Saved current position to preset {}", preset.value());
 
-    ViscaPresetExt::recall_preset(&mut client, preset)?;
+    client.recall_preset_number(preset)?;
     println!("   ✓ Recalled preset {}", preset.value());
 
     // 5. You can still create DynamicRangeLevel for commands, even without a dedicated extension method

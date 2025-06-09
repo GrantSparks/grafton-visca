@@ -7,7 +7,7 @@ fn main() {
 /*
 use grafton_visca::command::power::Power;
 use grafton_visca::command::{PanTiltCommand, PowerCommand};
-use grafton_visca::{ConnectionManagement, TcpTransport, UdpTransport, ViscaTransport};
+use grafton_visca::{ConnectionManagement, TcpTransport, UdpTransport, Transport};
 use std::thread;
 use std::time::Duration;
 
@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example using UDP client
     println!("Testing UDP client health check...");
-    let mut udp_client = ViscaClient::connect_udp("192.168.1.100:1259")?;
+    let mut udp_client = Client::connect_udp("192.168.1.100:1259")?;
 
     // Check initial health
     match udp_client.is_healthy() {
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example using TCP client
     println!("\n\nTesting TCP client health check...");
-    let mut tcp_client = ViscaClient::connect_tcp("192.168.1.100:5678")?;
+    let mut tcp_client = Client::connect_tcp("192.168.1.100:5678")?;
 
     // Check health
     match tcp_client.is_healthy() {

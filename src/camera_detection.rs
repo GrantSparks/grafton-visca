@@ -11,10 +11,10 @@ use log::debug;
 
 // Workspace / local-crate imports
 use crate::{
-    command::{InquiryCommand, ViscaInquiryResponse},
+    command::{InquiryCommand, InquiryResponse},
     constants::CameraModel,
-    error::ViscaError,
-    send_command_and_wait, ViscaResponse, ViscaTransport,
+    error::Error,
+    Transport,
 };
 
 /// Detect the camera model by querying its capabilities
@@ -32,11 +32,11 @@ use crate::{
 ///     CameraModel::PTZOptics30X => println!("Connected to PTZOptics 30X"),
 ///     _ => println!("Connected to unknown camera model"),
 /// }
-/// # Ok::<(), grafton_visca::ViscaError>(())
+/// # Ok::<(), grafton_visca::Error>(())
 /// ```
-pub fn detect_camera_model(transport: &mut dyn ViscaTransport) -> Result<CameraModel, ViscaError> {
+pub fn detect_camera_model(transport: &mut dyn Transport) -> Result<CameraModel, Error> {
     // Try to get zoom position to determine zoom range
-    let zoom_response = send_command_and_wait(transport, &InquiryCommand::ZoomPosition)?;
+    let zoom_response = transport.execute_command(&InquiryCommand::ZoomPosition)?;
 
     // Try to get the camera's zoom capabilities by moving to max zoom
     // This is a heuristic approach - in a real implementation, you might want to:
@@ -45,7 +45,7 @@ pub fn detect_camera_model(transport: &mut dyn ViscaTransport) -> Result<CameraM
     // 3. Store the original zoom position and restore it after detection
 
     match zoom_response {
-        ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
+        crate::Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => {
             debug!("Current zoom position: 0x{:04X}", position);
 
             // Based on the zoom position and capabilities, try to determine the model
@@ -69,5 +69,5 @@ pub fn detect_camera_model(transport: &mut dyn ViscaTransport) -> Result<CameraM
 #[cfg(test)]
 mod tests {
     // Note: These would be integration tests that require a real camera
-    // For unit tests, you'd need to mock the ViscaTransport trait
+    // For unit tests, you'd need to mock the Transport trait
 }
