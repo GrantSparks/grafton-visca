@@ -226,7 +226,7 @@ mod golden_vector_tests {
         );
 
         // Focus Far Standard
-        let focus_far = FocusCommand::FarStandard;
+        let focus_far = FocusCommand::FocusFarStandard;
         assert_eq!(
             focus_far.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF],

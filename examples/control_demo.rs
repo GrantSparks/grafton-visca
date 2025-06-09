@@ -77,7 +77,7 @@ fn main() -> Result<(), Error> {
     thread::sleep(Duration::from_secs(2));
 
     println!("   - Zooming out at slow speed (2)...");
-    ZoomExt::zoom_out_variable(&mut client, Some(ZoomSpeed::new(2)?))?;
+    ZoomExt::zoom_out_speed(&mut client, Some(ZoomSpeed::new(2)?))?;
     thread::sleep(Duration::from_millis(1500));
     client.stop_zoom()?;
 

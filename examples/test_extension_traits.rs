@@ -39,7 +39,7 @@ fn main() -> Result<(), Error> {
     // Test ZoomExt methods
     println!("Testing ZoomExt...");
     client.zoom_to(0x2000)?;
-    ZoomExt::zoom_in_variable(&mut client, Some(ZoomSpeed::new(5)?))?; // Disambiguate
+    ZoomExt::zoom_in_speed(&mut client, Some(ZoomSpeed::new(5)?))?; // Disambiguate
     client.stop_zoom()?;
 
     // Test TransportExt pan/tilt methods
