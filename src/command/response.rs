@@ -176,17 +176,17 @@ pub fn parse_visca_response(
     }
 
     match response[1] {
-        0x40..=0x4F => Ok(ViscaResponse::Ack),
+        0x40..=0x4F => Ok(Response::Ack),
         0x50..=0x5F => {
             if response.len() == 3 {
-                return Ok(ViscaResponse::Completion);
+                return Ok(Response::Completion);
             }
             parse_inquiry_response(response, *response_type)
         }
-        0x60..=0x6F => Err(ViscaError::from_code(response[2])),
+        0x60..=0x6F => Err(Error::from_code(response[2])),
         _ => {
             error!("Unknown response: {response:02X?}");
-            Ok(ViscaResponse::Unknown(response.to_vec()))
+            Ok(Response::Unknown(response.to_vec()))
         }
     }
 }
@@ -343,14 +343,14 @@ fn parse_mode_response(response: &[u8], mode_type: ModeType) -> Result<Response,
     match mode_type {
         ModeType::Exposure => {
             let mode = ExposureMode::try_from(response[2])
-                .map_err(|()| ViscaError::UnexpectedResponseType)?;
+                .map_err(|()| Error::UnexpectedResponseType)?;
             Ok(Response::InquiryResponse(
                 ViscaInquiryResponse::ExposureMode { mode },
             ))
         }
         ModeType::WhiteBalance => {
             let mode = WhiteBalanceMode::try_from(response[2])
-                .map_err(|()| ViscaError::UnexpectedResponseType)?;
+                .map_err(|()| Error::UnexpectedResponseType)?;
             Ok(Response::InquiryResponse(
                 ViscaInquiryResponse::WhiteBalance { mode },
             ))
@@ -365,7 +365,7 @@ fn parse_mode_response(response: &[u8], mode_type: ModeType) -> Result<Response,
             let mode = match response[2] {
                 0x02 => SharpnessMode::Auto,
                 0x03 => SharpnessMode::Manual,
-                _ => return Err(ViscaError::UnexpectedResponseType),
+                _ => return Err(Error::UnexpectedResponseType),
             };
             Ok(Response::InquiryResponse(
                 ViscaInquiryResponse::SharpnessMode { mode },
@@ -411,7 +411,7 @@ fn parse_simple_value(
                 0x00 => AntiFlickerMode::Off,
                 0x01 => AntiFlickerMode::Hz50,
                 0x02 => AntiFlickerMode::Hz60,
-                _ => return Err(ViscaError::UnexpectedResponseType),
+                _ => return Err(Error::UnexpectedResponseType),
             };
             Ok(Response::InquiryResponse(
                 ViscaInquiryResponse::AntiFlicker { mode },
@@ -460,7 +460,7 @@ fn parse_simple_value(
                 0x00 => FocusZone::Top,
                 0x01 => FocusZone::Center,
                 0x02 => FocusZone::Bottom,
-                _ => return Err(ViscaError::UnexpectedResponseType),
+                _ => return Err(Error::UnexpectedResponseType),
             };
             Ok(Response::InquiryResponse(
                 ViscaInquiryResponse::FocusZone { zone },
@@ -471,7 +471,7 @@ fn parse_simple_value(
                 0x02 => AFSensitivity::High,
                 0x01 => AFSensitivity::Normal,
                 0x00 => AFSensitivity::Low,
-                _ => return Err(ViscaError::UnexpectedResponseType),
+                _ => return Err(Error::UnexpectedResponseType),
             };
             Ok(Response::InquiryResponse(
                 ViscaInquiryResponse::AFSensitivity { sensitivity },

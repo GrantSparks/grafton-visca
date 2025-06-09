@@ -30,7 +30,7 @@ fn parse_visca_response(
         }
         0x60..=0x6F => {
             if data.len() >= 3 {
-                Err(ViscaError::from_code(data[2]))
+                Err(Error::from_code(data[2]))
             } else {
                 Err(Error::InvalidResponseFormat)
             }
@@ -50,12 +50,12 @@ pub struct PendingCommand {
 
 /// Manages the state of VISCA commands and their responses
 #[derive(Debug)]
-pub struct ViscaSession {
+pub struct Session {
     /// Maps socket IDs to pending commands
     pending_commands: HashMap<SocketId, PendingCommand>,
 }
 
-impl ViscaSession {
+impl Session {
     /// Creates a new VISCA session with no pending commands.
     #[must_use]
     pub fn new() -> Self {
@@ -65,13 +65,13 @@ impl ViscaSession {
     }
 }
 
-impl Default for ViscaSession {
+impl Default for Session {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ViscaSession {
+impl Session {
     /// Assigns a socket to a new command.
     ///
     /// Returns the socket ID if successful.
