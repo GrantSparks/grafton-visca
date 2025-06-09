@@ -141,7 +141,7 @@ mod zoom_tests {
     fn test_zoom_in_standard_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.zoom_in_variable(None).unwrap();
+        device.zoom_in_speed(None).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]); // Tele standard
@@ -152,7 +152,7 @@ mod zoom_tests {
         let mut device = MockDevice::with_completion();
 
         device
-            .zoom_in_variable(Some(ZoomSpeed::new(5).unwrap()))
+            .zoom_in_speed(Some(ZoomSpeed::new(5).unwrap()))
             .unwrap();
 
         let cmd = device.last_command();
@@ -163,7 +163,7 @@ mod zoom_tests {
     fn test_zoom_out_standard_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.zoom_out_variable(None).unwrap();
+        device.zoom_out_speed(None).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]); // Wide standard

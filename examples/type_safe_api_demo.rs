@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.move_to_position(0, 0, Some((pan_speed, tilt_speed)))?;
     println!("   ✓ Moved to home position with validated speeds");
 
-    ZoomExt::zoom_in_variable(&mut client, Some(zoom_speed))?;
+    ZoomExt::zoom_in_speed(&mut client, Some(zoom_speed))?;
     println!("   ✓ Started zooming in with validated speed");
 
     client.focus_far(Some(focus_speed))?;
