@@ -14,7 +14,7 @@ use grafton_visca::{
         power::{Power, PowerCommand},
         InquiryCommand,
     },
-    Error, Response, Transport, ViscaInquiryResponse,
+    Error, Response, Transport, InquiryResponse,
 };
 
 #[test]
@@ -60,7 +60,7 @@ fn test_inquiry_direct_response() {
 
     assert!(result.is_ok());
     match result.unwrap() {
-        Response::InquiryResponse(ViscaInquiryResponse::Power { on }) => {
+        Response::InquiryResponse(InquiryResponse::Power { on }) => {
             assert!(on);
         }
         _ => panic!("Expected Power inquiry response"),
@@ -83,7 +83,7 @@ fn test_pan_tilt_position_inquiry() {
 
     assert!(result.is_ok());
     match result.unwrap() {
-        Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
+        Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
             assert_eq!(pan, 0x1234);
             assert_eq!(tilt, 0x5678);
         }
@@ -179,14 +179,14 @@ fn test_inquiry_response_queueing() {
     let mut device = MockDevice::new();
 
     // Queue multiple inquiry responses
-    device.queue_inquiry_response(ViscaInquiryResponse::Power { on: true });
-    device.queue_inquiry_response(ViscaInquiryResponse::ZoomPosition { position: 0x1234 });
+    device.queue_inquiry_response(InquiryResponse::Power { on: true });
+    device.queue_inquiry_response(InquiryResponse::ZoomPosition { position: 0x1234 });
 
     // Execute inquiries and verify responses
     let power_response = device.execute_command(&InquiryCommand::Power).unwrap();
     assert!(matches!(
         power_response,
-        Response::InquiryResponse(ViscaInquiryResponse::Power { on: true })
+        Response::InquiryResponse(InquiryResponse::Power { on: true })
     ));
 
     let zoom_response = device
@@ -194,6 +194,6 @@ fn test_inquiry_response_queueing() {
         .unwrap();
     assert!(matches!(
         zoom_response,
-        Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position: 0x1234 })
+        Response::InquiryResponse(InquiryResponse::ZoomPosition { position: 0x1234 })
     ));
 }

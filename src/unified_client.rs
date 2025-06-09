@@ -13,7 +13,7 @@ use crate::{
     ptz_builder::PtzBuilder,
     session::Session,
     sync_primitives::{Mutex, Semaphore, SemaphoreExt},
-    ViscaCommand,
+    Command,
 };
 
 // Feature-gated imports - Blocking client
@@ -151,7 +151,7 @@ impl Client {
     /// Returns `ViscaError` if the command fails to send, the camera returns an error,
     /// or if runtime creation fails in async contexts.
     #[cfg(feature = "blocking-client")]
-    pub fn send(&self, command: &dyn ViscaCommand) -> Result<Response, Error> {
+    pub fn send(&self, command: &dyn Command) -> Result<Response, Error> {
         #[cfg(feature = "async-client")]
         {
             // Clone self to move into the async block
@@ -182,7 +182,7 @@ impl Client {
     }
 
     #[cfg(not(feature = "async-client"))]
-    fn send_blocking(&self, command: &dyn ViscaCommand) -> Result<Response, Error> {
+    fn send_blocking(&self, command: &dyn Command) -> Result<Response, Error> {
         let _permit = self.semaphore.acquire_permit();
 
         // Acquire session lock and assign socket
@@ -302,7 +302,7 @@ impl Client {
     /// Returns `ViscaError` if the command fails to send, the camera returns an error,
     /// semaphore acquisition fails, or socket assignment fails.
     #[cfg(feature = "async-client")]
-    pub async fn send_async(&self, command: &dyn ViscaCommand) -> Result<Response, Error> {
+    pub async fn send_async(&self, command: &dyn Command) -> Result<Response, Error> {
         let _permit = self.semaphore.acquire_permit().await?;
 
         // Acquire session lock and assign socket
@@ -453,7 +453,7 @@ impl Client {
     /// Returns any errors from command execution including transport errors, timeouts,
     /// and camera-specific errors.
     #[cfg(feature = "blocking-client")]
-    pub fn try_send(&self, command: &dyn ViscaCommand) -> Result<Response, Error> {
+    pub fn try_send(&self, command: &dyn Command) -> Result<Response, Error> {
         // The unified client already handles concurrency internally
         // For now, we delegate to the standard send method
         // A future implementation could add try_acquire to the semaphore
@@ -484,7 +484,7 @@ impl Client {
     #[cfg(feature = "blocking-client")]
     pub fn send_with_timeout(
         &self,
-        command: &dyn ViscaCommand,
+        command: &dyn Command,
         _timeout: std::time::Duration,
     ) -> Result<Response, Error> {
         // For now, we use the standard send method
@@ -494,7 +494,7 @@ impl Client {
 }
 
 /// Extension trait for PTZ builder functionality on `Arc<Client>`.
-pub trait ViscaClientPtzExt {
+pub trait ClientPtzExt {
     /// Create a PTZ builder for fluent command sequences.
     ///
     /// Returns a builder that allows chaining multiple PTZ commands together
@@ -503,7 +503,7 @@ pub trait ViscaClientPtzExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")] {
-    /// # use grafton_visca::{Client, ViscaClientPtzExt};
+    /// # use grafton_visca::{Client, ClientPtzExt};
     /// # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed, PanTiltDirection};
     /// # use std::sync::Arc;
     /// # let client = Arc::new(Client::connect_udp("192.168.1.100:5678").unwrap());
@@ -520,7 +520,7 @@ pub trait ViscaClientPtzExt {
     fn ptz(self) -> PtzBuilder;
 }
 
-impl ViscaClientPtzExt for Arc<Client> {
+impl ClientPtzExt for Arc<Client> {
     fn ptz(self) -> PtzBuilder {
         PtzBuilder::new(self)
     }
@@ -529,7 +529,7 @@ impl ViscaClientPtzExt for Arc<Client> {
 // Implement Transport to support extension traits
 #[cfg(feature = "blocking-client")]
 impl crate::Transport for Client {
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<Response, Error> {
+    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         self.send(command)
     }
 }

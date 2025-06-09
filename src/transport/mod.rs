@@ -10,7 +10,7 @@ use std::{future::Future, pin::Pin};
 // (none)
 
 // Workspace / local-crate imports
-use crate::{error::Error as ViscaError, ViscaCommand};
+use crate::{error::Error as ViscaError, Command};
 
 // Submodules
 pub mod common;
@@ -39,7 +39,7 @@ pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaErr
 /// while supporting blocking operations through adapters.
 pub trait Transport: Send + Sync {
     /// Send a VISCA command to the camera asynchronously.
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()>;
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()>;
 
     /// Receive response frames from the camera asynchronously.
     ///
@@ -55,7 +55,7 @@ pub trait Transport: Send + Sync {
 #[cfg(feature = "blocking-client")]
 pub trait BlockingTransport {
     /// Send a VISCA command to the camera synchronously.
-    fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError>;
 
     /// Receive response frames from the camera synchronously.
     fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
@@ -71,7 +71,7 @@ pub struct BlockingAdapter<T: BlockingTransport>(pub T);
 
 #[cfg(feature = "blocking-client")]
 impl<T: BlockingTransport + Send + Sync> Transport for BlockingAdapter<T> {
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
         Box::pin(async move { self.0.send_command_blocking(command) })
     }
 
@@ -87,7 +87,7 @@ mod tests {
     struct MockBlockingTransport;
 
     impl BlockingTransport for MockBlockingTransport {
-        fn send_command_blocking(&mut self, _command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+        fn send_command_blocking(&mut self, _command: &dyn Command) -> Result<(), ViscaError> {
             Ok(())
         }
 
@@ -100,12 +100,12 @@ mod tests {
     async fn test_blocking_adapter() -> Result<(), ViscaError> {
         struct DummyCommand;
 
-        impl ViscaCommand for DummyCommand {
+        impl Command for DummyCommand {
             fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
                 Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
             }
 
-            fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
+            fn response_type(&self) -> Option<crate::command::ResponseType> {
                 None
             }
 

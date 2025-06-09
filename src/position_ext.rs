@@ -10,12 +10,12 @@ use crate::{
         CameraModel, DegreePosition, NormalizedPosition, PositionConversion, ViscaPosition,
     },
     error::Error,
-    pan_tilt_ext::ViscaPanTiltExt,
-    Response,
+    pan_tilt_ext::PanTiltExt,
+    Response, Transport,
 };
 
 /// Extension trait providing position control with different coordinate systems.
-pub trait ViscaPositionExt: ViscaPanTiltExt {
+pub trait PositionExt: PanTiltExt {
     /// Move to position specified in degrees.
     ///
     /// # Arguments
@@ -30,7 +30,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{Error, Client, ViscaPositionExt, PanSpeed, TiltSpeed};
+    /// # use grafton_visca::{Error, Client, PositionExt, PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::Error> {
     /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
@@ -72,7 +72,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{Error, Client, ViscaPositionExt, PanSpeed, TiltSpeed};
+    /// # use grafton_visca::{Error, Client, PositionExt, PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::Error> {
     /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
@@ -112,7 +112,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{Error, Client, ViscaPositionExt};
+    /// # use grafton_visca::{Error, Client, PositionExt};
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::Error> {
     /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
@@ -127,7 +127,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     {
         let response = self.execute_command(&InquiryCommand::PanTiltPosition)?;
         match response {
-            Response::InquiryResponse(crate::ViscaInquiryResponse::PanTiltPosition {
+            Response::InquiryResponse(crate::InquiryResponse::PanTiltPosition {
                 pan,
                 tilt,
             }) => {
@@ -150,7 +150,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{Error, Client, ViscaPositionExt};
+    /// # use grafton_visca::{Error, Client, PositionExt};
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::Error> {
     /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
@@ -165,7 +165,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     {
         let response = self.execute_command(&InquiryCommand::PanTiltPosition)?;
         match response {
-            Response::InquiryResponse(crate::ViscaInquiryResponse::PanTiltPosition {
+            Response::InquiryResponse(crate::InquiryResponse::PanTiltPosition {
                 pan,
                 tilt,
             }) => {
@@ -191,7 +191,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{Error, Client, ViscaPositionExt, PanSpeed, TiltSpeed};
+    /// # use grafton_visca::{Error, Client, PositionExt, PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
     /// # use grafton_visca::constants::CameraModel;
     /// # #[cfg(feature = "blocking-client")]
@@ -238,7 +238,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{Error, Client, ViscaPositionExt};
+    /// # use grafton_visca::{Error, Client, PositionExt};
     /// # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed};
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::Error> {
@@ -280,7 +280,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # use grafton_visca::{Error, Client, ViscaPositionExt};
+    /// # use grafton_visca::{Error, Client, PositionExt};
     /// # #[cfg(feature = "blocking-client")]
     /// # fn example() -> Result<(), grafton_visca::Error> {
     /// # let mut client = Client::connect_udp("192.168.1.100:5678")?;
@@ -304,5 +304,5 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     }
 }
 
-/// Implement the trait for all types that implement `ViscaPanTiltExt`
-impl<T: ViscaPanTiltExt> ViscaPositionExt for T {}
+/// Implement the trait for all types that implement `PanTiltExt`
+impl<T: Transport> PositionExt for T {}

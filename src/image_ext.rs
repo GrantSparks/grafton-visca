@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Extension trait providing high-level image settings control methods.
-pub trait ViscaImageExt: Transport {
+pub trait ImageExt: Transport {
     /// Enable or disable black and white mode.
     ///
     /// # Arguments
@@ -23,7 +23,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Enable black and white mode
     /// client.set_black_white_mode(true)?;
@@ -54,7 +54,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Turn off 2D noise reduction
     /// client.set_noise_reduction_2d(None)?;
@@ -92,7 +92,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Turn off 3D noise reduction
     /// client.set_noise_reduction_3d(None)?;
@@ -127,7 +127,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // No flip
     /// client.set_image_flip(false, false)?;
@@ -170,7 +170,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum sharpness (softest)
     /// client.set_sharpness(0)?;
@@ -205,7 +205,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.sharpness_up()?;
     /// # Ok(())
@@ -228,7 +228,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.sharpness_down()?;
     /// # Ok(())
@@ -251,7 +251,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.sharpness_reset()?;
     /// # Ok(())
@@ -278,7 +278,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum saturation (monochrome)
     /// client.set_saturation(0)?;
@@ -317,7 +317,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Shift hue towards red
     /// client.set_hue(4)?;
@@ -356,7 +356,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum contrast
     /// client.set_contrast(0)?;
@@ -401,7 +401,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt};
+    /// # use grafton_visca::{Error, Transport, ImageExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set minimum luminance
     /// client.set_luminance(0)?;
@@ -443,7 +443,7 @@ pub trait ViscaImageExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaImageExt, ImagePreset};
+    /// # use grafton_visca::{Error, Transport, ImageExt, ImagePreset};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Apply vivid preset
     /// client.apply_image_preset(ImagePreset::Vivid)?;
@@ -507,5 +507,5 @@ pub enum ImagePreset {
     Soft,
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: Transport> ViscaImageExt for T {}
+/// Implement the trait for all types that implement `Transport`
+impl<T: Transport> ImageExt for T {}

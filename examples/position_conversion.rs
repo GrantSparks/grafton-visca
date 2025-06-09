@@ -12,7 +12,7 @@ use grafton_visca::{
     constants::{
         self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
     },
-    Client, ViscaInquiryExt, ViscaPanTiltExt,
+    Client, InquiryExt, PanTiltExt,
 };
 #[cfg(feature = "blocking-client")]
 use log::{error, info};
@@ -140,7 +140,7 @@ fn move_to_degrees_position(client: &mut Client, model: CameraModel) {
         constants::validate_pan_position(target_visca.pan, model),
         constants::validate_tilt_position(target_visca.tilt, model),
     ) {
-        match ViscaPanTiltExt::move_to_position(
+        match PanTiltExt::move_to_position(
             client,
             target_visca.pan,
             target_visca.tilt,

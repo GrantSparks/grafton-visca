@@ -5,8 +5,8 @@
 
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    Client, Error, ImagePreset, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt, ViscaPositionExt,
-    ViscaPowerExt, ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset,
+    Client, Error, ImagePreset, ExposureExt, ImageExt, PanTiltExt, PositionExt,
+    PowerExt, WhiteBalanceExt, ZoomExt, WhiteBalancePreset,
 };
 use std::thread;
 use std::time::Duration;
@@ -31,7 +31,7 @@ fn main() -> Result<(), Error> {
 
     // Exposure control
     println!("\n--- Exposure Control ---");
-    ViscaExposureExt::set_iris(&mut client, 0x0C)?;
+    ExposureExt::set_iris(&mut client, 0x0C)?;
     println!("Set iris to F5.6");
 
     client.set_shutter(0x10)?;
@@ -49,16 +49,16 @@ fn main() -> Result<(), Error> {
 
     // Zoom control
     println!("\n--- Zoom Control ---");
-    ViscaZoomExt::zoom_to_magnification(&mut client, 2.0)?;
+    ZoomExt::zoom_to_magnification(&mut client, 2.0)?;
     println!("Set zoom to 2x");
     thread::sleep(Duration::from_secs(2));
 
-    let mag = ViscaZoomExt::get_zoom_magnification(&mut client)?;
+    let mag = ZoomExt::get_zoom_magnification(&mut client)?;
     println!("Current zoom: {mag:.1}x");
 
     // Position control
     println!("\n--- Position Control ---");
-    ViscaPositionExt::move_to_degrees(
+    PositionExt::move_to_degrees(
         &mut client,
         30.0,
         10.0,
@@ -67,7 +67,7 @@ fn main() -> Result<(), Error> {
     println!("Moved to 30° pan, 10° tilt");
     thread::sleep(Duration::from_secs(2));
 
-    let pos = ViscaPositionExt::get_position_degrees(&mut client)?;
+    let pos = PositionExt::get_position_degrees(&mut client)?;
     println!(
         "Current position: Pan={:.1}°, Tilt={:.1}°",
         pos.pan, pos.tilt
@@ -75,8 +75,8 @@ fn main() -> Result<(), Error> {
 
     // Return to defaults
     println!("\n--- Returning to Defaults ---");
-    ViscaPanTiltExt::move_to_position(&mut client, 0, 0, None)?;
-    ViscaZoomExt::zoom_to_magnification(&mut client, 1.0)?;
+    PanTiltExt::move_to_position(&mut client, 0, 0, None)?;
+    ZoomExt::zoom_to_magnification(&mut client, 1.0)?;
     println!("Returned to home position");
 
     println!("\n=== Demo Complete ===");

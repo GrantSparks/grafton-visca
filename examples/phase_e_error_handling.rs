@@ -1,7 +1,7 @@
 //! # Phase E: Enhanced Error Handling Demo
 //!
 //! This example demonstrates the enhanced error handling capabilities implemented in Phase E,
-//! including the `ViscaResultExt` trait and `ViscaRetry` utility for robust camera communication.
+//! including the `ResultExt` trait and `ViscaRetry` utility for robust camera communication.
 
 use grafton_visca::Error;
 use std::time::Duration;
@@ -10,7 +10,7 @@ use std::time::Duration;
 use grafton_visca::ViscaRetry;
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{Client, ViscaResultExt};
+use grafton_visca::{Client, ResultExt};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::command::{PanTiltCommand, ZoomCommand};
@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn blocking_error_handling_examples() {
     use std::cell::Cell;
 
-    println!("1. Basic Error Context with ViscaResultExt");
+    println!("1. Basic Error Context with ResultExt");
     println!("   Using with_retry_context() to add logging to retryable errors");
 
     // Simulate a result that would benefit from retry context

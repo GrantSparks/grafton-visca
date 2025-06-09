@@ -10,13 +10,15 @@
 
 // Core types
 pub use crate::{
-    command::response::Response, error::Error, session::Session, Transport, ViscaCommand,
-    ViscaInquiryResponse, ViscaResponseType,
+    command::{response::Response, Command, InquiryResponse, ResponseType},
+    error::Error,
+    session::Session,
+    Transport,
 };
 
 // Client types (feature-gated)
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::{unified_client::Client, ViscaClientPtzExt};
+pub use crate::{unified_client::Client, ClientPtzExt};
 
 // Parameter types
 pub use crate::{
@@ -27,9 +29,9 @@ pub use crate::{
 
 // Extension traits
 pub use crate::{
-    ViscaExposureExt, ViscaFocusExt, ViscaImageExt, ViscaInquiryExt, ViscaPanTiltExt,
-    ViscaPositionExt, ViscaPowerExt, ViscaPresetExt, ViscaTransportExt, ViscaWhiteBalanceExt,
-    ViscaZoomExt,
+    ExposureExt, FocusExt, ImageExt, InquiryExt, PanTiltExt,
+    PositionExt, PowerExt, PresetExt, TransportExt, WhiteBalanceExt,
+    ZoomExt,
 };
 
 // Common commands and enums - only those that are frequently used directly
@@ -46,4 +48,4 @@ pub use crate::command::{
 
 // Async extensions (feature-gated)
 #[cfg(feature = "async-client")]
-pub use crate::AsyncViscaExt;
+pub use crate::AsyncExt;

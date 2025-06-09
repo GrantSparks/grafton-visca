@@ -6,7 +6,7 @@ use std::{io, time::Duration};
 
 // Crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{error::Error as ViscaError, ConnectionStats, ViscaCommand};
+use crate::{error::Error as ViscaError, ConnectionStats, Command};
 
 #[cfg(feature = "blocking-client")]
 use std::{
@@ -87,7 +87,7 @@ impl BlockingTransport for TcpTransport {
     /// # Errors
     /// Returns `ViscaError` if the command serialization fails or if there's
     /// an I/O error writing to the TCP socket.
-    fn send_command_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
         let bytes = command.to_bytes()?;
         log::debug!("Sending command: {bytes:02X?}");
 
@@ -210,7 +210,7 @@ impl Transport for AsyncTcpTransport {
     /// # Errors
     /// Returns `ViscaError` if the command serialization fails or if there's
     /// an I/O error writing to the TCP socket.
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
             log::debug!("Sending command: {bytes:02X?}");

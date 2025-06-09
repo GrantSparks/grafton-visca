@@ -34,7 +34,7 @@ use crate::{
 /// ```no_run
 /// # #[cfg(feature = "blocking-client")]
 /// # fn example() -> Result<(), grafton_visca::Error> {
-/// # use grafton_visca::{Client, ViscaTransportExt, Error};
+/// # use grafton_visca::{Client, TransportExt, Error};
 /// # use grafton_visca::command::exposure::ExposureMode;
 /// let mut client = Client::connect_udp("192.168.1.100:5678")?;
 ///
@@ -45,7 +45,7 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
-pub trait ViscaTransportExt: Transport {
+pub trait TransportExt: Transport {
     /// Moves the camera to the home position.
     ///
     /// # Errors
@@ -290,4 +290,4 @@ pub trait ViscaTransportExt: Transport {
 }
 
 // Blanket implementation for all types that implement Transport
-impl<T: Transport> ViscaTransportExt for T {}
+impl<T: Transport> TransportExt for T {}

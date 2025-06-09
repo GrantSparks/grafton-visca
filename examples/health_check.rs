@@ -7,7 +7,7 @@ fn main() {
 /*
 use grafton_visca::command::power::Power;
 use grafton_visca::command::{PanTiltCommand, PowerCommand};
-use grafton_visca::{ConnectionManagement, TcpTransport, UdpTransport, ViscaTransport};
+use grafton_visca::{ConnectionManagement, TcpTransport, UdpTransport, Transport};
 use std::thread;
 use std::time::Duration;
 

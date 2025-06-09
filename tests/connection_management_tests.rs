@@ -187,7 +187,7 @@ mod tests {
 mod sync_health_tests {
     use grafton_visca::command::power::{Power, PowerCommand};
     use grafton_visca::connection::ConnectionStats;
-    use grafton_visca::{transport::BlockingTransport, Error, ViscaCommand};
+    use grafton_visca::{transport::BlockingTransport, Command, Error};
 
     struct MockTransport {
         stats: ConnectionStats,
@@ -208,7 +208,7 @@ mod sync_health_tests {
     }
 
     impl BlockingTransport for MockTransport {
-        fn send_command_blocking(&mut self, _command: &dyn ViscaCommand) -> Result<(), Error> {
+        fn send_command_blocking(&mut self, _command: &dyn Command) -> Result<(), Error> {
             if self.fail_send {
                 Err(Error::Io(std::io::Error::other("Mock send error")))
             } else {
@@ -271,7 +271,7 @@ mod async_health_tests {
     use grafton_visca::command::power::{Power, PowerCommand};
     use grafton_visca::connection::ConnectionStats;
     use grafton_visca::transport::{Transport, TransportFuture};
-    use grafton_visca::{Error, ViscaCommand};
+    use grafton_visca::{Command, Error};
 
     struct MockAsyncTransport {
         stats: ConnectionStats,
@@ -294,7 +294,7 @@ mod async_health_tests {
     impl Transport for MockAsyncTransport {
         fn send_command<'a>(
             &'a mut self,
-            _command: &'a dyn ViscaCommand,
+            _command: &'a dyn Command,
         ) -> TransportFuture<'a, ()> {
             Box::pin(async move {
                 if self.fail_send {

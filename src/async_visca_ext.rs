@@ -1,11 +1,11 @@
 //! Async extension trait providing high-level camera operations.
 //!
-//! This module provides the `AsyncViscaExt` trait which adds ergonomic
+//! This module provides the `AsyncExt` trait which adds ergonomic
 //! high-level methods to the `Client` for common camera operations.
 //!
 //! # Example
 //! ```no_run
-//! # use grafton_visca::{Client, AsyncViscaExt};
+//! # use grafton_visca::{Client, AsyncExt};
 //! # use std::sync::Arc;
 //! # use std::time::Duration;
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,7 +34,7 @@ use crate::{
         zoom::{ZoomCommand, ZoomSpeed},
     },
     error::Error,
-    unified_client::{Client, ViscaClientPtzExt},
+    unified_client::{Client, ClientPtzExt},
 };
 
 /// Async extension trait for high-level camera operations.
@@ -43,7 +43,7 @@ use crate::{
 /// that typically involve multiple VISCA commands.
 #[cfg(feature = "async-client")]
 #[allow(clippy::manual_async_fn)] // Required to avoid async_fn_in_trait warning
-pub trait AsyncViscaExt {
+pub trait AsyncExt {
     /// Set up a shot with relative pan/tilt position and zoom level.
     ///
     /// This is a high-level operation that combines pan/tilt movement and zoom
@@ -144,7 +144,7 @@ pub enum PanScanDirection {
 
 #[cfg(feature = "async-client")]
 #[allow(clippy::manual_async_fn)] // Required to avoid async_fn_in_trait warning
-impl AsyncViscaExt for Arc<Client> {
+impl AsyncExt for Arc<Client> {
     fn setup_shot(
         &self,
         pan_percent: f32,

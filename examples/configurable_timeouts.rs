@@ -13,7 +13,7 @@ use grafton_visca::{
         preset::{PresetAction, PresetCommand, PresetNumber},
         InquiryCommand,
     },
-    TimeoutConfigBuilder, Client, ViscaCommand,
+    TimeoutConfigBuilder, Client, Command,
 };
 use std::error::Error;
 use std::time::Duration;
@@ -158,7 +158,7 @@ mod tests {
             InquiryCommand,
         },
         timeout::CommandCategory,
-        TimeoutConfigBuilder, ViscaCommand,
+        TimeoutConfigBuilder, Command,
     };
     use std::time::Duration;
 

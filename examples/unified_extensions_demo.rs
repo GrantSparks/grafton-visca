@@ -4,7 +4,7 @@
 //! sync and async contexts without code duplication.
 
 use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
-use grafton_visca::{CameraExt, Client, Error, ViscaPowerExt};
+use grafton_visca::{CameraExt, Client, Error, PowerExt};
 
 #[cfg(feature = "async-client")]
 use grafton_visca::AsyncCameraExt;

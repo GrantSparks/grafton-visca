@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Extension trait providing high-level focus control methods.
-pub trait ViscaFocusExt: Transport {
+pub trait FocusExt: Transport {
     /// Enable or disable auto-focus mode.
     ///
     /// # Arguments
@@ -19,7 +19,7 @@ pub trait ViscaFocusExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaFocusExt};
+    /// # use grafton_visca::{Error, Transport, FocusExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Enable auto-focus
     /// client.set_auto_focus(true)?;
@@ -53,7 +53,7 @@ pub trait ViscaFocusExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaFocusExt};
+    /// # use grafton_visca::{Error, Transport, FocusExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Focus to near position
     /// client.focus_to(0x1000)?;
@@ -86,7 +86,7 @@ pub trait ViscaFocusExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaFocusExt, FocusSpeed};
+    /// # use grafton_visca::{Error, Transport, FocusExt, FocusSpeed};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Focus near at standard speed
     /// client.focus_near(None)?;
@@ -116,7 +116,7 @@ pub trait ViscaFocusExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaFocusExt, FocusSpeed};
+    /// # use grafton_visca::{Error, Transport, FocusExt, FocusSpeed};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Focus far at standard speed
     /// client.focus_far(None)?;
@@ -143,7 +143,7 @@ pub trait ViscaFocusExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaFocusExt};
+    /// # use grafton_visca::{Error, Transport, FocusExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Start focusing near
     /// client.focus_near(None)?;
@@ -174,7 +174,7 @@ pub trait ViscaFocusExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaFocusExt};
+    /// # use grafton_visca::{Error, Transport, FocusExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set manual focus mode
     /// client.set_auto_focus(false)?;
@@ -195,5 +195,5 @@ pub trait ViscaFocusExt: Transport {
     }
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: Transport> ViscaFocusExt for T {}
+/// Implement the trait for all types that implement `Transport`
+impl<T: Transport> FocusExt for T {}

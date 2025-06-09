@@ -29,7 +29,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{ViscaCommand, ViscaResponseType},
+    command::{Command, ResponseType},
     error::Error as ViscaError,
     timeout::CommandCategory,
 };
@@ -70,7 +70,7 @@ pub enum ZoomCommand {
     Direct(u16),
 }
 
-impl ViscaCommand for ZoomCommand {
+impl Command for ZoomCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
         match self {
             // Stop command
@@ -103,10 +103,10 @@ impl ViscaCommand for ZoomCommand {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::TeleStandard => Some(ViscaResponseType::ZoomTeleStandard),
-            Self::WideStandard => Some(ViscaResponseType::ZoomWideStandard),
+            Self::TeleStandard => Some(ResponseType::ZoomTeleStandard),
+            Self::WideStandard => Some(ResponseType::ZoomWideStandard),
             _ => None,
         }
     }
@@ -187,7 +187,7 @@ mod tests {
         );
         assert_eq!(
             cmd.response_type(),
-            Some(ViscaResponseType::ZoomTeleStandard)
+            Some(ResponseType::ZoomTeleStandard)
         );
     }
 
@@ -200,7 +200,7 @@ mod tests {
         );
         assert_eq!(
             cmd.response_type(),
-            Some(ViscaResponseType::ZoomWideStandard)
+            Some(ResponseType::ZoomWideStandard)
         );
     }
 

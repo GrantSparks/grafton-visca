@@ -1,6 +1,6 @@
 //! Demonstrates white balance fine-tuning commands.
 
-use grafton_visca::{Client, ViscaWhiteBalanceExt};
+use grafton_visca::{Client, WhiteBalanceExt};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging

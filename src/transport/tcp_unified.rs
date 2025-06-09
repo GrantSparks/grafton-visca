@@ -12,7 +12,7 @@ use std::io;
 use super::common::{log_frame, parse_frame_type, FrameType};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{error::Error as ViscaError, ViscaCommand};
+use crate::{error::Error as ViscaError, Command};
 
 #[cfg(feature = "blocking-client")]
 use std::net::TcpStream;
@@ -96,7 +96,7 @@ impl UnifiedTcpTransport<TcpStream> {
     ///
     /// # Errors
     /// Returns `ViscaError` if the command encoding or TCP write fails.
-    pub fn send_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+    pub fn send_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
         use std::io::Write;
 
         let bytes = command.to_bytes()?;
@@ -218,7 +218,7 @@ impl UnifiedTcpTransport<TokioTcpStream> {
     /// - The command encoding fails
     /// - The TCP write operation fails
     /// - The flush operation fails
-    pub async fn send_async(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+    pub async fn send_async(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
         use tokio::io::AsyncWriteExt;
 
         let bytes = command.to_bytes()?;
@@ -315,7 +315,7 @@ impl UnifiedTcpTransport<TokioTcpStream> {
 // Implement the unified transport trait for blocking
 #[cfg(feature = "blocking-client")]
 impl super::unified::BlockingTransport for UnifiedTcpTransport<TcpStream> {
-    fn send_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError> {
+    fn send_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
         self.send_blocking(command)
     }
 
@@ -333,7 +333,7 @@ impl super::unified::UnifiedTransport for UnifiedTcpTransport<TokioTcpStream> {
         Box<dyn std::future::Future<Output = Result<Vec<Vec<u8>>, ViscaError>> + Send + 'a>,
     >;
 
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> Self::SendFuture<'a> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> Self::SendFuture<'a> {
         Box::pin(self.send_async(command))
     }
 

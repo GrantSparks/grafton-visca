@@ -28,7 +28,7 @@ use grafton_visca::{
         response::parse_visca_response,
         InquiryCommand,
     },
-    AsyncUdpTransport, TimeoutConfigBuilder, ViscaCommand, Error, ViscaResponse,
+    AsyncUdpTransport, TimeoutConfigBuilder, Command, Error, ViscaResponse,
 };
 #[cfg(feature = "async-client")]
 use std::error::Error;
@@ -180,7 +180,7 @@ async fn demonstrate_preset_command(
 #[cfg(feature = "async-client")]
 async fn send_and_wait_async(
     transport: &mut dyn AsyncViscaTransport,
-    command: &dyn ViscaCommand,
+    command: &dyn Command,
 ) -> Result<ViscaResponse, Error> {
     let response_type = command.response_type();
 

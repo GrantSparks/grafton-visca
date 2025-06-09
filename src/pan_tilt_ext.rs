@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Extension trait providing high-level pan/tilt control methods.
-pub trait ViscaPanTiltExt: Transport {
+pub trait PanTiltExt: Transport {
     /// Move camera to an absolute pan/tilt position.
     ///
     /// # Arguments
@@ -18,7 +18,7 @@ pub trait ViscaPanTiltExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPanTiltExt, PanSpeed, TiltSpeed};
+    /// # use grafton_visca::{Error, Transport, PanTiltExt, PanSpeed, TiltSpeed};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Move to center position at default speed
     /// client.move_to_position(0, 0, None)?;
@@ -73,7 +73,7 @@ pub trait ViscaPanTiltExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPanTiltExt, PanSpeed, TiltSpeed};
+    /// # use grafton_visca::{Error, Transport, PanTiltExt, PanSpeed, TiltSpeed};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Move 100 units right and 50 units up
     /// client.move_relative(100, 50, None)?;
@@ -133,7 +133,7 @@ pub trait ViscaPanTiltExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPanTiltExt, PanTiltDirection, PanSpeed, TiltSpeed};
+    /// # use grafton_visca::{Error, Transport, PanTiltExt, PanTiltDirection, PanSpeed, TiltSpeed};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Start moving up-right
     /// let pan_speed = PanSpeed::new(10)?;
@@ -173,7 +173,7 @@ pub trait ViscaPanTiltExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPanTiltExt};
+    /// # use grafton_visca::{Error, Transport, PanTiltExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.stop_movement()?;
     /// # Ok(())
@@ -202,7 +202,7 @@ pub trait ViscaPanTiltExt: Transport {
     ///
     /// # Example
     /// ```no_run
-    /// # use grafton_visca::{Error, Transport, ViscaPanTiltExt};
+    /// # use grafton_visca::{Error, Transport, PanTiltExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// client.go_home()?;
     /// # Ok(())
@@ -219,5 +219,5 @@ pub trait ViscaPanTiltExt: Transport {
     }
 }
 
-/// Implement the trait for all types that implement `ViscaTransportExt`
-impl<T: Transport> ViscaPanTiltExt for T {}
+/// Implement the trait for all types that implement `Transport`
+impl<T: Transport> PanTiltExt for T {}

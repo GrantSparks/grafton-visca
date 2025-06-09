@@ -36,7 +36,7 @@ use crate::{
     },
     error::Error,
     unified_client::Client,
-    Response, ViscaCommand,
+    Response, Command,
 };
 
 /// Builder for creating PTZ command sequences.
@@ -47,7 +47,7 @@ pub struct PtzBuilder {
     /// Reference to the client that will execute commands
     client: Arc<Client>,
     /// Commands to be executed
-    commands: Vec<Box<dyn ViscaCommand + Send + Sync>>,
+    commands: Vec<Box<dyn Command + Send + Sync>>,
 }
 
 impl PtzBuilder {
@@ -275,9 +275,9 @@ impl PtzBuilder {
 
     /// Add a custom command to the sequence.
     ///
-    /// This allows adding any command that implements `ViscaCommand` + Send + Sync.
+    /// This allows adding any command that implements `Command` + Send + Sync.
     #[must_use]
-    pub fn custom_command(mut self, command: Box<dyn ViscaCommand + Send + Sync>) -> Self {
+    pub fn custom_command(mut self, command: Box<dyn Command + Send + Sync>) -> Self {
         self.commands.push(command);
         self
     }

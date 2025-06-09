@@ -6,7 +6,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::{error::Error as ViscaError, ViscaCommand};
+use crate::{error::Error as ViscaError, Command};
 
 /// Type alias for boxed futures used in transport operations.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -27,7 +27,7 @@ pub trait UnifiedTransport: Send + Sync {
         Self: 'a;
 
     /// Send a VISCA command to the camera.
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> Self::SendFuture<'a>;
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> Self::SendFuture<'a>;
 
     /// Receive response frames from the camera.
     fn receive_response(&mut self) -> Self::ReceiveFuture<'_>;
@@ -63,7 +63,7 @@ pub trait BlockingTransport: Send + Sync {
     ///
     /// # Errors
     /// Returns `ViscaError` if the command cannot be sent to the camera.
-    fn send_blocking(&mut self, command: &dyn ViscaCommand) -> Result<(), ViscaError>;
+    fn send_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError>;
 
     /// Receive responses synchronously.
     ///
@@ -83,7 +83,7 @@ impl<T: BlockingTransport> UnifiedTransport for BlockingTransportAdapter<T> {
     where
         Self: 'a;
 
-    fn send_command<'a>(&'a mut self, command: &'a dyn ViscaCommand) -> Self::SendFuture<'a> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> Self::SendFuture<'a> {
         ready(self.inner.send_blocking(command))
     }
 
@@ -100,7 +100,7 @@ mod tests {
     struct MockBlockingTransport;
 
     impl BlockingTransport for MockBlockingTransport {
-        fn send_blocking(&mut self, _: &dyn ViscaCommand) -> Result<(), ViscaError> {
+        fn send_blocking(&mut self, _: &dyn Command) -> Result<(), ViscaError> {
             Ok(())
         }
 
@@ -122,12 +122,12 @@ mod tests {
 
         struct DummyCommand;
 
-        impl ViscaCommand for DummyCommand {
+        impl Command for DummyCommand {
             fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
                 Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
             }
 
-            fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
+            fn response_type(&self) -> Option<crate::command::ResponseType> {
                 None
             }
 

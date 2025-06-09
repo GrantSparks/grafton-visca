@@ -252,7 +252,7 @@ impl<'a, T> BoxFuture<'a, T> {
 ///
 /// This trait adds retry functionality to `Result<T, ViscaError>`, making it easy
 /// to handle transient errors that are common in camera communication.
-pub trait ViscaResultExt<T> {
+pub trait ResultExt<T> {
     /// Retry the operation if it fails with a retryable error.
     ///
     /// # Parameters
@@ -263,7 +263,7 @@ pub trait ViscaResultExt<T> {
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # {
-    /// use grafton_visca::{ViscaResultExt, ViscaError};
+    /// use grafton_visca::{ResultExt, ViscaError};
     /// use std::time::Duration;
     ///
     /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -292,7 +292,7 @@ pub trait ViscaResultExt<T> {
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # {
-    /// use grafton_visca::{ViscaResultExt, ViscaError};
+    /// use grafton_visca::{ResultExt, ViscaError};
     ///
     /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Retry up to 5 times using suggested delays
@@ -317,7 +317,7 @@ pub trait ViscaResultExt<T> {
     /// ```no_run
     /// # #[cfg(feature = "async-client")]
     /// # {
-    /// use grafton_visca::{ViscaResultExt, ViscaError};
+    /// use grafton_visca::{ResultExt, ViscaError};
     /// use std::time::Duration;
     ///
     /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -349,7 +349,7 @@ pub trait ViscaResultExt<T> {
     fn with_retry_context(self) -> Result<T>;
 }
 
-impl<T> ViscaResultExt<T> for Result<T>
+impl<T> ResultExt<T> for Result<T>
 where
     T: Send + 'static,
 {

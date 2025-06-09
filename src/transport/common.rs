@@ -150,21 +150,21 @@ fn format_frame_description(frame: &[u8]) -> String {
 
 /// Health check utilities for transports.
 pub mod health_check {
-    use crate::command::ViscaCommand;
+    use crate::command::Command;
     use crate::error::Error as ViscaError;
 
     /// A simple health check command that queries camera power status.
     #[derive(Debug, Clone, Copy)]
     pub struct HealthCheckCommand;
 
-    impl ViscaCommand for HealthCheckCommand {
+    impl Command for HealthCheckCommand {
         fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
             // Power inquiry command
             Ok(vec![0x81, 0x09, 0x04, 0x00, 0xFF])
         }
 
-        fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
-            Some(crate::command::ViscaResponseType::Power)
+        fn response_type(&self) -> Option<crate::command::ResponseType> {
+            Some(crate::command::ResponseType::Power)
         }
 
         fn command_category(&self) -> crate::timeout::CommandCategory {
@@ -174,7 +174,7 @@ pub mod health_check {
 
     /// Create a power inquiry command for health checks.
     #[must_use]
-    pub fn create_health_check_command() -> impl ViscaCommand {
+    pub fn create_health_check_command() -> impl Command {
         HealthCheckCommand
     }
 
