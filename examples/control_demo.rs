@@ -63,7 +63,7 @@ fn main() -> Result<(), Error> {
 
     // Zoom Control Examples
     println!("\n2. Zoom Control");
-    println!("   - Zooming to wide angle (0x0000)...");
+    println!("   - Zooming to minimum (0x0000)...");
     client.zoom_to(0x0000)?;
     thread::sleep(Duration::from_secs(2));
 

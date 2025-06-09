@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Command 1 (Preset Set): {:?}", res1);
     println!("Command 2 (Focus Near): {:?}", res2);
-    println!("Command 3 (Zoom Wide): {:?}", res3);
+    println!("Command 3 (Zoom Out): {:?}", res3);
     println!("All commands completed in {:?}", start.elapsed());
 
     // Example 3: Query camera status concurrently

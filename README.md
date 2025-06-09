@@ -106,7 +106,7 @@ match result {
   - Limit set/clear
 - ✅ **Zoom**
   - Stop
-  - Tele/Wide (standard and variable speed)
+  - Zoom In/Out (standard and variable speed)
   - Direct position control
 - ✅ **Focus**
   - Stop

@@ -54,7 +54,7 @@ pub mod position {
 
 /// Zoom position constants
 pub mod zoom {
-    /// Minimum zoom position (wide)
+    /// Minimum zoom position (zoom out)
     pub const ZOOM_MIN: u16 = 0x0000;
     /// Maximum zoom position for 12X optical zoom
     pub const ZOOM_MAX_12X: u16 = 0x4000;

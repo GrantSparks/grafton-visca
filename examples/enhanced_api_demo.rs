@@ -67,7 +67,7 @@ fn main() -> Result<(), Error> {
     // Demonstrate zoom control with magnification
     println!("\n--- Zoom Control ---");
     client.zoom_to_magnification(1.0)?;
-    println!("Set zoom to 1x (wide)");
+    println!("Set zoom to 1x (minimum zoom)");
     thread::sleep(Duration::from_secs(2));
 
     client.zoom_to_magnification(5.0)?;

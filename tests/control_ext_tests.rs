@@ -144,7 +144,7 @@ mod zoom_tests {
         device.zoom_in_speed(None).unwrap();
 
         let cmd = device.last_command();
-        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]); // Tele standard
+        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]); // Zoom in standard
     }
 
     #[test]
@@ -156,7 +156,7 @@ mod zoom_tests {
             .unwrap();
 
         let cmd = device.last_command();
-        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]); // Tele variable speed 5
+        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]); // Zoom in variable speed 5
     }
 
     #[test]
@@ -166,7 +166,7 @@ mod zoom_tests {
         device.zoom_out_speed(None).unwrap();
 
         let cmd = device.last_command();
-        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]); // Wide standard
+        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]); // Zoom out standard
     }
 
     #[test]
@@ -177,6 +177,26 @@ mod zoom_tests {
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]); // Zoom stop
+    }
+
+    #[test]
+    fn test_zoom_in() {
+        let mut device = MockDevice::with_completion();
+
+        device.zoom_in().unwrap();
+
+        let cmd = device.last_command();
+        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]); // Zoom in standard
+    }
+
+    #[test]
+    fn test_zoom_out() {
+        let mut device = MockDevice::with_completion();
+
+        device.zoom_out().unwrap();
+
+        let cmd = device.last_command();
+        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]); // Zoom out standard
     }
 }
 
