@@ -10,7 +10,7 @@ mod tests {
     use grafton_visca::transport::{
         BlockingAdapter, BlockingTransport, TcpTransport, Transport, UdpTransport,
     };
-    use grafton_visca::{ViscaCommand, Error};
+    use grafton_visca::{Error, ViscaCommand};
 
     // Mock command for testing
     #[allow(dead_code)]
@@ -47,10 +47,7 @@ mod tests {
         struct MockBlockingTransport;
 
         impl BlockingTransport for MockBlockingTransport {
-            fn send_command_blocking(
-                &mut self,
-                _command: &dyn ViscaCommand,
-            ) -> Result<(), Error> {
+            fn send_command_blocking(&mut self, _command: &dyn ViscaCommand) -> Result<(), Error> {
                 Ok(())
             }
 

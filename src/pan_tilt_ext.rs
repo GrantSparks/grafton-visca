@@ -4,7 +4,7 @@
 use crate::{
     command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
     error::Error as ViscaError,
-    Transport, Response,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level pan/tilt control methods.

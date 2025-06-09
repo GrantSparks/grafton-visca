@@ -4,14 +4,14 @@
 use crate::{
     command::preset::{PresetAction, PresetCommand, PresetNumber},
     error::Error as ViscaError,
-    Transport, Response,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level preset management methods.
 pub trait ViscaPresetExt: Transport {
     /// Set (save) the current camera position to a preset using a simple u8 preset number.
     ///
-    /// This is a convenience method that accepts a u8 instead of PresetNumber.
+    /// This is a convenience method that accepts a u8 instead of `PresetNumber`.
     ///
     /// # Arguments
     /// * `preset_id` - The preset number to save (typically 0-89)
@@ -36,7 +36,7 @@ pub trait ViscaPresetExt: Transport {
 
     /// Recall a saved preset position using a simple u8 preset number.
     ///
-    /// This is a convenience method that accepts a u8 instead of PresetNumber.
+    /// This is a convenience method that accepts a u8 instead of `PresetNumber`.
     ///
     /// # Arguments
     /// * `preset_id` - The preset number to recall (typically 0-89)
@@ -61,7 +61,7 @@ pub trait ViscaPresetExt: Transport {
 
     /// Reset a preset to its default state using a simple u8 preset number.
     ///
-    /// This is a convenience method that accepts a u8 instead of PresetNumber.
+    /// This is a convenience method that accepts a u8 instead of `PresetNumber`.
     ///
     /// # Arguments
     /// * `preset_id` - The preset number to reset (typically 0-89)

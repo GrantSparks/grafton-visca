@@ -3,7 +3,7 @@ mod tests {
     use grafton_visca::command::exposure::ExposureMode;
     use grafton_visca::command::white_balance::WhiteBalanceMode;
     use grafton_visca::{
-        ViscaCommand, Transport, Error, ViscaInquiryExt, ViscaInquiryResponse, Response,
+        Error, Response, Transport, ViscaCommand, ViscaInquiryExt, ViscaInquiryResponse,
     };
     use std::collections::VecDeque;
 
@@ -30,13 +30,8 @@ mod tests {
     }
 
     impl Transport for MockDevice {
-        fn execute_command(
-            &mut self,
-            _command: &dyn ViscaCommand,
-        ) -> Result<Response, Error> {
-            self.responses
-                .pop_front()
-                .unwrap_or(Err(Error::Timeout))
+        fn execute_command(&mut self, _command: &dyn ViscaCommand) -> Result<Response, Error> {
+            self.responses.pop_front().unwrap_or(Err(Error::Timeout))
         }
     }
 
@@ -155,9 +150,6 @@ mod tests {
 
         let result = device.get_power_state();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            Error::CommandTimeout { .. }
-        ));
+        assert!(matches!(result.unwrap_err(), Error::CommandTimeout { .. }));
     }
 }

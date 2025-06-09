@@ -2,8 +2,9 @@
 
 // Crate imports
 use crate::{
-    command::{InquiryCommand, PowerCommand, power::Power},
-    error::Error as ViscaError, Transport, Response,
+    command::{power::Power, InquiryCommand, PowerCommand},
+    error::Error as ViscaError,
+    Response, Transport,
 };
 
 /// Extension trait providing power control methods.
@@ -45,8 +46,6 @@ pub trait ViscaPowerExt: Transport {
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
-
-
 
     /// Ensure the camera is powered on.
     ///

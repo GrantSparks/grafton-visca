@@ -1,9 +1,7 @@
 //! Example demonstrating image quality and gain control features.
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{
-    command::AntiFlickerMode, Client, Error, ViscaExposureExt, ViscaImageExt,
-};
+use grafton_visca::{command::AntiFlickerMode, Client, Error, ViscaExposureExt, ViscaImageExt};
 #[cfg(feature = "blocking-client")]
 use std::thread;
 #[cfg(feature = "blocking-client")]

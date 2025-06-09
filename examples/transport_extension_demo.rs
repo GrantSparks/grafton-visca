@@ -5,9 +5,8 @@
 
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    ImagePreset, Client, Error, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt,
-    ViscaPositionExt, ViscaPowerExt, ViscaWhiteBalanceExt, ViscaZoomExt,
-    WhiteBalancePreset,
+    Client, Error, ImagePreset, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt, ViscaPositionExt,
+    ViscaPowerExt, ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset,
 };
 use std::thread;
 use std::time::Duration;
@@ -22,10 +21,12 @@ fn main() -> Result<(), Error> {
 
     // Power control
     println!("--- Power Control ---");
-    if !client.is_powered_on()? {
-        println!("Camera is off, powering on...");
-        client.power_on()?;
+    let was_already_on = client.ensure_powered_on()?;
+    if !was_already_on {
+        println!("Camera was powered off, now powered on");
         client.wait_for_power_on(Duration::from_secs(5), Duration::from_millis(500))?;
+    } else {
+        println!("Camera is already powered on");
     }
 
     // Exposure control

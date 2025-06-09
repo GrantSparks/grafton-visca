@@ -17,7 +17,8 @@ use crate::{
         white_balance::WhiteBalanceMode,
         ViscaInquiryResponse,
     },
-    error::Error as ViscaError, Transport, Response,
+    error::Error as ViscaError,
+    Response, Transport,
 };
 
 /// Extension trait providing convenient inquiry methods for camera state.
@@ -200,9 +201,9 @@ pub trait ViscaInquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureCompensation)? {
-            Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensation {
-                value,
-            }) => Ok(value),
+            Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensation { value }) => {
+                Ok(value)
+            }
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -218,9 +219,9 @@ pub trait ViscaInquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ExposureCompensationMode)? {
-            Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode {
-                on,
-            }) => Ok(on),
+            Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode { on }) => {
+                Ok(on)
+            }
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -252,9 +253,7 @@ pub trait ViscaInquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Shutter)? {
-            Response::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => {
-                Ok(position)
-            }
+            Response::InquiryResponse(ViscaInquiryResponse::Shutter { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -270,9 +269,7 @@ pub trait ViscaInquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Bright)? {
-            Response::InquiryResponse(ViscaInquiryResponse::Bright { position }) => {
-                Ok(position)
-            }
+            Response::InquiryResponse(ViscaInquiryResponse::Bright { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -400,9 +397,7 @@ pub trait ViscaInquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::Backlight)? {
-            Response::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => {
-                Ok(status)
-            }
+            Response::InquiryResponse(ViscaInquiryResponse::Backlight { status }) => Ok(status),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -437,9 +432,7 @@ pub trait ViscaInquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::SharpnessMode)? {
-            Response::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => {
-                Ok(mode)
-            }
+            Response::InquiryResponse(ViscaInquiryResponse::SharpnessMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -455,9 +448,9 @@ pub trait ViscaInquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::ColorTemperature)? {
-            Response::InquiryResponse(ViscaInquiryResponse::ColorTemperature {
-                temperature,
-            }) => Ok(temperature),
+            Response::InquiryResponse(ViscaInquiryResponse::ColorTemperature { temperature }) => {
+                Ok(temperature)
+            }
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }
@@ -577,9 +570,7 @@ pub trait ViscaInquiryExt: Transport {
         Self: Sized,
     {
         match self.execute_command(&InquiryCommand::DynamicRange)? {
-            Response::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => {
-                Ok(level)
-            }
+            Response::InquiryResponse(ViscaInquiryResponse::DynamicRange { level }) => Ok(level),
             Response::Error(e) => Err(e),
             _ => Err(ViscaError::UnexpectedResponseType),
         }

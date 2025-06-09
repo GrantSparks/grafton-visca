@@ -7,7 +7,7 @@ use crate::{
         InquiryCommand,
     },
     error::Error as ViscaError,
-    Transport, Response,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level zoom control methods.
@@ -211,9 +211,9 @@ pub trait ViscaZoomExt: Transport {
     {
         let response = self.execute_command(&InquiryCommand::ZoomPosition)?;
         match response {
-            Response::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition {
-                position,
-            }) => Ok(crate::constants::zoom_visca_to_magnification(position)),
+            Response::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition { position }) => {
+                Ok(crate::constants::zoom_visca_to_magnification(position))
+            }
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }
@@ -276,9 +276,9 @@ pub trait ViscaZoomExt: Transport {
     {
         let response = self.execute_command(&InquiryCommand::ZoomPosition)?;
         match response {
-            Response::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition {
-                position,
-            }) => Ok(crate::constants::zoom_visca_to_normalized(position)),
+            Response::InquiryResponse(crate::ViscaInquiryResponse::ZoomPosition { position }) => {
+                Ok(crate::constants::zoom_visca_to_normalized(position))
+            }
             _ => Err(ViscaError::UnexpectedResponseType),
         }
     }

@@ -57,7 +57,6 @@ pub struct Session {
     pending_commands: HashMap<SocketId, PendingCommand>,
 }
 
-
 impl Session {
     /// Creates a new VISCA session with no pending commands.
     #[must_use]
@@ -249,9 +248,7 @@ impl Session {
 
         // Handle completion or error responses - extract socket ID from raw data
         match &response {
-            Response::Completion
-            | Response::InquiryResponse(_)
-            | Response::Error(_) => {
+            Response::Completion | Response::InquiryResponse(_) | Response::Error(_) => {
                 // Completion and inquiry responses have format 0x90 0x5X ... 0xFF where X is the socket ID
                 // Error responses have format 0x90 0x6X ... 0xFF where X is the socket ID
                 if data.len() >= 2 {

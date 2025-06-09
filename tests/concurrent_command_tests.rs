@@ -1,4 +1,4 @@
-use grafton_visca::{SocketId, Error, Response, Session};
+use grafton_visca::{Error, Response, Session, SocketId};
 
 #[test]
 fn test_session_socket_management() {

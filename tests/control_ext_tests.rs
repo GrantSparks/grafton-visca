@@ -6,8 +6,8 @@ use grafton_visca::{
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
         zoom::ZoomSpeed,
     },
-    ViscaCommand, Transport, Error, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt,
-    Response, ViscaZoomExt,
+    Error, Response, Transport, ViscaCommand, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt,
+    ViscaZoomExt,
 };
 
 /// Mock device for testing control commands
@@ -142,7 +142,7 @@ mod zoom_tests {
     fn test_zoom_in_standard_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.zoom_in().unwrap();
+        device.zoom_in_variable(None).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]); // Tele standard
@@ -152,7 +152,9 @@ mod zoom_tests {
     fn test_zoom_in_variable_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.zoom_in_variable(Some(ZoomSpeed::new(5).unwrap())).unwrap();
+        device
+            .zoom_in_variable(Some(ZoomSpeed::new(5).unwrap()))
+            .unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]); // Tele variable speed 5
@@ -162,7 +164,7 @@ mod zoom_tests {
     fn test_zoom_out_standard_speed() {
         let mut device = MockDevice::with_completion();
 
-        device.zoom_out().unwrap();
+        device.zoom_out_variable(None).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]); // Wide standard
@@ -255,7 +257,7 @@ mod preset_tests {
     fn test_save_preset() {
         let mut device = MockDevice::with_completion();
 
-        device.save_preset(1).unwrap();
+        device.set_preset(1).unwrap();
 
         let cmd = device.last_command();
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x3F, 0x01, 0x01, 0xFF]); // Set preset 1

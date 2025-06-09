@@ -325,7 +325,6 @@ pub use crate::{
     session::Session,
 };
 
-
 // Parameter types re-exports
 pub use crate::command::{
     exposure::DynamicRangeLevel,

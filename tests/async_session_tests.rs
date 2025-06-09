@@ -1,6 +1,6 @@
 #![cfg(feature = "async-client")]
 
-use grafton_visca::{SocketId, Error, ViscaInquiryResponse, Response, Session};
+use grafton_visca::{Error, Response, Session, SocketId, ViscaInquiryResponse};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

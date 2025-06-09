@@ -67,9 +67,7 @@ mod tests {
     #[cfg(feature = "async-client")]
     #[tokio::test]
     async fn test_async_send() {
-        let client = Client::connect_udp_async("127.0.0.1:1234")
-            .await
-            .unwrap();
+        let client = Client::connect_udp_async("127.0.0.1:1234").await.unwrap();
         let cmd = PowerCommand { power: Power::On };
 
         // Test async send
@@ -93,9 +91,7 @@ mod tests {
     #[cfg(feature = "async-client")]
     #[tokio::test]
     async fn test_health_check() {
-        let client = Client::connect_udp_async("127.0.0.1:1234")
-            .await
-            .unwrap();
+        let client = Client::connect_udp_async("127.0.0.1:1234").await.unwrap();
 
         // Health check should fail (no camera)
         let is_healthy = client.is_healthy().await.unwrap();

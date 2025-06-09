@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 // Crate imports
 use crate::{
-    error::Error,
     command::response::Response,
+    error::Error,
     ptz_builder::PtzBuilder,
     session::Session,
     sync_primitives::{Mutex, Semaphore, SemaphoreExt},
@@ -65,7 +65,6 @@ pub struct Client {
     /// Concurrency control (max 2 concurrent commands)
     semaphore: Arc<Semaphore>,
 }
-
 
 impl Client {
     /// Creates a new client from a transport variant.
@@ -303,10 +302,7 @@ impl Client {
     /// Returns `ViscaError` if the command fails to send, the camera returns an error,
     /// semaphore acquisition fails, or socket assignment fails.
     #[cfg(feature = "async-client")]
-    pub async fn send_async(
-        &self,
-        command: &dyn ViscaCommand,
-    ) -> Result<Response, Error> {
+    pub async fn send_async(&self, command: &dyn ViscaCommand) -> Result<Response, Error> {
         let _permit = self.semaphore.acquire_permit().await?;
 
         // Acquire session lock and assign socket
@@ -549,8 +545,8 @@ mod tests {
 
     #[test]
     fn test_client_is_send_and_sync() {
-        fn assert_send<T: Send>() {}
-        fn assert_sync<T: Sync>() {}
+        const fn assert_send<T: Send>() {}
+        const fn assert_sync<T: Sync>() {}
 
         assert_send::<Client>();
         assert_sync::<Client>();

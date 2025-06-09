@@ -7,7 +7,7 @@ use crate::{
         RedGainCommand, RedTuningCommand, WhiteBalanceCommand, WhiteBalanceMode,
     },
     error::Error as ViscaError,
-    Transport, Response,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level white balance control methods.

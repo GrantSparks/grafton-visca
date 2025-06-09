@@ -14,8 +14,9 @@ use tokio::time::sleep;
 // Workspace / local-crate imports
 use crate::{
     connection::ConnectionStats,
+    error::Error as ViscaError,
     transport::{Transport, TransportFuture},
-    error::Error as ViscaError, ViscaCommand,
+    ViscaCommand,
 };
 
 /// Type alias for transport creation function

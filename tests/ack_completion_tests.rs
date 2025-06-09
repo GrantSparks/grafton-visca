@@ -14,7 +14,7 @@ use grafton_visca::{
         power::{Power, PowerCommand},
         InquiryCommand,
     },
-    Transport, Error, ViscaInquiryResponse, Response,
+    Error, Response, Transport, ViscaInquiryResponse,
 };
 
 #[test]
@@ -46,10 +46,7 @@ fn test_command_error_handling() {
     let result = device.execute_command(&PowerCommand { power: Power::On });
 
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        Error::CommandNotExecutable
-    ));
+    assert!(matches!(result.unwrap_err(), Error::CommandNotExecutable));
 }
 
 #[test]

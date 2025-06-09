@@ -10,24 +10,19 @@
 
 // Core types
 pub use crate::{
-    error::Error,
-    session::Session,
-    command::response::Response,
-    ViscaCommand, Transport, ViscaInquiryResponse, ViscaResponseType,
+    command::response::Response, error::Error, session::Session, Transport, ViscaCommand,
+    ViscaInquiryResponse, ViscaResponseType,
 };
 
 // Client types (feature-gated)
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::{
-    unified_client::Client,
-    ViscaClientPtzExt,
-};
+pub use crate::{unified_client::Client, ViscaClientPtzExt};
 
 // Parameter types
 pub use crate::{
-    BrightnessLevel, ContrastLevel, DynamicRangeLevel, FocusSpeed, GainLimit, GainValue,
-    IrisLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed,
-    PanTiltDirection, PresetNumber, SharpnessLevel, ShutterSpeed, TiltSpeed, ZoomSpeed,
+    BrightnessLevel, ContrastLevel, DynamicRangeLevel, FocusSpeed, GainLimit, GainValue, IrisLevel,
+    LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, PanTiltDirection,
+    PresetNumber, SharpnessLevel, ShutterSpeed, TiltSpeed, ZoomSpeed,
 };
 
 // Extension traits

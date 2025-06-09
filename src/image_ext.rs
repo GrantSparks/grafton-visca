@@ -8,7 +8,7 @@ use crate::{
         SharpnessCommand,
     },
     error::Error as ViscaError,
-    Transport, Response,
+    Response, Transport,
 };
 
 /// Extension trait providing high-level image settings control methods.

@@ -8,7 +8,7 @@ mod common;
 use common::{MockDevice, MockTransport};
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    ImagePreset, ViscaExposureExt, ViscaImageExt, ViscaPositionExt, ViscaPowerExt,
+    ImagePreset, Transport, ViscaExposureExt, ViscaImageExt, ViscaPositionExt,
     ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset,
 };
 
@@ -137,19 +137,16 @@ fn test_transport_ext_methods() {
     let mut device = MockDevice::from_transport(transport);
 
     // Test power on convenience method
-    match device.power_on() {
-        Ok(()) => {
-            assert_eq!(
-                device.last_command().unwrap()[0..4],
-                vec![0x81, 0x01, 0x04, 0x00]
-            );
-            assert_eq!(device.last_command().unwrap()[4], 0x02);
-        }
-        Err(e) => panic!("Power on failed: {e:?}"),
-    }
+    use grafton_visca::command::power::{Power, PowerCommand};
+    device.execute_command(&PowerCommand { power: Power::On }).unwrap();
+    assert_eq!(
+        device.last_command().unwrap()[0..4],
+        vec![0x81, 0x01, 0x04, 0x00]
+    );
+    assert_eq!(device.last_command().unwrap()[4], 0x02);
 
     // Test power off
-    device.power_off().unwrap();
+    device.execute_command(&PowerCommand { power: Power::Standby }).unwrap();
     assert_eq!(
         device.last_command().unwrap()[0..4],
         vec![0x81, 0x01, 0x04, 0x00]
@@ -167,7 +164,8 @@ fn test_chained_operations() {
     let mut device = MockDevice::from_transport(transport);
 
     // Chain multiple operations
-    device.power_on().unwrap();
+    use grafton_visca::command::power::{Power, PowerCommand};
+    device.execute_command(&PowerCommand { power: Power::On }).unwrap();
     device.zoom_to_magnification(2.0).unwrap();
     device.move_to_degrees(0.0, 0.0, None).unwrap();
 

@@ -70,10 +70,7 @@ mod response_parsing_tests {
         let response =
             parse_visca_response(&pt_response_bytes, &ViscaResponseType::PanTiltPosition);
         match response {
-            Ok(Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition {
-                pan,
-                tilt,
-            })) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) => {
                 assert_eq!(pan, 0x1234);
                 assert_eq!(tilt, 0x5678);
             }
@@ -109,9 +106,7 @@ mod response_parsing_tests {
         let response =
             parse_visca_response(&focus_response_bytes, &ViscaResponseType::FocusPosition);
         match response {
-            Ok(Response::InquiryResponse(ViscaInquiryResponse::FocusPosition {
-                position,
-            })) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::FocusPosition { position })) => {
                 assert_eq!(position, 0x1234);
             }
             _ => panic!("Expected FocusPosition inquiry response"),
@@ -213,9 +208,7 @@ mod response_parsing_tests {
         let response =
             parse_visca_response(&exp_comp_bytes, &ViscaResponseType::ExposureCompensation);
         match response {
-            Ok(Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensation {
-                value,
-            })) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, -7);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
@@ -226,9 +219,7 @@ mod response_parsing_tests {
         let response =
             parse_visca_response(&exp_comp_bytes, &ViscaResponseType::ExposureCompensation);
         match response {
-            Ok(Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensation {
-                value,
-            })) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 0);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
@@ -239,9 +230,7 @@ mod response_parsing_tests {
         let response =
             parse_visca_response(&exp_comp_bytes, &ViscaResponseType::ExposureCompensation);
         match response {
-            Ok(Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensation {
-                value,
-            })) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 7);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
@@ -254,9 +243,9 @@ mod response_parsing_tests {
             &ViscaResponseType::ExposureCompensationMode,
         );
         match response {
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::ExposureCompensationMode { on },
-            )) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode {
+                on,
+            })) => {
                 assert!(on);
             }
             _ => panic!("Expected ExposureCompensationMode inquiry response"),
@@ -269,9 +258,9 @@ mod response_parsing_tests {
             &ViscaResponseType::ExposureCompensationMode,
         );
         match response {
-            Ok(Response::InquiryResponse(
-                ViscaInquiryResponse::ExposureCompensationMode { on },
-            )) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::ExposureCompensationMode {
+                on,
+            })) => {
                 assert!(!on);
             }
             _ => panic!("Expected ExposureCompensationMode inquiry response"),
@@ -560,9 +549,7 @@ mod response_parsing_tests {
         let bytes = vec![0x90, 0x50, level_value, 0xFF];
         let response = parse_visca_response(&bytes, &ViscaResponseType::NoiseReduction2D);
         match response {
-            Ok(Response::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D {
-                level,
-            })) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::NoiseReduction2D { level })) => {
                 assert_eq!(level, level_value);
             }
             _ => panic!("Expected NoiseReduction2D inquiry response"),
@@ -573,9 +560,7 @@ mod response_parsing_tests {
         let bytes = vec![0x90, 0x50, level_value, 0xFF];
         let response = parse_visca_response(&bytes, &ViscaResponseType::NoiseReduction3D);
         match response {
-            Ok(Response::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D {
-                level,
-            })) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::NoiseReduction3D { level })) => {
                 assert_eq!(level, level_value);
             }
             _ => panic!("Expected NoiseReduction3D inquiry response"),
@@ -625,9 +610,7 @@ mod response_parsing_tests {
         let bytes = vec![0x90, 0x50, p1, p2, p3, p4, 0xFF];
         let response = parse_visca_response(&bytes, &ViscaResponseType::FocusNearLimit);
         match response {
-            Ok(Response::InquiryResponse(ViscaInquiryResponse::FocusNearLimit {
-                position,
-            })) => {
+            Ok(Response::InquiryResponse(ViscaInquiryResponse::FocusNearLimit { position })) => {
                 assert_eq!(position, expected_position);
             }
             _ => panic!("Expected FocusNearLimit inquiry response"),

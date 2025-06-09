@@ -187,7 +187,7 @@ mod tests {
 mod sync_health_tests {
     use grafton_visca::command::power::{Power, PowerCommand};
     use grafton_visca::connection::ConnectionStats;
-    use grafton_visca::{transport::BlockingTransport, ViscaCommand, Error};
+    use grafton_visca::{transport::BlockingTransport, Error, ViscaCommand};
 
     struct MockTransport {
         stats: ConnectionStats,
@@ -271,7 +271,7 @@ mod async_health_tests {
     use grafton_visca::command::power::{Power, PowerCommand};
     use grafton_visca::connection::ConnectionStats;
     use grafton_visca::transport::{Transport, TransportFuture};
-    use grafton_visca::{ViscaCommand, Error};
+    use grafton_visca::{Error, ViscaCommand};
 
     struct MockAsyncTransport {
         stats: ConnectionStats,
