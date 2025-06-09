@@ -538,7 +538,9 @@ impl crate::ViscaDevice for ViscaClient {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    #[cfg(feature = "blocking-client")]
     use std::sync::Arc;
+    #[cfg(feature = "blocking-client")]
     use std::thread;
 
     #[test]
