@@ -9,7 +9,7 @@ use std::sync::Arc;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    ViscaClient, ViscaClientPtzExt, ViscaError,
+    Client, ViscaClientPtzExt, Error,
 };
 
 // Async features - only needed for async-only build
@@ -24,13 +24,13 @@ use std::time::Duration;
 use grafton_visca::AsyncViscaExt;
 
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     env_logger::init();
 
     println!("=== Phase D Ergonomic APIs Demo (Blocking) ===");
 
     // Connect to camera
-    let client = Arc::new(ViscaClient::connect_udp("192.168.1.100:5678")?);
+    let client = Arc::new(Client::connect_udp("192.168.1.100:5678")?);
     println!("Connected to camera");
 
     // Demonstrate PTZ Builder with sequential execution
@@ -80,13 +80,13 @@ fn main() -> Result<(), ViscaError> {
 
 #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 #[tokio::main]
-async fn main() -> Result<(), ViscaError> {
+async fn main() -> Result<(), Error> {
     env_logger::init();
 
     println!("=== Phase D Ergonomic APIs Demo (Async) ===");
 
     // Connect to camera
-    let client = Arc::new(ViscaClient::connect_udp_async("192.168.1.100:5678").await?);
+    let client = Arc::new(Client::connect_udp_async("192.168.1.100:5678").await?);
     println!("Connected to camera");
 
     // Demonstrate PTZ Builder with sequential execution
@@ -176,13 +176,13 @@ async fn main() -> Result<(), ViscaError> {
 
 #[cfg(all(feature = "async-client", feature = "blocking-client"))]
 #[tokio::main]
-async fn main() -> Result<(), ViscaError> {
+async fn main() -> Result<(), Error> {
     env_logger::init();
 
     println!("=== Phase D Ergonomic APIs Demo (Both Features) ===");
 
     // Demonstrate that both blocking and async work in the same build
-    let client = Arc::new(ViscaClient::connect_udp("192.168.1.100:5678")?);
+    let client = Arc::new(Client::connect_udp("192.168.1.100:5678")?);
     println!("Connected to camera using blocking constructor");
 
     // Use blocking PTZ builder

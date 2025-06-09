@@ -1,6 +1,6 @@
-//! Example demonstrating thread-safe usage of `ViscaClient`
+//! Example demonstrating thread-safe usage of `Client`
 //!
-//! This example shows how to use `ViscaClient` to control a camera
+//! This example shows how to use `Client` to control a camera
 //! from multiple threads without needing `RefCell` or manual locking.
 //!
 //! NOTE: This example needs to be updated for the v0.4.0 API.
@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
             PanTiltCommand, Power, PowerCommand, ZoomCommand,
         },
-        ViscaClient, ViscaError,
+        Client, Error,
     };
     use std::sync::Arc;
     use std::thread;
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at {}...", camera_addr);
 
     // Create client using the new v0.4.0 API
-    let client = Arc::new(ViscaClient::connect_udp(camera_addr)?);
+    let client = Arc::new(Client::connect_udp(camera_addr)?);
 
     println!("Connected! Starting multi-threaded demo...");
 
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Spawn thread 1: Pan/Tilt control
     let client1 = Arc::clone(&client);
-    let handle1 = thread::spawn(move || -> Result<(), ViscaError> {
+    let handle1 = thread::spawn(move || -> Result<(), Error> {
         println!("[Thread 1] Starting pan/tilt movements...");
 
         // Move up-right
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Spawn thread 2: Zoom control
     let client2 = Arc::clone(&client);
-    let handle2 = thread::spawn(move || -> Result<(), ViscaError> {
+    let handle2 = thread::spawn(move || -> Result<(), Error> {
         println!("[Thread 2] Starting zoom operations...");
 
         // Wait a bit to demonstrate concurrent operation
@@ -131,6 +131,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(all(feature = "blocking-client", feature = "async-client"))]
 fn main() {
-    println!("This example works with the unified ViscaClient in v0.4.0.");
+    println!("This example works with the unified Client in v0.4.0.");
     println!("Run with: cargo run --example thread_safe_client --no-default-features --features blocking-client");
 }

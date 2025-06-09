@@ -17,7 +17,7 @@ use grafton_visca::{
         ZoomCommand,
     },
     AsyncCameraInfo, AsyncPoolConfig, AsyncTcpTransport, AsyncUdpTransport,
-    AsyncViscaConnectionPool, AsyncViscaTransport, ReconnectionConfig, ViscaError,
+    AsyncViscaConnectionPool, AsyncViscaTransport, ReconnectionConfig, Error,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,9 +63,9 @@ async fn demo_basic_async_pool() -> Result<(), Box<dyn std::error::Error>> {
             use std::net::ToSocketAddrs;
             let socket_addr = addr
                 .to_socket_addrs()
-                .map_err(ViscaError::Io)?
+                .map_err(Error::Io)?
                 .next()
-                .ok_or_else(|| ViscaError::InvalidParameter("Invalid address".to_string()))?;
+                .ok_or_else(|| Error::InvalidParameter("Invalid address".to_string()))?;
             AsyncUdpTransport::new(socket_addr).await
         }
     });
@@ -155,9 +155,9 @@ async fn demo_maintenance_task() -> Result<(), Box<dyn std::error::Error>> {
             use std::net::ToSocketAddrs;
             let socket_addr = addr
                 .to_socket_addrs()
-                .map_err(ViscaError::Io)?
+                .map_err(Error::Io)?
                 .next()
-                .ok_or_else(|| ViscaError::InvalidParameter("Invalid address".to_string()))?;
+                .ok_or_else(|| Error::InvalidParameter("Invalid address".to_string()))?;
             AsyncTcpTransport::new(socket_addr).await
         }
     }));
@@ -224,9 +224,9 @@ async fn demo_concurrent_async_control() -> Result<(), Box<dyn std::error::Error
             use std::net::ToSocketAddrs;
             let socket_addr = addr
                 .to_socket_addrs()
-                .map_err(ViscaError::Io)?
+                .map_err(Error::Io)?
                 .next()
-                .ok_or_else(|| ViscaError::InvalidParameter("Invalid address".to_string()))?;
+                .ok_or_else(|| Error::InvalidParameter("Invalid address".to_string()))?;
             AsyncUdpTransport::new(socket_addr).await
         }
     }));

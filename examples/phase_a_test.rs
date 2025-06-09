@@ -13,17 +13,17 @@ use grafton_visca::command::power::Power;
 use grafton_visca::command::PowerCommand;
 #[cfg(feature = "blocking-client")]
 use grafton_visca::transport::{BlockingAdapter, Transport, UdpTransport};
-use grafton_visca::ViscaError;
+use grafton_visca::Error;
 
 #[tokio::main]
-async fn main() -> Result<(), ViscaError> {
+async fn main() -> Result<(), Error> {
     env_logger::init();
 
     #[cfg(feature = "blocking-client")]
     {
         // Test blocking UDP transport through adapter
         println!("Testing UDP transport with blocking adapter...");
-        let udp = UdpTransport::new("127.0.0.1:1234").map_err(ViscaError::Io)?;
+        let udp = UdpTransport::new("127.0.0.1:1234").map_err(Error::Io)?;
         let mut udp_adapter = BlockingAdapter(udp);
 
         let cmd = PowerCommand { power: Power::On };
@@ -45,7 +45,7 @@ async fn main() -> Result<(), ViscaError> {
         println!("\nTesting async UDP transport...");
         let mut async_udp = AsyncUdpTransport::new("127.0.0.1:1234")
             .await
-            .map_err(ViscaError::Io)?;
+            .map_err(Error::Io)?;
 
         let cmd = PowerCommand { power: Power::On };
 

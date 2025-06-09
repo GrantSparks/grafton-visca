@@ -6,12 +6,12 @@ use grafton_visca::{
         preset::PresetNumber,
         zoom::ZoomSpeed,
     },
-    ViscaClient, ViscaError, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt, ViscaTransportExt,
+    Client, Error, ViscaFocusExt, ViscaPanTiltExt, ViscaPresetExt, ViscaTransportExt,
     ViscaZoomExt,
 };
 use std::{env, thread, time::Duration};
 
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -26,7 +26,7 @@ fn main() -> Result<(), ViscaError> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
-    let mut client = ViscaClient::connect_udp(camera_addr)?;
+    let mut client = Client::connect_udp(camera_addr)?;
 
     println!("\n=== Camera Control Demo ===\n");
 

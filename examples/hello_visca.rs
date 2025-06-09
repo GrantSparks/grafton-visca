@@ -4,7 +4,7 @@ use grafton_visca::{
         zoom::{ZoomCommand, ZoomSpeed},
         InquiryCommand, PanTiltCommand,
     },
-    AppError, ViscaClient, ViscaInquiryResponse, ViscaResponse,
+    AppError, Client, ViscaInquiryResponse, ViscaResponse,
 };
 use log::{debug, error, info};
 use std::{env, time::Duration};
@@ -28,7 +28,7 @@ fn parse_args() -> (String, String) {
     (protocol, ip_address)
 }
 
-fn create_client(protocol: &str, ip_address: &str) -> Result<ViscaClient, AppError> {
+fn create_client(protocol: &str, ip_address: &str) -> Result<Client, AppError> {
     let udp_port = "1259";
     let tcp_port = "5678";
 
@@ -40,14 +40,14 @@ fn create_client(protocol: &str, ip_address: &str) -> Result<ViscaClient, AppErr
     };
 
     if use_udp {
-        ViscaClient::connect_udp(&address)
+        Client::connect_udp(&address)
     } else {
-        ViscaClient::connect_tcp(&address)
+        Client::connect_tcp(&address)
     }
     .map_err(AppError::from)
 }
 
-fn perform_pan_tilt_movements(client: &ViscaClient) -> Result<(), AppError> {
+fn perform_pan_tilt_movements(client: &Client) -> Result<(), AppError> {
     let complex_movements = [
         (PanTiltDirection::Up, 5, 3),
         (PanTiltDirection::Right, 4, 3),
@@ -82,7 +82,7 @@ fn perform_pan_tilt_movements(client: &ViscaClient) -> Result<(), AppError> {
     Ok(())
 }
 
-fn perform_zoom_movements(client: &ViscaClient) -> Result<(), AppError> {
+fn perform_zoom_movements(client: &Client) -> Result<(), AppError> {
     let zoom_movements = [
         ZoomCommand::TeleStandard,
         ZoomCommand::WideStandard,
@@ -115,7 +115,7 @@ fn perform_zoom_movements(client: &ViscaClient) -> Result<(), AppError> {
     Ok(())
 }
 
-fn inquire_pan_tilt_position(client: &ViscaClient) {
+fn inquire_pan_tilt_position(client: &Client) {
     debug!("Inquiring Pan/Tilt position");
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
         client.send(&InquiryCommand::PanTiltPosition)
@@ -126,7 +126,7 @@ fn inquire_pan_tilt_position(client: &ViscaClient) {
     }
 }
 
-fn inquire_zoom_position(client: &ViscaClient, label: &str) {
+fn inquire_zoom_position(client: &Client, label: &str) {
     debug!("Inquiring {label} Zoom position");
     if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
         client.send(&InquiryCommand::ZoomPosition)

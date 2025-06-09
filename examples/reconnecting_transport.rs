@@ -17,7 +17,7 @@ use grafton_visca::{
         ZoomCommand,
     },
     ConnectionEvent, ConnectionManagement, ReconnectingTransport, ReconnectionConfig, TcpTransport,
-    UdpTransport, ViscaError, ViscaTransport, ViscaTransportExt,
+    UdpTransport, Error, ViscaTransport, ViscaTransportExt,
 };
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -54,7 +54,7 @@ fn demo_udp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the reconnecting transport
     let mut transport = ReconnectingTransport::new(
-        || UdpTransport::new(camera_addr).map_err(ViscaError::Io),
+        || UdpTransport::new(camera_addr).map_err(Error::Io),
         reconnect_config,
     );
 
@@ -138,7 +138,7 @@ fn demo_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut transport = ReconnectingTransport::new(
-        || TcpTransport::new(camera_addr).map_err(ViscaError::Io),
+        || TcpTransport::new(camera_addr).map_err(Error::Io),
         reconnect_config,
     );
 
@@ -172,13 +172,13 @@ fn demo_connection_events() -> Result<(), Box<dyn std::error::Error>> {
         // Simulate failures on attempts 3, 4, 7, 8
         if *counter == 3 || *counter == 4 || *counter == 7 || *counter == 8 {
             println!("  [Factory] Simulating connection failure (attempt {})", *counter);
-            Err(ViscaError::Io(io::Error::new(
+            Err(Error::Io(io::Error::new(
                 io::ErrorKind::ConnectionRefused,
                 "Simulated connection failure",
             )))
         } else {
             println!("  [Factory] Creating transport (attempt {})", *counter);
-            UdpTransport::new(camera_addr).map_err(ViscaError::Io)
+            UdpTransport::new(camera_addr).map_err(Error::Io)
         }
     };
 

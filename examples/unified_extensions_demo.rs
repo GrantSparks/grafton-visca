@@ -5,7 +5,7 @@
 
 use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
 use grafton_visca::command::zoom::ZoomSpeed;
-use grafton_visca::{CameraExt, ViscaClient, ViscaError};
+use grafton_visca::{CameraExt, Client, Error};
 
 #[cfg(feature = "async-client")]
 use grafton_visca::AsyncCameraExt;
@@ -14,11 +14,11 @@ use std::time::Duration;
 
 /// Demonstrates blocking usage of the unified extension traits.
 #[cfg(feature = "blocking-client")]
-fn blocking_example() -> Result<(), ViscaError> {
+fn blocking_example() -> Result<(), Error> {
     println!("=== Blocking Extension Traits Example ===\n");
 
     // Connect to camera
-    let camera = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    let camera = Client::connect_udp("192.168.1.100:5678")?;
 
     // The CameraExt trait provides a clean, unified API
     println!("1. Checking camera power status...");
@@ -70,11 +70,11 @@ fn blocking_example() -> Result<(), ViscaError> {
 
 /// Demonstrates async usage of the unified extension traits.
 #[cfg(feature = "async-client")]
-async fn async_example() -> Result<(), ViscaError> {
+async fn async_example() -> Result<(), Error> {
     println!("=== Async Extension Traits Example ===\n");
 
     // Connect to camera
-    let camera = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
+    let camera = Client::connect_udp_async("192.168.1.100:5678").await?;
 
     // The same CameraExt trait works in async context!
     println!("1. Checking camera power status...");
@@ -182,7 +182,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   2. No '_async' suffix confusion");
     println!("   3. Clean, intuitive API");
     println!("   4. AsyncCameraExt adds async-specific operations");
-    println!("   5. Works with Arc<ViscaClient> for shared ownership");
+    println!("   5. Works with Arc<Client> for shared ownership");
 
     Ok(())
 }
