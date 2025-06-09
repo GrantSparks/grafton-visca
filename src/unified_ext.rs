@@ -206,6 +206,7 @@ pub trait CameraExt {
 }
 
 // Implement for owned ViscaClient
+#[cfg(feature = "blocking-client")]
 impl CameraExt for ViscaClient {
     fn is_powered_on(&self) -> Result<bool, ViscaError> {
         let response = self.send(&InquiryCommand::Power)?;
@@ -380,6 +381,7 @@ impl CameraExt for ViscaClient {
 }
 
 // Also implement for Arc<ViscaClient> for shared ownership scenarios
+#[cfg(feature = "blocking-client")]
 impl CameraExt for Arc<ViscaClient> {
     fn is_powered_on(&self) -> Result<bool, ViscaError> {
         (**self).is_powered_on()
@@ -537,9 +539,13 @@ pub trait AsyncCameraExt {
 #[cfg(feature = "async-client")]
 impl AsyncCameraExt for ViscaClient {
     async fn power_cycle(&self, delay: Duration) -> Result<(), ViscaError> {
-        self.power_off()?;
+        self.send_async(&PowerCommand {
+            power: Power::Standby,
+        })
+        .await?;
         tokio::time::sleep(delay).await;
-        self.power_on()?;
+        self.send_async(&PowerCommand { power: Power::On })
+            .await?;
         Ok(())
     }
 
@@ -552,8 +558,11 @@ impl AsyncCameraExt for ViscaClient {
         let mut interval = tokio::time::interval(poll_interval);
 
         loop {
-            if self.is_powered_on()? {
-                return Ok(());
+            let response = self.send_async(&InquiryCommand::Power).await?;
+            if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) = response {
+                if on {
+                    return Ok(());
+                }
             }
 
             if tokio::time::Instant::now() >= deadline {
@@ -565,15 +574,20 @@ impl AsyncCameraExt for ViscaClient {
     }
 
     async fn zoom_to_and_wait(&self, target: u16, timeout: Duration) -> Result<(), ViscaError> {
-        self.zoom_to_position(target)?;
+        self.send_async(&ZoomCommand::Direct(target)).await?;
 
         let deadline = tokio::time::Instant::now() + timeout;
         let mut interval = tokio::time::interval(Duration::from_millis(100));
 
         loop {
-            let current = self.zoom_position()?;
-            if current == target {
-                return Ok(());
+            let response = self.send_async(&InquiryCommand::ZoomPosition).await?;
+            if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition {
+                position,
+            }) = response
+            {
+                if position == target {
+                    return Ok(());
+                }
             }
 
             if tokio::time::Instant::now() >= deadline {
@@ -592,15 +606,27 @@ impl AsyncCameraExt for ViscaClient {
         tilt_speed: TiltSpeed,
         timeout: Duration,
     ) -> Result<(), ViscaError> {
-        self.move_to_position(pan, tilt, pan_speed, tilt_speed)?;
+        self.send_async(&PanTiltCommand::AbsolutePosition {
+            pan,
+            tilt,
+            pan_speed,
+            tilt_speed,
+        })
+        .await?;
 
         let deadline = tokio::time::Instant::now() + timeout;
         let mut interval = tokio::time::interval(Duration::from_millis(100));
 
         loop {
-            let (current_pan, current_tilt) = self.pan_tilt_position()?;
-            if current_pan == pan && current_tilt == tilt {
-                return Ok(());
+            let response = self.send_async(&InquiryCommand::PanTiltPosition).await?;
+            if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition {
+                pan: current_pan,
+                tilt: current_tilt,
+            }) = response
+            {
+                if current_pan == pan && current_tilt == tilt {
+                    return Ok(());
+                }
             }
 
             if tokio::time::Instant::now() >= deadline {
@@ -613,7 +639,11 @@ impl AsyncCameraExt for ViscaClient {
 
     async fn patrol_presets(&self, presets: &[u8], dwell_time: Duration) -> Result<(), ViscaError> {
         for &preset in presets.iter().cycle() {
-            self.recall_preset(preset)?;
+            self.send_async(&PresetCommand {
+                preset_number: PresetNumber::new(preset)?,
+                action: PresetAction::Recall,
+            })
+            .await?;
             tokio::time::sleep(dwell_time).await;
         }
         Ok(())

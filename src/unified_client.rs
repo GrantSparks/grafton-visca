@@ -554,7 +554,10 @@ mod tests {
     #[test]
     fn test_client_can_be_cloned() {
         let client = ViscaClient::connect_udp("127.0.0.1:1259").unwrap();
-        let _client_clone = client.clone();
+        let client_clone = client.clone();
+        // Ensure the clone is usable
+        drop(client);
+        drop(client_clone);
     }
 
     #[cfg(feature = "blocking-client")]
