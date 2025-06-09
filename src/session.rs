@@ -4,7 +4,7 @@ use log::{debug, error};
 
 use crate::{
     command::response::{parse_visca_response as parse_response_typed, Response, ResponseType},
-    error::Error as ViscaError,
+    error::Error,
     types::SocketId,
 };
 
@@ -12,9 +12,9 @@ use crate::{
 fn parse_visca_response(
     data: &[u8],
     response_type: Option<ResponseType>,
-) -> Result<Response, ViscaError> {
+) -> Result<Response, Error> {
     if data.len() < 3 || data[0] != 0x90 || data[data.len() - 1] != 0xFF {
-        return Err(ViscaError::InvalidResponseFormat);
+        return Err(Error::InvalidResponseFormat);
     }
 
     match data[1] {
@@ -31,9 +31,9 @@ fn parse_visca_response(
         }
         0x60..=0x6F => {
             if data.len() >= 3 {
-                Err(ViscaError::from_code(data[2]))
+                Err(Error::from_code(data[2]))
             } else {
-                Err(ViscaError::InvalidResponseFormat)
+                Err(Error::InvalidResponseFormat)
             }
         }
         _ => Ok(Response::Unknown(data.to_vec())),
@@ -78,11 +78,11 @@ impl Session {
     /// Returns the socket ID if successful.
     ///
     /// # Errors
-    /// Returns `ViscaError::CommandBufferFull` if both sockets are already in use.
+    /// Returns `Error::CommandBufferFull` if both sockets are already in use.
     pub fn assign_socket(
         &mut self,
         response_type: Option<ResponseType>,
-    ) -> Result<SocketId, ViscaError> {
+    ) -> Result<SocketId, Error> {
         use std::collections::hash_map::Entry;
 
         // Try to find a free socket (0 or 1)
@@ -98,7 +98,7 @@ impl Session {
         }
 
         // Both sockets are in use
-        Err(ViscaError::CommandBufferFull)
+        Err(Error::CommandBufferFull)
     }
 
     /// Releases a socket after command completion
@@ -111,15 +111,15 @@ impl Session {
     /// Processes a response frame and returns the parsed result
     ///
     /// # Errors
-    /// Returns `ViscaError::InvalidResponseFormat` if the response frame format is invalid.
-    /// Returns `ViscaError::UnexpectedResponseType` if response data is received for a non-inquiry command.
+    /// Returns `Error::InvalidResponseFormat` if the response frame format is invalid.
+    /// Returns `Error::UnexpectedResponseType` if response data is received for a non-inquiry command.
     /// Returns parsing errors if the response payload cannot be parsed.
     pub fn process_response(
         &mut self,
         response: &[u8],
-    ) -> Result<Option<(SocketId, Response)>, ViscaError> {
+    ) -> Result<Option<(SocketId, Response)>, Error> {
         if response.len() < 3 || response[0] != 0x90 || response[response.len() - 1] != 0xFF {
-            return Err(ViscaError::InvalidResponseFormat);
+            return Err(Error::InvalidResponseFormat);
         }
 
         match response[1] {
@@ -161,7 +161,7 @@ impl Session {
                                     error!(
                                         "Received data response for non-inquiry command on {socket_id}"
                                     );
-                                    Err(ViscaError::UnexpectedResponseType)
+                                    Err(Error::UnexpectedResponseType)
                                 },
                                 |response_type| match parse_response_typed(response, &response_type) {
                                     Ok(parsed) => {
@@ -188,17 +188,17 @@ impl Session {
 
                 if response.len() >= 4 {
                     let error_code = response[2];
-                    let error = ViscaError::from_code(error_code);
+                    let error = Error::from_code(error_code);
                     error!("Error response for {socket_id}: {error}");
                     Ok(Some((socket_id, Response::Error(error))))
                 } else {
-                    Err(ViscaError::InvalidResponseFormat)
+                    Err(Error::InvalidResponseFormat)
                 }
             }
 
             _ => {
                 error!("Unknown response type: {:#02X}", response[1]);
-                Err(ViscaError::InvalidResponseFormat)
+                Err(Error::InvalidResponseFormat)
             }
         }
     }
@@ -331,7 +331,7 @@ mod tests {
 
         // Third command should fail
         let result = session.assign_socket(None);
-        assert!(matches!(result, Err(ViscaError::CommandBufferFull)));
+        assert!(matches!(result, Err(Error::CommandBufferFull)));
     }
 
     #[test]
@@ -405,21 +405,21 @@ mod tests {
         let invalid1 = [0x80, 0x50, 0xFF];
         assert!(matches!(
             session.process_response(&invalid1),
-            Err(ViscaError::InvalidResponseFormat)
+            Err(Error::InvalidResponseFormat)
         ));
 
         // Missing terminator
         let invalid2 = [0x90, 0x50, 0x00];
         assert!(matches!(
             session.process_response(&invalid2),
-            Err(ViscaError::InvalidResponseFormat)
+            Err(Error::InvalidResponseFormat)
         ));
 
         // Too short
         let invalid3 = [0x90, 0xFF];
         assert!(matches!(
             session.process_response(&invalid3),
-            Err(ViscaError::InvalidResponseFormat)
+            Err(Error::InvalidResponseFormat)
         ));
     }
 

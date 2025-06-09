@@ -243,7 +243,7 @@ pub trait ConnectionManagement {
     ///
     /// # Errors
     ///
-    /// Returns a `ViscaError` if the health check command fails to send or receive a response
+    /// Returns a `Error` if the health check command fails to send or receive a response
     fn is_healthy(&mut self) -> Result<bool, crate::Error>;
 
     /// Get connection statistics

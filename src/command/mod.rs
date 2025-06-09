@@ -7,7 +7,7 @@
 use crate::timeout::CommandCategory;
 
 // For backward compatibility during migration
-use crate::error::Error as ViscaError;
+use crate::error::Error;
 
 // Command modules
 pub mod color;
@@ -83,7 +83,7 @@ pub trait Command: Send + Sync {
     /// # Errors
     ///
     /// Returns `Error::InvalidParameter` if the command contains invalid parameters
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError>;
+    fn to_bytes(&self) -> Result<Vec<u8>, Error>;
 
     /// Returns the expected response type for this command.
     ///

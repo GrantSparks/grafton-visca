@@ -6,7 +6,7 @@
 // Crate imports
 use crate::{
     command::{Command, ResponseType},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -86,7 +86,7 @@ pub enum InquiryCommand {
 }
 
 impl Command for InquiryCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let bytes = match self {
             Self::Power => vec![0x81, 0x09, 0x04, 0x00, 0xFF],
             Self::PanTiltPosition => vec![0x81, 0x09, 0x06, 0x12, 0xFF],

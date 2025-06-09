@@ -10,7 +10,7 @@
 // (none)
 
 // Workspace / local-crate imports
-use crate::error::Error as ViscaError;
+use crate::error::Error;
 
 /// `PTZOptics` camera models with their specific capabilities
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -349,11 +349,11 @@ impl PositionConversion for NormalizedPosition {
 ///
 /// # Errors
 ///
-/// Returns `ViscaError::ParameterOutOfRange` if the pan position is outside the valid range for the camera model
-pub fn validate_pan_position(pos: i16, model: CameraModel) -> Result<i16, ViscaError> {
+/// Returns `Error::ParameterOutOfRange` if the pan position is outside the valid range for the camera model
+pub fn validate_pan_position(pos: i16, model: CameraModel) -> Result<i16, Error> {
     let (min, max) = model.pan_range();
     if pos < min || pos > max {
-        Err(ViscaError::ParameterOutOfRange {
+        Err(Error::ParameterOutOfRange {
             parameter: "pan".to_string(),
             value: i32::from(pos),
             min: i32::from(min),
@@ -368,11 +368,11 @@ pub fn validate_pan_position(pos: i16, model: CameraModel) -> Result<i16, ViscaE
 ///
 /// # Errors
 ///
-/// Returns `ViscaError::ParameterOutOfRange` if the tilt position is outside the valid range for the camera model
-pub fn validate_tilt_position(pos: i16, model: CameraModel) -> Result<i16, ViscaError> {
+/// Returns `Error::ParameterOutOfRange` if the tilt position is outside the valid range for the camera model
+pub fn validate_tilt_position(pos: i16, model: CameraModel) -> Result<i16, Error> {
     let (min, max) = model.tilt_range();
     if pos < min || pos > max {
-        Err(ViscaError::ParameterOutOfRange {
+        Err(Error::ParameterOutOfRange {
             parameter: "tilt".to_string(),
             value: i32::from(pos),
             min: i32::from(min),
@@ -387,11 +387,11 @@ pub fn validate_tilt_position(pos: i16, model: CameraModel) -> Result<i16, Visca
 ///
 /// # Errors
 ///
-/// Returns `ViscaError::ParameterOutOfRange` if the zoom position is outside the valid range for the camera model
-pub fn validate_zoom_position(pos: u16, model: CameraModel) -> Result<u16, ViscaError> {
+/// Returns `Error::ParameterOutOfRange` if the zoom position is outside the valid range for the camera model
+pub fn validate_zoom_position(pos: u16, model: CameraModel) -> Result<u16, Error> {
     let (min, max) = model.zoom_range();
     if pos < min || pos > max {
-        Err(ViscaError::ParameterOutOfRange {
+        Err(Error::ParameterOutOfRange {
             parameter: "zoom".to_string(),
             value: i32::from(pos),
             min: i32::from(min),
@@ -406,10 +406,10 @@ pub fn validate_zoom_position(pos: u16, model: CameraModel) -> Result<u16, Visca
 ///
 /// # Errors
 ///
-/// Returns `ViscaError::ParameterOutOfRange` if the pan speed exceeds the maximum allowed value
-pub fn validate_pan_speed(speed: u8) -> Result<u8, ViscaError> {
+/// Returns `Error::ParameterOutOfRange` if the pan speed exceeds the maximum allowed value
+pub fn validate_pan_speed(speed: u8) -> Result<u8, Error> {
     if speed > speed::PAN_SPEED_MAX {
-        Err(ViscaError::ParameterOutOfRange {
+        Err(Error::ParameterOutOfRange {
             parameter: "pan_speed".to_string(),
             value: i32::from(speed),
             min: 0,
@@ -424,10 +424,10 @@ pub fn validate_pan_speed(speed: u8) -> Result<u8, ViscaError> {
 ///
 /// # Errors
 ///
-/// Returns `ViscaError::ParameterOutOfRange` if the tilt speed exceeds the maximum allowed value
-pub fn validate_tilt_speed(speed: u8) -> Result<u8, ViscaError> {
+/// Returns `Error::ParameterOutOfRange` if the tilt speed exceeds the maximum allowed value
+pub fn validate_tilt_speed(speed: u8) -> Result<u8, Error> {
     if speed > speed::TILT_SPEED_MAX {
-        Err(ViscaError::ParameterOutOfRange {
+        Err(Error::ParameterOutOfRange {
             parameter: "tilt_speed".to_string(),
             value: i32::from(speed),
             min: 0,
@@ -442,10 +442,10 @@ pub fn validate_tilt_speed(speed: u8) -> Result<u8, ViscaError> {
 ///
 /// # Errors
 ///
-/// Returns `ViscaError::ParameterOutOfRange` if the preset ID is outside the valid range
-pub fn validate_preset_id(id: u8) -> Result<u8, ViscaError> {
+/// Returns `Error::ParameterOutOfRange` if the preset ID is outside the valid range
+pub fn validate_preset_id(id: u8) -> Result<u8, Error> {
     if id > preset::PRESET_ID_MAX {
-        Err(ViscaError::ParameterOutOfRange {
+        Err(Error::ParameterOutOfRange {
             parameter: "preset_id".to_string(),
             value: i32::from(id),
             min: i32::from(preset::PRESET_ID_MIN),

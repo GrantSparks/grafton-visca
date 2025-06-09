@@ -98,7 +98,7 @@ macro_rules! visca_command {
 /// ```ignore
 /// use grafton_visca::execute_command;
 ///
-/// fn zoom_in(&mut self) -> Result<(), ViscaError> {
+/// fn zoom_in(&mut self) -> Result<(), Error> {
 ///     execute_command!(self, ZoomCommand::TeleStandard)
 /// }
 /// ```
@@ -154,7 +154,7 @@ macro_rules! visca_bounded_param {
             /// Creates a new instance with validation.
             ///
             /// # Errors
-            /// Returns `ViscaError::InvalidParameter` if value is out of range.
+            /// Returns `Error::InvalidParameter` if value is out of range.
             pub fn new(value: $type) -> Result<Self, $crate::Error> {
                 if (Self::MIN..=Self::MAX).contains(&value) {
                     Ok(Self(value))

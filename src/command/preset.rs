@@ -12,7 +12,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{Command, ResponseType},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
 };
 
@@ -48,7 +48,7 @@ pub struct PresetCommand {
 }
 
 impl Command for PresetCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![
             0x81,
             0x01,
@@ -84,11 +84,11 @@ mod tests {
         // Invalid preset numbers
         assert!(matches!(
             PresetNumber::new(90),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
         assert!(matches!(
             PresetNumber::new(255),
-            Err(ViscaError::InvalidParameter(_))
+            Err(Error::InvalidParameter(_))
         ));
     }
 

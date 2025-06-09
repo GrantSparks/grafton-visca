@@ -10,7 +10,7 @@ use std::{future::Future, pin::Pin};
 // (none)
 
 // Workspace / local-crate imports
-use crate::{error::Error as ViscaError, Command};
+use crate::{error::Error, Command};
 
 // Submodules
 pub mod common;
@@ -31,7 +31,7 @@ pub use self::tcp_unified::UnifiedTcpTransport;
 pub use self::unified::UnifiedTransport;
 
 /// Type alias for the future returned by async transport methods.
-pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send + 'a>>;
+pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
 
 /// Primary async transport trait for VISCA communication.
 ///
@@ -55,10 +55,10 @@ pub trait Transport: Send + Sync {
 #[cfg(feature = "blocking-client")]
 pub trait BlockingTransport {
     /// Send a VISCA command to the camera synchronously.
-    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), ViscaError>;
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error>;
 
     /// Receive response frames from the camera synchronously.
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError>;
+    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error>;
 }
 
 /// Adapter that implements the async Transport trait for any BlockingTransport.
@@ -87,21 +87,21 @@ mod tests {
     struct MockBlockingTransport;
 
     impl BlockingTransport for MockBlockingTransport {
-        fn send_command_blocking(&mut self, _command: &dyn Command) -> Result<(), ViscaError> {
+        fn send_command_blocking(&mut self, _command: &dyn Command) -> Result<(), Error> {
             Ok(())
         }
 
-        fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, ViscaError> {
+        fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
             Ok(vec![vec![0x90, 0x50, 0xFF]])
         }
     }
 
     #[tokio::test]
-    async fn test_blocking_adapter() -> Result<(), ViscaError> {
+    async fn test_blocking_adapter() -> Result<(), Error> {
         struct DummyCommand;
 
         impl Command for DummyCommand {
-            fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+            fn to_bytes(&self) -> Result<Vec<u8>, Error> {
                 Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
             }
 

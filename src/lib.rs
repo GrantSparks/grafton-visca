@@ -344,7 +344,7 @@ pub use crate::types::{
 pub use crate::{
     connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
     connection_pool::{
-        CameraInfo, ConnectionType, PoolConfig, PooledCameraStats, ViscaConnectionPool,
+        CameraInfo, ConnectionType, PoolConfig, PooledCameraStats, ConnectionPool,
     },
     timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
 };
@@ -388,7 +388,7 @@ pub use crate::{
     async_transport::TransportFuture,
     async_visca_ext::{AsyncExt, PanScanDirection},
     connection::AsyncConnectionManagement,
-    connection_pool::AsyncViscaConnectionPool,
+    connection_pool::AsyncConnectionPool,
     reconnecting_transport::{
         ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
     },

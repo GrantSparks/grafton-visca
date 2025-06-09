@@ -6,7 +6,7 @@
 // Crate imports
 use crate::{
     command::{Command, ResponseType},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
     visca_param_command,
@@ -43,7 +43,7 @@ pub enum SharpnessCommand {
 }
 
 impl Command for SharpnessCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(match self {
             Self::Mode(mode) => {
                 let mode_byte = match mode {
@@ -57,7 +57,7 @@ impl Command for SharpnessCommand {
             Self::Down => vec![0x81, 0x01, 0x04, 0x02, 0x03, 0xFF],
             Self::Direct { value } => {
                 if *value > 11 {
-                    return Err(ViscaError::InvalidParameter(
+                    return Err(Error::InvalidParameter(
                         "Sharpness value must be in the range 0..=11".into(),
                     ));
                 }

@@ -6,7 +6,7 @@
 // Crate imports
 use crate::{
     command::{response::ResponseType, Command},
-    error::Error as ViscaError,
+    error::Error,
     timeout::CommandCategory,
     types::{GainLimit, GainValue},
     visca_param_command, visca_up_down_reset,
@@ -51,7 +51,7 @@ pub struct AntiFlickerCommand {
 }
 
 impl Command for AntiFlickerCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![0x81, 0x01, 0x04, 0x23, self.mode as u8, 0xFF])
     }
 
