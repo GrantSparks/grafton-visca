@@ -5,7 +5,7 @@
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    Client, Error, ViscaPositionExt, ViscaTransportExt, ViscaZoomExt,
+    Client, Error, ViscaPositionExt, ViscaPowerExt, ViscaPresetExt, ViscaTransportExt, ViscaZoomExt,
 };
 #[cfg(feature = "blocking-client")]
 use std::time::Duration;
@@ -22,8 +22,8 @@ fn main() -> Result<(), Error> {
     // Or connect using TCP
     // let mut client = Client::connect_tcp("192.168.1.100:5678")?;
 
-    // Power on the camera
-    client.power_on()?;
+    // Power on the camera using ViscaPowerExt
+    ViscaPowerExt::power_on(&mut client)?;
     println!("Camera powered on");
 
     // Wait for camera to initialize
@@ -33,8 +33,8 @@ fn main() -> Result<(), Error> {
     client.home()?;
     println!("Moved to home position");
 
-    // Save current position as preset 1 using ViscaTransportExt
-    <Client as ViscaTransportExt>::save_preset(&mut client, 1)?;
+    // Save current position as preset 1 using ViscaPresetExt
+    ViscaPresetExt::set_preset(&mut client, 1)?;
     println!("Saved preset 1");
 
     // Move camera using high-level API
@@ -51,8 +51,8 @@ fn main() -> Result<(), Error> {
     client.move_stop()?;
     println!("Continuous movement demo completed");
 
-    // Return to preset 1 (home) using ViscaTransportExt
-    <Client as ViscaTransportExt>::recall_preset(&mut client, 1)?;
+    // Return to preset 1 (home) using ViscaPresetExt
+    ViscaPresetExt::recall_preset(&mut client, 1)?;
     println!("Returned to preset 1");
 
     // Reset zoom

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use grafton_visca::command::response::{
-        parse_visca_response, ViscaResponse, ViscaResponseType,
+        parse_visca_response, Response, ViscaResponseType,
     };
     use grafton_visca::command::{InquiryCommand, ViscaCommand};
     use grafton_visca::ViscaInquiryResponse;
@@ -25,7 +25,7 @@ mod tests {
         let parsed = parse_visca_response(&response, &ViscaResponseType::Power).unwrap();
 
         match parsed {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::Power { on }) => {
                 assert!(on);
             }
             _ => panic!("Expected Power inquiry response"),
@@ -38,7 +38,7 @@ mod tests {
         let parsed = parse_visca_response(&response, &ViscaResponseType::Power).unwrap();
 
         match parsed {
-            ViscaResponse::InquiryResponse(ViscaInquiryResponse::Power { on }) => {
+            Response::InquiryResponse(ViscaInquiryResponse::Power { on }) => {
                 assert!(!on);
             }
             _ => panic!("Expected Power inquiry response"),
@@ -58,7 +58,7 @@ mod tests {
         let parsed = parse_visca_response(&response, &ViscaResponseType::Power).unwrap();
 
         match parsed {
-            ViscaResponse::Ack => (),
+            Response::Ack => (),
             _ => panic!("Expected ACK response"),
         }
     }
@@ -69,7 +69,7 @@ mod tests {
         let parsed = parse_visca_response(&response, &ViscaResponseType::Power).unwrap();
 
         match parsed {
-            ViscaResponse::Completion => (),
+            Response::Completion => (),
             _ => panic!("Expected Completion response"),
         }
     }

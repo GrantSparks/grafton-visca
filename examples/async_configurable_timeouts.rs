@@ -194,7 +194,7 @@ async fn send_and_wait_async(
             let responses = transport.receive_response().await?;
             for response_data in &responses {
                 let parsed = parse_visca_response(response_data, &expected_type)?;
-                if matches!(parsed, ViscaResponse::InquiryResponse(_)) {
+                if matches!(parsed, Response::InquiryResponse(_)) {
                     return Ok(parsed);
                 }
             }
@@ -216,7 +216,7 @@ async fn send_and_wait_async(
                         }
                         0x51 | 0x52 => {
                             // Completion
-                            return Ok(ViscaResponse::Completion);
+                            return Ok(Response::Completion);
                         }
                         0x60..=0x62 => {
                             // Error
@@ -225,7 +225,7 @@ async fn send_and_wait_async(
                             } else {
                                 0
                             };
-                            return Ok(ViscaResponse::Error(Error::from_code(error_code)));
+                            return Ok(Response::Error(Error::from_code(error_code)));
                         }
                         _ => continue,
                     }

@@ -36,7 +36,7 @@ use crate::{
     },
     error::Error as ViscaError,
     unified_client::Client as ViscaClient,
-    ViscaCommand, ViscaResponse,
+    ViscaCommand, Response,
 };
 
 /// Builder for creating PTZ command sequences.
@@ -290,7 +290,7 @@ impl PtzBuilder {
     /// # Errors
     /// Returns `ViscaError` if any command in the sequence fails to execute.
     #[cfg(feature = "blocking-client")]
-    pub fn execute_sequential(self) -> Result<Vec<ViscaResponse>, ViscaError> {
+    pub fn execute_sequential(self) -> Result<Vec<Response>, ViscaError> {
         let mut responses = Vec::with_capacity(self.commands.len());
 
         for command in self.commands {
@@ -309,7 +309,7 @@ impl PtzBuilder {
     /// # Errors
     /// Returns `ViscaError` if any command in the sequence fails to execute.
     #[cfg(feature = "async-client")]
-    pub async fn execute_sequential_async(self) -> Result<Vec<ViscaResponse>, ViscaError> {
+    pub async fn execute_sequential_async(self) -> Result<Vec<Response>, ViscaError> {
         let mut responses = Vec::with_capacity(self.commands.len());
 
         for command in self.commands {
@@ -328,7 +328,7 @@ impl PtzBuilder {
     /// # Errors
     /// Returns `ViscaError` if any command in the sequence fails to execute.
     #[cfg(feature = "async-client")]
-    pub async fn execute_concurrent(self) -> Result<Vec<ViscaResponse>, ViscaError> {
+    pub async fn execute_concurrent(self) -> Result<Vec<Response>, ViscaError> {
         use futures_util::future::try_join_all;
 
         let futures: Vec<_> = self

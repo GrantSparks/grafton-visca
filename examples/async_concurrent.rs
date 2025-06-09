@@ -50,13 +50,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (move_result, zoom_result) = tokio::join!(move_fut, zoom_fut);
 
     match move_result {
-        Ok(ViscaResponse::Completion) => println!("Pan/Tilt move completed"),
+        Ok(Response::Completion) => println!("Pan/Tilt move completed"),
         Ok(resp) => println!("Pan/Tilt move response: {:?}", resp),
         Err(e) => println!("Pan/Tilt move error: {:?}", e),
     }
 
     match zoom_result {
-        Ok(ViscaResponse::Completion) => println!("Zoom completed"),
+        Ok(Response::Completion) => println!("Zoom completed"),
         Ok(resp) => println!("Zoom response: {:?}", resp),
         Err(e) => println!("Zoom error: {:?}", e),
     }
@@ -103,15 +103,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (zoom_res, focus_res, pt_res) = tokio::join!(zoom_pos, focus_pos, pan_tilt_pos);
 
-    if let Ok(ViscaResponse::InquiryResponse(resp)) = zoom_res {
+    if let Ok(Response::InquiryResponse(resp)) = zoom_res {
         println!("Zoom position: {:?}", resp);
     }
 
-    if let Ok(ViscaResponse::InquiryResponse(resp)) = focus_res {
+    if let Ok(Response::InquiryResponse(resp)) = focus_res {
         println!("Focus position: {:?}", resp);
     }
 
-    if let Ok(ViscaResponse::InquiryResponse(resp)) = pt_res {
+    if let Ok(Response::InquiryResponse(resp)) = pt_res {
         println!("Pan/Tilt position: {:?}", resp);
     }
 

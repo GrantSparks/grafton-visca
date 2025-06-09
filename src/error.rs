@@ -637,6 +637,7 @@ impl ViscaRetry {
 }
 
 /// Application-level error type for examples and user code.
+#[doc(hidden)]
 #[derive(Error, Debug)]
 pub enum AppError {
     /// IO error from file or network operations.

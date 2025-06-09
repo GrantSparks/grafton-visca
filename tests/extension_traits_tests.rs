@@ -8,7 +8,7 @@ mod common;
 use common::{MockDevice, MockTransport};
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    ImagePreset, ViscaExposureExt, ViscaImageExt, ViscaPositionExt, ViscaTransportExt,
+    ImagePreset, ViscaExposureExt, ViscaImageExt, ViscaPositionExt, ViscaPowerExt,
     ViscaWhiteBalanceExt, ViscaZoomExt, WhiteBalancePreset,
 };
 

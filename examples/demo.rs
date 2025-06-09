@@ -16,7 +16,7 @@ use grafton_visca::command::{
     BacklightCommand, ImageFlipCombinedCommand, ImageFlipMode, NoiseReduction2DCommand,
 };
 use grafton_visca::{ContrastLevel, IrisLevel, LuminanceLevel, ShutterSpeed};
-use grafton_visca::{Client, ViscaDevice, ViscaInquiryResponse, ViscaResponse};
+use grafton_visca::{Client, Transport, ViscaInquiryResponse, Response};
 use std::thread;
 use std::time::Duration;
 
@@ -24,8 +24,8 @@ fn demo_power_control(client: &mut Client) -> Result<(), Box<dyn std::error::Err
     println!("\n📍 Demo 1: Power Control");
     println!("Powering on camera...");
     match client.execute_command(&PowerCommand { power: Power::On })? {
-        ViscaResponse::Completion => println!("✅ Camera powered on successfully"),
-        ViscaResponse::Error(e) => println!("❌ Power on error: {e:?}"),
+        Response::Completion => println!("✅ Camera powered on successfully"),
+        Response::Error(e) => println!("❌ Power on error: {e:?}"),
         _ => println!("⚠️  Unexpected response"),
     }
     thread::sleep(Duration::from_secs(2));
@@ -179,7 +179,7 @@ fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::
 
     // Query zoom position
     match client.execute_command(&InquiryCommand::ZoomPosition)? {
-        ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
+        Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) => {
             println!("  Zoom position: 0x{position:04X}");
         }
         _ => println!("  Failed to get zoom position"),
@@ -187,7 +187,7 @@ fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::
 
     // Query pan/tilt position
     match client.execute_command(&InquiryCommand::PanTiltPosition)? {
-        ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
+        Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt }) => {
             println!("  Pan/Tilt position: Pan={pan}, Tilt={tilt}");
         }
         _ => println!("  Failed to get pan/tilt position"),
@@ -195,7 +195,7 @@ fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::
 
     // Query exposure mode
     match client.execute_command(&InquiryCommand::ExposureMode)? {
-        ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) => {
+        Response::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) => {
             println!("  Exposure mode: {mode:?}");
         }
         _ => println!("  Failed to get exposure mode"),
@@ -203,7 +203,7 @@ fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::
 
     // Query white balance mode
     match client.execute_command(&InquiryCommand::WhiteBalanceMode)? {
-        ViscaResponse::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode }) => {
+        Response::InquiryResponse(ViscaInquiryResponse::WhiteBalance { mode }) => {
             println!("  White balance mode: {mode:?}");
         }
         _ => println!("  Failed to get white balance mode"),

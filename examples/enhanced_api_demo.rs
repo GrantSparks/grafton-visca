@@ -5,7 +5,7 @@
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
     ImagePreset, Client, Error, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt,
-    ViscaPositionExt, ViscaPowerExt, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
+    ViscaPositionExt, ViscaPowerExt, ViscaWhiteBalanceExt, ViscaZoomExt,
     WhiteBalancePreset,
 };
 use std::thread;

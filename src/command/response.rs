@@ -36,9 +36,6 @@ pub enum Response {
     Unknown(Vec<u8>),
 }
 
-/// Deprecated type alias for backward compatibility
-#[deprecated(since = "0.5.0", note = "Use `Response` instead")]
-pub type ViscaResponse = Response;
 
 /// Type of expected response for inquiry commands.
 ///
@@ -323,13 +320,13 @@ fn parse_position_response(
     position |= u16::from(response[5]);
 
     match position_type {
-        PositionType::Zoom => Ok(ViscaResponse::InquiryResponse(
+        PositionType::Zoom => Ok(Response::InquiryResponse(
             ViscaInquiryResponse::ZoomPosition { position },
         )),
-        PositionType::Focus => Ok(ViscaResponse::InquiryResponse(
+        PositionType::Focus => Ok(Response::InquiryResponse(
             ViscaInquiryResponse::FocusPosition { position },
         )),
-        PositionType::FocusNearLimit => Ok(ViscaResponse::InquiryResponse(
+        PositionType::FocusNearLimit => Ok(Response::InquiryResponse(
             ViscaInquiryResponse::FocusNearLimit { position },
         )),
     }

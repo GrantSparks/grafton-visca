@@ -11,10 +11,10 @@ use crate::{
         image::{NoiseReduction2DCommand, NoiseReduction3DCommand},
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         preset::{PresetAction, PresetCommand, PresetNumber},
-        zoom::{ZoomCommand, ZoomSpeed},
+        zoom::ZoomSpeed,
     },
     types::{GainValue, NoiseReduction2DLevel, NoiseReduction3DLevel},
-    error::Error as ViscaError, ViscaDevice,
+    error::Error as ViscaError, Transport,
 };
 
 /// Speed level for camera movements.
@@ -223,14 +223,14 @@ impl IrisValue {
 
 /// Builder for pan/tilt movements.
 #[derive(Debug)]
-pub struct PanTiltBuilder<'a, T: ViscaDevice> {
+pub struct PanTiltBuilder<'a, T: Transport> {
     device: &'a mut T,
     direction: Option<PanTiltDirection>,
     pan_speed: Option<PanSpeed>,
     tilt_speed: Option<TiltSpeed>,
 }
 
-impl<'a, T: ViscaDevice> PanTiltBuilder<'a, T> {
+impl<'a, T: Transport> PanTiltBuilder<'a, T> {
     /// Create a new pan/tilt builder.
     pub fn new(device: &'a mut T) -> Self {
         Self {
@@ -372,7 +372,7 @@ impl<'a, T: ViscaDevice> PanTiltBuilder<'a, T> {
 }
 
 /// High-level camera control extension trait.
-pub trait CameraControl: ViscaDevice {
+pub trait CameraControl: Transport {
     /// Create a pan/tilt movement builder.
     fn pan_tilt(&mut self) -> PanTiltBuilder<Self>
     where
@@ -381,14 +381,6 @@ pub trait CameraControl: ViscaDevice {
         PanTiltBuilder::new(self)
     }
 
-    /// Quick preset recall with validation.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the preset number is invalid or command cannot be executed.
-    #[deprecated(since = "0.5.0", note = "Use `recall_preset` instead")]
-    fn goto_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
-        self.recall_preset(preset_number)
-    }
 
     /// Recall a saved preset position.
     ///
@@ -403,47 +395,6 @@ pub trait CameraControl: ViscaDevice {
         Ok(())
     }
 
-    /// Save current position to preset.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the preset number is invalid or command cannot be executed.
-    fn save_preset(&mut self, preset_number: u8) -> Result<(), ViscaError> {
-        let preset_num = PresetNumber::new(preset_number)?;
-        self.execute_command(&PresetCommand {
-            action: PresetAction::Set,
-            preset_number: preset_num,
-        })?;
-        Ok(())
-    }
-
-    /// Set zoom with intuitive speed control.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the speed is invalid or command cannot be executed.
-    fn zoom_in(&mut self, speed: Speed) -> Result<(), ViscaError> {
-        let zoom_speed = speed.to_zoom_speed()?;
-        self.execute_command(&ZoomCommand::TeleVariable(zoom_speed))?;
-        Ok(())
-    }
-
-    /// Set zoom out with intuitive speed control.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the speed is invalid or command cannot be executed.
-    fn zoom_out(&mut self, speed: Speed) -> Result<(), ViscaError> {
-        let zoom_speed = speed.to_zoom_speed()?;
-        self.execute_command(&ZoomCommand::WideVariable(zoom_speed))?;
-        Ok(())
-    }
-
-    /// Stop zooming.
-    ///
-    /// # Errors
-    /// Returns `ViscaError` if the command cannot be executed.
-    fn zoom_stop(&mut self) -> Result<(), ViscaError> {
-        self.execute_command(&ZoomCommand::Stop)?;
-        Ok(())
-    }
 
     /// Set focus mode to auto.
     ///
@@ -576,8 +527,8 @@ pub trait CameraControl: ViscaDevice {
     }
 }
 
-// Implement for all types that implement ViscaDevice
-impl<T: ViscaDevice> CameraControl for T {}
+// Implement for all types that implement Transport
+impl<T: Transport> CameraControl for T {}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]

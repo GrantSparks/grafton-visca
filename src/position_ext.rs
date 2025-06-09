@@ -11,7 +11,7 @@ use crate::{
     },
     error::Error as ViscaError,
     pan_tilt_ext::ViscaPanTiltExt,
-    ViscaResponse,
+    Response,
 };
 
 /// Extension trait providing position control with different coordinate systems.
@@ -127,7 +127,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     {
         let response = self.execute_command(&InquiryCommand::PanTiltPosition)?;
         match response {
-            ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::PanTiltPosition {
+            Response::InquiryResponse(crate::ViscaInquiryResponse::PanTiltPosition {
                 pan,
                 tilt,
             }) => {
@@ -165,7 +165,7 @@ pub trait ViscaPositionExt: ViscaPanTiltExt {
     {
         let response = self.execute_command(&InquiryCommand::PanTiltPosition)?;
         match response {
-            ViscaResponse::InquiryResponse(crate::ViscaInquiryResponse::PanTiltPosition {
+            Response::InquiryResponse(crate::ViscaInquiryResponse::PanTiltPosition {
                 pan,
                 tilt,
             }) => {

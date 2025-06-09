@@ -1,8 +1,8 @@
-use grafton_visca::{SocketId, ViscaError, ViscaResponse, ViscaSession};
+use grafton_visca::{SocketId, Error, Response, Session};
 
 #[test]
 fn test_session_socket_management() {
-    let mut session = ViscaSession::new();
+    let mut session = Session::new();
 
     // Should be able to send two commands
     let socket1 = session.assign_socket(None).unwrap();
@@ -13,7 +13,7 @@ fn test_session_socket_management() {
 
     // Third command should fail
     let result = session.assign_socket(None);
-    assert!(matches!(result, Err(ViscaError::CommandBufferFull)));
+    assert!(matches!(result, Err(Error::CommandBufferFull)));
 
     // After releasing one socket, should be able to send another
     session.release_socket(socket1);
@@ -25,7 +25,7 @@ fn test_session_socket_management() {
 
 #[test]
 fn test_interleaved_responses() {
-    let mut session = ViscaSession::new();
+    let mut session = Session::new();
 
     // Assign two sockets
     let socket_a = session.assign_socket(None).unwrap();
@@ -49,21 +49,21 @@ fn test_interleaved_responses() {
         match i {
             0 => {
                 assert_eq!(socket_id, socket_b);
-                assert!(matches!(parsed, ViscaResponse::Ack));
+                assert!(matches!(parsed, Response::Ack));
                 // Socket B should be acknowledged
             }
             1 => {
                 assert_eq!(socket_id, socket_a);
-                assert!(matches!(parsed, ViscaResponse::Ack));
+                assert!(matches!(parsed, Response::Ack));
                 // Socket A should be acknowledged
             }
             2 => {
                 assert_eq!(socket_id, socket_b);
-                assert!(matches!(parsed, ViscaResponse::Completion));
+                assert!(matches!(parsed, Response::Completion));
             }
             3 => {
                 assert_eq!(socket_id, socket_a);
-                assert!(matches!(parsed, ViscaResponse::Completion));
+                assert!(matches!(parsed, Response::Completion));
             }
             _ => unreachable!(),
         }
@@ -72,7 +72,7 @@ fn test_interleaved_responses() {
 
 #[test]
 fn test_error_on_one_socket_doesnt_affect_other() {
-    let mut session = ViscaSession::new();
+    let mut session = Session::new();
 
     // Assign two sockets
     let socket_a = session.assign_socket(None).unwrap();
@@ -100,18 +100,18 @@ fn test_error_on_one_socket_doesnt_affect_other() {
     assert_eq!(*socket, socket_a);
     assert!(matches!(
         response,
-        ViscaResponse::Error(ViscaError::CommandNotExecutable)
+        Response::Error(Error::CommandNotExecutable)
     ));
 
     // Verify socket B completed successfully
     let (socket, response) = &results[3];
     assert_eq!(*socket, socket_b);
-    assert!(matches!(response, ViscaResponse::Completion));
+    assert!(matches!(response, Response::Completion));
 }
 
 #[test]
 fn test_response_for_unknown_socket_ignored() {
-    let mut session = ViscaSession::new();
+    let mut session = Session::new();
 
     // Only assign socket 0
     session.assign_socket(None).unwrap();
@@ -126,7 +126,7 @@ fn test_response_for_unknown_socket_ignored() {
 
 #[test]
 fn test_multiple_errors_in_sequence() {
-    let mut session = ViscaSession::new();
+    let mut session = Session::new();
     let socket = session.assign_socket(None).unwrap();
 
     // Multiple errors can occur if camera state changes
@@ -143,7 +143,7 @@ fn test_multiple_errors_in_sequence() {
 
 #[test]
 fn test_socket_reuse_after_completion() {
-    let mut session = ViscaSession::new();
+    let mut session = Session::new();
 
     // First command uses socket 0
     let socket1 = session.assign_socket(None).unwrap();

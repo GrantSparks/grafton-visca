@@ -30,6 +30,7 @@ use crate::transport::{AsyncTcpTransport, AsyncUdpTransport, Transport};
 const MAX_CONCURRENT_COMMANDS: usize = 2;
 
 /// Internal transport variant that supports both blocking and async transports.
+#[doc(hidden)]
 #[derive(Debug)]
 enum TransportVariant {
     /// Blocking UDP transport wrapped in an adapter
@@ -65,9 +66,6 @@ pub struct Client {
     semaphore: Arc<Semaphore>,
 }
 
-/// Deprecated type alias for backward compatibility
-#[deprecated(since = "0.5.0", note = "Use `Client` instead")]
-pub type ViscaClient = Client;
 
 impl Client {
     /// Creates a new client from a transport variant.
@@ -232,7 +230,7 @@ impl Client {
     /// Wait for a response on a specific socket with proper session management (blocking).
     #[cfg(not(feature = "async-client"))]
     fn wait_for_response_blocking(&self, socket_id: u8) -> Result<Response, Error> {
-        use ViscaResponse::{Ack, Completion, Error, InquiryResponse};
+        use Response::{Ack, Completion, Error as ErrorResponse, InquiryResponse};
 
         loop {
             let responses = {
@@ -512,7 +510,7 @@ pub trait ViscaClientPtzExt {
     /// # use grafton_visca::{ViscaClient, ViscaClientPtzExt};
     /// # use grafton_visca::command::pan_tilt::{PanSpeed, TiltSpeed, PanTiltDirection};
     /// # use std::sync::Arc;
-    /// # let client = Arc::new(ViscaClient::connect_udp("192.168.1.100:5678").unwrap());
+    /// # let client = Arc::new(Client::connect_udp("192.168.1.100:5678").unwrap());
     /// // Build and execute a PTZ sequence
     /// client.ptz()
     ///     .pan_tilt_home()
@@ -526,15 +524,15 @@ pub trait ViscaClientPtzExt {
     fn ptz(self) -> PtzBuilder;
 }
 
-impl ViscaClientPtzExt for Arc<ViscaClient> {
+impl ViscaClientPtzExt for Arc<Client> {
     fn ptz(self) -> PtzBuilder {
         PtzBuilder::new(self)
     }
 }
 
-// Implement ViscaDevice to support extension traits
+// Implement Transport to support extension traits
 #[cfg(feature = "blocking-client")]
-impl crate::ViscaDevice for ViscaClient {
+impl crate::Transport for Client {
     fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<Response, Error> {
         self.send(command)
     }
@@ -554,14 +552,14 @@ mod tests {
         fn assert_send<T: Send>() {}
         fn assert_sync<T: Sync>() {}
 
-        assert_send::<ViscaClient>();
-        assert_sync::<ViscaClient>();
+        assert_send::<Client>();
+        assert_sync::<Client>();
     }
 
     #[cfg(feature = "blocking-client")]
     #[test]
     fn test_client_can_be_cloned() {
-        let client = ViscaClient::connect_udp("127.0.0.1:1259").unwrap();
+        let client = Client::connect_udp("127.0.0.1:1259").unwrap();
         let client_clone = client.clone();
         // Ensure the clone is usable
         drop(client);
@@ -571,7 +569,7 @@ mod tests {
     #[cfg(feature = "blocking-client")]
     #[test]
     fn test_client_arc_usage() {
-        let client = Arc::new(ViscaClient::connect_udp("127.0.0.1:1259").unwrap());
+        let client = Arc::new(Client::connect_udp("127.0.0.1:1259").unwrap());
         let client_clone = Arc::clone(&client);
 
         let handle = thread::spawn(move || {

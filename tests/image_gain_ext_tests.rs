@@ -4,8 +4,8 @@
 
 use grafton_visca::{
     command::{AntiFlickerCommand, AntiFlickerMode, LuminanceCommand},
-    LuminanceLevel, ViscaCommand, ViscaDevice, ViscaError, ViscaExposureExt, ViscaImageExt,
-    ViscaResponse,
+    LuminanceLevel, ViscaCommand, Transport, Error, ViscaExposureExt, ViscaImageExt,
+    Response,
 };
 
 /// Mock device for testing extension traits
@@ -27,10 +27,10 @@ impl MockDevice {
     }
 }
 
-impl ViscaDevice for MockDevice {
-    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<ViscaResponse, ViscaError> {
+impl Transport for MockDevice {
+    fn execute_command(&mut self, command: &dyn ViscaCommand) -> Result<Response, Error> {
         self.last_command = Some(command.to_bytes()?);
-        Ok(ViscaResponse::Completion)
+        Ok(Response::Completion)
     }
 }
 
@@ -70,7 +70,7 @@ fn test_set_luminance() {
     // Test out of range
     let result = device.set_luminance(15);
     assert!(result.is_err());
-    if let Err(ViscaError::InvalidParameter(msg)) = result {
+    if let Err(Error::InvalidParameter(msg)) = result {
         assert!(msg.contains("0-14"));
     } else {
         panic!("Expected InvalidParameter error");

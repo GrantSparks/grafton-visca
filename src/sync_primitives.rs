@@ -35,12 +35,12 @@ mod async_semaphore {
             }
         }
 
-        pub async fn acquire(&self) -> Result<Permit<'_>, crate::ViscaError> {
+        pub async fn acquire(&self) -> Result<Permit<'_>, crate::Error> {
             let permit = self
                 .inner
                 .acquire()
                 .await
-                .map_err(|_| crate::ViscaError::InvalidParameter("Semaphore closed".into()))?;
+                .map_err(|_| crate::Error::InvalidParameter("Semaphore closed".into()))?;
             Ok(Permit { _permit: permit })
         }
     }
@@ -109,7 +109,7 @@ pub trait SemaphoreExt {
         Self: 'a;
 
     #[cfg(feature = "async-client")]
-    async fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::ViscaError>;
+    async fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::Error>;
 
     #[cfg(not(feature = "async-client"))]
     fn acquire_permit(&self) -> Self::Permit<'_>;
@@ -122,7 +122,7 @@ impl SemaphoreExt for Semaphore {
         Self: 'a;
 
     #[cfg(feature = "async-client")]
-    async fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::ViscaError> {
+    async fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::Error> {
         self.acquire().await
     }
 

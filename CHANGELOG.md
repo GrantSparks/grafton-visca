@@ -10,42 +10,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - New consolidated extension traits for cleaner API
 - Comprehensive prelude module with all commonly used types
-- Backward compatibility through deprecated type aliases
 
 ### Changed
-- **BREAKING**: Core types renamed for consistency with Rust conventions:
-  - `ViscaClient` → `Client` 
-  - `ViscaError` → `Error`
-  - `ViscaSession` → `Session`
-  - `ViscaResponse` → `Response`
+- **BREAKING**: Complete API overhaul for consistency and clarity:
+  - Core types renamed:
+    - `ViscaClient` → `Client` 
+    - `ViscaError` → `Error`
+    - `ViscaSession` → `Session`
+    - `ViscaResponse` → `Response`
+  - Method names aligned with VISCA specification:
+    - `save_preset` → `set_preset` (matches VISCA terminology)
+    - `goto_preset` → `recall_preset` (matches VISCA terminology)
+  - Removed duplicate methods:
+    - Removed `power_on`/`power_off` (use `PowerCommand` directly)
+    - Removed `zoom_in`/`zoom_out` convenience methods (use variable speed methods)
 - Consolidated duplicate APIs into single extension traits
-- Fixed preset terminology: `goto_preset` → `recall_preset`
+- Made internal implementation details private:
+  - `AppError` is now private
+  - `TransportVariant` is now internal
+  - `BlockingAdapter` is now internal
 
-### Deprecated
-- Old type names (still available but will be removed in v0.5.0)
-- Duplicate methods in `ViscaTransportExt` 
-- All traits in `ext/unified.rs` module
+### Removed
+- All deprecated type aliases (clean break for v0.4.0)
+- Duplicate methods in extension traits
+- Orphaned async extension files
+- Old convenience methods that didn't match VISCA spec
 
 ### Migration Guide
 
-#### Step 1: Update Imports
+Since v0.4.0 is a clean break, you'll need to update your code as follows:
 
-If you're using explicit imports, update them to the new names:
+#### Step 1: Update Imports
 
 ```rust
 // Old
-use grafton_visca::{ViscaClient, ViscaError};
+use grafton_visca::{ViscaClient, ViscaError, ViscaResponse, ViscaSession};
 
-// New (recommended)
-use grafton_visca::{Client, Error};
+// New
+use grafton_visca::{Client, Error, Response, Session};
 
 // Or use the prelude for convenience
 use grafton_visca::prelude::*;
 ```
 
-#### Step 2: Update Type References
+#### Step 2: Update Method Calls
 
-Update any explicit type annotations:
+```rust
+// Old power control
+client.power_on()?;
+client.power_off()?;
+
+// New - use PowerCommand directly
+use grafton_visca::command::{PowerCommand, power::Power};
+client.execute_command(&PowerCommand { power: Power::On })?;
+client.execute_command(&PowerCommand { power: Power::Standby })?;
+
+// Old zoom methods
+client.zoom_in()?;
+client.zoom_out()?;
+
+// New - use variable speed methods
+client.zoom_in_variable(None)?;  // Standard speed
+client.zoom_out_variable(Some(ZoomSpeed::new(5)?))?;  // Custom speed
+
+// Old preset method
+client.save_preset(1)?;
+
+// New - matches VISCA spec
+client.set_preset(1)?;
+```
+
+#### Step 3: Update Type Annotations
 
 ```rust
 // Old
@@ -83,14 +118,6 @@ use grafton_visca::{ViscaTransportExt, ext::unified::PowerExt};
 use grafton_visca::ViscaPowerExt;
 ```
 
-#### Gradual Migration
-
-The old type names are still available as deprecated aliases, so your existing code will continue to compile. You can migrate gradually:
-
-1. Update your imports to use new names
-2. Run `cargo check` to see deprecation warnings
-3. Fix warnings at your own pace
-4. The deprecated aliases will be removed in v0.5.0
 
 ### Additional v0.4.0 Features
 

@@ -4,7 +4,7 @@ use grafton_visca::{
         zoom::{ZoomCommand, ZoomSpeed},
         InquiryCommand, PanTiltCommand,
     },
-    AppError, Client, ViscaInquiryResponse, ViscaResponse,
+    AppError, Client, ViscaInquiryResponse, Response,
 };
 use log::{debug, error, info};
 use std::{env, time::Duration};
@@ -100,7 +100,7 @@ fn perform_zoom_movements(client: &Client) -> Result<(), AppError> {
         std::thread::sleep(Duration::from_secs(3));
 
         debug!("Inquiring Zoom position after {command:?}");
-        if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
+        if let Ok(Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
             client.send(&InquiryCommand::ZoomPosition)
         {
             info!("Zoom position after {command:?}: {position}");
@@ -117,7 +117,7 @@ fn perform_zoom_movements(client: &Client) -> Result<(), AppError> {
 
 fn inquire_pan_tilt_position(client: &Client) {
     debug!("Inquiring Pan/Tilt position");
-    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
+    if let Ok(Response::InquiryResponse(ViscaInquiryResponse::PanTiltPosition { pan, tilt })) =
         client.send(&InquiryCommand::PanTiltPosition)
     {
         info!("Pan position: {pan}, Tilt position: {tilt}");
@@ -128,7 +128,7 @@ fn inquire_pan_tilt_position(client: &Client) {
 
 fn inquire_zoom_position(client: &Client, label: &str) {
     debug!("Inquiring {label} Zoom position");
-    if let Ok(ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
+    if let Ok(Response::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position })) =
         client.send(&InquiryCommand::ZoomPosition)
     {
         info!("{label} Zoom position: {position}");

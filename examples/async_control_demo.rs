@@ -49,14 +49,14 @@ async fn main() -> Result<(), Error> {
         tokio::join!(power_future, position_future, zoom_future);
 
     // Handle power response
-    if let Ok(ViscaResponse::InquiryResponse(grafton_visca::ViscaInquiryResponse::Power { on })) =
+    if let Ok(Response::InquiryResponse(grafton_visca::ViscaInquiryResponse::Power { on })) =
         power_result
     {
         println!("   - Power: {}", if on { "ON" } else { "OFF" });
     }
 
     // Handle position response
-    if let Ok(ViscaResponse::InquiryResponse(
+    if let Ok(Response::InquiryResponse(
         grafton_visca::ViscaInquiryResponse::PanTiltPosition { pan, tilt },
     )) = position_result
     {
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Error> {
     }
 
     // Handle zoom response
-    if let Ok(ViscaResponse::InquiryResponse(grafton_visca::ViscaInquiryResponse::ZoomPosition {
+    if let Ok(Response::InquiryResponse(grafton_visca::ViscaInquiryResponse::ZoomPosition {
         position,
     })) = zoom_result
     {
