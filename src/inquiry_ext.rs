@@ -10,7 +10,7 @@
 use crate::{
     command::{
         exposure::ExposureMode,
-        focus::{AFSensitivity, FocusZone},
+        focus::{AutoFocusSensitivity, FocusZone},
         gain::AntiFlickerMode,
         inquiry::InquiryCommand,
         luminance_contrast_sharpness::SharpnessMode,
@@ -517,7 +517,7 @@ pub trait InquiryExt: Transport {
     /// # Errors
     /// Returns `Error` if the query command fails, response parsing fails,
     /// communication times out, or the camera returns an unexpected response type.
-    fn get_af_sensitivity(&mut self) -> Result<AFSensitivity, Error>
+    fn get_af_sensitivity(&mut self) -> Result<AutoFocusSensitivity, Error>
     where
         Self: Sized,
     {

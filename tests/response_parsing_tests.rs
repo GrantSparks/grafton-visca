@@ -1,6 +1,6 @@
 use grafton_visca::command::gain::AntiFlickerMode;
 use grafton_visca::command::response::{parse_visca_response, Response};
-use grafton_visca::command::{AFSensitivity, FocusZone, SharpnessMode};
+use grafton_visca::command::{AutoFocusSensitivity, FocusZone, SharpnessMode};
 use grafton_visca::command::{InquiryResponse, ResponseType};
 use grafton_visca::Error;
 
@@ -575,7 +575,7 @@ mod response_parsing_tests {
         }
     }
 
-    fn test_af_sensitivity_response(sens_value: u8, _expected_sensitivity: AFSensitivity) {
+    fn test_af_sensitivity_response(sens_value: u8, _expected_sensitivity: AutoFocusSensitivity) {
         let bytes = vec![0x90, 0x50, sens_value, 0xFF];
         let response = parse_visca_response(&bytes, &ResponseType::AFSensitivity);
         match response {
@@ -633,7 +633,7 @@ mod response_parsing_tests {
         test_focus_zone_response(0x01, FocusZone::Center);
 
         // Test AFSensitivity response
-        test_af_sensitivity_response(0x02, AFSensitivity::High);
+        test_af_sensitivity_response(0x02, AutoFocusSensitivity::High);
 
         // Test FocusNearLimit response
         test_focus_near_limit_response(0x1234);

@@ -107,36 +107,36 @@ mod golden_vector_tests {
             "Zoom Stop should produce correct byte sequence"
         );
 
-        // Zoom Tele Standard
-        let zoom_tele = ZoomCommand::TeleStandard;
+        // Zoom In Standard
+        let zoom_in = ZoomCommand::ZoomInStandard;
         assert_eq!(
-            zoom_tele.to_bytes().unwrap(),
+            zoom_in.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF],
-            "Zoom Tele Standard should produce correct byte sequence"
+            "Zoom In Standard should produce correct byte sequence"
         );
 
-        // Zoom Wide Standard
-        let zoom_wide = ZoomCommand::WideStandard;
+        // Zoom Out Standard
+        let zoom_out = ZoomCommand::ZoomOutStandard;
         assert_eq!(
-            zoom_wide.to_bytes().unwrap(),
+            zoom_out.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF],
-            "Zoom Wide Standard should produce correct byte sequence"
+            "Zoom Out Standard should produce correct byte sequence"
         );
 
-        // Zoom Tele Variable with speed
-        let zoom_tele_var = ZoomCommand::TeleVariable(ZoomSpeed::new(5).unwrap());
+        // Zoom In Variable with speed
+        let zoom_in_var = ZoomCommand::ZoomInVariable(ZoomSpeed::new(5).unwrap());
         assert_eq!(
-            zoom_tele_var.to_bytes().unwrap(),
+            zoom_in_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF], // 0x20 | 5 = 0x25
-            "Zoom Tele Variable with speed 5 should produce correct byte sequence"
+            "Zoom In Variable with speed 5 should produce correct byte sequence"
         );
 
-        // Zoom Wide Variable with max speed
-        let zoom_wide_var = ZoomCommand::WideVariable(ZoomSpeed::new(7).unwrap());
+        // Zoom Out Variable with max speed
+        let zoom_out_var = ZoomCommand::ZoomOutVariable(ZoomSpeed::new(7).unwrap());
         assert_eq!(
-            zoom_wide_var.to_bytes().unwrap(),
+            zoom_out_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF], // 0x30 | 7 = 0x37
-            "Zoom Wide Variable with max speed should produce correct byte sequence"
+            "Zoom Out Variable with max speed should produce correct byte sequence"
         );
     }
 
@@ -893,8 +893,8 @@ mod golden_vector_tests {
         );
 
         // AF Sensitivity High
-        let af_high = AFSensitivityCommand {
-            sensitivity: AFSensitivity::High,
+        let af_high = AutoFocusSensitivityCommand {
+            sensitivity: AutoFocusSensitivity::High,
         };
         assert_eq!(
             af_high.to_bytes().unwrap(),

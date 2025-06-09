@@ -84,7 +84,7 @@ name = "control_demo"
 required-features = ["blocking-client"]
 
 [[example]]
-name = "demo"
+name = "basic_camera_demo"
 required-features = ["blocking-client"]
 
 [[example]]
@@ -100,10 +100,10 @@ name = "inquiry_demo"
 required-features = ["blocking-client"]
 
 [[example]]
-name = "phase_a_test"
+name = "transport_basic_demo"
 
 [[example]]
-name = "phase_b_unified_demo"
+name = "unified_client_demo"
 
 [[example]]
 name = "position_conversion"
@@ -116,10 +116,10 @@ required-features = ["blocking-client"]
 name = "declarative_macro_test"
 
 [[example]]
-name = "phase_d_ergonomic_apis"
+name = "ptz_builder_demo"
 
 [[example]]
-name = "phase_e_error_handling"
+name = "error_handling_demo"
 
 [[example]]
 name = "enhanced_api_demo"
@@ -130,7 +130,7 @@ name = "transport_extension_demo"
 required-features = ["blocking-client"]
 
 [[example]]
-name = "simple_demo"
+name = "quick_start_demo"
 required-features = ["blocking-client"]
 
 [[example]]

@@ -79,7 +79,7 @@ jobs:
         if: matrix.rust == 'stable'
         run: |
           cargo build --example hello_visca
-          cargo build --example demo
+          cargo build --example basic_camera_demo
           cargo build --example async_concurrent --features async-client
 
   # Combined lint and doc check
