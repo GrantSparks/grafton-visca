@@ -203,7 +203,7 @@ impl PtzBuilder {
     /// Add a focus near command.
     #[must_use]
     pub fn focus_near(mut self) -> Self {
-        self.commands.push(Box::new(FocusCommand::NearStandard));
+        self.commands.push(Box::new(FocusCommand::FocusNearStandard));
         self
     }
 
@@ -226,7 +226,7 @@ impl PtzBuilder {
     /// Add a focus far command.
     #[must_use]
     pub fn focus_far(mut self) -> Self {
-        self.commands.push(Box::new(FocusCommand::FarStandard));
+        self.commands.push(Box::new(FocusCommand::FocusFarStandard));
         self
     }
 

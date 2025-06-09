@@ -137,18 +137,16 @@ pub enum ResponseType {
     BlockPowerImageEffect,
     /// Block image control inquiry response.
     BlockImage,
-    /// Zoom wide standard operation inquiry response.
-    ZoomWideStandard,
-    /// Zoom tele standard operation inquiry response.
-    ZoomTeleStandard,
+    /// Zoom out standard operation inquiry response.
+    ZoomOutStandard,
+    /// Zoom in standard operation inquiry response.
+    ZoomInStandard,
     /// 2D noise reduction setting inquiry response.
     NoiseReduction2D,
     /// 3D noise reduction setting inquiry response.
     NoiseReduction3D,
     /// Black and white mode inquiry response.
     BlackWhite,
-    /// Auto-focus sensitivity inquiry response.
-    AFSensitivity,
     /// Focus near limit position inquiry response.
     FocusNearLimit,
     /// Dynamic range control level inquiry response (0-8).
@@ -255,8 +253,8 @@ fn parse_inquiry_response(response: &[u8], response_type: ResponseType) -> Resul
         ResponseType::FocusZone => {
             parse_value_response(response, ValueType::Simple(SimpleValueType::FocusZone))
         }
-        ResponseType::AFSensitivity => {
-            parse_value_response(response, ValueType::Simple(SimpleValueType::AFSensitivity))
+        ResponseType::AutoFocusSensitivity => {
+            parse_value_response(response, ValueType::Simple(SimpleValueType::AutoFocusSensitivity))
         }
         ResponseType::FocusNearLimit => {
             parse_position_response(response, PositionType::FocusNearLimit)
@@ -447,14 +445,14 @@ fn parse_simple_value(response: &[u8], value_type: SimpleValueType) -> Result<Re
                 zone,
             }))
         }
-        SimpleValueType::AFSensitivity => {
+        SimpleValueType::AutoFocusSensitivity => {
             let sensitivity = match response[2] {
                 0x02 => AutoFocusSensitivity::High,
                 0x01 => AutoFocusSensitivity::Normal,
                 0x00 => AutoFocusSensitivity::Low,
                 _ => return Err(Error::UnexpectedResponseType),
             };
-            Ok(Response::InquiryResponse(InquiryResponse::AFSensitivity {
+            Ok(Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity {
                 sensitivity,
             }))
         }
@@ -561,7 +559,7 @@ enum SimpleValueType {
     NoiseReduction2D,
     NoiseReduction3D,
     FocusZone,
-    AFSensitivity,
+    AutoFocusSensitivity,
 }
 
 #[derive(Debug, Clone, Copy)]

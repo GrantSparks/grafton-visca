@@ -35,9 +35,9 @@ pub enum FocusCommand {
     /// Stop any focus movement.
     Stop,
     /// Move focus far at standard speed.
-    FarStandard,
+    FocusFarStandard,
     /// Move focus near at standard speed.
-    NearStandard,
+    FocusNearStandard,
     /// Move focus far at variable speed.
     FarVariable(FocusSpeed),
     /// Move focus near at variable speed.
@@ -58,8 +58,8 @@ impl Command for FocusCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]),
-            Self::FarStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]),
-            Self::NearStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]),
+            Self::FocusFarStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]),
+            Self::FocusNearStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]),
             Self::FarVariable(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed.value(), 0xFF])
             }
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_focus_command_far_standard() {
-        let cmd = FocusCommand::FarStandard;
+        let cmd = FocusCommand::FocusFarStandard;
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_focus_command_near_standard() {
-        let cmd = FocusCommand::NearStandard;
+        let cmd = FocusCommand::FocusNearStandard;
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]

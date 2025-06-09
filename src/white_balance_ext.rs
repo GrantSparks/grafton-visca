@@ -59,14 +59,14 @@ pub trait WhiteBalanceExt: Transport {
     /// # use grafton_visca::{Error, Transport, WhiteBalanceExt};
     /// # fn example(client: &mut impl Transport) -> Result<(), Error> {
     /// // Set to approximately 5600K (daylight)
-    /// client.set_color_temperature_direct(0x1C)?;
+    /// client.set_color_temperature(0x1C)?;
     ///
     /// // Set to approximately 3200K (tungsten)
-    /// client.set_color_temperature_direct(0x0B)?;
+    /// client.set_color_temperature(0x0B)?;
     /// # Ok(())
     /// # }
     /// ```
-    fn set_color_temperature_direct(&mut self, value: u16) -> Result<(), Error> {
+    fn set_color_temperature(&mut self, value: u16) -> Result<(), Error> {
         let command = ColorTemperatureCommand::Direct(value);
         match self.execute_command(&command)? {
             Response::Completion => {}
@@ -462,19 +462,19 @@ pub trait WhiteBalanceExt: Transport {
             WhiteBalancePreset::Auto => self.set_white_balance_mode(WhiteBalanceMode::Auto),
             WhiteBalancePreset::Daylight => {
                 self.set_white_balance_mode(WhiteBalanceMode::ColorTemperature)?;
-                self.set_color_temperature_direct(0x1C) // ~5600K
+                self.set_color_temperature(0x1C) // ~5600K
             }
             WhiteBalancePreset::Cloudy => {
                 self.set_white_balance_mode(WhiteBalanceMode::ColorTemperature)?;
-                self.set_color_temperature_direct(0x24) // ~6500K
+                self.set_color_temperature(0x24) // ~6500K
             }
             WhiteBalancePreset::Tungsten => {
                 self.set_white_balance_mode(WhiteBalanceMode::ColorTemperature)?;
-                self.set_color_temperature_direct(0x0B) // ~3200K
+                self.set_color_temperature(0x0B) // ~3200K
             }
             WhiteBalancePreset::Fluorescent => {
                 self.set_white_balance_mode(WhiteBalanceMode::ColorTemperature)?;
-                self.set_color_temperature_direct(0x15) // ~4000K
+                self.set_color_temperature(0x15) // ~4000K
             }
             WhiteBalancePreset::Indoor => self.set_white_balance_mode(WhiteBalanceMode::Indoor),
             WhiteBalancePreset::Outdoor => self.set_white_balance_mode(WhiteBalanceMode::Outdoor),

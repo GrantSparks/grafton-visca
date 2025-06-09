@@ -105,8 +105,8 @@ impl Command for ZoomCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::ZoomInStandard => Some(ResponseType::ZoomTeleStandard),
-            Self::ZoomOutStandard => Some(ResponseType::ZoomWideStandard),
+            Self::ZoomInStandard => Some(ResponseType::ZoomInStandard),
+            Self::ZoomOutStandard => Some(ResponseType::ZoomOutStandard),
             _ => None,
         }
     }

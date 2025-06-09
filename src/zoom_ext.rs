@@ -62,13 +62,13 @@ pub trait ZoomExt: Transport {
     /// # use grafton_visca::{Error, Client, ZoomExt, ZoomSpeed};
     /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// // Zoom in at standard speed
-    /// client.zoom_in_variable(None)?;
+    /// client.zoom_in_speed(None)?;
     ///
     /// // Zoom in at maximum speed
-    /// client.zoom_in_variable(Some(ZoomSpeed::new(7)?))?;
+    /// client.zoom_in_speed(Some(ZoomSpeed::new(7)?))?;
     ///
     /// // Using TryFrom for convenience
-    /// client.zoom_in_variable(Some(7.try_into()?))?;
+    /// client.zoom_in_speed(Some(7.try_into()?))?;
     /// # Ok(())
     /// # }
     /// # }
@@ -79,7 +79,7 @@ pub trait ZoomExt: Transport {
     /// Returns `Error::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
-    fn zoom_in_variable(&mut self, speed: Option<ZoomSpeed>) -> Result<(), Error> {
+    fn zoom_in_speed(&mut self, speed: Option<ZoomSpeed>) -> Result<(), Error> {
         let command = speed.map_or(ZoomCommand::ZoomInStandard, ZoomCommand::ZoomInVariable);
         match self.execute_command(&command)? {
             Response::Completion => Ok(()),
@@ -100,10 +100,10 @@ pub trait ZoomExt: Transport {
     /// # use grafton_visca::{Error, Client, ZoomExt, ZoomSpeed};
     /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// // Zoom out at standard speed
-    /// client.zoom_out_variable(None)?;
+    /// client.zoom_out_speed(None)?;
     ///
     /// // Zoom out at slow speed
-    /// client.zoom_out_variable(Some(ZoomSpeed::new(2)?))?;
+    /// client.zoom_out_speed(Some(ZoomSpeed::new(2)?))?;
     /// # Ok(())
     /// # }
     /// # }
@@ -113,7 +113,7 @@ pub trait ZoomExt: Transport {
     /// Returns `Error::UnexpectedResponseType` if camera returns unexpected response.
     /// Returns camera-specific errors if the command is rejected.
     /// Returns transport errors if communication fails.
-    fn zoom_out_variable(&mut self, speed: Option<ZoomSpeed>) -> Result<(), Error> {
+    fn zoom_out_speed(&mut self, speed: Option<ZoomSpeed>) -> Result<(), Error> {
         let command = speed.map_or(ZoomCommand::ZoomOutStandard, ZoomCommand::ZoomOutVariable);
         match self.execute_command(&command)? {
             Response::Completion => Ok(()),
@@ -131,7 +131,7 @@ pub trait ZoomExt: Transport {
     /// # use grafton_visca::{Error, Client, ZoomExt};
     /// # fn example(client: &mut Client) -> Result<(), Error> {
     /// // Start zooming in
-    /// client.zoom_in_variable(None)?;
+    /// client.zoom_in_speed(None)?;
     ///
     /// // ... wait some time ...
     ///
@@ -286,7 +286,7 @@ pub trait ZoomExt: Transport {
     /// Start zooming in (telephoto direction) at standard speed.
     ///
     /// This is a convenience method that zooms in at the camera's standard speed.
-    /// For variable speed control, use `zoom_in_variable()`.
+    /// For variable speed control, use `zoom_in_speed()`.
     ///
     /// # Example
     /// ```no_run
@@ -307,13 +307,13 @@ pub trait ZoomExt: Transport {
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
     fn zoom_in(&mut self) -> Result<(), Error> {
-        self.zoom_in_variable(None)
+        self.zoom_in_speed(None)
     }
 
     /// Start zooming out (wide direction) at standard speed.
     ///
     /// This is a convenience method that zooms out at the camera's standard speed.
-    /// For variable speed control, use `zoom_out_variable()`.
+    /// For variable speed control, use `zoom_out_speed()`.
     ///
     /// # Example
     /// ```no_run
@@ -334,7 +334,7 @@ pub trait ZoomExt: Transport {
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
     fn zoom_out(&mut self) -> Result<(), Error> {
-        self.zoom_out_variable(None)
+        self.zoom_out_speed(None)
     }
 }
 
