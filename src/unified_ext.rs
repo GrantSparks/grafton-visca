@@ -14,19 +14,19 @@
 //! # Example
 //!
 //! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(feature = "blocking-client")]
-//! # use grafton_visca::{ViscaClient, ViscaError, CameraExt};
-//! # #[cfg(feature = "blocking-client")]
-//! # fn example(camera: &ViscaClient) -> Result<(), ViscaError> {
+//! # {
+//! use grafton_visca::{ViscaClient, ViscaError, CameraExt};
+//! let camera = ViscaClient::connect_udp("192.168.1.100:5678")?;
 //! // Works in both sync and async contexts!
 //! if camera.is_powered_on()? {
 //!     camera.zoom_to_position(0x4000)?;
 //!     camera.save_current_as_preset(1)?;
 //! }
+//! # }
 //! # Ok(())
 //! # }
-//! # #[cfg(not(feature = "blocking-client"))]
-//! # fn main() {}
 //! ```
 
 use crate::{
