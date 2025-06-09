@@ -6,7 +6,7 @@
 // Crate imports
 use crate::{
     command::{response::ViscaResponseType, ViscaCommand},
-    error::ViscaError,
+    error::Error as ViscaError,
     timeout::CommandCategory,
 };
 

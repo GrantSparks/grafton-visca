@@ -3,7 +3,7 @@
 // Crate imports
 use crate::{
     command::focus::{FocusCommand, FocusSpeed},
-    error::ViscaError,
+    error::Error as ViscaError,
     ViscaDevice, ViscaResponse,
 };
 

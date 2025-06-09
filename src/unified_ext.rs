@@ -35,7 +35,7 @@ use crate::{
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
         zoom::ZoomSpeed,
     },
-    ViscaClient, ViscaError,
+    error::Error as ViscaError, unified_client::Client as ViscaClient,
 };
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]

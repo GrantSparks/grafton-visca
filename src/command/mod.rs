@@ -4,7 +4,7 @@
 //! organized by functionality.
 
 // Crate imports
-use crate::{timeout::CommandCategory, ViscaError};
+use crate::{error::Error as ViscaError, timeout::CommandCategory};
 
 // Command modules
 pub mod color;

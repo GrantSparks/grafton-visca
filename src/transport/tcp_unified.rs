@@ -12,7 +12,7 @@ use std::io;
 use super::common::{log_frame, parse_frame_type, FrameType};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{ViscaCommand, ViscaError};
+use crate::{error::Error as ViscaError, ViscaCommand};
 
 #[cfg(feature = "blocking-client")]
 use std::net::TcpStream;

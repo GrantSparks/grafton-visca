@@ -3,7 +3,7 @@
 // Crate imports
 use crate::{
     command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-    error::ViscaError,
+    error::Error as ViscaError,
     ViscaDevice, ViscaResponse,
 };
 

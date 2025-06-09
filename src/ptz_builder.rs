@@ -34,8 +34,9 @@ use crate::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         zoom::{ZoomCommand, ZoomSpeed},
     },
-    unified_client::ViscaClient,
-    ViscaCommand, ViscaError, ViscaResponse,
+    error::Error as ViscaError,
+    unified_client::Client as ViscaClient,
+    ViscaCommand, ViscaResponse,
 };
 
 /// Builder for creating PTZ command sequences.

@@ -13,7 +13,7 @@ use crate::{
         ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode, GainCommand,
         GainLimitCommand, IrisCommand, ShutterCommand,
     },
-    error::ViscaError,
+    error::Error as ViscaError,
     execute_command, ViscaDevice,
 };
 

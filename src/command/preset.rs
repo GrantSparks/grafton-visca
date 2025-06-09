@@ -12,7 +12,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{ViscaCommand, ViscaResponseType},
-    error::ViscaError,
+    error::Error as ViscaError,
     timeout::CommandCategory,
 };
 

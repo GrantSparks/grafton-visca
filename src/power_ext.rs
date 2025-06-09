@@ -2,7 +2,7 @@
 
 // Crate imports
 use crate::{
-    command::InquiryCommand, error::ViscaError, transport_ext::ViscaTransportExt, ViscaDevice,
+    command::InquiryCommand, error::Error as ViscaError, transport_ext::ViscaTransportExt, ViscaDevice,
     ViscaResponse,
 };
 

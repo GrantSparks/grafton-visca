@@ -15,7 +15,7 @@ use tokio::time::sleep;
 use crate::{
     connection::ConnectionStats,
     transport::{Transport, TransportFuture},
-    ViscaCommand, ViscaError,
+    error::Error as ViscaError, ViscaCommand,
 };
 
 /// Type alias for transport creation function

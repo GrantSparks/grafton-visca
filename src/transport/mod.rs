@@ -10,7 +10,7 @@ use std::{future::Future, pin::Pin};
 // (none)
 
 // Workspace / local-crate imports
-use crate::{ViscaCommand, ViscaError};
+use crate::{error::Error as ViscaError, ViscaCommand};
 
 // Submodules
 pub mod common;

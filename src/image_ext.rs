@@ -7,7 +7,7 @@ use crate::{
         LuminanceCommand, NoiseReduction2DCommand, NoiseReduction3DCommand, SaturationCommand,
         SharpnessCommand,
     },
-    error::ViscaError,
+    error::Error as ViscaError,
     ViscaDevice, ViscaResponse,
 };
 

@@ -34,7 +34,7 @@ use crate::{
         zoom::{ZoomCommand, ZoomSpeed},
     },
     unified_client::{ViscaClient, ViscaClientPtzExt},
-    ViscaError,
+    error::Error as ViscaError,
 };
 
 /// Async extension trait for high-level camera operations.

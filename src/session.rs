@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use log::{debug, error};
 
 use crate::{
-    command::response::parse_visca_response as parse_response_typed, types::SocketId, ViscaError,
+    command::response::{parse_visca_response as parse_response_typed, Response},
+    error::Error as ViscaError,
+    types::SocketId,
     ViscaResponse, ViscaResponseType,
 };
 
@@ -13,7 +15,7 @@ fn parse_visca_response(
     response_type: Option<ViscaResponseType>,
 ) -> Result<ViscaResponse, ViscaError> {
     if data.len() < 3 || data[0] != 0x90 || data[data.len() - 1] != 0xFF {
-        return Err(Error::InvalidResponseFormat);
+        return Err(ViscaError::InvalidResponseFormat);
     }
 
     match data[1] {
@@ -30,9 +32,9 @@ fn parse_visca_response(
         }
         0x60..=0x6F => {
             if data.len() >= 3 {
-                Err(Error::from_code(data[2]))
+                Err(ViscaError::from_code(data[2]))
             } else {
-                Err(Error::InvalidResponseFormat)
+                Err(ViscaError::InvalidResponseFormat)
             }
         }
         _ => Ok(ViscaResponse::Unknown(data.to_vec())),
@@ -54,6 +56,10 @@ pub struct Session {
     /// Maps socket IDs to pending commands
     pending_commands: HashMap<SocketId, PendingCommand>,
 }
+
+/// Deprecated type alias for backward compatibility
+#[deprecated(since = "0.5.0", note = "Use `Session` instead")]
+pub type ViscaSession = Session;
 
 impl Session {
     /// Creates a new VISCA session with no pending commands.
@@ -118,7 +124,7 @@ impl Session {
         response: &[u8],
     ) -> Result<Option<(SocketId, ViscaResponse)>, ViscaError> {
         if response.len() < 3 || response[0] != 0x90 || response[response.len() - 1] != 0xFF {
-            return Err(Error::InvalidResponseFormat);
+            return Err(ViscaError::InvalidResponseFormat);
         }
 
         match response[1] {
@@ -160,7 +166,7 @@ impl Session {
                                     error!(
                                         "Received data response for non-inquiry command on {socket_id}"
                                     );
-                                    Err(Error::UnexpectedResponseType)
+                                    Err(ViscaError::UnexpectedResponseType)
                                 },
                                 |response_type| match parse_response_typed(response, &response_type) {
                                     Ok(parsed) => {
@@ -187,17 +193,17 @@ impl Session {
 
                 if response.len() >= 4 {
                     let error_code = response[2];
-                    let error = Error::from_code(error_code);
+                    let error = ViscaError::from_code(error_code);
                     error!("Error response for {socket_id}: {error}");
                     Ok(Some((socket_id, Response::Error(error))))
                 } else {
-                    Err(Error::InvalidResponseFormat)
+                    Err(ViscaError::InvalidResponseFormat)
                 }
             }
 
             _ => {
                 error!("Unknown response type: {:#02X}", response[1]);
-                Err(Error::InvalidResponseFormat)
+                Err(ViscaError::InvalidResponseFormat)
             }
         }
     }
@@ -332,7 +338,7 @@ mod tests {
 
         // Third command should fail
         let result = session.assign_socket(None);
-        assert!(matches!(result, Err(Error::CommandBufferFull)));
+        assert!(matches!(result, Err(ViscaError::CommandBufferFull)));
     }
 
     #[test]
@@ -406,21 +412,21 @@ mod tests {
         let invalid1 = [0x80, 0x50, 0xFF];
         assert!(matches!(
             session.process_response(&invalid1),
-            Err(Error::InvalidResponseFormat)
+            Err(ViscaError::InvalidResponseFormat)
         ));
 
         // Missing terminator
         let invalid2 = [0x90, 0x50, 0x00];
         assert!(matches!(
             session.process_response(&invalid2),
-            Err(Error::InvalidResponseFormat)
+            Err(ViscaError::InvalidResponseFormat)
         ));
 
         // Too short
         let invalid3 = [0x90, 0xFF];
         assert!(matches!(
             session.process_response(&invalid3),
-            Err(Error::InvalidResponseFormat)
+            Err(ViscaError::InvalidResponseFormat)
         ));
     }
 

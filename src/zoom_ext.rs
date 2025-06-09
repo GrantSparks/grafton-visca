@@ -6,7 +6,7 @@ use crate::{
         zoom::{ZoomCommand, ZoomSpeed},
         InquiryCommand,
     },
-    error::ViscaError,
+    error::Error as ViscaError,
     ViscaDevice, ViscaResponse,
 };
 

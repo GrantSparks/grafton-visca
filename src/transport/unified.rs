@@ -6,7 +6,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::{ViscaCommand, ViscaError};
+use crate::{error::Error as ViscaError, ViscaCommand};
 
 /// Type alias for boxed futures used in transport operations.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

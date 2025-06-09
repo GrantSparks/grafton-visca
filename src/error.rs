@@ -3,15 +3,15 @@ use std::{fmt, future::Future, io, pin::Pin, time::Duration};
 use thiserror::Error;
 
 /// Custom result type for VISCA operations.
-pub type Result<T, E = ViscaError> = std::result::Result<T, E>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// VISCA protocol error type.
 ///
 /// Provides comprehensive error handling for all VISCA operations.
 /// The VISCA protocol has a well-defined set of error conditions
 /// that map directly to camera responses and communication failures.
-#[derive(Error, Debug)]
-pub enum ViscaError {
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
     /// Failed to establish connection to the camera.
     #[error("Connection failed to {addr}: {source}")]
     ConnectionFailed {
@@ -645,7 +645,7 @@ pub enum AppError {
 
     /// VISCA protocol or camera communication error.
     #[error("VISCA error: {0}")]
-    Visca(#[from] ViscaError),
+    Visca(#[from] Error),
 }
 
 /// Error context information for debugging.
