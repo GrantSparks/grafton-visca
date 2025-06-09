@@ -1,5 +1,7 @@
 //! Tests for image and gain extension trait methods.
 
+#![cfg(feature = "blocking-client")]
+
 use grafton_visca::{
     command::{AntiFlickerCommand, AntiFlickerMode, LuminanceCommand},
     LuminanceLevel, ViscaCommand, ViscaDevice, ViscaError, ViscaExposureExt, ViscaImageExt,
