@@ -5,7 +5,94 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - Unreleased
+## [0.5.0] - Unreleased
+
+### Added
+- New consolidated extension traits for cleaner API
+- Comprehensive prelude module with all commonly used types
+- Backward compatibility through deprecated type aliases
+
+### Changed
+- **BREAKING**: Core types renamed for consistency with Rust conventions:
+  - `ViscaClient` → `Client` 
+  - `ViscaError` → `Error`
+  - `ViscaSession` → `Session`
+  - `ViscaResponse` → `Response`
+- Consolidated duplicate APIs into single extension traits
+- Fixed preset terminology: `goto_preset` → `recall_preset`
+
+### Deprecated
+- Old type names (still available but will be removed in v0.6.0)
+- Duplicate methods in `ViscaTransportExt` 
+- All traits in `ext/unified.rs` module
+
+### Migration Guide
+
+#### Step 1: Update Imports
+
+If you're using explicit imports, update them to the new names:
+
+```rust
+// Old
+use grafton_visca::{ViscaClient, ViscaError};
+
+// New (recommended)
+use grafton_visca::{Client, Error};
+
+// Or use the prelude for convenience
+use grafton_visca::prelude::*;
+```
+
+#### Step 2: Update Type References
+
+Update any explicit type annotations:
+
+```rust
+// Old
+fn connect_camera(addr: &str) -> Result<ViscaClient, ViscaError> {
+    ViscaClient::connect_udp(addr)
+}
+
+// New
+fn connect_camera(addr: &str) -> Result<Client, Error> {
+    Client::connect_udp(addr)
+}
+```
+
+#### Step 3: Update Method Names
+
+A few methods have been renamed for consistency:
+
+```rust
+// Old
+client.goto_preset(1)?;
+
+// New
+client.recall_preset(1)?;
+```
+
+#### Step 4: Use Consolidated Extension Traits
+
+Instead of multiple traits, use the single consolidated traits:
+
+```rust
+// Old - multiple imports needed
+use grafton_visca::{ViscaTransportExt, ext::unified::PowerExt};
+
+// New - single trait provides all methods
+use grafton_visca::ViscaPowerExt;
+```
+
+#### Gradual Migration
+
+The old type names are still available as deprecated aliases, so your existing code will continue to compile. You can migrate gradually:
+
+1. Update your imports to use new names
+2. Run `cargo check` to see deprecation warnings
+3. Fix warnings at your own pace
+4. The deprecated aliases will be removed in v0.6.0
+
+## [0.4.0] - 2024-12-08
 
 This release represents a major evolution of the library from a low-level VISCA protocol implementation to a production-ready camera control solution. The changes are driven by real-world usage patterns and developer feedback.
 

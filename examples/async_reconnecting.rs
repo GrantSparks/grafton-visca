@@ -15,7 +15,7 @@ use grafton_visca::{
         ZoomCommand,
     },
     AsyncConnectionEvent, AsyncConnectionManagement, AsyncReconnectingTransport, AsyncTcpTransport,
-    AsyncUdpTransport, AsyncViscaTransport, ReconnectionConfig, ViscaError,
+    AsyncUdpTransport, AsyncViscaTransport, ReconnectionConfig, Error,
 };
 #[cfg(feature = "async-client")]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -260,7 +260,7 @@ async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>>
 
                 // Simulate failures on attempts 2-4
                 if (2..=4).contains(&count) {
-                    Err(ViscaError::Io(std::io::Error::new(
+                    Err(Error::Io(std::io::Error::new(
                         std::io::ErrorKind::ConnectionRefused,
                         "Simulated async connection failure",
                     )))

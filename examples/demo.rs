@@ -16,11 +16,11 @@ use grafton_visca::command::{
     BacklightCommand, ImageFlipCombinedCommand, ImageFlipMode, NoiseReduction2DCommand,
 };
 use grafton_visca::{ContrastLevel, IrisLevel, LuminanceLevel, ShutterSpeed};
-use grafton_visca::{ViscaClient, ViscaDevice, ViscaInquiryResponse, ViscaResponse};
+use grafton_visca::{Client, ViscaDevice, ViscaInquiryResponse, ViscaResponse};
 use std::thread;
 use std::time::Duration;
 
-fn demo_power_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_power_control(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 1: Power Control");
     println!("Powering on camera...");
     match client.execute_command(&PowerCommand { power: Power::On })? {
@@ -32,7 +32,7 @@ fn demo_power_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-fn demo_pan_tilt_movement(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_pan_tilt_movement(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 2: Pan/Tilt Movement");
 
     println!("Moving to home position...");
@@ -58,7 +58,7 @@ fn demo_pan_tilt_movement(client: &mut ViscaClient) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-fn demo_zoom_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_zoom_control(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 3: Zoom Control");
 
     println!("Zooming in...");
@@ -75,7 +75,7 @@ fn demo_zoom_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-fn demo_focus_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_focus_control(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 4: Focus Control");
 
     println!("Setting auto focus...");
@@ -84,7 +84,7 @@ fn demo_focus_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-fn demo_preset_positions(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_preset_positions(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 5: Preset Positions");
 
     println!("Saving current position as preset 1...");
@@ -122,7 +122,7 @@ fn demo_preset_positions(client: &mut ViscaClient) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-fn demo_exposure_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_exposure_control(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 6: Exposure Control");
 
     println!("Setting manual exposure mode...");
@@ -138,7 +138,7 @@ fn demo_exposure_control(client: &mut ViscaClient) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-fn demo_color_adjustments(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_color_adjustments(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 7: Color Adjustments");
 
     println!("Setting white balance to auto...");
@@ -154,7 +154,7 @@ fn demo_color_adjustments(client: &mut ViscaClient) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-fn demo_image_quality(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_image_quality(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 8: Image Quality Settings");
 
     println!("Setting luminance...");
@@ -172,7 +172,7 @@ fn demo_image_quality(client: &mut ViscaClient) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-fn demo_inquiry_commands(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 9: Inquiry Commands");
 
     println!("Querying camera status...");
@@ -211,7 +211,7 @@ fn demo_inquiry_commands(client: &mut ViscaClient) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-fn demo_advanced_features(client: &mut ViscaClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_advanced_features(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 10: Advanced Features");
 
     println!("Setting 2D noise reduction...");
@@ -246,7 +246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", "=".repeat(50));
 
     // Create client
-    let mut client = ViscaClient::connect_udp(&camera_ip)?;
+    let mut client = Client::connect_udp(&camera_ip)?;
 
     // Run all demos
     demo_power_control(&mut client)?;

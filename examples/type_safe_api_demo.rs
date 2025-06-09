@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Connect to camera
-    let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    let mut client = Client::connect_udp("192.168.1.100:5678")?;
 
     println!("=== Type-Safe API Demo ===\n");
 

@@ -1,7 +1,7 @@
 //! Test example for declarative macro approach
 
 use grafton_visca::command::ViscaCommand;
-use grafton_visca::{visca_command, ViscaError};
+use grafton_visca::{visca_command, Error};
 
 visca_command! {
     category = "Movement",
@@ -19,7 +19,7 @@ visca_command! {
     }
 }
 
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     env_logger::init();
 
     println!("Testing declarative macro approach...");

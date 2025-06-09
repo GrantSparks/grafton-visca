@@ -1,19 +1,19 @@
 //! Demo of the Phase B unified client implementation.
 //!
-//! This example shows how the new unified `ViscaClient` works in both
+//! This example shows how the new unified `Client` works in both
 //! blocking and async contexts.
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::command::{Power, PowerCommand, ZoomCommand};
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use grafton_visca::{ViscaClient, ViscaError};
+use grafton_visca::{Client, Error};
 
 #[cfg(feature = "blocking-client")]
-fn blocking_example() -> Result<(), ViscaError> {
+fn blocking_example() -> Result<(), Error> {
     println!("=== Blocking Example ===");
 
     // Create a blocking client
-    let client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    let client = Client::connect_udp("192.168.1.100:5678")?;
 
     // Send commands using the blocking façade
     println!("Powering on camera...");
@@ -26,11 +26,11 @@ fn blocking_example() -> Result<(), ViscaError> {
 }
 
 #[cfg(feature = "async-client")]
-async fn async_example() -> Result<(), ViscaError> {
+async fn async_example() -> Result<(), Error> {
     println!("=== Async Example ===");
 
     // Create an async client
-    let client = ViscaClient::connect_udp_async("192.168.1.100:5678").await?;
+    let client = Client::connect_udp_async("192.168.1.100:5678").await?;
 
     // Send commands using the async interface
     println!("Powering on camera...");
@@ -49,11 +49,11 @@ async fn async_example() -> Result<(), ViscaError> {
 }
 
 #[cfg(all(feature = "blocking-client", feature = "async-client"))]
-async fn mixed_example() -> Result<(), ViscaError> {
+async fn mixed_example() -> Result<(), Error> {
     println!("=== Mixed Blocking/Async Example ===");
 
     // Create a blocking client but use it in async context
-    let client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    let client = Client::connect_udp("192.168.1.100:5678")?;
 
     // Can use blocking API even inside async function
     println!("Using blocking API in async context...");
@@ -68,7 +68,7 @@ async fn mixed_example() -> Result<(), ViscaError> {
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 #[tokio::main]
-async fn main() -> Result<(), ViscaError> {
+async fn main() -> Result<(), Error> {
     env_logger::init();
 
     #[cfg(feature = "blocking-client")]

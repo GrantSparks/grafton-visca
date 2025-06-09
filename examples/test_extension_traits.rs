@@ -1,4 +1,4 @@
-//! Test program to verify extension traits work with `ViscaClient`
+//! Test program to verify extension traits work with `Client`
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
@@ -7,8 +7,8 @@ use grafton_visca::{
         preset::PresetNumber,
         zoom::ZoomSpeed,
     },
-    ViscaClient,
-    ViscaError,
+    Client,
+    Error,
     ViscaExposureExt,
     ViscaImageExt,
     ViscaInquiryExt,
@@ -22,11 +22,11 @@ use grafton_visca::{
 };
 
 #[cfg(feature = "blocking-client")]
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a client
-    let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    let mut client = Client::connect_udp("192.168.1.100:5678")?;
 
     // Test ViscaTransportExt methods
     println!("Testing ViscaTransportExt...");

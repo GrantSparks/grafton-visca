@@ -5,18 +5,18 @@
 
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
-    ImagePreset, ViscaClient, ViscaError, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt,
+    ImagePreset, Client, Error, ViscaExposureExt, ViscaImageExt, ViscaPanTiltExt,
     ViscaPositionExt, ViscaPowerExt, ViscaTransportExt, ViscaWhiteBalanceExt, ViscaZoomExt,
     WhiteBalancePreset,
 };
 use std::thread;
 use std::time::Duration;
 
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Connect to camera using UDP client
-    let mut client = ViscaClient::connect_udp("192.168.1.100:5678")?;
+    let mut client = Client::connect_udp("192.168.1.100:5678")?;
 
     println!("=== Transport Extension Traits Demo ===\n");
 

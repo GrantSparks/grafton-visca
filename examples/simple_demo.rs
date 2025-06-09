@@ -1,26 +1,26 @@
-//! Simple demo showcasing the new unified `ViscaClient` API
+//! Simple demo showcasing the unified Client API
 //!
-//! This example demonstrates basic camera control using the new v0.5.0 API.
+//! This example demonstrates basic camera control using the v0.5.0 API.
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    ViscaClient, ViscaError, ViscaPositionExt, ViscaTransportExt, ViscaZoomExt,
+    Client, Error, ViscaPositionExt, ViscaTransportExt, ViscaZoomExt,
 };
 #[cfg(feature = "blocking-client")]
 use std::time::Duration;
 
 #[cfg(feature = "blocking-client")]
-fn main() -> Result<(), ViscaError> {
+fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::init();
 
     // Connect to camera using UDP
-    let mut client = ViscaClient::connect_udp("192.168.1.100:1259")?;
+    let mut client = Client::connect_udp("192.168.1.100:1259")?;
     println!("Connected to camera via UDP");
 
     // Or connect using TCP
-    // let mut client = ViscaClient::connect_tcp("192.168.1.100:5678")?;
+    // let mut client = Client::connect_tcp("192.168.1.100:5678")?;
 
     // Power on the camera
     client.power_on()?;
@@ -34,7 +34,7 @@ fn main() -> Result<(), ViscaError> {
     println!("Moved to home position");
 
     // Save current position as preset 1 using ViscaTransportExt
-    <ViscaClient as ViscaTransportExt>::save_preset(&mut client, 1)?;
+    <Client as ViscaTransportExt>::save_preset(&mut client, 1)?;
     println!("Saved preset 1");
 
     // Move camera using high-level API
@@ -52,7 +52,7 @@ fn main() -> Result<(), ViscaError> {
     println!("Continuous movement demo completed");
 
     // Return to preset 1 (home) using ViscaTransportExt
-    <ViscaClient as ViscaTransportExt>::recall_preset(&mut client, 1)?;
+    <Client as ViscaTransportExt>::recall_preset(&mut client, 1)?;
     println!("Returned to preset 1");
 
     // Reset zoom
