@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.0] - Unreleased
 
-This release represents a major evolution of the library from a low-level VISCA protocol implementation to a production-ready camera control solution with a unified, ergonomic API.
+This release represents a major evolution of the library from a low-level VISCA protocol implementation to a high-level camera control solution with a unified, ergonomic API.
+
+### Changed
+
+#### 📝 Documentation Updates
+- Toned down overstated claims in README to better reflect development status
+- Added development status warning to README
+- Adjusted feature claims to be more accurate and modest
+- Clarified that test coverage is being expanded rather than complete
+- Removed performance optimization claims pending benchmarking
 
 ### Added
 
@@ -15,10 +24,10 @@ This release represents a major evolution of the library from a low-level VISCA 
 - New unified `Client` that works seamlessly in both sync and async contexts
 - Thread-safe and `Clone`able client - share it freely across your application
 - Automatic context detection - the client adapts to your code style
-- Production-ready connection pooling built-in
+- Connection pooling built-in
 - Automatic reconnection with configurable retry strategies
 
-#### 🔄 Production Resilience Features
+#### 🔄 Resilience Features
 - `ReconnectingTransport` with exponential backoff and configurable retries
 - `ConnectionPool` for managing multiple cameras efficiently
 - Health check system with automatic recovery
