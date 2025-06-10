@@ -4,35 +4,37 @@
 [![Documentation](https://docs.rs/grafton-visca/badge.svg)](https://docs.rs/grafton-visca)
 [![License](https://img.shields.io/crates/l/grafton-visca.svg)](LICENSE)
 
-A production-ready Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
+A Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
 
-Control your PTZ cameras with intuitive, high-level APIs:
+**⚠️ Development Status**: This library is in active development and not yet production-ready. API and features may change.
+
+Control your PTZ cameras with convenient APIs:
 - 🎯 **Unified Client** - One client works in both sync and async contexts
 - 🎬 **Natural Units** - Use degrees, percentages, and magnification instead of raw VISCA values
-- 🔄 **Built-in Resilience** - Automatic reconnection and connection pooling included
-- 🚦 **Smart Errors** - Detailed errors with retry logic and recovery suggestions
+- 🔄 **Connection Management** - Automatic reconnection and connection pooling support
+- 🚦 **Error Handling** - Typed errors to help handle different failure scenarios
 - 🏗️ **PTZ Builder** - Compose complex camera movements with method chaining
 
-Supports PTZOptics G2 cameras and other VISCA-compliant devices with a robust protocol implementation.
+Supports PTZOptics G2 cameras and other VISCA-compliant devices.
 
 Make sure to check out our blog article introducing this library: [Controlling PTZ Cameras with Rust](https://blog.grafton.ai/using-the-grafton-visca-rust-crate-to-control-ptz-cameras-7545f3b4a5e4)
 
-## Production Ready Features
+## Features
 
-- ✅ **Complete VISCA Command Coverage** - All PTZOptics G2 commands implemented
-- ✅ **Robust Protocol Handling** - Proper ACK/Completion state machine
-- ✅ **Async/Await Support** - Modern async API with Tokio
+- ✅ **VISCA Command Coverage** - Many PTZOptics G2 commands implemented
+- ✅ **Protocol Handling** - ACK/Completion state machine implementation
+- ✅ **Async/Await Support** - Async API with Tokio
 - ✅ **Thread Safety** - Safe concurrent access from multiple tasks
-- ✅ **Comprehensive Testing** - >90% test coverage with unit and integration tests
-- ✅ **Full Documentation** - All public APIs documented with examples
-- ✅ **Error Handling** - Detailed error types for all failure modes
-- ✅ **Performance** - <5ms overhead per command
+- ⚠️ **Testing** - Test infrastructure in place, coverage being expanded
+- ✅ **Documentation** - Core APIs documented
+- ✅ **Error Handling** - Typed errors for different failure modes
+- ✅ **Clean Design** - Focus on usability and maintainability
 
 ## What's New in v0.4.0
 
-This release transforms grafton-visca from a low-level protocol implementation into a production-ready camera control solution. Here's what's new:
+This release transforms grafton-visca from a low-level protocol implementation into a high-level camera control solution. Here's what's new:
 
-### 🎯 One Client To Rule Them All
+### 🎯 Unified Client Design
 No more choosing between sync and async - the new unified `ViscaClient` works in any context:
 
 ```rust
@@ -41,7 +43,7 @@ client.zoom_in()?;        // Works in sync code
 client.zoom_in().await?;  // Works in async code
 ```
 
-### 🎬 Intuitive Camera Control
+### 🎬 Natural Unit Camera Control
 Control cameras using natural units instead of cryptic VISCA values:
 
 ```rust
@@ -58,7 +60,7 @@ client.pan_to_degrees(45.0)?;                    // 45 degrees right
 client.set_pan_tilt_percentage(0.5, -0.25)?;     // Center-right, slightly down
 ```
 
-### 🔄 Production-Ready Resilience
+### 🔄 Built-in Resilience
 Built-in connection pooling and automatic reconnection are now standard:
 
 ```rust
@@ -72,7 +74,7 @@ let pool = ViscaConnectionPool::new()
     .with_health_check_interval(Duration::from_secs(30));
 ```
 
-### 🚦 Smarter Error Handling
+### 🚦 Enhanced Error Handling
 Detailed errors tell you exactly what went wrong and how to fix it:
 
 ```rust
@@ -335,7 +337,7 @@ if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode 
 }
 ```
 
-### Production-Ready Features
+### Advanced Features
 
 ```rust
 use grafton_visca::prelude::*;
@@ -376,7 +378,7 @@ loop {
 
 ### Async Usage
 
-The same `ViscaClient` works perfectly in async contexts:
+The same `ViscaClient` works well in async contexts:
 
 ```rust
 use grafton_visca::prelude::*;
@@ -398,7 +400,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute()
         .await?;
     
-    // The client is Clone + Send + Sync, perfect for async
+    // The client is Clone + Send + Sync, suitable for async
     let cam1 = camera.clone();
     let cam2 = camera.clone();
     

@@ -1,6 +1,6 @@
 //! # grafton-visca
 //!
-//! A production-ready Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
+//! A Rust implementation of the VISCA over IP protocol for controlling PTZ (Pan-Tilt-Zoom) cameras.
 #![warn(
     clippy::all,
     clippy::pedantic,
