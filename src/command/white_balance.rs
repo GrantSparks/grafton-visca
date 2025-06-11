@@ -237,7 +237,7 @@ mod tests {
         };
         let cmd2 = cmd1; // Copy
         let cmd3 = cmd1.clone(); // Clone
-        
+
         assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
         assert_eq!(cmd1.to_bytes().unwrap(), cmd3.to_bytes().unwrap());
     }
@@ -256,7 +256,7 @@ mod tests {
         for mode in modes {
             let cmd = WhiteBalanceCommand { mode };
             let bytes = cmd.to_bytes().unwrap();
-            
+
             // Verify command structure
             assert_eq!(bytes.len(), 6);
             assert_eq!(bytes[0], 0x81); // Command header

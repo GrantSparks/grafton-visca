@@ -500,7 +500,10 @@ mod tests {
 
     #[test]
     fn test_exposure_mode_try_from() {
-        assert!(matches!(ExposureMode::try_from(0x00), Ok(ExposureMode::Auto)));
+        assert!(matches!(
+            ExposureMode::try_from(0x00),
+            Ok(ExposureMode::Auto)
+        ));
         assert!(matches!(
             ExposureMode::try_from(0x03),
             Ok(ExposureMode::Manual)
@@ -509,7 +512,10 @@ mod tests {
             ExposureMode::try_from(0x0A),
             Ok(ExposureMode::Shutter)
         ));
-        assert!(matches!(ExposureMode::try_from(0x0B), Ok(ExposureMode::Iris)));
+        assert!(matches!(
+            ExposureMode::try_from(0x0B),
+            Ok(ExposureMode::Iris)
+        ));
         assert!(matches!(
             ExposureMode::try_from(0x0D),
             Ok(ExposureMode::Bright)
@@ -823,7 +829,10 @@ mod tests {
             DynamicRangeCommand::Direct(DynamicRangeLevel::new(5).unwrap()).command_category(),
             CommandCategory::Quick
         );
-        assert_eq!(IrisCommand::Reset.command_category(), CommandCategory::Quick);
+        assert_eq!(
+            IrisCommand::Reset.command_category(),
+            CommandCategory::Quick
+        );
         assert_eq!(
             ShutterCommand::Reset.command_category(),
             CommandCategory::Quick
@@ -843,9 +852,11 @@ mod tests {
         .response_type()
         .is_none());
         assert!(ExposureCompensationCommand::On.response_type().is_none());
-        assert!(DynamicRangeCommand::Direct(DynamicRangeLevel::new(5).unwrap())
-            .response_type()
-            .is_none());
+        assert!(
+            DynamicRangeCommand::Direct(DynamicRangeLevel::new(5).unwrap())
+                .response_type()
+                .is_none()
+        );
         assert!(IrisCommand::Reset.response_type().is_none());
         assert!(ShutterCommand::Reset.response_type().is_none());
         assert!(BrightCommand::Reset.response_type().is_none());

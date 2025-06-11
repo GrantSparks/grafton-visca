@@ -294,7 +294,10 @@ mod tests {
     #[test]
     fn test_command_categories() {
         // All gain commands should be Quick category
-        assert_eq!(GainCommand::Reset.command_category(), CommandCategory::Quick);
+        assert_eq!(
+            GainCommand::Reset.command_category(),
+            CommandCategory::Quick
+        );
         assert_eq!(GainCommand::Up.command_category(), CommandCategory::Quick);
         assert_eq!(GainCommand::Down.command_category(), CommandCategory::Quick);
         assert_eq!(
@@ -358,7 +361,7 @@ mod tests {
         };
         let cmd2 = cmd1; // Copy
         let cmd3 = cmd1.clone(); // Clone
-        
+
         assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
         assert_eq!(cmd1.to_bytes().unwrap(), cmd3.to_bytes().unwrap());
     }
