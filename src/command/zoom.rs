@@ -30,6 +30,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{Command, ResponseType},
+    constants::{CameraConstants, CameraModel},
     error::Error,
     timeout::CommandCategory,
 };
@@ -113,6 +114,26 @@ impl Command for ZoomCommand {
 
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Movement
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match self {
+            Self::Direct(position) => {
+                let (min, max) = model.zoom_range();
+                if *position < min || *position > max {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "ZoomDirect".to_string(),
+                        reason: format!(
+                            "Position 0x{position:04X} out of range [0x{min:04X}, 0x{max:04X}] for {model:?}"
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            // Other zoom commands are generally supported by all models
+            _ => Ok(()),
+        }
     }
 }
 
@@ -230,6 +251,71 @@ mod tests {
         assert_eq!(position_to_nibbles(0x1234), [0x01, 0x02, 0x03, 0x04]);
         assert_eq!(position_to_nibbles(0xABCD), [0x0A, 0x0B, 0x0C, 0x0D]);
         assert_eq!(position_to_nibbles(0xFFFF), [0x0F, 0x0F, 0x0F, 0x0F]);
+    }
+
+    #[test]
+    fn test_zoom_validation_g2_camera() {
+        // Test validation for PTZOptics G2 (20X zoom)
+        let cmd_valid = ZoomCommand::Direct(0x7000); // Max for 20X
+        assert!(cmd_valid
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+
+        let cmd_invalid = ZoomCommand::Direct(0x7AC0); // 30X position
+        let result = cmd_invalid.validate_for_model(CameraModel::PTZOpticsG2);
+        assert!(result.is_err());
+        match result {
+            Err(Error::ModelValidation {
+                model,
+                command,
+                reason,
+            }) => {
+                assert_eq!(model, CameraModel::PTZOpticsG2);
+                assert_eq!(command, "ZoomDirect");
+                assert!(reason.contains("0x7AC0"));
+                assert!(reason.contains("0x7000"));
+            }
+            _ => unreachable!("Expected ModelValidation error"),
+        }
+    }
+
+    #[test]
+    fn test_zoom_validation_30x_camera() {
+        // Test validation for PTZOptics 30X
+        let cmd_valid = ZoomCommand::Direct(0x7AC0); // Max for 30X
+        assert!(cmd_valid
+            .validate_for_model(CameraModel::PTZOptics30X)
+            .is_ok());
+
+        let cmd_edge = ZoomCommand::Direct(0x7FFF); // Beyond 30X but within digital range
+        let result = cmd_edge.validate_for_model(CameraModel::PTZOptics30X);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_zoom_validation_other_commands() {
+        // Test that other zoom commands pass validation
+        assert!(Command::validate_for_model(&ZoomCommand::Stop, CameraModel::PTZOpticsG2).is_ok());
+        assert!(Command::validate_for_model(
+            &ZoomCommand::ZoomInStandard,
+            CameraModel::PTZOpticsG2
+        )
+        .is_ok());
+        assert!(Command::validate_for_model(
+            &ZoomCommand::ZoomOutStandard,
+            CameraModel::PTZOpticsG2
+        )
+        .is_ok());
+        assert!(Command::validate_for_model(
+            &ZoomCommand::ZoomInVariable(ZoomSpeed::new(5).unwrap()),
+            CameraModel::PTZOpticsG2
+        )
+        .is_ok());
+        assert!(Command::validate_for_model(
+            &ZoomCommand::ZoomOutVariable(ZoomSpeed::new(3).unwrap()),
+            CameraModel::PTZOpticsG2
+        )
+        .is_ok());
     }
 
     #[test]

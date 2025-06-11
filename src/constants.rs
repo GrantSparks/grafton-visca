@@ -179,6 +179,12 @@ pub trait CameraConstants {
 
     /// Get maximum tilt speed
     fn max_tilt_speed(&self) -> u8;
+
+    /// Get focus range in VISCA units
+    fn focus_range(&self) -> (u16, u16);
+
+    /// Get maximum number of presets for this camera model
+    fn max_preset_id(&self) -> u8;
 }
 
 impl CameraConstants for CameraModel {
@@ -218,6 +224,17 @@ impl CameraConstants for CameraModel {
 
     fn max_tilt_speed(&self) -> u8 {
         speed::TILT_SPEED_MAX
+    }
+
+    fn focus_range(&self) -> (u16, u16) {
+        (focus::FOCUS_MIN, focus::FOCUS_MAX)
+    }
+
+    fn max_preset_id(&self) -> u8 {
+        match self {
+            Self::PTZOpticsG2 => 89, // G2 cameras support presets 0-89
+            Self::PTZOpticsG3 | Self::PTZOptics30X | Self::Unknown => preset::PRESET_ID_MAX,
+        }
     }
 }
 
