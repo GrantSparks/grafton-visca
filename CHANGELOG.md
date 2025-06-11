@@ -26,12 +26,20 @@ This release represents a major evolution of the library from a low-level VISCA 
 - Automatic context detection - the client adapts to your code style
 - Connection pooling built-in
 - Automatic reconnection with configurable retry strategies
+- Camera model configuration via `Client::builder()` for automatic command validation
 
 #### 🔄 Resilience Features
 - `ReconnectingTransport` with exponential backoff and configurable retries
 - `ConnectionPool` for managing multiple cameras efficiently
 - Health check system with automatic recovery
 - Detailed error types that indicate retry-ability
+
+#### 🎮 Camera Model Validation
+- Optional camera model configuration to prevent invalid commands before sending
+- Model-specific validation for zoom ranges (20X vs 30X cameras)
+- Model-specific validation for pan/tilt absolute positions
+- New `ModelValidation` error type for clear validation failure messages
+- Maintains backward compatibility - validation is opt-in via `Client::builder()`
 - Timeout management with per-command category timeouts
 
 #### 🎨 High-Level Extension Traits

@@ -99,6 +99,18 @@ pub trait Command: Send + Sync {
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Custom
     }
+
+    /// Validate this command for a specific camera model.
+    ///
+    /// The default implementation returns `Ok(())` for backward compatibility.
+    /// Commands should override this method to implement model-specific validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::ModelValidation` if the command is not valid for the specified model.
+    fn validate_for_model(&self, _model: crate::constants::CameraModel) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 /// Response data from VISCA inquiry commands.

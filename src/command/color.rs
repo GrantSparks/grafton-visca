@@ -6,6 +6,7 @@
 // Crate imports
 use crate::{
     command::{response::ResponseType, Command},
+    constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
 };
@@ -67,6 +68,26 @@ impl Command for RedTuningCommand {
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Quick
     }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::PTZOpticsG2 => {
+                // G2 supports values -10 to +10 (protocol values 0x00 to 0x14)
+                if self.level < -10 || self.level > 10 {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "RedTuning".to_string(),
+                        reason: format!(
+                            "Value {} not supported on G2 cameras (range is -10 to +10)",
+                            self.level
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 /// Blue Gain Tuning command.
@@ -104,6 +125,26 @@ impl Command for BlueTuningCommand {
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Quick
     }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::PTZOpticsG2 => {
+                // G2 supports values -10 to +10 (protocol values 0x00 to 0x14)
+                if self.level < -10 || self.level > 10 {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "BlueTuning".to_string(),
+                        reason: format!(
+                            "Value {} not supported on G2 cameras (range is -10 to +10)",
+                            self.level
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 /// Saturation control command.
@@ -136,6 +177,26 @@ impl Command for SaturationCommand {
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Quick
     }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::PTZOpticsG2 => {
+                // G2 supports values 0x0 to 0xE (15 values)
+                if self.level > 0x0E {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "Saturation".to_string(),
+                        reason: format!(
+                            "Value {:#02X} not supported on G2 cameras (max is 0x0E)",
+                            self.level
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 /// Hue adjustment command.
@@ -167,6 +228,26 @@ impl Command for HueCommand {
 
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::PTZOpticsG2 => {
+                // G2 supports values 0x0 to 0xE (15 values)
+                if self.level > 0x0E {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "Hue".to_string(),
+                        reason: format!(
+                            "Value {:#02X} not supported on G2 cameras (max is 0x0E)",
+                            self.level
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 }
 
