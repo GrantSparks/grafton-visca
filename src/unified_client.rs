@@ -545,6 +545,8 @@ impl Client {
 ///     .connect_udp("192.168.1.100:5678")?;
 /// # Ok(())
 /// # }
+/// # #[cfg(not(feature = "blocking-client"))]
+/// # fn main() {}
 /// ```
 #[derive(Debug, Default, Copy, Clone)]
 pub struct ClientBuilder {
@@ -569,6 +571,8 @@ impl ClientBuilder {
     ///     .connect_udp("192.168.1.100:5678")?;
     /// # Ok(())
     /// # }
+    /// # #[cfg(not(feature = "blocking-client"))]
+    /// # fn main() {}
     /// ```
     #[must_use]
     pub const fn camera_model(mut self, model: CameraModel) -> Self {
