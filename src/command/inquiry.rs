@@ -449,8 +449,7 @@ mod tests {
         for inquiry in inquiries {
             assert!(
                 inquiry.response_type().is_some(),
-                "Inquiry {:?} should have a response type",
-                inquiry
+                "Inquiry {inquiry:?} should have a response type"
             );
         }
     }
@@ -478,11 +477,11 @@ mod tests {
     fn test_inquiry_command_debug() {
         // Test Debug trait implementation
         let cmd = InquiryCommand::Power;
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("Power"));
 
         let cmd = InquiryCommand::ZoomPosition;
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("ZoomPosition"));
     }
 
@@ -491,7 +490,7 @@ mod tests {
         // Test Copy/Clone traits
         let cmd1 = InquiryCommand::Power;
         let cmd2 = cmd1; // Copy
-        let cmd3 = cmd1.clone(); // Clone
+        let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
         assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
         assert_eq!(cmd1.to_bytes().unwrap(), cmd3.to_bytes().unwrap());

@@ -218,7 +218,7 @@ mod tests {
         let cmd = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto,
         };
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("WhiteBalanceCommand"));
         assert!(debug_str.contains("Auto"));
     }
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn test_white_balance_mode_debug() {
         let mode = WhiteBalanceMode::Indoor;
-        let debug_str = format!("{:?}", mode);
+        let debug_str = format!("{mode:?}");
         assert!(debug_str.contains("Indoor"));
     }
 
@@ -236,7 +236,7 @@ mod tests {
             mode: WhiteBalanceMode::OnePush,
         };
         let cmd2 = cmd1; // Copy
-        let cmd3 = cmd1.clone(); // Clone
+        let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
         assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
         assert_eq!(cmd1.to_bytes().unwrap(), cmd3.to_bytes().unwrap());

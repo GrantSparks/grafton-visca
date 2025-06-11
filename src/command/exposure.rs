@@ -529,7 +529,7 @@ mod tests {
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value).unwrap();
             assert_eq!(level.value(), value);
-            assert_eq!(level.to_protocol_value(), (value + 7) as u8);
+            assert_eq!(level.to_protocol_value(), u8::try_from(value + 7).unwrap());
         }
 
         // Test invalid values
@@ -586,7 +586,7 @@ mod tests {
                 0x00,
                 0x00,
                 0x00,
-                (value + 7) as u8,
+                u8::try_from(value + 7).unwrap(),
                 0xFF,
             ];
             assert_eq!(cmd.to_bytes().unwrap(), expected);
