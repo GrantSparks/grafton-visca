@@ -179,7 +179,7 @@ All set commands have corresponding inquiry commands to read current values:
 - ✅ **Camera-specific Constants** - Position limits, speed ranges, preset counts
 - ✅ **Position Conversions** - Convert between VISCA units, degrees, and normalized values
 - ✅ **Parameter Validation** - Validate positions, speeds, and IDs before sending
-- ✅ **Model Detection** - Detect camera model and use model-specific constants
+- ✅ **Model-Specific Constants** - Support for different camera models with appropriate limits
 
 ## Installation
 
