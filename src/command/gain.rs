@@ -345,11 +345,11 @@ mod tests {
     fn test_gain_command_debug() {
         // Test Debug trait implementation
         let cmd = GainCommand::Reset;
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("Reset"));
 
         let cmd = GainCommand::Direct(GainValue::new(0x05).unwrap());
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("Direct"));
     }
 
@@ -360,7 +360,7 @@ mod tests {
             mode: AntiFlickerMode::Hz50,
         };
         let cmd2 = cmd1; // Copy
-        let cmd3 = cmd1.clone(); // Clone
+        let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
         assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
         assert_eq!(cmd1.to_bytes().unwrap(), cmd3.to_bytes().unwrap());
