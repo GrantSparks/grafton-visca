@@ -9,6 +9,7 @@ use std::sync::Arc;
 // Crate imports
 use crate::{
     command::response::Response,
+    constants::CameraModel,
     error::Error,
     ptz_builder::PtzBuilder,
     session::Session,
@@ -64,6 +65,9 @@ pub struct Client {
 
     /// Concurrency control (max 2 concurrent commands)
     semaphore: Arc<Semaphore>,
+
+    /// Optional camera model for command validation
+    camera_model: Option<CameraModel>,
 }
 
 impl Client {
@@ -73,6 +77,7 @@ impl Client {
             transport: Arc::new(Mutex::new(variant)),
             session: Arc::new(Mutex::new(Session::new())),
             semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_COMMANDS)),
+            camera_model: None,
         }
     }
 
@@ -183,6 +188,11 @@ impl Client {
 
     #[cfg(not(feature = "async-client"))]
     fn send_blocking(&self, command: &dyn Command) -> Result<Response, Error> {
+        // Optional validation if model is configured
+        if let Some(model) = self.camera_model {
+            command.validate_for_model(model)?;
+        }
+
         let _permit = self.semaphore.acquire_permit();
 
         // Acquire session lock and assign socket
@@ -303,6 +313,11 @@ impl Client {
     /// semaphore acquisition fails, or socket assignment fails.
     #[cfg(feature = "async-client")]
     pub async fn send_async(&self, command: &dyn Command) -> Result<Response, Error> {
+        // Optional validation if model is configured
+        if let Some(model) = self.camera_model {
+            command.validate_for_model(model)?;
+        }
+
         let _permit = self.semaphore.acquire_permit().await?;
 
         // Acquire session lock and assign socket
@@ -454,6 +469,11 @@ impl Client {
     /// and camera-specific errors.
     #[cfg(feature = "blocking-client")]
     pub fn try_send(&self, command: &dyn Command) -> Result<Response, Error> {
+        // Optional validation if model is configured
+        if let Some(model) = self.camera_model {
+            command.validate_for_model(model)?;
+        }
+        
         // The unified client already handles concurrency internally
         // For now, we delegate to the standard send method
         // A future implementation could add try_acquire to the semaphore
@@ -487,9 +507,124 @@ impl Client {
         command: &dyn Command,
         _timeout: std::time::Duration,
     ) -> Result<Response, Error> {
+        // Optional validation if model is configured
+        if let Some(model) = self.camera_model {
+            command.validate_for_model(model)?;
+        }
+        
         // For now, we use the standard send method
         // A proper implementation would use tokio timeout or similar
         self.send(command)
+    }
+    /// Get the configured camera model, if any
+    pub fn camera_model(&self) -> Option<CameraModel> {
+        self.camera_model
+    }
+
+    /// Create a builder for constructing a client with custom configuration
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::default()
+    }
+}
+
+/// Builder for constructing a [`Client`] with custom configuration.
+///
+/// This builder allows you to specify optional parameters like camera model
+/// and timeout before connecting to the camera.
+///
+/// # Example
+/// ```no_run
+/// # #[cfg(feature = "blocking-client")]
+/// # {
+/// use grafton_visca::{Client, constants::CameraModel};
+/// 
+/// let client = Client::builder()
+///     .camera_model(CameraModel::PTZOpticsG2)
+///     .connect_udp("192.168.1.100:5678")?;
+/// # Ok::<(), grafton_visca::Error>(())
+/// # }
+/// ```
+#[derive(Debug, Default, Copy, Clone)]
+pub struct ClientBuilder {
+    camera_model: Option<CameraModel>,
+}
+
+impl ClientBuilder {
+    /// Set the camera model for command validation.
+    /// 
+    /// If not specified, commands will be sent without model-specific validation.
+    /// This maintains compatibility but may result in `CommandNotExecutable` errors
+    /// for unsupported commands.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # #[cfg(feature = "blocking-client")]
+    /// # {
+    /// use grafton_visca::{Client, constants::CameraModel};
+    /// 
+    /// let client = Client::builder()
+    ///     .camera_model(CameraModel::PTZOpticsG2)
+    ///     .connect_udp("192.168.1.100:5678")?;
+    /// # Ok::<(), grafton_visca::Error>(())
+    /// # }
+    /// ```
+    pub fn camera_model(mut self, model: CameraModel) -> Self {
+        self.camera_model = Some(model);
+        self
+    }
+    
+    /// Connect to a camera using UDP transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Io` if UDP transport creation fails.
+    #[cfg(feature = "blocking-client")]
+    pub fn connect_udp(self, camera_addr: &str) -> Result<Client, Error> {
+        let transport = BlockingUdpTransport::new(camera_addr).map_err(Error::Io)?;
+        let adapter = BlockingAdapter(transport);
+        let mut client = Client::new_from_variant(TransportVariant::BlockingUdp(adapter));
+        client.camera_model = self.camera_model;
+        Ok(client)
+    }
+    
+    /// Connect to a camera using TCP transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Io` if TCP connection fails.
+    #[cfg(feature = "blocking-client")]
+    pub fn connect_tcp(self, camera_addr: &str) -> Result<Client, Error> {
+        let transport = BlockingTcpTransport::new(camera_addr).map_err(Error::Io)?;
+        let adapter = BlockingAdapter(transport);
+        let mut client = Client::new_from_variant(TransportVariant::BlockingTcp(adapter));
+        client.camera_model = self.camera_model;
+        Ok(client)
+    }
+    
+    /// Connect to a camera using UDP transport (async).
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Io` if UDP transport creation fails.
+    #[cfg(feature = "async-client")]
+    pub async fn connect_udp_async(self, camera_addr: &str) -> Result<Client, Error> {
+        let transport = AsyncUdpTransport::new(camera_addr).await?;
+        let mut client = Client::new_from_variant(TransportVariant::AsyncUdp(transport));
+        client.camera_model = self.camera_model;
+        Ok(client)
+    }
+    
+    /// Connect to a camera using TCP transport (async).
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Io` if TCP connection fails.
+    #[cfg(feature = "async-client")]
+    pub async fn connect_tcp_async(self, camera_addr: &str) -> Result<Client, Error> {
+        let transport = AsyncTcpTransport::new(camera_addr).await?;
+        let mut client = Client::new_from_variant(TransportVariant::AsyncTcp(transport));
+        client.camera_model = self.camera_model;
+        Ok(client)
     }
 }
 
@@ -573,5 +708,38 @@ mod tests {
         });
 
         handle.join().unwrap();
+    }
+
+    #[cfg(feature = "blocking-client")]
+    #[test]
+    fn test_client_builder() {
+        // Test default builder
+        let builder = Client::builder();
+        assert!(builder.camera_model.is_none());
+        
+        // Test with camera model
+        let builder = Client::builder()
+            .camera_model(CameraModel::PTZOpticsG2);
+        assert_eq!(builder.camera_model, Some(CameraModel::PTZOpticsG2));
+    }
+    
+    #[cfg(feature = "blocking-client")]
+    #[test]
+    fn test_client_builder_camera_model() {
+        // Test that builder properly sets camera model
+        // Note: We can't test actual connections without a real camera,
+        // but we can verify the builder logic
+        let builder = Client::builder()
+            .camera_model(CameraModel::PTZOpticsG2);
+        assert_eq!(builder.camera_model, Some(CameraModel::PTZOpticsG2));
+        
+        // Test builder without model
+        let builder = Client::builder();
+        assert_eq!(builder.camera_model, None);
+        
+        // Test that camera model can be changed
+        let builder = Client::builder()
+            .camera_model(CameraModel::PTZOptics30X);
+        assert_eq!(builder.camera_model, Some(CameraModel::PTZOptics30X));
     }
 }

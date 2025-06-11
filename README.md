@@ -225,6 +225,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Camera Model Configuration
+
+For best results, specify your camera model when creating a client:
+
+```rust
+use grafton_visca::{Client, constants::CameraModel};
+
+// Configure camera model for automatic command validation
+let client = Client::builder()
+    .camera_model(CameraModel::PTZOpticsG2)
+    .connect_udp("192.168.1.100:5678")?;
+
+// Commands are now validated before sending
+match client.send(&ZoomCommand::Direct(0x7AC0)) {  // 30X zoom position
+    Err(Error::ModelValidation { model, command, reason }) => {
+        // This would error for PTZOpticsG2 which only supports 20X zoom
+        println!("Command {} not valid for {:?}: {}", command, model, reason);
+    }
+    Ok(_) => {
+        // Command executed successfully
+    }
+}
+```
+
+Without model specification, all commands are sent directly to the camera,
+which may respond with `CommandNotExecutable` errors for unsupported features.
+
 ### Advanced Positioning
 
 ```rust

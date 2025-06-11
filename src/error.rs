@@ -169,6 +169,17 @@ pub enum Error {
     /// Operation cannot be performed in current state.
     #[error("Invalid state: {0}")]
     InvalidState(String),
+
+    /// Command validation failed for the specified camera model.
+    #[error("Command '{command}' not valid for {model:?}: {reason}")]
+    ModelValidation {
+        /// The camera model that failed validation.
+        model: crate::constants::CameraModel,
+        /// The command that failed validation.
+        command: String,
+        /// Reason for the validation failure.
+        reason: String,
+    },
 }
 
 impl Error {
