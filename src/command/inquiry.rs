@@ -169,3 +169,418 @@ impl Command for InquiryCommand {
         CommandCategory::Quick
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_power_inquiry() {
+        let cmd = InquiryCommand::Power;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x00, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Power));
+    }
+
+    #[test]
+    fn test_pan_tilt_position_inquiry() {
+        let cmd = InquiryCommand::PanTiltPosition;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x06, 0x12, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::PanTiltPosition));
+    }
+
+    #[test]
+    fn test_zoom_position_inquiry() {
+        let cmd = InquiryCommand::ZoomPosition;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x47, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ZoomPosition));
+    }
+
+    #[test]
+    fn test_focus_position_inquiry() {
+        let cmd = InquiryCommand::FocusPosition;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x48, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::FocusPosition));
+    }
+
+    #[test]
+    fn test_exposure_mode_inquiry() {
+        let cmd = InquiryCommand::ExposureMode;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x39, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ExposureMode));
+    }
+
+    #[test]
+    fn test_white_balance_mode_inquiry() {
+        let cmd = InquiryCommand::WhiteBalanceMode;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x35, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::WhiteBalanceMode));
+    }
+
+    #[test]
+    fn test_luminance_inquiry() {
+        let cmd = InquiryCommand::Luminance;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0xA1, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Luminance));
+    }
+
+    #[test]
+    fn test_contrast_inquiry() {
+        let cmd = InquiryCommand::Contrast;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0xA2, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Contrast));
+    }
+
+    #[test]
+    fn test_sharpness_inquiry() {
+        let cmd = InquiryCommand::Sharpness;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x42, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Sharpness));
+    }
+
+    #[test]
+    fn test_exposure_compensation_inquiry() {
+        let cmd = InquiryCommand::ExposureCompensation;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x4E, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ExposureCompensation));
+    }
+
+    #[test]
+    fn test_exposure_compensation_mode_inquiry() {
+        let cmd = InquiryCommand::ExposureCompensationMode;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x3E, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ExposureCompensationMode));
+    }
+
+    #[test]
+    fn test_iris_inquiry() {
+        let cmd = InquiryCommand::Iris;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x4B, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Iris));
+    }
+
+    #[test]
+    fn test_shutter_inquiry() {
+        let cmd = InquiryCommand::Shutter;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x4A, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Shutter));
+    }
+
+    #[test]
+    fn test_bright_inquiry() {
+        let cmd = InquiryCommand::Bright;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x4D, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Bright));
+    }
+
+    #[test]
+    fn test_gain_inquiry() {
+        let cmd = InquiryCommand::Gain;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x4C, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Gain));
+    }
+
+    #[test]
+    fn test_gain_limit_inquiry() {
+        let cmd = InquiryCommand::GainLimit;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x2C, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::GainLimit));
+    }
+
+    #[test]
+    fn test_anti_flicker_inquiry() {
+        let cmd = InquiryCommand::AntiFlicker;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x23, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::AntiFlicker));
+    }
+
+    #[test]
+    fn test_saturation_inquiry() {
+        let cmd = InquiryCommand::Saturation;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x49, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Saturation));
+    }
+
+    #[test]
+    fn test_hue_inquiry() {
+        let cmd = InquiryCommand::Hue;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x4F, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Hue));
+    }
+
+    #[test]
+    fn test_red_gain_inquiry() {
+        let cmd = InquiryCommand::RedGain;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x0A, 0x12, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::RedGain));
+    }
+
+    #[test]
+    fn test_blue_gain_inquiry() {
+        let cmd = InquiryCommand::BlueGain;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x0A, 0x13, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::BlueGain));
+    }
+
+    #[test]
+    fn test_backlight_inquiry() {
+        let cmd = InquiryCommand::Backlight;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x33, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::Backlight));
+    }
+
+    #[test]
+    fn test_image_flip_inquiry() {
+        let cmd = InquiryCommand::ImageFlip;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x61, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ImageFlip));
+    }
+
+    #[test]
+    fn test_sharpness_mode_inquiry() {
+        let cmd = InquiryCommand::SharpnessMode;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x05, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::SharpnessMode));
+    }
+
+    #[test]
+    fn test_color_temperature_inquiry() {
+        let cmd = InquiryCommand::ColorTemperature;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x20, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::ColorTemperature));
+    }
+
+    #[test]
+    fn test_noise_reduction_2d_inquiry() {
+        let cmd = InquiryCommand::NoiseReduction2D;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x53, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::NoiseReduction2D));
+    }
+
+    #[test]
+    fn test_noise_reduction_3d_inquiry() {
+        let cmd = InquiryCommand::NoiseReduction3D;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x54, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::NoiseReduction3D));
+    }
+
+    #[test]
+    fn test_black_white_inquiry() {
+        let cmd = InquiryCommand::BlackWhite;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x01, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::BlackWhite));
+    }
+
+    #[test]
+    fn test_focus_zone_inquiry() {
+        let cmd = InquiryCommand::FocusZone;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x3C, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::FocusZone));
+    }
+
+    #[test]
+    fn test_auto_focus_sensitivity_inquiry() {
+        let cmd = InquiryCommand::AutoFocusSensitivity;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x58, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::AutoFocusSensitivity));
+    }
+
+    #[test]
+    fn test_focus_near_limit_inquiry() {
+        let cmd = InquiryCommand::FocusNearLimit;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x28, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::FocusNearLimit));
+    }
+
+    #[test]
+    fn test_dynamic_range_inquiry() {
+        let cmd = InquiryCommand::DynamicRange;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x09, 0x04, 0x25, 0xFF]
+        );
+        assert_eq!(cmd.response_type(), Some(ResponseType::DynamicRange));
+    }
+
+    #[test]
+    fn test_all_inquiries_have_response_types() {
+        // Test that all inquiry variants have a corresponding response type
+        let inquiries = vec![
+            InquiryCommand::Power,
+            InquiryCommand::PanTiltPosition,
+            InquiryCommand::ZoomPosition,
+            InquiryCommand::FocusPosition,
+            InquiryCommand::ExposureMode,
+            InquiryCommand::WhiteBalanceMode,
+            InquiryCommand::Luminance,
+            InquiryCommand::Contrast,
+            InquiryCommand::Sharpness,
+            InquiryCommand::ExposureCompensation,
+            InquiryCommand::ExposureCompensationMode,
+            InquiryCommand::Iris,
+            InquiryCommand::Shutter,
+            InquiryCommand::Bright,
+            InquiryCommand::Gain,
+            InquiryCommand::GainLimit,
+            InquiryCommand::AntiFlicker,
+            InquiryCommand::Saturation,
+            InquiryCommand::Hue,
+            InquiryCommand::RedGain,
+            InquiryCommand::BlueGain,
+            InquiryCommand::Backlight,
+            InquiryCommand::ImageFlip,
+            InquiryCommand::SharpnessMode,
+            InquiryCommand::ColorTemperature,
+            InquiryCommand::NoiseReduction2D,
+            InquiryCommand::NoiseReduction3D,
+            InquiryCommand::BlackWhite,
+            InquiryCommand::FocusZone,
+            InquiryCommand::AutoFocusSensitivity,
+            InquiryCommand::FocusNearLimit,
+            InquiryCommand::DynamicRange,
+        ];
+
+        for inquiry in inquiries {
+            assert!(
+                inquiry.response_type().is_some(),
+                "Inquiry {:?} should have a response type",
+                inquiry
+            );
+        }
+    }
+
+    #[test]
+    fn test_command_category() {
+        // All inquiry commands should be Quick category
+        let inquiries = vec![
+            InquiryCommand::Power,
+            InquiryCommand::PanTiltPosition,
+            InquiryCommand::ZoomPosition,
+            InquiryCommand::FocusPosition,
+            InquiryCommand::ExposureMode,
+            InquiryCommand::WhiteBalanceMode,
+            InquiryCommand::Luminance,
+            InquiryCommand::Contrast,
+        ];
+
+        for inquiry in inquiries {
+            assert_eq!(inquiry.command_category(), CommandCategory::Quick);
+        }
+    }
+
+    #[test]
+    fn test_inquiry_command_debug() {
+        // Test Debug trait implementation
+        let cmd = InquiryCommand::Power;
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("Power"));
+
+        let cmd = InquiryCommand::ZoomPosition;
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("ZoomPosition"));
+    }
+
+    #[test]
+    fn test_inquiry_command_clone() {
+        // Test Copy/Clone traits
+        let cmd1 = InquiryCommand::Power;
+        let cmd2 = cmd1; // Copy
+        let cmd3 = cmd1.clone(); // Clone
+        
+        assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
+        assert_eq!(cmd1.to_bytes().unwrap(), cmd3.to_bytes().unwrap());
+    }
+}

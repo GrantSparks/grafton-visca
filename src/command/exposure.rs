@@ -445,3 +445,409 @@ impl Command for BrightCommand {
         }
     }
 }
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_exposure_mode_command() {
+        // Test Auto mode
+        let cmd = ExposureCommand {
+            mode: ExposureMode::Auto,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x39, 0x00, 0xFF]
+        );
+
+        // Test Manual mode
+        let cmd = ExposureCommand {
+            mode: ExposureMode::Manual,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x39, 0x03, 0xFF]
+        );
+
+        // Test Shutter Priority mode
+        let cmd = ExposureCommand {
+            mode: ExposureMode::Shutter,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x39, 0x0A, 0xFF]
+        );
+
+        // Test Iris Priority mode
+        let cmd = ExposureCommand {
+            mode: ExposureMode::Iris,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x39, 0x0B, 0xFF]
+        );
+
+        // Test Brightness Priority mode
+        let cmd = ExposureCommand {
+            mode: ExposureMode::Bright,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x39, 0x0D, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_exposure_mode_try_from() {
+        assert!(matches!(ExposureMode::try_from(0x00), Ok(ExposureMode::Auto)));
+        assert!(matches!(
+            ExposureMode::try_from(0x03),
+            Ok(ExposureMode::Manual)
+        ));
+        assert!(matches!(
+            ExposureMode::try_from(0x0A),
+            Ok(ExposureMode::Shutter)
+        ));
+        assert!(matches!(ExposureMode::try_from(0x0B), Ok(ExposureMode::Iris)));
+        assert!(matches!(
+            ExposureMode::try_from(0x0D),
+            Ok(ExposureMode::Bright)
+        ));
+        assert!(ExposureMode::try_from(0xFF).is_err());
+    }
+
+    #[test]
+    fn test_exposure_compensation_level() {
+        // Test valid values
+        for value in -7..=7 {
+            let level = ExposureCompensationLevel::new(value).unwrap();
+            assert_eq!(level.value(), value);
+            assert_eq!(level.to_protocol_value(), (value + 7) as u8);
+        }
+
+        // Test invalid values
+        assert!(ExposureCompensationLevel::new(-8).is_err());
+        assert!(ExposureCompensationLevel::new(8).is_err());
+    }
+
+    #[test]
+    fn test_exposure_compensation_commands() {
+        // Test On command
+        let cmd = ExposureCompensationCommand::On;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF]
+        );
+
+        // Test Off command
+        let cmd = ExposureCompensationCommand::Off;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x3E, 0x03, 0xFF]
+        );
+
+        // Test Reset command
+        let cmd = ExposureCompensationCommand::Reset;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0E, 0x00, 0xFF]
+        );
+
+        // Test Up command
+        let cmd = ExposureCompensationCommand::Up;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0E, 0x02, 0xFF]
+        );
+
+        // Test Down command
+        let cmd = ExposureCompensationCommand::Down;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF]
+        );
+
+        // Test Direct command with various values
+        for value in -7..=7 {
+            let level = ExposureCompensationLevel::new(value).unwrap();
+            let cmd = ExposureCompensationCommand::Direct(level);
+            let expected = vec![
+                0x81,
+                0x01,
+                0x04,
+                0x4E,
+                0x00,
+                0x00,
+                0x00,
+                (value + 7) as u8,
+                0xFF,
+            ];
+            assert_eq!(cmd.to_bytes().unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn test_exposure_compensation_g2_validation() {
+        // Test valid G2 values
+        for value in -7..=7 {
+            let level = ExposureCompensationLevel::new(value).unwrap();
+            let cmd = ExposureCompensationCommand::Direct(level);
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // Other command types should always be valid
+        assert!(ExposureCompensationCommand::On
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+        assert!(ExposureCompensationCommand::Off
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_dynamic_range_level() {
+        // Test valid values
+        for value in 0..=8 {
+            let level = DynamicRangeLevel::new(value).unwrap();
+            assert_eq!(level.value(), value);
+        }
+
+        // Test invalid values
+        assert!(DynamicRangeLevel::new(9).is_err());
+    }
+
+    #[test]
+    fn test_dynamic_range_command() {
+        // Test all valid dynamic range levels
+        for value in 0..=8 {
+            let level = DynamicRangeLevel::new(value).unwrap();
+            let cmd = DynamicRangeCommand::Direct(level);
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, value, 0xFF]
+            );
+        }
+    }
+
+    #[test]
+    fn test_dynamic_range_g2_validation() {
+        // Test valid G2 values
+        for value in 0..=8 {
+            let level = DynamicRangeLevel::new(value).unwrap();
+            let cmd = DynamicRangeCommand::Direct(level);
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_iris_commands() {
+        // Test Reset command
+        let cmd = IrisCommand::Reset;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF]
+        );
+
+        // Test Up command
+        let cmd = IrisCommand::Up;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF]
+        );
+
+        // Test Down command
+        let cmd = IrisCommand::Down;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF]
+        );
+
+        // Test Direct command with valid values
+        let test_values = vec![0x00, 0x05, 0x0A, 0x0C];
+        for value in test_values {
+            let level = IrisLevel::new(value).unwrap();
+            let cmd = IrisCommand::Direct(level);
+            let high = (value >> 4) & 0x0F;
+            let low = value & 0x0F;
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, high, low, 0xFF]
+            );
+        }
+    }
+
+    #[test]
+    fn test_iris_g2_validation() {
+        // Test valid G2 iris values
+        for value in 0x00..=0x0C {
+            let level = IrisLevel::new(value).unwrap();
+            let cmd = IrisCommand::Direct(level);
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // Test that non-G2 valid value still passes validation (G2 is more restrictive)
+        // The general IrisLevel accepts values up to 0x0C, which are all valid for G2
+
+        // Non-direct commands should always be valid
+        assert!(IrisCommand::Reset
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_shutter_commands() {
+        // Test Reset command
+        let cmd = ShutterCommand::Reset;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF]
+        );
+
+        // Test Up command
+        let cmd = ShutterCommand::Up;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF]
+        );
+
+        // Test Down command
+        let cmd = ShutterCommand::Down;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF]
+        );
+
+        // Test Direct command with valid values
+        let test_values = vec![0x01u16, 0x05, 0x0A, 0x10, 0x11];
+        for value in test_values {
+            let speed = ShutterSpeed::new(value).unwrap();
+            let cmd = ShutterCommand::Direct(speed);
+            let high = ((value >> 4) & 0x0F) as u8;
+            let low = (value & 0x0F) as u8;
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
+            );
+        }
+    }
+
+    #[test]
+    fn test_shutter_g2_validation() {
+        // Test valid G2 shutter values
+        for value in 0x01..=0x11 {
+            let speed = ShutterSpeed::new(value).unwrap();
+            let cmd = ShutterCommand::Direct(speed);
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // Test that non-G2 valid value still passes validation (G2 is more restrictive)
+        // The general ShutterSpeed accepts values up to 0x11, which are all valid for G2
+
+        // Non-direct commands should always be valid
+        assert!(ShutterCommand::Reset
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_bright_commands() {
+        // Test Reset command
+        let cmd = BrightCommand::Reset;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF]
+        );
+
+        // Test Up command
+        let cmd = BrightCommand::Up;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF]
+        );
+
+        // Test Down command
+        let cmd = BrightCommand::Down;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF]
+        );
+
+        // Test Direct command with valid values
+        let test_values = vec![0x00u16, 0x08, 0x0F, 0x10, 0x11];
+        for value in test_values {
+            let level = BrightnessLevel::new(value).unwrap();
+            let cmd = BrightCommand::Direct(level);
+            let high = ((value >> 4) & 0x0F) as u8;
+            let low = (value & 0x0F) as u8;
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, high, low, 0xFF]
+            );
+        }
+    }
+
+    #[test]
+    fn test_bright_g2_validation() {
+        // Test valid G2 brightness values
+        for value in 0x00..=0x11 {
+            let level = BrightnessLevel::new(value).unwrap();
+            let cmd = BrightCommand::Direct(level);
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // Test that non-G2 valid value still passes validation (G2 is more restrictive)
+        // The general BrightnessLevel accepts values up to 0x11, which are all valid for G2
+
+        // Non-direct commands should always be valid
+        assert!(BrightCommand::Reset
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_command_categories() {
+        // All exposure commands should be Quick category
+        assert_eq!(
+            ExposureCommand {
+                mode: ExposureMode::Auto
+            }
+            .command_category(),
+            CommandCategory::Quick
+        );
+        assert_eq!(
+            ExposureCompensationCommand::On.command_category(),
+            CommandCategory::Quick
+        );
+        assert_eq!(
+            DynamicRangeCommand::Direct(DynamicRangeLevel::new(5).unwrap()).command_category(),
+            CommandCategory::Quick
+        );
+        assert_eq!(IrisCommand::Reset.command_category(), CommandCategory::Quick);
+        assert_eq!(
+            ShutterCommand::Reset.command_category(),
+            CommandCategory::Quick
+        );
+        assert_eq!(
+            BrightCommand::Reset.command_category(),
+            CommandCategory::Quick
+        );
+    }
+
+    #[test]
+    fn test_response_types() {
+        // All exposure commands should return None for response_type
+        assert!(ExposureCommand {
+            mode: ExposureMode::Auto
+        }
+        .response_type()
+        .is_none());
+        assert!(ExposureCompensationCommand::On.response_type().is_none());
+        assert!(DynamicRangeCommand::Direct(DynamicRangeLevel::new(5).unwrap())
+            .response_type()
+            .is_none());
+        assert!(IrisCommand::Reset.response_type().is_none());
+        assert!(ShutterCommand::Reset.response_type().is_none());
+        assert!(BrightCommand::Reset.response_type().is_none());
+    }
+}
