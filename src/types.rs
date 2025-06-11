@@ -63,6 +63,19 @@ impl GainValue {
     /// Maximum gain value.
     pub const MAX: Self = Self(0x07);
 
+    /// Valid gain values for `PTZOptics` G2 cameras.
+    /// These are the only valid values according to the G2 specification.
+    pub const G2_VALID_VALUES: &'static [u8] = &[
+        0x00, // 0dB
+        0x01, // 3dB
+        0x02, // 6dB
+        0x03, // 9dB
+        0x04, // 12dB
+        0x05, // 15dB
+        0x06, // 18dB
+        0x07, // 21dB
+    ];
+
     /// Create a new gain value.
     ///
     /// # Errors
@@ -257,6 +270,24 @@ impl IrisLevel {
     /// Maximum iris level (F1.8 - fully open).
     pub const MAX: Self = Self(0x0C);
 
+    /// Valid iris level values for `PTZOptics` G2 cameras.
+    /// These are the only valid values according to the G2 specification.
+    pub const G2_VALID_VALUES: &'static [u8] = &[
+        0x00, // Close
+        0x01, // F11
+        0x02, // F9.6
+        0x03, // F8
+        0x04, // F6.8
+        0x05, // F5.6
+        0x06, // F4.8
+        0x07, // F4
+        0x08, // F3.4
+        0x09, // F2.8
+        0x0A, // F2.4
+        0x0B, // F2
+        0x0C, // F1.8
+    ];
+
     /// Create a new iris level.
     ///
     /// # Errors
@@ -305,6 +336,28 @@ impl ShutterSpeed {
 
     /// Maximum shutter speed (1/10000 second).
     pub const MAX: Self = Self(0x11);
+
+    /// Valid shutter speed values for `PTZOptics` G2 cameras.
+    /// These are the only valid values according to the G2 specification.
+    pub const G2_VALID_VALUES: &'static [u16] = &[
+        0x01, // 1/30
+        0x02, // 1/60
+        0x03, // 1/100
+        0x04, // 1/125
+        0x05, // 1/180
+        0x06, // 1/250
+        0x07, // 1/350
+        0x08, // 1/500
+        0x09, // 1/725
+        0x0A, // 1/1000
+        0x0B, // 1/1500
+        0x0C, // 1/2000
+        0x0D, // 1/3000
+        0x0E, // 1/4000
+        0x0F, // 1/6000
+        0x10, // 1/8000
+        0x11, // 1/10000
+    ];
 
     /// Create a new shutter speed.
     ///
@@ -403,6 +456,12 @@ impl SharpnessLevel {
 
     /// Maximum sharpness level.
     pub const MAX: Self = Self(11);
+
+    /// Valid sharpness values for `PTZOptics` G2 cameras.
+    /// These are the only valid values according to the G2 specification.
+    pub const G2_VALID_VALUES: &'static [u8] = &[
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
+    ];
 
     /// Create a new sharpness level.
     ///

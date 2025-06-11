@@ -224,19 +224,133 @@ impl Command for DynamicRangeCommand {
     }
 }
 
-visca_up_down_reset! {
-    #[category = "Quick"]
-    enum IrisCommand {
-        command_byte: 0x0B,
-        Direct(level: IrisLevel) => |high, low| [0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, high, low, 0xFF]
+/// Commands for controlling iris/aperture values.
+///
+/// Provides standard VISCA control operations:
+/// - Reset to default value
+/// - Increment/decrement by one step
+/// - Set to a specific value
+#[derive(Debug, Copy, Clone)]
+pub enum IrisCommand {
+    /// Reset to default value.
+    Reset,
+    /// Increase value by one step.
+    Up,
+    /// Decrease value by one step.
+    Down,
+    /// Set to specific value.
+    Direct(IrisLevel),
+}
+
+// Manual implementation to add model validation
+impl Command for IrisCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(match self {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF],
+            Self::Direct(level) => {
+                let val = level.value();
+                let high = (val >> 4) & 0x0F;
+                let low = val & 0x0F;
+                vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, high, low, 0xFF]
+            }
+        })
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+        match self {
+            Self::Direct(level) => {
+                if matches!(model, crate::constants::CameraModel::PTZOpticsG2)
+                    && !IrisLevel::G2_VALID_VALUES.contains(&level.value())
+                {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "IrisLevel".to_string(),
+                        reason: format!(
+                            "Iris level value {:#02X} is not valid for G2. Valid values: 0x00-0x0C",
+                            level.value()
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 }
 
-visca_up_down_reset! {
-    #[category = "Quick"]
-    enum ShutterCommand {
-        command_byte: 0x0A,
-        Direct(value: ShutterSpeed) => |high, low| [0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
+/// Commands for controlling shutter speed values.
+///
+/// Provides standard VISCA control operations:
+/// - Reset to default value
+/// - Increment/decrement by one step
+/// - Set to a specific value
+#[derive(Debug, Copy, Clone)]
+pub enum ShutterCommand {
+    /// Reset to default value.
+    Reset,
+    /// Increase value by one step.
+    Up,
+    /// Decrease value by one step.
+    Down,
+    /// Set to specific value.
+    Direct(ShutterSpeed),
+}
+
+// Manual implementation to add model validation
+impl Command for ShutterCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(match self {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF],
+            Self::Direct(value) => {
+                let val = value.value();
+                #[allow(clippy::cast_possible_truncation)]
+                let byte_val = val as u8;
+                let high = (byte_val >> 4) & 0x0F;
+                let low = byte_val & 0x0F;
+                vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
+            }
+        })
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+        match self {
+            Self::Direct(speed) => {
+                if matches!(model, crate::constants::CameraModel::PTZOpticsG2)
+                    && !ShutterSpeed::G2_VALID_VALUES.contains(&speed.value())
+                {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "ShutterSpeed".to_string(),
+                        reason: format!(
+                            "Shutter speed value {:#04X} is not valid for G2. Valid values: 0x01-0x11",
+                            speed.value()
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 }
 

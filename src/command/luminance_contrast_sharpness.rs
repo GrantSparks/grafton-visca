@@ -75,6 +75,28 @@ impl Command for SharpnessCommand {
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Custom
     }
+
+    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+        use crate::types::SharpnessLevel;
+
+        match self {
+            Self::Direct { value } => {
+                if matches!(model, crate::constants::CameraModel::PTZOpticsG2)
+                    && !SharpnessLevel::G2_VALID_VALUES.contains(value)
+                {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "SharpnessDirect".to_string(),
+                        reason: format!(
+                            "Sharpness value {value} is not valid for G2. Valid values: 0-11"
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 crate::visca_param_command! {
