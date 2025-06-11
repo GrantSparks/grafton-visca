@@ -252,6 +252,24 @@ match client.send(&ZoomCommand::Direct(0x7AC0)) {  // 30X zoom position
 Without model specification, all commands are sent directly to the camera,
 which may respond with `CommandNotExecutable` errors for unsupported features.
 
+#### Commands with Model-Specific Validation
+
+When a camera model is configured, the following commands validate their parameters:
+
+- **Zoom Direct Position** - Validates against camera's optical zoom range
+  - PTZOpticsG2: 0x0000-0x7000 (20X)
+  - PTZOptics30X: 0x0000-0x7AC0 (30X)
+- **Pan/Tilt Absolute Position** - Validates pan and tilt ranges
+  - Pan: -2448 to +2448 VISCA units
+  - Tilt: -432 to +1296 VISCA units
+- **Focus Direct Position** - Validates focus range
+  - Range: 0x1000-0xF000 (infinity to near)
+- **Preset Numbers** - Validates preset ID range
+  - PTZOpticsG2: 0-89 (90 presets)
+  - Other models: 0-100
+
+All other commands use built-in parameter validation that works across all camera models.
+
 ### Advanced Positioning
 
 ```rust

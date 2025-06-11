@@ -12,6 +12,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{Command, ResponseType},
+    constants::CameraConstants,
     error::Error,
     timeout::CommandCategory,
 };
@@ -66,6 +67,23 @@ impl Command for PresetCommand {
 
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Preset
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+        let max_preset = model.max_preset_id();
+        if self.preset_number.value() > max_preset {
+            return Err(Error::ModelValidation {
+                model,
+                command: "Preset".to_string(),
+                reason: format!(
+                    "Preset number {} exceeds maximum {} for {:?}",
+                    self.preset_number.value(),
+                    max_preset,
+                    model
+                ),
+            });
+        }
+        Ok(())
     }
 }
 

@@ -258,41 +258,65 @@ mod tests {
     fn test_zoom_validation_g2_camera() {
         // Test validation for PTZOptics G2 (20X zoom)
         let cmd_valid = ZoomCommand::Direct(0x7000); // Max for 20X
-        assert!(cmd_valid.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
-        
+        assert!(cmd_valid
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+
         let cmd_invalid = ZoomCommand::Direct(0x7AC0); // 30X position
         let result = cmd_invalid.validate_for_model(CameraModel::PTZOpticsG2);
         assert!(result.is_err());
         match result {
-            Err(Error::ModelValidation { model, command, reason }) => {
+            Err(Error::ModelValidation {
+                model,
+                command,
+                reason,
+            }) => {
                 assert_eq!(model, CameraModel::PTZOpticsG2);
                 assert_eq!(command, "ZoomDirect");
                 assert!(reason.contains("0x7AC0"));
                 assert!(reason.contains("0x7000"));
             }
-            _ => panic!("Expected ModelValidation error"),
+            _ => unreachable!("Expected ModelValidation error"),
         }
     }
-    
+
     #[test]
     fn test_zoom_validation_30x_camera() {
         // Test validation for PTZOptics 30X
         let cmd_valid = ZoomCommand::Direct(0x7AC0); // Max for 30X
-        assert!(cmd_valid.validate_for_model(CameraModel::PTZOptics30X).is_ok());
-        
+        assert!(cmd_valid
+            .validate_for_model(CameraModel::PTZOptics30X)
+            .is_ok());
+
         let cmd_edge = ZoomCommand::Direct(0x7FFF); // Beyond 30X but within digital range
         let result = cmd_edge.validate_for_model(CameraModel::PTZOptics30X);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_zoom_validation_other_commands() {
         // Test that other zoom commands pass validation
         assert!(Command::validate_for_model(&ZoomCommand::Stop, CameraModel::PTZOpticsG2).is_ok());
-        assert!(Command::validate_for_model(&ZoomCommand::ZoomInStandard, CameraModel::PTZOpticsG2).is_ok());
-        assert!(Command::validate_for_model(&ZoomCommand::ZoomOutStandard, CameraModel::PTZOpticsG2).is_ok());
-        assert!(Command::validate_for_model(&ZoomCommand::ZoomInVariable(ZoomSpeed::new(5).unwrap()), CameraModel::PTZOpticsG2).is_ok());
-        assert!(Command::validate_for_model(&ZoomCommand::ZoomOutVariable(ZoomSpeed::new(3).unwrap()), CameraModel::PTZOpticsG2).is_ok());
+        assert!(Command::validate_for_model(
+            &ZoomCommand::ZoomInStandard,
+            CameraModel::PTZOpticsG2
+        )
+        .is_ok());
+        assert!(Command::validate_for_model(
+            &ZoomCommand::ZoomOutStandard,
+            CameraModel::PTZOpticsG2
+        )
+        .is_ok());
+        assert!(Command::validate_for_model(
+            &ZoomCommand::ZoomInVariable(ZoomSpeed::new(5).unwrap()),
+            CameraModel::PTZOpticsG2
+        )
+        .is_ok());
+        assert!(Command::validate_for_model(
+            &ZoomCommand::ZoomOutVariable(ZoomSpeed::new(3).unwrap()),
+            CameraModel::PTZOpticsG2
+        )
+        .is_ok());
     }
 
     #[test]

@@ -12,6 +12,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{Command, ResponseType},
+    constants::CameraConstants,
     error::Error,
     timeout::CommandCategory,
 };
@@ -86,6 +87,27 @@ impl Command for FocusCommand {
 
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Movement
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+        match self {
+            Self::Direct(position) => {
+                let (min, max) = model.focus_range();
+                if *position < min || *position > max {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "FocusDirect".to_string(),
+                        reason: format!(
+                            "Position 0x{:04X} out of range [0x{:04X}, 0x{:04X}] for {:?}",
+                            position, min, max, model
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            // Other focus commands are generally supported by all models
+            _ => Ok(()),
+        }
     }
 }
 

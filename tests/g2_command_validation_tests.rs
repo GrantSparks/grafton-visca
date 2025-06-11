@@ -1,19 +1,15 @@
 //! Comprehensive tests for PTZOptics G2 camera command validation
 //!
-//! This test suite validates every command in the library against the 
-//! PTZOptics G2 documentation, testing both valid (positive) and invalid 
+//! This test suite validates every command in the library against the
+//! PTZOptics G2 documentation, testing both valid (positive) and invalid
 //! (negative) cases for each command.
 
-use grafton_visca::{
-    constants::CameraModel,
-    Error,
-    Command,
-};
+use grafton_visca::{constants::CameraModel, Command, Error};
 
 /// Helper function to test that a command is valid for G2
 fn assert_valid_for_g2<C: Command>(command: &C) {
     match command.validate_for_model(CameraModel::PTZOpticsG2) {
-        Ok(()) => {}, // Expected
+        Ok(()) => {} // Expected
         Err(e) => panic!("Command should be valid for G2 but got error: {:?}", e),
     }
 }
@@ -21,11 +17,19 @@ fn assert_valid_for_g2<C: Command>(command: &C) {
 /// Helper function to test that a command is invalid for G2
 fn assert_invalid_for_g2<C: Command>(command: &C, expected_reason: &str) {
     match command.validate_for_model(CameraModel::PTZOpticsG2) {
-        Err(Error::ModelValidation { model, command: _, reason }) => {
+        Err(Error::ModelValidation {
+            model,
+            command: _,
+            reason,
+        }) => {
             assert_eq!(model, CameraModel::PTZOpticsG2);
-            assert!(reason.contains(expected_reason), 
-                "Expected reason to contain '{}', but got: '{}'", expected_reason, reason);
-        },
+            assert!(
+                reason.contains(expected_reason),
+                "Expected reason to contain '{}', but got: '{}'",
+                expected_reason,
+                reason
+            );
+        }
         Ok(()) => panic!("Command should be invalid for G2 but validation passed"),
         Err(e) => panic!("Expected ModelValidation error but got: {:?}", e),
     }
@@ -39,7 +43,9 @@ mod power_commands {
     fn test_power_commands() {
         // All power commands should be valid for G2
         assert_valid_for_g2(&PowerCommand { power: Power::On });
-        assert_valid_for_g2(&PowerCommand { power: Power::Standby });
+        assert_valid_for_g2(&PowerCommand {
+            power: Power::Standby,
+        });
     }
 }
 
@@ -71,12 +77,12 @@ mod zoom_commands {
     #[test]
     fn test_zoom_direct_positions() {
         // G2 has 20X optical zoom, max position is 0x7000
-        
+
         // Valid positions
         assert_valid_for_g2(&ZoomCommand::Direct(0x0000)); // Wide end
         assert_valid_for_g2(&ZoomCommand::Direct(0x3000)); // Mid position
         assert_valid_for_g2(&ZoomCommand::Direct(0x7000)); // 20X optical limit
-        
+
         // Invalid positions (beyond 20X)
         assert_invalid_for_g2(&ZoomCommand::Direct(0x7001), "0x7000");
         assert_invalid_for_g2(&ZoomCommand::Direct(0x7AC0), "0x7000"); // 30X position
@@ -88,8 +94,8 @@ mod zoom_commands {
 mod focus_commands {
     use super::*;
     use grafton_visca::command::focus::{
-        FocusCommand, FocusSpeed, FocusZone, AutoFocusSensitivity,
-        FocusZoneCommand, AutoFocusSensitivityCommand, FocusNearLimitCommand
+        AutoFocusSensitivity, AutoFocusSensitivityCommand, FocusCommand, FocusNearLimitCommand,
+        FocusSpeed, FocusZone, FocusZoneCommand,
     };
 
     #[test]
@@ -119,10 +125,12 @@ mod focus_commands {
         assert_valid_for_g2(&FocusCommand::Direct(0x1000)); // Infinity
         assert_valid_for_g2(&FocusCommand::Direct(0x8000)); // Mid position
         assert_valid_for_g2(&FocusCommand::Direct(0xF000)); // Near limit
-        
-        // Currently no validation for focus positions, but these would be invalid:
-        // assert_invalid_for_g2(&FocusCommand::Direct(0x0FFF), "0x1000");
-        // assert_invalid_for_g2(&FocusCommand::Direct(0xF001), "0xF000");
+
+        // Invalid positions (out of range)
+        assert_invalid_for_g2(&FocusCommand::Direct(0x0FFF), "0x1000");
+        assert_invalid_for_g2(&FocusCommand::Direct(0xF001), "0xF000");
+        assert_invalid_for_g2(&FocusCommand::Direct(0x0000), "0x1000");
+        assert_invalid_for_g2(&FocusCommand::Direct(0xFFFF), "0xF000");
     }
 
     #[test]
@@ -143,30 +151,43 @@ mod focus_commands {
 
     #[test]
     fn test_focus_zones() {
-        assert_valid_for_g2(&FocusZoneCommand { zone: FocusZone::Top });
-        assert_valid_for_g2(&FocusZoneCommand { zone: FocusZone::Center });
-        assert_valid_for_g2(&FocusZoneCommand { zone: FocusZone::Bottom });
+        assert_valid_for_g2(&FocusZoneCommand {
+            zone: FocusZone::Top,
+        });
+        assert_valid_for_g2(&FocusZoneCommand {
+            zone: FocusZone::Center,
+        });
+        assert_valid_for_g2(&FocusZoneCommand {
+            zone: FocusZone::Bottom,
+        });
     }
 
     #[test]
     fn test_focus_sensitivity() {
-        assert_valid_for_g2(&AutoFocusSensitivityCommand { sensitivity: AutoFocusSensitivity::Normal });
-        assert_valid_for_g2(&AutoFocusSensitivityCommand { sensitivity: AutoFocusSensitivity::Low });
+        assert_valid_for_g2(&AutoFocusSensitivityCommand {
+            sensitivity: AutoFocusSensitivity::Normal,
+        });
+        assert_valid_for_g2(&AutoFocusSensitivityCommand {
+            sensitivity: AutoFocusSensitivity::Low,
+        });
     }
 
     #[test]
     fn test_focus_near_limit() {
+        // Valid positions within focus range
         assert_valid_for_g2(&FocusNearLimitCommand { position: 0x1000 });
         assert_valid_for_g2(&FocusNearLimitCommand { position: 0x8000 });
         assert_valid_for_g2(&FocusNearLimitCommand { position: 0xF000 });
+
+        // Note: FocusNearLimitCommand is generated by macro and doesn't
+        // implement validate_for_model, so we can't test invalid cases
     }
 }
 
 mod pan_tilt_commands {
     use super::*;
     use grafton_visca::command::pan_tilt::{
-        PanTiltCommand, PanTiltDirection, PanSpeed, TiltSpeed, 
-        PanTiltLimitCommand, LimitCorner
+        LimitCorner, PanSpeed, PanTiltCommand, PanTiltDirection, PanTiltLimitCommand, TiltSpeed,
     };
 
     #[test]
@@ -183,7 +204,7 @@ mod pan_tilt_commands {
     fn test_pan_tilt_directional_movement() {
         let pan_speed = PanSpeed::new(0x10).unwrap();
         let tilt_speed = TiltSpeed::new(0x10).unwrap();
-        
+
         // Test all directions
         let directions = vec![
             PanTiltDirection::Up,
@@ -196,7 +217,7 @@ mod pan_tilt_commands {
             PanTiltDirection::DownRight,
             PanTiltDirection::Stop,
         ];
-        
+
         for direction in directions {
             assert_valid_for_g2(&PanTiltCommand::Move {
                 direction,
@@ -217,7 +238,7 @@ mod pan_tilt_commands {
                 tilt_speed: TiltSpeed::new(0x10).unwrap(),
             });
         }
-        
+
         // Valid tilt speeds: 0x00 to 0x14 (0-20)
         for speed in 0x00..=0x14 {
             let tilt_speed = TiltSpeed::new(speed).unwrap();
@@ -233,7 +254,7 @@ mod pan_tilt_commands {
     fn test_pan_tilt_absolute_position() {
         let pan_speed = PanSpeed::new(0x10).unwrap();
         let tilt_speed = TiltSpeed::new(0x10).unwrap();
-        
+
         // Valid positions within G2 range
         // Pan: -2448 to 2448, Tilt: -432 to 1296
         assert_valid_for_g2(&PanTiltCommand::AbsolutePosition {
@@ -242,56 +263,68 @@ mod pan_tilt_commands {
             pan_speed,
             tilt_speed,
         });
-        
+
         assert_valid_for_g2(&PanTiltCommand::AbsolutePosition {
             pan: 2448,
             tilt: 1296,
             pan_speed,
             tilt_speed,
         });
-        
+
         assert_valid_for_g2(&PanTiltCommand::AbsolutePosition {
             pan: -2448,
             tilt: -432,
             pan_speed,
             tilt_speed,
         });
-        
+
         // Invalid positions (out of range)
-        assert_invalid_for_g2(&PanTiltCommand::AbsolutePosition {
-            pan: 2449,
-            tilt: 0,
-            pan_speed,
-            tilt_speed,
-        }, "2448");
-        
-        assert_invalid_for_g2(&PanTiltCommand::AbsolutePosition {
-            pan: -2449,
-            tilt: 0,
-            pan_speed,
-            tilt_speed,
-        }, "-2448");
-        
-        assert_invalid_for_g2(&PanTiltCommand::AbsolutePosition {
-            pan: 0,
-            tilt: 1297,
-            pan_speed,
-            tilt_speed,
-        }, "1296");
-        
-        assert_invalid_for_g2(&PanTiltCommand::AbsolutePosition {
-            pan: 0,
-            tilt: -433,
-            pan_speed,
-            tilt_speed,
-        }, "-432");
+        assert_invalid_for_g2(
+            &PanTiltCommand::AbsolutePosition {
+                pan: 2449,
+                tilt: 0,
+                pan_speed,
+                tilt_speed,
+            },
+            "2448",
+        );
+
+        assert_invalid_for_g2(
+            &PanTiltCommand::AbsolutePosition {
+                pan: -2449,
+                tilt: 0,
+                pan_speed,
+                tilt_speed,
+            },
+            "-2448",
+        );
+
+        assert_invalid_for_g2(
+            &PanTiltCommand::AbsolutePosition {
+                pan: 0,
+                tilt: 1297,
+                pan_speed,
+                tilt_speed,
+            },
+            "1296",
+        );
+
+        assert_invalid_for_g2(
+            &PanTiltCommand::AbsolutePosition {
+                pan: 0,
+                tilt: -433,
+                pan_speed,
+                tilt_speed,
+            },
+            "-432",
+        );
     }
 
     #[test]
     fn test_pan_tilt_relative_position() {
         let pan_speed = PanSpeed::new(0x10).unwrap();
         let tilt_speed = TiltSpeed::new(0x10).unwrap();
-        
+
         // Relative positions don't have validation currently
         assert_valid_for_g2(&PanTiltCommand::RelativePosition {
             pan: 100,
@@ -299,7 +332,7 @@ mod pan_tilt_commands {
             pan_speed,
             tilt_speed,
         });
-        
+
         assert_valid_for_g2(&PanTiltCommand::RelativePosition {
             pan: -100,
             tilt: -100,
@@ -316,18 +349,18 @@ mod pan_tilt_commands {
             pan: 0,
             tilt: 0,
         });
-        
+
         assert_valid_for_g2(&PanTiltLimitCommand::Set {
             corner: LimitCorner::UpRight,
             pan: 1000,
             tilt: 1000,
         });
-        
+
         // Limit clear commands
         assert_valid_for_g2(&PanTiltLimitCommand::Clear {
             corner: LimitCorner::DownLeft,
         });
-        
+
         assert_valid_for_g2(&PanTiltLimitCommand::Clear {
             corner: LimitCorner::UpRight,
         });
@@ -336,13 +369,13 @@ mod pan_tilt_commands {
 
 mod preset_commands {
     use super::*;
-    use grafton_visca::command::preset::{PresetCommand, PresetAction, PresetNumber};
+    use grafton_visca::command::preset::{PresetAction, PresetCommand, PresetNumber};
 
     #[test]
     fn test_preset_actions() {
         // G2 supports presets 0-89
         let valid_presets = vec![0, 1, 50, 89];
-        
+
         for preset_id in valid_presets {
             let preset = PresetNumber::new(preset_id).unwrap();
             assert_valid_for_g2(&PresetCommand {
@@ -364,23 +397,35 @@ mod preset_commands {
 mod exposure_commands {
     use super::*;
     use grafton_visca::{
-        BrightnessLevel, IrisLevel, ShutterSpeed, GainValue, GainLimit, DynamicRangeLevel,
         command::{
-            exposure::{ExposureCommand, ExposureMode, ExposureCompensationCommand, ExposureCompensationLevel,
-                      DynamicRangeCommand, IrisCommand, ShutterCommand, BrightCommand},
-            gain::{GainCommand, GainLimitCommand, AntiFlickerCommand, AntiFlickerMode},
+            exposure::{
+                BrightCommand, DynamicRangeCommand, ExposureCommand, ExposureCompensationCommand,
+                ExposureCompensationLevel, ExposureMode, IrisCommand, ShutterCommand,
+            },
+            gain::{AntiFlickerCommand, AntiFlickerMode, GainCommand, GainLimitCommand},
             image::BacklightCommand,
         },
+        BrightnessLevel, DynamicRangeLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed,
     };
 
     #[test]
     fn test_exposure_modes() {
         // All exposure modes are valid for G2
-        assert_valid_for_g2(&ExposureCommand { mode: ExposureMode::Auto });
-        assert_valid_for_g2(&ExposureCommand { mode: ExposureMode::Manual });
-        assert_valid_for_g2(&ExposureCommand { mode: ExposureMode::Shutter });
-        assert_valid_for_g2(&ExposureCommand { mode: ExposureMode::Iris });
-        assert_valid_for_g2(&ExposureCommand { mode: ExposureMode::Bright });
+        assert_valid_for_g2(&ExposureCommand {
+            mode: ExposureMode::Auto,
+        });
+        assert_valid_for_g2(&ExposureCommand {
+            mode: ExposureMode::Manual,
+        });
+        assert_valid_for_g2(&ExposureCommand {
+            mode: ExposureMode::Shutter,
+        });
+        assert_valid_for_g2(&ExposureCommand {
+            mode: ExposureMode::Iris,
+        });
+        assert_valid_for_g2(&ExposureCommand {
+            mode: ExposureMode::Bright,
+        });
     }
 
     #[test]
@@ -390,10 +435,12 @@ mod exposure_commands {
         assert_valid_for_g2(&ExposureCompensationCommand::Reset);
         assert_valid_for_g2(&ExposureCompensationCommand::Up);
         assert_valid_for_g2(&ExposureCompensationCommand::Down);
-        
+
         // Valid range: -7 to +7
         for value in -7..=7 {
-            assert_valid_for_g2(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(value).unwrap()));
+            assert_valid_for_g2(&ExposureCompensationCommand::Direct(
+                ExposureCompensationLevel::new(value).unwrap(),
+            ));
         }
     }
 
@@ -408,7 +455,7 @@ mod exposure_commands {
         assert_valid_for_g2(&IrisCommand::Reset);
         assert_valid_for_g2(&IrisCommand::Up);
         assert_valid_for_g2(&IrisCommand::Down);
-        
+
         // Valid range: 0x00 (Close) to 0x0C (F1.8)
         for value in 0x00..=0x0C {
             assert_valid_for_g2(&IrisCommand::Direct(IrisLevel::new(value).unwrap()));
@@ -420,7 +467,7 @@ mod exposure_commands {
         assert_valid_for_g2(&ShutterCommand::Reset);
         assert_valid_for_g2(&ShutterCommand::Up);
         assert_valid_for_g2(&ShutterCommand::Down);
-        
+
         // Valid range: 0x01 (1/30) to 0x11 (1/10000)
         for value in 0x01..=0x11 {
             assert_valid_for_g2(&ShutterCommand::Direct(ShutterSpeed::new(value).unwrap()));
@@ -432,7 +479,7 @@ mod exposure_commands {
         assert_valid_for_g2(&BrightCommand::Reset);
         assert_valid_for_g2(&BrightCommand::Up);
         assert_valid_for_g2(&BrightCommand::Down);
-        
+
         // Valid range: 0x00 to 0x11 (0-17)
         for value in 0x00..=0x11 {
             assert_valid_for_g2(&BrightCommand::Direct(BrightnessLevel::new(value).unwrap()));
@@ -444,7 +491,7 @@ mod exposure_commands {
         assert_valid_for_g2(&GainCommand::Reset);
         assert_valid_for_g2(&GainCommand::Up);
         assert_valid_for_g2(&GainCommand::Down);
-        
+
         // Valid range: 0x00 to 0x07 (0-7)
         for value in 0x00..=0x07 {
             assert_valid_for_g2(&GainCommand::Direct(GainValue::new(value).unwrap()));
@@ -455,8 +502,8 @@ mod exposure_commands {
     fn test_gain_limit() {
         // Valid range: 0x0 to 0xF (0-15)
         for value in 0x0..=0xF {
-            assert_valid_for_g2(&GainLimitCommand { 
-                limit: GainLimit::new(value).unwrap() 
+            assert_valid_for_g2(&GainLimitCommand {
+                limit: GainLimit::new(value).unwrap(),
             });
         }
     }
@@ -466,35 +513,55 @@ mod exposure_commands {
         // Valid range: 0 to 8
         for value in 0..=8 {
             assert_valid_for_g2(&DynamicRangeCommand::Direct(
-                DynamicRangeLevel::new(value).unwrap()
+                DynamicRangeLevel::new(value).unwrap(),
             ));
         }
     }
 
     #[test]
     fn test_anti_flicker() {
-        assert_valid_for_g2(&AntiFlickerCommand { mode: AntiFlickerMode::Off });
-        assert_valid_for_g2(&AntiFlickerCommand { mode: AntiFlickerMode::Hz50 });
-        assert_valid_for_g2(&AntiFlickerCommand { mode: AntiFlickerMode::Hz60 });
+        assert_valid_for_g2(&AntiFlickerCommand {
+            mode: AntiFlickerMode::Off,
+        });
+        assert_valid_for_g2(&AntiFlickerCommand {
+            mode: AntiFlickerMode::Hz50,
+        });
+        assert_valid_for_g2(&AntiFlickerCommand {
+            mode: AntiFlickerMode::Hz60,
+        });
     }
 }
 
 mod white_balance_commands {
     use super::*;
     use grafton_visca::command::{
+        color::{
+            BlueGainCommand, BlueTuningCommand, ColorTemperatureCommand, OnePushTriggerCommand,
+            RedGainCommand, RedTuningCommand,
+        },
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
-        color::{OnePushTriggerCommand, RedTuningCommand, BlueTuningCommand,
-                RedGainCommand, BlueGainCommand, ColorTemperatureCommand},
     };
 
     #[test]
     fn test_white_balance_modes() {
-        assert_valid_for_g2(&WhiteBalanceCommand { mode: WhiteBalanceMode::Auto });
-        assert_valid_for_g2(&WhiteBalanceCommand { mode: WhiteBalanceMode::Indoor });
-        assert_valid_for_g2(&WhiteBalanceCommand { mode: WhiteBalanceMode::Outdoor });
-        assert_valid_for_g2(&WhiteBalanceCommand { mode: WhiteBalanceMode::OnePush });
-        assert_valid_for_g2(&WhiteBalanceCommand { mode: WhiteBalanceMode::Manual });
-        assert_valid_for_g2(&WhiteBalanceCommand { mode: WhiteBalanceMode::ColorTemperature });
+        assert_valid_for_g2(&WhiteBalanceCommand {
+            mode: WhiteBalanceMode::Auto,
+        });
+        assert_valid_for_g2(&WhiteBalanceCommand {
+            mode: WhiteBalanceMode::Indoor,
+        });
+        assert_valid_for_g2(&WhiteBalanceCommand {
+            mode: WhiteBalanceMode::Outdoor,
+        });
+        assert_valid_for_g2(&WhiteBalanceCommand {
+            mode: WhiteBalanceMode::OnePush,
+        });
+        assert_valid_for_g2(&WhiteBalanceCommand {
+            mode: WhiteBalanceMode::Manual,
+        });
+        assert_valid_for_g2(&WhiteBalanceCommand {
+            mode: WhiteBalanceMode::ColorTemperature,
+        });
     }
 
     #[test]
@@ -516,11 +583,11 @@ mod white_balance_commands {
         assert_valid_for_g2(&RedGainCommand::Reset);
         assert_valid_for_g2(&RedGainCommand::Up);
         assert_valid_for_g2(&RedGainCommand::Down);
-        
+
         assert_valid_for_g2(&BlueGainCommand::Reset);
         assert_valid_for_g2(&BlueGainCommand::Up);
         assert_valid_for_g2(&BlueGainCommand::Down);
-        
+
         // Valid range: 0x00 to 0xFF
         for value in [0x00, 0x80, 0xFF] {
             assert_valid_for_g2(&RedGainCommand::Direct(value));
@@ -533,7 +600,7 @@ mod white_balance_commands {
         assert_valid_for_g2(&ColorTemperatureCommand::Reset);
         assert_valid_for_g2(&ColorTemperatureCommand::Up);
         assert_valid_for_g2(&ColorTemperatureCommand::Down);
-        
+
         // Valid range: 0x00 (2500K) to 0x37 (8000K)
         for value in [0x00, 0x10, 0x20, 0x30, 0x37] {
             assert_valid_for_g2(&ColorTemperatureCommand::Direct(value));
@@ -544,13 +611,14 @@ mod white_balance_commands {
 mod image_adjustment_commands {
     use super::*;
     use grafton_visca::{
-        LuminanceLevel, ContrastLevel, 
-        NoiseReduction2DLevel, NoiseReduction3DLevel,
         command::{
-            color::{SaturationCommand, HueCommand},
-            luminance_contrast_sharpness::{LuminanceCommand, ContrastCommand, SharpnessCommand, SharpnessMode},
-            image::{NoiseReduction2DCommand, NoiseReduction3DCommand, BlackWhiteCommand},
+            color::{HueCommand, SaturationCommand},
+            image::{BlackWhiteCommand, NoiseReduction2DCommand, NoiseReduction3DCommand},
+            luminance_contrast_sharpness::{
+                ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode,
+            },
         },
+        ContrastLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
     };
 
     #[test]
@@ -573,8 +641,8 @@ mod image_adjustment_commands {
     fn test_luminance() {
         // Valid range: 0 to 14
         for value in 0..=14 {
-            assert_valid_for_g2(&LuminanceCommand { 
-                value: LuminanceLevel::new(value).unwrap() 
+            assert_valid_for_g2(&LuminanceCommand {
+                value: LuminanceLevel::new(value).unwrap(),
             });
         }
     }
@@ -583,8 +651,8 @@ mod image_adjustment_commands {
     fn test_contrast() {
         // Valid range: 0 to 14
         for value in 0..=14 {
-            assert_valid_for_g2(&ContrastCommand { 
-                value: ContrastLevel::new(value).unwrap() 
+            assert_valid_for_g2(&ContrastCommand {
+                value: ContrastLevel::new(value).unwrap(),
             });
         }
     }
@@ -596,23 +664,21 @@ mod image_adjustment_commands {
         assert_valid_for_g2(&SharpnessCommand::Reset);
         assert_valid_for_g2(&SharpnessCommand::Up);
         assert_valid_for_g2(&SharpnessCommand::Down);
-        
+
         // Valid range: 0 to 11
         for value in 0..=11 {
-            assert_valid_for_g2(&SharpnessCommand::Direct { 
-                value
-            });
+            assert_valid_for_g2(&SharpnessCommand::Direct { value });
         }
     }
 
     #[test]
     fn test_noise_reduction_2d() {
         assert_valid_for_g2(&NoiseReduction2DCommand::Off);
-        
+
         // Valid levels: 1 to 5
         for level in 1..=5 {
             assert_valid_for_g2(&NoiseReduction2DCommand::Level(
-                NoiseReduction2DLevel::new(level).unwrap()
+                NoiseReduction2DLevel::new(level).unwrap(),
             ));
         }
     }
@@ -620,11 +686,11 @@ mod image_adjustment_commands {
     #[test]
     fn test_noise_reduction_3d() {
         assert_valid_for_g2(&NoiseReduction3DCommand::Off);
-        
+
         // Valid levels: 1 to 8
         for level in 1..=8 {
             assert_valid_for_g2(&NoiseReduction3DCommand::Level(
-                NoiseReduction3DLevel::new(level).unwrap()
+                NoiseReduction3DLevel::new(level).unwrap(),
             ));
         }
     }
@@ -693,11 +759,11 @@ mod inquiry_commands {
 fn test_comprehensive_g2_coverage() {
     // This test ensures we've covered all major command categories
     // If new commands are added to the library, they should be tested here
-    
+
     // Count total tests to ensure comprehensive coverage
-    let test_modules = vec![
+    let test_modules = [
         "power_commands",
-        "zoom_commands", 
+        "zoom_commands",
         "focus_commands",
         "pan_tilt_commands",
         "preset_commands",
@@ -707,6 +773,9 @@ fn test_comprehensive_g2_coverage() {
         "flip_commands",
         "inquiry_commands",
     ];
-    
-    println!("G2 command validation test coverage includes {} command categories", test_modules.len());
+
+    println!(
+        "G2 command validation test coverage includes {} command categories",
+        test_modules.len()
+    );
 }

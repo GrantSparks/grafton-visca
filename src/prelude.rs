@@ -18,7 +18,10 @@ pub use crate::{
 
 // Client types (feature-gated)
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::{unified_client::{Client, ClientBuilder}, ClientPtzExt};
+pub use crate::{
+    unified_client::{Client, ClientBuilder},
+    ClientPtzExt,
+};
 
 // Parameter types
 pub use crate::{

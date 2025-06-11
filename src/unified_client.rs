@@ -473,7 +473,7 @@ impl Client {
         if let Some(model) = self.camera_model {
             command.validate_for_model(model)?;
         }
-        
+
         // The unified client already handles concurrency internally
         // For now, we delegate to the standard send method
         // A future implementation could add try_acquire to the semaphore
@@ -511,17 +511,19 @@ impl Client {
         if let Some(model) = self.camera_model {
             command.validate_for_model(model)?;
         }
-        
+
         // For now, we use the standard send method
         // A proper implementation would use tokio timeout or similar
         self.send(command)
     }
     /// Get the configured camera model, if any
-    pub fn camera_model(&self) -> Option<CameraModel> {
+    #[must_use]
+    pub const fn camera_model(&self) -> Option<CameraModel> {
         self.camera_model
     }
 
     /// Create a builder for constructing a client with custom configuration
+    #[must_use]
     pub fn builder() -> ClientBuilder {
         ClientBuilder::default()
     }
@@ -535,13 +537,13 @@ impl Client {
 /// # Example
 /// ```no_run
 /// # #[cfg(feature = "blocking-client")]
-/// # {
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use grafton_visca::{Client, constants::CameraModel};
-/// 
+///
 /// let client = Client::builder()
 ///     .camera_model(CameraModel::PTZOpticsG2)
 ///     .connect_udp("192.168.1.100:5678")?;
-/// # Ok::<(), grafton_visca::Error>(())
+/// # Ok(())
 /// # }
 /// ```
 #[derive(Debug, Default, Copy, Clone)]
@@ -551,7 +553,7 @@ pub struct ClientBuilder {
 
 impl ClientBuilder {
     /// Set the camera model for command validation.
-    /// 
+    ///
     /// If not specified, commands will be sent without model-specific validation.
     /// This maintains compatibility but may result in `CommandNotExecutable` errors
     /// for unsupported commands.
@@ -559,20 +561,21 @@ impl ClientBuilder {
     /// # Example
     /// ```no_run
     /// # #[cfg(feature = "blocking-client")]
-    /// # {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use grafton_visca::{Client, constants::CameraModel};
-    /// 
+    ///
     /// let client = Client::builder()
     ///     .camera_model(CameraModel::PTZOpticsG2)
     ///     .connect_udp("192.168.1.100:5678")?;
-    /// # Ok::<(), grafton_visca::Error>(())
+    /// # Ok(())
     /// # }
     /// ```
-    pub fn camera_model(mut self, model: CameraModel) -> Self {
+    #[must_use]
+    pub const fn camera_model(mut self, model: CameraModel) -> Self {
         self.camera_model = Some(model);
         self
     }
-    
+
     /// Connect to a camera using UDP transport.
     ///
     /// # Errors
@@ -586,7 +589,7 @@ impl ClientBuilder {
         client.camera_model = self.camera_model;
         Ok(client)
     }
-    
+
     /// Connect to a camera using TCP transport.
     ///
     /// # Errors
@@ -600,7 +603,7 @@ impl ClientBuilder {
         client.camera_model = self.camera_model;
         Ok(client)
     }
-    
+
     /// Connect to a camera using UDP transport (async).
     ///
     /// # Errors
@@ -613,7 +616,7 @@ impl ClientBuilder {
         client.camera_model = self.camera_model;
         Ok(client)
     }
-    
+
     /// Connect to a camera using TCP transport (async).
     ///
     /// # Errors
@@ -716,30 +719,27 @@ mod tests {
         // Test default builder
         let builder = Client::builder();
         assert!(builder.camera_model.is_none());
-        
+
         // Test with camera model
-        let builder = Client::builder()
-            .camera_model(CameraModel::PTZOpticsG2);
+        let builder = Client::builder().camera_model(CameraModel::PTZOpticsG2);
         assert_eq!(builder.camera_model, Some(CameraModel::PTZOpticsG2));
     }
-    
+
     #[cfg(feature = "blocking-client")]
     #[test]
     fn test_client_builder_camera_model() {
         // Test that builder properly sets camera model
         // Note: We can't test actual connections without a real camera,
         // but we can verify the builder logic
-        let builder = Client::builder()
-            .camera_model(CameraModel::PTZOpticsG2);
+        let builder = Client::builder().camera_model(CameraModel::PTZOpticsG2);
         assert_eq!(builder.camera_model, Some(CameraModel::PTZOpticsG2));
-        
+
         // Test builder without model
         let builder = Client::builder();
         assert_eq!(builder.camera_model, None);
-        
+
         // Test that camera model can be changed
-        let builder = Client::builder()
-            .camera_model(CameraModel::PTZOptics30X);
+        let builder = Client::builder().camera_model(CameraModel::PTZOptics30X);
         assert_eq!(builder.camera_model, Some(CameraModel::PTZOptics30X));
     }
 }

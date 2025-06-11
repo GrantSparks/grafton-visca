@@ -227,7 +227,7 @@ impl Command for PanTiltCommand {
             Self::AbsolutePosition { pan, tilt, .. } => {
                 let (pan_min, pan_max) = model.pan_range();
                 let (tilt_min, tilt_max) = model.tilt_range();
-                
+
                 if *pan < pan_min || *pan > pan_max {
                     return Err(Error::ModelValidation {
                         model,
@@ -238,7 +238,7 @@ impl Command for PanTiltCommand {
                         ),
                     });
                 }
-                
+
                 if *tilt < tilt_min || *tilt > tilt_max {
                     return Err(Error::ModelValidation {
                         model,
@@ -249,7 +249,7 @@ impl Command for PanTiltCommand {
                         ),
                     });
                 }
-                
+
                 Ok(())
             }
             // Other pan/tilt commands are generally supported by all models
@@ -429,8 +429,10 @@ mod tests {
             pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
             tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
         };
-        assert!(cmd_valid.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
-        
+        assert!(cmd_valid
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+
         // Test pan out of range
         let cmd_invalid_pan = PanTiltCommand::AbsolutePosition {
             pan: 3000, // Beyond PAN_MAX (2448)
@@ -444,9 +446,9 @@ mod tests {
             Err(Error::ModelValidation { command, .. }) => {
                 assert_eq!(command, "PanTiltAbsolutePosition");
             }
-            _ => panic!("Expected ModelValidation error"),
+            _ => unreachable!("Expected ModelValidation error"),
         }
-        
+
         // Test tilt out of range
         let cmd_invalid_tilt = PanTiltCommand::AbsolutePosition {
             pan: 1000,
@@ -457,20 +459,24 @@ mod tests {
         let result = cmd_invalid_tilt.validate_for_model(CameraModel::PTZOpticsG2);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_pan_tilt_validation_other_commands() {
         // Test that other pan/tilt commands pass validation
-        assert!(Command::validate_for_model(&PanTiltCommand::Home, CameraModel::PTZOpticsG2).is_ok());
-        assert!(Command::validate_for_model(&PanTiltCommand::Reset, CameraModel::PTZOpticsG2).is_ok());
-        
+        assert!(
+            Command::validate_for_model(&PanTiltCommand::Home, CameraModel::PTZOpticsG2).is_ok()
+        );
+        assert!(
+            Command::validate_for_model(&PanTiltCommand::Reset, CameraModel::PTZOpticsG2).is_ok()
+        );
+
         let move_cmd = PanTiltCommand::Move {
             direction: PanTiltDirection::UpRight,
             pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
             tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
         };
         assert!(Command::validate_for_model(&move_cmd, CameraModel::PTZOpticsG2).is_ok());
-        
+
         let rel_cmd = PanTiltCommand::RelativePosition {
             pan: 100,
             tilt: -100,
