@@ -12,10 +12,10 @@ use std::convert::TryFrom;
 // Workspace / local-crate imports
 use crate::{
     command::{response::ResponseType, Command},
+    constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
     types::{BrightnessLevel, IrisLevel, ShutterSpeed},
-    visca_up_down_reset,
 };
 
 /// Camera exposure control modes.
@@ -173,6 +173,26 @@ impl Command for ExposureCompensationCommand {
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Quick
     }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match (self, model) {
+            (Self::Direct(level), CameraModel::PTZOpticsG2) => {
+                // G2 supports values -7 to +7 (protocol values 0x0 to 0xE)
+                let value = level.value();
+                if !(-7..=7).contains(&value) {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "ExposureCompensationDirect".to_string(),
+                        reason: format!(
+                            "Value {value} not supported on G2 cameras (range is -7 to +7)"
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 crate::visca_bounded_param! {
@@ -222,6 +242,24 @@ impl Command for DynamicRangeCommand {
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Quick
     }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match (self, model) {
+            (Self::Direct(level), CameraModel::PTZOpticsG2) => {
+                // G2 supports values 0-8
+                let value = level.value();
+                if value > 8 {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "DynamicRangeDirect".to_string(),
+                        reason: format!("Value {value} not supported on G2 cameras (max is 8)"),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 /// Commands for controlling iris/aperture values.
@@ -266,10 +304,10 @@ impl Command for IrisCommand {
         CommandCategory::Quick
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
             Self::Direct(level) => {
-                if matches!(model, crate::constants::CameraModel::PTZOpticsG2)
+                if matches!(model, CameraModel::PTZOpticsG2)
                     && !IrisLevel::G2_VALID_VALUES.contains(&level.value())
                 {
                     return Err(Error::ModelValidation {
@@ -332,10 +370,10 @@ impl Command for ShutterCommand {
         CommandCategory::Quick
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
             Self::Direct(speed) => {
-                if matches!(model, crate::constants::CameraModel::PTZOpticsG2)
+                if matches!(model, CameraModel::PTZOpticsG2)
                     && !ShutterSpeed::G2_VALID_VALUES.contains(&speed.value())
                 {
                     return Err(Error::ModelValidation {
@@ -354,10 +392,56 @@ impl Command for ShutterCommand {
     }
 }
 
-visca_up_down_reset! {
-    #[category = "Quick"]
-    enum BrightCommand {
-        command_byte: 0x0D,
-        Direct(value: BrightnessLevel) => |high, low| [0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, high, low, 0xFF]
+/// Brightness control command.
+#[derive(Debug, Clone, Copy)]
+pub enum BrightCommand {
+    /// Reset brightness to default.
+    Reset,
+    /// Increase brightness.
+    Up,
+    /// Decrease brightness.
+    Down,
+    /// Set brightness to specific level.
+    Direct(BrightnessLevel),
+}
+
+impl Command for BrightCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(match self {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF],
+            Self::Direct(level) => {
+                let value = level.value();
+                let high = ((value >> 4) & 0x0F) as u8;
+                let low = (value & 0x0F) as u8;
+                vec![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, high, low, 0xFF]
+            }
+        })
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match (self, model) {
+            (Self::Direct(level), CameraModel::PTZOpticsG2) => {
+                let value = level.value();
+                if !BrightnessLevel::G2_VALID_VALUES.contains(&value) {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "BrightDirect".to_string(),
+                        reason: format!("Value {value:#04X} not supported on G2 cameras"),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 }

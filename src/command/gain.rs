@@ -6,10 +6,10 @@
 // Crate imports
 use crate::{
     command::{response::ResponseType, Command},
+    constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
     types::{GainLimit, GainValue},
-    visca_param_command,
 };
 
 /// Commands for controlling gain values.
@@ -54,10 +54,10 @@ impl Command for GainCommand {
         CommandCategory::Quick
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
             Self::Direct(gain) => {
-                if matches!(model, crate::constants::CameraModel::PTZOpticsG2)
+                if matches!(model, CameraModel::PTZOpticsG2)
                     && !GainValue::G2_VALID_VALUES.contains(&gain.value())
                 {
                     return Err(Error::ModelValidation {
@@ -76,13 +76,42 @@ impl Command for GainCommand {
     }
 }
 
-crate::visca_param_command! {
-    /// Command to set the automatic gain control limit.
-    struct GainLimitCommand {
-        /// The maximum gain level allowed in auto mode.
-        limit: GainLimit => direct
+/// Command to set the automatic gain control limit.
+#[derive(Debug, Clone, Copy)]
+pub struct GainLimitCommand {
+    /// The maximum gain level allowed in auto mode.
+    pub limit: GainLimit,
+}
+
+impl Command for GainLimitCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(vec![0x81, 0x01, 0x04, 0x2C, self.limit.value(), 0xFF])
     }
-    bytes = [0x81, 0x01, 0x04, 0x2C, {limit}, 0xFF]
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::PTZOpticsG2 => {
+                let value = self.limit.value();
+                if !GainLimit::G2_VALID_VALUES.contains(&value) {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "GainLimit".to_string(),
+                        reason: format!("Value {value:#02X} not supported on G2 cameras"),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 /// Anti-flicker mode settings.

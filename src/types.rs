@@ -125,6 +125,11 @@ impl GainLimit {
     /// Maximum gain limit.
     pub const MAX: Self = Self(0xF);
 
+    /// Valid gain limit values for G2 cameras (0x0-0xF).
+    pub const G2_VALID_VALUES: &'static [u8] = &[
+        0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF,
+    ];
+
     /// Create a new gain limit.
     ///
     /// # Errors
@@ -408,6 +413,12 @@ impl BrightnessLevel {
     /// Maximum brightness level.
     pub const MAX: Self = Self(0x11);
 
+    /// Valid brightness values for G2 cameras (0x00-0x11).
+    pub const G2_VALID_VALUES: &'static [u16] = &[
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+        0x0F, 0x10, 0x11,
+    ];
+
     /// Create a new brightness level.
     ///
     /// # Errors
@@ -512,6 +523,11 @@ impl LuminanceLevel {
     /// Maximum luminance level.
     pub const MAX: Self = Self(14);
 
+    /// Valid luminance values for G2 cameras (0x0-0xE).
+    pub const G2_VALID_VALUES: &'static [u8] = &[
+        0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE,
+    ];
+
     /// Create a new luminance level.
     ///
     /// # Errors
@@ -560,6 +576,11 @@ impl ContrastLevel {
 
     /// Maximum contrast level.
     pub const MAX: Self = Self(14);
+
+    /// Valid contrast values for G2 cameras (0x0-0xE).
+    pub const G2_VALID_VALUES: &'static [u8] = &[
+        0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE,
+    ];
 
     /// Create a new contrast level.
     ///

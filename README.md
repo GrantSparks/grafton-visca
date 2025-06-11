@@ -256,6 +256,7 @@ which may respond with `CommandNotExecutable` errors for unsupported features.
 
 When a camera model is configured, the following commands validate their parameters:
 
+**Position & Movement:**
 - **Zoom Direct Position** - Validates against camera's optical zoom range
   - PTZOpticsG2: 0x0000-0x7000 (20X)
   - PTZOptics30X: 0x0000-0x7AC0 (30X)
@@ -264,9 +265,41 @@ When a camera model is configured, the following commands validate their paramet
   - Tilt: -432 to +1296 VISCA units
 - **Focus Direct Position** - Validates focus range
   - Range: 0x1000-0xF000 (infinity to near)
+- **Focus Near Limit** - Uses same range as Focus Direct
+  - Range: 0x1000-0xF000
 - **Preset Numbers** - Validates preset ID range
   - PTZOpticsG2: 0-89 (90 presets)
   - Other models: 0-100
+
+**Exposure & Gain:**
+- **Shutter Speed Direct** - Validates against 17 specific shutter values
+  - PTZOpticsG2: 0x01 (1/30) through 0x11 (1/10000)
+- **Iris Level Direct** - Validates against 13 specific iris values
+  - PTZOpticsG2: 0x00 (Close) through 0x0C (F1.8)
+- **Gain Direct** - Validates against 8 specific gain values
+  - PTZOpticsG2: 0x00 (0dB) through 0x07 (21dB)
+- **Gain Limit** - Validates gain limit range
+  - PTZOpticsG2: 0x0-0xF (16 values)
+- **Brightness Direct** - Validates brightness level range
+  - PTZOpticsG2: 0x00-0x11 (18 values)
+- **Dynamic Range Direct** - Validates dynamic range level
+  - PTZOpticsG2: 0-8 (9 values)
+- **Exposure Compensation Direct** - Validates compensation range
+  - PTZOpticsG2: -7 to +7
+
+**Image & Color:**
+- **Sharpness Direct** - Validates against 12 specific sharpness values
+  - PTZOpticsG2: 0x00 through 0x0B
+- **Luminance** - Validates luminance level range
+  - PTZOpticsG2: 0x0-0xE (15 values)
+- **Contrast** - Validates contrast level range
+  - PTZOpticsG2: 0x0-0xE (15 values)
+- **Red/Blue Tuning** - Validates tuning range
+  - PTZOpticsG2: -10 to +10
+- **Saturation** - Validates saturation level range
+  - PTZOpticsG2: 0x0-0xE (15 values, 60%-200%)
+- **Hue** - Validates hue level range
+  - PTZOpticsG2: 0x0-0xE (15 values)
 
 All other commands use built-in parameter validation that works across all camera models.
 

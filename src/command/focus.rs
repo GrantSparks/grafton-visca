@@ -12,7 +12,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{Command, ResponseType},
-    constants::CameraConstants,
+    constants::{CameraConstants, CameraModel},
     error::Error,
     timeout::CommandCategory,
 };
@@ -89,7 +89,7 @@ impl Command for FocusCommand {
         CommandCategory::Movement
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
             Self::Direct(position) => {
                 let (min, max) = model.focus_range();
@@ -189,16 +189,52 @@ impl Command for AutoFocusSensitivityCommand {
 }
 
 // Use the visca_param_command! macro for FocusNearLimitCommand
-crate::visca_param_command! {
-    /// Command to set the focus near limit.
-    ///
-    /// Sets the minimum focus distance to prevent the camera from
-    /// focusing on objects too close to the lens.
-    struct FocusNearLimitCommand {
-        /// The focus position limit (0x0000 to 0xFFFF).
-        position: u16 => nibbles
+/// Command to set the focus near limit.
+///
+/// Sets the minimum focus distance to prevent the camera from
+/// focusing on objects too close to the lens.
+#[derive(Debug, Clone, Copy)]
+pub struct FocusNearLimitCommand {
+    /// The focus position limit (0x0000 to 0xFFFF).
+    pub position: u16,
+}
+
+impl Command for FocusNearLimitCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let p0 = ((self.position >> 12) & 0x0F) as u8;
+        let p1 = ((self.position >> 8) & 0x0F) as u8;
+        let p2 = ((self.position >> 4) & 0x0F) as u8;
+        let p3 = (self.position & 0x0F) as u8;
+        Ok(vec![0x81, 0x01, 0x04, 0x28, p0, p1, p2, p3, 0xFF])
     }
-    bytes = [0x81, 0x01, 0x04, 0x28, {position}, 0xFF]
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::PTZOpticsG2 => {
+                // G2 uses same range as Focus Direct: 0x1000-0xF000
+                if self.position < 0x1000 || self.position > 0xF000 {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "FocusNearLimit".to_string(),
+                        reason: format!(
+                            "Position {:#06X} not supported on G2 cameras (range is 0x1000-0xF000)",
+                            self.position
+                        ),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]

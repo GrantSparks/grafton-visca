@@ -6,10 +6,10 @@
 // Crate imports
 use crate::{
     command::{Command, ResponseType},
+    constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
-    visca_param_command,
 };
 
 /// Sharpness control modes.
@@ -76,12 +76,12 @@ impl Command for SharpnessCommand {
         CommandCategory::Custom
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         use crate::types::SharpnessLevel;
 
         match self {
             Self::Direct { value } => {
-                if matches!(model, crate::constants::CameraModel::PTZOpticsG2)
+                if matches!(model, CameraModel::PTZOpticsG2)
                     && !SharpnessLevel::G2_VALID_VALUES.contains(value)
                 {
                     return Err(Error::ModelValidation {
@@ -99,20 +99,98 @@ impl Command for SharpnessCommand {
     }
 }
 
-crate::visca_param_command! {
-    /// Command to set the luminance level.
-    struct LuminanceCommand {
-        /// The luminance level.
-        value: LuminanceLevel => direct
-    }
-    bytes = [0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, {value}, 0xFF]
+/// Command to set the luminance level.
+#[derive(Debug, Clone, Copy)]
+pub struct LuminanceCommand {
+    /// The luminance level.
+    pub value: LuminanceLevel,
 }
 
-crate::visca_param_command! {
-    /// Command to set the contrast level.
-    struct ContrastCommand {
-        /// The contrast level.
-        value: ContrastLevel => direct
+impl Command for LuminanceCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(vec![
+            0x81,
+            0x01,
+            0x04,
+            0xA1,
+            0x00,
+            0x00,
+            0x00,
+            self.value.value(),
+            0xFF,
+        ])
     }
-    bytes = [0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, {value}, 0xFF]
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::PTZOpticsG2 => {
+                let value = self.value.value();
+                if !LuminanceLevel::G2_VALID_VALUES.contains(&value) {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "Luminance".to_string(),
+                        reason: format!("Value {value:#02X} not supported on G2 cameras"),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Command to set the contrast level.
+#[derive(Debug, Clone, Copy)]
+pub struct ContrastCommand {
+    /// The contrast level.
+    pub value: ContrastLevel,
+}
+
+impl Command for ContrastCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(vec![
+            0x81,
+            0x01,
+            0x04,
+            0xA2,
+            0x00,
+            0x00,
+            0x00,
+            self.value.value(),
+            0xFF,
+        ])
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::PTZOpticsG2 => {
+                let value = self.value.value();
+                if !ContrastLevel::G2_VALID_VALUES.contains(&value) {
+                    return Err(Error::ModelValidation {
+                        model,
+                        command: "Contrast".to_string(),
+                        reason: format!("Value {value:#02X} not supported on G2 cameras"),
+                    });
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
