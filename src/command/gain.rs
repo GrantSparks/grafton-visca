@@ -148,3 +148,218 @@ impl Command for AntiFlickerCommand {
         CommandCategory::Quick
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gain_command_reset() {
+        let cmd = GainCommand::Reset;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_gain_command_up() {
+        let cmd = GainCommand::Up;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_gain_command_down() {
+        let cmd = GainCommand::Down;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_gain_command_direct() {
+        // Test various gain values
+        let test_values = vec![0x00, 0x01, 0x03, 0x05, 0x07];
+        for value in test_values {
+            let gain = GainValue::new(value).unwrap();
+            let cmd = GainCommand::Direct(gain);
+            let high = (value >> 4) & 0x0F;
+            let low = value & 0x0F;
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, high, low, 0xFF]
+            );
+        }
+    }
+
+    #[test]
+    fn test_gain_command_g2_validation() {
+        // Test valid G2 gain values (0x00-0x07)
+        for value in 0x00..=0x07 {
+            let gain = GainValue::new(value).unwrap();
+            let cmd = GainCommand::Direct(gain);
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // GainValue itself is limited to 0x00-0x07, which are all valid for G2
+        // So all valid GainValue instances should pass G2 validation
+
+        // Non-direct commands should always be valid
+        assert!(GainCommand::Reset
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+        assert!(GainCommand::Up
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+        assert!(GainCommand::Down
+            .validate_for_model(CameraModel::PTZOpticsG2)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_gain_limit_command() {
+        // Test various gain limit values
+        let test_values = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+        for value in test_values {
+            let limit = GainLimit::new(value).unwrap();
+            let cmd = GainLimitCommand { limit };
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x2C, value, 0xFF]
+            );
+        }
+    }
+
+    #[test]
+    fn test_gain_limit_g2_validation() {
+        // Test valid G2 gain limit values
+        for value in GainLimit::G2_VALID_VALUES {
+            let limit = GainLimit::new(*value).unwrap();
+            let cmd = GainLimitCommand { limit };
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // Test that non-G2 values might fail (depends on what G2_VALID_VALUES contains)
+        // Check if value 0x08 is not in G2_VALID_VALUES
+        if !GainLimit::G2_VALID_VALUES.contains(&0x08) {
+            if let Ok(limit) = GainLimit::new(0x08) {
+                let cmd = GainLimitCommand { limit };
+                assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn test_anti_flicker_mode_values() {
+        assert_eq!(AntiFlickerMode::Off as u8, 0x00);
+        assert_eq!(AntiFlickerMode::Hz50 as u8, 0x01);
+        assert_eq!(AntiFlickerMode::Hz60 as u8, 0x02);
+    }
+
+    #[test]
+    fn test_anti_flicker_command() {
+        // Test Off mode
+        let cmd = AntiFlickerCommand {
+            mode: AntiFlickerMode::Off,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x23, 0x00, 0xFF]
+        );
+
+        // Test 50Hz mode
+        let cmd = AntiFlickerCommand {
+            mode: AntiFlickerMode::Hz50,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x23, 0x01, 0xFF]
+        );
+
+        // Test 60Hz mode
+        let cmd = AntiFlickerCommand {
+            mode: AntiFlickerMode::Hz60,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x23, 0x02, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_command_categories() {
+        // All gain commands should be Quick category
+        assert_eq!(GainCommand::Reset.command_category(), CommandCategory::Quick);
+        assert_eq!(GainCommand::Up.command_category(), CommandCategory::Quick);
+        assert_eq!(GainCommand::Down.command_category(), CommandCategory::Quick);
+        assert_eq!(
+            GainCommand::Direct(GainValue::new(0x05).unwrap()).command_category(),
+            CommandCategory::Quick
+        );
+        assert_eq!(
+            GainLimitCommand {
+                limit: GainLimit::new(0x03).unwrap()
+            }
+            .command_category(),
+            CommandCategory::Quick
+        );
+        assert_eq!(
+            AntiFlickerCommand {
+                mode: AntiFlickerMode::Hz50
+            }
+            .command_category(),
+            CommandCategory::Quick
+        );
+    }
+
+    #[test]
+    fn test_response_types() {
+        // All gain commands should return None for response_type
+        assert!(GainCommand::Reset.response_type().is_none());
+        assert!(GainCommand::Up.response_type().is_none());
+        assert!(GainCommand::Down.response_type().is_none());
+        assert!(GainCommand::Direct(GainValue::new(0x05).unwrap())
+            .response_type()
+            .is_none());
+        assert!(GainLimitCommand {
+            limit: GainLimit::new(0x03).unwrap()
+        }
+        .response_type()
+        .is_none());
+        assert!(AntiFlickerCommand {
+            mode: AntiFlickerMode::Hz50
+        }
+        .response_type()
+        .is_none());
+    }
+
+    #[test]
+    fn test_gain_command_debug() {
+        // Test Debug trait implementation
+        let cmd = GainCommand::Reset;
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("Reset"));
+
+        let cmd = GainCommand::Direct(GainValue::new(0x05).unwrap());
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("Direct"));
+    }
+
+    #[test]
+    fn test_anti_flicker_clone() {
+        // Test Copy/Clone traits
+        let cmd1 = AntiFlickerCommand {
+            mode: AntiFlickerMode::Hz50,
+        };
+        let cmd2 = cmd1; // Copy
+        let cmd3 = cmd1.clone(); // Clone
+        
+        assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
+        assert_eq!(cmd1.to_bytes().unwrap(), cmd3.to_bytes().unwrap());
+    }
+}
