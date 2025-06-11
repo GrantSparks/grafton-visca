@@ -3,6 +3,13 @@
 //! This example shows how to use camera model configuration to catch
 //! invalid commands before they're sent to the camera.
 
+#[cfg(not(feature = "blocking-client"))]
+fn main() {
+    eprintln!("This example requires the 'blocking-client' feature.");
+    eprintln!("Run with: cargo run --example model_validation_demo --features blocking-client");
+}
+
+#[cfg(feature = "blocking-client")]
 use grafton_visca::{
     command::{
         focus::FocusCommand,
@@ -14,6 +21,7 @@ use grafton_visca::{
     Client, Error,
 };
 
+#[cfg(feature = "blocking-client")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 

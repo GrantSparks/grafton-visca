@@ -233,8 +233,7 @@ impl Command for PanTiltCommand {
                         model,
                         command: "PanTiltAbsolutePosition".to_string(),
                         reason: format!(
-                            "Pan position {} out of range [{}, {}] for {:?}",
-                            pan, pan_min, pan_max, model
+                            "Pan position {pan} out of range [{pan_min}, {pan_max}] for {model:?}"
                         ),
                     });
                 }
@@ -244,8 +243,7 @@ impl Command for PanTiltCommand {
                         model,
                         command: "PanTiltAbsolutePosition".to_string(),
                         reason: format!(
-                            "Tilt position {} out of range [{}, {}] for {:?}",
-                            tilt, tilt_min, tilt_max, model
+                            "Tilt position {tilt} out of range [{tilt_min}, {tilt_max}] for {model:?}"
                         ),
                     });
                 }

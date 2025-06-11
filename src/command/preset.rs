@@ -76,10 +76,8 @@ impl Command for PresetCommand {
                 model,
                 command: "Preset".to_string(),
                 reason: format!(
-                    "Preset number {} exceeds maximum {} for {:?}",
-                    self.preset_number.value(),
-                    max_preset,
-                    model
+                    "Preset number {} exceeds maximum {max_preset} for {model:?}",
+                    self.preset_number.value()
                 ),
             });
         }

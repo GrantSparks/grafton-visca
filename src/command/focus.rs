@@ -98,8 +98,7 @@ impl Command for FocusCommand {
                         model,
                         command: "FocusDirect".to_string(),
                         reason: format!(
-                            "Position 0x{:04X} out of range [0x{:04X}, 0x{:04X}] for {:?}",
-                            position, min, max, model
+                            "Position 0x{position:04X} out of range [0x{min:04X}, 0x{max:04X}] for {model:?}"
                         ),
                     });
                 }
