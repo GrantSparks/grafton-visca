@@ -645,7 +645,7 @@ mod tests {
             let response = vec![0x90, 0x60, code, 0xFF];
             let result = parse_visca_response(&response, &ResponseType::Power);
             assert!(result.is_err());
-            
+
             // Verify the error matches the expected code
             match (code, &result) {
                 (0x02, Err(Error::SyntaxError)) => {}
@@ -1132,7 +1132,9 @@ mod tests {
             let result =
                 parse_visca_response(&response, &ResponseType::AutoFocusSensitivity).unwrap();
             match result {
-                Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
+                Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity {
+                    sensitivity,
+                }) => {
                     assert_eq!(sensitivity, expected_sensitivity);
                 }
                 _ => panic!("Expected AutoFocusSensitivity inquiry response"),

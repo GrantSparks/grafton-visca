@@ -118,7 +118,7 @@ impl Command for GainLimitCommand {
 ///
 /// Reduces flicker caused by artificial lighting that operates at
 /// different frequencies than the camera's frame rate.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AntiFlickerMode {
     /// Disable anti-flicker processing.
     Off = 0x00,

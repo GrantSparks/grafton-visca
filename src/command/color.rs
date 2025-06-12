@@ -367,7 +367,7 @@ mod tests {
         // Test invalid values
         let cmd = RedTuningCommand { level: -11 };
         assert!(cmd.to_bytes().is_err());
-        
+
         let cmd = RedTuningCommand { level: 11 };
         assert!(cmd.to_bytes().is_err());
     }
@@ -407,7 +407,7 @@ mod tests {
         // Test invalid values
         let cmd = BlueTuningCommand { level: -11 };
         assert!(cmd.to_bytes().is_err());
-        
+
         let cmd = BlueTuningCommand { level: 11 };
         assert!(cmd.to_bytes().is_err());
     }
@@ -630,9 +630,9 @@ mod tests {
         }
 
         // Test Clone
-        let cmd1 = RedTuningCommand { level: 5 };
-        let cmd2 = cmd1;
-        assert_eq!(cmd1.level, cmd2.level);
+        let red_cmd1 = RedTuningCommand { level: 5 };
+        let red_cmd2 = red_cmd1;
+        assert_eq!(red_cmd1.level, red_cmd2.level);
     }
 
     #[test]
@@ -700,7 +700,7 @@ mod tests {
         // Verify the -10 to +10 => 0x00 to 0x14 conversion
         for level in -10..=10 {
             let expected = (level + 10) as u8;
-            
+
             let red_cmd = RedTuningCommand { level };
             let red_bytes = red_cmd.to_bytes().unwrap();
             assert_eq!(red_bytes[4], expected);

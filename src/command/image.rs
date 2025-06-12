@@ -268,15 +268,15 @@ mod tests {
         }
 
         // Test Clone
-        let cmd1 = BacklightCommand { status: true };
-        let cmd2 = cmd1;
-        assert_eq!(cmd1.status, cmd2.status);
+        let backlight_cmd1 = BacklightCommand { status: true };
+        let backlight_cmd2 = backlight_cmd1;
+        assert_eq!(backlight_cmd1.status, backlight_cmd2.status);
 
-        let cmd1 = ImageFlipCombinedCommand {
+        let flip_cmd1 = ImageFlipCombinedCommand {
             mode: ImageFlipMode::Horizontal,
         };
-        let cmd2 = cmd1;
-        match (cmd1.mode, cmd2.mode) {
+        let flip_cmd2 = flip_cmd1;
+        match (flip_cmd1.mode, flip_cmd2.mode) {
             (ImageFlipMode::Horizontal, ImageFlipMode::Horizontal) => {}
             _ => panic!("Clone didn't preserve mode"),
         }
