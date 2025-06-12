@@ -113,7 +113,7 @@ impl Command for FocusCommand {
 /// Focus Zone selection.
 ///
 /// Determines which area of the image the camera uses for auto focus.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FocusZone {
     /// Focus on the top area of the image.
     Top,
@@ -152,7 +152,7 @@ impl Command for FocusZoneCommand {
 /// Auto Focus Sensitivity levels.
 ///
 /// Controls how responsive the auto focus system is to changes in the scene.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AutoFocusSensitivity {
     /// High sensitivity - quick focus response to scene changes.
     High,

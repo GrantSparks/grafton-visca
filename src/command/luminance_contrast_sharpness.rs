@@ -280,7 +280,7 @@ mod tests {
         // Test that non-Direct commands pass validation
         let cmd = SharpnessCommand::Reset;
         assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
-        
+
         let cmd = SharpnessCommand::Mode(SharpnessMode::Auto);
         assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
     }
@@ -370,9 +370,9 @@ mod tests {
         }
 
         // Test Clone
-        let cmd1 = SharpnessCommand::Direct { value: 5 };
-        let cmd2 = cmd1;
-        match (cmd1, cmd2) {
+        let sharp_cmd1 = SharpnessCommand::Direct { value: 5 };
+        let sharp_cmd2 = sharp_cmd1;
+        match (sharp_cmd1, sharp_cmd2) {
             (SharpnessCommand::Direct { value: v1 }, SharpnessCommand::Direct { value: v2 }) => {
                 assert_eq!(v1, v2);
             }
