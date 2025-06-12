@@ -368,6 +368,7 @@ mod async_mock {
     use super::*;
     use std::time::Duration;
     use tokio::time::sleep;
+    use grafton_visca::{Command, Error};
 
     /// An async mock transport for testing async functionality.
     pub struct MockAsyncTransport {
