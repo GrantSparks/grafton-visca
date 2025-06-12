@@ -336,6 +336,11 @@ crate::visca_command! {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::cast_sign_loss,
+    clippy::uninlined_format_args
+)]
 mod tests {
     use super::*;
 

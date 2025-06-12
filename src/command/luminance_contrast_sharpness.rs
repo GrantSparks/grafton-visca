@@ -196,6 +196,7 @@ impl Command for ContrastCommand {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::uninlined_format_args, clippy::panic)]
 mod tests {
     use super::*;
 

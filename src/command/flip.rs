@@ -48,6 +48,11 @@ impl Command for ImageFlipCommand {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::clone_on_copy,
+    clippy::uninlined_format_args
+)]
 mod tests {
     use super::*;
 

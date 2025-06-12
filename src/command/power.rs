@@ -46,6 +46,11 @@ impl Command for PowerCommand {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::uninlined_format_args,
+    clippy::clone_on_copy
+)]
 mod tests {
     use super::*;
 
