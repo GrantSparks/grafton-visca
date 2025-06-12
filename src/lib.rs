@@ -1,6 +1,6 @@
 //! # grafton-visca
 //!
-//! VISCA over IP for PTZ camera control.
+//! Rust library for VISCA over IP protocol to control PTZ cameras.
 #![warn(
     clippy::all,
     clippy::pedantic,
@@ -20,6 +20,7 @@
     clippy::unimplemented,
     clippy::todo
 )]
+#![allow(clippy::literal_string_with_formatting_args)]
 //!
 //! ## What is VISCA?
 //!
