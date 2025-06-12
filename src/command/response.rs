@@ -580,6 +580,12 @@ enum ExtendedValueType {
 // Temporary alias for backward compatibility
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::cast_possible_truncation,
+    clippy::uninlined_format_args
+)]
 mod tests {
     use super::*;
 
@@ -648,13 +654,14 @@ mod tests {
 
             // Verify the error matches the expected code
             match (code, &result) {
+                (0x01, Err(Error::Unknown(0x01))) => {}
                 (0x02, Err(Error::SyntaxError)) => {}
                 (0x03, Err(Error::CommandBufferFull)) => {}
                 (0x04, Err(Error::CommandCanceled)) => {}
                 (0x05, Err(Error::NoSocket)) => {}
                 (0x41, Err(Error::CommandNotExecutable)) => {}
-                (_, Err(Error::Unknown(c))) if *c == code => {}
-                _ => panic!("Expected error for code {:#02X}, got {:?}", code, result),
+                (code_val, Err(Error::Unknown(c))) if *c == code_val => {}
+                other => panic!("Expected error for code {:#02X}, got {:?}", code, other),
             }
         }
     }
