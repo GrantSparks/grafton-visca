@@ -93,7 +93,7 @@ impl<T: BlockingTransport> UnifiedTransport for BlockingTransportAdapter<T> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 

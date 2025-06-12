@@ -3,6 +3,11 @@
 //! This module provides shared mock implementations and utilities
 //! to avoid code duplication across test files.
 
+// Re-export submodules
+pub mod builders;
+pub mod helpers;
+pub mod macros;
+
 use grafton_visca::{Command, Error};
 
 #[cfg(feature = "blocking-client")]
@@ -82,6 +87,39 @@ impl MockTransport {
     /// Clear all sent commands.
     pub fn clear_commands(&self) {
         self.commands_sent.lock().unwrap().clear();
+    }
+
+    /// Create a mock that expects a specific command and returns a response.
+    pub fn expecting(command: &[u8], response: &[u8]) -> Self {
+        let mut mock = Self::new();
+        mock.expect_command(command, response);
+        mock
+    }
+
+    /// Add an expectation for a command and its response.
+    pub fn expect_command(&mut self, _expected_command: &[u8], response: &[u8]) {
+        // For now, we just add the response. In the future, we could verify
+        // that the expected command matches what was sent.
+        self.add_response(response.to_vec());
+    }
+
+    /// Verify that all expected commands were sent.
+    /// This is a placeholder for future enhancement where we track expectations.
+    pub fn verify(&self) {
+        // Currently, this is a no-op. In the future, we could track
+        // expected vs actual commands and panic if they don't match.
+    }
+
+    /// Create a mock that returns an error response.
+    pub fn with_error(error_code: u8) -> Self {
+        let mock = Self::new();
+        mock.add_response(vec![0x90, 0x60, error_code, 0xFF]);
+        mock
+    }
+
+    /// Create a mock that times out (returns no response).
+    pub fn with_timeout() -> Self {
+        Self::new() // No responses queued means timeout
     }
 }
 

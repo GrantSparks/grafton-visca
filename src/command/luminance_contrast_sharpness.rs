@@ -196,7 +196,7 @@ impl Command for ContrastCommand {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::uninlined_format_args, clippy::panic)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 
@@ -205,7 +205,8 @@ mod tests {
         // Test Auto mode
         let cmd = SharpnessCommand::Mode(SharpnessMode::Auto);
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x05, 0x02, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -214,7 +215,8 @@ mod tests {
         // Test Manual mode
         let cmd = SharpnessCommand::Mode(SharpnessMode::Manual);
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x05, 0x03, 0xFF]
         );
     }
@@ -223,7 +225,8 @@ mod tests {
     fn test_sharpness_reset() {
         let cmd = SharpnessCommand::Reset;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x02, 0x00, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -235,14 +238,16 @@ mod tests {
         // Test Up
         let cmd = SharpnessCommand::Up;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x02, 0x02, 0xFF]
         );
 
         // Test Down
         let cmd = SharpnessCommand::Down;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x02, 0x03, 0xFF]
         );
     }
@@ -252,7 +257,9 @@ mod tests {
         // Test valid values 0-11
         for value in 0..=11 {
             let cmd = SharpnessCommand::Direct { value };
-            let bytes = cmd.to_bytes().unwrap();
+            let bytes = cmd
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x42, 0x00, 0x00]);
             assert_eq!(bytes[6], (value >> 4) & 0x0F);
@@ -290,9 +297,12 @@ mod tests {
     fn test_luminance_command() {
         // Test valid values
         for value in 0..=14 {
-            let level = LuminanceLevel::new(value).unwrap();
+            let level = LuminanceLevel::new(value)
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = LuminanceCommand { value: level };
-            let bytes = cmd.to_bytes().unwrap();
+            let bytes = cmd
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             assert_eq!(
                 bytes,
                 vec![0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, value, 0xFF]
@@ -306,7 +316,8 @@ mod tests {
     fn test_luminance_g2_validation() {
         // Test valid G2 values
         for value in 0..=14 {
-            let level = LuminanceLevel::new(value).unwrap();
+            let level = LuminanceLevel::new(value)
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = LuminanceCommand { value: level };
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
@@ -319,9 +330,12 @@ mod tests {
     fn test_contrast_command() {
         // Test valid values
         for value in 0..=14 {
-            let level = ContrastLevel::new(value).unwrap();
+            let level = ContrastLevel::new(value)
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = ContrastCommand { value: level };
-            let bytes = cmd.to_bytes().unwrap();
+            let bytes = cmd
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             assert_eq!(
                 bytes,
                 vec![0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, value, 0xFF]
@@ -335,7 +349,8 @@ mod tests {
     fn test_contrast_g2_validation() {
         // Test valid G2 values
         for value in 0..=14 {
-            let level = ContrastLevel::new(value).unwrap();
+            let level = ContrastLevel::new(value)
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = ContrastCommand { value: level };
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
@@ -359,15 +374,17 @@ mod tests {
             Box::new(SharpnessCommand::Mode(SharpnessMode::Auto)),
             Box::new(SharpnessCommand::Direct { value: 5 }),
             Box::new(LuminanceCommand {
-                value: LuminanceLevel::new(7).unwrap(),
+                value: LuminanceLevel::new(7)
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             }),
             Box::new(ContrastCommand {
-                value: ContrastLevel::new(7).unwrap(),
+                value: ContrastLevel::new(7)
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             }),
         ];
 
         for cmd in cmds {
-            let _ = format!("{:?}", cmd);
+            let _ = format!("{cmd:?}");
         }
 
         // Test Clone
@@ -391,20 +408,24 @@ mod tests {
         assert!(cmd.to_bytes().is_ok());
 
         // Test boundary values for luminance
-        let level = LuminanceLevel::new(0).unwrap();
+        let level =
+            LuminanceLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = LuminanceCommand { value: level };
         assert!(cmd.to_bytes().is_ok());
 
-        let level = LuminanceLevel::new(14).unwrap();
+        let level =
+            LuminanceLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = LuminanceCommand { value: level };
         assert!(cmd.to_bytes().is_ok());
 
         // Test boundary values for contrast
-        let level = ContrastLevel::new(0).unwrap();
+        let level =
+            ContrastLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = ContrastCommand { value: level };
         assert!(cmd.to_bytes().is_ok());
 
-        let level = ContrastLevel::new(14).unwrap();
+        let level =
+            ContrastLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = ContrastCommand { value: level };
         assert!(cmd.to_bytes().is_ok());
     }
@@ -413,12 +434,16 @@ mod tests {
     fn test_nibble_encoding_sharpness() {
         // Test that Direct command properly encodes value as nibbles
         let cmd = SharpnessCommand::Direct { value: 0x0B };
-        let bytes = cmd.to_bytes().unwrap();
+        let bytes = cmd
+            .to_bytes()
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x0B); // Low nibble
 
         let cmd = SharpnessCommand::Direct { value: 0x05 };
-        let bytes = cmd.to_bytes().unwrap();
+        let bytes = cmd
+            .to_bytes()
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x05); // Low nibble
     }
@@ -433,10 +458,12 @@ mod tests {
             Box::new(SharpnessCommand::Down),
             Box::new(SharpnessCommand::Direct { value: 5 }),
             Box::new(LuminanceCommand {
-                value: LuminanceLevel::new(7).unwrap(),
+                value: LuminanceLevel::new(7)
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             }),
             Box::new(ContrastCommand {
-                value: ContrastLevel::new(7).unwrap(),
+                value: ContrastLevel::new(7)
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             }),
         ];
 
@@ -461,11 +488,13 @@ mod tests {
         }
 
         // Test LuminanceCommand and ContrastCommand use Quick category
-        let level = LuminanceLevel::new(7).unwrap();
+        let level =
+            LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = LuminanceCommand { value: level };
         assert!(matches!(cmd.command_category(), CommandCategory::Quick));
 
-        let level = ContrastLevel::new(7).unwrap();
+        let level =
+            ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = ContrastCommand { value: level };
         assert!(matches!(cmd.command_category(), CommandCategory::Quick));
     }

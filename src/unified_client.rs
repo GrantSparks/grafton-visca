@@ -677,7 +677,7 @@ impl crate::Transport for Client {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
     #[cfg(feature = "blocking-client")]
@@ -697,7 +697,8 @@ mod tests {
     #[cfg(feature = "blocking-client")]
     #[test]
     fn test_client_can_be_cloned() {
-        let client = Client::connect_udp("127.0.0.1:1259").unwrap();
+        let client = Client::connect_udp("127.0.0.1:1259")
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let client_clone = client.clone();
         // Ensure the clone is usable
         drop(client);
@@ -707,14 +708,19 @@ mod tests {
     #[cfg(feature = "blocking-client")]
     #[test]
     fn test_client_arc_usage() {
-        let client = Arc::new(Client::connect_udp("127.0.0.1:1259").unwrap());
+        let client = Arc::new(
+            Client::connect_udp("127.0.0.1:1259")
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+        );
         let client_clone = Arc::clone(&client);
 
         let handle = thread::spawn(move || {
             let _local_ref = client_clone;
         });
 
-        handle.join().unwrap();
+        handle
+            .join()
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
     }
 
     #[cfg(feature = "blocking-client")]

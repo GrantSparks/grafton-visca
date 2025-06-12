@@ -1,0 +1,182 @@
+//! Test helper functions to reduce unwrap usage and improve error messages.
+//!
+//! This module provides reusable test utilities that make tests more maintainable
+//! and provide better failure messages, reducing the need for #[allow(...)] directives.
+#![allow(dead_code)] // These utilities are for future test use
+
+#[cfg(feature = "blocking-client")]
+use grafton_visca::{Client, PanSpeed, TiltSpeed};
+
+#[cfg(feature = "blocking-client")]
+use std::fmt::Debug;
+
+/// Creates a test UDP client with descriptive error message.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::tests::common::helpers::create_test_udp_client;
+/// let client = create_test_udp_client("127.0.0.1:1234");
+/// ```
+#[cfg(feature = "blocking-client")]
+pub fn create_test_udp_client(addr: &str) -> Client {
+    Client::connect_udp(addr)
+        .unwrap_or_else(|e| panic!("Failed to create UDP client at {}: {:?}", addr, e))
+}
+
+/// Creates a test TCP client with descriptive error message.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::tests::common::helpers::create_test_tcp_client;
+/// let client = create_test_tcp_client("127.0.0.1:5678");
+/// ```
+#[cfg(feature = "blocking-client")]
+pub fn create_test_tcp_client(addr: &str) -> Client {
+    Client::connect_tcp(addr)
+        .unwrap_or_else(|e| panic!("Failed to create TCP client at {}: {:?}", addr, e))
+}
+
+/// Standard test speeds to avoid repetitive expect() calls.
+///
+/// Returns commonly used pan and tilt speeds for tests.
+#[cfg(feature = "blocking-client")]
+pub fn test_speeds() -> (PanSpeed, TiltSpeed) {
+    (
+        PanSpeed::new(10).expect("PanSpeed 10 should be valid"),
+        TiltSpeed::new(10).expect("TiltSpeed 10 should be valid"),
+    )
+}
+
+/// Test speeds with custom values.
+#[cfg(feature = "blocking-client")]
+pub fn test_speeds_with(pan: u8, tilt: u8) -> (PanSpeed, TiltSpeed) {
+    (
+        PanSpeed::new(pan).unwrap_or_else(|_| panic!("PanSpeed {} should be valid", pan)),
+        TiltSpeed::new(tilt).unwrap_or_else(|_| panic!("TiltSpeed {} should be valid", tilt)),
+    )
+}
+
+/// Assert that a Result is Ok and return the value with context.
+///
+/// Provides better error messages than unwrap() by including context about
+/// what operation failed.
+///
+/// # Example
+/// ```no_run
+/// # use grafton_visca::tests::common::helpers::assert_ok;
+/// let result = some_operation();
+/// let value = assert_ok(result, "Expected operation to succeed");
+/// ```
+pub fn assert_ok<T, E: Debug>(result: Result<T, E>, context: &str) -> T {
+    match result {
+        Ok(value) => value,
+        Err(e) => panic!("{}: {:?}", context, e),
+    }
+}
+
+/// Assert that a Result is Err and return the error with context.
+///
+/// Useful for testing error conditions with better failure messages.
+pub fn assert_err<T: Debug, E>(result: Result<T, E>, context: &str) -> E {
+    match result {
+        Ok(value) => panic!("{}: Expected error but got Ok({:?})", context, value),
+        Err(e) => e,
+    }
+}
+
+/// Assert that two byte arrays are equal with hex formatting.
+///
+/// Provides better output for debugging protocol-level issues.
+pub fn assert_bytes_eq(actual: &[u8], expected: &[u8], context: &str) {
+    if actual != expected {
+        panic!(
+            "{}\nExpected: {:02X?}\nActual:   {:02X?}",
+            context, expected, actual
+        );
+    }
+}
+
+/// Assert that a byte array starts with the given prefix.
+pub fn assert_bytes_start_with(actual: &[u8], prefix: &[u8], context: &str) {
+    if !actual.starts_with(prefix) {
+        panic!(
+            "{}\nExpected to start with: {:02X?}\nActual: {:02X?}",
+            context, prefix, actual
+        );
+    }
+}
+
+/// Creates a valid VISCA ACK response for testing.
+pub fn create_ack_response(socket: u8) -> Vec<u8> {
+    vec![0x90, 0x40 | (socket & 0x01), 0xFF]
+}
+
+/// Creates a valid VISCA completion response for testing.
+pub fn create_completion_response(socket: u8) -> Vec<u8> {
+    vec![0x90, 0x50 | (socket & 0x01), 0xFF]
+}
+
+/// Creates a valid VISCA error response for testing.
+pub fn create_error_response(error_code: u8) -> Vec<u8> {
+    vec![0x90, 0x60, error_code, 0xFF]
+}
+
+/// Creates a standard ACK + Completion sequence for a socket.
+pub fn create_ack_completion_sequence(socket: u8) -> Vec<Vec<u8>> {
+    vec![
+        create_ack_response(socket),
+        create_completion_response(socket),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_assert_ok_success() {
+        let result: Result<i32, &str> = Ok(42);
+        let value = assert_ok(result, "Should return 42");
+        assert_eq!(value, 42);
+    }
+
+    #[test]
+    #[should_panic(expected = "Operation failed: \"error message\"")]
+    fn test_assert_ok_failure() {
+        let result: Result<i32, &str> = Err("error message");
+        assert_ok(result, "Operation failed");
+    }
+
+    #[test]
+    fn test_assert_err_success() {
+        let result: Result<i32, &str> = Err("expected error");
+        let error = assert_err(result, "Should return error");
+        assert_eq!(error, "expected error");
+    }
+
+    #[test]
+    fn test_assert_bytes_eq_success() {
+        let actual = vec![0x81, 0x01, 0x06, 0x04, 0xFF];
+        let expected = vec![0x81, 0x01, 0x06, 0x04, 0xFF];
+        assert_bytes_eq(&actual, &expected, "Bytes should match");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Bytes mismatch\nExpected: [81, 01, 06, 04, FF]\nActual:   [81, 01, 06, 05, FF]"
+    )]
+    fn test_assert_bytes_eq_failure() {
+        let actual = vec![0x81, 0x01, 0x06, 0x05, 0xFF];
+        let expected = vec![0x81, 0x01, 0x06, 0x04, 0xFF];
+        assert_bytes_eq(&actual, &expected, "Bytes mismatch");
+    }
+
+    #[test]
+    fn test_create_responses() {
+        assert_eq!(create_ack_response(0), vec![0x90, 0x40, 0xFF]);
+        assert_eq!(create_ack_response(1), vec![0x90, 0x41, 0xFF]);
+        assert_eq!(create_completion_response(0), vec![0x90, 0x50, 0xFF]);
+        assert_eq!(create_completion_response(1), vec![0x90, 0x51, 0xFF]);
+        assert_eq!(create_error_response(0x01), vec![0x90, 0x60, 0x01, 0xFF]);
+    }
+}

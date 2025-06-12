@@ -680,7 +680,7 @@ impl fmt::Display for ErrorContext {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 
@@ -813,13 +813,13 @@ mod tests {
         let retryable_error: Result<()> = Err(Error::CameraBusy);
         let result = retryable_error.with_retry_context();
         assert!(result.is_err());
-        assert!(result.as_ref().unwrap_err().is_retryable());
+        assert!(result.as_ref().err().is_some_and(|e| e.is_retryable()));
 
         // Test non-retryable error
         let non_retryable_error: Result<()> = Err(Error::SyntaxError);
         let result = non_retryable_error.with_retry_context();
         assert!(result.is_err());
-        assert!(!result.as_ref().unwrap_err().is_retryable());
+        assert!(!result.as_ref().err().is_some_and(|e| e.is_retryable()));
     }
 
     #[cfg(feature = "blocking-client")]
@@ -840,7 +840,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "success");
+        assert_eq!(
+            result.unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            "success"
+        );
         assert_eq!(attempt_count, 3);
     }
 
@@ -858,7 +861,7 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::CameraBusy));
+        assert!(matches!(result.err(), Some(Error::CameraBusy)));
         assert_eq!(attempt_count, 3);
     }
 
@@ -876,7 +879,7 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::SyntaxError));
+        assert!(matches!(result.err(), Some(Error::SyntaxError)));
         assert_eq!(attempt_count, 1); // Only one attempt for non-retryable errors
     }
 
@@ -907,7 +910,10 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "async success");
+        assert_eq!(
+            result.unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            "async success"
+        );
         assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
     }
 
@@ -939,7 +945,10 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "suggested delay success");
+        assert_eq!(
+            result.unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            "suggested delay success"
+        );
         assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
     }
 
@@ -974,7 +983,10 @@ mod tests {
         let elapsed = start_time.elapsed();
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "backoff success");
+        assert_eq!(
+            result.unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            "backoff success"
+        );
         assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
         // Should have at least 10ms (first retry) + 20ms (second retry) = 30ms total
         assert!(elapsed >= Duration::from_millis(25));

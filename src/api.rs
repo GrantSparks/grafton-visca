@@ -524,7 +524,7 @@ pub trait CameraControl: Transport {
 impl<T: Transport> CameraControl for T {}
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 
@@ -536,9 +536,15 @@ mod tests {
         assert!(Speed::Fastest.to_pan_speed().is_ok());
 
         // Test that speeds are ordered correctly
-        let slowest = Speed::Slowest.to_pan_speed().unwrap();
-        let medium = Speed::Medium.to_pan_speed().unwrap();
-        let fastest = Speed::Fastest.to_pan_speed().unwrap();
+        let slowest = Speed::Slowest
+            .to_pan_speed()
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+        let medium = Speed::Medium
+            .to_pan_speed()
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+        let fastest = Speed::Fastest
+            .to_pan_speed()
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
         assert!(slowest.value() < medium.value());
         assert!(medium.value() < fastest.value());
@@ -549,21 +555,21 @@ mod tests {
         assert_eq!(
             GainLevel::Min
                 .to_gain_value()
-                .expect("Min gain should be valid")
+                .unwrap_or_else(|e| panic!("Min gain should be valid: {e:?}"))
                 .value(),
             0x00
         );
         assert_eq!(
             GainLevel::Max
                 .to_gain_value()
-                .expect("Max gain should be valid")
+                .unwrap_or_else(|e| panic!("Max gain should be valid: {e:?}"))
                 .value(),
             0x07
         );
         assert_eq!(
             GainLevel::Custom(0x05)
                 .to_gain_value()
-                .expect("Custom gain should be valid")
+                .unwrap_or_else(|e| panic!("Custom gain should be valid: {e:?}"))
                 .value(),
             0x05
         );
@@ -579,14 +585,14 @@ mod tests {
         assert_eq!(
             NoiseReductionStrength::Minimal
                 .to_2d_level()
-                .unwrap()
+                .unwrap_or_else(|| panic!("Minimal should have 2D level"))
                 .value(),
             1
         );
         assert_eq!(
             NoiseReductionStrength::Maximum
                 .to_2d_level()
-                .unwrap()
+                .unwrap_or_else(|| panic!("Maximum should have 2D level"))
                 .value(),
             5
         );
@@ -596,14 +602,14 @@ mod tests {
         assert_eq!(
             NoiseReductionStrength::Minimal
                 .to_3d_level()
-                .unwrap()
+                .unwrap_or_else(|| panic!("Minimal should have 3D level"))
                 .value(),
             1
         );
         assert_eq!(
             NoiseReductionStrength::Maximum
                 .to_3d_level()
-                .unwrap()
+                .unwrap_or_else(|| panic!("Maximum should have 3D level"))
                 .value(),
             8
         );

@@ -150,7 +150,7 @@ const fn position_to_nibbles(position: u16) -> [u8; 4] {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 
@@ -158,7 +158,8 @@ mod tests {
     fn test_zoom_speed_new() {
         // Valid speeds
         for speed in 0..=7 {
-            let zoom_speed = ZoomSpeed::new(speed).expect("Valid zoom speed");
+            let zoom_speed = ZoomSpeed::new(speed)
+                .unwrap_or_else(|e| panic!("Failed to create ZoomSpeed {speed}: {e:?}"));
             assert_eq!(zoom_speed.value(), speed);
         }
 
@@ -173,7 +174,8 @@ mod tests {
     #[test]
     fn test_zoom_speed_try_from() {
         // Valid conversion
-        let speed = ZoomSpeed::try_from(5).expect("Valid zoom speed");
+        let speed = ZoomSpeed::try_from(5)
+            .unwrap_or_else(|e| panic!("ZoomSpeed::try_from(5) should be valid: {e:?}"));
         assert_eq!(speed.value(), 5);
 
         // Invalid conversion
@@ -182,7 +184,8 @@ mod tests {
 
     #[test]
     fn test_zoom_speed_into_u8() {
-        let speed = ZoomSpeed::new(3).expect("Valid zoom speed");
+        let speed =
+            ZoomSpeed::new(3).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 3: {e:?}"));
         let value: u8 = speed.into();
         assert_eq!(value, 3);
     }
@@ -190,18 +193,26 @@ mod tests {
     #[test]
     fn test_zoom_command_stop() {
         let cmd = ZoomCommand::Stop;
+        let bytes = cmd
+            .to_bytes()
+            .unwrap_or_else(|e| panic!("Failed to convert Stop command to bytes: {e:?}"));
         assert_eq!(
-            cmd.to_bytes().expect("Valid command"),
-            vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]
+            bytes,
+            vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF],
+            "Stop command bytes mismatch"
         );
     }
 
     #[test]
     fn test_zoom_command_zoom_in_standard() {
         let cmd = ZoomCommand::ZoomInStandard;
+        let bytes = cmd
+            .to_bytes()
+            .unwrap_or_else(|e| panic!("Failed to convert ZoomInStandard command to bytes: {e:?}"));
         assert_eq!(
-            cmd.to_bytes().expect("Valid command"),
-            vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
+            bytes,
+            vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF],
+            "ZoomInStandard command bytes mismatch"
         );
         assert_eq!(cmd.response_type(), Some(ResponseType::ZoomInStandard));
     }
@@ -209,39 +220,57 @@ mod tests {
     #[test]
     fn test_zoom_command_zoom_out_standard() {
         let cmd = ZoomCommand::ZoomOutStandard;
+        let bytes = cmd.to_bytes().unwrap_or_else(|e| {
+            panic!("Failed to convert ZoomOutStandard command to bytes: {e:?}")
+        });
         assert_eq!(
-            cmd.to_bytes().expect("Valid command"),
-            vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
+            bytes,
+            vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF],
+            "ZoomOutStandard command bytes mismatch"
         );
         assert_eq!(cmd.response_type(), Some(ResponseType::ZoomOutStandard));
     }
 
     #[test]
     fn test_zoom_command_zoom_in_variable() {
-        let speed = ZoomSpeed::new(5).expect("Valid zoom speed");
+        let speed =
+            ZoomSpeed::new(5).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 5: {e:?}"));
         let cmd = ZoomCommand::ZoomInVariable(speed);
+        let bytes = cmd
+            .to_bytes()
+            .unwrap_or_else(|e| panic!("Failed to convert ZoomInVariable command to bytes: {e:?}"));
         assert_eq!(
-            cmd.to_bytes().expect("Valid command"),
-            vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]
+            bytes,
+            vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF],
+            "ZoomInVariable command bytes mismatch"
         );
     }
 
     #[test]
     fn test_zoom_command_zoom_out_variable() {
-        let speed = ZoomSpeed::new(7).expect("Valid zoom speed");
+        let speed =
+            ZoomSpeed::new(7).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 7: {e:?}"));
         let cmd = ZoomCommand::ZoomOutVariable(speed);
+        let bytes = cmd.to_bytes().unwrap_or_else(|e| {
+            panic!("Failed to convert ZoomOutVariable command to bytes: {e:?}")
+        });
         assert_eq!(
-            cmd.to_bytes().expect("Valid command"),
-            vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF]
+            bytes,
+            vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF],
+            "ZoomOutVariable command bytes mismatch"
         );
     }
 
     #[test]
     fn test_zoom_command_direct() {
         let cmd = ZoomCommand::Direct(0x1234);
+        let bytes = cmd
+            .to_bytes()
+            .unwrap_or_else(|e| panic!("Failed to convert Direct command to bytes: {e:?}"));
         assert_eq!(
-            cmd.to_bytes().expect("Valid command"),
-            vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF]
+            bytes,
+            vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF],
+            "Direct command bytes mismatch"
         );
     }
 
@@ -307,12 +336,16 @@ mod tests {
         )
         .is_ok());
         assert!(Command::validate_for_model(
-            &ZoomCommand::ZoomInVariable(ZoomSpeed::new(5).unwrap()),
+            &ZoomCommand::ZoomInVariable(
+                ZoomSpeed::new(5).unwrap_or_else(|e| panic!("Valid ZoomSpeed 5: {e:?}"))
+            ),
             CameraModel::PTZOpticsG2
         )
         .is_ok());
         assert!(Command::validate_for_model(
-            &ZoomCommand::ZoomOutVariable(ZoomSpeed::new(3).unwrap()),
+            &ZoomCommand::ZoomOutVariable(
+                ZoomSpeed::new(3).unwrap_or_else(|e| panic!("Valid ZoomSpeed 3: {e:?}"))
+            ),
             CameraModel::PTZOpticsG2
         )
         .is_ok());
