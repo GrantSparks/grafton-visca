@@ -3,6 +3,8 @@
 //! This test file demonstrates how to use the improved test helpers
 //! and patterns to write tests without needing #[allow(...)] directives.
 
+#![cfg(feature = "blocking-client")]
+
 #[path = "common/mod.rs"]
 mod common;
 

@@ -7,7 +7,6 @@
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{Client, PanSpeed, TiltSpeed};
 
-#[cfg(feature = "blocking-client")]
 use std::fmt::Debug;
 
 /// Creates a test UDP client with descriptive error message.
@@ -129,7 +128,7 @@ pub fn create_ack_completion_sequence(socket: u8) -> Vec<Vec<u8>> {
     ]
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "blocking-client"))]
 mod tests {
     use super::*;
 

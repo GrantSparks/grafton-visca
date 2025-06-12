@@ -8,6 +8,7 @@ pub mod builders;
 pub mod helpers;
 pub mod macros;
 
+#[cfg(feature = "blocking-client")]
 use grafton_visca::{Command, Error};
 
 #[cfg(feature = "blocking-client")]
@@ -39,6 +40,7 @@ pub struct MockTransport {
 }
 
 #[allow(dead_code)] // Complete testing API - not all methods used in every test
+#[cfg(feature = "blocking-client")]
 impl MockTransport {
     /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
