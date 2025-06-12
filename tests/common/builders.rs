@@ -225,8 +225,10 @@ impl TestZoomBuilder {
 }
 
 /// Helpers for creating test parameter types.
+#[cfg(feature = "blocking-client")]
 pub struct TestParameters;
 
+#[cfg(feature = "blocking-client")]
 impl TestParameters {
     /// Create a valid brightness level for tests.
     pub fn brightness(level: u16) -> BrightnessLevel {
@@ -268,7 +270,7 @@ impl TestParameters {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "blocking-client"))]
 mod tests {
     use super::*;
 
