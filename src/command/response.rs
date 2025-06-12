@@ -584,7 +584,8 @@ enum ExtendedValueType {
     clippy::unwrap_used,
     clippy::panic,
     clippy::cast_possible_truncation,
-    clippy::uninlined_format_args
+    clippy::uninlined_format_args,
+    clippy::match_same_arms
 )]
 mod tests {
     use super::*;

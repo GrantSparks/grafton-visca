@@ -116,7 +116,12 @@ impl Command for ImageFlipCombinedCommand {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::uninlined_format_args, clippy::panic)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::uninlined_format_args,
+    clippy::panic,
+    clippy::match_wildcard_for_single_variants
+)]
 mod tests {
     use super::*;
 
@@ -337,13 +342,13 @@ mod tests {
         // Test that enum variants work correctly
         match NoiseReduction2DCommand::Off {
             NoiseReduction2DCommand::Off => {}
-            _ => panic!("Expected Off variant"),
+            NoiseReduction2DCommand::Level(_) => panic!("Expected Off variant"),
         }
 
         let level = NoiseReduction2DLevel::new(3).unwrap();
         match NoiseReduction2DCommand::Level(level) {
             NoiseReduction2DCommand::Level(l) => assert_eq!(l.value(), 3),
-            _ => panic!("Expected Level variant"),
+            NoiseReduction2DCommand::Off => panic!("Expected Level variant"),
         }
     }
 
@@ -352,13 +357,13 @@ mod tests {
         // Test that enum variants work correctly
         match NoiseReduction3DCommand::Off {
             NoiseReduction3DCommand::Off => {}
-            _ => panic!("Expected Off variant"),
+            NoiseReduction3DCommand::Level(_) => panic!("Expected Off variant"),
         }
 
         let level = NoiseReduction3DLevel::new(5).unwrap();
         match NoiseReduction3DCommand::Level(level) {
             NoiseReduction3DCommand::Level(l) => assert_eq!(l.value(), 5),
-            _ => panic!("Expected Level variant"),
+            NoiseReduction3DCommand::Off => panic!("Expected Level variant"),
         }
     }
 
