@@ -307,7 +307,7 @@ impl Session {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 
@@ -322,11 +322,15 @@ mod tests {
         let mut session = Session::new();
 
         // First command should get socket 0
-        let socket1 = session.assign_socket(None).unwrap();
+        let socket1 = session
+            .assign_socket(None)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(socket1, SocketId::SOCKET_0);
 
         // Second command should get socket 1
-        let socket2 = session.assign_socket(None).unwrap();
+        let socket2 = session
+            .assign_socket(None)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(socket2, SocketId::SOCKET_1);
 
         // Third command should fail
@@ -338,47 +342,63 @@ mod tests {
     fn test_socket_release() {
         let mut session = Session::new();
 
-        let socket = session.assign_socket(None).unwrap();
+        let socket = session
+            .assign_socket(None)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(session.pending_count(), 1);
 
         session.release_socket(socket);
         assert_eq!(session.pending_count(), 0);
 
         // Should be able to assign again
-        let new_socket = session.assign_socket(None).unwrap();
+        let new_socket = session
+            .assign_socket(None)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(new_socket, SocketId::SOCKET_0);
     }
 
     #[test]
     fn test_ack_response_processing() {
         let mut session = Session::new();
-        let socket = session.assign_socket(None).unwrap();
+        let socket = session
+            .assign_socket(None)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
         // ACK response for socket 0
         let ack_response = [0x90, 0x40, 0xFF];
-        let result = session.process_response(&ack_response).unwrap();
+        let result = session
+            .process_response(&ack_response)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
         assert!(result.is_some());
-        let (response_socket, response) = result.unwrap();
+        let (response_socket, response) =
+            result.unwrap_or_else(|| panic!("Expected Some response from ACK processing"));
         assert_eq!(response_socket, socket);
         assert!(matches!(response, Response::Ack));
 
         // Verify the socket is marked as acknowledged
-        let pending = session.get_pending_command(socket).unwrap();
+        let pending = session
+            .get_pending_command(socket)
+            .unwrap_or_else(|| panic!("Expected pending command for socket"));
         assert!(pending.acknowledged);
     }
 
     #[test]
     fn test_completion_response_processing() {
         let mut session = Session::new();
-        let socket = session.assign_socket(None).unwrap();
+        let socket = session
+            .assign_socket(None)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
         // Completion response for socket 0
         let completion_response = [0x90, 0x50, 0xFF];
-        let result = session.process_response(&completion_response).unwrap();
+        let result = session
+            .process_response(&completion_response)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
         assert!(result.is_some());
-        let (response_socket, response) = result.unwrap();
+        let (response_socket, response) =
+            result.unwrap_or_else(|| panic!("Expected Some response from ACK processing"));
         assert_eq!(response_socket, socket);
         assert!(matches!(response, Response::Completion));
     }
@@ -386,14 +406,19 @@ mod tests {
     #[test]
     fn test_error_response_processing() {
         let mut session = Session::new();
-        let _ = session.assign_socket(None).unwrap();
+        let _ = session
+            .assign_socket(None)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
         // Error response for socket 0 (syntax error)
         let error_response = [0x90, 0x60, 0x02, 0xFF];
-        let result = session.process_response(&error_response).unwrap();
+        let result = session
+            .process_response(&error_response)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
         assert!(result.is_some());
-        let (_socket, response) = result.unwrap();
+        let (_socket, response) =
+            result.unwrap_or_else(|| panic!("Expected Some response from error processing"));
         assert!(matches!(response, Response::Error(_)));
     }
 
@@ -427,8 +452,12 @@ mod tests {
     fn test_clear_all() {
         let mut session = Session::new();
 
-        let _ = session.assign_socket(None).unwrap();
-        let _ = session.assign_socket(None).unwrap();
+        let _ = session
+            .assign_socket(None)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+        let _ = session
+            .assign_socket(None)
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(session.pending_count(), 2);
 
         session.clear_all();

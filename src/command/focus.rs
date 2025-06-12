@@ -238,7 +238,7 @@ impl Command for FocusNearLimitCommand {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 
@@ -246,7 +246,8 @@ mod tests {
     fn test_focus_command_stop() {
         let cmd = FocusCommand::Stop;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]
         );
     }
@@ -255,7 +256,8 @@ mod tests {
     fn test_focus_command_far_standard() {
         let cmd = FocusCommand::FocusFarStandard;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]
         );
     }
@@ -264,7 +266,8 @@ mod tests {
     fn test_focus_command_near_standard() {
         let cmd = FocusCommand::FocusNearStandard;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]
         );
     }
@@ -273,10 +276,12 @@ mod tests {
     fn test_focus_command_far_variable() {
         // Valid speeds
         for speed_val in 0..=7 {
-            let speed = FocusSpeed::new(speed_val).unwrap();
+            let speed = FocusSpeed::new(speed_val)
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = FocusCommand::FarVariable(speed);
             assert_eq!(
-                cmd.to_bytes().unwrap(),
+                cmd.to_bytes()
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed_val, 0xFF]
             );
         }
@@ -286,10 +291,12 @@ mod tests {
     fn test_focus_command_near_variable() {
         // Valid speeds
         for speed_val in 0..=7 {
-            let speed = FocusSpeed::new(speed_val).unwrap();
+            let speed = FocusSpeed::new(speed_val)
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = FocusCommand::NearVariable(speed);
             assert_eq!(
-                cmd.to_bytes().unwrap(),
+                cmd.to_bytes()
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed_val, 0xFF]
             );
         }
@@ -312,13 +319,15 @@ mod tests {
     fn test_focus_command_direct() {
         let cmd = FocusCommand::Direct(0x1234);
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x48, 0x01, 0x02, 0x03, 0x04, 0xFF]
         );
 
         let cmd = FocusCommand::Direct(0xFFFF);
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x48, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF]
         );
     }
@@ -327,7 +336,8 @@ mod tests {
     fn test_focus_command_auto() {
         let cmd = FocusCommand::Auto;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x38, 0x02, 0xFF]
         );
     }
@@ -336,7 +346,8 @@ mod tests {
     fn test_focus_command_manual() {
         let cmd = FocusCommand::Manual;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x38, 0x03, 0xFF]
         );
     }
@@ -345,7 +356,8 @@ mod tests {
     fn test_focus_command_one_push_trigger() {
         let cmd = FocusCommand::OnePushTrigger;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x18, 0x01, 0xFF]
         );
     }
@@ -354,7 +366,8 @@ mod tests {
     fn test_focus_command_infinity() {
         let cmd = FocusCommand::Infinity;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x18, 0x02, 0xFF]
         );
     }
@@ -365,7 +378,8 @@ mod tests {
             zone: FocusZone::Top,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3C, 0x00, 0xFF]
         );
 
@@ -373,7 +387,8 @@ mod tests {
             zone: FocusZone::Center,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3C, 0x01, 0xFF]
         );
 
@@ -381,7 +396,8 @@ mod tests {
             zone: FocusZone::Bottom,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3C, 0x02, 0xFF]
         );
     }
@@ -392,7 +408,8 @@ mod tests {
             sensitivity: AutoFocusSensitivity::High,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x02, 0xFF]
         );
 
@@ -400,7 +417,8 @@ mod tests {
             sensitivity: AutoFocusSensitivity::Normal,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x01, 0xFF]
         );
 
@@ -408,7 +426,8 @@ mod tests {
             sensitivity: AutoFocusSensitivity::Low,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x00, 0xFF]
         );
     }
@@ -417,13 +436,15 @@ mod tests {
     fn test_focus_near_limit_command() {
         let cmd = FocusNearLimitCommand { position: 0x1234 };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x02, 0x03, 0x04, 0xFF]
         );
 
         let cmd = FocusNearLimitCommand { position: 0x0000 };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x28, 0x00, 0x00, 0x00, 0x00, 0xFF]
         );
     }

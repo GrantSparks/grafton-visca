@@ -73,6 +73,113 @@ The example will:
 - Add tests for new functionality
 - Document any camera-specific behaviors you discover
 
+### Writing Tests - Best Practices
+
+The project includes a comprehensive test infrastructure to help you write maintainable tests without needing `#[allow(clippy::unwrap_used)]` directives. Use these helpers to get better error messages and reduce boilerplate.
+
+#### Test Helper Functions
+
+Located in `tests/common/helpers.rs`:
+
+```rust
+// Create test clients with descriptive error messages
+let client = create_test_udp_client("127.0.0.1:1234");
+let client = create_test_tcp_client("127.0.0.1:5678");
+
+// Use standard test speeds
+let (pan_speed, tilt_speed) = test_speeds();
+
+// Assert with context for better error messages
+let result = assert_ok(some_operation(), "Operation should succeed");
+let error = assert_err(invalid_operation(), "Should fail with invalid parameter");
+
+// Compare byte arrays with hex formatting
+assert_bytes_eq(&actual, &expected, "Command bytes should match");
+assert_bytes_start_with(&response, &[0x90, 0x50], "Should be completion response");
+```
+
+#### Test Data Builders
+
+Located in `tests/common/builders.rs`:
+
+```rust
+// Build complex commands easily
+let cmd = TestPanTiltBuilder::new()
+    .with_position(100, 200)
+    .with_speeds(15, 20)
+    .build_absolute();
+
+// Create test parameters
+let brightness = TestParameters::brightness(10);
+let iris = TestParameters::iris(0x06); // F4.0
+```
+
+#### Mock Transport
+
+The `MockTransport` provides convenient methods for testing:
+
+```rust
+// Create mocks with pre-configured responses
+let mock = MockTransport::with_ack_completion();
+let mock = MockTransport::with_error(0x02); // Syntax error
+let mock = MockTransport::with_timeout();
+
+// Or build custom response sequences
+let mut mock = MockTransport::new();
+mock.add_ack_completion(0); // Socket 0
+mock.add_inquiry_response(vec![0x90, 0x50, 0x02, 0xFF]);
+```
+
+#### Example Test Pattern
+
+```rust
+#[test]
+fn test_zoom_command() {
+    // Use helpers instead of expect/unwrap
+    let speed = ZoomSpeed::new(5)
+        .unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 5: {:?}", e));
+    
+    let cmd = ZoomCommand::ZoomInVariable(speed);
+    
+    // Use descriptive assertions
+    let bytes = cmd.to_bytes()
+        .unwrap_or_else(|e| panic!("Failed to convert command to bytes: {:?}", e));
+    
+    assert_eq!(
+        bytes,
+        vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF],
+        "ZoomInVariable command bytes mismatch"
+    );
+}
+```
+
+#### Integration-Style Tests
+
+For testing command sequences:
+
+```rust
+#[test]
+fn test_preset_sequence() {
+    let mut device = MockDevice::with_completion();
+    
+    // Queue responses for multiple commands
+    device.add_response(create_ack_response(0));
+    device.add_response(create_completion_response(0));
+    
+    // Test the sequence
+    let response = assert_ok(
+        device.execute_command(&PresetCommand::Set(preset_num)),
+        "Setting preset should succeed"
+    );
+    
+    // Verify commands sent
+    let commands = device.commands_sent();
+    assert_bytes_eq(&commands[0], &expected_bytes, "Preset command");
+}
+```
+
+See `tests/test_infrastructure_demo.rs` for more examples of using the test infrastructure.
+
 ## Adding New Features
 
 ### Supporting New Camera Models

@@ -71,7 +71,7 @@ impl TryFrom<u8> for WhiteBalanceMode {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 
@@ -91,7 +91,8 @@ mod tests {
             mode: WhiteBalanceMode::Auto,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x35, 0x00, 0xFF]
         );
     }
@@ -102,7 +103,8 @@ mod tests {
             mode: WhiteBalanceMode::Indoor,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x35, 0x01, 0xFF]
         );
     }
@@ -113,7 +115,8 @@ mod tests {
             mode: WhiteBalanceMode::Outdoor,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x35, 0x02, 0xFF]
         );
     }
@@ -124,7 +127,8 @@ mod tests {
             mode: WhiteBalanceMode::OnePush,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x35, 0x03, 0xFF]
         );
     }
@@ -135,7 +139,8 @@ mod tests {
             mode: WhiteBalanceMode::Manual,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x35, 0x05, 0xFF]
         );
     }
@@ -146,7 +151,8 @@ mod tests {
             mode: WhiteBalanceMode::ColorTemperature,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x35, 0x20, 0xFF]
         );
     }
@@ -238,8 +244,18 @@ mod tests {
         let cmd2 = cmd1; // Copy
         let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
-        assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
-        assert_eq!(cmd1.to_bytes().unwrap(), cmd3.to_bytes().unwrap());
+        assert_eq!(
+            cmd1.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            cmd2.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+        );
+        assert_eq!(
+            cmd1.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            cmd3.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+        );
     }
 
     #[test]
@@ -255,7 +271,9 @@ mod tests {
 
         for mode in modes {
             let cmd = WhiteBalanceCommand { mode };
-            let bytes = cmd.to_bytes().unwrap();
+            let bytes = cmd
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
             // Verify command structure
             assert_eq!(bytes.len(), 6);

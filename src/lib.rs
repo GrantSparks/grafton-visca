@@ -20,7 +20,6 @@
     clippy::unimplemented,
     clippy::todo
 )]
-#![allow(clippy::literal_string_with_formatting_args)]
 //!
 //! ## What is VISCA?
 //!

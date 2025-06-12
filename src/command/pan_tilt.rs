@@ -257,7 +257,7 @@ impl Command for PanTiltCommand {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 
@@ -291,7 +291,7 @@ mod tests {
         assert!(PanSpeed::try_from(0x20).is_err());
 
         // Into trait
-        let speed = PanSpeed::new(0x10).expect("Valid pan speed");
+        let speed = PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}"));
         let value: u8 = speed.into();
         assert_eq!(value, 0x10);
     }
@@ -313,7 +313,7 @@ mod tests {
         assert!(TiltSpeed::try_from(0x15).is_err());
 
         // Into trait
-        let speed = TiltSpeed::new(0x10).expect("Valid tilt speed");
+        let speed = TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}"));
         let value: u8 = speed.into();
         assert_eq!(value, 0x10);
     }
@@ -336,25 +336,30 @@ mod tests {
         // Test Home command
         let home = PanTiltCommand::Home;
         assert_eq!(
-            home.to_bytes().expect("Valid command"),
+            home.to_bytes()
+                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![0x81, 0x01, 0x06, 0x04, 0xFF]
         );
 
         // Test Reset command
         let reset = PanTiltCommand::Reset;
         assert_eq!(
-            reset.to_bytes().expect("Valid command"),
+            reset
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![0x81, 0x01, 0x06, 0x05, 0xFF]
         );
 
         // Test Move command
         let move_cmd = PanTiltCommand::Move {
             direction: PanTiltDirection::UpRight,
-            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
+            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
+            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
         assert_eq!(
-            move_cmd.to_bytes().expect("Valid command"),
+            move_cmd
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![0x81, 0x01, 0x06, 0x01, 0x10, 0x10, 0x02, 0x01, 0xFF]
         );
 
@@ -362,11 +367,13 @@ mod tests {
         let abs_pos = PanTiltCommand::AbsolutePosition {
             pan: 0x1234,
             tilt: 0x5678,
-            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
+            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
+            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
         assert_eq!(
-            abs_pos.to_bytes().expect("Valid command"),
+            abs_pos
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![
                 0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
                 0xFF
@@ -377,11 +384,13 @@ mod tests {
         let rel_pos = PanTiltCommand::RelativePosition {
             pan: -0x100,
             tilt: 0x200,
-            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
+            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
+            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
         assert_eq!(
-            rel_pos.to_bytes().expect("Valid command"),
+            rel_pos
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![
                 0x81, 0x01, 0x06, 0x03, 0x10, 0x10, 0x0F, 0x0F, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
                 0xFF
@@ -398,7 +407,9 @@ mod tests {
             tilt: 0x2000,
         };
         assert_eq!(
-            set_limit.to_bytes().expect("Valid command"),
+            set_limit
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![
                 0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
                 0xFF
@@ -410,7 +421,9 @@ mod tests {
             corner: LimitCorner::UpRight,
         };
         assert_eq!(
-            clear_limit.to_bytes().expect("Valid command"),
+            clear_limit
+                .to_bytes()
+                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![
                 0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
                 0xFF
@@ -424,8 +437,8 @@ mod tests {
         let cmd_valid = PanTiltCommand::AbsolutePosition {
             pan: 1000,
             tilt: 500,
-            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
+            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
+            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
         assert!(cmd_valid
             .validate_for_model(CameraModel::PTZOpticsG2)
@@ -435,8 +448,8 @@ mod tests {
         let cmd_invalid_pan = PanTiltCommand::AbsolutePosition {
             pan: 3000, // Beyond PAN_MAX (2448)
             tilt: 500,
-            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
+            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
+            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
         let result = cmd_invalid_pan.validate_for_model(CameraModel::PTZOpticsG2);
         assert!(result.is_err());
@@ -451,8 +464,8 @@ mod tests {
         let cmd_invalid_tilt = PanTiltCommand::AbsolutePosition {
             pan: 1000,
             tilt: 2000, // Beyond TILT_MAX (1296)
-            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
+            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
+            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
         let result = cmd_invalid_tilt.validate_for_model(CameraModel::PTZOpticsG2);
         assert!(result.is_err());
@@ -470,16 +483,16 @@ mod tests {
 
         let move_cmd = PanTiltCommand::Move {
             direction: PanTiltDirection::UpRight,
-            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
+            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
+            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
         assert!(Command::validate_for_model(&move_cmd, CameraModel::PTZOpticsG2).is_ok());
 
         let rel_cmd = PanTiltCommand::RelativePosition {
             pan: 100,
             tilt: -100,
-            pan_speed: PanSpeed::new(0x10).expect("Valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x10).expect("Valid tilt speed"),
+            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
+            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
         assert!(Command::validate_for_model(&rel_cmd, CameraModel::PTZOpticsG2).is_ok());
     }
@@ -492,8 +505,8 @@ mod tests {
 
         let move_cmd = PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0).expect("Valid pan speed"),
-            tilt_speed: TiltSpeed::new(0).expect("Valid tilt speed"),
+            pan_speed: PanSpeed::new(0).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
+            tilt_speed: TiltSpeed::new(0).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
         assert!(move_cmd.response_type().is_none());
 

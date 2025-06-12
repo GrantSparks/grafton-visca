@@ -499,7 +499,7 @@ impl AsyncConnectionPool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     #[cfg(feature = "async-client")]
     use super::AsyncConnectionPool;
@@ -539,7 +539,9 @@ mod tests {
 
         // Even if add fails, test the remove logic
         if pool.list_cameras().contains(&"cam1".to_string()) {
-            let removed_info = pool.remove_camera("cam1").unwrap();
+            let removed_info = pool
+                .remove_camera("cam1")
+                .unwrap_or_else(|| panic!("Camera 'cam1' should exist in pool"));
             assert_eq!(removed_info.name, info.name);
             assert_eq!(pool.list_cameras().len(), 0);
         }
@@ -578,7 +580,10 @@ mod tests {
 
         // Even if add fails, test the remove logic
         if pool.list_cameras().await.contains(&"cam1".to_string()) {
-            let removed_info = pool.remove_camera("cam1").await.unwrap();
+            let removed_info = pool
+                .remove_camera("cam1")
+                .await
+                .unwrap_or_else(|| panic!("Expected to remove camera 'cam1'"));
             assert_eq!(removed_info.name, info.name);
             assert_eq!(pool.list_cameras().await.len(), 0);
         }

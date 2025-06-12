@@ -150,7 +150,7 @@ impl Command for AntiFlickerCommand {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 
@@ -158,7 +158,8 @@ mod tests {
     fn test_gain_command_reset() {
         let cmd = GainCommand::Reset;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF]
         );
     }
@@ -167,7 +168,8 @@ mod tests {
     fn test_gain_command_up() {
         let cmd = GainCommand::Up;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF]
         );
     }
@@ -176,7 +178,8 @@ mod tests {
     fn test_gain_command_down() {
         let cmd = GainCommand::Down;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF]
         );
     }
@@ -186,12 +189,14 @@ mod tests {
         // Test various gain values
         let test_values = vec![0x00, 0x01, 0x03, 0x05, 0x07];
         for value in test_values {
-            let gain = GainValue::new(value).unwrap();
+            let gain =
+                GainValue::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainCommand::Direct(gain);
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
-                cmd.to_bytes().unwrap(),
+                cmd.to_bytes()
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, high, low, 0xFF]
             );
         }
@@ -201,7 +206,8 @@ mod tests {
     fn test_gain_command_g2_validation() {
         // Test valid G2 gain values (0x00-0x07)
         for value in 0x00..=0x07 {
-            let gain = GainValue::new(value).unwrap();
+            let gain =
+                GainValue::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainCommand::Direct(gain);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
@@ -226,10 +232,12 @@ mod tests {
         // Test various gain limit values
         let test_values = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
         for value in test_values {
-            let limit = GainLimit::new(value).unwrap();
+            let limit =
+                GainLimit::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainLimitCommand { limit };
             assert_eq!(
-                cmd.to_bytes().unwrap(),
+                cmd.to_bytes()
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x2C, value, 0xFF]
             );
         }
@@ -239,7 +247,8 @@ mod tests {
     fn test_gain_limit_g2_validation() {
         // Test valid G2 gain limit values
         for value in GainLimit::G2_VALID_VALUES {
-            let limit = GainLimit::new(*value).unwrap();
+            let limit =
+                GainLimit::new(*value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainLimitCommand { limit };
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
@@ -268,7 +277,8 @@ mod tests {
             mode: AntiFlickerMode::Off,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x23, 0x00, 0xFF]
         );
 
@@ -277,7 +287,8 @@ mod tests {
             mode: AntiFlickerMode::Hz50,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x23, 0x01, 0xFF]
         );
 
@@ -286,7 +297,8 @@ mod tests {
             mode: AntiFlickerMode::Hz60,
         };
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x23, 0x02, 0xFF]
         );
     }
@@ -301,12 +313,16 @@ mod tests {
         assert_eq!(GainCommand::Up.command_category(), CommandCategory::Quick);
         assert_eq!(GainCommand::Down.command_category(), CommandCategory::Quick);
         assert_eq!(
-            GainCommand::Direct(GainValue::new(0x05).unwrap()).command_category(),
+            GainCommand::Direct(
+                GainValue::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )
+            .command_category(),
             CommandCategory::Quick
         );
         assert_eq!(
             GainLimitCommand {
-                limit: GainLimit::new(0x03).unwrap()
+                limit: GainLimit::new(0x03)
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             }
             .command_category(),
             CommandCategory::Quick
@@ -326,11 +342,13 @@ mod tests {
         assert!(GainCommand::Reset.response_type().is_none());
         assert!(GainCommand::Up.response_type().is_none());
         assert!(GainCommand::Down.response_type().is_none());
-        assert!(GainCommand::Direct(GainValue::new(0x05).unwrap())
-            .response_type()
-            .is_none());
+        assert!(GainCommand::Direct(
+            GainValue::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+        )
+        .response_type()
+        .is_none());
         assert!(GainLimitCommand {
-            limit: GainLimit::new(0x03).unwrap()
+            limit: GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         }
         .response_type()
         .is_none());
@@ -348,7 +366,9 @@ mod tests {
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("Reset"));
 
-        let cmd = GainCommand::Direct(GainValue::new(0x05).unwrap());
+        let cmd = GainCommand::Direct(
+            GainValue::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+        );
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("Direct"));
     }
@@ -362,7 +382,17 @@ mod tests {
         let cmd2 = cmd1; // Copy
         let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
-        assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
-        assert_eq!(cmd1.to_bytes().unwrap(), cmd3.to_bytes().unwrap());
+        assert_eq!(
+            cmd1.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            cmd2.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+        );
+        assert_eq!(
+            cmd1.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            cmd3.to_bytes()
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+        );
     }
 }
