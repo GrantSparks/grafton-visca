@@ -114,3 +114,296 @@ impl Command for ImageFlipCombinedCommand {
         CommandCategory::Custom
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backlight_command() {
+        // Test backlight on
+        let cmd = BacklightCommand { status: true };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x33, 0x02, 0xFF]
+        );
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+
+        // Test backlight off
+        let cmd = BacklightCommand { status: false };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x33, 0x03, 0xFF]
+        );
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+    }
+
+    #[test]
+    fn test_noise_reduction_2d_command() {
+        // Test off
+        let cmd = NoiseReduction2DCommand::Off;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x53, 0x00, 0xFF]
+        );
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.command_category(), CommandCategory::Custom));
+
+        // Test valid levels (1-5)
+        for level in 1..=5 {
+            let nr_level = NoiseReduction2DLevel::new(level).unwrap();
+            let cmd = NoiseReduction2DCommand::Level(nr_level);
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x53, level, 0xFF]
+            );
+            assert!(cmd.response_type().is_none());
+            assert!(matches!(cmd.command_category(), CommandCategory::Custom));
+        }
+    }
+
+    #[test]
+    fn test_noise_reduction_3d_command() {
+        // Test off
+        let cmd = NoiseReduction3DCommand::Off;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x54, 0x00, 0xFF]
+        );
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.command_category(), CommandCategory::Custom));
+
+        // Test valid levels (1-8)
+        for level in 1..=8 {
+            let nr_level = NoiseReduction3DLevel::new(level).unwrap();
+            let cmd = NoiseReduction3DCommand::Level(nr_level);
+            assert_eq!(
+                cmd.to_bytes().unwrap(),
+                vec![0x81, 0x01, 0x04, 0x54, level, 0xFF]
+            );
+            assert!(cmd.response_type().is_none());
+            assert!(matches!(cmd.command_category(), CommandCategory::Custom));
+        }
+    }
+
+    #[test]
+    fn test_black_white_command() {
+        // Test black and white on
+        let cmd = BlackWhiteCommand { on: true };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x01, 0x04, 0xFF]
+        );
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+
+        // Test black and white off (color mode)
+        let cmd = BlackWhiteCommand { on: false };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x01, 0x00, 0xFF]
+        );
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+    }
+
+    #[test]
+    fn test_image_flip_combined_command() {
+        // Test Off
+        let cmd = ImageFlipCombinedCommand {
+            mode: ImageFlipMode::Off,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x61, 0x00, 0xFF]
+        );
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.command_category(), CommandCategory::Custom));
+
+        // Test Horizontal
+        let cmd = ImageFlipCombinedCommand {
+            mode: ImageFlipMode::Horizontal,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]
+        );
+
+        // Test Vertical
+        let cmd = ImageFlipCombinedCommand {
+            mode: ImageFlipMode::Vertical,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x61, 0x02, 0xFF]
+        );
+
+        // Test Both
+        let cmd = ImageFlipCombinedCommand {
+            mode: ImageFlipMode::Both,
+        };
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x61, 0x03, 0xFF]
+        );
+    }
+
+    #[test]
+    fn test_command_traits() {
+        // Test Debug trait
+        let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
+            Box::new(BacklightCommand { status: true }),
+            Box::new(NoiseReduction2DCommand::Off),
+            Box::new(NoiseReduction3DCommand::Off),
+            Box::new(BlackWhiteCommand { on: true }),
+            Box::new(ImageFlipCombinedCommand {
+                mode: ImageFlipMode::Off,
+            }),
+        ];
+
+        for cmd in cmds {
+            let _ = format!("{:?}", cmd);
+        }
+
+        // Test Clone
+        let cmd1 = BacklightCommand { status: true };
+        let cmd2 = cmd1;
+        assert_eq!(cmd1.status, cmd2.status);
+
+        let cmd1 = ImageFlipCombinedCommand {
+            mode: ImageFlipMode::Horizontal,
+        };
+        let cmd2 = cmd1;
+        match (cmd1.mode, cmd2.mode) {
+            (ImageFlipMode::Horizontal, ImageFlipMode::Horizontal) => {}
+            _ => panic!("Clone didn't preserve mode"),
+        }
+    }
+
+    #[test]
+    fn test_response_type_none() {
+        // Verify all commands return None for response_type
+        let cmds: Vec<Box<dyn Command>> = vec![
+            Box::new(BacklightCommand { status: true }),
+            Box::new(NoiseReduction2DCommand::Off),
+            Box::new(NoiseReduction3DCommand::Off),
+            Box::new(BlackWhiteCommand { on: true }),
+            Box::new(ImageFlipCombinedCommand {
+                mode: ImageFlipMode::Off,
+            }),
+        ];
+
+        for cmd in cmds {
+            assert!(cmd.response_type().is_none());
+        }
+    }
+
+    #[test]
+    fn test_image_flip_mode_debug() {
+        assert!(format!("{:?}", ImageFlipMode::Off).contains("Off"));
+        assert!(format!("{:?}", ImageFlipMode::Horizontal).contains("Horizontal"));
+        assert!(format!("{:?}", ImageFlipMode::Vertical).contains("Vertical"));
+        assert!(format!("{:?}", ImageFlipMode::Both).contains("Both"));
+    }
+
+    #[test]
+    fn test_image_flip_mode_clone() {
+        let mode1 = ImageFlipMode::Horizontal;
+        let mode2 = mode1;
+        match (mode1, mode2) {
+            (ImageFlipMode::Horizontal, ImageFlipMode::Horizontal) => {}
+            _ => panic!("Copy didn't preserve mode"),
+        }
+    }
+
+    #[test]
+    fn test_command_consistency() {
+        // Test that creating commands with the same parameters produces identical bytes
+        let cmd1 = BacklightCommand { status: true };
+        let cmd2 = BacklightCommand { status: true };
+        assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
+
+        let level = NoiseReduction2DLevel::new(3).unwrap();
+        let cmd1 = NoiseReduction2DCommand::Level(level);
+        let cmd2 = NoiseReduction2DCommand::Level(level);
+        assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
+    }
+
+    #[test]
+    fn test_noise_reduction_2d_enum_variants() {
+        // Test that enum variants work correctly
+        match NoiseReduction2DCommand::Off {
+            NoiseReduction2DCommand::Off => {}
+            _ => panic!("Expected Off variant"),
+        }
+
+        let level = NoiseReduction2DLevel::new(3).unwrap();
+        match NoiseReduction2DCommand::Level(level) {
+            NoiseReduction2DCommand::Level(l) => assert_eq!(l.value(), 3),
+            _ => panic!("Expected Level variant"),
+        }
+    }
+
+    #[test]
+    fn test_noise_reduction_3d_enum_variants() {
+        // Test that enum variants work correctly
+        match NoiseReduction3DCommand::Off {
+            NoiseReduction3DCommand::Off => {}
+            _ => panic!("Expected Off variant"),
+        }
+
+        let level = NoiseReduction3DLevel::new(5).unwrap();
+        match NoiseReduction3DCommand::Level(level) {
+            NoiseReduction3DCommand::Level(l) => assert_eq!(l.value(), 5),
+            _ => panic!("Expected Level variant"),
+        }
+    }
+
+    #[test]
+    fn test_command_categories() {
+        // Test that BacklightCommand and BlackWhiteCommand use Quick category
+        let cmd = BacklightCommand { status: true };
+        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+
+        let cmd = BlackWhiteCommand { on: true };
+        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+
+        // Test that noise reduction and flip commands use Custom category
+        let cmd = NoiseReduction2DCommand::Off;
+        assert!(matches!(cmd.command_category(), CommandCategory::Custom));
+
+        let cmd = NoiseReduction3DCommand::Off;
+        assert!(matches!(cmd.command_category(), CommandCategory::Custom));
+
+        let cmd = ImageFlipCombinedCommand {
+            mode: ImageFlipMode::Off,
+        };
+        assert!(matches!(cmd.command_category(), CommandCategory::Custom));
+    }
+
+    #[test]
+    fn test_backlight_command_debug() {
+        let cmd = BacklightCommand { status: true };
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("BacklightCommand"));
+        assert!(debug_str.contains("true"));
+
+        let cmd = BacklightCommand { status: false };
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("false"));
+    }
+
+    #[test]
+    fn test_black_white_command_debug() {
+        let cmd = BlackWhiteCommand { on: true };
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("BlackWhiteCommand"));
+        assert!(debug_str.contains("true"));
+
+        let cmd = BlackWhiteCommand { on: false };
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("false"));
+    }
+}
