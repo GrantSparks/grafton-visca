@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Camera exposure control modes.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ExposureMode {
     /// Automatic exposure control - camera adjusts all exposure parameters automatically
     Auto = 0x00,

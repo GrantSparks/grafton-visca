@@ -17,7 +17,7 @@ use crate::{
 ///
 /// Controls how the camera adjusts color temperature to ensure
 /// white objects appear white under different lighting conditions.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum WhiteBalanceMode {
     /// Automatic white balance adjustment.
     Auto = 0x00,
