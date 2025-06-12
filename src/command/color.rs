@@ -334,3 +334,380 @@ crate::visca_command! {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_one_push_trigger_command() {
+        let cmd = OnePushTriggerCommand;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x10, 0x05, 0xFF]
+        );
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+    }
+
+    #[test]
+    fn test_red_tuning_command() {
+        // Test valid range
+        for level in -10..=10 {
+            let cmd = RedTuningCommand { level };
+            let bytes = cmd.to_bytes().unwrap();
+            assert_eq!(bytes.len(), 6);
+            assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x12]);
+            assert_eq!(bytes[4], (level + 10) as u8);
+            assert_eq!(bytes[5], 0xFF);
+            assert!(cmd.response_type().is_none());
+            assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+        }
+
+        // Test invalid values
+        let cmd = RedTuningCommand { level: -11 };
+        assert!(cmd.to_bytes().is_err());
+        
+        let cmd = RedTuningCommand { level: 11 };
+        assert!(cmd.to_bytes().is_err());
+    }
+
+    #[test]
+    fn test_red_tuning_g2_validation() {
+        // Test valid G2 values
+        for level in -10..=10 {
+            let cmd = RedTuningCommand { level };
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // Test invalid G2 values
+        let cmd = RedTuningCommand { level: -11 };
+        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
+        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+
+        let cmd = RedTuningCommand { level: 11 };
+        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
+        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+    }
+
+    #[test]
+    fn test_blue_tuning_command() {
+        // Test valid range
+        for level in -10..=10 {
+            let cmd = BlueTuningCommand { level };
+            let bytes = cmd.to_bytes().unwrap();
+            assert_eq!(bytes.len(), 6);
+            assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x13]);
+            assert_eq!(bytes[4], (level + 10) as u8);
+            assert_eq!(bytes[5], 0xFF);
+            assert!(cmd.response_type().is_none());
+            assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+        }
+
+        // Test invalid values
+        let cmd = BlueTuningCommand { level: -11 };
+        assert!(cmd.to_bytes().is_err());
+        
+        let cmd = BlueTuningCommand { level: 11 };
+        assert!(cmd.to_bytes().is_err());
+    }
+
+    #[test]
+    fn test_blue_tuning_g2_validation() {
+        // Test valid G2 values
+        for level in -10..=10 {
+            let cmd = BlueTuningCommand { level };
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // Test invalid G2 values
+        let cmd = BlueTuningCommand { level: -11 };
+        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
+        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+
+        let cmd = BlueTuningCommand { level: 11 };
+        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
+        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+    }
+
+    #[test]
+    fn test_saturation_command() {
+        // Test valid range
+        for level in 0x00..=0x0E {
+            let cmd = SaturationCommand { level };
+            let bytes = cmd.to_bytes().unwrap();
+            assert_eq!(
+                bytes,
+                vec![0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00, level, 0xFF]
+            );
+            assert!(cmd.response_type().is_none());
+            assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+        }
+
+        // Test invalid value
+        let cmd = SaturationCommand { level: 0x0F };
+        assert!(cmd.to_bytes().is_err());
+    }
+
+    #[test]
+    fn test_saturation_g2_validation() {
+        // Test valid G2 values
+        for level in 0x00..=0x0E {
+            let cmd = SaturationCommand { level };
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // Test invalid G2 value
+        let cmd = SaturationCommand { level: 0x0F };
+        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
+        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+    }
+
+    #[test]
+    fn test_hue_command() {
+        // Test valid range
+        for level in 0x00..=0x0E {
+            let cmd = HueCommand { level };
+            let bytes = cmd.to_bytes().unwrap();
+            assert_eq!(
+                bytes,
+                vec![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00, level, 0xFF]
+            );
+            assert!(cmd.response_type().is_none());
+            assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+        }
+
+        // Test invalid value
+        let cmd = HueCommand { level: 0x0F };
+        assert!(cmd.to_bytes().is_err());
+    }
+
+    #[test]
+    fn test_hue_g2_validation() {
+        // Test valid G2 values
+        for level in 0x00..=0x0E {
+            let cmd = HueCommand { level };
+            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        }
+
+        // Test invalid G2 value
+        let cmd = HueCommand { level: 0x0F };
+        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
+        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+    }
+
+    #[test]
+    fn test_color_temperature_command() {
+        // Test Reset
+        let cmd = ColorTemperatureCommand::Reset;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x20, 0x00, 0xFF]
+        );
+
+        // Test Up
+        let cmd = ColorTemperatureCommand::Up;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x20, 0x02, 0xFF]
+        );
+
+        // Test Down
+        let cmd = ColorTemperatureCommand::Down;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x20, 0x03, 0xFF]
+        );
+
+        // Test Direct with valid values
+        let test_values = vec![0x00, 0x10, 0x20, 0x37];
+        for temp in test_values {
+            let cmd = ColorTemperatureCommand::Direct(temp);
+            let bytes = cmd.to_bytes().unwrap();
+            assert_eq!(bytes.len(), 9);
+            assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x20, 0x00]);
+            assert_eq!(bytes[5], 0x00);
+            assert_eq!(bytes[6], ((temp >> 4) & 0x0F) as u8);
+            assert_eq!(bytes[7], (temp & 0x0F) as u8);
+            assert_eq!(bytes[8], 0xFF);
+        }
+
+        // Test Direct with invalid value
+        let cmd = ColorTemperatureCommand::Direct(0x38);
+        assert!(cmd.to_bytes().is_err());
+    }
+
+    #[test]
+    fn test_red_gain_command() {
+        // Test Reset
+        let cmd = RedGainCommand::Reset;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x03, 0x00, 0xFF]
+        );
+
+        // Test Up
+        let cmd = RedGainCommand::Up;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x03, 0x02, 0xFF]
+        );
+
+        // Test Down
+        let cmd = RedGainCommand::Down;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x03, 0x03, 0xFF]
+        );
+
+        // Test Direct with various values
+        let test_values = vec![0x00, 0x55, 0xAA, 0xFF];
+        for gain in test_values {
+            let cmd = RedGainCommand::Direct(gain);
+            let bytes = cmd.to_bytes().unwrap();
+            assert_eq!(bytes.len(), 9);
+            assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x43, 0x00]);
+            assert_eq!(bytes[5], 0x00);
+            assert_eq!(bytes[6], (gain >> 4) & 0x0F);
+            assert_eq!(bytes[7], gain & 0x0F);
+            assert_eq!(bytes[8], 0xFF);
+        }
+    }
+
+    #[test]
+    fn test_blue_gain_command() {
+        // Test Reset
+        let cmd = BlueGainCommand::Reset;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x04, 0x00, 0xFF]
+        );
+
+        // Test Up
+        let cmd = BlueGainCommand::Up;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x04, 0x02, 0xFF]
+        );
+
+        // Test Down
+        let cmd = BlueGainCommand::Down;
+        assert_eq!(
+            cmd.to_bytes().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x04, 0x03, 0xFF]
+        );
+
+        // Test Direct with various values
+        let test_values = vec![0x00, 0x55, 0xAA, 0xFF];
+        for gain in test_values {
+            let cmd = BlueGainCommand::Direct(gain);
+            let bytes = cmd.to_bytes().unwrap();
+            assert_eq!(bytes.len(), 9);
+            assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x44, 0x00]);
+            assert_eq!(bytes[5], 0x00);
+            assert_eq!(bytes[6], (gain >> 4) & 0x0F);
+            assert_eq!(bytes[7], gain & 0x0F);
+            assert_eq!(bytes[8], 0xFF);
+        }
+    }
+
+    #[test]
+    fn test_command_traits() {
+        // Test that all commands implement Debug and Clone
+        let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
+            Box::new(OnePushTriggerCommand),
+            Box::new(RedTuningCommand { level: 0 }),
+            Box::new(BlueTuningCommand { level: 0 }),
+            Box::new(SaturationCommand { level: 0 }),
+            Box::new(HueCommand { level: 0 }),
+            Box::new(ColorTemperatureCommand::Reset),
+            Box::new(RedGainCommand::Reset),
+            Box::new(BlueGainCommand::Reset),
+        ];
+
+        for cmd in cmds {
+            let _ = format!("{:?}", cmd);
+        }
+
+        // Test Clone
+        let cmd1 = RedTuningCommand { level: 5 };
+        let cmd2 = cmd1;
+        assert_eq!(cmd1.level, cmd2.level);
+    }
+
+    #[test]
+    fn test_edge_cases() {
+        // Test boundary values for tuning commands
+        let red_min = RedTuningCommand { level: -10 };
+        assert!(red_min.to_bytes().is_ok());
+        assert_eq!(red_min.to_bytes().unwrap()[4], 0x00);
+
+        let red_max = RedTuningCommand { level: 10 };
+        assert!(red_max.to_bytes().is_ok());
+        assert_eq!(red_max.to_bytes().unwrap()[4], 0x14);
+
+        let blue_min = BlueTuningCommand { level: -10 };
+        assert!(blue_min.to_bytes().is_ok());
+        assert_eq!(blue_min.to_bytes().unwrap()[4], 0x00);
+
+        let blue_max = BlueTuningCommand { level: 10 };
+        assert!(blue_max.to_bytes().is_ok());
+        assert_eq!(blue_max.to_bytes().unwrap()[4], 0x14);
+
+        // Test boundary values for saturation and hue
+        let sat_min = SaturationCommand { level: 0x00 };
+        assert!(sat_min.to_bytes().is_ok());
+
+        let sat_max = SaturationCommand { level: 0x0E };
+        assert!(sat_max.to_bytes().is_ok());
+
+        let hue_min = HueCommand { level: 0x00 };
+        assert!(hue_min.to_bytes().is_ok());
+
+        let hue_max = HueCommand { level: 0x0E };
+        assert!(hue_max.to_bytes().is_ok());
+
+        // Test boundary value for color temperature
+        let temp_min = ColorTemperatureCommand::Direct(0x00);
+        assert!(temp_min.to_bytes().is_ok());
+
+        let temp_max = ColorTemperatureCommand::Direct(0x37);
+        assert!(temp_max.to_bytes().is_ok());
+    }
+
+    #[test]
+    fn test_nibble_encoding() {
+        // Test that Direct commands properly encode values as nibbles
+        let cmd = ColorTemperatureCommand::Direct(0x25);
+        let bytes = cmd.to_bytes().unwrap();
+        assert_eq!(bytes[6], 0x02); // High nibble
+        assert_eq!(bytes[7], 0x05); // Low nibble
+
+        let cmd = RedGainCommand::Direct(0xAB);
+        let bytes = cmd.to_bytes().unwrap();
+        assert_eq!(bytes[6], 0x0A); // High nibble
+        assert_eq!(bytes[7], 0x0B); // Low nibble
+
+        let cmd = BlueGainCommand::Direct(0xF0);
+        let bytes = cmd.to_bytes().unwrap();
+        assert_eq!(bytes[6], 0x0F); // High nibble
+        assert_eq!(bytes[7], 0x00); // Low nibble
+    }
+
+    #[test]
+    #[allow(clippy::manual_range_contains)]
+    fn test_tuning_encoding_formula() {
+        // Verify the -10 to +10 => 0x00 to 0x14 conversion
+        for level in -10..=10 {
+            let expected = (level + 10) as u8;
+            
+            let red_cmd = RedTuningCommand { level };
+            let red_bytes = red_cmd.to_bytes().unwrap();
+            assert_eq!(red_bytes[4], expected);
+
+            let blue_cmd = BlueTuningCommand { level };
+            let blue_bytes = blue_cmd.to_bytes().unwrap();
+            assert_eq!(blue_bytes[4], expected);
+        }
+    }
+}
