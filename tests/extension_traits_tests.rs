@@ -84,10 +84,7 @@ fn test_white_balance_ext_methods() {
     let last_cmd = device
         .last_command()
         .expect("Should have sent color temperature command");
-    assert_eq!(
-        last_cmd[0..4],
-        vec![0x81, 0x01, 0x04, 0x20]
-    );
+    assert_eq!(last_cmd[0..4], vec![0x81, 0x01, 0x04, 0x20]);
 }
 
 #[test]
