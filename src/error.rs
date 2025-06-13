@@ -813,13 +813,19 @@ mod tests {
         let retryable_error: Result<()> = Err(Error::CameraBusy);
         let result = retryable_error.with_retry_context();
         assert!(result.is_err());
-        assert!(result.as_ref().err().is_some_and(super::Error::is_retryable));
+        assert!(result
+            .as_ref()
+            .err()
+            .is_some_and(Error::is_retryable));
 
         // Test non-retryable error
         let non_retryable_error: Result<()> = Err(Error::SyntaxError);
         let result = non_retryable_error.with_retry_context();
         assert!(result.is_err());
-        assert!(!result.as_ref().err().is_some_and(super::Error::is_retryable));
+        assert!(!result
+            .as_ref()
+            .err()
+            .is_some_and(Error::is_retryable));
     }
 
     #[cfg(feature = "blocking-client")]
