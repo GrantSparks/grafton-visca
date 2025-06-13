@@ -5,7 +5,10 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use common::{MockDevice, MockTransport};
+use common::{
+    helpers::{assert_bytes_eq, assert_ok},
+    MockDevice, MockTransport,
+};
 use grafton_visca::{
     command::pan_tilt::{PanSpeed, TiltSpeed},
     ExposureExt, ImageExt, ImagePreset, PositionExt, Transport, WhiteBalanceExt,
@@ -21,17 +24,28 @@ fn test_exposure_ext_methods() {
     let mut device = MockDevice::from_transport(transport);
 
     // Test iris control
-    ExposureExt::set_iris(&mut device, 0x0C).unwrap();
-    assert_eq!(
-        device.last_command().unwrap()[0..4],
-        vec![0x81, 0x01, 0x04, 0x4B]
+    assert_ok(
+        ExposureExt::set_iris(&mut device, 0x0C),
+        "Set iris should succeed",
+    );
+    let last_cmd = device
+        .last_command()
+        .expect("Should have sent iris command");
+    assert_bytes_eq(
+        &last_cmd[0..4],
+        &[0x81, 0x01, 0x04, 0x4B],
+        "Iris command should match expected bytes",
     );
 
     // Test shutter speed
-    device.set_shutter(0x10).unwrap();
-    assert_eq!(
-        device.last_command().unwrap()[0..4],
-        vec![0x81, 0x01, 0x04, 0x4A]
+    assert_ok(device.set_shutter(0x10), "Set shutter should succeed");
+    let last_cmd = device
+        .last_command()
+        .expect("Should have sent shutter command");
+    assert_bytes_eq(
+        &last_cmd[0..4],
+        &[0x81, 0x01, 0x04, 0x4A],
+        "Shutter command should match expected bytes",
     );
 }
 
@@ -46,21 +60,32 @@ fn test_white_balance_ext_methods() {
     let mut device = MockDevice::from_transport(transport);
 
     // Test white balance preset - Daylight first sets ColorTemperature mode
-    device
-        .set_white_balance_preset(WhiteBalancePreset::Daylight)
-        .unwrap();
+    assert_ok(
+        device.set_white_balance_preset(WhiteBalancePreset::Daylight),
+        "Set white balance preset should succeed",
+    );
     // The last command would be the color temperature direct command
     // since Daylight preset first sets mode to ColorTemperature, then sets temp to 0x1C
-    assert_eq!(
-        device.last_command().unwrap()[0..5],
-        vec![0x81, 0x01, 0x04, 0x20, 0x00]
+    let last_cmd = device
+        .last_command()
+        .expect("Should have sent white balance command");
+    assert_bytes_eq(
+        &last_cmd[0..5],
+        &[0x81, 0x01, 0x04, 0x20, 0x00],
+        "White balance command should match expected bytes",
     );
 
     // Test direct color temperature setting (5600K)
-    device.set_color_temperature(30).unwrap(); // 30 = roughly 5600K
-                                               // The color temperature direct command uses 0x20
+    assert_ok(
+        device.set_color_temperature(30),
+        "Set color temperature should succeed",
+    ); // 30 = roughly 5600K
+       // The color temperature direct command uses 0x20
+    let last_cmd = device
+        .last_command()
+        .expect("Should have sent color temperature command");
     assert_eq!(
-        device.last_command().unwrap()[0..4],
+        last_cmd[0..4],
         vec![0x81, 0x01, 0x04, 0x20]
     );
 }

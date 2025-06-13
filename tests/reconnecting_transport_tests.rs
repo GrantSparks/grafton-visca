@@ -4,7 +4,10 @@
 
 mod common;
 
-use common::MockAsyncTransport;
+use common::{
+    helpers::{assert_err, assert_ok},
+    MockAsyncTransport,
+};
 use grafton_visca::{
     command::power::{Power, PowerCommand},
     transport::Transport,
@@ -111,16 +114,20 @@ async fn test_basic_reconnection() {
         health_check_interval: None,
     };
 
-    let mut reconnecting = ReconnectingTransport::new(create_transport, config)
-        .await
-        .unwrap();
+    let mut reconnecting = assert_ok(
+        ReconnectingTransport::new(create_transport, config).await,
+        "Should create reconnecting transport",
+    );
 
     // Verify initial creation
     assert_eq!(creation_count.load(Ordering::SeqCst), 1);
 
     // Should work normally
     let cmd = PowerCommand { power: Power::On };
-    reconnecting.send_command(&cmd).await.unwrap();
+    assert_ok(
+        reconnecting.send_command(&cmd).await,
+        "Send command should succeed",
+    );
 
     // Verify transport was created only once
     assert_eq!(creation_count.load(Ordering::SeqCst), 1);
@@ -160,15 +167,19 @@ async fn test_reconnection_after_failure() {
         health_check_interval: None,
     };
 
-    let mut reconnecting = ReconnectingTransport::new(create_transport, config)
-        .await
-        .unwrap();
+    let mut reconnecting = assert_ok(
+        ReconnectingTransport::new(create_transport, config).await,
+        "Should create reconnecting transport for failure test",
+    );
 
     // First command should fail and trigger reconnection
     let cmd = PowerCommand { power: Power::On };
 
     // This should succeed after reconnection
-    reconnecting.send_command(&cmd).await.unwrap();
+    assert_ok(
+        reconnecting.send_command(&cmd).await,
+        "Command should succeed after reconnection",
+    );
 
     // Should have created 2 transports (initial + reconnection)
     assert_eq!(creation_count.load(Ordering::SeqCst), 2);
@@ -208,16 +219,18 @@ async fn test_max_retry_attempts() {
         health_check_interval: None,
     };
 
-    let mut reconnecting = ReconnectingTransport::new(create_transport, config)
-        .await
-        .unwrap();
+    let mut reconnecting = assert_ok(
+        ReconnectingTransport::new(create_transport, config).await,
+        "Should create initial transport",
+    );
 
     // This should fail after max retries
     let cmd = PowerCommand { power: Power::On };
     let result = reconnecting.send_command(&cmd).await;
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), Error::ConnectionLost { .. }));
+    let err = assert_err(result, "Command should fail after max retries");
+    assert!(matches!(err, Error::ConnectionLost { .. }));
 
     // Should have tried to create max_retries times after initial failure
     assert_eq!(creation_count.load(Ordering::SeqCst), 4); // 1 initial + 3 retries
@@ -261,9 +274,10 @@ async fn test_exponential_backoff() {
         health_check_interval: None,
     };
 
-    let mut reconnecting = ReconnectingTransport::new(create_transport, config)
-        .await
-        .unwrap();
+    let mut reconnecting = assert_ok(
+        ReconnectingTransport::new(create_transport, config).await,
+        "Should create transport for backoff test",
+    );
 
     // Trigger reconnection by sending a command that will fail
     let cmd = PowerCommand { power: Power::On };
@@ -341,9 +355,10 @@ async fn test_connection_event_callbacks() {
         health_check_interval: None,
     };
 
-    let mut reconnecting = ReconnectingTransport::new(create_transport, config)
-        .await
-        .unwrap();
+    let mut reconnecting = assert_ok(
+        ReconnectingTransport::new(create_transport, config).await,
+        "Should create transport for event test",
+    );
     reconnecting.set_event_callback(callback);
 
     // Trigger failure and reconnection
@@ -407,13 +422,17 @@ async fn test_health_check_triggers_reconnection() {
         health_check_interval: Some(Duration::from_millis(50)), // Short interval for testing
     };
 
-    let mut reconnecting = ReconnectingTransport::new(create_transport, config)
-        .await
-        .unwrap();
+    let mut reconnecting = assert_ok(
+        ReconnectingTransport::new(create_transport, config).await,
+        "Should create transport for health check test",
+    );
 
     // First command should work
     let cmd = PowerCommand { power: Power::On };
-    reconnecting.send_command(&cmd).await.unwrap();
+    assert_ok(
+        reconnecting.send_command(&cmd).await,
+        "First command should work",
+    );
 
     // Wait for health check interval to elapse
     tokio::time::sleep(Duration::from_millis(60)).await;
@@ -467,9 +486,10 @@ async fn test_concurrent_operations_during_reconnection() {
         health_check_interval: None,
     };
 
-    let mut reconnecting = ReconnectingTransport::new(create_transport, config)
-        .await
-        .unwrap();
+    let mut reconnecting = assert_ok(
+        ReconnectingTransport::new(create_transport, config).await,
+        "Should create transport for concurrent test",
+    );
 
     // Clone for concurrent use
     let mut reconnecting2 = reconnecting.clone();
@@ -486,8 +506,8 @@ async fn test_concurrent_operations_during_reconnection() {
     let handle2 = tokio::spawn(async move { reconnecting2.send_command(&cmd2).await });
 
     // Both operations should complete (one might fail if it tried during reconnection)
-    let result1 = handle1.await.unwrap();
-    let result2 = handle2.await.unwrap();
+    let result1 = assert_ok(handle1.await, "Task 1 should not panic");
+    let result2 = assert_ok(handle2.await, "Task 2 should not panic");
 
     // At least one should succeed
     assert!(result1.is_ok() || result2.is_ok());
@@ -503,15 +523,22 @@ async fn test_stats_tracking() {
     };
 
     let config = ReconnectionConfig::default();
-    let mut reconnecting = ReconnectingTransport::new(create_transport, config)
-        .await
-        .unwrap();
+    let mut reconnecting = assert_ok(
+        ReconnectingTransport::new(create_transport, config).await,
+        "Should create transport for stats test",
+    );
 
     // Perform some operations
     let cmd = PowerCommand { power: Power::On };
 
-    reconnecting.send_command(&cmd).await.unwrap();
-    reconnecting.receive_response().await.unwrap();
+    assert_ok(
+        reconnecting.send_command(&cmd).await,
+        "Send command for stats should succeed",
+    );
+    assert_ok(
+        reconnecting.receive_response().await,
+        "Receive response for stats should succeed",
+    );
 
     // Check stats
     let stats = reconnecting.stats_snapshot().await;
