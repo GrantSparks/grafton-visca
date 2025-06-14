@@ -109,17 +109,17 @@ jobs:
       
       # Run Clippy on all feature combinations
       - name: Clippy (default features)
-        run: cargo clippy --all-targets -- -D warnings -A clippy::literal_string_with_formatting_args
+        run: cargo clippy --all-targets -- -D warnings
       
       - name: Clippy (all features)
-        run: cargo clippy --all-targets --all-features -- -D warnings -A clippy::literal_string_with_formatting_args
+        run: cargo clippy --all-targets --all-features -- -D warnings
       
       - name: Clippy (no default features)
-        run: cargo clippy --all-targets --no-default-features -- -D warnings -A clippy::literal_string_with_formatting_args
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
       
       # Also check examples specifically
       - name: Clippy examples
-        run: cargo clippy --examples --all-features -- -D warnings -A clippy::literal_string_with_formatting_args
+        run: cargo clippy --examples --all-features -- -D warnings
       
       # Check documentation
       - name: Check documentation

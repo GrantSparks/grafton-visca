@@ -67,7 +67,13 @@ async fn main() -> Result<(), Error> {
     let stop_move_fut = camera.send_async(&stop_move);
     let stop_zoom_fut = camera.send_async(&ZoomCommand::Stop);
 
-    let _ = tokio::join!(stop_move_fut, stop_zoom_fut);
+    let (move_result, zoom_result) = tokio::join!(stop_move_fut, stop_zoom_fut);
+    if let Err(e) = move_result {
+        println!("Failed to stop movement: {}", e);
+    }
+    if let Err(e) = zoom_result {
+        println!("Failed to stop zoom: {}", e);
+    }
 
     // Example 2: Concurrent inquiries
     println!("\n=== Concurrent Inquiries ===");
@@ -174,7 +180,13 @@ async fn main() -> Result<(), Error> {
     };
     let zoom_in_fut = camera.send_async(&zoom_cmd);
 
-    let _ = tokio::join!(pan_fut, zoom_in_fut);
+    let (pan_result, zoom_result) = tokio::join!(pan_fut, zoom_in_fut);
+    if let Err(e) = pan_result {
+        println!("Failed to start pan movement: {}", e);
+    }
+    if let Err(e) = zoom_result {
+        println!("Failed to start zoom: {}", e);
+    }
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Stop all movement
@@ -187,7 +199,13 @@ async fn main() -> Result<(), Error> {
     let stop_pan_fut = camera.send_async(&stop_pan);
     let stop_zoom_fut = camera.send_async(&ZoomCommand::Stop);
 
-    let _ = tokio::join!(stop_pan_fut, stop_zoom_fut);
+    let (stop_pan_result, stop_zoom_result) = tokio::join!(stop_pan_fut, stop_zoom_fut);
+    if let Err(e) = stop_pan_result {
+        println!("Failed to stop pan movement: {}", e);
+    }
+    if let Err(e) = stop_zoom_result {
+        println!("Failed to stop zoom: {}", e);
+    }
 
     println!("\nConcurrent operations demo completed!");
     Ok(())
