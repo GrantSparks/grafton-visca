@@ -5,18 +5,24 @@
 //!
 //! # Example
 //! ```no_run
+//! # #[cfg(feature = "async-client")]
 //! # use grafton_visca::{Client, AsyncExt};
+//! # #[cfg(feature = "async-client")]
 //! # use std::sync::Arc;
+//! # #[cfg(feature = "async-client")]
 //! # use std::time::Duration;
+//! # #[cfg(feature = "async-client")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = Arc::new(Client::connect_udp_async("192.168.1.100:5678").await?);
-//!
-//! // High-level operations
-//! client.setup_shot(0.5, 0.3, 0x8000).await?;
-//! client.save_current_position(1).await?;
-//! client.patrol_positions(&[1, 2, 3], Some(Duration::from_secs(1))).await?;
+//! # let client = Arc::new(Client::connect_udp_async("192.168.1.100:5678").await?);
+//! #
+//! # // High-level operations
+//! # client.setup_shot(0.5, 0.3, 0x8000).await?;
+//! # client.save_current_position(1).await?;
+//! # client.patrol_positions(&[1, 2, 3], Some(Duration::from_secs(1))).await?;
 //! # Ok(())
 //! # }
+//! # #[cfg(not(feature = "async-client"))]
+//! # fn example() {}
 //! ```
 
 // Standard library imports
@@ -392,7 +398,7 @@ impl AsyncExt for Arc<Client> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "async-client"))]
 mod tests {
     use super::*;
 
