@@ -251,7 +251,7 @@ pub trait ConnectionManagement {
 }
 
 #[cfg(feature = "async-client")]
-use crate::async_transport::TransportFuture;
+use crate::transport_future::TransportFuture;
 
 /// Async version of the connection management trait
 #[cfg(feature = "async-client")]

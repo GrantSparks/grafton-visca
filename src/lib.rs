@@ -276,7 +276,7 @@ pub mod transport;
 
 /// Async transport layer implementations
 #[cfg(feature = "async-client")]
-pub mod async_transport;
+pub mod transport_future;
 
 /// Reconnecting transport wrapper for handling connection failures
 #[cfg(feature = "async-client")]
@@ -305,7 +305,7 @@ pub use crate::{
         response::{parse_visca_response, Response},
         Command, InquiryResponse, ResponseType,
     },
-    error::{AppError, Error, ResultExt, ViscaRetry},
+    error::{Error, ResultExt, ViscaRetry},
     session::Session,
 };
 
@@ -369,13 +369,13 @@ pub use crate::{
 // Async-specific re-exports
 #[cfg(feature = "async-client")]
 pub use crate::{
-    async_transport::TransportFuture,
     connection::AsyncConnectionManagement,
     connection_pool::AsyncConnectionPool,
     ext::async_visca_ext::{AsyncExt, PanScanDirection},
     reconnecting_transport::{
         ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
     },
+    transport_future::TransportFuture,
 };
 
 /// Core trait for types that can send and receive VISCA commands.

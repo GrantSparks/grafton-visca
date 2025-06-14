@@ -37,12 +37,12 @@ grafton-visca = { version = "0.4", features = ["async-client"] }
 Here's a minimal example to get you started with the v0.4.0 unified client:
 
 ```rust
-use grafton_visca::{ViscaClient, ViscaResponse};
+use grafton_visca::{Client, Response};
 use grafton_visca::command::{PowerCommand, power::Power};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect to camera at IP 192.168.1.100
-    let camera = ViscaClient::connect_udp("192.168.1.100:1259")?;
+    let camera = Client::connect_udp("192.168.1.100:1259")?
     
     // Power on the camera
     let command = PowerCommand { power: Power::On };
@@ -79,20 +79,20 @@ nc -v 192.168.1.100 5678
 
 ## Connection Types
 
-grafton-visca v0.4.0 provides a unified `ViscaClient` that handles both blocking and async operations.
+grafton-visca v0.4.0 provides a unified `Client` that handles both blocking and async operations.
 
 ### UDP Transport
 
 UDP is the most common transport for VISCA over IP:
 
 ```rust
-use grafton_visca::ViscaClient;
+use grafton_visca::Client;
 
 // Connect using UDP (blocking)
-let camera = ViscaClient::connect_udp("192.168.1.100:1259")?;
+let camera = Client::connect_udp("192.168.1.100:1259")?;
 
 // Or async
-let camera = ViscaClient::connect_udp_async("192.168.1.100:1259").await?;
+let camera = Client::connect_udp_async("192.168.1.100:1259").await?;
 ```
 
 **Advantages:**
@@ -109,13 +109,13 @@ let camera = ViscaClient::connect_udp_async("192.168.1.100:1259").await?;
 TCP provides reliable communication:
 
 ```rust
-use grafton_visca::ViscaClient;
+use grafton_visca::Client;
 
 // Connect using TCP (blocking)
-let camera = ViscaClient::connect_tcp("192.168.1.100:5678")?;
+let camera = Client::connect_tcp("192.168.1.100:5678")?;
 
 // Or async
-let camera = ViscaClient::connect_tcp_async("192.168.1.100:5678").await?;
+let camera = Client::connect_tcp_async("192.168.1.100:5678").await?;
 ```
 
 **Advantages:**
@@ -309,27 +309,27 @@ transport.send_command(&HueCommand { level: 0x07 })?;         // Neutral
 The library returns different response types:
 
 ```rust
-use grafton_visca::{ViscaResponse, ViscaInquiryResponse};
+use grafton_visca::{Response, InquiryResponse};
 
 match send_command_and_wait(&mut transport, &command)? {
-    ViscaResponse::Ack => {
+    Response::Ack => {
         println!("Command acknowledged");
     }
-    ViscaResponse::Completion => {
+    Response::Completion => {
         println!("Command completed successfully");
     }
-    ViscaResponse::InquiryResponse(data) => {
+    Response::InquiryResponse(data) => {
         match data {
-            ViscaInquiryResponse::ZoomPosition { position } => {
+            InquiryResponse::ZoomPosition { position } => {
                 println!("Zoom position: 0x{:04X}", position);
             }
-            ViscaInquiryResponse::PanTiltPosition { pan, tilt } => {
+            InquiryResponse::PanTiltPosition { pan, tilt } => {
                 println!("Pan: {}, Tilt: {}", pan, tilt);
             }
             _ => println!("Other inquiry response: {:?}", data),
         }
     }
-    ViscaResponse::Error(err) => {
+    Response::Error(err) => {
         println!("Camera error: {:?}", err);
     }
 }
@@ -368,21 +368,21 @@ let response = send_command_and_wait(
 The library provides detailed error information:
 
 ```rust
-use grafton_visca::ViscaError;
+use grafton_visca::Error;
 
 match send_command_and_wait(&mut transport, &command) {
     Ok(response) => println!("Success: {:?}", response),
-    Err(ViscaError::CommandBufferFull) => {
+    Err(Error::CommandBufferFull) => {
         println!("Camera is busy, retry later");
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    Err(ViscaError::CommandNotExecutable) => {
+    Err(Error::CommandNotExecutable) => {
         println!("Command cannot be executed in current state");
     }
-    Err(ViscaError::SyntaxError) => {
+    Err(Error::SyntaxError) => {
         println!("Invalid command syntax");
     }
-    Err(ViscaError::Io(e)) => {
+    Err(Error::Io(e)) => {
         println!("Network error: {}", e);
     }
     Err(e) => {
@@ -396,17 +396,17 @@ match send_command_and_wait(&mut transport, &command) {
 Implement retry for transient errors:
 
 ```rust
-fn send_with_retry<T: ViscaTransport>(
+fn send_with_retry<T: Transport>(
     transport: &mut T,
-    command: &dyn ViscaCommand,
+    command: &dyn Command,
     max_retries: u32,
-) -> Result<ViscaResponse, ViscaError> {
+) -> Result<Response, Error> {
     let mut retries = 0;
     
     loop {
         match send_command_and_wait(transport, command) {
             Ok(response) => return Ok(response),
-            Err(ViscaError::CommandBufferFull) if retries < max_retries => {
+            Err(Error::CommandBufferFull) if retries < max_retries => {
                 retries += 1;
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
@@ -438,11 +438,11 @@ For better performance with multiple cameras or commands:
 
 ```rust
 #[cfg(feature = "async")]
-use grafton_visca::AsyncViscaClient;
+use grafton_visca::Client;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let camera = AsyncViscaClient::connect_udp("192.168.1.100:1259").await?;
+    let camera = Client::connect_udp("192.168.1.100:1259").await?;
     
     // Commands execute concurrently (up to 2 at once)
     let pan_future = camera.send(&PanTiltCommand::Home);
@@ -511,7 +511,7 @@ Create an automated camera tour:
 use std::time::Duration;
 use std::thread;
 
-fn camera_tour(transport: &mut dyn ViscaTransport) -> Result<(), ViscaError> {
+fn camera_tour(transport: &mut dyn Transport) -> Result<(), Error> {
     let positions = vec![
         (1000, 500),   // Position 1
         (-1000, 500),  // Position 2
@@ -540,18 +540,18 @@ Simple motion tracking example:
 
 ```rust
 fn track_to_position(
-    transport: &mut dyn ViscaTransport,
+    transport: &mut dyn Transport,
     target_pan: i16,
     target_tilt: i16,
-) -> Result<(), ViscaError> {
+) -> Result<(), Error> {
     // Query current position
     let response = send_command_and_wait(
         transport,
         &InquiryCommand::PanTiltPosition
     )?;
     
-    if let ViscaResponse::InquiryResponse(
-        ViscaInquiryResponse::PanTiltPosition { pan, tilt }
+    if let Response::InquiryResponse(
+        InquiryResponse::PanTiltPosition { pan, tilt }
     ) = response {
         // Calculate relative movement
         let pan_diff = target_pan - pan;
