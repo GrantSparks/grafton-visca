@@ -4,7 +4,7 @@ use grafton_visca::{
         zoom::{ZoomCommand, ZoomSpeed},
         InquiryCommand, PanTiltCommand,
     },
-    AppError, Client, InquiryResponse, Response,
+    Client, Error, InquiryResponse, Response,
 };
 use log::{debug, error, info};
 use std::{env, time::Duration};
@@ -28,7 +28,7 @@ fn parse_args() -> (String, String) {
     (protocol, ip_address)
 }
 
-fn create_client(protocol: &str, ip_address: &str) -> Result<Client, AppError> {
+fn create_client(protocol: &str, ip_address: &str) -> Result<Client, Box<dyn std::error::Error>> {
     let udp_port = "1259";
     let tcp_port = "5678";
 
@@ -44,10 +44,10 @@ fn create_client(protocol: &str, ip_address: &str) -> Result<Client, AppError> {
     } else {
         Client::connect_tcp(&address)
     }
-    .map_err(AppError::from)
+    .map_err(|e| e.into())
 }
 
-fn perform_pan_tilt_movements(client: &Client) -> Result<(), AppError> {
+fn perform_pan_tilt_movements(client: &Client) -> Result<(), Error> {
     let complex_movements = [
         (PanTiltDirection::Up, 5, 3),
         (PanTiltDirection::Right, 4, 3),
@@ -82,7 +82,7 @@ fn perform_pan_tilt_movements(client: &Client) -> Result<(), AppError> {
     Ok(())
 }
 
-fn perform_zoom_movements(client: &Client) -> Result<(), AppError> {
+fn perform_zoom_movements(client: &Client) -> Result<(), Error> {
     let zoom_movements = [
         ZoomCommand::ZoomInStandard,
         ZoomCommand::ZoomOutStandard,
@@ -94,7 +94,7 @@ fn perform_zoom_movements(client: &Client) -> Result<(), AppError> {
         debug!("Sending {command:?} command");
         if let Err(e) = client.send(command) {
             error!("Error while sending zoom command: {e:?}");
-            return Err(AppError::Visca(e));
+            return Err(e);
         }
 
         std::thread::sleep(Duration::from_secs(3));
@@ -137,7 +137,7 @@ fn inquire_zoom_position(client: &Client, label: &str) {
     }
 }
 
-fn main() -> Result<(), AppError> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     info!("Starting application");
 

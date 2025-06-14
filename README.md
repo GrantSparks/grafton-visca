@@ -35,10 +35,10 @@ Make sure to check out our blog article introducing this library: [Controlling P
 This release transforms grafton-visca from a low-level protocol implementation into a high-level camera control solution. Here's what's new:
 
 ### 🎯 Unified Client Design
-No more choosing between sync and async - the new unified `ViscaClient` works in any context:
+No more choosing between sync and async - the new unified `Client` works in any context:
 
 ```rust
-let client = ViscaClient::new("192.168.1.100:52381")?;
+let client = Client::new("192.168.1.100:52381")?;
 client.zoom_in()?;        // Works in sync code
 client.zoom_in().await?;  // Works in async code
 ```
@@ -69,7 +69,7 @@ let transport = ReconnectingTransport::new(transport)
     .with_exponential_backoff();
 
 // Manage multiple cameras with built-in pooling
-let pool = ViscaConnectionPool::new()
+let pool = ConnectionPool::new()
     .with_capacity(10)
     .with_health_check_interval(Duration::from_secs(30));
 ```
@@ -83,10 +83,10 @@ match result {
         // Network error - wait and retry
         sleep(e.suggested_retry_delay());
     }
-    Err(ViscaError::CameraMoving) => {
+    Err(Error::CameraMoving) => {
         // Camera is busy - wait for it
     }
-    Err(ViscaError::OutOfRange { param, min, max }) => {
+    Err(Error::OutOfRange { param, min, max }) => {
         // Clear error message with valid range
     }
 }
@@ -207,7 +207,7 @@ use grafton_visca::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect to camera - just one client type now!
-    let camera = ViscaClient::new("192.168.1.100:52381")?;
+    let camera = Client::new("192.168.1.100:52381")?;
     
     // Power on
     camera.power_on()?;
@@ -399,18 +399,18 @@ camera.send(&AFSensitivityCommand { sensitivity: AFSensitivity::High })?;
 ### Querying Camera Status
 
 ```rust
-use grafton_visca::{ViscaClient, ViscaResponse};
+use grafton_visca::{Client, Response};
 use grafton_visca::command::*;
 
 // Query current zoom position
 let response = camera.send(&InquiryCommand::ZoomPosition)?;
-if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ZoomPosition { position }) = response {
+if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = response {
     println!("Current zoom position: 0x{:04X}", position);
 }
 
 // Query exposure mode
 let response = camera.send(&InquiryCommand::ExposureMode)?;
-if let ViscaResponse::InquiryResponse(ViscaInquiryResponse::ExposureMode { mode }) = response {
+if let Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) = response {
     println!("Exposure mode: {:?}", mode);
 }
 ```
@@ -422,14 +422,14 @@ use grafton_visca::prelude::*;
 use std::time::Duration;
 
 // Automatic reconnection on network failures
-let client = ViscaClient::with_reconnect("192.168.1.100:52381", 
+let client = Client::with_reconnect("192.168.1.100:52381", 
     ReconnectConfig::default()
         .with_max_retries(5)
         .with_exponential_backoff()
 )?;
 
 // Connection pooling for multiple cameras
-let pool = ViscaConnectionPool::builder()
+let pool = ConnectionPool::builder()
     .add_camera("192.168.1.100:52381", "Camera 1")
     .add_camera("192.168.1.101:52381", "Camera 2")
     .add_camera("192.168.1.102:52381", "Camera 3")
@@ -456,7 +456,7 @@ loop {
 
 ### Async Usage
 
-The same `ViscaClient` works well in async contexts:
+The same `Client` works well in async contexts:
 
 ```rust
 use grafton_visca::prelude::*;
@@ -464,7 +464,7 @@ use grafton_visca::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Same client, just use async methods!
-    let camera = ViscaClient::new("192.168.1.100:52381")?;
+    let camera = Client::new("192.168.1.100:52381")?;
     
     // All methods have async versions
     camera.power_on().await?;
@@ -509,7 +509,7 @@ let client = ViscaClient::new(...);      // Sync only
 let client = AsyncViscaClient::new(...); // Async only
 
 // New (v0.4.0) - One client for everything!
-let client = ViscaClient::new("192.168.1.100:52381")?;
+let client = Client::new("192.168.1.100:52381")?;
 
 // Old: Manual VISCA units
 camera.send(&PanTiltCommand::AbsolutePosition { 
@@ -523,7 +523,7 @@ camera.zoom_to_magnification(5.0)?;
 ```
 
 Key changes:
-- Single `ViscaClient` replaces separate sync/async clients
+- Single `Client` replaces separate sync/async clients
 - Connection pooling and reconnection are now built-in
 - High-level extension trait methods for common operations
 - PTZ builder for complex camera movements

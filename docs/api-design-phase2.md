@@ -22,7 +22,7 @@ ViscaSession     → Session
 ViscaResponse    → Response
 
 // Keep Visca prefix for protocol-specific types
-ViscaCommand     → ViscaCommand (unchanged - protocol type)
+ViscaCommand     → Command (trait renamed)
 ViscaDevice      → ViscaDevice (unchanged - protocol trait)
 
 // Remove development artifacts from public API
