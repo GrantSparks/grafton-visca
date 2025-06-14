@@ -4,7 +4,6 @@
 
 // Use workspace-level lints defined in Cargo.toml
 #![warn(clippy::all)]
-
 // Additional strict lints for library code only
 #![deny(
     clippy::unwrap_used,

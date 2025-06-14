@@ -121,6 +121,10 @@ name = "declarative_macro_test"
 name = "ptz_builder_demo"
 
 [[example]]
+name = "model_validation_demo"
+required-features = ["blocking-client"]
+
+[[example]]
 name = "error_handling_demo"
 required-features = ["blocking-client"]
 
