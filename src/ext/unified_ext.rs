@@ -29,6 +29,7 @@
 //! # }
 //! ```
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{
     command::{
         focus::FocusSpeed,
@@ -52,6 +53,7 @@ use crate::command::{
     preset::{PresetAction, PresetCommand, PresetNumber},
     zoom::ZoomCommand,
 };
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::sync::Arc;
 #[cfg(feature = "async-client")]
 use std::time::Duration;
@@ -60,6 +62,7 @@ use std::time::Duration;
 ///
 /// This trait provides high-level camera control methods that work
 /// transparently in both sync and async contexts.
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub trait CameraExt {
     // Pan/Tilt Control
 
