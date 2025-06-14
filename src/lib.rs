@@ -2,9 +2,17 @@
 //!
 //! Rust library for VISCA over IP protocol to control PTZ cameras.
 
-// Use workspace-level lints defined in Cargo.toml
-#![warn(clippy::all)]
-// Additional strict lints for library code only
+// Lints configuration
+#![warn(
+    clippy::all,
+    missing_docs,
+    missing_debug_implementations,
+    missing_copy_implementations,
+    trivial_casts,
+    trivial_numeric_casts,
+    unsafe_code,
+    unused_qualifications
+)]
 #![deny(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -12,6 +20,9 @@
     clippy::unimplemented,
     clippy::todo
 )]
+// Disable pedantic/nursery groups to avoid clippy false positive with :: in attributes
+// Once the clippy bug is fixed, we can re-enable:
+// #![warn(clippy::pedantic, clippy::nursery)]
 //!
 //! ## What is VISCA?
 //!
