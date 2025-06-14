@@ -40,11 +40,7 @@ use crate::{
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{
-    command::{
-        inquiry::InquiryCommand,
-        pan_tilt::PanTiltCommand,
-        InquiryResponse,
-    },
+    command::{inquiry::InquiryCommand, pan_tilt::PanTiltCommand, InquiryResponse},
     Response,
 };
 
@@ -65,7 +61,6 @@ use std::time::Duration;
 /// This trait provides high-level camera control methods that work
 /// transparently in both sync and async contexts.
 pub trait CameraExt {
-
     // Pan/Tilt Control
 
     /// Get the current pan/tilt position.
@@ -157,7 +152,6 @@ pub trait CameraExt {
 // Implement for owned Client
 #[cfg(feature = "blocking-client")]
 impl CameraExt for Client {
-
     fn pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let response = self.send(&InquiryCommand::PanTiltPosition)?;
         match response {
@@ -254,7 +248,6 @@ impl CameraExt for Client {
 // Also implement for Arc<Client> for shared ownership scenarios
 #[cfg(feature = "blocking-client")]
 impl CameraExt for Arc<Client> {
-
     fn pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         (**self).pan_tilt_position()
     }
