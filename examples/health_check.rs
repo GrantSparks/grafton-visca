@@ -1,84 +1,102 @@
-// TODO: Update this example for v0.5.0 - health check and connection management APIs have changed
-fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("Health check and connection management APIs have changed");
-}
+//! Example demonstrating health check and connection monitoring with blocking API.
+//!
+//! This example shows how to:
+//! - Check camera connection health
+//! - Monitor connection status
+//! - Handle connection failures
+//! - Use both UDP and TCP transports
 
-/*
+#[cfg(feature = "blocking-client")]
+use grafton_visca::command::{InquiryCommand, PowerCommand, Response};
+#[cfg(feature = "blocking-client")]
 use grafton_visca::command::power::Power;
-use grafton_visca::command::{PanTiltCommand, PowerCommand};
-use grafton_visca::{ConnectionManagement, TcpTransport, UdpTransport, Transport};
+#[cfg(feature = "blocking-client")]
+use grafton_visca::{Client, Error};
+#[cfg(feature = "blocking-client")]
 use std::thread;
+#[cfg(feature = "blocking-client")]
 use std::time::Duration;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+#[cfg(not(feature = "blocking-client"))]
+fn main() {
+    eprintln!("This example requires the 'blocking-client' feature.");
+    eprintln!("Run with: cargo run --example health_check --features blocking-client");
+}
 
-    // Example using UDP client
-    println!("Testing UDP client health check...");
-    let mut udp_client = Client::connect_udp("192.168.1.100:1259")?;
+#[cfg(feature = "blocking-client")]
+fn main() -> Result<(), Error> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    // Get camera address from command line or use default
+    let camera_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
+
+    println!("=== VISCA Health Check Example ===\n");
+
+    // Test UDP connection
+    test_udp_health(&camera_addr)?;
+    
+    println!("\n{}\n", "=".repeat(50));
+    
+    // Test TCP connection
+    test_tcp_health(&camera_addr)?;
+
+    Ok(())
+}
+
+#[cfg(feature = "blocking-client")]
+fn test_udp_health(camera_addr: &str) -> Result<(), Error> {
+    println!("Testing UDP connection to {}...", camera_addr);
+    
+    // Try to connect
+    let client = match Client::connect_udp(camera_addr) {
+        Ok(c) => {
+            println!("✓ UDP connection established");
+            c
+        }
+        Err(e) => {
+            println!("✗ Failed to connect via UDP: {}", e);
+            return Ok(());
+        }
+    };
 
     // Check initial health
-    match udp_client.is_healthy() {
-        Ok(true) => println!("✓ UDP connection is healthy"),
-        Ok(false) => println!("✗ UDP connection is not healthy"),
-        Err(e) => println!("✗ Error checking UDP health: {}", e),
+    println!("\nInitial health check:");
+    match client.is_healthy_blocking() {
+        Ok(true) => println!("✓ Camera is responding to commands"),
+        Ok(false) => println!("✗ Camera is not responding"),
+        Err(e) => println!("✗ Error checking health: {}", e),
     }
 
-    // Send a command
-    let power_on = PowerCommand { power: Power::On };
-    let _ = udp_client.send_command_and_wait(&power_on)?;
-
-    // Check stats
-    let stats = udp_client.connection_stats().snapshot();
-    println!("\nUDP Connection Statistics:");
-    println!(
-        "  Connected for: {:?}",
-        stats.connected_since.map(|t| t.elapsed())
-    );
-    println!("  Commands sent: {}", stats.commands_sent);
-    println!("  Responses received: {}", stats.responses_received);
-    println!("  Bytes sent: {}", stats.bytes_sent);
-    println!("  Bytes received: {}", stats.bytes_received);
-    println!("  Errors: {}", stats.error_count);
-    println!(
-        "  Idle time: {:?}",
-        stats.last_activity.map(|t| t.elapsed())
-    );
-
-    // Example using TCP client
-    println!("\n\nTesting TCP client health check...");
-    let mut tcp_client = Client::connect_tcp("192.168.1.100:5678")?;
-
-    // Check health
-    match tcp_client.is_healthy() {
-        Ok(true) => println!("✓ TCP connection is healthy"),
-        Ok(false) => println!("✗ TCP connection is not healthy"),
-        Err(e) => println!("✗ Error checking TCP health: {}", e),
+    // Send some commands to generate activity
+    println!("\nSending test commands...");
+    
+    // Power inquiry
+    match client.send(&InquiryCommand::Power) {
+        Ok(Response::InquiryResponse(resp)) => {
+            println!("✓ Power inquiry succeeded: {:?}", resp);
+        }
+        Ok(Response::Ack) => println!("✓ Command acknowledged"),
+        Ok(Response::Completion) => println!("✓ Command completed"),
+        Ok(Response::Error(e)) => println!("✗ Camera returned error: {:?}", e),
+        Ok(Response::Unknown(data)) => println!("? Unknown response: {:?}", data),
+        Err(e) => println!("✗ Power inquiry failed: {}", e),
+    }
+    
+    // Power on command
+    match client.send(&PowerCommand { power: Power::On }) {
+        Ok(_) => println!("✓ Power on command sent"),
+        Err(e) => println!("✗ Power on command failed: {}", e),
     }
 
-    // Send some commands
-    let _ = tcp_client.send_command_and_wait(&PanTiltCommand::Home)?;
-
-    // Check stats again
-    let stats = tcp_client.connection_stats().snapshot();
-    println!("\nTCP Connection Statistics:");
-    println!(
-        "  Connected for: {:?}",
-        stats.connected_since.map(|t| t.elapsed())
-    );
-    println!("  Commands sent: {}", stats.commands_sent);
-    println!("  Responses received: {}", stats.responses_received);
-    println!("  Bytes sent: {}", stats.bytes_sent);
-    println!("  Bytes received: {}", stats.bytes_received);
-    println!("  Errors: {}", stats.error_count);
-
-    // Demonstrate periodic health checks
-    println!("\n\nPerforming periodic health checks...");
+    // Periodic health checks
+    println!("\nPerforming periodic health checks...");
     for i in 1..=5 {
         thread::sleep(Duration::from_secs(2));
-        print!("Health check {}: ", i);
-        match tcp_client.is_healthy() {
+        
+        print!("Health check #{}: ", i);
+        match client.is_healthy_blocking() {
             Ok(true) => println!("✓ Healthy"),
             Ok(false) => println!("✗ Not healthy"),
             Err(e) => println!("✗ Error: {}", e),
@@ -87,4 +105,87 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-*/
+
+#[cfg(feature = "blocking-client")]
+fn test_tcp_health(camera_addr: &str) -> Result<(), Error> {
+    println!("Testing TCP connection to {}...", camera_addr);
+    
+    // Try to connect
+    let client = match Client::connect_tcp(camera_addr) {
+        Ok(c) => {
+            println!("✓ TCP connection established");
+            c
+        }
+        Err(e) => {
+            println!("✗ Failed to connect via TCP: {}", e);
+            return Ok(());
+        }
+    };
+
+    // Check initial health
+    println!("\nInitial health check:");
+    match client.is_healthy_blocking() {
+        Ok(true) => println!("✓ Camera is responding to commands"),
+        Ok(false) => println!("✗ Camera is not responding"),
+        Err(e) => println!("✗ Error checking health: {}", e),
+    }
+
+    // Test rapid health checks
+    println!("\nTesting rapid health checks...");
+    let start = std::time::Instant::now();
+    let mut success_count = 0;
+    let mut failure_count = 0;
+    
+    for _ in 0..10 {
+        match client.is_healthy_blocking() {
+            Ok(true) => success_count += 1,
+            Ok(false) => failure_count += 1,
+            Err(_) => failure_count += 1,
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    
+    let elapsed = start.elapsed();
+    println!("Completed 10 health checks in {:?}", elapsed);
+    println!("Success: {}, Failures: {}", success_count, failure_count);
+    
+    // Demonstrate health check under load
+    println!("\nHealth check while sending commands...");
+    
+    // Start a thread that continuously checks health
+    let client_clone = client.clone();
+    let health_thread = thread::spawn(move || {
+        let mut healthy_count = 0;
+        let mut check_count = 0;
+        
+        for _ in 0..10 {
+            check_count += 1;
+            if let Ok(true) = client_clone.is_healthy_blocking() {
+                healthy_count += 1;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        
+        (healthy_count, check_count)
+    });
+    
+    // Send commands in the main thread
+    for i in 1..=5 {
+        println!("Sending command batch {}...", i);
+        
+        // Send multiple inquiries
+        let _ = client.send(&InquiryCommand::Power);
+        let _ = client.send(&InquiryCommand::ZoomPosition);
+        let _ = client.send(&InquiryCommand::PanTiltPosition);
+        
+        thread::sleep(Duration::from_secs(1));
+    }
+    
+    // Wait for health check thread to complete
+    if let Ok((healthy, total)) = health_thread.join() {
+        println!("\nBackground health check results: {}/{} healthy", healthy, total);
+    }
+
+    println!("\nHealth check demo completed!");
+    Ok(())
+}

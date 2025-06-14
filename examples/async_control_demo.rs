@@ -1,21 +1,28 @@
-// TODO: Update this example for v0.5.0 - async support is not yet available
-fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("Async support is not yet available in the current version");
-}
-
-/*
 //! Example demonstrating the async control API with Client.
+//!
+//! This example shows how to:
+//! - Execute concurrent camera operations for better performance
+//! - Control camera movement with async API
+//! - Manage presets asynchronously
+//! - Perform smooth camera movements
+//! - Control focus with async operations
 
 use grafton_visca::command::{
     pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
     preset::{PresetAction, PresetNumber},
-    FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, ZoomCommand,
+    FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, Response, ZoomCommand,
 };
-use grafton_visca::{Client, Error, ViscaResponse};
+use grafton_visca::{Client, Error};
 use std::env;
 use tokio::time::{sleep, Duration};
 
+#[cfg(not(feature = "async-client"))]
+fn main() {
+    eprintln!("This example requires the 'async-client' feature.");
+    eprintln!("Run with: cargo run --example async_control_demo --features async-client");
+}
+
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging
@@ -161,7 +168,9 @@ async fn main() -> Result<(), Error> {
     client.send_async(&FocusCommand::Manual).await?;
 
     println!("   - Focus operations...");
-    client.send_async(&FocusCommand::FarVariable(2)).await?;
+    if let Ok(speed) = grafton_visca::command::focus::FocusSpeed::new(2) {
+        client.send_async(&FocusCommand::FarVariable(speed)).await?;
+    }
     sleep(Duration::from_secs(1)).await;
     client.send_async(&FocusCommand::Stop).await?;
 
@@ -203,4 +212,3 @@ async fn main() -> Result<(), Error> {
     println!("\nDemo completed successfully!");
     Ok(())
 }
-*/
