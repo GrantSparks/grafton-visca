@@ -10,7 +10,7 @@ use crate::{
         CameraModel, DegreePosition, NormalizedPosition, PositionConversion, ViscaPosition,
     },
     error::Error,
-    pan_tilt_ext::PanTiltExt,
+    ext::pan_tilt_ext::PanTiltExt,
     Response, Transport,
 };
 
