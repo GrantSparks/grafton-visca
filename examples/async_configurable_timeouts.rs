@@ -239,6 +239,7 @@ async fn demonstrate_timeout_recovery(client: &Client) -> Result<(), Error> {
 
 #[cfg(feature = "async-client")]
 /// Helper function to send a command with a specific timeout
+#[allow(dead_code)]
 async fn send_with_timeout(
     client: &Client,
     command: &dyn grafton_visca::Command,

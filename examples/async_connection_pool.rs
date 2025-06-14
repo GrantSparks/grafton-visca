@@ -70,7 +70,7 @@ async fn demo_multi_camera_management() -> Result<(), Error> {
 
     // Check health of all connections
     println!("\nChecking camera health...");
-    for (_id, (client, name)) in &connections {
+    for (client, name) in connections.values() {
         match client.is_healthy().await {
             Ok(true) => println!("✓ {} is healthy", name),
             Ok(false) => println!("✗ {} is not responding", name),
