@@ -4,7 +4,7 @@
 //! sync and async contexts without code duplication.
 
 use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
-use grafton_visca::{CameraExt, Client, Error, PowerExt};
+use grafton_visca::{CameraExt, Client, Error, InquiryExt, PowerExt, PresetExt, ZoomExt};
 
 #[cfg(feature = "async-client")]
 use grafton_visca::AsyncCameraExt;
@@ -19,7 +19,7 @@ fn blocking_example() -> Result<(), Error> {
     // Connect to camera
     let mut camera = Client::connect_udp("192.168.1.100:5678")?;
 
-    // The CameraExt trait provides a clean, unified API
+    // Extension traits provide a clean, unified API
     println!("1. Checking camera power status...");
     if camera.is_powered_on()? {
         println!("   ✅ Camera is powered on");
@@ -29,7 +29,7 @@ fn blocking_example() -> Result<(), Error> {
     }
 
     println!("\n2. Getting camera positions...");
-    let zoom_pos = camera.zoom_position()?;
+    let zoom_pos = camera.get_zoom_position()?;
     let (pan, tilt) = camera.pan_tilt_position()?;
     println!("   📍 Current position:");
     println!("      Zoom: 0x{:04X}", zoom_pos);
@@ -45,7 +45,7 @@ fn blocking_example() -> Result<(), Error> {
 
     // Test zoom
     println!("   🔍 Testing zoom");
-    camera.zoom_to_position(0x3000)?;
+    camera.zoom_to(0x3000)?;
     std::thread::sleep(std::time::Duration::from_millis(1000));
 
     // Test pan/tilt
@@ -74,7 +74,7 @@ async fn async_example() -> Result<(), Error> {
     // Connect to camera
     let mut camera = Client::connect_udp_async("192.168.1.100:5678").await?;
 
-    // The same CameraExt trait works in async context!
+    // Extension traits work in async context!
     println!("1. Checking camera power status...");
     if camera.is_powered_on()? {
         println!("   ✅ Camera is powered on");
