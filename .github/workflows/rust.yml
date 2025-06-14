@@ -61,7 +61,13 @@ jobs:
       
       # Test no default features
       - name: Test no-default-features
-        run: cargo test --no-default-features --verbose
+        run: |
+          echo "Rust version:"
+          rustc --version
+          echo "Cargo version:"
+          cargo --version
+          echo "Testing with no default features..."
+          cargo test --no-default-features --verbose
       
       # Test all features
       - name: Test all-features
