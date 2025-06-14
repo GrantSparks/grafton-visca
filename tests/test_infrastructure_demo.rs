@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Demonstration of the new test infrastructure
 //!
 //! This test file demonstrates how to use the improved test helpers

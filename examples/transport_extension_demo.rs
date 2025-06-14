@@ -1,3 +1,5 @@
+//! Example program
+
 //! Demonstration of the extension traits with direct transport usage.
 //!
 //! This example shows how to use the high-level extension traits with

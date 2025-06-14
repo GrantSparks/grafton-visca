@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use grafton_visca::command::*;
 use grafton_visca::{BrightnessLevel, Command, GainLimit, GainValue, IrisLevel, ShutterSpeed};
 

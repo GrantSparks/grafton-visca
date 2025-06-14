@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating thread-safe usage of `Client`
 //!
 //! This example shows how to use `Client` to control a camera

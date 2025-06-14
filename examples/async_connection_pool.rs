@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating managing multiple cameras with async connections.
 //!
 //! This example shows how to:

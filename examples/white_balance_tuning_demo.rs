@@ -1,3 +1,5 @@
+//! Example program
+
 //! Demonstrates white balance fine-tuning commands.
 
 use grafton_visca::{Client, WhiteBalanceExt};

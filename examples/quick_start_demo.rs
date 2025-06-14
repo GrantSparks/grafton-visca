@@ -1,3 +1,5 @@
+//! Example program
+
 //! Simple demo showcasing the unified Client API
 //!
 //! This example demonstrates basic camera control using the v0.5.0 API.

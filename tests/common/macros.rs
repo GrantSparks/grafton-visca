@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Test macros for common assertion patterns.
 //!
 //! These macros help reduce boilerplate in tests and provide better error messages
@@ -223,7 +224,7 @@ mod tests {
     #[test]
     fn test_assert_command_bytes_macro() {
         struct TestCommand;
-        impl grafton_visca::Command for TestCommand {
+        impl Command for TestCommand {
             fn to_bytes(&self) -> Result<Vec<u8>, grafton_visca::Error> {
                 Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF])
             }
@@ -241,7 +242,7 @@ mod tests {
     #[should_panic(expected = "Command bytes mismatch")]
     fn test_assert_command_bytes_failure() {
         struct TestCommand;
-        impl grafton_visca::Command for TestCommand {
+        impl Command for TestCommand {
             fn to_bytes(&self) -> Result<Vec<u8>, grafton_visca::Error> {
                 Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF])
             }

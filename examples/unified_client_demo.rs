@@ -1,3 +1,5 @@
+//! Example program
+
 //! Demo of the Phase B unified client implementation.
 //!
 //! This example shows how the new unified `Client` works in both

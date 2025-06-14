@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating async health check functionality.
 //!
 //! This example shows how to:

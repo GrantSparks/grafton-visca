@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Tests for Phase B unified client implementation.
 
 #[cfg(all(test, any(feature = "blocking-client", feature = "async-client")))]

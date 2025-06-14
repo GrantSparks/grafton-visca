@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating concurrent async command execution with grafton-visca
 //!
 //! This example shows how to:

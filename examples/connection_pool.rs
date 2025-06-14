@@ -1,3 +1,5 @@
+//! Example program
+
 #[cfg(not(feature = "blocking-client"))]
 fn main() {
     println!("This example requires the 'blocking-client' feature to be enabled.");

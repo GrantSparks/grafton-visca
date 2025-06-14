@@ -1,3 +1,5 @@
+//! Example program
+
 //! Basic transport demonstration example.
 //!
 //! This example shows how to:

@@ -1,3 +1,5 @@
+//! Example program
+
 //! Enhanced API demonstration using the new v0.4.0 extension traits.
 //!
 //! This example showcases the enhanced API with high-level control methods.

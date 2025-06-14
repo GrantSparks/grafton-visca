@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating health check and connection monitoring with blocking API.
 //!
 //! This example shows how to:

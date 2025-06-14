@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating the async inquiry API with Client.
 //!
 //! This example shows how to:
