@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Comprehensive tests for PTZOptics G2 camera command validation
 //!
 //! This test suite validates every command in the library against the

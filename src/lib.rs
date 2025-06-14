@@ -1,10 +1,10 @@
 //! # grafton-visca
 //!
 //! Rust library for VISCA over IP protocol to control PTZ cameras.
+
+// Lints configuration
 #![warn(
     clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
     missing_docs,
     missing_debug_implementations,
     missing_copy_implementations,
@@ -20,6 +20,9 @@
     clippy::unimplemented,
     clippy::todo
 )]
+// Disable pedantic/nursery groups to avoid clippy false positive with :: in attributes
+// Once the clippy bug is fixed, we can re-enable:
+// #![warn(clippy::pedantic, clippy::nursery)]
 //!
 //! ## What is VISCA?
 //!

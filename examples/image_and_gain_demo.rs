@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating image quality and gain control features.
 
 #[cfg(feature = "blocking-client")]

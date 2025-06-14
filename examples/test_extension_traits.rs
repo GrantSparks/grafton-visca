@@ -1,3 +1,5 @@
+//! Example program
+
 //! Test program to verify extension traits work with `Client`
 
 #[cfg(feature = "blocking-client")]

@@ -1,36 +1,42 @@
-// TODO: Update this example for v0.5.0 - async support is not yet available
-fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("Async support is not yet available in the current version");
-}
+//! Example program
 
-/*
 //! Example demonstrating concurrent async command execution with grafton-visca
 //!
 //! This example shows how to:
 //! - Connect to a camera using async API
 //! - Send multiple commands concurrently
-//! - Handle the two-socket limitation
+//! - Handle the two-socket limitation gracefully
 //! - Process responses asynchronously
+//! - Maximize throughput with concurrent operations
 
 use grafton_visca::command::{
     pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
     preset::{PresetAction, PresetNumber},
-    FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, ZoomCommand,
+    FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, Response, ZoomCommand,
 };
-use grafton_visca::{Client, ViscaResponse};
+use grafton_visca::{Client, Error};
 use std::time::Instant;
 
+#[cfg(not(feature = "async-client"))]
+fn main() {
+    eprintln!("This example requires the 'async-client' feature.");
+    eprintln!("Run with: cargo run --example async_concurrent --features async-client");
+}
+
+#[cfg(feature = "async-client")]
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Error> {
     // Initialize logging
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // Connect to camera (replace with your camera's IP)
-    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100:5678".to_string());
+    // Get camera address from command line or environment
+    let camera_addr = std::env::args()
+        .nth(1)
+        .or_else(|| std::env::var("CAMERA_IP").ok())
+        .unwrap_or_else(|| "192.168.0.100:5678".to_string());
 
-    println!("Connecting to camera at {}...", camera_ip);
-    let camera = Client::connect_udp_async(&camera_ip).await?;
+    println!("Connecting to camera at {}...", camera_addr);
+    let camera = Client::connect_udp_async(&camera_addr).await?;
 
     // Example 1: Send two commands concurrently
     println!("\n=== Concurrent Command Execution ===");
@@ -43,104 +49,166 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tilt_speed: TiltSpeed::new(0x10)?,
     };
     let move_fut = camera.send_async(&move_cmd);
-
     let zoom_fut = camera.send_async(&ZoomCommand::ZoomInStandard);
 
     // Wait for both to complete
     let (move_result, zoom_result) = tokio::join!(move_fut, zoom_fut);
 
-    match move_result {
-        Ok(Response::Completion) => println!("Pan/Tilt move completed"),
-        Ok(resp) => println!("Pan/Tilt move response: {:?}", resp),
-        Err(e) => println!("Pan/Tilt move error: {:?}", e),
-    }
+    println!("Commands completed in {:?}", start.elapsed());
+    println!("Move result: {:?}", move_result);
+    println!("Zoom result: {:?}", zoom_result);
 
-    match zoom_result {
-        Ok(Response::Completion) => println!("Zoom completed"),
-        Ok(resp) => println!("Zoom response: {:?}", resp),
-        Err(e) => println!("Zoom error: {:?}", e),
-    }
+    // Wait a moment then stop both
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    println!("Both commands completed in {:?}", start.elapsed());
-
-    // Stop movement
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    let stop_cmd = PanTiltCommand::Move {
+    let stop_move = PanTiltCommand::Move {
         direction: PanTiltDirection::Stop,
         pan_speed: PanSpeed::new(0)?,
         tilt_speed: TiltSpeed::new(0)?,
     };
-    let _ = camera.send_async(&stop_cmd).await;
-    let _ = camera.send_async(&ZoomCommand::Stop).await;
+    let stop_move_fut = camera.send_async(&stop_move);
+    let stop_zoom_fut = camera.send_async(&ZoomCommand::Stop);
 
-    // Example 2: Demonstrate the two-socket limitation
-    println!("\n=== Two-Socket Limitation Demo ===");
+    let (move_result, zoom_result) = tokio::join!(stop_move_fut, stop_zoom_fut);
+    if let Err(e) = move_result {
+        println!("Failed to stop movement: {}", e);
+    }
+    if let Err(e) = zoom_result {
+        println!("Failed to stop zoom: {}", e);
+    }
+
+    // Example 2: Concurrent inquiries
+    println!("\n=== Concurrent Inquiries ===");
     let start = Instant::now();
 
-    // Try to send three commands at once
-    let preset_cmd = PresetCommand {
-        action: PresetAction::Set,
-        preset_number: PresetNumber::new(1).unwrap(),
-    };
-    let cmd1 = camera.send_async(&preset_cmd);
-    let cmd2 = camera.send_async(&FocusCommand::NearStandard);
-    let cmd3 = camera.send_async(&ZoomCommand::ZoomOutStandard);
+    // Query multiple camera states at once
+    let power_fut = camera.send_async(&InquiryCommand::Power);
+    let position_fut = camera.send_async(&InquiryCommand::PanTiltPosition);
+    let zoom_pos_fut = camera.send_async(&InquiryCommand::ZoomPosition);
+    let focus_mode_fut = camera.send_async(&InquiryCommand::FocusPosition);
 
-    println!("Sending 3 commands concurrently (only 2 will execute at once)...");
-    let (res1, res2, res3) = tokio::join!(cmd1, cmd2, cmd3);
+    let (power, position, zoom_pos, focus_mode) =
+        tokio::join!(power_fut, position_fut, zoom_pos_fut, focus_mode_fut);
 
-    println!("Command 1 (Preset Set): {:?}", res1);
-    println!("Command 2 (Focus Near): {:?}", res2);
-    println!("Command 3 (Zoom Out): {:?}", res3);
-    println!("All commands completed in {:?}", start.elapsed());
+    println!("All inquiries completed in {:?}", start.elapsed());
 
-    // Example 3: Query camera status concurrently
-    println!("\n=== Concurrent Status Queries ===");
-
-    let zoom_pos = camera.send_async(&InquiryCommand::ZoomPosition);
-    let focus_pos = camera.send_async(&InquiryCommand::FocusPosition);
-    let pan_tilt_pos = camera.send_async(&InquiryCommand::PanTiltPosition);
-
-    let (zoom_res, focus_res, pt_res) = tokio::join!(zoom_pos, focus_pos, pan_tilt_pos);
-
-    if let Ok(Response::InquiryResponse(resp)) = zoom_res {
+    if let Ok(Response::InquiryResponse(ref resp)) = power {
+        println!("Power status: {:?}", resp);
+    }
+    if let Ok(Response::InquiryResponse(ref resp)) = position {
+        println!("Position: {:?}", resp);
+    }
+    if let Ok(Response::InquiryResponse(ref resp)) = zoom_pos {
         println!("Zoom position: {:?}", resp);
     }
-
-    if let Ok(Response::InquiryResponse(resp)) = focus_res {
-        println!("Focus position: {:?}", resp);
+    if let Ok(Response::InquiryResponse(ref resp)) = focus_mode {
+        println!("Focus mode: {:?}", resp);
     }
 
-    if let Ok(Response::InquiryResponse(resp)) = pt_res {
-        println!("Pan/Tilt position: {:?}", resp);
+    // Example 3: Complex concurrent sequence
+    println!("\n=== Complex Concurrent Sequence ===");
+
+    // Save current position as preset while also getting camera info
+    let save_preset = PresetCommand {
+        action: PresetAction::Set,
+        preset_number: PresetNumber::new(1)?,
+    };
+
+    let save_fut = camera.send_async(&save_preset);
+    let wb_fut = camera.send_async(&InquiryCommand::WhiteBalanceMode);
+    let exposure_fut = camera.send_async(&InquiryCommand::ExposureMode);
+
+    let (save_result, wb_result, exposure_result) = tokio::join!(save_fut, wb_fut, exposure_fut);
+
+    println!("Preset saved: {:?}", save_result.is_ok());
+    if let Ok(Response::InquiryResponse(ref resp)) = wb_result {
+        println!("White balance: {:?}", resp);
+    }
+    if let Ok(Response::InquiryResponse(ref resp)) = exposure_result {
+        println!("Exposure mode: {:?}", resp);
     }
 
-    // Example 4: Error handling with concurrent commands
-    println!("\n=== Error Handling Demo ===");
+    // Example 4: Maximizing throughput with many operations
+    println!("\n=== Maximum Throughput Test ===");
+    let start = Instant::now();
 
-    // Clone the client for concurrent use
-    let camera_clone = camera.clone();
+    // Create many inquiry futures
+    let mut futures = Vec::new();
+    for _ in 0..10 {
+        futures.push(camera.send_async(&InquiryCommand::ZoomPosition));
+    }
 
-    // Spawn multiple tasks
-    let task1 = tokio::spawn(async move {
-        match camera_clone.send_async(&PanTiltCommand::Home).await {
-            Ok(_) => println!("Task 1: Home command succeeded"),
-            Err(e) => println!("Task 1: Home command failed: {:?}", e),
-        }
-    });
+    // Execute them all concurrently (limited by the 2-socket constraint)
+    let results = futures_util::future::join_all(futures).await;
 
-    let camera_clone = camera.clone();
-    let task2 = tokio::spawn(async move {
-        match camera_clone.send_async(&FocusCommand::Auto).await {
-            Ok(_) => println!("Task 2: Auto focus succeeded"),
-            Err(e) => println!("Task 2: Auto focus failed: {:?}", e),
-        }
-    });
+    let elapsed = start.elapsed();
+    let successful = results.iter().filter(|r| r.is_ok()).count();
 
-    // Wait for all tasks
-    let _ = tokio::join!(task1, task2);
+    println!("Sent 10 commands in {:?}", elapsed);
+    println!("Successful: {}/10", successful);
+    println!("Average time per command: {:?}", elapsed / 10);
 
-    println!("\n=== Example completed successfully ===");
+    // Example 5: Movement coordination
+    println!("\n=== Coordinated Movement ===");
+
+    // Move to home while setting focus to auto
+    let home_fut = camera.send_async(&PanTiltCommand::Home);
+    let focus_fut = camera.send_async(&FocusCommand::Auto);
+
+    let (home_result, focus_result) = tokio::join!(home_fut, focus_fut);
+
+    println!("Home command: {:?}", home_result.is_ok());
+    println!("Auto focus: {:?}", focus_result.is_ok());
+
+    // Wait for movement to complete
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    // Now do a complex movement pattern
+    println!("\nExecuting movement pattern...");
+
+    // Pan right while zooming in
+    let pan_right = PanTiltCommand::Move {
+        direction: PanTiltDirection::Right,
+        pan_speed: PanSpeed::new(0x08)?,
+        tilt_speed: TiltSpeed::new(0)?,
+    };
+
+    let pan_fut = camera.send_async(&pan_right);
+
+    let zoom_cmd = if let Ok(speed) = grafton_visca::command::zoom::ZoomSpeed::new(3) {
+        ZoomCommand::ZoomInVariable(speed)
+    } else {
+        ZoomCommand::ZoomInStandard
+    };
+    let zoom_in_fut = camera.send_async(&zoom_cmd);
+
+    let (pan_result, zoom_result) = tokio::join!(pan_fut, zoom_in_fut);
+    if let Err(e) = pan_result {
+        println!("Failed to start pan movement: {}", e);
+    }
+    if let Err(e) = zoom_result {
+        println!("Failed to start zoom: {}", e);
+    }
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // Stop all movement
+    let stop_pan = PanTiltCommand::Move {
+        direction: PanTiltDirection::Stop,
+        pan_speed: PanSpeed::new(0)?,
+        tilt_speed: TiltSpeed::new(0)?,
+    };
+
+    let stop_pan_fut = camera.send_async(&stop_pan);
+    let stop_zoom_fut = camera.send_async(&ZoomCommand::Stop);
+
+    let (stop_pan_result, stop_zoom_result) = tokio::join!(stop_pan_fut, stop_zoom_fut);
+    if let Err(e) = stop_pan_result {
+        println!("Failed to stop pan movement: {}", e);
+    }
+    if let Err(e) = stop_zoom_result {
+        println!("Failed to stop zoom: {}", e);
+    }
+
+    println!("\nConcurrent operations demo completed!");
     Ok(())
 }
-*/

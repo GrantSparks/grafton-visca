@@ -1,3 +1,5 @@
+//! Example program
+
 //! Demonstrates the unified transport API that works for both async and blocking contexts.
 
 use std::future::Future;

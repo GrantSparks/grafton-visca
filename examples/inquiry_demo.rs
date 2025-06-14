@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating the high-level inquiry API for querying camera state.
 
 use grafton_visca::{Client, Error, InquiryExt};

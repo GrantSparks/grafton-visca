@@ -1,276 +1,240 @@
-// TODO: Update this example for v0.5.0 - async support is not yet available
-fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("Async support is not yet available in the current version");
-}
+//! Example program
 
-/*
-//! Example demonstrating configurable timeouts for different command types with async transports.
+//! Example demonstrating timeout handling with async operations.
 //!
-//! Run with: cargo run --example async_configurable_timeouts --features async-client
-//!
-//! This example shows how to use the TimeoutConfig to set different timeout
-//! durations for various categories of VISCA commands when using async transports,
-//! allowing fine-tuned control over command execution timeouts.
+//! This example shows how to:
+//! - Handle timeouts in async operations
+//! - Use tokio's timeout utilities with VISCA commands
+//! - Implement custom timeout logic for different command types
+//! - Recover from timeout errors gracefully
+
+use grafton_visca::command::{
+    pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+    preset::{PresetAction, PresetCommand, PresetNumber},
+    InquiryCommand, Response,
+};
+use grafton_visca::{Client, Error};
+use std::time::Duration;
+use tokio::time::timeout;
 
 #[cfg(not(feature = "async-client"))]
 fn main() {
-    eprintln!("This example requires the 'async' feature. Run with:");
-    eprintln!("cargo run --example async_configurable_timeouts --features async-client");
+    eprintln!("This example requires the 'async-client' feature.");
+    eprintln!("Run with: cargo run --example async_configurable_timeouts --features async-client");
 }
-
-#[cfg(feature = "async-client")]
-use grafton_visca::{
-    async_transport::AsyncTransport,
-    command::{
-        pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        preset::{PresetAction, PresetCommand, PresetNumber},
-        response::parse_visca_response,
-        InquiryCommand,
-    },
-    AsyncUdpTransport, TimeoutConfigBuilder, Command, Error, ViscaResponse,
-};
-#[cfg(feature = "async-client")]
-use std::error::Error;
-#[cfg(feature = "async-client")]
-use std::net::ToSocketAddrs;
-#[cfg(feature = "async-client")]
-use std::time::Duration;
 
 #[cfg(feature = "async-client")]
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+async fn main() -> Result<(), Error> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    println!("=== VISCA Async Configurable Timeouts Example ===\n");
+    println!("=== VISCA Async Timeout Handling Example ===\n");
 
-    // Create a custom timeout configuration
-    let timeout_config = TimeoutConfigBuilder::default()
-        .quick_timeout(Duration::from_secs(1)) // Fast for inquiries
-        .movement_timeout(Duration::from_secs(5)) // Medium for pan/tilt/zoom
-        .preset_timeout(Duration::from_secs(30)) // Long for preset operations
-        .long_timeout(Duration::from_secs(120)) // Very long for complex operations
-        .default_timeout(Duration::from_secs(10)) // Default for everything else
-        .build();
+    // Get camera address
+    let camera_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-    // Display the configured timeouts
-    println!("Configured Timeouts:");
-    println!("  Quick commands:    {:?}", timeout_config.quick_timeout);
-    println!("  Movement commands: {:?}", timeout_config.movement_timeout);
-    println!("  Preset commands:   {:?}", timeout_config.preset_timeout);
-    println!("  Long operations:   {:?}", timeout_config.long_timeout);
-    println!("  Default timeout:   {:?}", timeout_config.default_timeout);
-    println!();
+    // Connect to camera
+    println!("Connecting to camera at {}...", camera_addr);
+    let client = Client::connect_udp_async(&camera_addr).await?;
 
-    // Parse camera address
-    let camera_address = "192.168.1.100:5678";
-    let socket_addr = camera_address
-        .to_socket_addrs()?
-        .next()
-        .ok_or("Invalid camera address")?;
-
-    // Create async transport with custom timeout configuration
-    let mut transport = AsyncUdpTransport::with_timeout_config(socket_addr, timeout_config).await?;
-
-    println!("Connected to camera at {}\n", camera_address);
-
-    // Demonstrate different command categories and their timeouts
-    demonstrate_quick_command(&mut transport).await?;
-    demonstrate_movement_command(&mut transport).await?;
-    demonstrate_preset_command(&mut transport).await?;
+    // Demonstrate different timeout scenarios
+    demonstrate_quick_timeout(&client).await?;
+    demonstrate_movement_timeout(&client).await?;
+    demonstrate_preset_timeout(&client).await?;
+    demonstrate_timeout_recovery(&client).await?;
 
     Ok(())
 }
 
 #[cfg(feature = "async-client")]
-async fn demonstrate_quick_command(
-    transport: &mut dyn AsyncTransport,
-) -> Result<(), Box<dyn Error>> {
-    println!("1. Quick Command (Power Inquiry):");
+async fn demonstrate_quick_timeout(client: &Client) -> Result<(), Error> {
+    println!("1. Quick Commands with Short Timeout:");
+    println!("   Using 1 second timeout for inquiry commands\n");
 
-    let command = InquiryCommand::Power;
-    println!("   Command category: {:?}", command.command_category());
-    println!("   Expected timeout: Quick (1 second)");
+    // Quick inquiry with short timeout
+    let quick_timeout = Duration::from_secs(1);
 
-    let start = std::time::Instant::now();
-    match send_and_wait_async(transport, &command).await {
-        Ok(response) => {
-            let elapsed = start.elapsed();
-            println!("   ✓ Response received in {:?}", elapsed);
-            println!("   Response: {:?}", response);
+    // Power inquiry
+    match timeout(quick_timeout, client.send_async(&InquiryCommand::Power)).await {
+        Ok(Ok(Response::InquiryResponse(resp))) => {
+            println!("   ✓ Power inquiry succeeded: {:?}", resp);
         }
-        Err(e) => {
-            let elapsed = start.elapsed();
-            println!("   ✗ Error after {:?}: {}", elapsed, e);
+        Ok(Ok(Response::Ack)) => {
+            println!("   ✓ Power inquiry acknowledged");
+        }
+        Ok(Ok(Response::Completion)) => {
+            println!("   ✓ Power inquiry completed");
+        }
+        Ok(Ok(Response::Error(e))) => {
+            println!("   ✗ Camera returned error: {:?}", e);
+        }
+        Ok(Ok(Response::Unknown(data))) => {
+            println!("   ? Unknown response: {:?}", data);
+        }
+        Ok(Err(e)) => {
+            println!("   ✗ Power inquiry failed: {}", e);
+        }
+        Err(_) => {
+            println!("   ✗ Power inquiry timed out after {:?}", quick_timeout);
         }
     }
-    println!();
 
+    // Position inquiry
+    match timeout(
+        quick_timeout,
+        client.send_async(&InquiryCommand::PanTiltPosition),
+    )
+    .await
+    {
+        Ok(Ok(Response::InquiryResponse(resp))) => {
+            println!("   ✓ Position inquiry succeeded: {:?}", resp);
+        }
+        Ok(Ok(_)) => {
+            println!("   ✓ Position inquiry completed with unexpected response");
+        }
+        Ok(Err(e)) => {
+            println!("   ✗ Position inquiry failed: {}", e);
+        }
+        Err(_) => {
+            println!("   ✗ Position inquiry timed out after {:?}", quick_timeout);
+        }
+    }
+
+    println!();
     Ok(())
 }
 
 #[cfg(feature = "async-client")]
-async fn demonstrate_movement_command(
-    transport: &mut dyn AsyncTransport,
-) -> Result<(), Box<dyn Error>> {
-    println!("2. Movement Command (Pan/Tilt):");
+async fn demonstrate_movement_timeout(client: &Client) -> Result<(), Error> {
+    println!("2. Movement Commands with Medium Timeout:");
+    println!("   Using 5 second timeout for movement commands\n");
 
-    let command = PanTiltCommand::Move {
+    let movement_timeout = Duration::from_secs(5);
+
+    // Start pan/tilt movement
+    let move_cmd = PanTiltCommand::Move {
         direction: PanTiltDirection::Right,
         pan_speed: PanSpeed::new(10)?,
         tilt_speed: TiltSpeed::new(0)?,
     };
-    println!("   Command category: {:?}", command.command_category());
-    println!("   Expected timeout: Movement (5 seconds)");
 
-    let start = std::time::Instant::now();
-    match send_and_wait_async(transport, &command).await {
-        Ok(_) => {
-            let elapsed = start.elapsed();
-            println!("   ✓ Command completed in {:?}", elapsed);
+    match timeout(movement_timeout, client.send_async(&move_cmd)).await {
+        Ok(Ok(_)) => {
+            println!("   ✓ Movement command started successfully");
+
+            // Let it move for a bit
+            tokio::time::sleep(Duration::from_secs(2)).await;
 
             // Stop movement
-            let stop = PanTiltCommand::Move {
+            let stop_cmd = PanTiltCommand::Move {
                 direction: PanTiltDirection::Stop,
                 pan_speed: PanSpeed::new(0)?,
                 tilt_speed: TiltSpeed::new(0)?,
             };
-            let _ = send_and_wait_async(transport, &stop).await;
+
+            match timeout(movement_timeout, client.send_async(&stop_cmd)).await {
+                Ok(Ok(_)) => println!("   ✓ Movement stopped"),
+                Ok(Err(e)) => println!("   ✗ Stop command failed: {}", e),
+                Err(_) => println!("   ✗ Stop command timed out"),
+            }
         }
-        Err(e) => {
-            let elapsed = start.elapsed();
-            println!("   ✗ Error after {:?}: {}", elapsed, e);
+        Ok(Err(e)) => {
+            println!("   ✗ Movement command failed: {}", e);
+        }
+        Err(_) => {
+            println!(
+                "   ✗ Movement command timed out after {:?}",
+                movement_timeout
+            );
         }
     }
-    println!();
 
+    println!();
     Ok(())
 }
 
 #[cfg(feature = "async-client")]
-async fn demonstrate_preset_command(
-    transport: &mut dyn AsyncTransport,
-) -> Result<(), Box<dyn Error>> {
-    println!("3. Preset Command (Recall Preset):");
+async fn demonstrate_preset_timeout(client: &Client) -> Result<(), Error> {
+    println!("3. Preset Commands with Long Timeout:");
+    println!("   Using 30 second timeout for preset operations\n");
 
-    let command = PresetCommand {
+    let preset_timeout = Duration::from_secs(30);
+
+    // Recall preset (which may take time to complete movement)
+    let preset_cmd = PresetCommand {
         action: PresetAction::Recall,
-        preset_number: PresetNumber::new(1).unwrap(),
+        preset_number: PresetNumber::new(1)?,
     };
-    println!("   Command category: {:?}", command.command_category());
-    println!("   Expected timeout: Preset (30 seconds)");
 
     let start = std::time::Instant::now();
-    match send_and_wait_async(transport, &command).await {
-        Ok(_) => {
+    match timeout(preset_timeout, client.send_async(&preset_cmd)).await {
+        Ok(Ok(_)) => {
             let elapsed = start.elapsed();
-            println!("   ✓ Preset recalled in {:?}", elapsed);
+            println!("   ✓ Preset recalled successfully in {:?}", elapsed);
         }
-        Err(e) => {
-            let elapsed = start.elapsed();
-            println!("   ✗ Error after {:?}: {}", elapsed, e);
+        Ok(Err(e)) => {
+            println!("   ✗ Preset recall failed: {}", e);
+        }
+        Err(_) => {
+            println!("   ✗ Preset recall timed out after {:?}", preset_timeout);
         }
     }
-    println!();
 
+    println!();
     Ok(())
 }
 
-/// Helper function to send a command and wait for the appropriate response
 #[cfg(feature = "async-client")]
-async fn send_and_wait_async(
-    transport: &mut dyn AsyncTransport,
-    command: &dyn Command,
-) -> Result<ViscaResponse, Error> {
-    let response_type = command.response_type();
+async fn demonstrate_timeout_recovery(client: &Client) -> Result<(), Error> {
+    println!("4. Timeout Recovery Strategies:");
+    println!("   Demonstrating retry logic with exponential backoff\n");
 
-    // Send the command
-    transport.send_command(command).await?;
+    // Command that might timeout
+    let command = InquiryCommand::ZoomPosition;
 
-    // Handle different response types
-    if let Some(expected_type) = response_type {
-        // This is an inquiry command, wait for the specific response
-        loop {
-            let responses = transport.receive_response().await?;
-            for response_data in &responses {
-                let parsed = parse_visca_response(response_data, &expected_type)?;
-                if matches!(parsed, Response::InquiryResponse(_)) {
-                    return Ok(parsed);
+    // Retry configuration
+    let max_retries = 3;
+    let initial_timeout = Duration::from_millis(500);
+
+    for attempt in 1..=max_retries {
+        let current_timeout = initial_timeout * attempt as u32;
+        println!(
+            "   Attempt {}/{} with timeout {:?}",
+            attempt, max_retries, current_timeout
+        );
+
+        match timeout(current_timeout, client.send_async(&command)).await {
+            Ok(Ok(Response::InquiryResponse(resp))) => {
+                println!("   ✓ Success on attempt {}: {:?}", attempt, resp);
+                return Ok(());
+            }
+            Ok(Ok(_)) => {
+                println!(
+                    "   ✓ Command completed on attempt {} with unexpected response",
+                    attempt
+                );
+                return Ok(());
+            }
+            Ok(Err(e)) => {
+                println!("   ✗ Command error on attempt {}: {}", attempt, e);
+                if attempt < max_retries {
+                    println!("   Retrying...");
+                    tokio::time::sleep(Duration::from_millis(100 * attempt as u64)).await;
+                }
+            }
+            Err(_) => {
+                println!("   ✗ Timeout on attempt {}", attempt);
+                if attempt < max_retries {
+                    println!("   Retrying with longer timeout...");
+                    tokio::time::sleep(Duration::from_millis(100 * attempt as u64)).await;
                 }
             }
         }
-    } else {
-        // This is an action command, wait for ACK then completion
-        let mut _got_ack = false;
-
-        loop {
-            let responses = transport.receive_response().await?;
-            for response_data in &responses {
-                // For action commands, we don't have a specific response type
-                // so we need to parse based on the data
-                if response_data.len() >= 2 && response_data[0] == 0x90 {
-                    match response_data[1] {
-                        0x41 | 0x42 => {
-                            // ACK
-                            _got_ack = true;
-                        }
-                        0x51 | 0x52 => {
-                            // Completion
-                            return Ok(Response::Completion);
-                        }
-                        0x60..=0x62 => {
-                            // Error
-                            let error_code = if response_data.len() > 2 {
-                                response_data[2]
-                            } else {
-                                0
-                            };
-                            return Ok(Response::Error(Error::from_code(error_code)));
-                        }
-                        _ => continue,
-                    }
-                }
-            }
-
-            // Continue looping until we get a response
-        }
     }
+
+    println!("   ✗ All retry attempts exhausted");
+    println!();
+    Ok(())
 }
-
-#[cfg(all(test, feature = "async-client"))]
-mod tests {
-    use super::*;
-    use grafton_visca::{CommandCategory, TimeoutConfigBuilder};
-    use std::time::Duration;
-
-    #[test]
-    fn test_timeout_configuration() {
-        // Test that we can create a timeout configuration
-        let config = TimeoutConfigBuilder::default()
-            .quick_timeout(Duration::from_millis(500))
-            .movement_timeout(Duration::from_secs(3))
-            .preset_timeout(Duration::from_secs(20))
-            .build();
-
-        assert_eq!(config.quick_timeout, Duration::from_millis(500));
-        assert_eq!(config.movement_timeout, Duration::from_secs(3));
-        assert_eq!(config.preset_timeout, Duration::from_secs(20));
-    }
-
-    #[test]
-    fn test_command_categories() {
-        // Test that commands report the correct categories
-        let power_inquiry = InquiryCommand::Power;
-        assert_eq!(power_inquiry.command_category(), CommandCategory::Quick);
-
-        let pan_tilt = PanTiltCommand::Home;
-        assert_eq!(pan_tilt.command_category(), CommandCategory::Movement);
-
-        let preset = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: PresetNumber::new(1).unwrap(),
-        };
-        assert_eq!(preset.command_category(), CommandCategory::Preset);
-    }
-}
-*/

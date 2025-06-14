@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Test helper functions to reduce unwrap usage and improve error messages.
 //!
 //! This module provides reusable test utilities that make tests more maintainable

@@ -1,262 +1,315 @@
-//! Example demonstrating auto-reconnecting transport functionality.
+//! Example program
+
+//! Example demonstrating connection resilience and recovery strategies.
 //!
-//! This example shows how to use the `ReconnectingTransport` wrapper to handle
-//! connection failures gracefully with automatic reconnection.
+//! This example shows how to:
+//! - Handle connection failures gracefully
+//! - Implement reconnection logic
+//! - Monitor connection state
+//! - Build resilient camera control applications
 
-// TODO: Update this example for v0.5.0 - ReconnectingTransport is not yet available
-fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("ReconnectingTransport is not yet available in the current version");
-}
-
-/*
-use grafton_visca::{
-    command::{
-        pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        power::{Power, PowerCommand},
-        ZoomCommand,
-    },
-    ConnectionEvent, ConnectionManagement, ReconnectingTransport, ReconnectionConfig, TcpTransport,
-    UdpTransport, Error, Transport, TransportExt,
+#[cfg(feature = "blocking-client")]
+use grafton_visca::command::{
+    pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+    InquiryCommand, Response,
 };
-use std::io;
+#[cfg(feature = "blocking-client")]
+use grafton_visca::{Client, Error};
+#[cfg(feature = "blocking-client")]
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "blocking-client")]
 use std::thread;
+#[cfg(feature = "blocking-client")]
 use std::time::Duration;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+#[cfg(not(feature = "blocking-client"))]
+fn main() {
+    eprintln!("This example requires the 'blocking-client' feature.");
+    eprintln!("Run with: cargo run --example reconnecting_transport --features blocking-client");
+}
 
-    // Example 1: Auto-reconnecting UDP transport with event callbacks
-    println!("=== Auto-Reconnecting UDP Transport Example ===\n");
-    demo_udp_reconnection()?;
+#[cfg(feature = "blocking-client")]
+fn main() -> Result<(), Error> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    println!("\n=== Auto-Reconnecting TCP Transport Example ===\n");
-    demo_tcp_reconnection()?;
+    println!("=== Connection Resilience Example ===\n");
 
-    println!("\n=== Connection Event Monitoring Example ===\n");
-    demo_connection_events()?;
+    // Get camera address
+    let camera_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
+
+    // Demonstrate different resilience patterns
+    demo_basic_reconnection(&camera_addr)?;
+    demo_resilient_client(&camera_addr)?;
+    demo_connection_monitoring(&camera_addr)?;
 
     Ok(())
 }
 
-fn demo_udp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
-    let camera_addr = "192.168.1.100:1259";
+#[cfg(feature = "blocking-client")]
+fn demo_basic_reconnection(camera_addr: &str) -> Result<(), Error> {
+    println!("1. Basic Reconnection Pattern:");
+    println!("   Implementing simple retry logic\n");
 
-    // Configure reconnection behavior
-    let reconnect_config = ReconnectionConfig {
-        max_retries: 5,
-        initial_delay: Duration::from_millis(500),
-        max_delay: Duration::from_secs(30),
-        backoff_factor: 2.0,
-        health_check_interval: Some(Duration::from_secs(30)),
+    #[derive(Clone)]
+    struct RetryConfig {
+        max_attempts: u32,
+        delay: Duration,
+    }
+
+    let config = RetryConfig {
+        max_attempts: 3,
+        delay: Duration::from_secs(1),
     };
 
-    // Create the reconnecting transport
-    let mut transport = ReconnectingTransport::new(
-        || UdpTransport::new(camera_addr).map_err(Error::Io),
-        reconnect_config,
-    );
+    // Helper function to connect with retry
+    fn connect_with_retry(addr: &str, config: &RetryConfig) -> Result<Client, Error> {
+        for attempt in 1..=config.max_attempts {
+            println!(
+                "   Connection attempt {}/{}...",
+                attempt, config.max_attempts
+            );
 
-    println!("Created reconnecting UDP transport for {}", camera_addr);
-    println!("Configuration:");
-    println!("  Max retries: {}", reconnect_config.max_retries);
-    println!("  Initial delay: {:?}", reconnect_config.initial_delay);
-    println!("  Max delay: {:?}", reconnect_config.max_delay);
-    println!("  Backoff factor: {}", reconnect_config.backoff_factor);
-    println!(
-        "  Health check interval: {:?}",
-        reconnect_config.health_check_interval
-    );
+            match Client::connect_udp(addr) {
+                Ok(client) => {
+                    println!("   ✓ Connected successfully!");
+                    return Ok(client);
+                }
+                Err(e) => {
+                    println!("   ✗ Connection failed: {}", e);
+                    if attempt < config.max_attempts {
+                        println!("   Waiting {:?} before retry...", config.delay);
+                        thread::sleep(config.delay);
+                    }
+                }
+            }
+        }
 
-    // Try some commands
-    println!("\nTesting commands with automatic reconnection...");
-
-    // Power on
-    match transport.send_and_wait(&PowerCommand { power: Power::On }) {
-        Ok(_) => println!("✓ Power on command sent successfully"),
-        Err(e) => println!("✗ Power on failed: {}", e),
+        Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotConnected,
+            "Failed to connect after all retries",
+        )))
     }
 
-    // Home position
-    match transport.home() {
-        Ok(_) => println!("✓ Home command sent successfully"),
-        Err(e) => println!("✗ Home command failed: {}", e),
+    // Try to connect
+    let client = connect_with_retry(camera_addr, &config)?;
+
+    // Test the connection
+    match client.is_healthy_blocking() {
+        Ok(true) => println!("   ✓ Connection verified as healthy"),
+        Ok(false) => println!("   ⚠️  Connection established but camera not responding"),
+        Err(e) => println!("   ✗ Health check failed: {}", e),
     }
 
-    // Simulate network issues by attempting many rapid commands
-    println!("\nSimulating rapid command sequence (may trigger reconnection)...");
-    for i in 1..=10 {
-        thread::sleep(Duration::from_millis(100));
+    println!();
+    Ok(())
+}
 
-        let direction = if i % 2 == 0 {
-            PanTiltDirection::Right
-        } else {
-            PanTiltDirection::Left
-        };
+#[cfg(feature = "blocking-client")]
+fn demo_resilient_client(camera_addr: &str) -> Result<(), Error> {
+    println!("2. Resilient Client Pattern:");
+    println!("   Creating a wrapper that handles reconnection automatically\n");
 
-        match transport.send_and_wait(&PanTiltCommand::Move {
-            direction,
-            pan_speed: PanSpeed::new(5).unwrap(),
-            tilt_speed: TiltSpeed::new(0).unwrap(),
-        }) {
-            Ok(_) => print!("."),
-            Err(_) => print!("!"),
+    // Simple resilient client wrapper
+    struct ResilientClient {
+        addr: String,
+        client: Arc<Mutex<Option<Client>>>,
+    }
+
+    impl ResilientClient {
+        fn new(addr: &str) -> Self {
+            Self {
+                addr: addr.to_string(),
+                client: Arc::new(Mutex::new(None)),
+            }
+        }
+
+        fn ensure_connected(&self) -> Result<(), Error> {
+            let mut client_guard = self.client.lock().unwrap();
+
+            // Check if we have a healthy connection
+            if let Some(ref client) = *client_guard {
+                if let Ok(true) = client.is_healthy_blocking() {
+                    return Ok(());
+                }
+            }
+
+            // Need to (re)connect
+            println!("   Establishing connection to {}...", self.addr);
+            match Client::connect_udp(&self.addr) {
+                Ok(new_client) => {
+                    *client_guard = Some(new_client);
+                    println!("   ✓ Connected successfully");
+                    Ok(())
+                }
+                Err(e) => {
+                    *client_guard = None;
+                    Err(e)
+                }
+            }
+        }
+
+        fn send_command<C: grafton_visca::Command>(&self, command: &C) -> Result<Response, Error> {
+            // Ensure we're connected
+            self.ensure_connected()?;
+
+            // Try to send command
+            let client_guard = self.client.lock().unwrap();
+            if let Some(ref client) = *client_guard {
+                match client.send(command) {
+                    Ok(response) => Ok(response),
+                    Err(e) => {
+                        println!(
+                            "   ⚠️  Command failed: {}, will retry after reconnection",
+                            e
+                        );
+                        drop(client_guard); // Release lock before reconnecting
+
+                        // Clear the failed connection
+                        self.client.lock().unwrap().take();
+
+                        // Try once more after reconnection
+                        self.ensure_connected()?;
+
+                        let client_guard = self.client.lock().unwrap();
+                        if let Some(ref client) = *client_guard {
+                            client.send(command)
+                        } else {
+                            Err(Error::Io(std::io::Error::new(
+                                std::io::ErrorKind::NotConnected,
+                                "Failed to reconnect",
+                            )))
+                        }
+                    }
+                }
+            } else {
+                Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "No active connection",
+                )))
+            }
         }
     }
-    println!();
 
-    // Stop movement
-    let _ = transport.send_and_wait(&PanTiltCommand::Move {
-        direction: PanTiltDirection::Stop,
-        pan_speed: PanSpeed::new(0).unwrap(),
-        tilt_speed: TiltSpeed::new(0).unwrap(),
+    // Create resilient client
+    let resilient = ResilientClient::new(camera_addr);
+
+    // Test with various commands
+    println!("   Testing resilient command execution...\n");
+
+    // Power inquiry
+    match resilient.send_command(&InquiryCommand::Power) {
+        Ok(Response::InquiryResponse(resp)) => {
+            println!("   ✓ Power inquiry: {:?}", resp);
+        }
+        _ => println!("   ✗ Power inquiry failed"),
+    }
+
+    // Movement command
+    let move_cmd = PanTiltCommand::Move {
+        direction: PanTiltDirection::Right,
+        pan_speed: PanSpeed::new(5)?,
+        tilt_speed: TiltSpeed::new(0)?,
+    };
+
+    match resilient.send_command(&move_cmd) {
+        Ok(_) => {
+            println!("   ✓ Movement started");
+            thread::sleep(Duration::from_secs(1));
+
+            // Stop movement
+            let stop_cmd = PanTiltCommand::Move {
+                direction: PanTiltDirection::Stop,
+                pan_speed: PanSpeed::new(0)?,
+                tilt_speed: TiltSpeed::new(0)?,
+            };
+            let _ = resilient.send_command(&stop_cmd);
+            println!("   ✓ Movement stopped");
+        }
+        Err(e) => println!("   ✗ Movement command failed: {}", e),
+    }
+
+    println!();
+    Ok(())
+}
+
+#[cfg(feature = "blocking-client")]
+fn demo_connection_monitoring(camera_addr: &str) -> Result<(), Error> {
+    println!("3. Connection Monitoring:");
+    println!("   Background thread monitoring connection health\n");
+
+    let client = Arc::new(Client::connect_udp(camera_addr)?);
+    let is_healthy = Arc::new(Mutex::new(true));
+    let should_stop = Arc::new(Mutex::new(false));
+
+    // Start monitoring thread
+    let client_clone = client.clone();
+    let is_healthy_clone = is_healthy.clone();
+    let should_stop_clone = should_stop.clone();
+
+    let monitor_thread = thread::spawn(move || {
+        let check_interval = Duration::from_secs(2);
+        let mut check_count = 0;
+
+        loop {
+            thread::sleep(check_interval);
+
+            // Check if we should stop
+            if *should_stop_clone.lock().unwrap() {
+                break;
+            }
+
+            check_count += 1;
+            print!("   Health check #{}: ", check_count);
+
+            match client_clone.is_healthy_blocking() {
+                Ok(true) => {
+                    println!("✓ Healthy");
+                    *is_healthy_clone.lock().unwrap() = true;
+                }
+                Ok(false) => {
+                    println!("✗ Not responding");
+                    *is_healthy_clone.lock().unwrap() = false;
+                }
+                Err(e) => {
+                    println!("✗ Error: {}", e);
+                    *is_healthy_clone.lock().unwrap() = false;
+                }
+            }
+
+            if check_count >= 5 {
+                break;
+            }
+        }
     });
 
-    // Check connection statistics
-    let stats = transport.connection_stats().snapshot();
-    println!("\nConnection Statistics:");
-    println!("  Commands sent: {}", stats.commands_sent);
-    println!("  Responses received: {}", stats.responses_received);
-    println!("  Errors: {}", stats.error_count);
-    println!("  Reconnection attempts: {}", stats.reconnection_attempts);
-    println!("  Successful reconnections: {}", stats.successful_reconnections);
+    // Perform operations while monitoring
+    println!("   Performing operations with background monitoring...\n");
 
-    Ok(())
-}
-
-fn demo_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
-    let camera_addr = "192.168.1.100:5678";
-
-    // More aggressive reconnection for TCP
-    let reconnect_config = ReconnectionConfig {
-        max_retries: 10,
-        initial_delay: Duration::from_secs(1),
-        max_delay: Duration::from_secs(60),
-        backoff_factor: 1.5,
-        health_check_interval: Some(Duration::from_secs(20)),
-    };
-
-    let mut transport = ReconnectingTransport::new(
-        || TcpTransport::new(camera_addr).map_err(Error::Io),
-        reconnect_config,
-    );
-
-    println!("Created reconnecting TCP transport for {}", camera_addr);
-
-    // Test zoom commands
-    println!("\nTesting zoom commands...");
-
-    for zoom_level in [0x0000, 0x2000, 0x4000, 0x2000, 0x0000] {
-        match transport.zoom_to_position(zoom_level) {
-            Ok(_) => println!("✓ Zoomed to position 0x{:04X}", zoom_level),
-            Err(e) => println!("✗ Zoom failed: {}", e),
+    for i in 1..=5 {
+        // Check health status
+        let healthy = *is_healthy.lock().unwrap();
+        if !healthy {
+            println!("   ⚠️  Connection unhealthy, operation {} may fail", i);
         }
-        thread::sleep(Duration::from_secs(2));
+
+        // Try a command
+        match client.send(&InquiryCommand::ZoomPosition) {
+            Ok(Response::InquiryResponse(resp)) => {
+                println!("   ✓ Operation {} succeeded: {:?}", i, resp);
+            }
+            _ => println!("   ✗ Operation {} failed", i),
+        }
+
+        thread::sleep(Duration::from_secs(1));
     }
 
+    // Stop monitoring
+    *should_stop.lock().unwrap() = true;
+    monitor_thread.join().unwrap();
+
+    println!("\n   Monitoring completed!");
+    println!();
     Ok(())
 }
-
-fn demo_connection_events() -> Result<(), Box<dyn std::error::Error>> {
-    let camera_addr = "192.168.1.100:1259";
-
-    // Create a flaky transport factory that fails intermittently
-    let failure_counter = Arc::new(Mutex::new(0));
-    let failure_counter_clone = failure_counter.clone();
-
-    let transport_factory = move || {
-        let mut counter = failure_counter_clone.lock().unwrap();
-        *counter += 1;
-
-        // Simulate failures on attempts 3, 4, 7, 8
-        if *counter == 3 || *counter == 4 || *counter == 7 || *counter == 8 {
-            println!("  [Factory] Simulating connection failure (attempt {})", *counter);
-            Err(Error::Io(io::Error::new(
-                io::ErrorKind::ConnectionRefused,
-                "Simulated connection failure",
-            )))
-        } else {
-            println!("  [Factory] Creating transport (attempt {})", *counter);
-            UdpTransport::new(camera_addr).map_err(Error::Io)
-        }
-    };
-
-    let reconnect_config = ReconnectionConfig {
-        max_retries: 3,
-        initial_delay: Duration::from_millis(500),
-        max_delay: Duration::from_secs(5),
-        backoff_factor: 2.0,
-        health_check_interval: None,
-    };
-
-    let mut transport = ReconnectingTransport::new(transport_factory, reconnect_config);
-
-    // Set up event callback to monitor connection events
-    let event_log = Arc::new(Mutex::new(Vec::new()));
-    let event_log_clone = event_log.clone();
-
-    transport.set_event_callback(Some(Box::new(move |event| {
-        let mut log = event_log_clone.lock().unwrap();
-        log.push(event.clone());
-
-        match event {
-            ConnectionEvent::Connected => println!("  📡 EVENT: Connected"),
-            ConnectionEvent::Disconnected(reason) => {
-                println!("  ❌ EVENT: Disconnected - {}", reason)
-            }
-            ConnectionEvent::ReconnectAttempt { attempt, max } => {
-                println!("  🔄 EVENT: Reconnect attempt {}/{}", attempt, max)
-            }
-            ConnectionEvent::ReconnectSuccess => println!("  ✅ EVENT: Reconnect successful"),
-            ConnectionEvent::ReconnectFailed => println!("  ❌ EVENT: Reconnect failed"),
-            ConnectionEvent::HealthCheckPassed => println!("  ✅ EVENT: Health check passed"),
-            ConnectionEvent::HealthCheckFailed(reason) => {
-                println!("  ❌ EVENT: Health check failed - {}", reason)
-            }
-        }
-    })));
-
-    println!("Monitoring connection events...\n");
-
-    // Perform operations that will trigger connection events
-    for i in 1..=10 {
-        println!("\nOperation {}:", i);
-
-        match transport.send_and_wait(&PowerCommand { power: Power::On }) {
-            Ok(_) => println!("  ✓ Command successful"),
-            Err(e) => println!("  ✗ Command failed: {}", e),
-        }
-
-        thread::sleep(Duration::from_millis(500));
-    }
-
-    // Display event summary
-    println!("\n=== Event Summary ===");
-    let events = event_log.lock().unwrap();
-    let connected_count = events
-        .iter()
-        .filter(|e| matches!(e, ConnectionEvent::Connected))
-        .count();
-    let disconnected_count = events
-        .iter()
-        .filter(|e| matches!(e, ConnectionEvent::Disconnected(_)))
-        .count();
-    let reconnect_attempts = events
-        .iter()
-        .filter(|e| matches!(e, ConnectionEvent::ReconnectAttempt { .. }))
-        .count();
-    let reconnect_success = events
-        .iter()
-        .filter(|e| matches!(e, ConnectionEvent::ReconnectSuccess))
-        .count();
-
-    println!("Total events: {}", events.len());
-    println!("Connected: {}", connected_count);
-    println!("Disconnected: {}", disconnected_count);
-    println!("Reconnect attempts: {}", reconnect_attempts);
-    println!("Successful reconnections: {}", reconnect_success);
-
-    Ok(())
-}
-*/

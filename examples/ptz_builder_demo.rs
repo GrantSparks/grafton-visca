@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating Phase D ergonomic APIs.
 //!
 //! This example shows the new PTZ builder pattern and `AsyncExt` trait

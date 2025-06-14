@@ -1,4 +1,9 @@
+//! Example program
+
 //! Test example for declarative macro approach
+
+// Allow missing docs for macro-generated code
+#![allow(missing_docs)]
 
 use grafton_visca::command::Command;
 use grafton_visca::{visca_command, Error};

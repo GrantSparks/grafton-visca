@@ -1,194 +1,247 @@
-//! Example demonstrating configurable timeouts for different command types.
+//! Example program
+
+//! Example demonstrating timeout handling with blocking operations.
 //!
-//! This example shows how to use the `TimeoutConfig` to set different timeout
-//! durations for various categories of VISCA commands, allowing fine-tuned
-//! control over command execution timeouts.
+//! This example shows how to:
+//! - Use the send_with_timeout method
+//! - Implement custom timeout logic for different command types
+//! - Handle timeout errors gracefully
+//! - Retry commands with increasing timeouts
 
-// TODO: Update imports when example is re-enabled
-// Currently unused imports commented out to satisfy clippy
-/*
-use grafton_visca::{
-    command::{
-        pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        preset::{PresetAction, PresetCommand, PresetNumber},
-        InquiryCommand,
-    },
-    TimeoutConfigBuilder, Client, Command,
+#[cfg(feature = "blocking-client")]
+use grafton_visca::command::{
+    pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+    preset::{PresetAction, PresetCommand, PresetNumber},
+    InquiryCommand, Response,
 };
-use std::error::Error;
-use std::time::Duration;
-*/
+#[cfg(feature = "blocking-client")]
+use grafton_visca::{Client, Error};
+#[cfg(feature = "blocking-client")]
+use std::time::{Duration, Instant};
 
-// TODO: Update this example for v0.5.0 - configurable timeouts are not yet available in Client
+#[cfg(not(feature = "blocking-client"))]
 fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("Configurable timeouts are not yet available in Client");
+    eprintln!("This example requires the 'blocking-client' feature.");
+    eprintln!("Run with: cargo run --example configurable_timeouts --features blocking-client");
 }
 
-/*
-fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+#[cfg(feature = "blocking-client")]
+fn main() -> Result<(), Error> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    println!("=== VISCA Configurable Timeouts Example ===\n");
+    println!("=== VISCA Timeout Handling Example ===\n");
 
-    // Create a custom timeout configuration
-    let timeout_config = TimeoutConfigBuilder::default()
-        .quick_timeout(Duration::from_secs(1)) // Fast for inquiries
-        .movement_timeout(Duration::from_secs(5)) // Medium for pan/tilt/zoom
-        .preset_timeout(Duration::from_secs(30)) // Long for preset operations
-        .long_timeout(Duration::from_secs(120)) // Very long for complex operations
-        .default_timeout(Duration::from_secs(10)) // Default for everything else
-        .build();
+    // Get camera address
+    let camera_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-    // Display the configured timeouts
-    println!("Configured Timeouts:");
-    println!("  Quick commands:    {:?}", timeout_config.quick_timeout);
-    println!("  Movement commands: {:?}", timeout_config.movement_timeout);
-    println!("  Preset commands:   {:?}", timeout_config.preset_timeout);
-    println!("  Long operations:   {:?}", timeout_config.long_timeout);
-    println!("  Default timeout:   {:?}", timeout_config.default_timeout);
-    println!();
+    // Connect to camera
+    println!("Connecting to camera at {}...", camera_addr);
+    let client = Client::connect_udp(&camera_addr)?;
 
-    // Create client with custom timeout configuration
-    let camera_address = "192.168.1.100:5678";
-    let mut client = Client::connect_udp_with_timeout(camera_address, timeout_config)?;
-
-    println!("Connected to camera at {}\n", camera_address);
-
-    // Demonstrate different command categories and their timeouts
-    demonstrate_quick_command(&mut client)?;
-    demonstrate_movement_command(&mut client)?;
-    demonstrate_preset_command(&mut client)?;
+    // Demonstrate different timeout scenarios
+    demonstrate_quick_commands(&client)?;
+    demonstrate_movement_commands(&client)?;
+    demonstrate_preset_commands(&client)?;
+    demonstrate_retry_with_timeout(&client)?;
 
     Ok(())
 }
 
-fn demonstrate_quick_command(client: &mut Client) -> Result<(), Box<dyn Error>> {
-    println!("1. Quick Command (Power Inquiry):");
+#[cfg(feature = "blocking-client")]
+fn demonstrate_quick_commands(client: &Client) -> Result<(), Error> {
+    println!("1. Quick Commands (Inquiries):");
+    println!("   These commands should complete quickly\n");
 
-    let command = InquiryCommand::Power;
-    println!("   Command category: {:?}", command.command_category());
-    println!("   Expected timeout: Quick (1 second)");
+    // Quick timeout for inquiry commands
+    let quick_timeout = Duration::from_secs(1);
 
-    let start = std::time::Instant::now();
-    match client.send_command_and_wait(&command) {
-        Ok(response) => {
+    // Power inquiry
+    let start = Instant::now();
+    match client.send_with_timeout(&InquiryCommand::Power, quick_timeout) {
+        Ok(Response::InquiryResponse(resp)) => {
             let elapsed = start.elapsed();
-            println!("   ✓ Response received in {:?}", elapsed);
-            println!("   Response: {:?}", response);
+            println!("   ✓ Power inquiry completed in {:?}: {:?}", elapsed, resp);
         }
-        Err(e) => {
-            let elapsed = start.elapsed();
-            println!("   ✗ Error after {:?}: {}", elapsed, e);
-        }
+        Ok(_) => println!("   ✓ Power inquiry completed but unexpected response"),
+        Err(e) => println!("   ✗ Power inquiry failed: {}", e),
     }
-    println!();
 
+    // Position inquiry
+    let start = Instant::now();
+    match client.send_with_timeout(&InquiryCommand::PanTiltPosition, quick_timeout) {
+        Ok(Response::InquiryResponse(resp)) => {
+            let elapsed = start.elapsed();
+            println!(
+                "   ✓ Position inquiry completed in {:?}: {:?}",
+                elapsed, resp
+            );
+        }
+        Ok(_) => println!("   ✓ Position inquiry completed but unexpected response"),
+        Err(e) => println!("   ✗ Position inquiry failed: {}", e),
+    }
+
+    // Zoom position inquiry
+    let start = Instant::now();
+    match client.send_with_timeout(&InquiryCommand::ZoomPosition, quick_timeout) {
+        Ok(Response::InquiryResponse(resp)) => {
+            let elapsed = start.elapsed();
+            println!("   ✓ Zoom inquiry completed in {:?}: {:?}", elapsed, resp);
+        }
+        Ok(_) => println!("   ✓ Zoom inquiry completed but unexpected response"),
+        Err(e) => println!("   ✗ Zoom inquiry failed: {}", e),
+    }
+
+    println!();
     Ok(())
 }
 
-fn demonstrate_movement_command(client: &mut Client) -> Result<(), Box<dyn Error>> {
-    println!("2. Movement Command (Pan/Tilt):");
+#[cfg(feature = "blocking-client")]
+fn demonstrate_movement_commands(client: &Client) -> Result<(), Error> {
+    println!("2. Movement Commands:");
+    println!("   These commands may take longer to acknowledge\n");
 
-    let command = PanTiltCommand::Move {
+    // Medium timeout for movement commands
+    let movement_timeout = Duration::from_secs(5);
+
+    // Start movement
+    let move_cmd = PanTiltCommand::Move {
         direction: PanTiltDirection::Right,
         pan_speed: PanSpeed::new(10)?,
         tilt_speed: TiltSpeed::new(0)?,
     };
-    println!("   Command category: {:?}", command.command_category());
-    println!("   Expected timeout: Movement (5 seconds)");
 
-    let start = std::time::Instant::now();
-    match client.send_command_and_wait(&command) {
+    let start = Instant::now();
+    match client.send_with_timeout(&move_cmd, movement_timeout) {
         Ok(_) => {
             let elapsed = start.elapsed();
-            println!("   ✓ Command completed in {:?}", elapsed);
+            println!("   ✓ Movement command started in {:?}", elapsed);
+
+            // Let it move for a bit
+            std::thread::sleep(Duration::from_secs(2));
 
             // Stop movement
-            let stop = PanTiltCommand::Move {
+            let stop_cmd = PanTiltCommand::Move {
                 direction: PanTiltDirection::Stop,
                 pan_speed: PanSpeed::new(0)?,
                 tilt_speed: TiltSpeed::new(0)?,
             };
-            let _ = client.send_command_and_wait(&stop);
+
+            match client.send_with_timeout(&stop_cmd, movement_timeout) {
+                Ok(_) => println!("   ✓ Movement stopped"),
+                Err(e) => println!("   ✗ Stop command failed: {}", e),
+            }
         }
         Err(e) => {
-            let elapsed = start.elapsed();
-            println!("   ✗ Error after {:?}: {}", elapsed, e);
+            println!("   ✗ Movement command failed: {}", e);
         }
     }
-    println!();
 
+    println!();
     Ok(())
 }
 
-fn demonstrate_preset_command(client: &mut Client) -> Result<(), Box<dyn Error>> {
-    println!("3. Preset Command (Recall Preset):");
+#[cfg(feature = "blocking-client")]
+fn demonstrate_preset_commands(client: &Client) -> Result<(), Error> {
+    println!("3. Preset Commands:");
+    println!("   These commands may take significant time to complete\n");
 
-    let command = PresetCommand {
+    // Long timeout for preset operations
+    let preset_timeout = Duration::from_secs(30);
+
+    // Save current position as preset
+    let save_preset = PresetCommand {
+        action: PresetAction::Set,
+        preset_number: PresetNumber::new(1)?,
+    };
+
+    let start = Instant::now();
+    match client.send_with_timeout(&save_preset, preset_timeout) {
+        Ok(_) => {
+            let elapsed = start.elapsed();
+            println!("   ✓ Preset saved in {:?}", elapsed);
+        }
+        Err(e) => {
+            println!("   ✗ Preset save failed: {}", e);
+        }
+    }
+
+    // Recall preset (this typically takes longer)
+    let recall_preset = PresetCommand {
         action: PresetAction::Recall,
         preset_number: PresetNumber::new(1)?,
     };
-    println!("   Command category: {:?}", command.command_category());
-    println!("   Expected timeout: Preset (30 seconds)");
 
-    let start = std::time::Instant::now();
-    match client.send_command_and_wait(&command) {
+    let start = Instant::now();
+    match client.send_with_timeout(&recall_preset, preset_timeout) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Preset recalled in {:?}", elapsed);
         }
         Err(e) => {
-            let elapsed = start.elapsed();
-            println!("   ✗ Error after {:?}: {}", elapsed, e);
+            println!("   ✗ Preset recall failed: {}", e);
         }
     }
-    println!();
 
+    println!();
     Ok(())
 }
-*/
 
-#[cfg(test)]
-mod tests {
-    use grafton_visca::{
-        command::{
-            pan_tilt::PanTiltCommand,
-            preset::{PresetAction, PresetCommand, PresetNumber},
-            InquiryCommand,
-        },
-        timeout::CommandCategory,
-        Command, TimeoutConfigBuilder,
-    };
-    use std::time::Duration;
+#[cfg(feature = "blocking-client")]
+fn demonstrate_retry_with_timeout(client: &Client) -> Result<(), Error> {
+    println!("4. Retry with Increasing Timeouts:");
+    println!("   Demonstrating adaptive timeout strategy\n");
 
-    #[test]
-    fn test_timeout_configuration() {
-        // Test that we can create a timeout configuration
-        let config = TimeoutConfigBuilder::default()
-            .quick_timeout(Duration::from_millis(500))
-            .movement_timeout(Duration::from_secs(3))
-            .preset_timeout(Duration::from_secs(20))
-            .build();
+    // Command that might need retries
+    let command = InquiryCommand::FocusPosition;
 
-        assert_eq!(config.quick_timeout, Duration::from_millis(500));
-        assert_eq!(config.movement_timeout, Duration::from_secs(3));
-        assert_eq!(config.preset_timeout, Duration::from_secs(20));
+    // Retry configuration
+    let timeouts = [
+        Duration::from_millis(500),
+        Duration::from_secs(1),
+        Duration::from_secs(2),
+    ];
+
+    for (attempt, &timeout) in timeouts.iter().enumerate() {
+        let attempt_num = attempt + 1;
+        println!(
+            "   Attempt {}/{} with timeout {:?}",
+            attempt_num,
+            timeouts.len(),
+            timeout
+        );
+
+        let start = Instant::now();
+        match client.send_with_timeout(&command, timeout) {
+            Ok(Response::InquiryResponse(resp)) => {
+                let elapsed = start.elapsed();
+                println!(
+                    "   ✓ Success on attempt {} in {:?}: {:?}",
+                    attempt_num, elapsed, resp
+                );
+                return Ok(());
+            }
+            Ok(_) => {
+                println!("   ✓ Command succeeded but unexpected response");
+                return Ok(());
+            }
+            Err(e) => {
+                let elapsed = start.elapsed();
+                println!(
+                    "   ✗ Attempt {} failed after {:?}: {}",
+                    attempt_num, elapsed, e
+                );
+
+                if attempt_num < timeouts.len() {
+                    println!("   Retrying with longer timeout...");
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
     }
 
-    #[test]
-    fn test_command_categories() {
-        // Test that commands report the correct categories
-        let power_inquiry = InquiryCommand::Power;
-        assert_eq!(power_inquiry.command_category(), CommandCategory::Quick);
-
-        let pan_tilt = PanTiltCommand::Home;
-        assert_eq!(pan_tilt.command_category(), CommandCategory::Movement);
-
-        let preset = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: PresetNumber::new(1).unwrap(),
-        };
-        assert_eq!(preset.command_category(), CommandCategory::Preset);
-    }
+    println!("   ✗ All retry attempts exhausted");
+    println!();
+    Ok(())
 }

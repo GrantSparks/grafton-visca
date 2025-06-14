@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Tests for the high-level extension traits.
 
 #![cfg(feature = "blocking-client")]

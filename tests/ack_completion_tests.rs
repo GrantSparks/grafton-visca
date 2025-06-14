@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Tests for ACK/Completion response handling in the new unified client.
 //!
 //! These tests verify that the client correctly handles the ACK+Completion

@@ -1,7 +1,11 @@
+#![allow(missing_docs)]
 //! Common test utilities for grafton-visca tests.
 //!
 //! This module provides shared mock implementations and utilities
 //! to avoid code duplication across test files.
+
+// Allow unsafe in tests for creating mock wakers
+#![allow(unsafe_code)]
 
 // Re-export submodules
 pub mod builders;

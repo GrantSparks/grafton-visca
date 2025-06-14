@@ -1,3 +1,5 @@
+//! Example program
+
 use grafton_visca::command::color::{HueCommand, SaturationCommand};
 use grafton_visca::command::exposure::{
     ExposureCommand, ExposureMode, IrisCommand, ShutterCommand,
