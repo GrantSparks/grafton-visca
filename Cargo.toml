@@ -101,9 +101,11 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "transport_basic_demo"
+required-features = ["blocking-client"]
 
 [[example]]
 name = "unified_client_demo"
+required-features = ["blocking-client"]
 
 [[example]]
 name = "position_conversion"
@@ -120,6 +122,7 @@ name = "ptz_builder_demo"
 
 [[example]]
 name = "error_handling_demo"
+required-features = ["blocking-client"]
 
 [[example]]
 name = "enhanced_api_demo"
@@ -147,6 +150,9 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "unified_transport_demo"
+
+[[example]]
+name = "image_and_gain_demo"
 required-features = ["blocking-client"]
 
 [[example]]
