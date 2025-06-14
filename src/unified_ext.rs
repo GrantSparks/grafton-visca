@@ -17,11 +17,11 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(feature = "blocking-client")]
 //! # {
-//! use grafton_visca::{Client, Error, CameraExt};
-//! let camera = Client::connect_udp("192.168.1.100:5678")?;
-//! // Works in both sync and async contexts!
+//! use grafton_visca::{Client, Error, CameraExt, PowerExt, ZoomExt, PresetExt};
+//! let mut camera = Client::connect_udp("192.168.1.100:5678")?;
+//! // Extension traits provide specialized functionality
 //! if camera.is_powered_on()? {
-//!     camera.zoom_to_position(0x4000)?;
+//!     camera.zoom_to(0x4000)?;
 //!     camera.set_preset(1)?;
 //! }
 //! # }
