@@ -64,8 +64,11 @@ fn demo_basic_reconnection(camera_addr: &str) -> Result<(), Error> {
     // Helper function to connect with retry
     fn connect_with_retry(addr: &str, config: &RetryConfig) -> Result<Client, Error> {
         for attempt in 1..=config.max_attempts {
-            println!("   Connection attempt {}/{}...", attempt, config.max_attempts);
-            
+            println!(
+                "   Connection attempt {}/{}...",
+                attempt, config.max_attempts
+            );
+
             match Client::connect_udp(addr) {
                 Ok(client) => {
                     println!("   ✓ Connected successfully!");
@@ -80,7 +83,7 @@ fn demo_basic_reconnection(camera_addr: &str) -> Result<(), Error> {
                 }
             }
         }
-        
+
         Err(Error::Io(std::io::Error::new(
             std::io::ErrorKind::NotConnected,
             "Failed to connect after all retries",
@@ -89,7 +92,7 @@ fn demo_basic_reconnection(camera_addr: &str) -> Result<(), Error> {
 
     // Try to connect
     let client = connect_with_retry(camera_addr, &config)?;
-    
+
     // Test the connection
     match client.is_healthy_blocking() {
         Ok(true) => println!("   ✓ Connection verified as healthy"),
@@ -122,14 +125,14 @@ fn demo_resilient_client(camera_addr: &str) -> Result<(), Error> {
 
         fn ensure_connected(&self) -> Result<(), Error> {
             let mut client_guard = self.client.lock().unwrap();
-            
+
             // Check if we have a healthy connection
             if let Some(ref client) = *client_guard {
                 if let Ok(true) = client.is_healthy_blocking() {
                     return Ok(());
                 }
             }
-            
+
             // Need to (re)connect
             println!("   Establishing connection to {}...", self.addr);
             match Client::connect_udp(&self.addr) {
@@ -148,22 +151,25 @@ fn demo_resilient_client(camera_addr: &str) -> Result<(), Error> {
         fn send_command<C: grafton_visca::Command>(&self, command: &C) -> Result<Response, Error> {
             // Ensure we're connected
             self.ensure_connected()?;
-            
+
             // Try to send command
             let client_guard = self.client.lock().unwrap();
             if let Some(ref client) = *client_guard {
                 match client.send(command) {
                     Ok(response) => Ok(response),
                     Err(e) => {
-                        println!("   ⚠️  Command failed: {}, will retry after reconnection", e);
+                        println!(
+                            "   ⚠️  Command failed: {}, will retry after reconnection",
+                            e
+                        );
                         drop(client_guard); // Release lock before reconnecting
-                        
+
                         // Clear the failed connection
                         self.client.lock().unwrap().take();
-                        
+
                         // Try once more after reconnection
                         self.ensure_connected()?;
-                        
+
                         let client_guard = self.client.lock().unwrap();
                         if let Some(ref client) = *client_guard {
                             client.send(command)
@@ -186,10 +192,10 @@ fn demo_resilient_client(camera_addr: &str) -> Result<(), Error> {
 
     // Create resilient client
     let resilient = ResilientClient::new(camera_addr);
-    
+
     // Test with various commands
     println!("   Testing resilient command execution...\n");
-    
+
     // Power inquiry
     match resilient.send_command(&InquiryCommand::Power) {
         Ok(Response::InquiryResponse(resp)) => {
@@ -197,19 +203,19 @@ fn demo_resilient_client(camera_addr: &str) -> Result<(), Error> {
         }
         _ => println!("   ✗ Power inquiry failed"),
     }
-    
+
     // Movement command
     let move_cmd = PanTiltCommand::Move {
         direction: PanTiltDirection::Right,
         pan_speed: PanSpeed::new(5)?,
         tilt_speed: TiltSpeed::new(0)?,
     };
-    
+
     match resilient.send_command(&move_cmd) {
         Ok(_) => {
             println!("   ✓ Movement started");
             thread::sleep(Duration::from_secs(1));
-            
+
             // Stop movement
             let stop_cmd = PanTiltCommand::Move {
                 direction: PanTiltDirection::Stop,
@@ -234,27 +240,27 @@ fn demo_connection_monitoring(camera_addr: &str) -> Result<(), Error> {
     let client = Arc::new(Client::connect_udp(camera_addr)?);
     let is_healthy = Arc::new(Mutex::new(true));
     let should_stop = Arc::new(Mutex::new(false));
-    
+
     // Start monitoring thread
     let client_clone = client.clone();
     let is_healthy_clone = is_healthy.clone();
     let should_stop_clone = should_stop.clone();
-    
+
     let monitor_thread = thread::spawn(move || {
         let check_interval = Duration::from_secs(2);
         let mut check_count = 0;
-        
+
         loop {
             thread::sleep(check_interval);
-            
+
             // Check if we should stop
             if *should_stop_clone.lock().unwrap() {
                 break;
             }
-            
+
             check_count += 1;
             print!("   Health check #{}: ", check_count);
-            
+
             match client_clone.is_healthy_blocking() {
                 Ok(true) => {
                     println!("✓ Healthy");
@@ -269,23 +275,23 @@ fn demo_connection_monitoring(camera_addr: &str) -> Result<(), Error> {
                     *is_healthy_clone.lock().unwrap() = false;
                 }
             }
-            
+
             if check_count >= 5 {
                 break;
             }
         }
     });
-    
+
     // Perform operations while monitoring
     println!("   Performing operations with background monitoring...\n");
-    
+
     for i in 1..=5 {
         // Check health status
         let healthy = *is_healthy.lock().unwrap();
         if !healthy {
             println!("   ⚠️  Connection unhealthy, operation {} may fail", i);
         }
-        
+
         // Try a command
         match client.send(&InquiryCommand::ZoomPosition) {
             Ok(Response::InquiryResponse(resp)) => {
@@ -293,14 +299,14 @@ fn demo_connection_monitoring(camera_addr: &str) -> Result<(), Error> {
             }
             _ => println!("   ✗ Operation {} failed", i),
         }
-        
+
         thread::sleep(Duration::from_secs(1));
     }
-    
+
     // Stop monitoring
     *should_stop.lock().unwrap() = true;
     monitor_thread.join().unwrap();
-    
+
     println!("\n   Monitoring completed!");
     println!();
     Ok(())

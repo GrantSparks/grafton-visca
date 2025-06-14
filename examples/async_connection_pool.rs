@@ -54,7 +54,7 @@ async fn demo_multi_camera_management() -> Result<(), Error> {
 
     // Connect to all cameras
     let mut connections = HashMap::new();
-    
+
     for (id, addr, name) in &cameras {
         println!("Connecting to {} ({})...", name, addr);
         match Client::connect_udp_async(addr).await {
@@ -81,7 +81,7 @@ async fn demo_multi_camera_management() -> Result<(), Error> {
     // Query all cameras
     println!("\nQuerying camera status...");
     let mut query_futures = Vec::new();
-    
+
     for (id, (client, _)) in &connections {
         let id_clone = id.clone();
         let power_fut = async move {
@@ -90,9 +90,9 @@ async fn demo_multi_camera_management() -> Result<(), Error> {
         };
         query_futures.push(power_fut);
     }
-    
+
     let results = futures_util::future::join_all(query_futures).await;
-    
+
     for (id, result) in results {
         if let Some((_, name)) = connections.get(&id) {
             match result {
@@ -107,7 +107,7 @@ async fn demo_multi_camera_management() -> Result<(), Error> {
     // Move all cameras to home position
     println!("\nMoving all cameras to home position...");
     let mut home_futures = Vec::new();
-    
+
     for (id, (client, _)) in &connections {
         let id_clone = id.clone();
         let home_fut = async move {
@@ -116,9 +116,9 @@ async fn demo_multi_camera_management() -> Result<(), Error> {
         };
         home_futures.push(home_fut);
     }
-    
+
     let results = futures_util::future::join_all(home_futures).await;
-    
+
     for (id, result) in results {
         if let Some((_, name)) = connections.get(&id) {
             match result {
@@ -141,13 +141,16 @@ async fn demo_concurrent_control() -> Result<(), Error> {
 
     // Create multiple camera connections
     let cameras = Arc::new(Mutex::new(HashMap::new()));
-    
+
     for i in 1..=3 {
         let client = Client::connect_udp_async(&camera_addr).await?;
         cameras.lock().await.insert(format!("cam{}", i), client);
     }
 
-    println!("Controlling {} cameras concurrently...\n", cameras.lock().await.len());
+    println!(
+        "Controlling {} cameras concurrently...\n",
+        cameras.lock().await.len()
+    );
 
     // Control all cameras simultaneously
     let mut tasks = vec![];
@@ -232,7 +235,7 @@ async fn demo_coordinated_movement() -> Result<(), Error> {
         .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
     println!("Setting up coordinated camera movement...");
-    
+
     // Connect to cameras
     let cam1 = Client::connect_udp_async(&camera_addr).await?;
     let cam2 = Client::connect_udp_async(&camera_addr).await?;
@@ -240,13 +243,13 @@ async fn demo_coordinated_movement() -> Result<(), Error> {
 
     // Move all cameras to starting positions
     println!("\nPhase 1: Moving to starting positions");
-    
+
     let start_positions = vec![
         (cam1.clone(), -1000, 0, "Camera 1"),
         (cam2.clone(), 0, 500, "Camera 2"),
         (cam3.clone(), 1000, 0, "Camera 3"),
     ];
-    
+
     let mut position_futures = Vec::new();
     for (cam, pan, tilt, name) in start_positions {
         let name = name.to_string();
@@ -258,7 +261,8 @@ async fn demo_coordinated_movement() -> Result<(), Error> {
                         tilt,
                         pan_speed,
                         tilt_speed,
-                    }).await
+                    })
+                    .await
                 }
                 _ => Err(Error::InvalidParameter("Invalid speed".to_string())),
             };
@@ -266,7 +270,7 @@ async fn demo_coordinated_movement() -> Result<(), Error> {
         };
         position_futures.push(fut);
     }
-    
+
     let results = futures_util::future::join_all(position_futures).await;
     for (name, result) in results {
         match result {
@@ -274,63 +278,63 @@ async fn demo_coordinated_movement() -> Result<(), Error> {
             Err(e) => println!("  ✗ {} positioning failed: {}", name, e),
         }
     }
-    
+
     sleep(Duration::from_secs(3)).await;
 
     // Coordinated sweep
     println!("\nPhase 2: Coordinated sweep");
-    
+
     // All cameras pan right together
     let pan_speed = PanSpeed::new(5).unwrap();
     let tilt_speed = TiltSpeed::new(0).unwrap();
-    
+
     let move_cmd = PanTiltCommand::Move {
         direction: PanTiltDirection::Right,
         pan_speed,
         tilt_speed,
     };
-    
+
     let sweep_futures = vec![
         cam1.send_async(&move_cmd),
         cam2.send_async(&move_cmd),
         cam3.send_async(&move_cmd),
     ];
-    
+
     futures_util::future::join_all(sweep_futures).await;
     println!("  ✓ All cameras sweeping right");
-    
+
     sleep(Duration::from_secs(3)).await;
-    
+
     // Stop all cameras
     let stop_speed = PanSpeed::new(0).unwrap();
     let stop_tilt = TiltSpeed::new(0).unwrap();
-    
+
     let stop_cmd = PanTiltCommand::Move {
         direction: PanTiltDirection::Stop,
         pan_speed: stop_speed,
         tilt_speed: stop_tilt,
     };
-    
+
     let stop_futures = vec![
         cam1.send_async(&stop_cmd),
         cam2.send_async(&stop_cmd),
         cam3.send_async(&stop_cmd),
     ];
-    
+
     futures_util::future::join_all(stop_futures).await;
     println!("  ✓ All cameras stopped");
 
     // Return to home
     println!("\nPhase 3: Return to home positions");
-    
+
     let home_cmd = PanTiltCommand::Home;
-    
+
     let home_futures = vec![
         cam1.send_async(&home_cmd),
         cam2.send_async(&home_cmd),
         cam3.send_async(&home_cmd),
     ];
-    
+
     futures_util::future::join_all(home_futures).await;
     println!("  ✓ All cameras returning home");
 

@@ -50,12 +50,12 @@ async fn demo_basic_retry(camera_addr: &str) -> Result<(), Error> {
 
     let max_retries = 3;
     let retry_delay = Duration::from_secs(1);
-    
+
     let mut client = None;
-    
+
     for attempt in 1..=max_retries {
         println!("   Connection attempt {}/{}...", attempt, max_retries);
-        
+
         match Client::connect_udp_async(camera_addr).await {
             Ok(c) => {
                 println!("   ✓ Connected successfully!");
@@ -71,7 +71,7 @@ async fn demo_basic_retry(camera_addr: &str) -> Result<(), Error> {
             }
         }
     }
-    
+
     let client = match client {
         Some(c) => c,
         None => {
@@ -99,21 +99,21 @@ async fn demo_health_monitoring(camera_addr: &str) -> Result<(), Error> {
     let client = Client::connect_udp_async(camera_addr).await?;
     let is_healthy = Arc::new(AtomicBool::new(true));
     let health_check_count = Arc::new(AtomicU32::new(0));
-    
+
     // Spawn health monitoring task
     let client_clone = client.clone();
     let is_healthy_clone = is_healthy.clone();
     let health_check_count_clone = health_check_count.clone();
-    
+
     let health_monitor = tokio::spawn(async move {
         let check_interval = Duration::from_secs(2);
-        
+
         loop {
             sleep(check_interval).await;
-            
+
             let count = health_check_count_clone.fetch_add(1, Ordering::SeqCst) + 1;
             print!("   Health check #{}: ", count);
-            
+
             match client_clone.is_healthy().await {
                 Ok(true) => {
                     println!("✓ Healthy");
@@ -128,34 +128,39 @@ async fn demo_health_monitoring(camera_addr: &str) -> Result<(), Error> {
                     is_healthy_clone.store(false, Ordering::SeqCst);
                 }
             }
-            
+
             if count >= 5 {
                 break;
             }
         }
     });
-    
+
     // Perform operations while monitoring health
     println!("   Performing operations with health monitoring...");
-    
+
     for i in 1..=5 {
         if !is_healthy.load(Ordering::SeqCst) {
             println!("   ⚠️  Connection unhealthy, operation {} may fail", i);
         }
-        
+
         // Try to send a command
-        match timeout(Duration::from_secs(1), client.send_async(&InquiryCommand::Power)).await {
+        match timeout(
+            Duration::from_secs(1),
+            client.send_async(&InquiryCommand::Power),
+        )
+        .await
+        {
             Ok(Ok(_)) => println!("   ✓ Operation {} succeeded", i),
             Ok(Err(e)) => println!("   ✗ Operation {} failed: {}", i, e),
             Err(_) => println!("   ✗ Operation {} timed out", i),
         }
-        
+
         sleep(Duration::from_secs(1)).await;
     }
-    
+
     // Wait for health monitor to finish
     let _ = health_monitor.await;
-    
+
     println!();
     Ok(())
 }
@@ -166,7 +171,7 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
     println!("   Implementing command retry with exponential backoff...\n");
 
     let client = Client::connect_udp_async(camera_addr).await?;
-    
+
     // Define retry configuration
     #[derive(Clone)]
     struct RetryConfig {
@@ -175,14 +180,14 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
         max_delay: Duration,
         backoff_factor: f64,
     }
-    
+
     let retry_config = RetryConfig {
         max_attempts: 3,
         initial_delay: Duration::from_millis(100),
         max_delay: Duration::from_secs(5),
         backoff_factor: 2.0,
     };
-    
+
     // Helper function to send command with retry
     async fn send_with_retry<C: grafton_visca::Command>(
         client: &Client,
@@ -191,10 +196,13 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
         operation_name: &str,
     ) -> Result<Response, Error> {
         let mut delay = config.initial_delay;
-        
+
         for attempt in 1..=config.max_attempts {
-            println!("   {} - Attempt {}/{}", operation_name, attempt, config.max_attempts);
-            
+            println!(
+                "   {} - Attempt {}/{}",
+                operation_name, attempt, config.max_attempts
+            );
+
             match timeout(Duration::from_secs(2), client.send_async(command)).await {
                 Ok(Ok(response)) => {
                     println!("   ✓ {} succeeded", operation_name);
@@ -207,47 +215,53 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
                     println!("   ✗ {} timed out", operation_name);
                 }
             }
-            
+
             if attempt < config.max_attempts {
                 println!("   Waiting {:?} before retry...", delay);
                 sleep(delay).await;
-                
+
                 // Exponential backoff
                 delay = Duration::from_secs_f64(
-                    (delay.as_secs_f64() * config.backoff_factor).min(config.max_delay.as_secs_f64())
+                    (delay.as_secs_f64() * config.backoff_factor)
+                        .min(config.max_delay.as_secs_f64()),
                 );
             }
         }
-        
+
         Err(Error::Io(std::io::Error::new(
             std::io::ErrorKind::Other,
-            format!("{} failed after {} attempts", operation_name, config.max_attempts),
+            format!(
+                "{} failed after {} attempts",
+                operation_name, config.max_attempts
+            ),
         )))
     }
-    
+
     // Execute a sequence of operations with retry
     println!("   Executing camera control sequence with automatic retry...\n");
-    
+
     // Power on
     let _ = send_with_retry(
         &client,
         &PowerCommand { power: Power::On },
         &retry_config,
         "Power On",
-    ).await;
-    
+    )
+    .await;
+
     sleep(Duration::from_secs(1)).await;
-    
+
     // Move to home
     let _ = send_with_retry(
         &client,
         &PanTiltCommand::Home,
         &retry_config,
         "Home Position",
-    ).await;
-    
+    )
+    .await;
+
     sleep(Duration::from_secs(2)).await;
-    
+
     // Pan right
     let _ = send_with_retry(
         &client,
@@ -258,10 +272,11 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
         },
         &retry_config,
         "Pan Right",
-    ).await;
-    
+    )
+    .await;
+
     sleep(Duration::from_secs(2)).await;
-    
+
     // Stop movement
     let _ = send_with_retry(
         &client,
@@ -272,26 +287,23 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
         },
         &retry_config,
         "Stop Movement",
-    ).await;
-    
+    )
+    .await;
+
     // Zoom in
     let _ = send_with_retry(
         &client,
         &ZoomCommand::ZoomInStandard,
         &retry_config,
         "Zoom In",
-    ).await;
-    
+    )
+    .await;
+
     sleep(Duration::from_secs(1)).await;
-    
+
     // Stop zoom
-    let _ = send_with_retry(
-        &client,
-        &ZoomCommand::Stop,
-        &retry_config,
-        "Stop Zoom",
-    ).await;
-    
+    let _ = send_with_retry(&client, &ZoomCommand::Stop, &retry_config, "Stop Zoom").await;
+
     println!("\n   Control sequence completed!");
     println!();
     Ok(())

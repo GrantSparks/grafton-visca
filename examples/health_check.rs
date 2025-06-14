@@ -7,9 +7,9 @@
 //! - Use both UDP and TCP transports
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::command::{InquiryCommand, PowerCommand, Response};
-#[cfg(feature = "blocking-client")]
 use grafton_visca::command::power::Power;
+#[cfg(feature = "blocking-client")]
+use grafton_visca::command::{InquiryCommand, PowerCommand, Response};
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{Client, Error};
 #[cfg(feature = "blocking-client")]
@@ -36,9 +36,9 @@ fn main() -> Result<(), Error> {
 
     // Test UDP connection
     test_udp_health(&camera_addr)?;
-    
+
     println!("\n{}\n", "=".repeat(50));
-    
+
     // Test TCP connection
     test_tcp_health(&camera_addr)?;
 
@@ -48,7 +48,7 @@ fn main() -> Result<(), Error> {
 #[cfg(feature = "blocking-client")]
 fn test_udp_health(camera_addr: &str) -> Result<(), Error> {
     println!("Testing UDP connection to {}...", camera_addr);
-    
+
     // Try to connect
     let client = match Client::connect_udp(camera_addr) {
         Ok(c) => {
@@ -71,7 +71,7 @@ fn test_udp_health(camera_addr: &str) -> Result<(), Error> {
 
     // Send some commands to generate activity
     println!("\nSending test commands...");
-    
+
     // Power inquiry
     match client.send(&InquiryCommand::Power) {
         Ok(Response::InquiryResponse(resp)) => {
@@ -83,7 +83,7 @@ fn test_udp_health(camera_addr: &str) -> Result<(), Error> {
         Ok(Response::Unknown(data)) => println!("? Unknown response: {:?}", data),
         Err(e) => println!("✗ Power inquiry failed: {}", e),
     }
-    
+
     // Power on command
     match client.send(&PowerCommand { power: Power::On }) {
         Ok(_) => println!("✓ Power on command sent"),
@@ -94,7 +94,7 @@ fn test_udp_health(camera_addr: &str) -> Result<(), Error> {
     println!("\nPerforming periodic health checks...");
     for i in 1..=5 {
         thread::sleep(Duration::from_secs(2));
-        
+
         print!("Health check #{}: ", i);
         match client.is_healthy_blocking() {
             Ok(true) => println!("✓ Healthy"),
@@ -109,7 +109,7 @@ fn test_udp_health(camera_addr: &str) -> Result<(), Error> {
 #[cfg(feature = "blocking-client")]
 fn test_tcp_health(camera_addr: &str) -> Result<(), Error> {
     println!("Testing TCP connection to {}...", camera_addr);
-    
+
     // Try to connect
     let client = match Client::connect_tcp(camera_addr) {
         Ok(c) => {
@@ -135,7 +135,7 @@ fn test_tcp_health(camera_addr: &str) -> Result<(), Error> {
     let start = std::time::Instant::now();
     let mut success_count = 0;
     let mut failure_count = 0;
-    
+
     for _ in 0..10 {
         match client.is_healthy_blocking() {
             Ok(true) => success_count += 1,
@@ -144,20 +144,20 @@ fn test_tcp_health(camera_addr: &str) -> Result<(), Error> {
         }
         thread::sleep(Duration::from_millis(100));
     }
-    
+
     let elapsed = start.elapsed();
     println!("Completed 10 health checks in {:?}", elapsed);
     println!("Success: {}, Failures: {}", success_count, failure_count);
-    
+
     // Demonstrate health check under load
     println!("\nHealth check while sending commands...");
-    
+
     // Start a thread that continuously checks health
     let client_clone = client.clone();
     let health_thread = thread::spawn(move || {
         let mut healthy_count = 0;
         let mut check_count = 0;
-        
+
         for _ in 0..10 {
             check_count += 1;
             if let Ok(true) = client_clone.is_healthy_blocking() {
@@ -165,25 +165,28 @@ fn test_tcp_health(camera_addr: &str) -> Result<(), Error> {
             }
             thread::sleep(Duration::from_millis(500));
         }
-        
+
         (healthy_count, check_count)
     });
-    
+
     // Send commands in the main thread
     for i in 1..=5 {
         println!("Sending command batch {}...", i);
-        
+
         // Send multiple inquiries
         let _ = client.send(&InquiryCommand::Power);
         let _ = client.send(&InquiryCommand::ZoomPosition);
         let _ = client.send(&InquiryCommand::PanTiltPosition);
-        
+
         thread::sleep(Duration::from_secs(1));
     }
-    
+
     // Wait for health check thread to complete
     if let Ok((healthy, total)) = health_thread.join() {
-        println!("\nBackground health check results: {}/{} healthy", healthy, total);
+        println!(
+            "\nBackground health check results: {}/{} healthy",
+            healthy, total
+        );
     }
 
     println!("\nHealth check demo completed!");
