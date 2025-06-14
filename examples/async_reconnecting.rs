@@ -230,13 +230,10 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
             }
         }
 
-        Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "{} failed after {} attempts",
-                operation_name, config.max_attempts
-            ),
-        )))
+        Err(Error::Io(std::io::Error::other(format!(
+            "{} failed after {} attempts",
+            operation_name, config.max_attempts
+        ))))
     }
 
     // Execute a sequence of operations with retry
