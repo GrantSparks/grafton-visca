@@ -109,6 +109,7 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "position_conversion"
+required-features = ["blocking-client"]
 
 [[example]]
 name = "reconnecting_transport"
@@ -119,6 +120,7 @@ name = "declarative_macro_test"
 
 [[example]]
 name = "ptz_builder_demo"
+required-features = ["blocking-client"]
 
 [[example]]
 name = "model_validation_demo"
