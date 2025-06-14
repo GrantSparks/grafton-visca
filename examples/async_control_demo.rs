@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating the async control API with Client.
 //!
 //! This example shows how to:

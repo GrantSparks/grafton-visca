@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating the type-safe API improvements in grafton-visca.
 //!
 //! This example shows how the strongly-typed speed parameters prevent runtime errors

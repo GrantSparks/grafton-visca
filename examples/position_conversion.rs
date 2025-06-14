@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating position conversion and camera constants usage
 //!
 //! This example shows how to:

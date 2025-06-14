@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 #![cfg(feature = "async-client")]
 
 use grafton_visca::{Error, InquiryResponse, Response, Session, SocketId};

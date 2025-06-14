@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating timeout handling with blocking operations.
 //!
 //! This example shows how to:

@@ -1,3 +1,5 @@
+//! Example program
+
 //! Demonstrates camera model validation functionality
 //!
 //! This example shows how to use camera model configuration to catch

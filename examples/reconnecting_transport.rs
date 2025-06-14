@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating connection resilience and recovery strategies.
 //!
 //! This example shows how to:

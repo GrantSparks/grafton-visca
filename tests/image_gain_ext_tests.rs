@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Tests for image and gain extension trait methods.
 
 #![cfg(feature = "blocking-client")]

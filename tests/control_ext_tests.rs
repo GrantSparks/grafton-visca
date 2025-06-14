@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Tests for high-level control API extension traits.
 
 use grafton_visca::{

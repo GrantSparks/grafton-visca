@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating connection resilience and recovery with async operations.
 //!
 //! This example shows how to:

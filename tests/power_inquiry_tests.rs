@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 #[cfg(test)]
 mod tests {
     use grafton_visca::command::response::{parse_visca_response, Response, ResponseType};
