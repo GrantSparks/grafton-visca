@@ -285,25 +285,9 @@ pub mod reconnecting_transport;
 // Private modules
 mod api;
 mod error;
-mod exposure_ext;
-mod focus_ext;
-mod image_ext;
-mod inquiry_ext;
-mod pan_tilt_ext;
-mod position_ext;
-mod power_ext;
-mod preset_ext;
+mod ext;
 mod session;
-mod transport_ext;
 mod types;
-mod white_balance_ext;
-mod zoom_ext;
-
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-mod unified_ext;
-
-#[cfg(feature = "async-client")]
-mod async_visca_ext;
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod ptz_builder;
@@ -350,28 +334,30 @@ pub use crate::{
 // Extension trait re-exports
 pub use crate::{
     api::{CameraControl, GainLevel, IrisValue, NoiseReductionStrength, PanTiltBuilder, Speed},
-    exposure_ext::{ExposureExt, ExposurePreset},
-    focus_ext::FocusExt,
-    image_ext::{ImageExt, ImagePreset},
-    inquiry_ext::{
-        CameraPosition, CameraState, ExposureState, ImageState, InquiryExt, OpticsState,
-        WhiteBalanceState,
+    ext::{
+        exposure_ext::{ExposureExt, ExposurePreset},
+        focus_ext::FocusExt,
+        image_ext::{ImageExt, ImagePreset},
+        inquiry_ext::{
+            CameraPosition, CameraState, ExposureState, ImageState, InquiryExt, OpticsState,
+            WhiteBalanceState,
+        },
+        pan_tilt_ext::PanTiltExt,
+        position_ext::PositionExt,
+        power_ext::PowerExt,
+        preset_ext::PresetExt,
+        transport_ext::TransportExt,
+        white_balance_ext::{WhiteBalanceExt, WhiteBalancePreset},
+        zoom_ext::ZoomExt,
     },
-    pan_tilt_ext::PanTiltExt,
-    position_ext::PositionExt,
-    power_ext::PowerExt,
-    preset_ext::PresetExt,
-    transport_ext::TransportExt,
-    white_balance_ext::{WhiteBalanceExt, WhiteBalancePreset},
-    zoom_ext::ZoomExt,
 };
 
 // Unified extension trait re-exports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::unified_ext::CameraExt;
+pub use crate::ext::unified_ext::CameraExt;
 
 #[cfg(feature = "async-client")]
-pub use crate::unified_ext::AsyncCameraExt;
+pub use crate::ext::unified_ext::AsyncCameraExt;
 
 // Unified client re-exports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -384,9 +370,9 @@ pub use crate::{
 #[cfg(feature = "async-client")]
 pub use crate::{
     async_transport::TransportFuture,
-    async_visca_ext::{AsyncExt, PanScanDirection},
     connection::AsyncConnectionManagement,
     connection_pool::AsyncConnectionPool,
+    ext::async_visca_ext::{AsyncExt, PanScanDirection},
     reconnecting_transport::{
         ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
     },
