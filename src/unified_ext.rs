@@ -43,8 +43,6 @@ use crate::{
     command::{
         inquiry::InquiryCommand,
         pan_tilt::PanTiltCommand,
-        preset::{PresetAction, PresetCommand, PresetNumber},
-        zoom::ZoomCommand,
         InquiryResponse,
     },
     Response,
@@ -53,7 +51,11 @@ use crate::{
 #[cfg(feature = "blocking-client")]
 use crate::command::focus::FocusCommand;
 #[cfg(feature = "async-client")]
-use crate::command::power::{Power, PowerCommand};
+use crate::command::{
+    power::{Power, PowerCommand},
+    preset::{PresetAction, PresetCommand, PresetNumber},
+    zoom::ZoomCommand,
+};
 use std::sync::Arc;
 #[cfg(feature = "async-client")]
 use std::time::Duration;
@@ -63,47 +65,6 @@ use std::time::Duration;
 /// This trait provides high-level camera control methods that work
 /// transparently in both sync and async contexts.
 pub trait CameraExt {
-    // Power Control
-
-    /// Check if the camera is powered on.
-    ///
-    /// # Errors
-    /// Returns `Error` if the power status cannot be queried.
-    fn is_powered_on(&self) -> Result<bool, Error>;
-
-    // Zoom Control
-
-    /// Get the current zoom position.
-    ///
-    /// # Errors
-    /// Returns `Error` if the zoom position cannot be queried.
-    fn zoom_position(&self) -> Result<u16, Error>;
-
-    /// Zoom to a specific position (0x0000 to 0xFFFF).
-    ///
-    /// # Errors
-    /// Returns `Error` if the zoom command cannot be executed.
-    fn zoom_to_position(&self, position: u16) -> Result<(), Error>;
-
-    // Preset Management
-
-    /// Set (save) the current camera position to a preset (0-89).
-    ///
-    /// # Errors
-    /// Returns `Error` if the preset number is invalid or command cannot be executed.
-    fn set_preset(&self, preset_number: u8) -> Result<(), Error>;
-
-    /// Recall a saved preset position.
-    ///
-    /// # Errors
-    /// Returns `Error` if the preset number is invalid or command cannot be executed.
-    fn recall_preset(&self, preset_number: u8) -> Result<(), Error>;
-
-    /// Clear/reset a preset.
-    ///
-    /// # Errors
-    /// Returns `Error` if the preset number is invalid or command cannot be executed.
-    fn clear_preset(&self, preset_number: u8) -> Result<(), Error>;
 
     // Pan/Tilt Control
 
@@ -196,53 +157,6 @@ pub trait CameraExt {
 // Implement for owned Client
 #[cfg(feature = "blocking-client")]
 impl CameraExt for Client {
-    fn is_powered_on(&self) -> Result<bool, Error> {
-        let response = self.send(&InquiryCommand::Power)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    fn zoom_position(&self) -> Result<u16, Error> {
-        let response = self.send(&InquiryCommand::ZoomPosition)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    fn zoom_to_position(&self, position: u16) -> Result<(), Error> {
-        self.send(&ZoomCommand::Direct(position))?;
-        Ok(())
-    }
-
-    fn set_preset(&self, preset_number: u8) -> Result<(), Error> {
-        let preset_num = PresetNumber::new(preset_number)?;
-        self.send(&PresetCommand {
-            action: PresetAction::Set,
-            preset_number: preset_num,
-        })?;
-        Ok(())
-    }
-
-    fn recall_preset(&self, preset_number: u8) -> Result<(), Error> {
-        let preset_num = PresetNumber::new(preset_number)?;
-        self.send(&PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: preset_num,
-        })?;
-        Ok(())
-    }
-
-    fn clear_preset(&self, preset_number: u8) -> Result<(), Error> {
-        let preset_num = PresetNumber::new(preset_number)?;
-        self.send(&PresetCommand {
-            action: PresetAction::Reset,
-            preset_number: preset_num,
-        })?;
-        Ok(())
-    }
 
     fn pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let response = self.send(&InquiryCommand::PanTiltPosition)?;
@@ -340,29 +254,6 @@ impl CameraExt for Client {
 // Also implement for Arc<Client> for shared ownership scenarios
 #[cfg(feature = "blocking-client")]
 impl CameraExt for Arc<Client> {
-    fn is_powered_on(&self) -> Result<bool, Error> {
-        (**self).is_powered_on()
-    }
-
-    fn zoom_position(&self) -> Result<u16, Error> {
-        (**self).zoom_position()
-    }
-
-    fn zoom_to_position(&self, position: u16) -> Result<(), Error> {
-        (**self).zoom_to_position(position)
-    }
-
-    fn set_preset(&self, preset_number: u8) -> Result<(), Error> {
-        (**self).set_preset(preset_number)
-    }
-
-    fn recall_preset(&self, preset_number: u8) -> Result<(), Error> {
-        (**self).recall_preset(preset_number)
-    }
-
-    fn clear_preset(&self, preset_number: u8) -> Result<(), Error> {
-        (**self).clear_preset(preset_number)
-    }
 
     fn pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         (**self).pan_tilt_position()
