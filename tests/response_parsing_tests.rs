@@ -136,24 +136,68 @@ mod response_parsing_tests {
 
     #[test]
     fn test_parse_luminance_response() {
-        // Example Luminance value
-        // TODO: Sprint 1 will implement Luminance parsing
-        // Currently falls through to default case and returns Completion
-        let luminance_response_bytes = vec![0x90, 0x50, 0x0A, 0xFF];
+        // Test minimum luminance value (0)
+        let luminance_response_bytes = vec![0x90, 0x50, 0x00, 0xFF];
         let response = parse_visca_response(&luminance_response_bytes, &ResponseType::Luminance);
-        // For now, this returns Completion since parsing is not implemented
-        assert!(matches!(response, Ok(Response::Completion)));
+        match response {
+            Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
+                assert_eq!(value, 0x00);
+            }
+            _ => panic!("Expected Luminance inquiry response"),
+        }
+
+        // Test middle luminance value (7)
+        let luminance_response_bytes = vec![0x90, 0x50, 0x07, 0xFF];
+        let response = parse_visca_response(&luminance_response_bytes, &ResponseType::Luminance);
+        match response {
+            Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
+                assert_eq!(value, 0x07);
+            }
+            _ => panic!("Expected Luminance inquiry response"),
+        }
+
+        // Test maximum luminance value (14)
+        let luminance_response_bytes = vec![0x90, 0x50, 0x0E, 0xFF];
+        let response = parse_visca_response(&luminance_response_bytes, &ResponseType::Luminance);
+        match response {
+            Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
+                assert_eq!(value, 0x0E);
+            }
+            _ => panic!("Expected Luminance inquiry response"),
+        }
     }
 
     #[test]
     fn test_parse_contrast_response() {
-        // Example Contrast value
-        // TODO: Sprint 1 will implement Contrast parsing
-        // Currently falls through to default case and returns Completion
-        let contrast_response_bytes = vec![0x90, 0x50, 0x0F, 0xFF];
+        // Test minimum contrast value (0)
+        let contrast_response_bytes = vec![0x90, 0x50, 0x00, 0xFF];
         let response = parse_visca_response(&contrast_response_bytes, &ResponseType::Contrast);
-        // For now, this returns Completion since parsing is not implemented
-        assert!(matches!(response, Ok(Response::Completion)));
+        match response {
+            Ok(Response::InquiryResponse(InquiryResponse::Contrast(value))) => {
+                assert_eq!(value, 0x00);
+            }
+            _ => panic!("Expected Contrast inquiry response"),
+        }
+
+        // Test middle contrast value (7)
+        let contrast_response_bytes = vec![0x90, 0x50, 0x07, 0xFF];
+        let response = parse_visca_response(&contrast_response_bytes, &ResponseType::Contrast);
+        match response {
+            Ok(Response::InquiryResponse(InquiryResponse::Contrast(value))) => {
+                assert_eq!(value, 0x07);
+            }
+            _ => panic!("Expected Contrast inquiry response"),
+        }
+
+        // Test maximum contrast value (14)
+        let contrast_response_bytes = vec![0x90, 0x50, 0x0E, 0xFF];
+        let response = parse_visca_response(&contrast_response_bytes, &ResponseType::Contrast);
+        match response {
+            Ok(Response::InquiryResponse(InquiryResponse::Contrast(value))) => {
+                assert_eq!(value, 0x0E);
+            }
+            _ => panic!("Expected Contrast inquiry response"),
+        }
     }
 
     #[test]
@@ -646,19 +690,35 @@ mod response_parsing_tests {
 
     #[test]
     fn test_parse_backlight_response() {
-        // Test parsing for Backlight status (currently not implemented in parse_visca_response)
-        // This test documents expected behavior once implemented
-
-        // Backlight On
+        // Test Backlight On
         let backlight_on_bytes = vec![0x90, 0x50, 0x02, 0xFF];
         let response = parse_visca_response(&backlight_on_bytes, &ResponseType::Backlight);
+        match response {
+            Ok(Response::InquiryResponse(InquiryResponse::Backlight { status })) => {
+                assert!(status);
+            }
+            _ => panic!("Expected Backlight inquiry response"),
+        }
 
-        // Currently returns Completion because Backlight parsing is not implemented
-        // Once implemented, this should return:
-        // Ok(Response::InquiryResponse(InquiryResponse::Backlight { status: true }))
-        assert!(matches!(response, Ok(Response::Completion)));
+        // Test Backlight Off
+        let backlight_off_bytes = vec![0x90, 0x50, 0x03, 0xFF];
+        let response = parse_visca_response(&backlight_off_bytes, &ResponseType::Backlight);
+        match response {
+            Ok(Response::InquiryResponse(InquiryResponse::Backlight { status })) => {
+                assert!(!status);
+            }
+            _ => panic!("Expected Backlight inquiry response"),
+        }
 
-        // TODO: Implement Backlight response parsing in response.rs
+        // Test Backlight with any other value (should be off)
+        let backlight_other_bytes = vec![0x90, 0x50, 0x00, 0xFF];
+        let response = parse_visca_response(&backlight_other_bytes, &ResponseType::Backlight);
+        match response {
+            Ok(Response::InquiryResponse(InquiryResponse::Backlight { status })) => {
+                assert!(!status);
+            }
+            _ => panic!("Expected Backlight inquiry response"),
+        }
     }
 
     #[test]

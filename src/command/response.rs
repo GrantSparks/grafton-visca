@@ -198,6 +198,9 @@ fn parse_inquiry_response(response: &[u8], response_type: ResponseType) -> Resul
         }
         ResponseType::SharpnessMode => parse_mode_response(response, ModeType::Sharpness),
         ResponseType::BlackWhite => parse_mode_response(response, ModeType::BlackWhite),
+        ResponseType::Luminance => parse_luminance_response(response),
+        ResponseType::Contrast => parse_contrast_response(response),
+        ResponseType::Backlight => parse_backlight_response(response),
         ResponseType::Sharpness => {
             parse_value_response(response, ValueType::Extended(ExtendedValueType::Sharpness))
         }
@@ -275,6 +278,35 @@ fn parse_power_response(response: &[u8]) -> Result<Response, Error> {
     }
     let on = response[2] == 0x02;
     Ok(Response::InquiryResponse(InquiryResponse::Power { on }))
+}
+
+#[allow(clippy::missing_const_for_fn)] // Error contains String fields
+fn parse_luminance_response(response: &[u8]) -> Result<Response, Error> {
+    if response.len() != 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    let value = response[2];
+    Ok(Response::InquiryResponse(InquiryResponse::Luminance(value)))
+}
+
+#[allow(clippy::missing_const_for_fn)] // Error contains String fields
+fn parse_contrast_response(response: &[u8]) -> Result<Response, Error> {
+    if response.len() != 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    let value = response[2];
+    Ok(Response::InquiryResponse(InquiryResponse::Contrast(value)))
+}
+
+#[allow(clippy::missing_const_for_fn)] // Error contains String fields
+fn parse_backlight_response(response: &[u8]) -> Result<Response, Error> {
+    if response.len() != 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    let status = response[2] == 0x02;
+    Ok(Response::InquiryResponse(InquiryResponse::Backlight {
+        status,
+    }))
 }
 
 fn parse_pan_tilt_position(response: &[u8]) -> Result<Response, Error> {
@@ -1351,17 +1383,98 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_luminance_response() {
+        // Test minimum value
+        let response = vec![0x90, 0x50, 0x00, 0xFF];
+        let result = parse_visca_response(&response, &ResponseType::Luminance).unwrap();
+        match result {
+            Response::InquiryResponse(InquiryResponse::Luminance(value)) => {
+                assert_eq!(value, 0);
+            }
+            _ => panic!("Expected Luminance inquiry response"),
+        }
+
+        // Test maximum value
+        let response = vec![0x90, 0x50, 0x0E, 0xFF];
+        let result = parse_visca_response(&response, &ResponseType::Luminance).unwrap();
+        match result {
+            Response::InquiryResponse(InquiryResponse::Luminance(value)) => {
+                assert_eq!(value, 14);
+            }
+            _ => panic!("Expected Luminance inquiry response"),
+        }
+
+        // Test invalid length
+        let response = vec![0x90, 0x50, 0x00, 0x00, 0xFF];
+        let result = parse_visca_response(&response, &ResponseType::Luminance);
+        assert!(matches!(result, Err(Error::InvalidResponseLength)));
+    }
+
+    #[test]
+    fn test_parse_contrast_response() {
+        // Test minimum value
+        let response = vec![0x90, 0x50, 0x00, 0xFF];
+        let result = parse_visca_response(&response, &ResponseType::Contrast).unwrap();
+        match result {
+            Response::InquiryResponse(InquiryResponse::Contrast(value)) => {
+                assert_eq!(value, 0);
+            }
+            _ => panic!("Expected Contrast inquiry response"),
+        }
+
+        // Test maximum value
+        let response = vec![0x90, 0x50, 0x0E, 0xFF];
+        let result = parse_visca_response(&response, &ResponseType::Contrast).unwrap();
+        match result {
+            Response::InquiryResponse(InquiryResponse::Contrast(value)) => {
+                assert_eq!(value, 14);
+            }
+            _ => panic!("Expected Contrast inquiry response"),
+        }
+
+        // Test invalid length
+        let response = vec![0x90, 0x50, 0x00, 0x00, 0xFF];
+        let result = parse_visca_response(&response, &ResponseType::Contrast);
+        assert!(matches!(result, Err(Error::InvalidResponseLength)));
+    }
+
+    #[test]
+    fn test_parse_backlight_response() {
+        // Test Backlight On
+        let response = vec![0x90, 0x50, 0x02, 0xFF];
+        let result = parse_visca_response(&response, &ResponseType::Backlight).unwrap();
+        match result {
+            Response::InquiryResponse(InquiryResponse::Backlight { status }) => {
+                assert!(status);
+            }
+            _ => panic!("Expected Backlight inquiry response"),
+        }
+
+        // Test Backlight Off
+        let response = vec![0x90, 0x50, 0x03, 0xFF];
+        let result = parse_visca_response(&response, &ResponseType::Backlight).unwrap();
+        match result {
+            Response::InquiryResponse(InquiryResponse::Backlight { status }) => {
+                assert!(!status);
+            }
+            _ => panic!("Expected Backlight inquiry response"),
+        }
+
+        // Test invalid length
+        let response = vec![0x90, 0x50, 0x02, 0x00, 0xFF];
+        let result = parse_visca_response(&response, &ResponseType::Backlight);
+        assert!(matches!(result, Err(Error::InvalidResponseLength)));
+    }
+
+    #[test]
     fn test_unhandled_response_types() {
         // Test response types that return Completion
         let unhandled_types = vec![
-            ResponseType::Luminance,
-            ResponseType::Contrast,
             ResponseType::SharpnessPosition,
             ResponseType::HorizontalFlip,
             ResponseType::VerticalFlip,
             ResponseType::BlackWhiteMode,
             ResponseType::ExposureCompensationPosition,
-            ResponseType::Backlight,
             ResponseType::RedTuning,
             ResponseType::BlueTuning,
             ResponseType::AutoWhiteBalanceSensitivity,
