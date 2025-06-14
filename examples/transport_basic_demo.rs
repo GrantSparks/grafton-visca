@@ -1,61 +1,174 @@
-//! Test example for Phase A transport implementation.
+//! Basic transport demonstration example.
+//!
+//! This example shows how to:
+//! - Use the unified Client with different transports
+//! - Switch between UDP and TCP transports
+//! - Send commands using different transport types
+//! - Handle transport-specific errors
 
-// TODO: Update this example for v0.5.0 - the Transport trait and feature flags have changed
-fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("The Transport trait interface has changed significantly");
-}
-
-/*
-#[cfg(feature = "blocking-client")]
+use grafton_visca::command::{InquiryCommand, PowerCommand, Response};
 use grafton_visca::command::power::Power;
-#[cfg(feature = "blocking-client")]
-use grafton_visca::command::PowerCommand;
-#[cfg(feature = "blocking-client")]
-use grafton_visca::transport::{BlockingAdapter, Transport, UdpTransport};
-use grafton_visca::Error;
+use grafton_visca::{Client, Error};
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    env_logger::init();
+fn main() -> Result<(), Error> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    #[cfg(feature = "blocking-client")]
-    {
-        // Test blocking UDP transport through adapter
-        println!("Testing UDP transport with blocking adapter...");
-        let udp = UdpTransport::new("127.0.0.1:1234").map_err(Error::Io)?;
-        let mut udp_adapter = BlockingAdapter(udp);
+    println!("=== VISCA Transport Demo ===\n");
 
-        let cmd = PowerCommand { power: Power::On };
+    // Get camera address from command line or use default
+    let camera_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-        // This would normally send the command, but will fail since no camera is connected
-        match udp_adapter.send_command(&cmd).await {
-            Ok(_) => println!("Command sent successfully"),
-            Err(e) => println!("Expected error (no camera): {}", e),
-        }
-    }
-
-    // Test async UDP transport
+    // Demonstrate different transports
+    demo_udp_transport(&camera_addr)?;
+    demo_tcp_transport(&camera_addr)?;
+    
     #[cfg(feature = "async-client")]
     {
-        use grafton_visca::command::power::Power;
-        use grafton_visca::command::PowerCommand;
-        use grafton_visca::transport::{AsyncUdpTransport, Transport};
-
-        println!("\nTesting async UDP transport...");
-        let mut async_udp = AsyncUdpTransport::new("127.0.0.1:1234")
-            .await
-            .map_err(Error::Io)?;
-
-        let cmd = PowerCommand { power: Power::On };
-
-        match async_udp.send_command(&cmd).await {
-            Ok(_) => println!("Command sent successfully"),
-            Err(e) => println!("Expected error (no camera): {}", e),
-        }
+        // Run async examples
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(demo_async_transports(&camera_addr))?;
     }
 
-    println!("\nPhase A transport implementation is working!");
     Ok(())
 }
-*/
+
+fn demo_udp_transport(camera_addr: &str) -> Result<(), Error> {
+    println!("1. UDP Transport:");
+    println!("   Connecting via UDP to {}...", camera_addr);
+    
+    #[cfg(feature = "blocking-client")]
+    {
+        match Client::connect_udp(camera_addr) {
+            Ok(client) => {
+                println!("   ✓ UDP connection established");
+                
+                // Send some test commands
+                test_basic_commands(&client)?;
+            }
+            Err(e) => {
+                println!("   ✗ UDP connection failed: {}", e);
+            }
+        }
+    }
+    
+    #[cfg(not(feature = "blocking-client"))]
+    {
+        println!("   ⚠️  Blocking client feature not enabled");
+    }
+    
+    println!();
+    Ok(())
+}
+
+fn demo_tcp_transport(camera_addr: &str) -> Result<(), Error> {
+    println!("2. TCP Transport:");
+    println!("   Connecting via TCP to {}...", camera_addr);
+    
+    #[cfg(feature = "blocking-client")]
+    {
+        match Client::connect_tcp(camera_addr) {
+            Ok(client) => {
+                println!("   ✓ TCP connection established");
+                
+                // Send some test commands
+                test_basic_commands(&client)?;
+            }
+            Err(e) => {
+                println!("   ✗ TCP connection failed: {}", e);
+            }
+        }
+    }
+    
+    #[cfg(not(feature = "blocking-client"))]
+    {
+        println!("   ⚠️  Blocking client feature not enabled");
+    }
+    
+    println!();
+    Ok(())
+}
+
+#[cfg(feature = "blocking-client")]
+fn test_basic_commands(client: &Client) -> Result<(), Error> {
+    // Test inquiry
+    println!("\n   Testing basic commands:");
+    
+    match client.send(&InquiryCommand::Power) {
+        Ok(Response::InquiryResponse(resp)) => {
+            println!("   ✓ Power inquiry: {:?}", resp);
+        }
+        Ok(_) => println!("   ✓ Power inquiry sent but unexpected response"),
+        Err(e) => println!("   ✗ Power inquiry failed: {}", e),
+    }
+    
+    // Test action command
+    match client.send(&PowerCommand { power: Power::On }) {
+        Ok(_) => println!("   ✓ Power on command sent"),
+        Err(e) => println!("   ✗ Power on command failed: {}", e),
+    }
+    
+    // Test another inquiry
+    match client.send(&InquiryCommand::ZoomPosition) {
+        Ok(Response::InquiryResponse(resp)) => {
+            println!("   ✓ Zoom inquiry: {:?}", resp);
+        }
+        Ok(_) => println!("   ✓ Zoom inquiry sent but unexpected response"),
+        Err(e) => println!("   ✗ Zoom inquiry failed: {}", e),
+    }
+    
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+async fn demo_async_transports(camera_addr: &str) -> Result<(), Error> {
+    println!("3. Async Transports:");
+    
+    // Test async UDP
+    println!("\n   Testing async UDP transport:");
+    match Client::connect_udp_async(camera_addr).await {
+        Ok(client) => {
+            println!("   ✓ Async UDP connection established");
+            test_async_commands(&client).await?;
+        }
+        Err(e) => {
+            println!("   ✗ Async UDP connection failed: {}", e);
+        }
+    }
+    
+    // Test async TCP
+    println!("\n   Testing async TCP transport:");
+    match Client::connect_tcp_async(camera_addr).await {
+        Ok(client) => {
+            println!("   ✓ Async TCP connection established");
+            test_async_commands(&client).await?;
+        }
+        Err(e) => {
+            println!("   ✗ Async TCP connection failed: {}", e);
+        }
+    }
+    
+    println!();
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+async fn test_async_commands(client: &Client) -> Result<(), Error> {
+    // Test async inquiry
+    match client.send_async(&InquiryCommand::Power).await {
+        Ok(Response::InquiryResponse(resp)) => {
+            println!("   ✓ Async power inquiry: {:?}", resp);
+        }
+        Ok(_) => println!("   ✓ Async power inquiry sent but unexpected response"),
+        Err(e) => println!("   ✗ Async power inquiry failed: {}", e),
+    }
+    
+    // Test async action command
+    match client.send_async(&PowerCommand { power: Power::On }).await {
+        Ok(_) => println!("   ✓ Async power on command sent"),
+        Err(e) => println!("   ✗ Async power on command failed: {}", e),
+    }
+    
+    Ok(())
+}

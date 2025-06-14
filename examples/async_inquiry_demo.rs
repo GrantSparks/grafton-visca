@@ -1,17 +1,23 @@
-// TODO: Update this example for v0.5.0 - async support is not yet available
-fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("Async support is not yet available in the current version");
-}
-
-/*
 //! Example demonstrating the async inquiry API with Client.
+//!
+//! This example shows how to:
+//! - Connect to a camera using async UDP transport
+//! - Send various inquiry commands asynchronously
+//! - Handle concurrent inquiries for better performance
+//! - Monitor camera state over time
 
-use grafton_visca::command::InquiryCommand;
-use grafton_visca::{Client, Error, InquiryResponse, ViscaResponse};
+use grafton_visca::command::{InquiryCommand, Response};
+use grafton_visca::{Client, Error, InquiryResponse};
 use std::env;
 use tokio::time::{sleep, Duration};
 
+#[cfg(not(feature = "async-client"))]
+fn main() {
+    eprintln!("This example requires the 'async-client' feature.");
+    eprintln!("Run with: cargo run --example async_inquiry_demo --features async-client");
+}
+
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging
@@ -139,4 +145,3 @@ async fn main() -> Result<(), Error> {
     println!("\nInquiry demo completed successfully!");
     Ok(())
 }
-*/
