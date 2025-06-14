@@ -20,13 +20,16 @@
 //! ```
 
 // Standard library imports
+#[cfg(feature = "async-client")]
 use std::sync::Arc;
+#[cfg(feature = "async-client")]
 use std::time::Duration;
 
 // Third-party crate imports
 // (none)
 
 // Workspace / local-crate imports
+#[cfg(feature = "async-client")]
 use crate::{
     command::{
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
@@ -134,6 +137,7 @@ pub trait AsyncExt {
 }
 
 /// Direction for pan scanning operations.
+#[cfg(feature = "async-client")]
 #[derive(Debug, Copy, Clone)]
 pub enum PanScanDirection {
     /// Pan camera to the left
