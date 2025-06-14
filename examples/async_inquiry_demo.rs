@@ -1,17 +1,25 @@
-// TODO: Update this example for v0.5.0 - async support is not yet available
-fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("Async support is not yet available in the current version");
-}
+//! Example program
 
-/*
 //! Example demonstrating the async inquiry API with Client.
+//!
+//! This example shows how to:
+//! - Connect to a camera using async UDP transport
+//! - Send various inquiry commands asynchronously
+//! - Handle concurrent inquiries for better performance
+//! - Monitor camera state over time
 
-use grafton_visca::command::InquiryCommand;
-use grafton_visca::{Client, Error, InquiryResponse, ViscaResponse};
+use grafton_visca::command::{InquiryCommand, Response};
+use grafton_visca::{Client, Error, InquiryResponse};
 use std::env;
 use tokio::time::{sleep, Duration};
 
+#[cfg(not(feature = "async-client"))]
+fn main() {
+    eprintln!("This example requires the 'async-client' feature.");
+    eprintln!("Run with: cargo run --example async_inquiry_demo --features async-client");
+}
+
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging
@@ -43,9 +51,7 @@ async fn main() -> Result<(), Error> {
     println!("\n2. Camera Position and Zoom");
 
     let position = client.send_async(&InquiryCommand::PanTiltPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) =
-        position
-    {
+    if let Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) = position {
         println!("   - Pan/Tilt Position: pan={}, tilt={}", pan, tilt);
     }
 
@@ -55,8 +61,7 @@ async fn main() -> Result<(), Error> {
     }
 
     let focus = client.send_async(&InquiryCommand::FocusPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::FocusPosition { position }) = focus
-    {
+    if let Response::InquiryResponse(InquiryResponse::FocusPosition { position }) = focus {
         println!("   - Focus Position: {:02X?}", position);
     }
 
@@ -70,21 +75,15 @@ async fn main() -> Result<(), Error> {
     let (exposure_result, wb_result, luminance_result) =
         tokio::join!(exposure_future, wb_future, luminance_future);
 
-    if let Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) =
-        exposure_result
-    {
+    if let Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) = exposure_result {
         println!("   - Exposure Mode: {:?}", mode);
     }
 
-    if let Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance { mode })) =
-        wb_result
-    {
+    if let Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance { mode })) = wb_result {
         println!("   - White Balance: {:?}", mode);
     }
 
-    if let Ok(Response::InquiryResponse(InquiryResponse::Luminance(level))) =
-        luminance_result
-    {
+    if let Ok(Response::InquiryResponse(InquiryResponse::Luminance(level))) = luminance_result {
         println!("   - Luminance: {}", level);
     }
 
@@ -127,8 +126,7 @@ async fn main() -> Result<(), Error> {
         println!("   Reading #{}", i);
 
         let current_zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
-        if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) =
-            current_zoom
+        if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = current_zoom
         {
             println!("     - Current Zoom: {:02X?}", position);
         }
@@ -139,4 +137,3 @@ async fn main() -> Result<(), Error> {
     println!("\nInquiry demo completed successfully!");
     Ok(())
 }
-*/

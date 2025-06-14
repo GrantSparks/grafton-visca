@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 #![cfg(feature = "async-client")]
 
 //! Tests for async functionality in the unified client.

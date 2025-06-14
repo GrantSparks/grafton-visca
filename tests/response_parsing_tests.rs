@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use grafton_visca::command::gain::AntiFlickerMode;
 use grafton_visca::command::response::{parse_visca_response, Response};
 use grafton_visca::command::{AutoFocusSensitivity, FocusZone, SharpnessMode};

@@ -1,3 +1,5 @@
+//! Example program
+
 //! Demonstrates the unified extension trait system.
 //!
 //! This example shows how the same API works seamlessly in both
@@ -5,11 +7,10 @@
 
 use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
 use grafton_visca::{CameraExt, Client, Error, InquiryExt, PowerExt, PresetExt, ZoomExt};
+use std::time::Duration;
 
 #[cfg(feature = "async-client")]
 use grafton_visca::AsyncCameraExt;
-#[cfg(feature = "async-client")]
-use std::time::Duration;
 
 /// Demonstrates blocking usage of the unified extension traits.
 #[cfg(feature = "blocking-client")]
@@ -41,12 +42,12 @@ fn blocking_example() -> Result<(), Error> {
     // Move home
     println!("   🏠 Moving to home position");
     camera.move_home()?;
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    std::thread::sleep(Duration::from_secs(2));
 
     // Test zoom
     println!("   🔍 Testing zoom");
     camera.zoom_to(0x3000)?;
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    std::thread::sleep(Duration::from_millis(1000));
 
     // Test pan/tilt
     println!("   🎯 Testing pan/tilt");
@@ -55,7 +56,7 @@ fn blocking_example() -> Result<(), Error> {
         PanSpeed::new(0x10)?,
         TiltSpeed::new(0x10)?,
     )?;
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    std::thread::sleep(Duration::from_millis(500));
     camera.stop_moving()?;
 
     // Save preset

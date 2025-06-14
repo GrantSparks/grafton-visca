@@ -1,369 +1,309 @@
-// TODO: Update this example for v0.5.0 - async support is not yet available
-fn main() {
-    println!("This example needs to be updated for v0.5.0");
-    println!("Async support is not yet available in the current version");
-}
+//! Example program
 
-/*
-//! Example demonstrating async auto-reconnecting transport functionality.
+//! Example demonstrating connection resilience and recovery with async operations.
+//!
+//! This example shows how to:
+//! - Handle connection failures gracefully
+//! - Implement retry logic for failed commands
+//! - Monitor connection health
+//! - Recover from network interruptions
 
-#[cfg(feature = "async-client")]
-use grafton_visca::{
-    command::{
-        pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        power::{Power, PowerCommand},
-        ZoomCommand,
-    },
-    AsyncConnectionEvent, AsyncConnectionManagement, AsyncReconnectingTransport, AsyncTcpTransport,
-    AsyncUdpTransport, AsyncTransport, ReconnectionConfig, Error,
+use grafton_visca::command::{
+    pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+    power::{Power, PowerCommand},
+    InquiryCommand, Response, ZoomCommand,
 };
-#[cfg(feature = "async-client")]
-use std::sync::atomic::{AtomicUsize, Ordering};
-#[cfg(feature = "async-client")]
-use std::sync::{Arc, Mutex};
-#[cfg(feature = "async-client")]
+use grafton_visca::{Client, Error};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
-#[cfg(feature = "async-client")]
-use tokio::time::sleep;
-
-#[cfg(feature = "async-client")]
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
-
-    println!("=== Async Auto-Reconnecting Transport Example ===\n");
-
-    // Example with UDP
-    demo_async_udp_reconnection().await?;
-
-    println!("\n");
-
-    // Example with TCP
-    demo_async_tcp_reconnection().await?;
-
-    println!("\n");
-
-    // Example with event monitoring
-    demo_async_event_monitoring().await?;
-
-    Ok(())
-}
-
-#[cfg(feature = "async-client")]
-async fn demo_async_udp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
-    use std::net::SocketAddr;
-
-    let camera_addr: SocketAddr = "192.168.1.100:1259".parse()?;
-
-    // Configure reconnection behavior
-    let reconnect_config = ReconnectionConfig {
-        max_retries: 5,
-        initial_delay: Duration::from_millis(500),
-        max_delay: Duration::from_secs(30),
-        backoff_factor: 2.0,
-        health_check_interval: Some(Duration::from_secs(30)),
-    };
-
-    // Create the async reconnecting transport
-    let mut transport = AsyncReconnectingTransport::new(
-        move || async move { AsyncUdpTransport::new(camera_addr).await },
-        reconnect_config,
-    )
-    .await?;
-
-    println!("Connected to camera at {} via async UDP", camera_addr);
-
-    // Test basic operations
-    println!("\n1. Testing basic operations with auto-reconnection:");
-
-    // Power on
-    let power_cmd = PowerCommand { power: Power::On };
-    transport.send_command(&power_cmd).await?;
-    match transport.receive_response().await {
-        Ok(responses) => {
-            if !responses.is_empty() {
-                println!("✓ Power on successful");
-            }
-        }
-        Err(e) => println!("✗ Power on failed: {}", e),
-    }
-
-    // Pan/Tilt operations
-    println!("\n2. Testing pan/tilt with potential reconnections:");
-
-    for i in 0..3 {
-        println!("\nMovement cycle {}:", i + 1);
-
-        // Move right
-        let cmd = PanTiltCommand::Move {
-            direction: PanTiltDirection::Right,
-            pan_speed: PanSpeed::new(8).unwrap(),
-            tilt_speed: TiltSpeed::new(8).unwrap(),
-        };
-        transport.send_command(&cmd).await?;
-        match transport.receive_response().await {
-            Ok(_) => println!("  ✓ Pan right successful"),
-            Err(e) => println!("  ✗ Pan right failed: {}", e),
-        }
-
-        sleep(Duration::from_secs(2)).await;
-
-        // Move left
-        let cmd = PanTiltCommand::Move {
-            direction: PanTiltDirection::Left,
-            pan_speed: PanSpeed::new(8).unwrap(),
-            tilt_speed: TiltSpeed::new(8).unwrap(),
-        };
-        transport.send_command(&cmd).await?;
-        match transport.receive_response().await {
-            Ok(_) => println!("  ✓ Pan left successful"),
-            Err(e) => println!("  ✗ Pan left failed: {}", e),
-        }
-
-        sleep(Duration::from_secs(2)).await;
-    }
-
-    // Health check
-    match transport.is_healthy().await {
-        Ok(true) => println!("\n✓ Connection is healthy"),
-        Ok(false) => println!("\n✗ Connection is not healthy"),
-        Err(e) => println!("\n✗ Error checking health: {}", e),
-    }
-
-    // Get statistics
-    let stats = transport.connection_stats_mut().await;
-    let snapshot = stats.snapshot();
-    println!("\n3. Connection Statistics:");
-    println!("  Commands sent: {}", snapshot.commands_sent);
-    println!("  Responses received: {}", snapshot.responses_received);
-    println!("  Errors: {}", snapshot.error_count);
-
-    // Get combined stats
-    let combined = transport.combined_stats().await;
-    let combined_snapshot = combined.snapshot();
-    println!("\n4. Combined Statistics (wrapper + transport):");
-    println!("  Total commands: {}", combined_snapshot.commands_sent);
-    println!("  Total errors: {}", combined_snapshot.error_count);
-
-    Ok(())
-}
-
-#[cfg(feature = "async-client")]
-async fn demo_async_tcp_reconnection() -> Result<(), Box<dyn std::error::Error>> {
-    use std::net::SocketAddr;
-
-    let camera_addr: SocketAddr = "192.168.1.100:5678".parse()?;
-
-    // Configure more aggressive reconnection for TCP
-    let reconnect_config = ReconnectionConfig {
-        max_retries: 10,
-        initial_delay: Duration::from_millis(100),
-        max_delay: Duration::from_secs(10),
-        backoff_factor: 1.5,
-        health_check_interval: Some(Duration::from_secs(20)),
-    };
-
-    // Create the async reconnecting transport
-    let mut transport = AsyncReconnectingTransport::new(
-        move || async move { AsyncTcpTransport::new(camera_addr).await },
-        reconnect_config,
-    )
-    .await?;
-
-    println!("Connected to camera at {} via async TCP", camera_addr);
-
-    // Test zoom operations
-    println!("\n1. Testing zoom operations with auto-reconnection:");
-
-    // Zoom in and out multiple times
-    for i in 0..3 {
-        println!("\nZoom cycle {}:", i + 1);
-
-        // Zoom in
-        transport.send_command(&ZoomCommand::ZoomInStandard).await?;
-        match transport.receive_response().await {
-            Ok(_) => println!("  ✓ Zoom in successful"),
-            Err(e) => println!("  ✗ Zoom in failed: {}", e),
-        }
-
-        sleep(Duration::from_millis(500)).await;
-
-        // Stop zoom
-        transport.send_command(&ZoomCommand::Stop).await?;
-        match transport.receive_response().await {
-            Ok(_) => println!("  ✓ Zoom stop successful"),
-            Err(e) => println!("  ✗ Zoom stop failed: {}", e),
-        }
-
-        sleep(Duration::from_secs(1)).await;
-
-        // Zoom out
-        transport.send_command(&ZoomCommand::ZoomOutStandard).await?;
-        match transport.receive_response().await {
-            Ok(_) => println!("  ✓ Zoom out successful"),
-            Err(e) => println!("  ✗ Zoom out failed: {}", e),
-        }
-
-        sleep(Duration::from_millis(500)).await;
-
-        // Stop zoom
-        transport.send_command(&ZoomCommand::Stop).await?;
-        match transport.receive_response().await {
-            Ok(_) => println!("  ✓ Zoom stop successful"),
-            Err(e) => println!("  ✗ Zoom stop failed: {}", e),
-        }
-
-        sleep(Duration::from_secs(1)).await;
-    }
-
-    // Final health check
-    match transport.is_healthy().await {
-        Ok(true) => println!("\n✓ Final health check: Connection is healthy"),
-        Ok(false) => println!("\n✗ Final health check: Connection is not healthy"),
-        Err(e) => println!("\n✗ Error during final health check: {}", e),
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "async-client")]
-async fn demo_async_event_monitoring() -> Result<(), Box<dyn std::error::Error>> {
-    use std::net::SocketAddr;
-
-    println!("=== Async Connection Event Monitoring ===");
-
-    let camera_addr: SocketAddr = "192.168.1.100:1259".parse()?;
-
-    // Track connection events
-    let events = Arc::new(Mutex::new(Vec::<AsyncConnectionEvent>::new()));
-    let events_clone = events.clone();
-
-    // Configure reconnection with shorter delays for demo
-    let reconnect_config = ReconnectionConfig {
-        max_retries: 3,
-        initial_delay: Duration::from_millis(100),
-        max_delay: Duration::from_secs(2),
-        backoff_factor: 2.0,
-        health_check_interval: Some(Duration::from_secs(5)),
-    };
-
-    // Create transport with simulated failures
-    let fail_count = Arc::new(AtomicUsize::new(0));
-    let fail_count_clone = fail_count.clone();
-
-    let mut transport = AsyncReconnectingTransport::new(
-        move || {
-            let fail_count = fail_count_clone.clone();
-
-            async move {
-                let count = fail_count.fetch_add(1, Ordering::SeqCst);
-
-                // Simulate failures on attempts 2-4
-                if (2..=4).contains(&count) {
-                    Err(Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::ConnectionRefused,
-                        "Simulated async connection failure",
-                    )))
-                } else {
-                    AsyncUdpTransport::new(camera_addr).await
-                }
-            }
-        },
-        reconnect_config,
-    )
-    .await?;
-
-    // Set up event callback
-    transport.set_event_callback(Arc::new(move |event| {
-        let mut event_list = events_clone.lock().unwrap();
-
-        // Print event with emoji indicators
-        match &event {
-            AsyncConnectionEvent::Connected => {
-                println!("🟢 ASYNC EVENT: Connection established");
-            }
-            AsyncConnectionEvent::Disconnected { reason } => {
-                println!("🔴 ASYNC EVENT: Connection lost - {}", reason);
-            }
-            AsyncConnectionEvent::ReconnectingStarted {
-                attempt,
-                max_attempts,
-            } => {
-                println!(
-                    "🔄 ASYNC EVENT: Reconnection attempt {}/{}",
-                    attempt, max_attempts
-                );
-            }
-            AsyncConnectionEvent::ReconnectingFailed { attempt, error } => {
-                println!("❌ ASYNC EVENT: Attempt {} failed - {}", attempt, error);
-            }
-            AsyncConnectionEvent::ReconnectionExhausted => {
-                println!("⛔ ASYNC EVENT: All attempts exhausted");
-            }
-        }
-
-        event_list.push(event);
-    }));
-
-    println!("\nSending commands to trigger connection events...\n");
-
-    // First command should work
-    let power_cmd = PowerCommand { power: Power::On };
-    transport.send_command(&power_cmd).await?;
-    match transport.receive_response().await {
-        Ok(_) => println!("✓ Initial command successful"),
-        Err(e) => println!("✗ Initial command failed: {}", e),
-    }
-
-    // Force connection failures
-    fail_count.store(1, Ordering::SeqCst);
-
-    // This will trigger reconnection
-    transport.send_command(&ZoomCommand::TeleStandard).await?;
-    match transport.receive_response().await {
-        Ok(_) => println!("✓ Command after failure successful"),
-        Err(e) => println!("✗ Command after failure failed: {}", e),
-    }
-
-    // Allow some time for events
-    sleep(Duration::from_secs(1)).await;
-
-    // Try one more command
-    transport.send_command(&PanTiltCommand::Home).await?;
-    match transport.receive_response().await {
-        Ok(_) => println!("✓ Final command successful"),
-        Err(e) => println!("✗ Final command failed: {}", e),
-    }
-
-    // Event summary
-    println!("\n📊 Async Event Summary:");
-    let event_list = events.lock().unwrap();
-    println!("Total events: {}", event_list.len());
-
-    for (i, event) in event_list.iter().enumerate() {
-        print!("  {}. ", i + 1);
-        match event {
-            AsyncConnectionEvent::Connected => println!("Connected"),
-            AsyncConnectionEvent::Disconnected { .. } => println!("Disconnected"),
-            AsyncConnectionEvent::ReconnectingStarted {
-                attempt,
-                max_attempts,
-            } => {
-                println!("Reconnecting {}/{}", attempt, max_attempts)
-            }
-            AsyncConnectionEvent::ReconnectingFailed { attempt, .. } => {
-                println!("Attempt {} failed", attempt)
-            }
-            AsyncConnectionEvent::ReconnectionExhausted => println!("Exhausted"),
-        }
-    }
-
-    Ok(())
-}
+use tokio::time::{sleep, timeout};
 
 #[cfg(not(feature = "async-client"))]
 fn main() {
-    println!("This example requires the 'async' feature to be enabled.");
-    println!("Run with: cargo run --example async_reconnecting --features async-client");
+    eprintln!("This example requires the 'async-client' feature.");
+    eprintln!("Run with: cargo run --example async_reconnecting --features async-client");
 }
-*/
+
+#[cfg(feature = "async-client")]
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    println!("=== Async Connection Resilience Example ===\n");
+
+    // Get camera address
+    let camera_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
+
+    // Demonstrate different resilience scenarios
+    demo_basic_retry(&camera_addr).await?;
+    demo_health_monitoring(&camera_addr).await?;
+    demo_resilient_control(&camera_addr).await?;
+
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+async fn demo_basic_retry(camera_addr: &str) -> Result<(), Error> {
+    println!("1. Basic Retry Logic:");
+    println!("   Attempting to connect with retries...\n");
+
+    let max_retries = 3;
+    let retry_delay = Duration::from_secs(1);
+
+    let mut client = None;
+
+    for attempt in 1..=max_retries {
+        println!("   Connection attempt {}/{}...", attempt, max_retries);
+
+        match Client::connect_udp_async(camera_addr).await {
+            Ok(c) => {
+                println!("   ✓ Connected successfully!");
+                client = Some(c);
+                break;
+            }
+            Err(e) => {
+                println!("   ✗ Connection failed: {}", e);
+                if attempt < max_retries {
+                    println!("   Waiting {:?} before retry...", retry_delay);
+                    sleep(retry_delay).await;
+                }
+            }
+        }
+    }
+
+    let client = match client {
+        Some(c) => c,
+        None => {
+            println!("   ✗ All connection attempts failed");
+            return Ok(());
+        }
+    };
+
+    // Test the connection
+    match client.is_healthy().await {
+        Ok(true) => println!("   ✓ Connection is healthy"),
+        Ok(false) => println!("   ✗ Connection established but camera not responding"),
+        Err(e) => println!("   ✗ Health check failed: {}", e),
+    }
+
+    println!();
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+async fn demo_health_monitoring(camera_addr: &str) -> Result<(), Error> {
+    println!("2. Connection Health Monitoring:");
+    println!("   Setting up periodic health checks...\n");
+
+    let client = Client::connect_udp_async(camera_addr).await?;
+    let is_healthy = Arc::new(AtomicBool::new(true));
+    let health_check_count = Arc::new(AtomicU32::new(0));
+
+    // Spawn health monitoring task
+    let client_clone = client.clone();
+    let is_healthy_clone = is_healthy.clone();
+    let health_check_count_clone = health_check_count.clone();
+
+    let health_monitor = tokio::spawn(async move {
+        let check_interval = Duration::from_secs(2);
+
+        loop {
+            sleep(check_interval).await;
+
+            let count = health_check_count_clone.fetch_add(1, Ordering::SeqCst) + 1;
+            print!("   Health check #{}: ", count);
+
+            match client_clone.is_healthy().await {
+                Ok(true) => {
+                    println!("✓ Healthy");
+                    is_healthy_clone.store(true, Ordering::SeqCst);
+                }
+                Ok(false) => {
+                    println!("✗ Not responding");
+                    is_healthy_clone.store(false, Ordering::SeqCst);
+                }
+                Err(e) => {
+                    println!("✗ Error: {}", e);
+                    is_healthy_clone.store(false, Ordering::SeqCst);
+                }
+            }
+
+            if count >= 5 {
+                break;
+            }
+        }
+    });
+
+    // Perform operations while monitoring health
+    println!("   Performing operations with health monitoring...");
+
+    for i in 1..=5 {
+        if !is_healthy.load(Ordering::SeqCst) {
+            println!("   ⚠️  Connection unhealthy, operation {} may fail", i);
+        }
+
+        // Try to send a command
+        match timeout(
+            Duration::from_secs(1),
+            client.send_async(&InquiryCommand::Power),
+        )
+        .await
+        {
+            Ok(Ok(_)) => println!("   ✓ Operation {} succeeded", i),
+            Ok(Err(e)) => println!("   ✗ Operation {} failed: {}", i, e),
+            Err(_) => println!("   ✗ Operation {} timed out", i),
+        }
+
+        sleep(Duration::from_secs(1)).await;
+    }
+
+    // Wait for health monitor to finish
+    let _ = health_monitor.await;
+
+    println!();
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
+    println!("3. Resilient Camera Control:");
+    println!("   Implementing command retry with exponential backoff...\n");
+
+    let client = Client::connect_udp_async(camera_addr).await?;
+
+    // Define retry configuration
+    #[derive(Clone)]
+    struct RetryConfig {
+        max_attempts: u32,
+        initial_delay: Duration,
+        max_delay: Duration,
+        backoff_factor: f64,
+    }
+
+    let retry_config = RetryConfig {
+        max_attempts: 3,
+        initial_delay: Duration::from_millis(100),
+        max_delay: Duration::from_secs(5),
+        backoff_factor: 2.0,
+    };
+
+    // Helper function to send command with retry
+    async fn send_with_retry<C: grafton_visca::Command>(
+        client: &Client,
+        command: &C,
+        config: &RetryConfig,
+        operation_name: &str,
+    ) -> Result<Response, Error> {
+        let mut delay = config.initial_delay;
+
+        for attempt in 1..=config.max_attempts {
+            println!(
+                "   {} - Attempt {}/{}",
+                operation_name, attempt, config.max_attempts
+            );
+
+            match timeout(Duration::from_secs(2), client.send_async(command)).await {
+                Ok(Ok(response)) => {
+                    println!("   ✓ {} succeeded", operation_name);
+                    return Ok(response);
+                }
+                Ok(Err(e)) => {
+                    println!("   ✗ {} failed: {}", operation_name, e);
+                }
+                Err(_) => {
+                    println!("   ✗ {} timed out", operation_name);
+                }
+            }
+
+            if attempt < config.max_attempts {
+                println!("   Waiting {:?} before retry...", delay);
+                sleep(delay).await;
+
+                // Exponential backoff
+                delay = Duration::from_secs_f64(
+                    (delay.as_secs_f64() * config.backoff_factor)
+                        .min(config.max_delay.as_secs_f64()),
+                );
+            }
+        }
+
+        Err(Error::Io(std::io::Error::other(format!(
+            "{} failed after {} attempts",
+            operation_name, config.max_attempts
+        ))))
+    }
+
+    // Execute a sequence of operations with retry
+    println!("   Executing camera control sequence with automatic retry...\n");
+
+    // Power on
+    let _ = send_with_retry(
+        &client,
+        &PowerCommand { power: Power::On },
+        &retry_config,
+        "Power On",
+    )
+    .await;
+
+    sleep(Duration::from_secs(1)).await;
+
+    // Move to home
+    let _ = send_with_retry(
+        &client,
+        &PanTiltCommand::Home,
+        &retry_config,
+        "Home Position",
+    )
+    .await;
+
+    sleep(Duration::from_secs(2)).await;
+
+    // Pan right
+    let _ = send_with_retry(
+        &client,
+        &PanTiltCommand::Move {
+            direction: PanTiltDirection::Right,
+            pan_speed: PanSpeed::new(5)?,
+            tilt_speed: TiltSpeed::new(0)?,
+        },
+        &retry_config,
+        "Pan Right",
+    )
+    .await;
+
+    sleep(Duration::from_secs(2)).await;
+
+    // Stop movement
+    let _ = send_with_retry(
+        &client,
+        &PanTiltCommand::Move {
+            direction: PanTiltDirection::Stop,
+            pan_speed: PanSpeed::new(0)?,
+            tilt_speed: TiltSpeed::new(0)?,
+        },
+        &retry_config,
+        "Stop Movement",
+    )
+    .await;
+
+    // Zoom in
+    let _ = send_with_retry(
+        &client,
+        &ZoomCommand::ZoomInStandard,
+        &retry_config,
+        "Zoom In",
+    )
+    .await;
+
+    sleep(Duration::from_secs(1)).await;
+
+    // Stop zoom
+    let _ = send_with_retry(&client, &ZoomCommand::Stop, &retry_config, "Stop Zoom").await;
+
+    println!("\n   Control sequence completed!");
+    println!();
+    Ok(())
+}

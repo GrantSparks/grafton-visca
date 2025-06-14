@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Integration tests for `Session` behavior through the public API.
 //!
 //! These tests verify that the internal session management correctly handles:

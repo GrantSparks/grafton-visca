@@ -1,3 +1,5 @@
+//! Example program
+
 //! Example demonstrating the high-level control API for camera operations.
 
 use grafton_visca::{

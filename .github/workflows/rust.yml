@@ -61,7 +61,13 @@ jobs:
       
       # Test no default features
       - name: Test no-default-features
-        run: cargo test --no-default-features --verbose
+        run: |
+          echo "Rust version:"
+          rustc --version
+          echo "Cargo version:"
+          cargo --version
+          echo "Testing with no default features..."
+          cargo test --no-default-features --verbose
       
       # Test all features
       - name: Test all-features
@@ -75,12 +81,21 @@ jobs:
         run: cargo test --no-default-features --features async-client --verbose
       
       # Build examples (only on stable)
-      - name: Build examples
+      - name: Build examples with default features
         if: matrix.rust == 'stable'
-        run: |
-          cargo build --example hello_visca
-          cargo build --example basic_camera_demo
-          cargo build --example async_concurrent --features async-client
+        run: cargo build --examples
+      
+      - name: Build examples with all features
+        if: matrix.rust == 'stable'
+        run: cargo build --examples --all-features
+      
+      - name: Build examples with blocking-client only
+        if: matrix.rust == 'stable'
+        run: cargo build --examples --no-default-features --features blocking-client
+      
+      - name: Build examples with async-client only
+        if: matrix.rust == 'stable'
+        run: cargo build --examples --no-default-features --features async-client
 
   # Combined lint and doc check
   lint-and-docs:
@@ -107,6 +122,10 @@ jobs:
       
       - name: Clippy (no default features)
         run: cargo clippy --all-targets --no-default-features -- -D warnings
+      
+      # Also check examples specifically
+      - name: Clippy examples
+        run: cargo clippy --examples --all-features -- -D warnings
       
       # Check documentation
       - name: Check documentation

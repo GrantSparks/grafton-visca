@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Test data builders for creating complex command objects easily.
 //!
 //! These builders help create test data with sensible defaults while

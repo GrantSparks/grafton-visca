@@ -1,3 +1,5 @@
+//! Example program
+
 use grafton_visca::{
     command::{
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
