@@ -156,6 +156,7 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "unified_transport_demo"
+required-features = ["blocking-client"]
 
 [[example]]
 name = "image_and_gain_demo"
