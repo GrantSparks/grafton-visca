@@ -54,7 +54,7 @@ fn demonstrate_quick_commands(client: &Client) -> Result<(), Error> {
 
     // Quick timeout for inquiry commands
     let quick_timeout = Duration::from_secs(1);
-    
+
     // Power inquiry
     let start = Instant::now();
     match client.send_with_timeout(&InquiryCommand::Power, quick_timeout) {
@@ -71,7 +71,10 @@ fn demonstrate_quick_commands(client: &Client) -> Result<(), Error> {
     match client.send_with_timeout(&InquiryCommand::PanTiltPosition, quick_timeout) {
         Ok(Response::InquiryResponse(resp)) => {
             let elapsed = start.elapsed();
-            println!("   ✓ Position inquiry completed in {:?}: {:?}", elapsed, resp);
+            println!(
+                "   ✓ Position inquiry completed in {:?}: {:?}",
+                elapsed, resp
+            );
         }
         Ok(_) => println!("   ✓ Position inquiry completed but unexpected response"),
         Err(e) => println!("   ✗ Position inquiry failed: {}", e),
@@ -99,30 +102,30 @@ fn demonstrate_movement_commands(client: &Client) -> Result<(), Error> {
 
     // Medium timeout for movement commands
     let movement_timeout = Duration::from_secs(5);
-    
+
     // Start movement
     let move_cmd = PanTiltCommand::Move {
         direction: PanTiltDirection::Right,
         pan_speed: PanSpeed::new(10)?,
         tilt_speed: TiltSpeed::new(0)?,
     };
-    
+
     let start = Instant::now();
     match client.send_with_timeout(&move_cmd, movement_timeout) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Movement command started in {:?}", elapsed);
-            
+
             // Let it move for a bit
             std::thread::sleep(Duration::from_secs(2));
-            
+
             // Stop movement
             let stop_cmd = PanTiltCommand::Move {
                 direction: PanTiltDirection::Stop,
                 pan_speed: PanSpeed::new(0)?,
                 tilt_speed: TiltSpeed::new(0)?,
             };
-            
+
             match client.send_with_timeout(&stop_cmd, movement_timeout) {
                 Ok(_) => println!("   ✓ Movement stopped"),
                 Err(e) => println!("   ✗ Stop command failed: {}", e),
@@ -144,13 +147,13 @@ fn demonstrate_preset_commands(client: &Client) -> Result<(), Error> {
 
     // Long timeout for preset operations
     let preset_timeout = Duration::from_secs(30);
-    
+
     // Save current position as preset
     let save_preset = PresetCommand {
         action: PresetAction::Set,
         preset_number: PresetNumber::new(1)?,
     };
-    
+
     let start = Instant::now();
     match client.send_with_timeout(&save_preset, preset_timeout) {
         Ok(_) => {
@@ -161,13 +164,13 @@ fn demonstrate_preset_commands(client: &Client) -> Result<(), Error> {
             println!("   ✗ Preset save failed: {}", e);
         }
     }
-    
+
     // Recall preset (this typically takes longer)
     let recall_preset = PresetCommand {
         action: PresetAction::Recall,
         preset_number: PresetNumber::new(1)?,
     };
-    
+
     let start = Instant::now();
     match client.send_with_timeout(&recall_preset, preset_timeout) {
         Ok(_) => {
@@ -190,23 +193,31 @@ fn demonstrate_retry_with_timeout(client: &Client) -> Result<(), Error> {
 
     // Command that might need retries
     let command = InquiryCommand::FocusPosition;
-    
+
     // Retry configuration
     let timeouts = [
         Duration::from_millis(500),
         Duration::from_secs(1),
         Duration::from_secs(2),
     ];
-    
+
     for (attempt, &timeout) in timeouts.iter().enumerate() {
         let attempt_num = attempt + 1;
-        println!("   Attempt {}/{} with timeout {:?}", attempt_num, timeouts.len(), timeout);
-        
+        println!(
+            "   Attempt {}/{} with timeout {:?}",
+            attempt_num,
+            timeouts.len(),
+            timeout
+        );
+
         let start = Instant::now();
         match client.send_with_timeout(&command, timeout) {
             Ok(Response::InquiryResponse(resp)) => {
                 let elapsed = start.elapsed();
-                println!("   ✓ Success on attempt {} in {:?}: {:?}", attempt_num, elapsed, resp);
+                println!(
+                    "   ✓ Success on attempt {} in {:?}: {:?}",
+                    attempt_num, elapsed, resp
+                );
                 return Ok(());
             }
             Ok(_) => {
@@ -215,8 +226,11 @@ fn demonstrate_retry_with_timeout(client: &Client) -> Result<(), Error> {
             }
             Err(e) => {
                 let elapsed = start.elapsed();
-                println!("   ✗ Attempt {} failed after {:?}: {}", attempt_num, elapsed, e);
-                
+                println!(
+                    "   ✗ Attempt {} failed after {:?}: {}",
+                    attempt_num, elapsed, e
+                );
+
                 if attempt_num < timeouts.len() {
                     println!("   Retrying with longer timeout...");
                     std::thread::sleep(Duration::from_millis(100));
@@ -224,7 +238,7 @@ fn demonstrate_retry_with_timeout(client: &Client) -> Result<(), Error> {
             }
         }
     }
-    
+
     println!("   ✗ All retry attempts exhausted");
     println!();
     Ok(())

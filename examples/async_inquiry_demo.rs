@@ -49,9 +49,7 @@ async fn main() -> Result<(), Error> {
     println!("\n2. Camera Position and Zoom");
 
     let position = client.send_async(&InquiryCommand::PanTiltPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) =
-        position
-    {
+    if let Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) = position {
         println!("   - Pan/Tilt Position: pan={}, tilt={}", pan, tilt);
     }
 
@@ -61,8 +59,7 @@ async fn main() -> Result<(), Error> {
     }
 
     let focus = client.send_async(&InquiryCommand::FocusPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::FocusPosition { position }) = focus
-    {
+    if let Response::InquiryResponse(InquiryResponse::FocusPosition { position }) = focus {
         println!("   - Focus Position: {:02X?}", position);
     }
 
@@ -76,21 +73,15 @@ async fn main() -> Result<(), Error> {
     let (exposure_result, wb_result, luminance_result) =
         tokio::join!(exposure_future, wb_future, luminance_future);
 
-    if let Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) =
-        exposure_result
-    {
+    if let Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) = exposure_result {
         println!("   - Exposure Mode: {:?}", mode);
     }
 
-    if let Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance { mode })) =
-        wb_result
-    {
+    if let Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance { mode })) = wb_result {
         println!("   - White Balance: {:?}", mode);
     }
 
-    if let Ok(Response::InquiryResponse(InquiryResponse::Luminance(level))) =
-        luminance_result
-    {
+    if let Ok(Response::InquiryResponse(InquiryResponse::Luminance(level))) = luminance_result {
         println!("   - Luminance: {}", level);
     }
 
@@ -133,8 +124,7 @@ async fn main() -> Result<(), Error> {
         println!("   Reading #{}", i);
 
         let current_zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
-        if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) =
-            current_zoom
+        if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = current_zoom
         {
             println!("     - Current Zoom: {:02X?}", position);
         }

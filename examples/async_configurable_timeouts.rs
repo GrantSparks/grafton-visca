@@ -53,7 +53,7 @@ async fn demonstrate_quick_timeout(client: &Client) -> Result<(), Error> {
 
     // Quick inquiry with short timeout
     let quick_timeout = Duration::from_secs(1);
-    
+
     // Power inquiry
     match timeout(quick_timeout, client.send_async(&InquiryCommand::Power)).await {
         Ok(Ok(Response::InquiryResponse(resp))) => {
@@ -80,7 +80,12 @@ async fn demonstrate_quick_timeout(client: &Client) -> Result<(), Error> {
     }
 
     // Position inquiry
-    match timeout(quick_timeout, client.send_async(&InquiryCommand::PanTiltPosition)).await {
+    match timeout(
+        quick_timeout,
+        client.send_async(&InquiryCommand::PanTiltPosition),
+    )
+    .await
+    {
         Ok(Ok(Response::InquiryResponse(resp))) => {
             println!("   ✓ Position inquiry succeeded: {:?}", resp);
         }
@@ -105,28 +110,28 @@ async fn demonstrate_movement_timeout(client: &Client) -> Result<(), Error> {
     println!("   Using 5 second timeout for movement commands\n");
 
     let movement_timeout = Duration::from_secs(5);
-    
+
     // Start pan/tilt movement
     let move_cmd = PanTiltCommand::Move {
         direction: PanTiltDirection::Right,
         pan_speed: PanSpeed::new(10)?,
         tilt_speed: TiltSpeed::new(0)?,
     };
-    
+
     match timeout(movement_timeout, client.send_async(&move_cmd)).await {
         Ok(Ok(_)) => {
             println!("   ✓ Movement command started successfully");
-            
+
             // Let it move for a bit
             tokio::time::sleep(Duration::from_secs(2)).await;
-            
+
             // Stop movement
             let stop_cmd = PanTiltCommand::Move {
                 direction: PanTiltDirection::Stop,
                 pan_speed: PanSpeed::new(0)?,
                 tilt_speed: TiltSpeed::new(0)?,
             };
-            
+
             match timeout(movement_timeout, client.send_async(&stop_cmd)).await {
                 Ok(Ok(_)) => println!("   ✓ Movement stopped"),
                 Ok(Err(e)) => println!("   ✗ Stop command failed: {}", e),
@@ -137,7 +142,10 @@ async fn demonstrate_movement_timeout(client: &Client) -> Result<(), Error> {
             println!("   ✗ Movement command failed: {}", e);
         }
         Err(_) => {
-            println!("   ✗ Movement command timed out after {:?}", movement_timeout);
+            println!(
+                "   ✗ Movement command timed out after {:?}",
+                movement_timeout
+            );
         }
     }
 
@@ -151,13 +159,13 @@ async fn demonstrate_preset_timeout(client: &Client) -> Result<(), Error> {
     println!("   Using 30 second timeout for preset operations\n");
 
     let preset_timeout = Duration::from_secs(30);
-    
+
     // Recall preset (which may take time to complete movement)
     let preset_cmd = PresetCommand {
         action: PresetAction::Recall,
         preset_number: PresetNumber::new(1)?,
     };
-    
+
     let start = std::time::Instant::now();
     match timeout(preset_timeout, client.send_async(&preset_cmd)).await {
         Ok(Ok(_)) => {
@@ -183,22 +191,28 @@ async fn demonstrate_timeout_recovery(client: &Client) -> Result<(), Error> {
 
     // Command that might timeout
     let command = InquiryCommand::ZoomPosition;
-    
+
     // Retry configuration
     let max_retries = 3;
     let initial_timeout = Duration::from_millis(500);
-    
+
     for attempt in 1..=max_retries {
         let current_timeout = initial_timeout * attempt as u32;
-        println!("   Attempt {}/{} with timeout {:?}", attempt, max_retries, current_timeout);
-        
+        println!(
+            "   Attempt {}/{} with timeout {:?}",
+            attempt, max_retries, current_timeout
+        );
+
         match timeout(current_timeout, client.send_async(&command)).await {
             Ok(Ok(Response::InquiryResponse(resp))) => {
                 println!("   ✓ Success on attempt {}: {:?}", attempt, resp);
                 return Ok(());
             }
             Ok(Ok(_)) => {
-                println!("   ✓ Command completed on attempt {} with unexpected response", attempt);
+                println!(
+                    "   ✓ Command completed on attempt {} with unexpected response",
+                    attempt
+                );
                 return Ok(());
             }
             Ok(Err(e)) => {
@@ -217,7 +231,7 @@ async fn demonstrate_timeout_recovery(client: &Client) -> Result<(), Error> {
             }
         }
     }
-    
+
     println!("   ✗ All retry attempts exhausted");
     println!();
     Ok(())

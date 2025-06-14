@@ -99,20 +99,19 @@ async fn main() -> Result<(), Error> {
 
     // Example 3: Complex concurrent sequence
     println!("\n=== Complex Concurrent Sequence ===");
-    
+
     // Save current position as preset while also getting camera info
     let save_preset = PresetCommand {
         action: PresetAction::Set,
         preset_number: PresetNumber::new(1)?,
     };
-    
+
     let save_fut = camera.send_async(&save_preset);
     let wb_fut = camera.send_async(&InquiryCommand::WhiteBalanceMode);
     let exposure_fut = camera.send_async(&InquiryCommand::ExposureMode);
-    
-    let (save_result, wb_result, exposure_result) = 
-        tokio::join!(save_fut, wb_fut, exposure_fut);
-    
+
+    let (save_result, wb_result, exposure_result) = tokio::join!(save_fut, wb_fut, exposure_fut);
+
     println!("Preset saved: {:?}", save_result.is_ok());
     if let Ok(Response::InquiryResponse(ref resp)) = wb_result {
         println!("White balance: {:?}", resp);
@@ -124,72 +123,72 @@ async fn main() -> Result<(), Error> {
     // Example 4: Maximizing throughput with many operations
     println!("\n=== Maximum Throughput Test ===");
     let start = Instant::now();
-    
+
     // Create many inquiry futures
     let mut futures = Vec::new();
     for _ in 0..10 {
         futures.push(camera.send_async(&InquiryCommand::ZoomPosition));
     }
-    
+
     // Execute them all concurrently (limited by the 2-socket constraint)
     let results = futures_util::future::join_all(futures).await;
-    
+
     let elapsed = start.elapsed();
     let successful = results.iter().filter(|r| r.is_ok()).count();
-    
+
     println!("Sent 10 commands in {:?}", elapsed);
     println!("Successful: {}/10", successful);
     println!("Average time per command: {:?}", elapsed / 10);
 
     // Example 5: Movement coordination
     println!("\n=== Coordinated Movement ===");
-    
+
     // Move to home while setting focus to auto
     let home_fut = camera.send_async(&PanTiltCommand::Home);
     let focus_fut = camera.send_async(&FocusCommand::Auto);
-    
+
     let (home_result, focus_result) = tokio::join!(home_fut, focus_fut);
-    
+
     println!("Home command: {:?}", home_result.is_ok());
     println!("Auto focus: {:?}", focus_result.is_ok());
-    
+
     // Wait for movement to complete
     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-    
+
     // Now do a complex movement pattern
     println!("\nExecuting movement pattern...");
-    
+
     // Pan right while zooming in
     let pan_right = PanTiltCommand::Move {
         direction: PanTiltDirection::Right,
         pan_speed: PanSpeed::new(0x08)?,
         tilt_speed: TiltSpeed::new(0)?,
     };
-    
+
     let pan_fut = camera.send_async(&pan_right);
-    
+
     let zoom_cmd = if let Ok(speed) = grafton_visca::command::zoom::ZoomSpeed::new(3) {
         ZoomCommand::ZoomInVariable(speed)
     } else {
         ZoomCommand::ZoomInStandard
     };
     let zoom_in_fut = camera.send_async(&zoom_cmd);
-    
+
     tokio::join!(pan_fut, zoom_in_fut);
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    
+
     // Stop all movement
     let stop_pan = PanTiltCommand::Move {
         direction: PanTiltDirection::Stop,
         pan_speed: PanSpeed::new(0)?,
         tilt_speed: TiltSpeed::new(0)?,
     };
-    
+
     let stop_pan_fut = camera.send_async(&stop_pan);
     let stop_zoom_fut = camera.send_async(&ZoomCommand::Stop);
-    
+
     tokio::join!(stop_pan_fut, stop_zoom_fut);
-    
+
     println!("\nConcurrent operations demo completed!");
     Ok(())
 }

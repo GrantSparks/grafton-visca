@@ -63,9 +63,10 @@ async fn main() -> Result<(), Error> {
     }
 
     // Handle position response
-    if let Ok(Response::InquiryResponse(
-        grafton_visca::InquiryResponse::PanTiltPosition { pan, tilt },
-    )) = position_result
+    if let Ok(Response::InquiryResponse(grafton_visca::InquiryResponse::PanTiltPosition {
+        pan,
+        tilt,
+    })) = position_result
     {
         println!("   - Position: pan={}, tilt={}", pan, tilt);
     }
