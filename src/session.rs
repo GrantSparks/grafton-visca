@@ -3,16 +3,13 @@ use std::collections::HashMap;
 use log::{debug, error};
 
 use crate::{
-    command::response::{parse_visca_response as parse_response_typed, Response, ResponseType},
+    command::response::{parse_response as parse_response_typed, Response, ResponseType},
     error::Error,
     types::SocketId,
 };
 
 /// Parse a VISCA response, optionally with a specific expected type.
-fn parse_visca_response(
-    data: &[u8],
-    response_type: Option<ResponseType>,
-) -> Result<Response, Error> {
+fn parse_response(data: &[u8], response_type: Option<ResponseType>) -> Result<Response, Error> {
     if data.len() < 3 || data[0] != 0x90 || data[data.len() - 1] != 0xFF {
         return Err(Error::InvalidResponseFormat);
     }
@@ -226,7 +223,7 @@ impl Session {
     /// Process a raw response and update session state.
     pub fn handle_response(&mut self, data: &[u8]) -> Response {
         // Parse the basic response structure
-        let response = match parse_visca_response(data, None) {
+        let response = match parse_response(data, None) {
             Ok(r) => r,
             Err(e) => {
                 error!("Failed to parse response: {e}");

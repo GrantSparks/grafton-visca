@@ -254,8 +254,8 @@ pub trait PositionExt: PanTiltExt {
         speed: Option<(PanSpeed, TiltSpeed)>,
     ) -> Result<(), Error> {
         // Convert degrees to VISCA units using the conversion factor
-        let pan_units = crate::constants::pan_degrees_to_visca(pan_deg);
-        let tilt_units = crate::constants::tilt_degrees_to_visca(tilt_deg);
+        let pan_units = crate::constants::pan_degrees_to_units(pan_deg);
+        let tilt_units = crate::constants::tilt_degrees_to_units(tilt_deg);
         self.move_relative(pan_units, tilt_units, speed)
     }
 
@@ -292,8 +292,8 @@ pub trait PositionExt: PanTiltExt {
         pan_speed: f32,
         tilt_speed: f32,
     ) -> Result<(u8, u8), Error> {
-        let pan = crate::constants::pan_speed_normalized_to_visca(pan_speed);
-        let tilt = crate::constants::tilt_speed_normalized_to_visca(tilt_speed);
+        let pan = crate::constants::pan_speed_normalized_to_units(pan_speed);
+        let tilt = crate::constants::tilt_speed_normalized_to_units(tilt_speed);
         Ok((pan, tilt))
     }
 }

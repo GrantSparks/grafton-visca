@@ -161,10 +161,7 @@ pub enum ResponseType {
 /// Returns `Error::InvalidResponseLength` if the response length doesn't match expected.
 /// Returns `Error::UnexpectedResponseType` if the response data is invalid for the type.
 /// Returns a specific VISCA error code if the response indicates an error (0x60-0x6F).
-pub fn parse_visca_response(
-    response: &[u8],
-    response_type: &ResponseType,
-) -> Result<Response, Error> {
+pub fn parse_response(response: &[u8], response_type: &ResponseType) -> Result<Response, Error> {
     if response.len() < 3 || response[0] != 0x90 || response[response.len() - 1] != 0xFF {
         return Err(Error::InvalidResponseFormat);
     }
@@ -643,13 +640,13 @@ mod tests {
     #[test]
     fn test_parse_ack_response() {
         let response = vec![0x90, 0x41, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Power).unwrap();
+        let result = parse_response(&response, &ResponseType::Power).unwrap();
         assert!(matches!(result, Response::Ack));
 
         // Test all socket variations
         for socket in 0x40..=0x4F {
             let response = vec![0x90, socket, 0xFF];
-            let result = parse_visca_response(&response, &ResponseType::Power).unwrap();
+            let result = parse_response(&response, &ResponseType::Power).unwrap();
             assert!(matches!(result, Response::Ack));
         }
     }
@@ -657,13 +654,13 @@ mod tests {
     #[test]
     fn test_parse_completion_response() {
         let response = vec![0x90, 0x51, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Power).unwrap();
+        let result = parse_response(&response, &ResponseType::Power).unwrap();
         assert!(matches!(result, Response::Completion));
 
         // Test all socket variations
         for socket in 0x50..=0x5F {
             let response = vec![0x90, socket, 0xFF];
-            let result = parse_visca_response(&response, &ResponseType::Power).unwrap();
+            let result = parse_response(&response, &ResponseType::Power).unwrap();
             assert!(matches!(result, Response::Completion));
         }
     }
@@ -682,7 +679,7 @@ mod tests {
 
         for (code, _desc) in error_codes {
             let response = vec![0x90, 0x60, code, 0xFF];
-            let result = parse_visca_response(&response, &ResponseType::Power);
+            let result = parse_response(&response, &ResponseType::Power);
             assert!(result.is_err());
 
             // Verify the error matches the expected code
@@ -703,29 +700,29 @@ mod tests {
     fn test_parse_invalid_response_format() {
         // Too short
         let response = vec![0x90, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Power);
+        let result = parse_response(&response, &ResponseType::Power);
         assert!(matches!(result, Err(Error::InvalidResponseFormat)));
 
         // Wrong start byte
         let response = vec![0x80, 0x50, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Power);
+        let result = parse_response(&response, &ResponseType::Power);
         assert!(matches!(result, Err(Error::InvalidResponseFormat)));
 
         // Wrong end byte
         let response = vec![0x90, 0x50, 0xFE];
-        let result = parse_visca_response(&response, &ResponseType::Power);
+        let result = parse_response(&response, &ResponseType::Power);
         assert!(matches!(result, Err(Error::InvalidResponseFormat)));
 
         // Empty response
         let response = vec![];
-        let result = parse_visca_response(&response, &ResponseType::Power);
+        let result = parse_response(&response, &ResponseType::Power);
         assert!(matches!(result, Err(Error::InvalidResponseFormat)));
     }
 
     #[test]
     fn test_parse_unknown_response() {
         let response = vec![0x90, 0x30, 0xFF]; // Unknown socket byte
-        let result = parse_visca_response(&response, &ResponseType::Power).unwrap();
+        let result = parse_response(&response, &ResponseType::Power).unwrap();
         match result {
             Response::Unknown(bytes) => assert_eq!(bytes, vec![0x90, 0x30, 0xFF]),
             _ => panic!("Expected Unknown response"),
@@ -736,7 +733,7 @@ mod tests {
     fn test_parse_power_response() {
         // Power On
         let response = vec![0x90, 0x50, 0x02, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Power).unwrap();
+        let result = parse_response(&response, &ResponseType::Power).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Power { on }) => assert!(on),
             _ => panic!("Expected Power inquiry response"),
@@ -744,7 +741,7 @@ mod tests {
 
         // Power Off
         let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Power).unwrap();
+        let result = parse_response(&response, &ResponseType::Power).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Power { on }) => assert!(!on),
             _ => panic!("Expected Power inquiry response"),
@@ -752,7 +749,7 @@ mod tests {
 
         // Invalid length
         let response = vec![0x90, 0x50, 0x02, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Power);
+        let result = parse_response(&response, &ResponseType::Power);
         assert!(matches!(result, Err(Error::InvalidResponseLength)));
     }
 
@@ -761,7 +758,7 @@ mod tests {
         let response = vec![
             0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF,
         ];
-        let result = parse_visca_response(&response, &ResponseType::PanTiltPosition).unwrap();
+        let result = parse_response(&response, &ResponseType::PanTiltPosition).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
                 assert_eq!(pan, -1);
@@ -774,7 +771,7 @@ mod tests {
         let response = vec![
             0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xFF,
         ];
-        let result = parse_visca_response(&response, &ResponseType::PanTiltPosition).unwrap();
+        let result = parse_response(&response, &ResponseType::PanTiltPosition).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
                 assert_eq!(pan, 0x1234);
@@ -785,14 +782,14 @@ mod tests {
 
         // Invalid length
         let response = vec![0x90, 0x50, 0x00, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::PanTiltPosition);
+        let result = parse_response(&response, &ResponseType::PanTiltPosition);
         assert!(matches!(result, Err(Error::InvalidResponseLength)));
     }
 
     #[test]
     fn test_parse_zoom_position() {
         let response = vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ZoomPosition).unwrap();
+        let result = parse_response(&response, &ResponseType::ZoomPosition).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => {
                 assert_eq!(position, 0x1234);
@@ -804,7 +801,7 @@ mod tests {
     #[test]
     fn test_parse_focus_position() {
         let response = vec![0x90, 0x50, 0x0A, 0x0B, 0x0C, 0x0D, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::FocusPosition).unwrap();
+        let result = parse_response(&response, &ResponseType::FocusPosition).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => {
                 assert_eq!(position, 0xABCD);
@@ -816,7 +813,7 @@ mod tests {
     #[test]
     fn test_parse_focus_near_limit() {
         let response = vec![0x90, 0x50, 0x05, 0x05, 0x05, 0x05, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::FocusNearLimit).unwrap();
+        let result = parse_response(&response, &ResponseType::FocusNearLimit).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => {
                 assert_eq!(position, 0x5555);
@@ -838,7 +835,7 @@ mod tests {
 
         for (byte, expected_mode) in modes {
             let response = vec![0x90, 0x50, byte, 0xFF];
-            let result = parse_visca_response(&response, &ResponseType::ExposureMode).unwrap();
+            let result = parse_response(&response, &ResponseType::ExposureMode).unwrap();
             match result {
                 Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => {
                     assert_eq!(mode, expected_mode);
@@ -849,7 +846,7 @@ mod tests {
 
         // Invalid mode
         let response = vec![0x90, 0x50, 0xFF, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ExposureMode);
+        let result = parse_response(&response, &ResponseType::ExposureMode);
         assert!(matches!(result, Err(Error::UnexpectedResponseType)));
     }
 
@@ -867,7 +864,7 @@ mod tests {
 
         for (byte, expected_mode) in modes {
             let response = vec![0x90, 0x50, byte, 0xFF];
-            let result = parse_visca_response(&response, &ResponseType::WhiteBalanceMode).unwrap();
+            let result = parse_response(&response, &ResponseType::WhiteBalanceMode).unwrap();
             match result {
                 Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => {
                     assert_eq!(mode, expected_mode);
@@ -881,8 +878,7 @@ mod tests {
     fn test_parse_exposure_compensation_mode() {
         // On
         let response = vec![0x90, 0x50, 0x02, 0xFF];
-        let result =
-            parse_visca_response(&response, &ResponseType::ExposureCompensationMode).unwrap();
+        let result = parse_response(&response, &ResponseType::ExposureCompensationMode).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => {
                 assert!(on);
@@ -892,8 +888,7 @@ mod tests {
 
         // Off
         let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result =
-            parse_visca_response(&response, &ResponseType::ExposureCompensationMode).unwrap();
+        let result = parse_response(&response, &ResponseType::ExposureCompensationMode).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => {
                 assert!(!on);
@@ -906,7 +901,7 @@ mod tests {
     fn test_parse_sharpness_mode() {
         // Auto
         let response = vec![0x90, 0x50, 0x02, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::SharpnessMode).unwrap();
+        let result = parse_response(&response, &ResponseType::SharpnessMode).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => {
                 assert!(matches!(mode, SharpnessMode::Auto));
@@ -916,7 +911,7 @@ mod tests {
 
         // Manual
         let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::SharpnessMode).unwrap();
+        let result = parse_response(&response, &ResponseType::SharpnessMode).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => {
                 assert!(matches!(mode, SharpnessMode::Manual));
@@ -926,7 +921,7 @@ mod tests {
 
         // Invalid mode
         let response = vec![0x90, 0x50, 0x01, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::SharpnessMode);
+        let result = parse_response(&response, &ResponseType::SharpnessMode);
         assert!(matches!(result, Err(Error::UnexpectedResponseType)));
     }
 
@@ -934,7 +929,7 @@ mod tests {
     fn test_parse_black_white_mode() {
         // On
         let response = vec![0x90, 0x50, 0x04, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::BlackWhite).unwrap();
+        let result = parse_response(&response, &ResponseType::BlackWhite).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => assert!(on),
             _ => panic!("Expected BlackWhite inquiry response"),
@@ -942,7 +937,7 @@ mod tests {
 
         // Off
         let response = vec![0x90, 0x50, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::BlackWhite).unwrap();
+        let result = parse_response(&response, &ResponseType::BlackWhite).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => assert!(!on),
             _ => panic!("Expected BlackWhite inquiry response"),
@@ -953,7 +948,7 @@ mod tests {
     fn test_parse_simple_values() {
         // GainLimit
         let response = vec![0x90, 0x50, 0x07, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::GainLimit).unwrap();
+        let result = parse_response(&response, &ResponseType::GainLimit).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => {
                 assert_eq!(limit, 7);
@@ -963,7 +958,7 @@ mod tests {
 
         // AntiFlicker
         let response = vec![0x90, 0x50, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::AntiFlicker).unwrap();
+        let result = parse_response(&response, &ResponseType::AntiFlicker).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => {
                 assert!(matches!(mode, AntiFlickerMode::Off));
@@ -973,7 +968,7 @@ mod tests {
 
         // RedGain
         let response = vec![0x90, 0x50, 0x0A, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::RedGain).unwrap();
+        let result = parse_response(&response, &ResponseType::RedGain).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::RedGain { gain }) => {
                 assert_eq!(gain, 0);
@@ -983,7 +978,7 @@ mod tests {
 
         // BlueGain
         let response = vec![0x90, 0x50, 0x14, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::BlueGain).unwrap();
+        let result = parse_response(&response, &ResponseType::BlueGain).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::BlueGain { gain }) => {
                 assert_eq!(gain, 10);
@@ -993,7 +988,7 @@ mod tests {
 
         // ImageFlip
         let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ImageFlip).unwrap();
+        let result = parse_response(&response, &ResponseType::ImageFlip).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ImageFlip {
                 vertical,
@@ -1007,7 +1002,7 @@ mod tests {
 
         // NoiseReduction2D
         let response = vec![0x90, 0x50, 0x05, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::NoiseReduction2D).unwrap();
+        let result = parse_response(&response, &ResponseType::NoiseReduction2D).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => {
                 assert_eq!(level, 5);
@@ -1017,7 +1012,7 @@ mod tests {
 
         // FocusZone
         let response = vec![0x90, 0x50, 0x01, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::FocusZone).unwrap();
+        let result = parse_response(&response, &ResponseType::FocusZone).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => {
                 assert!(matches!(zone, FocusZone::Center));
@@ -1027,7 +1022,7 @@ mod tests {
 
         // AutoFocusSensitivity
         let response = vec![0x90, 0x50, 0x02, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::AutoFocusSensitivity).unwrap();
+        let result = parse_response(&response, &ResponseType::AutoFocusSensitivity).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
                 assert!(matches!(sensitivity, AutoFocusSensitivity::High));
@@ -1040,7 +1035,7 @@ mod tests {
     fn test_parse_extended_values() {
         // Sharpness
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Sharpness).unwrap();
+        let result = parse_response(&response, &ResponseType::Sharpness).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Sharpness { value }) => {
                 assert_eq!(value, 7);
@@ -1050,7 +1045,7 @@ mod tests {
 
         // ExposureCompensation
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ExposureCompensation).unwrap();
+        let result = parse_response(&response, &ResponseType::ExposureCompensation).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => {
                 assert_eq!(value, 0);
@@ -1060,7 +1055,7 @@ mod tests {
 
         // Iris
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0C, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Iris).unwrap();
+        let result = parse_response(&response, &ResponseType::Iris).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Iris { position }) => {
                 assert_eq!(position, 0x0C);
@@ -1070,7 +1065,7 @@ mod tests {
 
         // Shutter
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x01, 0x01, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Shutter).unwrap();
+        let result = parse_response(&response, &ResponseType::Shutter).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Shutter { position }) => {
                 assert_eq!(position, 0x11);
@@ -1080,7 +1075,7 @@ mod tests {
 
         // Saturation
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Saturation).unwrap();
+        let result = parse_response(&response, &ResponseType::Saturation).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Saturation { level }) => {
                 assert_eq!(level, 8);
@@ -1090,7 +1085,7 @@ mod tests {
 
         // ColorTemperature
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x03, 0x02, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ColorTemperature).unwrap();
+        let result = parse_response(&response, &ResponseType::ColorTemperature).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
                 assert_eq!(temperature, 0x32);
@@ -1100,7 +1095,7 @@ mod tests {
 
         // DynamicRange
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::DynamicRange).unwrap();
+        let result = parse_response(&response, &ResponseType::DynamicRange).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::DynamicRange { level }) => {
                 assert_eq!(level, 8);
@@ -1119,7 +1114,7 @@ mod tests {
 
         for (byte, expected_mode) in modes {
             let response = vec![0x90, 0x50, byte, 0xFF];
-            let result = parse_visca_response(&response, &ResponseType::AntiFlicker).unwrap();
+            let result = parse_response(&response, &ResponseType::AntiFlicker).unwrap();
             match result {
                 Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => {
                     assert_eq!(mode, expected_mode);
@@ -1130,7 +1125,7 @@ mod tests {
 
         // Invalid mode
         let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::AntiFlicker);
+        let result = parse_response(&response, &ResponseType::AntiFlicker);
         assert!(matches!(result, Err(Error::UnexpectedResponseType)));
     }
 
@@ -1144,7 +1139,7 @@ mod tests {
 
         for (byte, expected_zone) in zones {
             let response = vec![0x90, 0x50, byte, 0xFF];
-            let result = parse_visca_response(&response, &ResponseType::FocusZone).unwrap();
+            let result = parse_response(&response, &ResponseType::FocusZone).unwrap();
             match result {
                 Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => {
                     assert_eq!(zone, expected_zone);
@@ -1155,7 +1150,7 @@ mod tests {
 
         // Invalid zone
         let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::FocusZone);
+        let result = parse_response(&response, &ResponseType::FocusZone);
         assert!(matches!(result, Err(Error::UnexpectedResponseType)));
     }
 
@@ -1169,8 +1164,7 @@ mod tests {
 
         for (byte, expected_sensitivity) in sensitivities {
             let response = vec![0x90, 0x50, byte, 0xFF];
-            let result =
-                parse_visca_response(&response, &ResponseType::AutoFocusSensitivity).unwrap();
+            let result = parse_response(&response, &ResponseType::AutoFocusSensitivity).unwrap();
             match result {
                 Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity {
                     sensitivity,
@@ -1183,7 +1177,7 @@ mod tests {
 
         // Invalid sensitivity
         let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::AutoFocusSensitivity);
+        let result = parse_response(&response, &ResponseType::AutoFocusSensitivity);
         assert!(matches!(result, Err(Error::UnexpectedResponseType)));
     }
 
@@ -1191,17 +1185,17 @@ mod tests {
     fn test_response_length_validation() {
         // Test simple values with wrong length
         let response = vec![0x90, 0x50, 0x00, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::GainLimit);
+        let result = parse_response(&response, &ResponseType::GainLimit);
         assert!(matches!(result, Err(Error::InvalidResponseLength)));
 
         // Test extended values with wrong length
         let response = vec![0x90, 0x50, 0x00, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Sharpness);
+        let result = parse_response(&response, &ResponseType::Sharpness);
         assert!(matches!(result, Err(Error::InvalidResponseLength)));
 
         // Test mode values with wrong length
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ExposureMode);
+        let result = parse_response(&response, &ResponseType::ExposureMode);
         assert!(matches!(result, Err(Error::InvalidResponseLength)));
     }
 
@@ -1209,7 +1203,7 @@ mod tests {
     fn test_image_flip_combinations() {
         // Neither flipped
         let response = vec![0x90, 0x50, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ImageFlip).unwrap();
+        let result = parse_response(&response, &ResponseType::ImageFlip).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ImageFlip {
                 vertical,
@@ -1223,7 +1217,7 @@ mod tests {
 
         // Horizontal only
         let response = vec![0x90, 0x50, 0x01, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ImageFlip).unwrap();
+        let result = parse_response(&response, &ResponseType::ImageFlip).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ImageFlip {
                 vertical,
@@ -1237,7 +1231,7 @@ mod tests {
 
         // Vertical only
         let response = vec![0x90, 0x50, 0x02, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ImageFlip).unwrap();
+        let result = parse_response(&response, &ResponseType::ImageFlip).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ImageFlip {
                 vertical,
@@ -1251,7 +1245,7 @@ mod tests {
 
         // Both flipped
         let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ImageFlip).unwrap();
+        let result = parse_response(&response, &ResponseType::ImageFlip).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ImageFlip {
                 vertical,
@@ -1269,7 +1263,7 @@ mod tests {
         // Test RedGain conversion
         for raw_value in 0..=20 {
             let response = vec![0x90, 0x50, raw_value, 0xFF];
-            let result = parse_visca_response(&response, &ResponseType::RedGain).unwrap();
+            let result = parse_response(&response, &ResponseType::RedGain).unwrap();
             match result {
                 Response::InquiryResponse(InquiryResponse::RedGain { gain }) => {
                     assert_eq!(gain, i16::from(raw_value) as i8 - 10);
@@ -1281,7 +1275,7 @@ mod tests {
         // Test BlueGain conversion
         for raw_value in 0..=20 {
             let response = vec![0x90, 0x50, raw_value, 0xFF];
-            let result = parse_visca_response(&response, &ResponseType::BlueGain).unwrap();
+            let result = parse_response(&response, &ResponseType::BlueGain).unwrap();
             match result {
                 Response::InquiryResponse(InquiryResponse::BlueGain { gain }) => {
                     assert_eq!(gain, i16::from(raw_value) as i8 - 10);
@@ -1296,8 +1290,7 @@ mod tests {
         // Test all valid exposure compensation values
         for raw_value in 0..=14 {
             let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, raw_value, 0xFF];
-            let result =
-                parse_visca_response(&response, &ResponseType::ExposureCompensation).unwrap();
+            let result = parse_response(&response, &ResponseType::ExposureCompensation).unwrap();
             match result {
                 Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => {
                     assert_eq!(value, i16::from(raw_value) as i8 - 7);
@@ -1311,7 +1304,7 @@ mod tests {
     fn test_extended_value_nibble_combination() {
         // Test Sharpness nibble combination
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x01, 0x05, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Sharpness).unwrap();
+        let result = parse_response(&response, &ResponseType::Sharpness).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Sharpness { value }) => {
                 assert_eq!(value, 0x15);
@@ -1321,7 +1314,7 @@ mod tests {
 
         // Test Shutter nibble combination
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x0A, 0x0B, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Shutter).unwrap();
+        let result = parse_response(&response, &ResponseType::Shutter).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Shutter { position }) => {
                 assert_eq!(position, 0xAB);
@@ -1331,7 +1324,7 @@ mod tests {
 
         // Test ColorTemperature nibble combination
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x01, 0x02, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ColorTemperature).unwrap();
+        let result = parse_response(&response, &ResponseType::ColorTemperature).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
                 assert_eq!(temperature, 0x12);
@@ -1344,7 +1337,7 @@ mod tests {
     fn test_edge_case_values() {
         // Test maximum sharpness value
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x0F, 0x0F, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Sharpness).unwrap();
+        let result = parse_response(&response, &ResponseType::Sharpness).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Sharpness { value }) => {
                 assert_eq!(value, 0xFF);
@@ -1354,7 +1347,7 @@ mod tests {
 
         // Test maximum gain limit
         let response = vec![0x90, 0x50, 0x0F, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::GainLimit).unwrap();
+        let result = parse_response(&response, &ResponseType::GainLimit).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => {
                 assert_eq!(limit, 15);
@@ -1364,7 +1357,7 @@ mod tests {
 
         // Test boundary exposure compensation values
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ExposureCompensation).unwrap();
+        let result = parse_response(&response, &ResponseType::ExposureCompensation).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => {
                 assert_eq!(value, -7);
@@ -1373,7 +1366,7 @@ mod tests {
         }
 
         let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0E, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::ExposureCompensation).unwrap();
+        let result = parse_response(&response, &ResponseType::ExposureCompensation).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => {
                 assert_eq!(value, 7);
@@ -1386,7 +1379,7 @@ mod tests {
     fn test_parse_luminance_response() {
         // Test minimum value
         let response = vec![0x90, 0x50, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Luminance).unwrap();
+        let result = parse_response(&response, &ResponseType::Luminance).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Luminance(value)) => {
                 assert_eq!(value, 0);
@@ -1396,7 +1389,7 @@ mod tests {
 
         // Test maximum value
         let response = vec![0x90, 0x50, 0x0E, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Luminance).unwrap();
+        let result = parse_response(&response, &ResponseType::Luminance).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Luminance(value)) => {
                 assert_eq!(value, 14);
@@ -1406,7 +1399,7 @@ mod tests {
 
         // Test invalid length
         let response = vec![0x90, 0x50, 0x00, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Luminance);
+        let result = parse_response(&response, &ResponseType::Luminance);
         assert!(matches!(result, Err(Error::InvalidResponseLength)));
     }
 
@@ -1414,7 +1407,7 @@ mod tests {
     fn test_parse_contrast_response() {
         // Test minimum value
         let response = vec![0x90, 0x50, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Contrast).unwrap();
+        let result = parse_response(&response, &ResponseType::Contrast).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Contrast(value)) => {
                 assert_eq!(value, 0);
@@ -1424,7 +1417,7 @@ mod tests {
 
         // Test maximum value
         let response = vec![0x90, 0x50, 0x0E, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Contrast).unwrap();
+        let result = parse_response(&response, &ResponseType::Contrast).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Contrast(value)) => {
                 assert_eq!(value, 14);
@@ -1434,7 +1427,7 @@ mod tests {
 
         // Test invalid length
         let response = vec![0x90, 0x50, 0x00, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Contrast);
+        let result = parse_response(&response, &ResponseType::Contrast);
         assert!(matches!(result, Err(Error::InvalidResponseLength)));
     }
 
@@ -1442,7 +1435,7 @@ mod tests {
     fn test_parse_backlight_response() {
         // Test Backlight On
         let response = vec![0x90, 0x50, 0x02, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Backlight).unwrap();
+        let result = parse_response(&response, &ResponseType::Backlight).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Backlight { status }) => {
                 assert!(status);
@@ -1452,7 +1445,7 @@ mod tests {
 
         // Test Backlight Off
         let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Backlight).unwrap();
+        let result = parse_response(&response, &ResponseType::Backlight).unwrap();
         match result {
             Response::InquiryResponse(InquiryResponse::Backlight { status }) => {
                 assert!(!status);
@@ -1462,7 +1455,7 @@ mod tests {
 
         // Test invalid length
         let response = vec![0x90, 0x50, 0x02, 0x00, 0xFF];
-        let result = parse_visca_response(&response, &ResponseType::Backlight);
+        let result = parse_response(&response, &ResponseType::Backlight);
         assert!(matches!(result, Err(Error::InvalidResponseLength)));
     }
 
@@ -1497,7 +1490,7 @@ mod tests {
 
         for response_type in unhandled_types {
             let response = vec![0x90, 0x50, 0x00, 0x00, 0xFF];
-            let result = parse_visca_response(&response, &response_type).unwrap();
+            let result = parse_response(&response, &response_type).unwrap();
             assert!(matches!(result, Response::Completion));
         }
     }

@@ -92,7 +92,7 @@ name = "health_check"
 required-features = ["blocking-client"]
 
 [[example]]
-name = "hello_visca"
+name = "hello_world"
 required-features = ["blocking-client"]
 
 [[example]]

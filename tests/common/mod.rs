@@ -16,9 +16,7 @@ pub mod macros;
 use grafton_visca::{Command, Error};
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{
-    command::ResponseType, parse_visca_response, InquiryResponse, Response, Transport,
-};
+use grafton_visca::{command::ResponseType, parse_response, InquiryResponse, Response, Transport};
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::transport::{BlockingAdapter, BlockingTransport};
@@ -319,7 +317,7 @@ impl Transport for MockDevice {
             let responses = block_on(self.transport.receive_response())?;
             if let Some(response) = responses.into_iter().next() {
                 if let Some(resp_type) = command.response_type() {
-                    return parse_visca_response(&response, &resp_type);
+                    return parse_response(&response, &resp_type);
                 }
             }
             return Err(Error::Timeout);
