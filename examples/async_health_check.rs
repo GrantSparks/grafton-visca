@@ -41,7 +41,7 @@ async fn main() -> Result<(), Error> {
         Ok(transport) => {
             println!("✓ UDP connection established");
             let camera = Arc::new(Mutex::new(Camera::<PTZOpticsG2>::new(transport)));
-            
+
             // Check initial health
             match camera.lock().await.stop().await {
                 Ok(_) => println!("✓ Camera is responding to commands"),
@@ -68,9 +68,9 @@ async fn main() -> Result<(), Error> {
         Ok(transport) => {
             println!("✓ TCP connection established");
             let camera = Arc::new(Mutex::new(Camera::<PTZOpticsG2>::new(transport)));
-            
+
             // Check initial health
-            if let Ok(_) = camera.lock().await.stop().await {
+            if camera.lock().await.stop().await.is_ok() {
                 println!("✓ Camera is responding to commands");
             } else {
                 println!("✗ Camera is not responding");
@@ -164,3 +164,4 @@ async fn health_monitor_loop(
         }
     }
 }
+

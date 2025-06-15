@@ -22,7 +22,6 @@ use grafton_visca::{
 };
 use log::info;
 use std::env;
-use tokio;
 
 fn get_camera_address() -> String {
     let args: Vec<String> = env::args().collect();
@@ -60,7 +59,7 @@ fn demonstrate_position_conversions_static() {
     info!("\nDemonstrating position conversions with PTZOpticsG2 profile:");
 
     // Create a profile instance for conversions
-    let profile = PTZOpticsG2::default();
+    let profile = PTZOpticsG2;
 
     // Example VISCA positions
     let example_pan = 1000_i16;
@@ -199,7 +198,7 @@ fn demonstrate_range_validation() {
     }
 
     // Convert extreme positions
-    let profile = PTZOpticsG2::default();
+    let profile = PTZOpticsG2;
     let max_pan_deg = profile.pan_units_to_degrees(*PTZOpticsG2::PAN_RANGE.end());
     let min_tilt_deg = profile.tilt_units_to_degrees(*PTZOpticsG2::TILT_RANGE.start());
 

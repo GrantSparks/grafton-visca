@@ -10,7 +10,7 @@
 use grafton_visca::{
     camera::{Camera, PTZOpticsG2},
     command::{pan_tilt::PanTiltDirection, InquiryCommand},
-    transport::{AsyncUdpTransport, Transport}, // Transport needed for send_command on transport_mut()
+    transport::AsyncUdpTransport,
     Error,
 };
 use std::sync::Arc;
@@ -95,14 +95,14 @@ async fn main() -> Result<(), Error> {
         move_result
             .map_err(|e| e.to_string())
             .map(|r| r.map_err(|e| e.to_string()))
-            .unwrap_or_else(|e| Err(e))
+            .unwrap_or_else(Err)
     );
     println!(
         "Zoom result: {:?}",
         zoom_result
             .map_err(|e| e.to_string())
             .map(|r| r.map_err(|e| e.to_string()))
-            .unwrap_or_else(|e| Err(e))
+            .unwrap_or_else(Err)
     );
 
     // Wait and then stop
