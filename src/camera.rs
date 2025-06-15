@@ -6,8 +6,13 @@ use std::ops::RangeInclusive;
 use crate::error::Error as ViscaError;
 use crate::transport::Transport;
 
+pub mod builder;
 pub mod commands;
 pub mod profiles;
+
+// Re-export commonly used types
+pub use builder::{CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder};
+pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 
 /// Core camera abstraction with compile-time profile information.
 pub struct Camera<P: CameraProfile> {
@@ -62,17 +67,57 @@ pub trait CameraProfile: Default + Send + Sync + std::fmt::Debug {
     /// Convert tilt position from degrees to VISCA units.
     fn tilt_degrees_to_units(&self, degrees: f32) -> i16;
 
+    /// Get the model name (allows instance override).
+    fn model_name(&self) -> &str {
+        Self::MODEL_NAME
+    }
+
+    /// Get the pan range (allows instance override).
+    fn pan_range(&self) -> RangeInclusive<i16> {
+        Self::PAN_RANGE
+    }
+
+    /// Get the tilt range (allows instance override).
+    fn tilt_range(&self) -> RangeInclusive<i16> {
+        Self::TILT_RANGE
+    }
+
+    /// Get the zoom range (allows instance override).
+    fn zoom_range(&self) -> RangeInclusive<u16> {
+        Self::ZOOM_RANGE
+    }
+
+    /// Get the focus range (allows instance override).
+    fn focus_range(&self) -> RangeInclusive<u16> {
+        Self::FOCUS_RANGE
+    }
+
+    /// Check if digital zoom is supported (allows instance override).
+    fn digital_zoom_supported(&self) -> bool {
+        Self::DIGITAL_ZOOM_SUPPORTED
+    }
+
+    /// Get the maximum pan speed (allows instance override).
+    fn max_pan_speed(&self) -> u8 {
+        Self::MAX_PAN_SPEED
+    }
+
+    /// Get the maximum tilt speed (allows instance override).
+    fn max_tilt_speed(&self) -> u8 {
+        Self::MAX_TILT_SPEED
+    }
+
     /// Get the total pan range in degrees.
     fn pan_degree_range(&self) -> RangeInclusive<f32> {
-        let min = self.pan_units_to_degrees(*Self::PAN_RANGE.start());
-        let max = self.pan_units_to_degrees(*Self::PAN_RANGE.end());
+        let min = self.pan_units_to_degrees(*self.pan_range().start());
+        let max = self.pan_units_to_degrees(*self.pan_range().end());
         min..=max
     }
 
     /// Get the total tilt range in degrees.
     fn tilt_degree_range(&self) -> RangeInclusive<f32> {
-        let min = self.tilt_units_to_degrees(*Self::TILT_RANGE.start());
-        let max = self.tilt_units_to_degrees(*Self::TILT_RANGE.end());
+        let min = self.tilt_units_to_degrees(*self.tilt_range().start());
+        let max = self.tilt_units_to_degrees(*self.tilt_range().end());
         min..=max
     }
 
@@ -90,7 +135,7 @@ pub trait CameraProfile: Default + Send + Sync + std::fmt::Debug {
 #[derive(Debug, Clone)]
 pub struct CameraCapabilities {
     /// Camera model name.
-    pub model_name: &'static str,
+    pub model_name: String,
     /// Pan range in degrees.
     pub pan_range_degrees: RangeInclusive<f32>,
     /// Tilt range in degrees.
@@ -129,15 +174,15 @@ impl<P: CameraProfile> Camera<P> {
     /// Get the camera's capabilities.
     pub fn capabilities(&self) -> CameraCapabilities {
         CameraCapabilities {
-            model_name: P::MODEL_NAME,
+            model_name: self.profile.model_name().to_string(),
             pan_range_degrees: self.profile.pan_degree_range(),
             tilt_range_degrees: self.profile.tilt_degree_range(),
-            zoom_steps: P::ZOOM_RANGE.clone().count(),
-            focus_steps: P::FOCUS_RANGE.clone().count(),
+            zoom_steps: self.profile.zoom_range().count(),
+            focus_steps: self.profile.focus_range().count(),
             preset_count: P::max_preset_id(),
-            supports_digital_zoom: P::DIGITAL_ZOOM_SUPPORTED,
-            max_pan_speed: P::MAX_PAN_SPEED,
-            max_tilt_speed: P::MAX_TILT_SPEED,
+            supports_digital_zoom: self.profile.digital_zoom_supported(),
+            max_pan_speed: self.profile.max_pan_speed(),
+            max_tilt_speed: self.profile.max_tilt_speed(),
         }
     }
 
