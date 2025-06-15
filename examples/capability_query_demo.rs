@@ -1,15 +1,21 @@
 //! Example demonstrating camera capability querying.
 
-use grafton_visca::camera::{Camera, GenericVisca, PTZOpticsG2, SonyEVID70};
-use grafton_visca::transport::UdpTransport;
+use grafton_visca::camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, SonyEVID70};
+use grafton_visca::transport::{BlockingAdapter, UdpTransport};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create cameras with different profiles
-    let g2_camera = Camera::<PTZOpticsG2>::new(UdpTransport::new("192.168.1.100:1259")?);
+    // Create cameras with different profiles using blocking transport
+    let g2_camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(
+        UdpTransport::new("192.168.1.100:1259")?,
+    ));
 
-    let sony_camera = Camera::<SonyEVID70>::new(UdpTransport::new("192.168.1.101:1259")?);
+    let sony_camera = Camera::<SonyEVID70>::new(BlockingAdapter(
+        UdpTransport::new("192.168.1.101:1259")?,
+    ));
 
-    let generic_camera = Camera::<GenericVisca>::new(UdpTransport::new("192.168.1.102:1259")?);
+    let generic_camera = Camera::<GenericVisca>::new(BlockingAdapter(
+        UdpTransport::new("192.168.1.102:1259")?,
+    ));
 
     println!("=== Camera Capability Comparison ===\n");
 
@@ -32,8 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate profile-specific capability checks
     println!("\n=== Profile-Specific Capabilities ===\n");
 
-    let g2_profile = PTZOpticsG2::default();
-    let sony_profile = SonyEVID70::default();
+    let g2_profile = PTZOpticsG2;
+    let sony_profile = SonyEVID70;
 
     println!("PTZOptics G2:");
     println!(
