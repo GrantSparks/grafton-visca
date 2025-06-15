@@ -174,3 +174,7 @@ required-features = ["async-client"]
 name = "custom_profile_builder_demo"
 required-features = ["async-client"]
 
+[[example]]
+name = "capability_query_demo"
+required-features = ["blocking-client"]
+

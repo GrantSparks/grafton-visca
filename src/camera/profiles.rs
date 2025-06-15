@@ -1,6 +1,7 @@
 //! Camera profile implementations for specific VISCA camera models.
 
 use std::fmt;
+use std::ops::RangeInclusive;
 
 use super::CameraProfile;
 use crate::error::Error as ViscaError;
@@ -129,10 +130,10 @@ impl TryFrom<u8> for G2Gain {
 
 impl CameraProfile for PTZOpticsG2 {
     const MODEL_NAME: &'static str = "PTZOptics G2";
-    const PAN_RANGE: std::ops::RangeInclusive<i16> = -2448..=2448;
-    const TILT_RANGE: std::ops::RangeInclusive<i16> = -432..=1296;
-    const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 0x0000..=0x7000;
-    const FOCUS_RANGE: std::ops::RangeInclusive<u16> = 0x1000..=0xF000;
+    const PAN_RANGE: RangeInclusive<i16> = -2448..=2448;
+    const TILT_RANGE: RangeInclusive<i16> = -432..=1296;
+    const ZOOM_RANGE: RangeInclusive<u16> = 0x0000..=0x7000;
+    const FOCUS_RANGE: RangeInclusive<u16> = 0x1000..=0xF000;
     const DIGITAL_ZOOM_SUPPORTED: bool = true;
     const MAX_PAN_SPEED: u8 = 24;
     const MAX_TILT_SPEED: u8 = 20;
@@ -163,6 +164,31 @@ impl CameraProfile for PTZOpticsG2 {
 
     fn max_preset_id() -> u8 {
         89
+    }
+
+    // PTZOptics G2 specific capabilities
+    fn supports_wide_dynamic_range(&self) -> bool {
+        true // G2 supports WDR
+    }
+
+    fn supports_image_stabilization(&self) -> bool {
+        true // G2 has image stabilization
+    }
+
+    fn supports_low_light_mode(&self) -> bool {
+        true // G2 has low-light mode
+    }
+
+    fn supports_noise_reduction(&self) -> bool {
+        true // G2 supports 2D and 3D noise reduction
+    }
+
+    fn white_balance_mode_count(&self) -> u8 {
+        6 // Auto, Indoor, Outdoor, One-Push, Manual, ATW
+    }
+
+    fn gain_range(&self) -> Option<RangeInclusive<u8>> {
+        Some(0..=8) // G2 specific gain range (0dB to 24dB in 3dB steps)
     }
 }
 
@@ -237,10 +263,10 @@ impl TryFrom<u8> for GenericGain {
 
 impl CameraProfile for GenericVisca {
     const MODEL_NAME: &'static str = "Generic VISCA";
-    const PAN_RANGE: std::ops::RangeInclusive<i16> = -32768..=32767;
-    const TILT_RANGE: std::ops::RangeInclusive<i16> = -32768..=32767;
-    const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 0x0000..=0xFFFF;
-    const FOCUS_RANGE: std::ops::RangeInclusive<u16> = 0x0000..=0xFFFF;
+    const PAN_RANGE: RangeInclusive<i16> = -32768..=32767;
+    const TILT_RANGE: RangeInclusive<i16> = -32768..=32767;
+    const ZOOM_RANGE: RangeInclusive<u16> = 0x0000..=0xFFFF;
+    const FOCUS_RANGE: RangeInclusive<u16> = 0x0000..=0xFFFF;
 
     type PresetId = GenericPresetId;
     type GainValue = GenericGain;
@@ -270,10 +296,10 @@ impl CameraProfile for GenericVisca {
 
 impl CameraProfile for PTZOptics30X {
     const MODEL_NAME: &'static str = "PTZOptics 30X";
-    const PAN_RANGE: std::ops::RangeInclusive<i16> = -32768..=32767;
-    const TILT_RANGE: std::ops::RangeInclusive<i16> = -20724..=12288;
-    const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 0x0000..=0x4000;
-    const FOCUS_RANGE: std::ops::RangeInclusive<u16> = 0x1000..=0x8000;
+    const PAN_RANGE: RangeInclusive<i16> = -32768..=32767;
+    const TILT_RANGE: RangeInclusive<i16> = -20724..=12288;
+    const ZOOM_RANGE: RangeInclusive<u16> = 0x0000..=0x4000;
+    const FOCUS_RANGE: RangeInclusive<u16> = 0x1000..=0x8000;
     const MAX_PAN_SPEED: u8 = 18;
     const MAX_TILT_SPEED: u8 = 14;
 
@@ -307,10 +333,10 @@ impl CameraProfile for PTZOptics30X {
 
 impl CameraProfile for SonyEVID70 {
     const MODEL_NAME: &'static str = "Sony EVI-D70";
-    const PAN_RANGE: std::ops::RangeInclusive<i16> = -1440..=1440;
-    const TILT_RANGE: std::ops::RangeInclusive<i16> = -360..=360;
-    const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 0x0000..=0x4000;
-    const FOCUS_RANGE: std::ops::RangeInclusive<u16> = 0x1000..=0xC000;
+    const PAN_RANGE: RangeInclusive<i16> = -1440..=1440;
+    const TILT_RANGE: RangeInclusive<i16> = -360..=360;
+    const ZOOM_RANGE: RangeInclusive<u16> = 0x0000..=0x4000;
+    const FOCUS_RANGE: RangeInclusive<u16> = 0x1000..=0xC000;
 
     type PresetId = GenericPresetId;
     type GainValue = GenericGain;
@@ -335,5 +361,38 @@ impl CameraProfile for SonyEVID70 {
 
     fn max_preset_id() -> u8 {
         5 // EVI-D70 supports presets 0-5
+    }
+
+    // Sony EVI-D70 specific capabilities
+    fn supports_wide_dynamic_range(&self) -> bool {
+        false // EVI-D70 does not support WDR
+    }
+
+    fn supports_image_stabilization(&self) -> bool {
+        false // EVI-D70 does not have image stabilization
+    }
+
+    fn supports_low_light_mode(&self) -> bool {
+        false // EVI-D70 does not have specific low-light mode
+    }
+
+    fn supports_noise_reduction(&self) -> bool {
+        false // EVI-D70 does not have noise reduction
+    }
+
+    fn supports_image_flip(&self) -> bool {
+        false // EVI-D70 does not support image flip
+    }
+
+    fn white_balance_mode_count(&self) -> u8 {
+        4 // Auto, Indoor, Outdoor, One-Push
+    }
+
+    fn exposure_mode_count(&self) -> u8 {
+        3 // Auto, Manual, Shutter Priority
+    }
+
+    fn supports_zoom_speed(&self, speed: u8) -> bool {
+        speed <= 7 // Standard VISCA zoom speeds
     }
 }
