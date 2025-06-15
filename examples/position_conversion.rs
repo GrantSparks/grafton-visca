@@ -1,27 +1,29 @@
-//! Example program
-
-//! Example demonstrating position conversion and camera constants usage
+//! Example demonstrating position conversion with the new Camera<P> API
 //!
 //! This example shows how to:
-//! - Use camera-specific constants
+//! - Use the type-safe Camera<P> API with camera profiles
 //! - Convert between different position units (VISCA, degrees, normalized)
-//! - Validate camera parameters
-//! - Detect camera model (placeholder functionality)
+//! - Leverage camera-specific constants and ranges
+//! - Query and display camera capabilities
+//!
+//! Run with:
+//! ```bash
+//! cargo run --example position_conversion --features async-client [CAMERA_IP]
+//! ```
+//!
+//! Default camera IP is 192.168.0.110:1259 if not specified.
 
-#[cfg(feature = "blocking-client")]
 use grafton_visca::{
-    command::pan_tilt::{PanSpeed, TiltSpeed},
-    constants::{
-        self, CameraConstants, CameraModel, DegreePosition, PositionConversion, ViscaPosition,
+    camera::{
+        units::{Degrees, Normalized, ViscaUnits},
+        Camera, CameraProfile, PTZOpticsG2,
     },
-    Client, InquiryExt, PanTiltExt,
+    transport::AsyncTcpTransport,
 };
-#[cfg(feature = "blocking-client")]
-use log::{error, info};
-#[cfg(feature = "blocking-client")]
+use log::info;
 use std::env;
+use tokio;
 
-#[cfg(feature = "blocking-client")]
 fn get_camera_address() -> String {
     let args: Vec<String> = env::args().collect();
     let ip_address = if args.len() > 1 {
@@ -32,174 +34,286 @@ fn get_camera_address() -> String {
     format!("{ip_address}:1259")
 }
 
-#[cfg(feature = "blocking-client")]
-fn display_camera_constants(model: CameraModel) {
-    info!("\nCamera Constants for {model:?}:");
-    info!("  Pan range: {:?} VISCA units", model.pan_range());
-    info!("  Tilt range: {:?} VISCA units", model.tilt_range());
-    info!("  Zoom range: {:?} VISCA units", model.zoom_range());
-    info!("  Pan degrees: {} degrees", model.pan_degrees());
-    info!("  Tilt degrees: {} degrees", model.tilt_degrees());
-    info!("  Max pan speed: {}", model.max_pan_speed());
-    info!("  Max tilt speed: {}", model.max_tilt_speed());
+async fn display_camera_profile<P: CameraProfile>(camera: &Camera<P>) {
+    let profile_name = P::MODEL_NAME;
+    info!("\nCamera Profile: {}", profile_name);
+    info!("Constants for {}:", profile_name);
+    info!("  Pan range: {:?} VISCA units", P::PAN_RANGE);
+    info!("  Tilt range: {:?} VISCA units", P::TILT_RANGE);
+    info!("  Zoom range: {:?} VISCA units", P::ZOOM_RANGE);
+    info!("  Focus range: {:?} VISCA units", P::FOCUS_RANGE);
+
+    // Get degree ranges using the profile
+    let capabilities = camera.capabilities();
+    info!("  Pan degrees: {:?}", capabilities.pan_range_degrees);
+    info!("  Tilt degrees: {:?}", capabilities.tilt_range_degrees);
+    info!("  Max pan speed: {}", capabilities.max_pan_speed);
+    info!("  Max tilt speed: {}", capabilities.max_tilt_speed);
+    info!(
+        "  Digital zoom supported: {}",
+        capabilities.supports_digital_zoom
+    );
+    info!("  Number of presets: {}", capabilities.preset_count);
 }
 
-#[cfg(feature = "blocking-client")]
-fn demonstrate_position_conversions(
-    client: &mut Client,
-    model: CameraModel,
-) -> Result<(), Box<dyn std::error::Error>> {
-    info!("\nQuerying current camera position...");
-    let (pan, tilt) = client.get_pan_tilt_position()?;
+fn demonstrate_position_conversions_static() {
+    info!("\nDemonstrating position conversions with PTZOpticsG2 profile:");
 
-    let visca_pos = ViscaPosition { pan, tilt };
-    info!("Current VISCA position: pan={pan}, tilt={tilt}");
+    // Create a profile instance for conversions
+    let profile = PTZOpticsG2::default();
 
-    // Convert to different units
-    let degrees = visca_pos.to_degrees(model);
-    let normalized = visca_pos.to_normalized(model);
+    // Example VISCA positions
+    let example_pan = 1000_i16;
+    let example_tilt = 500_i16;
+
+    info!(
+        "Example VISCA position: pan={}, tilt={}",
+        example_pan, example_tilt
+    );
+
+    // Convert VISCA units to degrees
+    let pan_degrees = profile.pan_units_to_degrees(example_pan);
+    let tilt_degrees = profile.tilt_units_to_degrees(example_tilt);
 
     info!("\nPosition conversions:");
-    info!(
-        "  VISCA units: pan={}, tilt={}",
-        visca_pos.pan, visca_pos.tilt
-    );
+    info!("  VISCA units: pan={}, tilt={}", example_pan, example_tilt);
     info!(
         "  Degrees: pan={:.1}°, tilt={:.1}°",
-        degrees.pan, degrees.tilt
+        pan_degrees, tilt_degrees
     );
-    info!(
-        "  Normalized: pan={:.3}, tilt={:.3}",
-        normalized.pan, normalized.tilt
-    );
+
+    // Convert to normalized coordinates (-1.0 to 1.0)
+    let pan_norm = (example_pan as f32 - *PTZOpticsG2::PAN_RANGE.start() as f32)
+        / (PTZOpticsG2::PAN_RANGE.end() - PTZOpticsG2::PAN_RANGE.start()) as f32
+        * 2.0
+        - 1.0;
+    let tilt_norm = (example_tilt as f32 - *PTZOpticsG2::TILT_RANGE.start() as f32)
+        / (PTZOpticsG2::TILT_RANGE.end() - PTZOpticsG2::TILT_RANGE.start()) as f32
+        * 2.0
+        - 1.0;
+
+    info!("  Normalized: pan={:.3}, tilt={:.3}", pan_norm, tilt_norm);
 
     // Demonstrate reverse conversions
     info!("\nReverse conversions:");
-    let from_degrees = degrees.to_visca(model);
+    let from_degrees_pan = profile.pan_degrees_to_units(pan_degrees);
+    let from_degrees_tilt = profile.tilt_degrees_to_units(tilt_degrees);
     info!(
         "  Degrees -> VISCA: pan={}, tilt={}",
-        from_degrees.pan, from_degrees.tilt
+        from_degrees_pan, from_degrees_tilt
     );
 
-    let from_normalized = normalized.to_visca(model);
+    // Convert normalized back to VISCA
+    let from_norm_pan = ((pan_norm + 1.0) / 2.0
+        * (PTZOpticsG2::PAN_RANGE.end() - PTZOpticsG2::PAN_RANGE.start()) as f32
+        + *PTZOpticsG2::PAN_RANGE.start() as f32)
+        .round() as i16;
+    let from_norm_tilt = ((tilt_norm + 1.0) / 2.0
+        * (PTZOpticsG2::TILT_RANGE.end() - PTZOpticsG2::TILT_RANGE.start()) as f32
+        + *PTZOpticsG2::TILT_RANGE.start() as f32)
+        .round() as i16;
     info!(
         "  Normalized -> VISCA: pan={}, tilt={}",
-        from_normalized.pan, from_normalized.tilt
+        from_norm_pan, from_norm_tilt
     );
+}
+
+async fn demonstrate_type_safe_positioning(
+    camera: &mut Camera<PTZOpticsG2>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("\nDemonstrating type-safe position units:");
+
+    // Using Degrees type
+    let target_pan_deg = Degrees::new(45.0);
+    let target_tilt_deg = Degrees::new(15.0);
+
+    info!(
+        "Moving to position using Degrees type: pan={:.1}°, tilt={:.1}°",
+        target_pan_deg.value(),
+        target_tilt_deg.value()
+    );
+
+    camera.set_position(target_pan_deg, target_tilt_deg).await?;
+    info!("Move command sent successfully");
+
+    // Wait for movement to complete
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    // Using ViscaUnits type
+    let target_pan_units = ViscaUnits::new(1000_i16);
+    let target_tilt_units = ViscaUnits::new(500_i16);
+
+    info!(
+        "\nMoving to position using ViscaUnits type: pan={}, tilt={}",
+        target_pan_units.value(),
+        target_tilt_units.value()
+    );
+
+    camera
+        .set_position_units(target_pan_units, target_tilt_units)
+        .await?;
+    info!("Move command sent successfully");
+
+    // Wait for movement to complete
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    // Using Normalized type
+    let norm_pan = Normalized::new(0.25_f32); // 25% to the right of center
+    let norm_tilt = Normalized::new(-0.5_f32); // 50% below center
+
+    info!(
+        "\nMoving to position using Normalized type: pan={:.2}, tilt={:.2}",
+        norm_pan.value(),
+        norm_tilt.value()
+    );
+
+    camera.set_position_normalized(norm_pan, norm_tilt).await?;
+    info!("Move command sent successfully");
 
     Ok(())
 }
 
-#[cfg(feature = "blocking-client")]
-fn demonstrate_validation(model: CameraModel) {
-    info!("\nValidation examples:");
+fn demonstrate_range_validation() {
+    info!("\nDemonstrating range validation:");
 
     // Valid pan position
-    match constants::validate_pan_position(1000, model) {
-        Ok(pos) => info!("  Pan position {pos} is valid"),
-        Err(e) => error!("  Pan validation error: {e}"),
+    let valid_pan = 1000;
+    if PTZOpticsG2::PAN_RANGE.contains(&valid_pan) {
+        info!("  Pan position {} is valid for PTZOptics G2", valid_pan);
     }
 
     // Invalid pan position
-    match constants::validate_pan_position(5000, model) {
-        Ok(pos) => info!("  Pan position {pos} is valid"),
-        Err(e) => info!("  Pan validation error (expected): {e}"),
+    let invalid_pan = 5000;
+    if !PTZOpticsG2::PAN_RANGE.contains(&invalid_pan) {
+        info!(
+            "  Pan position {} is outside valid range ({:?})",
+            invalid_pan,
+            PTZOpticsG2::PAN_RANGE
+        );
     }
 
-    // Valid preset ID
-    match constants::validate_preset_id(50) {
-        Ok(id) => info!("  Preset ID {id} is valid"),
-        Err(e) => error!("  Preset validation error: {e}"),
+    // Check tilt ranges
+    let valid_tilt = 0;
+    if PTZOpticsG2::TILT_RANGE.contains(&valid_tilt) {
+        info!("  Tilt position {} is valid for PTZOptics G2", valid_tilt);
     }
 
-    // Invalid preset ID
-    match constants::validate_preset_id(150) {
-        Ok(id) => info!("  Preset ID {id} is valid"),
-        Err(e) => info!("  Preset validation error (expected): {e}"),
-    }
+    // Convert extreme positions
+    let profile = PTZOpticsG2::default();
+    let max_pan_deg = profile.pan_units_to_degrees(*PTZOpticsG2::PAN_RANGE.end());
+    let min_tilt_deg = profile.tilt_units_to_degrees(*PTZOpticsG2::TILT_RANGE.start());
+
+    info!("\nExtreme positions:");
+    info!(
+        "  Maximum pan: {} units = {:.1}°",
+        PTZOpticsG2::PAN_RANGE.end(),
+        max_pan_deg
+    );
+    info!(
+        "  Minimum tilt: {} units = {:.1}°",
+        PTZOpticsG2::TILT_RANGE.start(),
+        min_tilt_deg
+    );
 }
 
-#[cfg(feature = "blocking-client")]
-fn move_to_degrees_position(client: &mut Client, model: CameraModel) {
-    info!("\nMoving to position specified in degrees...");
-    let target_degrees = DegreePosition {
-        pan: 45.0,
-        tilt: 15.0,
-    };
-    let target_visca = target_degrees.to_visca(model);
+async fn display_capability_summary(camera: &Camera<PTZOpticsG2>) {
+    info!("\nCapability Summary:");
+    let summary = camera.capability_summary();
 
+    info!("Movement capabilities:");
+    info!("  - Continuous movement: {}", summary.movement.continuous);
+    info!("  - Absolute positioning: {}", summary.movement.absolute);
+    info!("  - Relative positioning: {}", summary.movement.relative);
+    info!("  - Pan range: {:?} degrees", summary.movement.pan_range);
+    info!("  - Tilt range: {:?} degrees", summary.movement.tilt_range);
+    info!("  - Max pan speed: {}", summary.movement.max_pan_speed);
+    info!("  - Max tilt speed: {}", summary.movement.max_tilt_speed);
+
+    info!("\nZoom capabilities:");
+    info!("  - Optical zoom range: {:?}", summary.zoom.optical_range);
+    info!("  - Digital zoom: {}", summary.zoom.digital_zoom);
+    info!("  - Speed levels: {}", summary.zoom.speed_levels);
+
+    info!("\nFocus capabilities:");
+    info!("  - Auto-focus: {}", summary.focus.auto_focus);
+    info!("  - Manual focus: {}", summary.focus.manual_focus);
+    info!("  - Focus range: {:?}", summary.focus.range);
+    info!("  - Speed levels: {}", summary.focus.speed_levels);
+
+    info!("\nExposure capabilities:");
+    info!("  - Auto-exposure: {}", summary.exposure.auto_exposure);
+    info!("  - Manual exposure: {}", summary.exposure.manual_exposure);
     info!(
-        "Target position: {:.1}° pan, {:.1}° tilt",
-        target_degrees.pan, target_degrees.tilt
-    );
-    info!(
-        "Converted to VISCA: {} pan, {} tilt",
-        target_visca.pan, target_visca.tilt
+        "  - Wide dynamic range: {}",
+        summary.exposure.wide_dynamic_range
     );
 
-    // Validate before sending
-    if let (Ok(_), Ok(_)) = (
-        constants::validate_pan_position(target_visca.pan, model),
-        constants::validate_tilt_position(target_visca.tilt, model),
-    ) {
-        match PanTiltExt::move_to_position(
-            client,
-            target_visca.pan,
-            target_visca.tilt,
-            Some((
-                PanSpeed::new(constants::speed::PAN_SPEED_DEFAULT).unwrap(),
-                TiltSpeed::new(constants::speed::TILT_SPEED_DEFAULT).unwrap(),
-            )),
-        ) {
-            Ok(()) => info!("Successfully moved to target position"),
-            Err(e) => error!("Failed to move: {e}"),
-        }
-    } else {
-        error!("Target position is out of range");
-    }
+    info!("\nImage processing capabilities:");
+    info!("  - White balance: {}", summary.image.white_balance);
+    info!("  - Image flip: {}", summary.image.image_flip);
+    info!("  - Noise reduction: {}", summary.image.noise_reduction);
+    info!("  - Low-light mode: {}", summary.image.low_light_mode);
 }
 
-#[cfg(feature = "blocking-client")]
-fn display_other_constants() {
-    info!("\nOther useful constants:");
+fn demonstrate_unit_types() {
+    info!("\nDemonstrating the type-safe unit system:");
+
+    // Create different unit types
+    let degrees = Degrees::new(90.0_f32);
+    let visca = ViscaUnits::new(2448_i16);
+    let normalized = Normalized::new(0.5_f32);
+
+    info!("Unit types:");
+    info!("  Degrees: {:.1}°", degrees.value());
+    info!("  VISCA units: {}", visca.value());
     info!(
-        "  Default VISCA port: {}",
-        constants::network::VISCA_DEFAULT_PORT
+        "  Normalized: {:.2} (range -1.0 to 1.0)",
+        normalized.value()
     );
-    info!(
-        "  Command timeout: {} ms",
-        constants::timing::COMMAND_TIMEOUT_MS
-    );
-    info!(
-        "  Preset recall timeout: {} ms",
-        constants::timing::PRESET_RECALL_TIMEOUT_MS
-    );
-    info!("  Max preset ID: {}", constants::preset::PRESET_ID_MAX);
+
+    // Show how units prevent mistakes
+    info!("\nType safety benefits:");
+    info!("  - Can't accidentally mix degrees and VISCA units");
+    info!("  - Clear API intent with specific unit types");
+    info!("  - Compile-time safety for unit conversions");
 }
 
-#[cfg(feature = "blocking-client")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    info!("Position conversion and constants example");
+    info!("Position conversion example with Camera<P> API");
 
     let address = get_camera_address();
-    let mut client = Client::connect_udp(&address)?;
-    info!("Connected to camera at {address}");
+    let transport = AsyncTcpTransport::new(&address).await?;
 
-    let model = CameraModel::PTZOpticsG2;
-    info!("Using camera model: {model:?}");
+    // Create a type-safe camera instance with PTZOptics G2 profile
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    info!("Created Camera<PTZOpticsG2> instance for {}", address);
 
-    display_camera_constants(model);
-    demonstrate_position_conversions(&mut client, model)?;
-    demonstrate_validation(model);
-    move_to_degrees_position(&mut client, model);
-    display_other_constants();
+    // Display camera profile information
+    display_camera_profile(&camera).await;
+
+    // Demonstrate position conversions (static examples)
+    demonstrate_position_conversions_static();
+
+    // Demonstrate the unit type system
+    demonstrate_unit_types();
+
+    // Demonstrate type-safe positioning
+    demonstrate_type_safe_positioning(&mut camera).await?;
+
+    // Demonstrate range validation
+    demonstrate_range_validation();
+
+    // Display capability summary
+    display_capability_summary(&camera).await;
+
+    info!("\nExample completed successfully!");
+    info!("The new Camera<P> API provides:");
+    info!("  - Type-safe camera profiles with compile-time guarantees");
+    info!("  - Automatic range validation based on camera model");
+    info!("  - Type-safe unit conversions (Degrees, ViscaUnits, Normalized)");
+    info!("  - Camera-specific capabilities and constants");
 
     Ok(())
-}
-
-#[cfg(not(feature = "blocking-client"))]
-fn main() {
-    println!("This example requires the 'blocking-client' feature to be enabled.");
-    println!("Run with: cargo run --example position_conversion --features blocking-client");
 }
