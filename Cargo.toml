@@ -166,3 +166,11 @@ required-features = ["blocking-client"]
 name = "white_balance_tuning_demo"
 required-features = ["blocking-client"]
 
+[[example]]
+name = "camera_profile_demo"
+required-features = ["async-client"]
+
+[[example]]
+name = "custom_profile_builder_demo"
+required-features = ["async-client"]
+
