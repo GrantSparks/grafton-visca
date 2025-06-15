@@ -129,6 +129,313 @@ pub trait CameraProfile: Default + Send + Sync + std::fmt::Debug {
 
     /// Get the maximum preset ID for this camera.
     fn max_preset_id() -> u8;
+
+    // Capability query methods
+
+    /// Check if the camera supports auto-focus.
+    fn supports_auto_focus(&self) -> bool {
+        true // Most VISCA cameras support auto-focus
+    }
+
+    /// Check if the camera supports manual focus.
+    fn supports_manual_focus(&self) -> bool {
+        true // Most VISCA cameras support manual focus
+    }
+
+    /// Check if the camera supports auto-exposure.
+    fn supports_auto_exposure(&self) -> bool {
+        true // Most VISCA cameras support auto-exposure
+    }
+
+    /// Check if the camera supports manual exposure.
+    fn supports_manual_exposure(&self) -> bool {
+        true // Most VISCA cameras support manual exposure
+    }
+
+    /// Check if the camera supports white balance adjustment.
+    fn supports_white_balance(&self) -> bool {
+        true // Most VISCA cameras support white balance
+    }
+
+    /// Check if the camera supports image flip (horizontal/vertical).
+    fn supports_image_flip(&self) -> bool {
+        true // Most modern VISCA cameras support image flip
+    }
+
+    /// Check if the camera supports backlight compensation.
+    fn supports_backlight_compensation(&self) -> bool {
+        true // Common feature in VISCA cameras
+    }
+
+    /// Check if the camera supports wide dynamic range (WDR).
+    fn supports_wide_dynamic_range(&self) -> bool {
+        false // Not all cameras support this
+    }
+
+    /// Check if the camera supports image stabilization.
+    fn supports_image_stabilization(&self) -> bool {
+        false // Camera-specific feature
+    }
+
+    /// Check if the camera supports low-light mode.
+    fn supports_low_light_mode(&self) -> bool {
+        false // Camera-specific feature
+    }
+
+    /// Check if the camera supports color control (saturation, hue).
+    fn supports_color_control(&self) -> bool {
+        true // Most VISCA cameras support basic color control
+    }
+
+    /// Check if the camera supports gain control.
+    fn supports_gain_control(&self) -> bool {
+        true // Most VISCA cameras support gain control
+    }
+
+    /// Check if the camera supports shutter speed control.
+    fn supports_shutter_control(&self) -> bool {
+        true // Most VISCA cameras support shutter control
+    }
+
+    /// Check if the camera supports iris control.
+    fn supports_iris_control(&self) -> bool {
+        true // Most VISCA cameras support iris control
+    }
+
+    /// Check if the camera supports noise reduction.
+    fn supports_noise_reduction(&self) -> bool {
+        false // Camera-specific feature
+    }
+
+    /// Check if the camera supports privacy zones.
+    fn supports_privacy_zones(&self) -> bool {
+        false // Not a standard VISCA feature
+    }
+
+    /// Check if the camera supports motion detection.
+    fn supports_motion_detection(&self) -> bool {
+        false // Not a standard VISCA feature
+    }
+
+    /// Get the number of available white balance modes.
+    fn white_balance_mode_count(&self) -> u8 {
+        5 // Typical: Auto, Indoor, Outdoor, One-Push, Manual
+    }
+
+    /// Get the number of available exposure modes.
+    fn exposure_mode_count(&self) -> u8 {
+        4 // Typical: Auto, Manual, Shutter Priority, Iris Priority
+    }
+
+    /// Check if the camera supports a specific zoom speed.
+    fn supports_zoom_speed(&self, speed: u8) -> bool {
+        speed <= 7 // Most VISCA cameras support zoom speeds 0-7
+    }
+
+    /// Check if the camera supports a specific focus speed.
+    fn supports_focus_speed(&self, speed: u8) -> bool {
+        speed <= 7 // Most VISCA cameras support focus speeds 0-7
+    }
+
+    /// Get the supported shutter speed range (if applicable).
+    /// Returns None if shutter control is not supported.
+    fn shutter_speed_range(&self) -> Option<RangeInclusive<u8>> {
+        if self.supports_shutter_control() {
+            Some(0..=21) // Typical VISCA shutter speed range
+        } else {
+            None
+        }
+    }
+
+    /// Get the supported iris range (if applicable).
+    /// Returns None if iris control is not supported.
+    fn iris_range(&self) -> Option<RangeInclusive<u8>> {
+        if self.supports_iris_control() {
+            Some(0..=20) // Typical VISCA iris range
+        } else {
+            None
+        }
+    }
+
+    /// Get the supported gain range (if applicable).
+    /// Returns None if gain control is not supported.
+    fn gain_range(&self) -> Option<RangeInclusive<u8>> {
+        if self.supports_gain_control() {
+            Some(0..=15) // Typical VISCA gain range
+        } else {
+            None
+        }
+    }
+
+    /// Check if the camera supports continuous pan/tilt movement.
+    fn supports_continuous_movement(&self) -> bool {
+        true // Most VISCA cameras support this
+    }
+
+    /// Check if the camera supports absolute position commands.
+    fn supports_absolute_positioning(&self) -> bool {
+        true // Standard VISCA feature
+    }
+
+    /// Check if the camera supports relative position commands.
+    fn supports_relative_positioning(&self) -> bool {
+        true // Standard VISCA feature
+    }
+
+    /// Get a list of supported features as a capability summary.
+    fn capability_summary(&self) -> CapabilitySummary {
+        CapabilitySummary {
+            model: self.model_name().to_string(),
+            movement: MovementCapabilities {
+                continuous: self.supports_continuous_movement(),
+                absolute: self.supports_absolute_positioning(),
+                relative: self.supports_relative_positioning(),
+                pan_range: self.pan_degree_range(),
+                tilt_range: self.tilt_degree_range(),
+                max_pan_speed: self.max_pan_speed(),
+                max_tilt_speed: self.max_tilt_speed(),
+            },
+            zoom: ZoomCapabilities {
+                optical_range: self.zoom_range(),
+                digital_zoom: self.digital_zoom_supported(),
+                speed_levels: 8, // Standard VISCA zoom speed levels
+            },
+            focus: FocusCapabilities {
+                auto_focus: self.supports_auto_focus(),
+                manual_focus: self.supports_manual_focus(),
+                range: self.focus_range(),
+                speed_levels: 8, // Standard VISCA focus speed levels
+            },
+            exposure: ExposureCapabilities {
+                auto_exposure: self.supports_auto_exposure(),
+                manual_exposure: self.supports_manual_exposure(),
+                shutter_control: self.supports_shutter_control(),
+                iris_control: self.supports_iris_control(),
+                gain_control: self.supports_gain_control(),
+                backlight_comp: self.supports_backlight_compensation(),
+                wide_dynamic_range: self.supports_wide_dynamic_range(),
+            },
+            image: ImageCapabilities {
+                white_balance: self.supports_white_balance(),
+                color_control: self.supports_color_control(),
+                image_flip: self.supports_image_flip(),
+                image_stabilization: self.supports_image_stabilization(),
+                noise_reduction: self.supports_noise_reduction(),
+                low_light_mode: self.supports_low_light_mode(),
+            },
+            presets: PresetCapabilities {
+                count: Self::max_preset_id() + 1,
+                speed_support: true, // Most VISCA cameras support preset recall speed
+            },
+        }
+    }
+}
+
+/// Summary of all camera capabilities.
+#[derive(Debug, Clone)]
+pub struct CapabilitySummary {
+    /// Camera model name.
+    pub model: String,
+    /// Movement capabilities.
+    pub movement: MovementCapabilities,
+    /// Zoom capabilities.
+    pub zoom: ZoomCapabilities,
+    /// Focus capabilities.
+    pub focus: FocusCapabilities,
+    /// Exposure capabilities.
+    pub exposure: ExposureCapabilities,
+    /// Image processing capabilities.
+    pub image: ImageCapabilities,
+    /// Preset capabilities.
+    pub presets: PresetCapabilities,
+}
+
+/// Movement-related capabilities.
+#[derive(Debug, Clone)]
+pub struct MovementCapabilities {
+    /// Supports continuous pan/tilt movement.
+    pub continuous: bool,
+    /// Supports absolute positioning.
+    pub absolute: bool,
+    /// Supports relative positioning.
+    pub relative: bool,
+    /// Pan range in degrees.
+    pub pan_range: RangeInclusive<f32>,
+    /// Tilt range in degrees.
+    pub tilt_range: RangeInclusive<f32>,
+    /// Maximum pan speed.
+    pub max_pan_speed: u8,
+    /// Maximum tilt speed.
+    pub max_tilt_speed: u8,
+}
+
+/// Zoom-related capabilities.
+#[derive(Debug, Clone)]
+pub struct ZoomCapabilities {
+    /// Optical zoom range.
+    pub optical_range: RangeInclusive<u16>,
+    /// Digital zoom support.
+    pub digital_zoom: bool,
+    /// Number of zoom speed levels.
+    pub speed_levels: u8,
+}
+
+/// Focus-related capabilities.
+#[derive(Debug, Clone)]
+pub struct FocusCapabilities {
+    /// Auto-focus support.
+    pub auto_focus: bool,
+    /// Manual focus support.
+    pub manual_focus: bool,
+    /// Focus position range.
+    pub range: RangeInclusive<u16>,
+    /// Number of focus speed levels.
+    pub speed_levels: u8,
+}
+
+/// Exposure-related capabilities.
+#[derive(Debug, Clone, Copy)]
+pub struct ExposureCapabilities {
+    /// Auto-exposure support.
+    pub auto_exposure: bool,
+    /// Manual exposure support.
+    pub manual_exposure: bool,
+    /// Shutter speed control.
+    pub shutter_control: bool,
+    /// Iris control.
+    pub iris_control: bool,
+    /// Gain control.
+    pub gain_control: bool,
+    /// Backlight compensation.
+    pub backlight_comp: bool,
+    /// Wide dynamic range.
+    pub wide_dynamic_range: bool,
+}
+
+/// Image processing capabilities.
+#[derive(Debug, Clone, Copy)]
+pub struct ImageCapabilities {
+    /// White balance control.
+    pub white_balance: bool,
+    /// Color control (saturation, hue).
+    pub color_control: bool,
+    /// Image flip support.
+    pub image_flip: bool,
+    /// Image stabilization.
+    pub image_stabilization: bool,
+    /// Noise reduction.
+    pub noise_reduction: bool,
+    /// Low-light mode.
+    pub low_light_mode: bool,
+}
+
+/// Preset-related capabilities.
+#[derive(Debug, Clone, Copy)]
+pub struct PresetCapabilities {
+    /// Number of available presets.
+    pub count: u8,
+    /// Preset recall speed support.
+    pub speed_support: bool,
 }
 
 /// Runtime camera capabilities for discovery and validation.
@@ -184,6 +491,11 @@ impl<P: CameraProfile> Camera<P> {
             max_pan_speed: self.profile.max_pan_speed(),
             max_tilt_speed: self.profile.max_tilt_speed(),
         }
+    }
+
+    /// Get the full capability summary for this camera.
+    pub fn capability_summary(&self) -> CapabilitySummary {
+        self.profile.capability_summary()
     }
 
     /// Get a reference to the transport.
