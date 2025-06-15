@@ -149,6 +149,15 @@ pub enum Error {
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
 
+    /// Invalid preset number for the camera model.
+    #[error("Invalid preset {preset}: must be <= {max}")]
+    InvalidPreset {
+        /// The requested preset number.
+        preset: u8,
+        /// Maximum allowed preset for this camera.
+        max: u8,
+    },
+
     /// Parameter value is out of the acceptable range.
     #[error("Parameter out of range: {parameter} = {value} (valid range: {min}..{max})")]
     ParameterOutOfRange {

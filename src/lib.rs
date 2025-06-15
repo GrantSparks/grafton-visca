@@ -260,6 +260,8 @@
 //!
 
 // Public modules
+/// Camera profile system for type-safe, model-specific control
+pub mod camera;
 /// VISCA command definitions and implementations
 pub mod command;
 /// Connection management for VISCA devices
