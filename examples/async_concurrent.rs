@@ -1,21 +1,21 @@
-//! Example program
-
 //! Example demonstrating concurrent async command execution with grafton-visca
 //!
 //! This example shows how to:
-//! - Connect to a camera using async API
-//! - Send multiple commands concurrently
+//! - Connect to a camera using async API with the new Camera<P> system
+//! - Send multiple commands concurrently using camera methods
 //! - Handle the two-socket limitation gracefully
 //! - Process responses asynchronously
 //! - Maximize throughput with concurrent operations
 
-use grafton_visca::command::{
-    pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    preset::{PresetAction, PresetNumber},
-    FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, Response, ZoomCommand,
+use grafton_visca::{
+    camera::{Camera, PTZOpticsG2},
+    command::{pan_tilt::PanTiltDirection, InquiryCommand},
+    transport::{AsyncUdpTransport, Transport}, // Transport needed for send_command on transport_mut()
+    Error,
 };
-use grafton_visca::{Client, Error};
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Mutex;
 
 #[cfg(not(feature = "async-client"))]
 fn main() {
@@ -36,129 +36,207 @@ async fn main() -> Result<(), Error> {
         .unwrap_or_else(|| "192.168.0.100:5678".to_string());
 
     println!("Connecting to camera at {}...", camera_addr);
-    let camera = Client::connect_udp_async(&camera_addr).await?;
+    let transport = AsyncUdpTransport::new(&camera_addr).await?;
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
-    // Example 1: Send two commands concurrently
-    println!("\n=== Concurrent Command Execution ===");
+    // Example 1: Sequential commands with timing
+    println!("\n=== Sequential Command Execution ===");
     let start = Instant::now();
 
-    // Start moving the camera and zooming at the same time
-    let move_cmd = PanTiltCommand::Move {
-        direction: PanTiltDirection::UpRight,
-        pan_speed: PanSpeed::new(0x10)?,
-        tilt_speed: TiltSpeed::new(0x10)?,
-    };
-    let move_fut = camera.send_async(&move_cmd);
-    let zoom_fut = camera.send_async(&ZoomCommand::ZoomInStandard);
+    // Start moving the camera
+    camera
+        .move_continuous(PanTiltDirection::UpRight, 0x10, 0x10)
+        .await?;
+    let move_time = start.elapsed();
 
-    // Wait for both to complete
-    let (move_result, zoom_result) = tokio::join!(move_fut, zoom_fut);
+    // Start zooming
+    camera.zoom_in().await?;
+    let zoom_time = start.elapsed();
 
-    println!("Commands completed in {:?}", start.elapsed());
-    println!("Move result: {:?}", move_result);
-    println!("Zoom result: {:?}", zoom_result);
+    println!("Move command completed in {:?}", move_time);
+    println!("Zoom command completed in {:?}", zoom_time);
+    println!("Total time: {:?}", start.elapsed());
 
     // Wait a moment then stop both
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    let stop_move = PanTiltCommand::Move {
-        direction: PanTiltDirection::Stop,
-        pan_speed: PanSpeed::new(0)?,
-        tilt_speed: TiltSpeed::new(0)?,
-    };
-    let stop_move_fut = camera.send_async(&stop_move);
-    let stop_zoom_fut = camera.send_async(&ZoomCommand::Stop);
+    // Stop movement and zoom
+    let stop_start = Instant::now();
+    camera.stop().await?;
+    camera.zoom_stop().await?;
+    println!("Stop commands completed in {:?}", stop_start.elapsed());
 
-    let (move_result, zoom_result) = tokio::join!(stop_move_fut, stop_zoom_fut);
-    if let Err(e) = move_result {
-        println!("Failed to stop movement: {}", e);
-    }
-    if let Err(e) = zoom_result {
-        println!("Failed to stop zoom: {}", e);
-    }
+    // Example 2: True concurrent operations using Arc<Mutex<Camera>>
+    println!("\n=== True Concurrent Operations ===");
 
-    // Example 2: Concurrent inquiries
-    println!("\n=== Concurrent Inquiries ===");
+    // Wrap camera in Arc<Mutex> for concurrent access
+    let camera = Arc::new(Mutex::new(camera));
     let start = Instant::now();
 
-    // Query multiple camera states at once
-    let power_fut = camera.send_async(&InquiryCommand::Power);
-    let position_fut = camera.send_async(&InquiryCommand::PanTiltPosition);
-    let zoom_pos_fut = camera.send_async(&InquiryCommand::ZoomPosition);
-    let focus_mode_fut = camera.send_async(&InquiryCommand::FocusPosition);
+    // Create concurrent tasks that can access the camera
+    let camera1 = Arc::clone(&camera);
+    let move_task = tokio::spawn(async move {
+        let mut cam = camera1.lock().await;
+        cam.move_continuous(PanTiltDirection::Right, 0x08, 0).await
+    });
 
-    let (power, position, zoom_pos, focus_mode) =
-        tokio::join!(power_fut, position_fut, zoom_pos_fut, focus_mode_fut);
+    let camera2 = Arc::clone(&camera);
+    let zoom_task = tokio::spawn(async move {
+        let mut cam = camera2.lock().await;
+        cam.zoom_in().await
+    });
 
-    println!("All inquiries completed in {:?}", start.elapsed());
+    // Wait for both tasks to complete
+    let (move_result, zoom_result) = tokio::join!(move_task, zoom_task);
 
-    if let Ok(Response::InquiryResponse(ref resp)) = power {
-        println!("Power status: {:?}", resp);
-    }
-    if let Ok(Response::InquiryResponse(ref resp)) = position {
-        println!("Position: {:?}", resp);
-    }
-    if let Ok(Response::InquiryResponse(ref resp)) = zoom_pos {
-        println!("Zoom position: {:?}", resp);
-    }
-    if let Ok(Response::InquiryResponse(ref resp)) = focus_mode {
-        println!("Focus mode: {:?}", resp);
-    }
+    println!("Concurrent operations completed in {:?}", start.elapsed());
+    println!(
+        "Move result: {:?}",
+        move_result
+            .map_err(|e| e.to_string())
+            .map(|r| r.map_err(|e| e.to_string()))
+            .unwrap_or_else(|e| Err(e))
+    );
+    println!(
+        "Zoom result: {:?}",
+        zoom_result
+            .map_err(|e| e.to_string())
+            .map(|r| r.map_err(|e| e.to_string()))
+            .unwrap_or_else(|e| Err(e))
+    );
 
-    // Example 3: Complex concurrent sequence
+    // Wait and then stop
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // Stop operations concurrently
+    let camera1 = Arc::clone(&camera);
+    let stop_move = tokio::spawn(async move {
+        let mut cam = camera1.lock().await;
+        cam.stop().await
+    });
+
+    let camera2 = Arc::clone(&camera);
+    let stop_zoom = tokio::spawn(async move {
+        let mut cam = camera2.lock().await;
+        cam.zoom_stop().await
+    });
+
+    let _ = tokio::join!(stop_move, stop_zoom);
+
+    // Example 3: Complex concurrent sequence with inquiries
     println!("\n=== Complex Concurrent Sequence ===");
 
-    // Save current position as preset while also getting camera info
-    let save_preset = PresetCommand {
-        action: PresetAction::Set,
-        preset_number: PresetNumber::new(1)?,
+    // For inquiry commands, we need to access the transport directly
+    // Save preset position using a type-safe preset ID
+    let preset_task = {
+        let camera = Arc::clone(&camera);
+        tokio::spawn(async move {
+            let mut cam = camera.lock().await;
+            use grafton_visca::camera::profiles::G2PresetId;
+            cam.set_preset(G2PresetId::new(1).unwrap()).await
+        })
     };
 
-    let save_fut = camera.send_async(&save_preset);
-    let wb_fut = camera.send_async(&InquiryCommand::WhiteBalanceMode);
-    let exposure_fut = camera.send_async(&InquiryCommand::ExposureMode);
+    // Use the transport for inquiry commands
+    let inquiry_task = {
+        let camera = Arc::clone(&camera);
+        tokio::spawn(async move {
+            let mut cam = camera.lock().await;
+            // Access transport for raw inquiry commands
+            let transport = cam.transport_mut();
+            let zoom_result = transport.send_command(&InquiryCommand::ZoomPosition).await;
+            let responses = transport.receive_response().await;
+            (zoom_result, responses)
+        })
+    };
 
-    let (save_result, wb_result, exposure_result) = tokio::join!(save_fut, wb_fut, exposure_fut);
+    let (preset_result, inquiry_result) = tokio::join!(preset_task, inquiry_task);
 
-    println!("Preset saved: {:?}", save_result.is_ok());
-    if let Ok(Response::InquiryResponse(ref resp)) = wb_result {
-        println!("White balance: {:?}", resp);
+    match preset_result {
+        Ok(Ok(_)) => println!("Preset saved successfully"),
+        Ok(Err(e)) => println!("Failed to save preset: {}", e),
+        Err(e) => println!("Task failed: {}", e),
     }
-    if let Ok(Response::InquiryResponse(ref resp)) = exposure_result {
-        println!("Exposure mode: {:?}", resp);
+
+    match inquiry_result {
+        Ok((Ok(_), Ok(responses))) => {
+            println!("Inquiry completed, got {} responses", responses.len());
+        }
+        Ok((Err(e), _)) => println!("Failed to send inquiry: {}", e),
+        Ok((_, Err(e))) => println!("Failed to receive response: {}", e),
+        Err(e) => println!("Inquiry task failed: {}", e),
     }
 
     // Example 4: Maximizing throughput with many operations
     println!("\n=== Maximum Throughput Test ===");
     let start = Instant::now();
 
-    // Create many inquiry futures
-    let mut futures = Vec::new();
-    for _ in 0..10 {
-        futures.push(camera.send_async(&InquiryCommand::ZoomPosition));
+    // Create many concurrent tasks
+    let mut tasks = Vec::new();
+    for i in 0..10 {
+        let camera = Arc::clone(&camera);
+        let task = tokio::spawn(async move {
+            let start = Instant::now();
+            let mut cam = camera.lock().await;
+            // Alternate between different commands
+            let result = if i % 2 == 0 {
+                cam.zoom_in().await
+            } else {
+                cam.zoom_out().await
+            };
+            let duration = start.elapsed();
+            drop(cam); // Release lock immediately
+            (result, duration)
+        });
+        tasks.push(task);
     }
 
-    // Execute them all concurrently (limited by the 2-socket constraint)
-    let results = futures_util::future::join_all(futures).await;
+    // Wait for all tasks to complete
+    let results = futures_util::future::join_all(tasks).await;
 
     let elapsed = start.elapsed();
-    let successful = results.iter().filter(|r| r.is_ok()).count();
+    let successful = results
+        .iter()
+        .filter(|r| r.as_ref().map(|(res, _)| res.is_ok()).unwrap_or(false))
+        .count();
 
     println!("Sent 10 commands in {:?}", elapsed);
     println!("Successful: {}/10", successful);
     println!("Average time per command: {:?}", elapsed / 10);
 
+    // Stop any ongoing zoom
+    camera.lock().await.zoom_stop().await?;
+
     // Example 5: Movement coordination
     println!("\n=== Coordinated Movement ===");
 
     // Move to home while setting focus to auto
-    let home_fut = camera.send_async(&PanTiltCommand::Home);
-    let focus_fut = camera.send_async(&FocusCommand::Auto);
+    let home_task = {
+        let camera = Arc::clone(&camera);
+        tokio::spawn(async move {
+            let mut cam = camera.lock().await;
+            cam.home().await
+        })
+    };
 
-    let (home_result, focus_result) = tokio::join!(home_fut, focus_fut);
+    let focus_task = {
+        let camera = Arc::clone(&camera);
+        tokio::spawn(async move {
+            let mut cam = camera.lock().await;
+            cam.focus_auto().await
+        })
+    };
 
-    println!("Home command: {:?}", home_result.is_ok());
-    println!("Auto focus: {:?}", focus_result.is_ok());
+    let (home_result, focus_result) = tokio::join!(home_task, focus_task);
+
+    println!(
+        "Home command: {:?}",
+        home_result.map(|r| r.is_ok()).unwrap_or(false)
+    );
+    println!(
+        "Auto focus: {:?}",
+        focus_result.map(|r| r.is_ok()).unwrap_or(false)
+    );
 
     // Wait for movement to complete
     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
@@ -166,49 +244,68 @@ async fn main() -> Result<(), Error> {
     // Now do a complex movement pattern
     println!("\nExecuting movement pattern...");
 
-    // Pan right while zooming in
-    let pan_right = PanTiltCommand::Move {
-        direction: PanTiltDirection::Right,
-        pan_speed: PanSpeed::new(0x08)?,
-        tilt_speed: TiltSpeed::new(0)?,
+    // Pan right while zooming in - true concurrent execution
+    let pan_task = {
+        let camera = Arc::clone(&camera);
+        tokio::spawn(async move {
+            let mut cam = camera.lock().await;
+            cam.move_continuous(PanTiltDirection::Right, 0x08, 0).await
+        })
     };
 
-    let pan_fut = camera.send_async(&pan_right);
-
-    let zoom_cmd = if let Ok(speed) = grafton_visca::command::zoom::ZoomSpeed::new(3) {
-        ZoomCommand::ZoomInVariable(speed)
-    } else {
-        ZoomCommand::ZoomInStandard
+    let zoom_task = {
+        let camera = Arc::clone(&camera);
+        tokio::spawn(async move {
+            let mut cam = camera.lock().await;
+            // Use variable zoom if supported by profile
+            cam.zoom_in().await
+        })
     };
-    let zoom_in_fut = camera.send_async(&zoom_cmd);
 
-    let (pan_result, zoom_result) = tokio::join!(pan_fut, zoom_in_fut);
+    let (pan_result, zoom_result) = tokio::join!(pan_task, zoom_task);
+
     if let Err(e) = pan_result {
-        println!("Failed to start pan movement: {}", e);
+        println!("Pan task failed: {}", e);
     }
     if let Err(e) = zoom_result {
-        println!("Failed to start zoom: {}", e);
+        println!("Zoom task failed: {}", e);
     }
+
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    // Stop all movement
-    let stop_pan = PanTiltCommand::Move {
-        direction: PanTiltDirection::Stop,
-        pan_speed: PanSpeed::new(0)?,
-        tilt_speed: TiltSpeed::new(0)?,
+    // Stop all movement concurrently
+    let stop_pan_task = {
+        let camera = Arc::clone(&camera);
+        tokio::spawn(async move {
+            let mut cam = camera.lock().await;
+            cam.stop().await
+        })
     };
 
-    let stop_pan_fut = camera.send_async(&stop_pan);
-    let stop_zoom_fut = camera.send_async(&ZoomCommand::Stop);
+    let stop_zoom_task = {
+        let camera = Arc::clone(&camera);
+        tokio::spawn(async move {
+            let mut cam = camera.lock().await;
+            cam.zoom_stop().await
+        })
+    };
 
-    let (stop_pan_result, stop_zoom_result) = tokio::join!(stop_pan_fut, stop_zoom_fut);
+    let (stop_pan_result, stop_zoom_result) = tokio::join!(stop_pan_task, stop_zoom_task);
+
     if let Err(e) = stop_pan_result {
-        println!("Failed to stop pan movement: {}", e);
+        println!("Stop pan task failed: {}", e);
     }
     if let Err(e) = stop_zoom_result {
-        println!("Failed to stop zoom: {}", e);
+        println!("Stop zoom task failed: {}", e);
     }
 
     println!("\nConcurrent operations demo completed!");
+    println!("\nKey points demonstrated:");
+    println!("- Sequential operations for timing measurements");
+    println!("- True concurrent execution using Arc<Mutex<Camera>>");
+    println!("- Accessing transport directly for raw commands");
+    println!("- Type-safe preset IDs with camera profiles");
+    println!("- Concurrent task management with proper error handling");
+
     Ok(())
 }

@@ -1,21 +1,22 @@
-//! Example program
-
-//! Example demonstrating timeout handling with blocking operations.
+//! Example demonstrating timeout handling with the Camera API.
 //!
 //! This example shows how to:
-//! - Use the send_with_timeout method
+//! - Configure timeouts at the transport level
 //! - Implement custom timeout logic for different command types
 //! - Handle timeout errors gracefully
 //! - Retry commands with increasing timeouts
+//!
+//! Note: The Camera API doesn't directly support timeouts. This example
+//! shows how to work with timeouts using the unified Client API or by
+//! implementing custom transport wrappers.
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::command::{
-    pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-    preset::{PresetAction, PresetCommand, PresetNumber},
-    InquiryCommand, Response,
+use grafton_visca::{
+    camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
+    command::{pan_tilt::PanTiltDirection, InquiryCommand, Response},
+    transport::{BlockingAdapter, UdpTransport},
+    Client, Error,
 };
-#[cfg(feature = "blocking-client")]
-use grafton_visca::{Client, Error};
 #[cfg(feature = "blocking-client")]
 use std::time::{Duration, Instant};
 
@@ -26,35 +27,54 @@ fn main() {
 }
 
 #[cfg(feature = "blocking-client")]
+// Use a minimal tokio runtime for blocking execution
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(fut)
+}
+
+#[cfg(feature = "blocking-client")]
 fn main() -> Result<(), Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     println!("=== VISCA Timeout Handling Example ===\n");
+    println!("This example demonstrates two approaches:");
+    println!("1. Using the unified Client API with send_with_timeout");
+    println!("2. Using the Camera API (without built-in timeout support)\n");
 
     // Get camera address
     let camera_addr = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-    // Connect to camera
-    println!("Connecting to camera at {}...", camera_addr);
-    let client = Client::connect_udp(&camera_addr)?;
+    // Approach 1: Using unified Client with timeout support
+    println!("=== Approach 1: Unified Client API ===\n");
+    demonstrate_client_timeouts(&camera_addr)?;
 
-    // Demonstrate different timeout scenarios
-    demonstrate_quick_commands(&client)?;
-    demonstrate_movement_commands(&client)?;
-    demonstrate_preset_commands(&client)?;
-    demonstrate_retry_with_timeout(&client)?;
+    println!("\n=== Approach 2: Camera API ===\n");
+    demonstrate_camera_api(&camera_addr)?;
 
     Ok(())
 }
 
 #[cfg(feature = "blocking-client")]
-fn demonstrate_quick_commands(client: &Client) -> Result<(), Error> {
+fn demonstrate_client_timeouts(camera_addr: &str) -> Result<(), Error> {
+    use grafton_visca::command::{
+        pan_tilt::{PanSpeed, PanTiltCommand, TiltSpeed},
+        preset::{PresetAction, PresetCommand, PresetNumber},
+    };
+
+    // Connect to camera using unified Client
+    println!("Connecting to camera at {}...", camera_addr);
+    let client = Client::connect_udp(camera_addr)?;
+
+    // 1. Quick Commands with short timeout
     println!("1. Quick Commands (Inquiries):");
     println!("   These commands should complete quickly\n");
 
-    // Quick timeout for inquiry commands
     let quick_timeout = Duration::from_secs(1);
 
     // Power inquiry
@@ -82,27 +102,12 @@ fn demonstrate_quick_commands(client: &Client) -> Result<(), Error> {
         Err(e) => println!("   ✗ Position inquiry failed: {}", e),
     }
 
-    // Zoom position inquiry
-    let start = Instant::now();
-    match client.send_with_timeout(&InquiryCommand::ZoomPosition, quick_timeout) {
-        Ok(Response::InquiryResponse(resp)) => {
-            let elapsed = start.elapsed();
-            println!("   ✓ Zoom inquiry completed in {:?}: {:?}", elapsed, resp);
-        }
-        Ok(_) => println!("   ✓ Zoom inquiry completed but unexpected response"),
-        Err(e) => println!("   ✗ Zoom inquiry failed: {}", e),
-    }
-
     println!();
-    Ok(())
-}
 
-#[cfg(feature = "blocking-client")]
-fn demonstrate_movement_commands(client: &Client) -> Result<(), Error> {
+    // 2. Movement Commands with medium timeout
     println!("2. Movement Commands:");
     println!("   These commands may take longer to acknowledge\n");
 
-    // Medium timeout for movement commands
     let movement_timeout = Duration::from_secs(5);
 
     // Start movement
@@ -119,7 +124,7 @@ fn demonstrate_movement_commands(client: &Client) -> Result<(), Error> {
             println!("   ✓ Movement command started in {:?}", elapsed);
 
             // Let it move for a bit
-            std::thread::sleep(Duration::from_secs(2));
+            std::thread::sleep(Duration::from_secs(1));
 
             // Stop movement
             let stop_cmd = PanTiltCommand::Move {
@@ -139,15 +144,11 @@ fn demonstrate_movement_commands(client: &Client) -> Result<(), Error> {
     }
 
     println!();
-    Ok(())
-}
 
-#[cfg(feature = "blocking-client")]
-fn demonstrate_preset_commands(client: &Client) -> Result<(), Error> {
+    // 3. Preset Commands with long timeout
     println!("3. Preset Commands:");
     println!("   These commands may take significant time to complete\n");
 
-    // Long timeout for preset operations
     let preset_timeout = Duration::from_secs(30);
 
     // Save current position as preset
@@ -167,36 +168,13 @@ fn demonstrate_preset_commands(client: &Client) -> Result<(), Error> {
         }
     }
 
-    // Recall preset (this typically takes longer)
-    let recall_preset = PresetCommand {
-        action: PresetAction::Recall,
-        preset_number: PresetNumber::new(1)?,
-    };
-
-    let start = Instant::now();
-    match client.send_with_timeout(&recall_preset, preset_timeout) {
-        Ok(_) => {
-            let elapsed = start.elapsed();
-            println!("   ✓ Preset recalled in {:?}", elapsed);
-        }
-        Err(e) => {
-            println!("   ✗ Preset recall failed: {}", e);
-        }
-    }
-
     println!();
-    Ok(())
-}
 
-#[cfg(feature = "blocking-client")]
-fn demonstrate_retry_with_timeout(client: &Client) -> Result<(), Error> {
+    // 4. Retry with increasing timeouts
     println!("4. Retry with Increasing Timeouts:");
     println!("   Demonstrating adaptive timeout strategy\n");
 
-    // Command that might need retries
     let command = InquiryCommand::FocusPosition;
-
-    // Retry configuration
     let timeouts = [
         Duration::from_millis(500),
         Duration::from_secs(1),
@@ -220,11 +198,11 @@ fn demonstrate_retry_with_timeout(client: &Client) -> Result<(), Error> {
                     "   ✓ Success on attempt {} in {:?}: {:?}",
                     attempt_num, elapsed, resp
                 );
-                return Ok(());
+                break;
             }
             Ok(_) => {
                 println!("   ✓ Command succeeded but unexpected response");
-                return Ok(());
+                break;
             }
             Err(e) => {
                 let elapsed = start.elapsed();
@@ -241,7 +219,122 @@ fn demonstrate_retry_with_timeout(client: &Client) -> Result<(), Error> {
         }
     }
 
-    println!("   ✗ All retry attempts exhausted");
     println!();
+    Ok(())
+}
+
+#[cfg(feature = "blocking-client")]
+fn demonstrate_camera_api(camera_addr: &str) -> Result<(), Error> {
+    use grafton_visca::camera::profiles::G2PresetId;
+
+    // Connect to camera using Camera API
+    println!(
+        "Connecting to camera at {} using Camera API...",
+        camera_addr
+    );
+    let udp_transport = UdpTransport::new(camera_addr)?;
+    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
+
+    println!("Camera API Notes:");
+    println!("- The Camera API doesn't have built-in timeout support");
+    println!("- Timeouts would need to be implemented at the transport level");
+    println!("- For timeout support, use the unified Client API instead\n");
+
+    // Demonstrate commands without timeout control
+    println!("1. Basic Commands (no timeout control):\n");
+
+    // Power on
+    let start = Instant::now();
+    match block_on(camera.power_on()) {
+        Ok(_) => {
+            let elapsed = start.elapsed();
+            println!("   ✓ Power on completed in {:?}", elapsed);
+        }
+        Err(e) => println!("   ✗ Power on failed: {}", e),
+    }
+
+    // Wait for initialization
+    std::thread::sleep(Duration::from_secs(2));
+
+    // Move to home
+    let start = Instant::now();
+    match block_on(camera.home()) {
+        Ok(_) => {
+            let elapsed = start.elapsed();
+            println!("   ✓ Home command completed in {:?}", elapsed);
+        }
+        Err(e) => println!("   ✗ Home command failed: {}", e),
+    }
+
+    // Set position
+    let start = Instant::now();
+    match block_on(camera.set_position(Degrees(30.0), Degrees(-10.0))) {
+        Ok(_) => {
+            let elapsed = start.elapsed();
+            println!("   ✓ Set position completed in {:?}", elapsed);
+        }
+        Err(e) => println!("   ✗ Set position failed: {}", e),
+    }
+
+    // Movement with timing
+    println!("\n2. Movement Commands (timed but no timeout):\n");
+
+    let start = Instant::now();
+    match block_on(camera.move_continuous(PanTiltDirection::Left, 15, 0)) {
+        Ok(_) => {
+            let elapsed = start.elapsed();
+            println!("   ✓ Start movement completed in {:?}", elapsed);
+
+            // Move for 2 seconds
+            std::thread::sleep(Duration::from_secs(2));
+
+            // Stop movement
+            let stop_start = Instant::now();
+            match block_on(camera.stop()) {
+                Ok(_) => {
+                    let stop_elapsed = stop_start.elapsed();
+                    println!("   ✓ Stop movement completed in {:?}", stop_elapsed);
+                }
+                Err(e) => println!("   ✗ Stop movement failed: {}", e),
+            }
+        }
+        Err(e) => println!("   ✗ Start movement failed: {}", e),
+    }
+
+    // Preset operations
+    println!("\n3. Preset Operations (may take significant time):\n");
+
+    let preset_id = G2PresetId::new(2)?;
+
+    // Save preset
+    let start = Instant::now();
+    match block_on(camera.set_preset(preset_id)) {
+        Ok(_) => {
+            let elapsed = start.elapsed();
+            println!("   ✓ Save preset completed in {:?}", elapsed);
+        }
+        Err(e) => println!("   ✗ Save preset failed: {}", e),
+    }
+
+    // Move away
+    block_on(camera.set_position(Degrees(0.0), Degrees(0.0)))?;
+    std::thread::sleep(Duration::from_secs(1));
+
+    // Recall preset
+    let start = Instant::now();
+    match block_on(camera.recall_preset(preset_id)) {
+        Ok(_) => {
+            let elapsed = start.elapsed();
+            println!("   ✓ Recall preset completed in {:?}", elapsed);
+            println!("   Note: Preset recall can take 30+ seconds on some cameras");
+        }
+        Err(e) => println!("   ✗ Recall preset failed: {}", e),
+    }
+
+    println!("\n4. Summary:");
+    println!("   - Camera API provides type-safe, profile-aware control");
+    println!("   - For timeout control, use the unified Client API");
+    println!("   - Custom transport wrappers could add timeout support");
+
     Ok(())
 }

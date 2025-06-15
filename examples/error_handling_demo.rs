@@ -12,10 +12,17 @@ use std::time::Duration;
 use grafton_visca::ViscaRetry;
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{Client, ResultExt};
+use grafton_visca::{
+    camera::{Camera, PTZOpticsG2},
+    transport::{BlockingAdapter, UdpTransport},
+    ResultExt,
+};
 
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use grafton_visca::command::{PanTiltCommand, ZoomCommand};
+#[cfg(feature = "async-client")]
+use grafton_visca::{
+    camera::{Camera as AsyncCamera, PTZOpticsG2 as AsyncPTZOpticsG2},
+    transport::AsyncUdpTransport,
+};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use log::{info, warn};
@@ -55,6 +62,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n✅ Phase E error handling demonstration completed successfully!");
     Ok(())
+}
+
+#[cfg(feature = "blocking-client")]
+fn block_on<T>(fut: impl std::future::Future<Output = T>) -> T {
+    use std::task::Poll;
+
+    struct NoopWaker;
+
+    impl std::task::Wake for NoopWaker {
+        fn wake(self: std::sync::Arc<Self>) {}
+    }
+
+    let mut fut = Box::pin(fut);
+    let waker = std::sync::Arc::new(NoopWaker).into();
+    let mut cx = std::task::Context::from_waker(&waker);
+
+    loop {
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(val) => return val,
+            Poll::Pending => continue,
+        }
+    }
 }
 
 #[cfg(feature = "blocking-client")]
@@ -131,13 +160,14 @@ fn blocking_error_handling_examples() {
     println!("\n3. Real Camera Operation Examples (if connected)");
 
     // Try to connect to a camera
-    match Client::connect_udp("127.0.0.1:1259") {
-        Ok(client) => {
+    match UdpTransport::new("127.0.0.1:1259") {
+        Ok(transport) => {
+            let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
             info!("   📹 Connected to camera, testing real operations");
 
             // Try actual camera operations with retry
             let pan_tilt_result = ViscaRetry::retry_blocking(
-                || client.send(&PanTiltCommand::Home),
+                || block_on(camera.home()),
                 3,
                 Duration::from_millis(100),
             );
@@ -148,7 +178,7 @@ fn blocking_error_handling_examples() {
 
                     // Try zoom operation with different retry strategy
                     let zoom_result = ViscaRetry::retry_blocking(
-                        || client.send(&ZoomCommand::ZoomInStandard),
+                        || block_on(camera.zoom_in()),
                         5,
                         Duration::from_millis(200),
                     );
@@ -302,38 +332,38 @@ async fn demonstrate_real_async_operations() -> Result<(), Box<dyn std::error::E
     println!("\n4. Real Async Camera Operations (if connected)");
 
     // Try to connect to a camera for real async operations
-    let client_result = match Client::connect_udp_async("127.0.0.1:1259").await {
-        Ok(client) => Ok(client),
-        Err(_) => Client::connect_udp_async("192.168.1.100:5678").await,
+    let transport_result = match AsyncUdpTransport::new("127.0.0.1:1259").await {
+        Ok(transport) => Ok(transport),
+        Err(_) => AsyncUdpTransport::new("192.168.1.100:5678").await,
     };
 
-    match client_result {
-        Ok(client) => {
+    match transport_result {
+        Ok(transport) => {
+            let mut camera = AsyncCamera::<AsyncPTZOpticsG2>::new(transport);
             info!("   📹 Connected to camera, testing real operations");
 
-            // Test concurrent operations with retry
-            let pan_home = ViscaRetry::retry_async(
-                || async { client.send_async(&PanTiltCommand::Home).await },
-                3,
-                Duration::from_millis(100),
-            );
-
-            let zoom_tele = ViscaRetry::retry_with_suggested_delay_async(
-                || async { client.send_async(&ZoomCommand::ZoomInStandard).await },
-                3,
-            );
-
-            let (pan_result, zoom_result) = tokio::join!(pan_home, zoom_tele);
-
-            match pan_result {
+            // Test direct operations (retry would require Arc<Mutex<Camera>> for async)
+            match camera.home().await {
                 Ok(_) => info!("   ✅ Async pan/tilt home succeeded"),
-                Err(err) => warn!("   ⚠️  Async pan/tilt home failed: {err}"),
+                Err(err) => {
+                    warn!("   ⚠️  Async pan/tilt home failed: {err}");
+                    if err.is_retryable() {
+                        info!("   💡 This error is retryable with ViscaRetry utilities");
+                    }
+                }
             }
 
-            match zoom_result {
+            match camera.zoom_in().await {
                 Ok(_) => info!("   ✅ Async zoom operation succeeded"),
-                Err(err) => warn!("   ⚠️  Async zoom operation failed: {err}"),
+                Err(err) => {
+                    warn!("   ⚠️  Async zoom operation failed: {err}");
+                    if err.is_retryable() {
+                        info!("   💡 This error is retryable with ViscaRetry utilities");
+                    }
+                }
             }
+
+            info!("   💡 Note: For retry with async camera operations, wrap the camera in Arc<Mutex<T>>");
         }
         Err(err) => {
             warn!("   ⚠️  Could not connect to camera: {err}");

@@ -1,24 +1,34 @@
-//! Example program
-
-//! Example demonstrating thread-safe usage of `Client`
+//! Example demonstrating thread-safe usage of Camera with PTZOpticsG2 profile
 //!
-//! This example shows how to use `Client` to control a camera
-//! from multiple threads without needing `RefCell` or manual locking.
+//! This example shows how to use the Camera<P> API to control a camera
+//! from multiple threads using Arc<Mutex<Camera>> for thread safety.
 //!
-//! NOTE: This example needs to be updated for the v0.4.0 API.
+//! Run with: cargo run --example thread_safe_client [CAMERA_IP:PORT]
+//! Default camera address: 192.168.1.100:5678
 
-#[cfg(not(all(feature = "blocking-client", feature = "async-client")))]
+use grafton_visca::{
+    camera::{Camera, PTZOpticsG2},
+    command::{
+        pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
+        PanTiltCommand, Power, PowerCommand, ZoomCommand,
+    },
+    transport::{BlockingAdapter, UdpTransport},
+    Error,
+};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+// Use a minimal tokio runtime for blocking execution
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(fut)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::{
-        command::{
-            pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-            PanTiltCommand, Power, PowerCommand, ZoomCommand,
-        },
-        Client, Error,
-    };
-    use std::sync::Arc;
-    use std::thread;
-    use std::time::Duration;
     env_logger::init();
 
     // Get camera address from command line or use default
@@ -30,60 +40,85 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Connecting to camera at {}...", camera_addr);
 
-    // Create client using the new v0.4.0 API
-    let client = Arc::new(Client::connect_udp(camera_addr)?);
+    // Create UDP transport and Camera with PTZOpticsG2 profile
+    let transport = UdpTransport::new(camera_addr)?;
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+
+    // Wrap the camera in Arc<Mutex> for thread-safe access
+    let camera = Arc::new(Mutex::new(camera));
 
     println!("Connected! Starting multi-threaded demo...");
 
     // Power on the camera
     println!("Powering on camera...");
-    client.send(&PowerCommand { power: Power::On })?;
+    {
+        let mut cam = camera.lock().unwrap();
+        block_on(
+            cam.transport_mut()
+                .send_command(&PowerCommand { power: Power::On }),
+        )?;
+    }
     thread::sleep(Duration::from_secs(2));
 
     // Spawn thread 1: Pan/Tilt control
-    let client1 = Arc::clone(&client);
+    let camera1 = Arc::clone(&camera);
     let handle1 = thread::spawn(move || -> Result<(), Error> {
         println!("[Thread 1] Starting pan/tilt movements...");
 
         // Move up-right
-        client1.send(&PanTiltCommand::Move {
-            direction: PanTiltDirection::UpRight,
-            pan_speed: PanSpeed::new(0x10)?,
-            tilt_speed: TiltSpeed::new(0x10)?,
-        })?;
+        {
+            let mut cam = camera1.lock().unwrap();
+            block_on(cam.transport_mut().send_command(&PanTiltCommand::Move {
+                direction: PanTiltDirection::UpRight,
+                pan_speed: PanSpeed::new(0x10)?,
+                tilt_speed: TiltSpeed::new(0x10)?,
+            }))?;
+        }
         thread::sleep(Duration::from_secs(2));
 
         // Stop movement
-        client1.send(&PanTiltCommand::Move {
-            direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0)?,
-            tilt_speed: TiltSpeed::new(0)?,
-        })?;
+        {
+            let mut cam = camera1.lock().unwrap();
+            block_on(cam.transport_mut().send_command(&PanTiltCommand::Move {
+                direction: PanTiltDirection::Stop,
+                pan_speed: PanSpeed::new(0)?,
+                tilt_speed: TiltSpeed::new(0)?,
+            }))?;
+        }
         thread::sleep(Duration::from_millis(500));
 
         // Move down-left
-        client1.send(&PanTiltCommand::Move {
-            direction: PanTiltDirection::DownLeft,
-            pan_speed: PanSpeed::new(0x10)?,
-            tilt_speed: TiltSpeed::new(0x10)?,
-        })?;
+        {
+            let mut cam = camera1.lock().unwrap();
+            block_on(cam.transport_mut().send_command(&PanTiltCommand::Move {
+                direction: PanTiltDirection::DownLeft,
+                pan_speed: PanSpeed::new(0x10)?,
+                tilt_speed: TiltSpeed::new(0x10)?,
+            }))?;
+        }
         thread::sleep(Duration::from_secs(2));
 
         // Stop and return home
-        client1.send(&PanTiltCommand::Move {
-            direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0)?,
-            tilt_speed: TiltSpeed::new(0)?,
-        })?;
+        {
+            let mut cam = camera1.lock().unwrap();
+            block_on(cam.transport_mut().send_command(&PanTiltCommand::Move {
+                direction: PanTiltDirection::Stop,
+                pan_speed: PanSpeed::new(0)?,
+                tilt_speed: TiltSpeed::new(0)?,
+            }))?;
+        }
         thread::sleep(Duration::from_millis(500));
-        client1.send(&PanTiltCommand::Home)?;
+        {
+            let mut cam = camera1.lock().unwrap();
+            block_on(cam.transport_mut().send_command(&PanTiltCommand::Home))?;
+        }
 
         println!("[Thread 1] Pan/tilt complete");
         Ok(())
     });
 
     // Spawn thread 2: Zoom control
-    let client2 = Arc::clone(&client);
+    let camera2 = Arc::clone(&camera);
     let handle2 = thread::spawn(move || -> Result<(), Error> {
         println!("[Thread 2] Starting zoom operations...");
 
@@ -91,29 +126,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         thread::sleep(Duration::from_millis(500));
 
         // Zoom in
-        client2.send(&ZoomCommand::ZoomInStandard)?;
+        {
+            let mut cam = camera2.lock().unwrap();
+            block_on(
+                cam.transport_mut()
+                    .send_command(&ZoomCommand::ZoomInStandard),
+            )?;
+        }
         thread::sleep(Duration::from_secs(2));
-        // There is no ZoomCommand::Stop, we'll use another variant
-        // Since we're not actually connected, this is fine for the demo
+
+        // Stop zoom (using ZoomStop command)
+        {
+            let mut cam = camera2.lock().unwrap();
+            block_on(cam.transport_mut().send_command(&ZoomCommand::Stop))?;
+        }
 
         // Zoom out
-        client2.send(&ZoomCommand::ZoomOutStandard)?;
+        {
+            let mut cam = camera2.lock().unwrap();
+            block_on(
+                cam.transport_mut()
+                    .send_command(&ZoomCommand::ZoomOutStandard),
+            )?;
+        }
         thread::sleep(Duration::from_secs(2));
-        // There is no ZoomCommand::Stop, we'll use another variant
-        // Since we're not actually connected, this is fine for the demo
+
+        // Stop zoom
+        {
+            let mut cam = camera2.lock().unwrap();
+            block_on(cam.transport_mut().send_command(&ZoomCommand::Stop))?;
+        }
 
         println!("[Thread 2] Zoom complete");
         Ok(())
     });
 
-    // Main thread: Try to send commands using try_send
+    // Main thread: Demonstrate concurrent access with proper locking
     println!("[Main] Attempting concurrent command...");
     thread::sleep(Duration::from_secs(1));
 
-    // The new unified client handles concurrency with a semaphore
-    match client.send(&ZoomCommand::ZoomInStandard) {
-        Ok(_) => println!("[Main] Successfully sent command"),
-        Err(e) => println!("[Main] Error: {:?}", e),
+    // Try to access the camera from the main thread
+    {
+        let mut cam = camera.lock().unwrap();
+        match block_on(
+            cam.transport_mut()
+                .send_command(&ZoomCommand::ZoomInStandard),
+        ) {
+            Ok(_) => println!("[Main] Successfully sent command"),
+            Err(e) => println!("[Main] Error: {:?}", e),
+        }
     }
 
     // Wait for threads to complete
@@ -122,17 +183,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Multi-threaded demo complete!");
 
+    // Demonstrate Camera<P> specific features
+    println!("\nCamera profile information:");
+    {
+        let cam = camera.lock().unwrap();
+        let capabilities = cam.capabilities();
+        println!("Model: {}", capabilities.model_name);
+        println!("Pan range: {:?} degrees", capabilities.pan_range_degrees);
+        println!("Tilt range: {:?} degrees", capabilities.tilt_range_degrees);
+        println!("Max pan speed: {}", capabilities.max_pan_speed);
+        println!("Max tilt speed: {}", capabilities.max_tilt_speed);
+        println!("Preset count: {}", capabilities.preset_count);
+        println!(
+            "Supports digital zoom: {}",
+            capabilities.supports_digital_zoom
+        );
+    }
+
     // Power off (using Standby since there's no Off)
-    println!("Setting camera to standby...");
-    client.send(&PowerCommand {
-        power: Power::Standby,
-    })?;
+    println!("\nSetting camera to standby...");
+    {
+        let mut cam = camera.lock().unwrap();
+        block_on(cam.transport_mut().send_command(&PowerCommand {
+            power: Power::Standby,
+        }))?;
+    }
 
     Ok(())
-}
-
-#[cfg(all(feature = "blocking-client", feature = "async-client"))]
-fn main() {
-    println!("This example works with the unified Client in v0.4.0.");
-    println!("Run with: cargo run --example thread_safe_client --no-default-features --features blocking-client");
 }
