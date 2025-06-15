@@ -53,11 +53,11 @@ cargo fmt
 The library includes a comprehensive example that demonstrates various camera controls:
 
 ```bash
-cargo run --example hello_visca -- <protocol> <camera_ip>
+cargo run --example hello_world -- <protocol> <camera_ip>
 
 # Examples:
-cargo run --example hello_visca -- udp 192.168.1.100:1259
-cargo run --example hello_visca -- tcp 192.168.1.100:5678
+cargo run --example hello_world -- udp 192.168.1.100:1259
+cargo run --example hello_world -- tcp 192.168.1.100:5678
 ```
 
 The example will:

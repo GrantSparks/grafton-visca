@@ -305,7 +305,7 @@ mod unified_client;
 pub use crate::{
     command::{
         pan_tilt::PanTiltDirection,
-        response::{parse_visca_response, Response},
+        response::{parse_response, Response},
         Command, InquiryResponse, ResponseType,
     },
     error::{Error, ResultExt, ViscaRetry},

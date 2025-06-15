@@ -180,7 +180,7 @@ pub trait ZoomExt: Transport {
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
     fn zoom_to_magnification(&mut self, magnification: f32) -> Result<(), Error> {
-        let position = crate::constants::zoom_magnification_to_visca(magnification);
+        let position = crate::constants::zoom_magnification_to_units(magnification);
         self.zoom_to(position)
     }
 
@@ -212,7 +212,7 @@ pub trait ZoomExt: Transport {
         let response = self.execute_command(&InquiryCommand::ZoomPosition)?;
         match response {
             Response::InquiryResponse(crate::InquiryResponse::ZoomPosition { position }) => {
-                Ok(crate::constants::zoom_visca_to_magnification(position))
+                Ok(crate::constants::zoom_units_to_magnification(position))
             }
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -245,7 +245,7 @@ pub trait ZoomExt: Transport {
     /// # Errors
     /// Returns `Error` if the command fails to send or the camera returns an error.
     fn zoom_to_normalized(&mut self, normalized: f32) -> Result<(), Error> {
-        let position = crate::constants::zoom_normalized_to_visca(normalized);
+        let position = crate::constants::zoom_normalized_to_units(normalized);
         self.zoom_to(position)
     }
 
@@ -277,7 +277,7 @@ pub trait ZoomExt: Transport {
         let response = self.execute_command(&InquiryCommand::ZoomPosition)?;
         match response {
             Response::InquiryResponse(crate::InquiryResponse::ZoomPosition { position }) => {
-                Ok(crate::constants::zoom_visca_to_normalized(position))
+                Ok(crate::constants::zoom_units_to_normalized(position))
             }
             _ => Err(Error::UnexpectedResponseType),
         }
