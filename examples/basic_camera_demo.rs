@@ -1,239 +1,206 @@
-//! Example program
+//! Basic camera control demonstration using the new Camera API
 
-use grafton_visca::command::color::{HueCommand, SaturationCommand};
-use grafton_visca::command::exposure::{
-    ExposureCommand, ExposureMode, IrisCommand, ShutterCommand,
+use grafton_visca::{
+    camera::{profiles::PTZOpticsG2, Camera},
+    command::{
+        exposure::ExposureMode, gain::AntiFlickerMode, image::ImageFlipMode,
+        pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
+    },
+    transport::{BlockingAdapter, UdpTransport},
 };
-use grafton_visca::command::focus::FocusCommand;
-use grafton_visca::command::inquiry::InquiryCommand;
-use grafton_visca::command::luminance_contrast_sharpness::{
-    ContrastCommand, LuminanceCommand, SharpnessCommand,
-};
-use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed};
-use grafton_visca::command::power::{Power, PowerCommand};
-use grafton_visca::command::preset::{PresetAction, PresetCommand, PresetNumber};
-use grafton_visca::command::white_balance::{WhiteBalanceCommand, WhiteBalanceMode};
-use grafton_visca::command::zoom::ZoomCommand;
-use grafton_visca::command::{
-    BacklightCommand, ImageFlipCombinedCommand, ImageFlipMode, NoiseReduction2DCommand,
-};
-use grafton_visca::{Client, InquiryResponse, Response, Transport};
-use grafton_visca::{ContrastLevel, IrisLevel, LuminanceLevel, ShutterSpeed};
 use std::thread;
 use std::time::Duration;
 
-fn demo_power_control(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
+// Use a minimal tokio runtime for blocking execution
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(fut)
+}
+
+fn demo_power_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 1: Power Control");
     println!("Powering on camera...");
-    match client.execute_command(&PowerCommand { power: Power::On })? {
-        Response::Completion => println!("✅ Camera powered on successfully"),
-        Response::Error(e) => println!("❌ Power on error: {e:?}"),
-        _ => println!("⚠️  Unexpected response"),
-    }
+    block_on(camera.power_on())?;
+    println!("✅ Camera powered on successfully");
     thread::sleep(Duration::from_secs(2));
     Ok(())
 }
 
-fn demo_pan_tilt_movement(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_pan_tilt_movement(
+    camera: &mut Camera<PTZOpticsG2>,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 2: Pan/Tilt Movement");
 
     println!("Moving to home position...");
-    client.execute_command(&PanTiltCommand::Home)?;
+    block_on(camera.home())?;
     thread::sleep(Duration::from_secs(2));
 
     println!("Moving camera up-right...");
-    let move_cmd = PanTiltCommand::Move {
-        direction: PanTiltDirection::UpRight,
-        pan_speed: PanSpeed::new(0x10)?,
-        tilt_speed: TiltSpeed::new(0x10)?,
-    };
-    client.execute_command(&move_cmd)?;
+    block_on(camera.move_continuous(PanTiltDirection::UpRight, 16, 16))?;
     thread::sleep(Duration::from_secs(1));
 
     println!("Stopping movement...");
-    let stop_cmd = PanTiltCommand::Move {
-        direction: PanTiltDirection::Stop,
-        pan_speed: PanSpeed::new(0)?,
-        tilt_speed: TiltSpeed::new(0)?,
-    };
-    client.execute_command(&stop_cmd)?;
+    block_on(camera.stop())?;
     Ok(())
 }
 
-fn demo_zoom_control(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_zoom_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 3: Zoom Control");
 
     println!("Zooming in...");
-    client.execute_command(&ZoomCommand::ZoomInStandard)?;
+    block_on(camera.zoom_in())?;
     thread::sleep(Duration::from_secs(1));
 
-    client.execute_command(&ZoomCommand::Stop)?;
+    block_on(camera.zoom_stop())?;
 
     println!("Zooming out...");
-    client.execute_command(&ZoomCommand::ZoomOutStandard)?;
+    block_on(camera.zoom_out())?;
     thread::sleep(Duration::from_secs(1));
 
-    client.execute_command(&ZoomCommand::Stop)?;
+    block_on(camera.zoom_stop())?;
+
+    println!("Setting zoom to 25%...");
+    block_on(camera.set_zoom(0x1C00))?; // 25% of G2's max zoom
     Ok(())
 }
 
-fn demo_focus_control(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_focus_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 4: Focus Control");
 
     println!("Setting auto focus...");
-    client.execute_command(&FocusCommand::Auto)?;
+    block_on(camera.focus_auto())?;
     thread::sleep(Duration::from_secs(1));
+
+    println!("Setting manual focus...");
+    block_on(camera.focus_manual())?;
+    block_on(camera.set_focus(0x6000))?;
+    thread::sleep(Duration::from_secs(1));
+
+    println!("Returning to auto focus...");
+    block_on(camera.focus_auto())?;
     Ok(())
 }
 
-fn demo_preset_positions(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_preset_positions(
+    camera: &mut Camera<PTZOpticsG2>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use grafton_visca::camera::profiles::G2PresetId;
+
     println!("\n📍 Demo 5: Preset Positions");
 
     println!("Saving current position as preset 1...");
-    let preset_set = PresetCommand {
-        action: PresetAction::Set,
-        preset_number: PresetNumber::new(1)?,
-    };
-    client.execute_command(&preset_set)?;
-
+    let preset1 = G2PresetId::new(1)?;
+    block_on(camera.set_preset(preset1))?;
     thread::sleep(Duration::from_secs(1));
 
     println!("Moving camera to a different position...");
-    let move_cmd = PanTiltCommand::Move {
-        direction: PanTiltDirection::DownLeft,
-        pan_speed: PanSpeed::new(0x10)?,
-        tilt_speed: TiltSpeed::new(0x10)?,
-    };
-    client.execute_command(&move_cmd)?;
+    block_on(camera.move_continuous(PanTiltDirection::DownLeft, 16, 16))?;
     thread::sleep(Duration::from_secs(1));
-
-    let stop_cmd = PanTiltCommand::Move {
-        direction: PanTiltDirection::Stop,
-        pan_speed: PanSpeed::new(0)?,
-        tilt_speed: TiltSpeed::new(0)?,
-    };
-    client.execute_command(&stop_cmd)?;
+    block_on(camera.stop())?;
 
     println!("Recalling preset 1...");
-    let preset_recall = PresetCommand {
-        action: PresetAction::Recall,
-        preset_number: PresetNumber::new(1)?,
-    };
-    client.execute_command(&preset_recall)?;
+    block_on(camera.recall_preset(preset1))?;
     thread::sleep(Duration::from_secs(2));
     Ok(())
 }
 
-fn demo_exposure_control(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_exposure_control(
+    camera: &mut Camera<PTZOpticsG2>,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 6: Exposure Control");
 
     println!("Setting manual exposure mode...");
-    client.execute_command(&ExposureCommand {
-        mode: ExposureMode::Manual,
-    })?;
+    block_on(camera.set_exposure_mode(ExposureMode::Manual))?;
 
     println!("Adjusting iris to F4.0...");
-    client.execute_command(&IrisCommand::Direct(IrisLevel::new(0x06).unwrap()))?;
+    block_on(camera.set_iris(6))?;
 
     println!("Setting shutter speed...");
-    client.execute_command(&ShutterCommand::Direct(ShutterSpeed::new(0x0A).unwrap()))?;
+    block_on(camera.set_shutter(10))?;
+
+    println!("Returning to auto exposure...");
+    block_on(camera.set_exposure_mode(ExposureMode::Auto))?;
     Ok(())
 }
 
-fn demo_color_adjustments(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_color_adjustments(
+    camera: &mut Camera<PTZOpticsG2>,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 7: Color Adjustments");
 
     println!("Setting white balance to auto...");
-    client.execute_command(&WhiteBalanceCommand {
-        mode: WhiteBalanceMode::Auto,
-    })?;
+    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Auto))?;
 
     println!("Adjusting saturation...");
-    client.execute_command(&SaturationCommand { level: 0x08 })?;
+    block_on(camera.set_saturation(8))?;
 
     println!("Adjusting hue...");
-    client.execute_command(&HueCommand { level: 0x07 })?;
+    block_on(camera.set_hue(7))?;
+
+    println!("Setting color temperature to 5600K...");
+    block_on(camera.set_color_temperature(0x20))?; // Approximate 5600K
     Ok(())
 }
 
-fn demo_image_quality(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_image_quality(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 8: Image Quality Settings");
 
     println!("Setting luminance...");
-    client.execute_command(&LuminanceCommand {
-        value: LuminanceLevel::new(0x08).unwrap(),
-    })?;
+    block_on(camera.set_luminance(8))?;
 
     println!("Setting contrast...");
-    client.execute_command(&ContrastCommand {
-        value: ContrastLevel::new(0x08).unwrap(),
-    })?;
+    block_on(camera.set_contrast(8))?;
 
     println!("Setting sharpness...");
-    client.execute_command(&SharpnessCommand::Direct { value: 0x08 })?;
+    block_on(camera.set_sharpness(8))?;
+
+    println!("Setting brightness...");
+    block_on(camera.set_brightness(8))?;
     Ok(())
 }
 
-fn demo_inquiry_commands(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 9: Inquiry Commands");
+fn demo_camera_info(camera: &Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n📍 Demo 9: Camera Information");
 
-    println!("Querying camera status...");
-
-    // Query zoom position
-    match client.execute_command(&InquiryCommand::ZoomPosition)? {
-        Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => {
-            println!("  Zoom position: 0x{position:04X}");
-        }
-        _ => println!("  Failed to get zoom position"),
-    }
-
-    // Query pan/tilt position
-    match client.execute_command(&InquiryCommand::PanTiltPosition)? {
-        Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
-            println!("  Pan/Tilt position: Pan={pan}, Tilt={tilt}");
-        }
-        _ => println!("  Failed to get pan/tilt position"),
-    }
-
-    // Query exposure mode
-    match client.execute_command(&InquiryCommand::ExposureMode)? {
-        Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => {
-            println!("  Exposure mode: {mode:?}");
-        }
-        _ => println!("  Failed to get exposure mode"),
-    }
-
-    // Query white balance mode
-    match client.execute_command(&InquiryCommand::WhiteBalanceMode)? {
-        Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => {
-            println!("  White balance mode: {mode:?}");
-        }
-        _ => println!("  Failed to get white balance mode"),
-    }
+    let caps = camera.capabilities();
+    println!("Camera Model: {}", caps.model_name);
+    println!("Pan Range: {:?} degrees", caps.pan_range_degrees);
+    println!("Tilt Range: {:?} degrees", caps.tilt_range_degrees);
+    println!("Zoom Steps: {}", caps.zoom_steps);
+    println!("Focus Steps: {}", caps.focus_steps);
+    println!("Preset Count: {}", caps.preset_count);
+    println!("Supports Digital Zoom: {}", caps.supports_digital_zoom);
+    println!("Max Pan Speed: {}", caps.max_pan_speed);
+    println!("Max Tilt Speed: {}", caps.max_tilt_speed);
     Ok(())
 }
 
-fn demo_advanced_features(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
+fn demo_advanced_features(
+    camera: &mut Camera<PTZOpticsG2>,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📍 Demo 10: Advanced Features");
 
     println!("Setting 2D noise reduction...");
-    client.execute_command(&NoiseReduction2DCommand::Level(
-        grafton_visca::NoiseReduction2DLevel::new(3).unwrap(),
-    ))?;
+    block_on(camera.set_noise_reduction_2d(3))?;
 
     println!("Setting backlight compensation...");
-    client.execute_command(&BacklightCommand { status: true })?;
+    block_on(camera.backlight_on())?;
 
     println!("Setting image flip (horizontal)...");
-    client.execute_command(&ImageFlipCombinedCommand {
-        mode: ImageFlipMode::Horizontal,
-    })?;
+    block_on(camera.set_image_flip(ImageFlipMode::Horizontal))?;
     thread::sleep(Duration::from_secs(1));
 
     println!("Resetting image flip...");
-    client.execute_command(&ImageFlipCombinedCommand {
-        mode: ImageFlipMode::Off,
-    })?;
+    block_on(camera.set_image_flip(ImageFlipMode::Off))?;
+
+    println!("Setting anti-flicker mode...");
+    block_on(camera.set_anti_flicker(AntiFlickerMode::Hz60))?;
+
+    println!("Disabling backlight compensation...");
+    block_on(camera.backlight_off())?;
     Ok(())
 }
 
@@ -247,24 +214,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🎥 Grafton VISCA Demo - Connecting to camera at {camera_ip}");
     println!("{}", "=".repeat(50));
 
-    // Create client
-    let mut client = Client::connect_udp(&camera_ip)?;
+    // Create camera with UDP transport
+    let transport = UdpTransport::new(&camera_ip)?;
+    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
 
     // Run all demos
-    demo_power_control(&mut client)?;
-    demo_pan_tilt_movement(&mut client)?;
-    demo_zoom_control(&mut client)?;
-    demo_focus_control(&mut client)?;
-    demo_preset_positions(&mut client)?;
-    demo_exposure_control(&mut client)?;
-    demo_color_adjustments(&mut client)?;
-    demo_image_quality(&mut client)?;
-    demo_inquiry_commands(&mut client)?;
-    demo_advanced_features(&mut client)?;
+    demo_power_control(&mut camera)?;
+    demo_pan_tilt_movement(&mut camera)?;
+    demo_zoom_control(&mut camera)?;
+    demo_focus_control(&mut camera)?;
+    demo_preset_positions(&mut camera)?;
+    demo_exposure_control(&mut camera)?;
+    demo_color_adjustments(&mut camera)?;
+    demo_image_quality(&mut camera)?;
+    demo_camera_info(&camera)?;
+    demo_advanced_features(&mut camera)?;
 
     // Return to home position
     println!("\n🏁 Demo complete! Returning to home position...");
-    client.execute_command(&PanTiltCommand::Home)?;
+    block_on(camera.home())?;
 
     println!("\n✨ All demos completed successfully!");
     println!("{}", "=".repeat(50));
