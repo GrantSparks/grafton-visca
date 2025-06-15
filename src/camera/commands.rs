@@ -1,4 +1,4 @@
-//! Type-safe command methods for Camera<P>.
+//! Type-safe command methods for Camera.
 
 use crate::{
     command::{
