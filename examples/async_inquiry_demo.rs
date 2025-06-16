@@ -40,7 +40,7 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    
+
     // Create camera with async transport
     let transport = AsyncUdpTransport::new(camera_addr).await?;
     let mut camera = Camera::<PTZOpticsG2>::new(transport);
@@ -82,34 +82,36 @@ async fn main() -> Result<(), Error> {
 
     // 3. Setting known states
     println!("3. Setting Known States:");
-    
+
     // Power on (we assume it might be off)
     println!("   - Powering on camera...");
     camera.power_on().await?;
     sleep(Duration::from_secs(2)).await;
-    
+
     // Set to home position (known state)
     println!("   - Moving to home position...");
     camera.home().await?;
     sleep(Duration::from_secs(2)).await;
-    
+
     // Set specific zoom level
     println!("   - Setting zoom to minimum...");
     camera.set_zoom(0x0000).await?;
-    
+
     // Set exposure mode
     println!("   - Setting exposure to auto...");
     use grafton_visca::command::exposure::ExposureMode;
     camera.set_exposure_mode(ExposureMode::Auto).await?;
-    
+
     // Set white balance
     println!("   - Setting white balance to auto...");
     use grafton_visca::command::white_balance::WhiteBalanceMode;
-    camera.set_white_balance_mode(WhiteBalanceMode::Auto).await?;
+    camera
+        .set_white_balance_mode(WhiteBalanceMode::Auto)
+        .await?;
 
     // 4. Application-level state tracking
     println!("\n4. Application-Level State Tracking Example:");
-    
+
     // Example state structure
     #[derive(Debug)]
     struct CameraState {
@@ -119,25 +121,25 @@ async fn main() -> Result<(), Error> {
         _exposure_mode: ExposureMode,
         _white_balance_mode: WhiteBalanceMode,
     }
-    
+
     let mut state = CameraState {
-        _power_on: true,  // We just powered it on
-        zoom_level: 0x0000,  // We set it to minimum
-        at_home: true,  // We moved to home
+        _power_on: true,    // We just powered it on
+        zoom_level: 0x0000, // We set it to minimum
+        at_home: true,      // We moved to home
         _exposure_mode: ExposureMode::Auto,
         _white_balance_mode: WhiteBalanceMode::Auto,
     };
-    
+
     println!("   Current state: {:?}", state);
-    
+
     // Update state as we control camera
     println!("\n   - Zooming in...");
     camera.zoom_in().await?;
     sleep(Duration::from_secs(1)).await;
     camera.zoom_stop().await?;
-    state.zoom_level = 0x1000;  // Estimate based on zoom time
-    state.at_home = false;  // No longer at exact home position
-    
+    state.zoom_level = 0x1000; // Estimate based on zoom time
+    state.at_home = false; // No longer at exact home position
+
     println!("   Updated state: {:?}", state);
 
     // 5. When to use Client API
@@ -148,13 +150,13 @@ async fn main() -> Result<(), Error> {
     println!("   - Zoom position queries");
     println!("   - Focus position queries");
     println!("   - Any other camera state information");
-    
+
     // Demonstrate Client API for inquiries
     #[cfg(feature = "blocking-client")]
     {
         println!("\n6. Client API Inquiry Example:");
-        use grafton_visca::{Client, command::InquiryCommand};
-        
+        use grafton_visca::{command::InquiryCommand, Client};
+
         // Create a Client for inquiries
         match Client::connect_udp(camera_addr) {
             Ok(client) => {
@@ -163,7 +165,7 @@ async fn main() -> Result<(), Error> {
                     Ok(response) => println!("   Power inquiry response: {:?}", response),
                     Err(e) => println!("   Power inquiry failed: {}", e),
                 }
-                
+
                 match client.send(&InquiryCommand::ZoomPosition) {
                     Ok(response) => println!("   Zoom position response: {:?}", response),
                     Err(e) => println!("   Zoom inquiry failed: {}", e),

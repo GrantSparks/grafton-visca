@@ -71,12 +71,12 @@ async fn transport_flexibility_example() -> Result<(), Error> {
     println!("\n=== Transport Flexibility Example ===");
 
     // The Camera API works with any transport implementation
-    
+
     // Example 1: UDP with blocking adapter
     {
         let udp = UdpTransport::new("192.168.1.100:5678")?;
         let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp));
-        
+
         println!("UDP camera - moving up...");
         camera.move_continuous(PanTiltDirection::Up, 0, 10).await?;
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -88,9 +88,11 @@ async fn transport_flexibility_example() -> Result<(), Error> {
     {
         let tcp = AsyncTcpTransport::new("192.168.1.100:5678").await?;
         let mut camera = Camera::<PTZOpticsG2>::new(tcp);
-        
+
         println!("TCP camera - moving down...");
-        camera.move_continuous(PanTiltDirection::Down, 0, 10).await?;
+        camera
+            .move_continuous(PanTiltDirection::Down, 0, 10)
+            .await?;
         tokio::time::sleep(Duration::from_millis(500)).await;
         camera.stop().await?;
     }
@@ -109,7 +111,7 @@ async fn profile_switching_example() -> Result<(), Error> {
         use grafton_visca::camera::profiles::G2PresetId;
         let transport2 = UdpTransport::new("192.168.1.100:5678")?;
         let mut g2_camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport2));
-        
+
         println!("G2 Camera - saving preset 1...");
         let preset = G2PresetId::new(1)?;
         g2_camera.set_preset(preset).await?;
@@ -117,9 +119,9 @@ async fn profile_switching_example() -> Result<(), Error> {
 
     // Generic VISCA camera (wider compatibility)
     {
-        use grafton_visca::camera::profiles::{GenericVisca, GenericPresetId};
+        use grafton_visca::camera::profiles::{GenericPresetId, GenericVisca};
         let mut generic_camera = Camera::<GenericVisca>::new(BlockingAdapter(transport));
-        
+
         println!("Generic Camera - recalling preset 0...");
         let preset = GenericPresetId::new(0);
         generic_camera.recall_preset(preset).await?;
@@ -142,7 +144,7 @@ async fn main() -> Result<(), Error> {
     // Run async examples
     #[cfg(feature = "async-client")]
     async_tcp_example().await?;
-    
+
     transport_flexibility_example().await?;
     profile_switching_example().await?;
 

@@ -6,9 +6,7 @@
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{
-        exposure::ExposureMode,
-        image::ImageFlipMode,
-        pan_tilt::PanTiltDirection,
+        exposure::ExposureMode, image::ImageFlipMode, pan_tilt::PanTiltDirection,
         white_balance::WhiteBalanceMode,
     },
     transport::{BlockingAdapter, UdpTransport},
@@ -44,7 +42,7 @@ fn main() -> Result<(), Error> {
     println!("\nTesting movement control...");
     block_on(camera.home())?;
     thread::sleep(Duration::from_secs(2));
-    
+
     block_on(camera.move_continuous(PanTiltDirection::Right, 10, 0))?;
     thread::sleep(Duration::from_millis(500));
     block_on(camera.stop())?;
@@ -53,7 +51,7 @@ fn main() -> Result<(), Error> {
     println!("\nTesting zoom control...");
     block_on(camera.set_zoom(0x2000))?;
     thread::sleep(Duration::from_secs(1));
-    
+
     block_on(camera.zoom_in())?;
     thread::sleep(Duration::from_millis(500));
     block_on(camera.zoom_stop())?;
@@ -64,10 +62,10 @@ fn main() -> Result<(), Error> {
     let preset = G2PresetId::new(1)?;
     block_on(camera.set_preset(preset))?;
     thread::sleep(Duration::from_millis(500));
-    
+
     block_on(camera.home())?;
     thread::sleep(Duration::from_secs(2));
-    
+
     block_on(camera.recall_preset(preset))?;
     thread::sleep(Duration::from_secs(2));
 
@@ -75,11 +73,11 @@ fn main() -> Result<(), Error> {
     println!("\nTesting focus control...");
     block_on(camera.focus_auto())?;
     thread::sleep(Duration::from_millis(500));
-    
+
     block_on(camera.focus_manual())?;
     block_on(camera.set_focus(0x5000))?;
     thread::sleep(Duration::from_millis(500));
-    
+
     block_on(camera.focus_auto())?;
 
     // Exposure control
@@ -103,13 +101,13 @@ fn main() -> Result<(), Error> {
     println!("\nTesting white balance control...");
     block_on(camera.set_white_balance_mode(WhiteBalanceMode::Auto))?;
     thread::sleep(Duration::from_millis(500));
-    
+
     block_on(camera.set_white_balance_mode(WhiteBalanceMode::Indoor))?;
     thread::sleep(Duration::from_millis(500));
-    
+
     block_on(camera.set_white_balance_mode(WhiteBalanceMode::Outdoor))?;
     thread::sleep(Duration::from_millis(500));
-    
+
     block_on(camera.one_push_white_balance())?;
 
     // Advanced image features
@@ -122,15 +120,15 @@ fn main() -> Result<(), Error> {
     // Position control with different unit types
     println!("\nTesting position control with different units...");
     use grafton_visca::camera::units::{Degrees, Normalized, ViscaUnits};
-    
+
     // Using degrees
     block_on(camera.set_position(Degrees(45.0), Degrees(15.0)))?;
     thread::sleep(Duration::from_secs(2));
-    
+
     // Using VISCA units
     block_on(camera.set_position_units(ViscaUnits(1000), ViscaUnits(500)))?;
     thread::sleep(Duration::from_secs(2));
-    
+
     // Using normalized coordinates
     block_on(camera.set_position_normalized(Normalized(0.0), Normalized(0.0)))?;
     thread::sleep(Duration::from_secs(2));

@@ -4,7 +4,11 @@
 //! and demonstrates migration from the old Client API.
 
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::{Degrees, Normalized}, Camera},
+    camera::{
+        profiles::PTZOpticsG2,
+        units::{Degrees, Normalized},
+        Camera,
+    },
     command::{exposure::ExposureMode, white_balance::WhiteBalanceMode},
     transport::{BlockingAdapter, UdpTransport},
     Error,
@@ -61,7 +65,7 @@ fn main() -> Result<(), Error> {
     println!("\n--- Image Settings ---");
     // The new API doesn't have image presets, so we'll set individual parameters
     block_on(camera.set_saturation(10))?; // Higher saturation for "vivid"
-    block_on(camera.set_contrast(9))?;    // Higher contrast
+    block_on(camera.set_contrast(9))?; // Higher contrast
     println!("Applied vivid image settings");
     thread::sleep(Duration::from_secs(1));
 
@@ -121,12 +125,12 @@ fn main() -> Result<(), Error> {
     block_on(camera.set_exposure_mode(ExposureMode::Auto))?;
     block_on(camera.set_white_balance_mode(WhiteBalanceMode::Auto))?;
     // Reset image settings to defaults
-    block_on(camera.set_saturation(7))?;  // Default values
+    block_on(camera.set_saturation(7))?; // Default values
     block_on(camera.set_contrast(8))?;
     block_on(camera.set_sharpness(8))?;
     block_on(camera.set_brightness(8))?;
     block_on(camera.home())?;
-    block_on(camera.set_zoom(0x0000))?;  // Minimum zoom
+    block_on(camera.set_zoom(0x0000))?; // Minimum zoom
     println!("Returned camera to default settings");
 
     println!("\n=== Demo Complete ===");

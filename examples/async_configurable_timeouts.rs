@@ -207,22 +207,22 @@ async fn demonstrate_timeout_recovery(camera: &mut Camera<PTZOpticsG2>) -> Resul
     }
 
     println!("   ✗ All retry attempts exhausted");
-    
+
     // Demonstrate alternative: AsyncTcpTransport has hardcoded 10s timeout
     println!("\n5. Transport-Level Timeout Notes:");
     println!("   AsyncTcpTransport uses a hardcoded 10-second timeout");
     println!("   For custom timeouts, wrap operations with tokio::time::timeout");
-    
+
     #[cfg(feature = "async-client")]
     {
         use grafton_visca::transport::AsyncTcpTransport;
-        
+
         // AsyncTcpTransport has a fixed 10s timeout
         match AsyncTcpTransport::new("192.168.1.100:5678").await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");
                 let mut tcp_camera = Camera::<PTZOpticsG2>::new(transport);
-                
+
                 // For custom timeout, wrap the operation
                 let custom_timeout = Duration::from_secs(30);
                 match timeout(custom_timeout, tcp_camera.power_on()).await {
@@ -236,10 +236,10 @@ async fn demonstrate_timeout_recovery(camera: &mut Camera<PTZOpticsG2>) -> Resul
             }
         }
     }
-    
+
     println!("\n   Note: For configurable transport-level timeouts, you would need");
     println!("   to use the Client API or implement a custom transport wrapper.");
-    
+
     println!();
     Ok(())
 }

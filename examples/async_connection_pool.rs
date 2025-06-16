@@ -291,7 +291,7 @@ async fn demo_coordinated_movement() -> Result<(), Error> {
     println!("  ✓ All cameras returning home");
 
     println!("\nCoordinated movement demo complete!");
-    
+
     // Bonus: Demonstrate profile-aware operations
     println!("\n=== Camera Profile Information ===");
     let profile = cam1.profile();
@@ -300,7 +300,7 @@ async fn demo_coordinated_movement() -> Result<(), Error> {
     println!("Tilt range: {:?} units", PTZOpticsG2::TILT_RANGE);
     println!("Max pan speed: {}", PTZOpticsG2::MAX_PAN_SPEED);
     println!("Max tilt speed: {}", PTZOpticsG2::MAX_TILT_SPEED);
-    
+
     // Convert to degrees for display
     let pan_deg_range = profile.pan_units_to_degrees(*PTZOpticsG2::PAN_RANGE.start())
         ..=profile.pan_units_to_degrees(*PTZOpticsG2::PAN_RANGE.end());

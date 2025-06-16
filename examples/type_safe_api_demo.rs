@@ -40,18 +40,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Position control with type-safe units
     println!("\n2. Type-safe position control:");
-    use grafton_visca::camera::units::{Degrees, ViscaUnits, Normalized};
-    
+    use grafton_visca::camera::units::{Degrees, Normalized, ViscaUnits};
+
     // Move using degrees
     block_on(camera.set_position(Degrees(45.0), Degrees(15.0)))?;
     println!("   ✓ Moved to 45° pan, 15° tilt");
     thread::sleep(Duration::from_secs(2));
-    
+
     // Move using VISCA units
     block_on(camera.set_position_units(ViscaUnits(1000), ViscaUnits(500)))?;
     println!("   ✓ Moved using VISCA units");
     thread::sleep(Duration::from_secs(2));
-    
+
     // Move using normalized coordinates
     block_on(camera.set_position_normalized(Normalized(0.5), Normalized(-0.25)))?;
     println!("   ✓ Moved using normalized coordinates");
@@ -60,27 +60,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Profile-specific preset types
     println!("\n3. Profile-specific preset operations:");
     use grafton_visca::camera::profiles::G2PresetId;
-    
+
     // PTZOpticsG2 has specific preset constraints (0-89)
     let preset = G2PresetId::new(5)?;
     block_on(camera.set_preset(preset))?;
     println!("   ✓ Saved position to preset");
-    
+
     thread::sleep(Duration::from_secs(1));
     block_on(camera.home())?;
     thread::sleep(Duration::from_secs(2));
-    
+
     block_on(camera.recall_preset(preset))?;
     println!("   ✓ Recalled preset");
 
     // 4. Profile-specific gain values
     println!("\n4. Profile-specific gain control:");
     use grafton_visca::camera::profiles::G2Gain;
-    
+
     // PTZOpticsG2 has specific gain values
     block_on(camera.set_gain(G2Gain::Gain12dB))?;
     println!("   ✓ Set gain to 12dB (profile-specific value)");
-    
+
     block_on(camera.set_gain_limit(6))?; // 18dB = value 6
     println!("   ✓ Set gain limit to 18dB");
 
@@ -95,11 +95,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n6. Profile-aware unit conversions:");
     let pan_degrees = camera.profile().pan_units_to_degrees(1000);
     let tilt_degrees = camera.profile().tilt_units_to_degrees(500);
-    println!("   VISCA units (1000, 500) = ({:.1}°, {:.1}°)", pan_degrees, tilt_degrees);
-    
+    println!(
+        "   VISCA units (1000, 500) = ({:.1}°, {:.1}°)",
+        pan_degrees, tilt_degrees
+    );
+
     let pan_units = camera.profile().pan_degrees_to_units(45.0);
     let tilt_units = camera.profile().tilt_degrees_to_units(15.0);
-    println!("   Degrees (45°, 15°) = VISCA units ({}, {})", pan_units, tilt_units);
+    println!(
+        "   Degrees (45°, 15°) = VISCA units ({}, {})",
+        pan_units, tilt_units
+    );
 
     println!("\n=== Demo Complete ===");
     println!("\nBenefits of the type-safe Camera API:");
