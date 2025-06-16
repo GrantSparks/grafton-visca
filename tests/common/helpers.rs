@@ -10,11 +10,8 @@ use std::fmt::Debug;
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
     camera::{Camera, CameraProfile},
-    transport::UdpTransport,
+    transport::{BlockingAdapter, TcpTransport, UdpTransport},
 };
-
-#[cfg(feature = "blocking-client")]
-use grafton_visca::transport::TcpTransport;
 
 /// Creates a test UDP camera with descriptive error message.
 ///
@@ -28,7 +25,7 @@ use grafton_visca::transport::TcpTransport;
 pub fn create_test_udp_camera<P: CameraProfile>(addr: &str) -> Camera<P> {
     let transport = UdpTransport::new(addr)
         .unwrap_or_else(|e| panic!("Failed to create UDP transport at {}: {:?}", addr, e));
-    Camera::new(transport)
+    Camera::new(BlockingAdapter(transport))
 }
 
 /// Creates a test TCP camera with descriptive error message.
@@ -43,7 +40,7 @@ pub fn create_test_udp_camera<P: CameraProfile>(addr: &str) -> Camera<P> {
 pub fn create_test_tcp_camera<P: CameraProfile>(addr: &str) -> Camera<P> {
     let transport = TcpTransport::new(addr)
         .unwrap_or_else(|e| panic!("Failed to create TCP transport at {}: {:?}", addr, e));
-    Camera::new(transport)
+    Camera::new(BlockingAdapter(transport))
 }
 
 /// Standard test speeds to avoid repetitive magic numbers.
