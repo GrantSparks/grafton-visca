@@ -41,7 +41,7 @@ pub fn create_test_udp_camera<P: CameraProfile>(addr: &str) -> Camera<P> {
 /// ```
 #[cfg(feature = "blocking-client")]
 pub fn create_test_tcp_camera<P: CameraProfile>(addr: &str) -> Camera<P> {
-    let transport = TcpTransport::connect(addr)
+    let transport = TcpTransport::new(addr)
         .unwrap_or_else(|e| panic!("Failed to create TCP transport at {}: {:?}", addr, e));
     Camera::new(transport)
 }

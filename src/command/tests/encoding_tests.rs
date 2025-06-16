@@ -1,17 +1,18 @@
 #![allow(missing_docs)]
-use grafton_visca::command::*;
-use grafton_visca::{BrightnessLevel, Command, GainLimit, GainValue, IrisLevel, ShutterSpeed};
+use crate::command::*;
+use crate::types::{BrightnessLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed};
+use crate::Command;
 
 #[cfg(test)]
 mod golden_vector_tests {
     use super::*;
-    use grafton_visca::command::exposure::{DynamicRangeLevel, ExposureCompensationLevel};
-    use grafton_visca::command::focus::FocusSpeed;
-    use grafton_visca::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
-    use grafton_visca::command::power::Power;
-    use grafton_visca::command::preset::{PresetAction, PresetNumber};
-    use grafton_visca::command::zoom::ZoomSpeed;
-    use grafton_visca::{NoiseReduction2DLevel, NoiseReduction3DLevel};
+    use crate::command::exposure::{DynamicRangeLevel, ExposureCompensationLevel};
+    use crate::command::focus::FocusSpeed;
+    use crate::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
+    use crate::command::power::Power;
+    use crate::command::preset::{PresetAction, PresetNumber};
+    use crate::command::zoom::ZoomSpeed;
+    use crate::types::{NoiseReduction2DLevel, NoiseReduction3DLevel};
 
     #[test]
     fn test_power_commands() {
@@ -633,7 +634,7 @@ mod golden_vector_tests {
 
     #[test]
     fn test_pan_tilt_limit_commands() {
-        use grafton_visca::command::pan_tilt::LimitCorner;
+        use crate::command::pan_tilt::LimitCorner;
 
         // Limit Set
         let limit_set = PanTiltLimitCommand::Set {
