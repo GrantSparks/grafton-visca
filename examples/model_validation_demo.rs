@@ -1,6 +1,6 @@
 //! Camera model validation demonstration
 //!
-//! This example demonstrates how the new Camera<P> API enforces model-specific
+//! This example demonstrates how the new `Camera<P>` API enforces model-specific
 //! constraints at compile time and runtime. It shows how different camera profiles
 //! (PTZOpticsG2, PTZOptics30X, SonyEVID70) have different ranges and capabilities.
 

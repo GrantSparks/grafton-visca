@@ -9,9 +9,9 @@
 //! - Handle transport-specific errors
 //!
 //! NOTE: This example still uses the old Client API because:
-//! 1. It demonstrates transport-specific features that are abstracted away in Camera<P>
-//! 2. It uses inquiry commands which Camera<P> doesn't support yet
-//!    For examples using Camera<P> with different transports, see basic_camera_demo.rs
+//! 1. It demonstrates transport-specific features that are abstracted away in `Camera<P>`
+//! 2. It uses inquiry commands which `Camera<P>` doesn't support yet
+//!    For examples using `Camera<P>` with different transports, see basic_camera_demo.rs
 
 use grafton_visca::command::power::Power;
 use grafton_visca::command::{InquiryCommand, PowerCommand, Response};

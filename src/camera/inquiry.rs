@@ -1,4 +1,4 @@
-//! Inquiry methods for Camera<P>.
+//! Inquiry methods for `Camera<P>`.
 
 use crate::{
     command::{

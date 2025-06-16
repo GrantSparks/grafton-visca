@@ -9,10 +9,10 @@
 //! - Build resilient camera control applications
 //!
 //! NOTE: This example still uses the old Client API because:
-//! 1. It focuses on transport-level patterns that may need redesign for Camera<P>
-//! 2. It uses inquiry commands which Camera<P> doesn't support yet
+//! 1. It focuses on transport-level patterns that may need redesign for `Camera<P>`
+//! 2. It uses inquiry commands which `Camera<P>` doesn't support yet
 //! 3. The ReconnectingTransport wrapper in the library already provides similar functionality
-//!    See async_reconnecting.rs for an example using Camera<P> with retry logic.
+//!    See async_reconnecting.rs for an example using `Camera<P>` with retry logic.
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::command::{

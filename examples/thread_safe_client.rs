@@ -1,6 +1,6 @@
 //! Example demonstrating thread-safe usage of Camera with PTZOpticsG2 profile
 //!
-//! This example shows how to use the Camera<P> API to control a camera
+//! This example shows how to use the `Camera<P>` API to control a camera
 //! from multiple threads using Arc<Mutex<Camera>> for thread safety.
 //!
 //! Run with: cargo run --example thread_safe_client [CAMERA_IP:PORT]
@@ -183,7 +183,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Multi-threaded demo complete!");
 
-    // Demonstrate Camera<P> specific features
+    // Demonstrate `Camera<P>` specific features
     println!("\nCamera profile information:");
     {
         let cam = camera.lock().unwrap();

@@ -1,7 +1,7 @@
 //! Example demonstrating concurrent async command execution with grafton-visca
 //!
 //! This example shows how to:
-//! - Connect to a camera using async API with the new Camera<P> system
+//! - Connect to a camera using async API with the new `Camera<P>` system
 //! - Send multiple commands concurrently using camera methods
 //! - Handle the two-socket limitation gracefully
 //! - Process responses asynchronously
