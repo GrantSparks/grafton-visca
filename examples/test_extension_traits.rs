@@ -1,105 +1,159 @@
-//! Example program
+//! Test program demonstrating the comprehensive Camera API
+//!
+//! This example shows how the Camera API provides all control methods
+//! directly without needing extension traits.
 
-//! Test program to verify extension traits work with `Client`
-
-#[cfg(feature = "blocking-client")]
 use grafton_visca::{
+    camera::{profiles::PTZOpticsG2, Camera},
     command::{
-        pan_tilt::{PanSpeed, TiltSpeed},
-        zoom::ZoomSpeed,
+        exposure::ExposureMode,
+        image::ImageFlipMode,
+        pan_tilt::PanTiltDirection,
+        white_balance::WhiteBalanceMode,
     },
-    Client,
+    transport::{BlockingAdapter, UdpTransport},
     Error,
-    ExposureExt,
-    ImageExt,
-    InquiryExt,
-    PositionExt,
-    PowerExt,
-    PresetExt,
-    // Import all extension traits
-    TransportExt,
-    WhiteBalanceExt,
-    ZoomExt,
 };
+use std::thread;
+use std::time::Duration;
 
-#[cfg(feature = "blocking-client")]
+// Helper for blocking execution
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(fut)
+}
+
 fn main() -> Result<(), Error> {
     env_logger::init();
 
-    // Create a client
-    let mut client = Client::connect_udp("192.168.1.100:5678")?;
+    // Create a camera with the new API
+    let transport = UdpTransport::new("192.168.1.100:5678")?;
+    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
 
-    // Test TransportExt methods
-    println!("Testing TransportExt...");
-    let was_already_on = client.ensure_powered_on()?;
-    if !was_already_on {
-        println!("Camera was powered off, now powered on");
-        std::thread::sleep(std::time::Duration::from_secs(2));
-    }
-    client.home()?;
+    println!("=== Testing Comprehensive Camera API ===\n");
 
-    // Test ZoomExt methods
-    println!("Testing ZoomExt...");
-    client.zoom_to(0x2000)?;
-    ZoomExt::zoom_in_speed(&mut client, Some(ZoomSpeed::new(5)?))?; // Disambiguate
-    client.stop_zoom()?;
+    // Power control
+    println!("Testing power control...");
+    block_on(camera.power_on())?;
+    thread::sleep(Duration::from_secs(2));
 
-    // Test TransportExt pan/tilt methods
-    println!("Testing pan/tilt methods from TransportExt...");
-    client.home()?; // This is the home method from TransportExt
-    client.move_stop()?;
+    // Movement control
+    println!("\nTesting movement control...");
+    block_on(camera.home())?;
+    thread::sleep(Duration::from_secs(2));
+    
+    block_on(camera.move_continuous(PanTiltDirection::Right, 10, 0))?;
+    thread::sleep(Duration::from_millis(500));
+    block_on(camera.stop())?;
 
-    // Test PowerExt methods
-    println!("Testing PowerExt...");
-    let is_on = client.is_powered_on()?;
-    println!("Camera is powered: {}", if is_on { "ON" } else { "OFF" });
+    // Zoom control
+    println!("\nTesting zoom control...");
+    block_on(camera.set_zoom(0x2000))?;
+    thread::sleep(Duration::from_secs(1));
+    
+    block_on(camera.zoom_in())?;
+    thread::sleep(Duration::from_millis(500));
+    block_on(camera.zoom_stop())?;
 
-    // Test PresetExt methods
-    println!("Testing PresetExt...");
-    PresetExt::set_preset(&mut client, 1)?; // Disambiguate
-    PresetExt::recall_preset(&mut client, 1)?; // Disambiguate
+    // Preset management
+    println!("\nTesting preset management...");
+    use grafton_visca::camera::profiles::G2PresetId;
+    let preset = G2PresetId::new(1)?;
+    block_on(camera.set_preset(preset))?;
+    thread::sleep(Duration::from_millis(500));
+    
+    block_on(camera.home())?;
+    thread::sleep(Duration::from_secs(2));
+    
+    block_on(camera.recall_preset(preset))?;
+    thread::sleep(Duration::from_secs(2));
 
-    // Test TransportExt focus methods
-    println!("Testing focus methods from TransportExt...");
-    client.set_focus_auto()?;
-    client.set_focus_manual()?;
+    // Focus control
+    println!("\nTesting focus control...");
+    block_on(camera.focus_auto())?;
+    thread::sleep(Duration::from_millis(500));
+    
+    block_on(camera.focus_manual())?;
+    block_on(camera.set_focus(0x5000))?;
+    thread::sleep(Duration::from_millis(500));
+    
+    block_on(camera.focus_auto())?;
 
-    // Test ExposureExt methods
-    println!("Testing ExposureExt...");
-    ExposureExt::set_exposure_mode(
-        &mut client,
-        grafton_visca::command::exposure::ExposureMode::Auto,
-    )?;
-    TransportExt::set_iris(&mut client, 10)?; // Disambiguate
+    // Exposure control
+    println!("\nTesting exposure control...");
+    block_on(camera.set_exposure_mode(ExposureMode::Auto))?;
+    block_on(camera.set_iris(10))?;
+    block_on(camera.set_shutter(15))?;
+    block_on(camera.backlight_on())?;
+    thread::sleep(Duration::from_millis(500));
+    block_on(camera.backlight_off())?;
 
-    // Test ImageExt methods
-    println!("Testing ImageExt...");
-    client.set_brightness(0)?;
-    client.set_contrast(0)?;
+    // Image quality control
+    println!("\nTesting image quality control...");
+    block_on(camera.set_brightness(8))?;
+    block_on(camera.set_contrast(8))?;
+    block_on(camera.set_sharpness(8))?;
+    block_on(camera.set_saturation(8))?;
+    block_on(camera.set_hue(7))?;
 
-    // Test InquiryExt methods
-    println!("Testing InquiryExt...");
-    let (pan, tilt) = client.get_pan_tilt_position()?;
-    println!("Current position - Pan: {pan}, Tilt: {tilt}");
+    // White balance control
+    println!("\nTesting white balance control...");
+    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Auto))?;
+    thread::sleep(Duration::from_millis(500));
+    
+    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Indoor))?;
+    thread::sleep(Duration::from_millis(500));
+    
+    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Outdoor))?;
+    thread::sleep(Duration::from_millis(500));
+    
+    block_on(camera.one_push_white_balance())?;
 
-    let zoom = client.get_zoom_position()?;
-    println!("Current zoom position: 0x{zoom:04X}");
+    // Advanced image features
+    println!("\nTesting advanced image features...");
+    block_on(camera.set_noise_reduction_2d(3))?;
+    block_on(camera.set_noise_reduction_3d(2))?;
+    block_on(camera.set_image_flip(ImageFlipMode::Off))?;
+    block_on(camera.black_white_off())?;
 
-    // Test WhiteBalanceExt methods
-    println!("Testing WhiteBalanceExt...");
-    client.set_white_balance_mode(grafton_visca::command::white_balance::WhiteBalanceMode::Auto)?;
+    // Position control with different unit types
+    println!("\nTesting position control with different units...");
+    use grafton_visca::camera::units::{Degrees, Normalized, ViscaUnits};
+    
+    // Using degrees
+    block_on(camera.set_position(Degrees(45.0), Degrees(15.0)))?;
+    thread::sleep(Duration::from_secs(2));
+    
+    // Using VISCA units
+    block_on(camera.set_position_units(ViscaUnits(1000), ViscaUnits(500)))?;
+    thread::sleep(Duration::from_secs(2));
+    
+    // Using normalized coordinates
+    block_on(camera.set_position_normalized(Normalized(0.0), Normalized(0.0)))?;
+    thread::sleep(Duration::from_secs(2));
 
-    // Test PositionExt methods
-    println!("Testing PositionExt...");
-    client.move_to_degrees(0.0, 0.0, Some((PanSpeed::new(10)?, TiltSpeed::new(10)?)))?; // Pass speeds as typed values
+    // Gain control with profile-specific values
+    println!("\nTesting gain control...");
+    use grafton_visca::camera::profiles::G2Gain;
+    block_on(camera.set_gain(G2Gain::Gain0dB))?;
+    block_on(camera.set_gain(G2Gain::Gain12dB))?;
+    block_on(camera.set_gain_limit(4))?; // 12dB limit
 
-    println!("\nAll extension traits are working correctly!");
+    // Dynamic range and color temperature
+    println!("\nTesting dynamic range and color temperature...");
+    block_on(camera.set_dynamic_range(5))?;
+    block_on(camera.set_color_temperature(0x20))?;
+
+    println!("\n=== All Camera API Methods Tested Successfully! ===");
+    println!("\nKey advantages over extension traits:");
+    println!("• All methods directly on Camera struct");
+    println!("• Type-safe with camera profile constraints");
+    println!("• No trait imports needed");
+    println!("• Consistent async API");
+    println!("• Profile-specific types for presets and gain");
 
     Ok(())
-}
-
-#[cfg(not(feature = "blocking-client"))]
-fn main() {
-    println!("This example requires the 'blocking-client' feature to be enabled.");
-    println!("Run with: cargo run --example test_extension_traits --features blocking-client");
 }

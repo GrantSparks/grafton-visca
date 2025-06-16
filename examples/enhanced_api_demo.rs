@@ -1,129 +1,132 @@
-//! Example program
-
-//! Enhanced API demonstration using the new v0.4.0 extension traits.
+//! Enhanced API demonstration using the new Camera API.
 //!
-//! This example showcases the enhanced API with high-level control methods.
+//! This example showcases the enhanced Camera API with high-level control methods
+//! and demonstrates migration from the old Client API.
 
 use grafton_visca::{
-    command::pan_tilt::{PanSpeed, TiltSpeed},
-    Client, Error, ExposureExt, ImageExt, ImagePreset, PanTiltExt, PositionExt, PowerExt,
-    WhiteBalanceExt, WhiteBalancePreset, ZoomExt,
+    camera::{profiles::PTZOpticsG2, units::{Degrees, Normalized}, Camera},
+    command::{exposure::ExposureMode, white_balance::WhiteBalanceMode},
+    transport::{BlockingAdapter, UdpTransport},
+    Error,
 };
 use std::thread;
 use std::time::Duration;
 
+// Use a minimal tokio runtime for blocking execution
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(fut)
+}
+
 fn main() -> Result<(), Error> {
     env_logger::init();
 
-    // Connect to camera using UDP client
-    let mut client = Client::connect_udp("192.168.1.100:5678")?;
+    // Connect to camera using new Camera API with UDP transport
+    let transport = UdpTransport::new("192.168.1.100:5678")?;
+    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
 
-    println!("=== Enhanced API Demo ===\n");
+    println!("=== Enhanced Camera API Demo ===\n");
 
-    // Check power status and ensure camera is on
-    println!("Checking camera power status...");
-    let was_already_on = client.ensure_powered_on()?;
-    if !was_already_on {
-        println!("Camera was powered off, now powered on");
-        client.wait_for_power_on(Duration::from_secs(5), Duration::from_millis(500))?;
-    } else {
-        println!("Camera is already powered on");
-    }
+    // Power on the camera
+    println!("Powering on camera...");
+    block_on(camera.power_on())?;
+    println!("Camera powered on");
+    thread::sleep(Duration::from_secs(2));
 
     // Demonstrate exposure control
     println!("\n--- Exposure Control ---");
-    ExposureExt::set_exposure_mode(
-        &mut client,
-        grafton_visca::command::exposure::ExposureMode::Auto,
-    )?;
+    block_on(camera.set_exposure_mode(ExposureMode::Auto))?;
     println!("Set exposure mode to Auto");
 
-    ExposureExt::set_backlight(&mut client, true)?;
+    block_on(camera.backlight_on())?;
     println!("Enabled backlight compensation");
 
-    client.set_brightness(0x08)?;
+    block_on(camera.set_brightness(0x08))?;
     println!("Set brightness to default level");
 
     // Demonstrate white balance control
     println!("\n--- White Balance Control ---");
-    client.set_white_balance_preset(WhiteBalancePreset::Daylight)?;
-    println!("Set white balance to daylight preset");
+    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Outdoor))?;
+    println!("Set white balance to outdoor preset");
     thread::sleep(Duration::from_secs(1));
 
-    client.set_white_balance_preset(WhiteBalancePreset::Tungsten)?;
-    println!("Set white balance to tungsten preset");
+    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Indoor))?;
+    println!("Set white balance to indoor preset");
     thread::sleep(Duration::from_secs(1));
 
     // Demonstrate image settings
     println!("\n--- Image Settings ---");
-    client.apply_image_preset(ImagePreset::Vivid)?;
-    println!("Applied vivid image preset");
+    // The new API doesn't have image presets, so we'll set individual parameters
+    block_on(camera.set_saturation(10))?; // Higher saturation for "vivid"
+    block_on(camera.set_contrast(9))?;    // Higher contrast
+    println!("Applied vivid image settings");
     thread::sleep(Duration::from_secs(1));
 
-    client.set_noise_reduction_2d(Some(3))?;
+    block_on(camera.set_noise_reduction_2d(3))?;
     println!("Set 2D noise reduction to level 3");
 
-    client.set_image_flip(false, false)?;
+    block_on(camera.set_image_flip(grafton_visca::command::image::ImageFlipMode::Off))?;
     println!("Disabled image flip");
 
-    // Demonstrate zoom control with magnification
+    // Demonstrate zoom control
     println!("\n--- Zoom Control ---");
-    client.zoom_to_magnification(1.0)?;
-    println!("Set zoom to 1x (minimum zoom)");
+    block_on(camera.set_zoom(0x0000))?; // Minimum zoom
+    println!("Set zoom to minimum (1x)");
     thread::sleep(Duration::from_secs(2));
 
-    client.zoom_to_magnification(5.0)?;
-    println!("Set zoom to 5x");
+    // For PTZOpticsG2, zoom range is 0x0000-0x4000 for 12x zoom
+    // 5x would be approximately 0x1555
+    block_on(camera.set_zoom(0x1555))?;
+    println!("Set zoom to approximately 5x");
     thread::sleep(Duration::from_secs(2));
 
-    client.zoom_to_normalized(0.25)?;
-    println!("Set zoom to 25% (normalized)");
+    // 25% of max zoom
+    block_on(camera.set_zoom(0x1000))?;
+    println!("Set zoom to 25% of maximum");
     thread::sleep(Duration::from_secs(2));
-
-    let mag = client.get_zoom_magnification()?;
-    println!("Current zoom magnification: {mag:.1}x");
 
     // Demonstrate position control with degrees
     println!("\n--- Position Control ---");
-    client.move_to_position(0, 0, None)?;
-    println!("Moved to center position");
+    block_on(camera.home())?;
+    println!("Moved to home position");
     thread::sleep(Duration::from_secs(2));
 
-    client.move_to_degrees(45.0, 15.0, Some((PanSpeed::new(10)?, TiltSpeed::new(10)?)))?;
+    block_on(camera.set_position(Degrees(45.0), Degrees(15.0)))?;
     println!("Moved to 45° pan, 15° tilt");
-    thread::sleep(Duration::from_secs(2));
+    thread::sleep(Duration::from_secs(3));
 
-    client.move_to_normalized(-0.5, 0.25, None)?;
+    block_on(camera.set_position_normalized(Normalized(-0.5), Normalized(0.25)))?;
     println!("Moved to normalized position (-50% pan, +25% tilt)");
-    thread::sleep(Duration::from_secs(2));
-
-    let pos = client.get_position_degrees()?;
-    println!(
-        "Current position: Pan={:.1}°, Tilt={:.1}°",
-        pos.pan, pos.tilt
-    );
+    thread::sleep(Duration::from_secs(3));
 
     // Demonstrate relative movement
     println!("\n--- Relative Movement ---");
-    PositionExt::move_by_degrees(
-        &mut client,
-        10.0,
-        -5.0,
-        Some((PanSpeed::new(5)?, TiltSpeed::new(5)?)),
-    )?;
-    println!("Moved 10° right and 5° down from current position");
+    // The new API doesn't have direct relative movement, but we can demonstrate
+    // continuous movement instead
+    block_on(camera.move_continuous(
+        grafton_visca::command::pan_tilt::PanTiltDirection::UpRight,
+        5,
+        5,
+    ))?;
+    println!("Moving camera up-right...");
     thread::sleep(Duration::from_secs(1));
+    block_on(camera.stop())?;
+    println!("Stopped movement");
 
     // Return to default settings
     println!("\n--- Returning to Defaults ---");
-    ExposureExt::set_exposure_mode(
-        &mut client,
-        grafton_visca::command::exposure::ExposureMode::Auto,
-    )?;
-    client.set_white_balance_preset(WhiteBalancePreset::Auto)?;
-    client.apply_image_preset(ImagePreset::Default)?;
-    PanTiltExt::move_to_position(&mut client, 0, 0, None)?;
-    ZoomExt::zoom_to_magnification(&mut client, 1.0)?;
+    block_on(camera.set_exposure_mode(ExposureMode::Auto))?;
+    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Auto))?;
+    // Reset image settings to defaults
+    block_on(camera.set_saturation(7))?;  // Default values
+    block_on(camera.set_contrast(8))?;
+    block_on(camera.set_sharpness(8))?;
+    block_on(camera.set_brightness(8))?;
+    block_on(camera.home())?;
+    block_on(camera.set_zoom(0x0000))?;  // Minimum zoom
     println!("Returned camera to default settings");
 
     println!("\n=== Demo Complete ===");
