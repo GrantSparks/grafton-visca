@@ -298,4 +298,3 @@ fn main() {
     eprintln!("This example requires the async-client feature.");
     eprintln!("Run with: cargo run --example position_conversion --features async-client");
 }
-
