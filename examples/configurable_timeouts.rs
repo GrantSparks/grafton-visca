@@ -200,4 +200,3 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     Ok(())
 }
-
