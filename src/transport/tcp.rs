@@ -6,7 +6,7 @@ use std::{io, time::Duration};
 
 // Crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{error::Error, Command, ConnectionStats};
+use crate::{connection::ConnectionStats, error::Error, Command};
 
 #[cfg(feature = "blocking-client")]
 use std::{

@@ -20,10 +20,7 @@
     clippy::unimplemented,
     clippy::todo
 )]
-// Disable pedantic/nursery groups to avoid clippy false positive with :: in attributes
-// Once the clippy bug is fixed, we can re-enable:
-// #![warn(clippy::pedantic, clippy::nursery)]
-//!
+
 //! ## What is VISCA?
 //!
 //! VISCA (Video System Control Architecture) is a protocol developed by Sony for controlling PTZ cameras
@@ -32,367 +29,176 @@
 //!
 //! ## Features
 //!
-//! - **Complete Command Coverage**: Full support for `PTZOptics` G2 VISCA commands
-//! - **Robust Protocol Handling**: Proper ACK/Completion state machine with socket management
-//! - **Multiple Transports**: Both UDP (port 1259 default) and TCP (port 5678 default) support
-//! - **Async Support**: Modern async/await API with Tokio (enable with `async` feature)
-//! - **Thread Safety**: Safe concurrent access from multiple tasks
+//! - **Type-Safe Camera Profiles**: Compile-time validation with camera-specific profiles
+//! - **Complete Command Coverage**: Full support for PTZOptics G2 and other VISCA cameras
+//! - **Profile-Aware Conversions**: Automatic unit conversions based on camera model
 //! - **Comprehensive Inquiry**: Query camera state for all supported features
-//! - **Error Handling**: Detailed error types for all VISCA error conditions
+//! - **Multiple Transports**: Both UDP and TCP support with async/await
+//! - **Builder Patterns**: Create custom camera profiles for any VISCA camera
+//!
+//! ## Quick Start
+//!
+//! ```no_run
+//! use grafton_visca::{
+//!     camera::{Camera, profiles::PTZOpticsG2, units::Degrees},
+//!     transport::UdpTransport,
+//! };
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create a camera with PTZOpticsG2 profile
+//! let transport = UdpTransport::new("192.168.1.100:52381")?;
+//! let mut camera = Camera::<PTZOpticsG2>::new(transport);
+//!
+//! // Power on and move to home position
+//! camera.power_on().await?;
+//! camera.home().await?;
+//!
+//! // Move to specific position (automatic degree conversion)
+//! camera.set_position(Degrees(45.0), Degrees(-15.0)).await?;
+//!
+//! // Query current state
+//! let (pan, tilt) = camera.get_position().await?;
+//! println!("Current position: pan={:.1}°, tilt={:.1}°", pan.0, tilt.0);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Camera Profiles
+//!
+//! The library includes pre-defined profiles for common cameras:
+//! - `PTZOpticsG2` - PTZOptics G2 series cameras
+//! - `PTZOptics30X` - PTZOptics 30X optical zoom cameras
+//! - `SonyEVID70` - Sony EVI-D70 cameras
+//! - `GenericVisca` - Generic VISCA-compatible cameras
+//!
+//! ### Custom Camera Profiles
+//!
+//! Create profiles for cameras not included in the library:
+//!
+//! ```no_run
+//! use grafton_visca::camera::{CustomProfileBuilder, Camera};
+//! # use grafton_visca::transport::UdpTransport;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let profile = CustomProfileBuilder::new()
+//!     .model_name("My Custom Camera")
+//!     .pan_range(-170.0, 170.0)
+//!     .tilt_range(-90.0, 90.0)
+//!     .zoom_steps(40960)
+//!     .build();
+//!
+//! let transport = UdpTransport::new("192.168.1.100:52381")?;
+//! let mut camera = Camera::new_with_custom(profile, transport);
+//! # Ok(())
+//! # }
+//! ```
 //!
 //! ## Supported Commands
 //!
 //! ### Camera Movement
 //! - Pan/Tilt/Zoom control with absolute and relative positioning
 //! - Variable speed control for smooth movements
-//! - Home position and preset management (up to 90 presets)
+//! - Home position and preset management
 //!
 //! ### Exposure & Color
 //! - Exposure modes: Auto, Manual, Shutter Priority, Iris Priority, Bright
-//! - Iris, shutter speed, gain, and brightness control
 //! - White balance modes including manual color temperature
 //! - Color adjustments: saturation, hue, RGB gain tuning
 //!
 //! ### Image Control
-//! - Focus control with auto/manual modes and zone selection
-//! - Sharpness adjustment with auto/manual modes
+//! - Focus control with auto/manual modes
+//! - Sharpness, brightness, and contrast adjustment
 //! - Noise reduction (2D and 3D)
-//! - Image flip (horizontal/vertical)
-//! - Black & white mode
+//! - Image flip and other effects
 //!
-//! ## Example Usage
+//! ## Position Units
 //!
-//! ### Using the Prelude
-//!
-//! The easiest way to get started is to use the prelude module which imports
-//! all commonly used types and traits:
+//! The Camera API supports multiple position unit types with automatic conversion:
 //!
 //! ```no_run
-//! # #[cfg(feature = "blocking-client")]
-//! # {
-//! use grafton_visca::prelude::*;
+//! # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2, units::{Degrees, ViscaUnits}};
+//! # use grafton_visca::transport::UdpTransport;
+//! # async fn example(mut camera: Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
+//! // Work in degrees (recommended)
+//! camera.set_position(Degrees(45.0), Degrees(-15.0)).await?;
 //!
-//! let mut client = Client::connect_udp("192.168.1.100:5678").unwrap();
+//! // Or use raw VISCA units if needed
+//! camera.set_position_units(ViscaUnits(0x1234), ViscaUnits(0x5678)).await?;
 //!
-//! // All extension traits and types are available
-//! client.power_on().unwrap();
-//! client.move_to_degrees(45.0, 30.0, None).unwrap();
-//!
-//! // Create speed parameters easily
-//! let pan_speed = PanSpeed::new(10).unwrap();
-//! let tilt_speed = TiltSpeed::new(10).unwrap();
-//! client.start_moving(PanTiltDirection::UpRight, pan_speed, tilt_speed).unwrap();
+//! // Query position in your preferred units
+//! let (pan_deg, tilt_deg) = camera.get_position().await?; // Returns Degrees
+//! let (pan_units, tilt_units) = camera.get_position_units().await?; // Returns ViscaUnits
+//! # Ok(())
 //! # }
 //! ```
 //!
-//! ### Using `Client` (Recommended for Thread Safety)
+//! ## Error Handling
+//!
+//! The library provides comprehensive error types for all VISCA error conditions:
 //!
 //! ```no_run
-//! # #[cfg(feature = "blocking-client")]
-//! # {
-//! use grafton_visca::Client;
-//! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
-//!
-//! // Create a client using the v0.4.0 unified API
-//! let mut client = Client::connect_udp("192.168.1.100:5678").unwrap();
-//!
-//! // Send commands through the client
-//! client.send(&PanTiltCommand::Home).unwrap();
-//! client.send(&ZoomCommand::ZoomInStandard).unwrap();
-//! # }
-//! ```
-//!
-//!
-//! ## Advanced Camera Control
-//!
-//! ```no_run
-//! # #[cfg(feature = "blocking-client")]
-//! # {
-//! use grafton_visca::{Client, IrisLevel};
-//! use grafton_visca::command::{ExposureCompensationCommand, IrisCommand, SaturationCommand};
-//! use grafton_visca::command::exposure::ExposureCompensationLevel;
-//!
-//! let mut client = Client::connect_udp("192.168.1.100:5678").unwrap();
-//!
-//! // Adjust exposure compensation
-//! client.send(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(3).unwrap())).unwrap();
-//!
-//! // Set iris to F4.0
-//! client.send(&IrisCommand::Direct(IrisLevel::new(0x06).unwrap())).unwrap();
-//!
-//! // Adjust color saturation to 150%
-//! client.send(&SaturationCommand { level: 0x0A }).unwrap();
-//! # }
-//! ```
-//!
-//! ## Creating Custom Commands with Macro
-//!
-//! For simple commands, you can use the built-in macro to reduce boilerplate:
-//!
-//! ```no_run
-//! use grafton_visca::visca_command;
-//!
-//! visca_command! {
-//!     category = "Movement",
-//!     enum CustomCommand {
-//!         Home => [0x81, 0x01, 0x06, 0x04, 0xFF],
-//!         Reset => [0x81, 0x01, 0x06, 0x05, 0xFF],
-//!     }
+//! # use grafton_visca::{camera::{Camera, profiles::PTZOpticsG2}, Error};
+//! # use grafton_visca::transport::UdpTransport;
+//! # async fn example(mut camera: Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
+//! match camera.set_position_units(ViscaUnits(50000), ViscaUnits(0)).await {
+//!     Ok(_) => println!("Position set successfully"),
+//!     Err(Error::SyntaxError) => println!("Position out of range"),
+//!     Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
+//!     Err(e) => println!("Other error: {}", e),
 //! }
-//! ```
-//!
-//! ## Async Usage (with `async` feature)
-//!
-//! The library provides async support for non-blocking camera control:
-//!
-//! ```no_run
-//! # #[cfg(feature = "async-client")]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! use grafton_visca::{Client, Response};
-//! use grafton_visca::command::{PanTiltCommand, ZoomCommand};
-//! use grafton_visca::command::pan_tilt::{PanTiltDirection, PanSpeed, TiltSpeed};
-//!
-//! // Connect to camera
-//! let camera = Client::connect_udp_async("192.168.1.100:5678").await?;
-//!
-//! // Send multiple commands concurrently
-//! let pan_tilt_cmd = PanTiltCommand::Move {
-//!     direction: PanTiltDirection::UpRight,
-//!     pan_speed: PanSpeed::new(0x10)?,
-//!     tilt_speed: TiltSpeed::new(0x10)?,
-//! };
-//! let pan_tilt = camera.send_async(&pan_tilt_cmd);
-//! let zoom = camera.send_async(&ZoomCommand::ZoomInStandard);
-//!
-//! // Both commands execute concurrently (respecting the 2-socket limit)
-//! let (pan_result, zoom_result): (Result<Response, _>, Result<Response, _>) = tokio::join!(pan_tilt, zoom);
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! ## API Overview
-//!
-//! The crate provides several levels of API for different use cases:
-//!
-//! ### High-Level Client
-//! - [`Client`] - Thread-safe wrapper for concurrent camera control (recommended)
-//!   - Eliminates need for `RefCell` in user code
-//!   - Supports Clone for sharing between threads
-//!   - Provides `send()`, `try_send()`, and `send_with_timeout()` methods
-//!
-//! ### Transport Layer
-//! - Transport implementations are available in the [`transport`] module
-//! - UDP transport (default port 1259 for VISCA over IP)
-//! - TCP transport (default port 5678 for VISCA over IP)
-//!
-//! ### Command Layer
-//! - [`Command`] trait - Implemented by all command types
-//! - Command modules in [`command`] - Organized by functionality
-//!
-//! ### Response Handling
-//! - [`Response`] - Enum for all response types (ACK, Completion, Inquiry, Error)
-//! - [`InquiryResponse`] - Specific inquiry response variants
-//! - [`Error`] - Comprehensive error types for all failure modes
-//!
-//! ### Async Support (with `async` feature)
-//! - `AsyncClient` - High-level async client with automatic socket management
-//!
-//! ## Connection Setup
-//!
-//! Cameras typically listen on standard ports:
-//! - **UDP**: Port 1259 (`PTZOptics` default for VISCA over IP)
-//! - **TCP**: Port 5678 (Alternative port, check your camera's configuration)
-//!
-//! Ensure your camera is configured for VISCA over IP and note its IP address.
-//!
-//! ## Troubleshooting
-//!
-//! ### Common Errors
-//!
-//! - **`CommandBufferFull`**: The camera can only process 2 commands simultaneously.
-//!   Solution: Wait for previous commands to complete before sending new ones.
-//!
-//! - **`NoSocket`**: No command is currently executing in the requested socket.
-//!   This usually indicates a protocol synchronization issue.
-//!
-//! - **`CommandNotExecutable`**: The command cannot be executed in the current camera state.
-//!   Example: Trying to zoom while the camera is powered off.
-//!
-//! - **`SyntaxError`**: The command format is incorrect or parameters are out of range.
-//!   Check that speed values and positions are within valid ranges.
-//!
-//! ### Best Practices
-//!
-//! 1. **Connection Management**: Reuse transport instances when possible rather than
-//!    creating new connections for each command.
-//!
-//! 2. **Error Handling**: Always handle errors appropriately - cameras may reject
-//!    commands due to mechanical limits or current state.
-//!
-//! 3. **Timing**: Allow time for mechanical movements to complete. The library handles
-//!    protocol-level completion, but physical movement takes time.
-//!
-//! 4. **Concurrent Commands**: When using async, the library automatically manages
-//!    the 2-socket limitation, but be aware that commands may queue.
-//!
-//! ## Feature Flags
-//!
-//! - `async` - Enables async/await support with Tokio
-//! - `sync` - Enables synchronous API (default)
-//! - `full` - Enables both sync and async APIs
-//!
-//! ## Usage
-//!
-//! The recommended way to use this library is through the unified `Client`:
-//!
-//! ```no_run
-//! # #[cfg(feature = "blocking-client")]
-//! # fn main() -> Result<(), grafton_visca::Error> {
-//! # use grafton_visca::{Client};
-//! # use grafton_visca::command::{PowerCommand, power::Power};
-//! let client = Client::connect_udp("192.168.1.100:5678")?;
-//! let response = client.send(&PowerCommand { power: Power::On })?;
-//! # Ok(())
-//! # }
-//! # #[cfg(not(feature = "blocking-client"))]
-//! # fn main() {}
-//! ```
-//!
 
-// Public modules
+// Public modules - only what's needed for Camera<P> API
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
-/// VISCA command definitions and implementations
+
+/// VISCA command definitions
 pub mod command;
-/// Connection management for VISCA devices
-pub mod connection;
-/// Connection pooling for managing multiple VISCA device connections
-pub mod connection_pool;
-/// VISCA protocol constants and definitions
-pub mod constants;
-/// Utility macros for VISCA operations
-pub mod macros;
-/// Common imports for grafton-visca users
-pub mod prelude;
-/// Timeout configuration and management
-pub mod timeout;
-/// Transport layer implementations for VISCA communication
+
+/// Error types
+mod error;
+pub use error::{Error, Result};
+
+/// Transport layer (most users won't need direct access)
 pub mod transport;
 
-/// Async transport layer implementations
-#[cfg(feature = "async-client")]
-pub mod transport_future;
-
-/// Reconnecting transport wrapper for handling connection failures
-#[cfg(feature = "async-client")]
-pub mod reconnecting_transport;
-
-// Private modules
-mod api;
-mod error;
-mod ext;
+// Internal modules - not part of public API
+mod connection;
+// mod connection_pool; // Uses old Client API - removed
+mod constants;
+mod macros;
 mod session;
 mod types;
 
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-mod ptz_builder;
-
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-mod sync_primitives;
-
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-mod unified_client;
-
-// Core re-exports
-pub use crate::{
-    command::{
-        pan_tilt::PanTiltDirection,
-        response::{parse_response, Response},
-        Command, InquiryResponse, ResponseType,
-    },
-    error::{Error, ResultExt, ViscaRetry},
-    session::Session,
-};
-
-// Parameter types re-exports
-pub use crate::command::{
-    exposure::DynamicRangeLevel,
-    focus::FocusSpeed,
-    pan_tilt::{PanSpeed, TiltSpeed},
-    preset::PresetNumber,
-    zoom::ZoomSpeed,
-};
-
-// Type safety re-exports
-pub use crate::types::{
-    BrightnessLevel, ContrastLevel, GainLimit, GainValue, IrisLevel, LuminanceLevel,
-    NoiseReduction2DLevel, NoiseReduction3DLevel, SharpnessLevel, ShutterSpeed, SocketId,
-};
-
-// Connection and pooling re-exports
-pub use crate::{
-    connection::{ConnectionManagement, ConnectionStats, ConnectionStatsSnapshot},
-    connection_pool::{CameraInfo, ConnectionPool, ConnectionType, PoolConfig, PooledCameraStats},
-    timeout::{CommandCategory, TimeoutConfig, TimeoutConfigBuilder},
-};
-
-// Extension trait re-exports
-pub use crate::{
-    api::{CameraControl, GainLevel, IrisValue, NoiseReductionStrength, PanTiltBuilder, Speed},
-    ext::{
-        exposure_ext::{ExposureExt, ExposurePreset},
-        focus_ext::FocusExt,
-        image_ext::{ImageExt, ImagePreset},
-        inquiry_ext::{
-            CameraPosition, CameraState, ExposureState, ImageState, InquiryExt, OpticsState,
-            WhiteBalanceState,
-        },
-        pan_tilt_ext::PanTiltExt,
-        position_ext::PositionExt,
-        power_ext::PowerExt,
-        preset_ext::PresetExt,
-        transport_ext::TransportExt,
-        white_balance_ext::{WhiteBalanceExt, WhiteBalancePreset},
-        zoom_ext::ZoomExt,
-    },
-};
-
-// Unified extension trait re-exports
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::ext::unified_ext::CameraExt;
-
+// Keep these private unless specifically needed
 #[cfg(feature = "async-client")]
-pub use crate::ext::unified_ext::AsyncCameraExt;
-
-// Unified client re-exports
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use crate::{
-    ptz_builder::PtzBuilder,
-    unified_client::{Client, ClientPtzExt},
-};
-
-// Async-specific re-exports
+mod reconnecting_transport;
 #[cfg(feature = "async-client")]
-pub use crate::{
-    connection::AsyncConnectionManagement,
-    connection_pool::AsyncConnectionPool,
-    ext::async_visca_ext::{AsyncExt, PanScanDirection},
-    reconnecting_transport::{
-        ConnectionEvent, ConnectionEventCallback, ReconnectingTransport, ReconnectionConfig,
-    },
-    transport_future::TransportFuture,
-};
+mod transport_future;
 
-/// Core trait for types that can send and receive VISCA commands.
-///
-/// This trait provides the minimal interface needed for the extension traits.
-/// It is implemented by `Client` and provides the foundation for all
-/// high-level camera control operations.
-pub trait Transport {
-    /// Send a command and wait for the response.
-    ///
-    /// # Errors
-    /// Returns `Error` if the command fails to send, the camera returns an error,
-    /// or if communication with the camera fails.
-    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error>;
+// Extension traits and old API - commented out for removal
+// mod api;
+// mod ext;
+// mod prelude;
+mod timeout; // Keep this - used by command system
+
+// #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+// mod ptz_builder;
+// #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+// mod sync_primitives;
+// #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+// mod unified_client;
+
+// Minimal re-exports for essential types
+pub use camera::{Camera, CameraProfile};
+pub use command::{Command, InquiryResponse, Response};
+
+// Re-export unit types from camera module
+pub use camera::units::{Degrees, Normalized, ViscaUnits};
+
+/// Camera profiles for common models
+pub mod profiles {
+    pub use crate::camera::profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 }
