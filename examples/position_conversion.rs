@@ -53,10 +53,7 @@ async fn display_camera_profile<P: CameraProfile>(camera: &Camera<P>) {
     info!("  Tilt degrees: {:?}", capabilities.tilt_range_degrees);
     info!("  Max pan speed: {}", capabilities.max_pan_speed);
     info!("  Max tilt speed: {}", capabilities.max_tilt_speed);
-    info!(
-        "  Zoom steps: {}",
-        capabilities.zoom_steps
-    );
+    info!("  Zoom steps: {}", capabilities.zoom_steps);
     info!("  Number of presets: {}", capabilities.preset_count);
 }
 
@@ -71,9 +68,7 @@ fn demonstrate_position_conversions_static() {
     let example_pan: i16 = 1224; // Half of max pan range for G2
     let example_tilt: i16 = 432; // A quarter of the way through tilt range
 
-    info!(
-        "\nConverting VISCA units to degrees using profile methods:"
-    );
+    info!("\nConverting VISCA units to degrees using profile methods:");
     let pan_degrees = profile.pan_units_to_degrees(example_pan);
     let tilt_degrees = profile.tilt_units_to_degrees(example_tilt);
 
@@ -303,3 +298,4 @@ fn main() {
     eprintln!("This example requires the async-client feature.");
     eprintln!("Run with: cargo run --example position_conversion --features async-client");
 }
+
