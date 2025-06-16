@@ -191,7 +191,7 @@ pub mod timeout; // Public for use in macros
 // #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 // mod unified_client;
 
-// Minimal re-exports for essential types
+// Core re-exports for Camera<P> API
 pub use camera::{Camera, CameraProfile};
 pub use command::{Command, InquiryResponse, Response};
 
