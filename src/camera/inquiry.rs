@@ -258,7 +258,7 @@ impl<P: CameraProfile> Camera<P> {
         }
     }
 
-    /// Get the current gain level.
+    /// Get the current gain.
     pub async fn get_gain(&mut self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Gain).await? {
             Response::InquiryResponse(InquiryResponse::Gain { gain }) => Ok(gain),
@@ -275,6 +275,16 @@ impl<P: CameraProfile> Camera<P> {
             _ => Err(Error::UnexpectedResponseType),
         }
     }
+
+    /// Get the current iris position.
+    pub async fn get_iris_position(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Iris).await? {
+            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
 
     // White balance inquiries
 

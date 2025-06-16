@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 #![allow(clippy::unwrap_used)] // Tests can use unwrap
+#![allow(clippy::panic)] // Tests can use panic
 //! Comprehensive tests for PTZOptics G2 camera command validation
 //!
 //! This test suite validates every command in the library against the
