@@ -8,12 +8,9 @@
 //! - Monitor connection health
 //! - Recover from network interruptions
 
-use grafton_visca::command::{
-    pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-    power::{Power, PowerCommand},
-    InquiryCommand, Response, ZoomCommand,
-};
-use grafton_visca::{Client, Error};
+use grafton_visca::camera::{Camera, PTZOpticsG2};
+use grafton_visca::transport::AsyncTcpTransport;
+use grafton_visca::Error;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,15 +50,15 @@ async fn demo_basic_retry(camera_addr: &str) -> Result<(), Error> {
     let max_retries = 3;
     let retry_delay = Duration::from_secs(1);
 
-    let mut client = None;
+    let mut camera = None;
 
     for attempt in 1..=max_retries {
         println!("   Connection attempt {}/{}...", attempt, max_retries);
 
-        match Client::connect_udp_async(camera_addr).await {
-            Ok(c) => {
+        match AsyncTcpTransport::new(camera_addr).await {
+            Ok(transport) => {
                 println!("   ✓ Connected successfully!");
-                client = Some(c);
+                camera = Some(Camera::<PTZOpticsG2>::new(transport));
                 break;
             }
             Err(e) => {
@@ -74,7 +71,7 @@ async fn demo_basic_retry(camera_addr: &str) -> Result<(), Error> {
         }
     }
 
-    let client = match client {
+    let mut camera = match camera {
         Some(c) => c,
         None => {
             println!("   ✗ All connection attempts failed");
@@ -82,11 +79,11 @@ async fn demo_basic_retry(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    // Test the connection
-    match client.is_healthy().await {
-        Ok(true) => println!("   ✓ Connection is healthy"),
-        Ok(false) => println!("   ✗ Connection established but camera not responding"),
-        Err(e) => println!("   ✗ Health check failed: {}", e),
+    // Test the connection by sending a command
+    match timeout(Duration::from_secs(2), camera.home()).await {
+        Ok(Ok(_)) => println!("   ✓ Connection is healthy"),
+        Ok(Err(e)) => println!("   ✗ Connection established but camera not responding: {}", e),
+        Err(_) => println!("   ✗ Health check timed out"),
     }
 
     println!();
@@ -98,12 +95,13 @@ async fn demo_health_monitoring(camera_addr: &str) -> Result<(), Error> {
     println!("2. Connection Health Monitoring:");
     println!("   Setting up periodic health checks...\n");
 
-    let client = Client::connect_udp_async(camera_addr).await?;
+    let transport = AsyncTcpTransport::new(camera_addr).await?;
+    let camera = Arc::new(tokio::sync::Mutex::new(Camera::<PTZOpticsG2>::new(transport)));
     let is_healthy = Arc::new(AtomicBool::new(true));
     let health_check_count = Arc::new(AtomicU32::new(0));
 
     // Spawn health monitoring task
-    let client_clone = client.clone();
+    let camera_clone = camera.clone();
     let is_healthy_clone = is_healthy.clone();
     let health_check_count_clone = health_check_count.clone();
 
@@ -116,17 +114,19 @@ async fn demo_health_monitoring(camera_addr: &str) -> Result<(), Error> {
             let count = health_check_count_clone.fetch_add(1, Ordering::SeqCst) + 1;
             print!("   Health check #{}: ", count);
 
-            match client_clone.is_healthy().await {
-                Ok(true) => {
+            // Try a simple command to check health
+            let mut cam = camera_clone.lock().await;
+            match timeout(Duration::from_secs(1), cam.home()).await {
+                Ok(Ok(_)) => {
                     println!("✓ Healthy");
                     is_healthy_clone.store(true, Ordering::SeqCst);
                 }
-                Ok(false) => {
-                    println!("✗ Not responding");
+                Ok(Err(e)) => {
+                    println!("✗ Error: {}", e);
                     is_healthy_clone.store(false, Ordering::SeqCst);
                 }
-                Err(e) => {
-                    println!("✗ Error: {}", e);
+                Err(_) => {
+                    println!("✗ Timed out");
                     is_healthy_clone.store(false, Ordering::SeqCst);
                 }
             }
@@ -146,12 +146,8 @@ async fn demo_health_monitoring(camera_addr: &str) -> Result<(), Error> {
         }
 
         // Try to send a command
-        match timeout(
-            Duration::from_secs(1),
-            client.send_async(&InquiryCommand::Power),
-        )
-        .await
-        {
+        let mut cam = camera.lock().await;
+        match timeout(Duration::from_secs(1), cam.zoom_stop()).await {
             Ok(Ok(_)) => println!("   ✓ Operation {} succeeded", i),
             Ok(Err(e)) => println!("   ✗ Operation {} failed: {}", i, e),
             Err(_) => println!("   ✗ Operation {} timed out", i),
@@ -172,7 +168,8 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
     println!("3. Resilient Camera Control:");
     println!("   Implementing command retry with exponential backoff...\n");
 
-    let client = Client::connect_udp_async(camera_addr).await?;
+    let transport = AsyncTcpTransport::new(camera_addr).await?;
+    let camera = tokio::sync::Mutex::new(Camera::<PTZOpticsG2>::new(transport));
 
     // Define retry configuration
     #[derive(Clone)]
@@ -190,118 +187,129 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
         backoff_factor: 2.0,
     };
 
-    // Helper function to send command with retry
-    async fn send_with_retry<C: grafton_visca::Command>(
-        client: &Client,
-        command: &C,
-        config: &RetryConfig,
-        operation_name: &str,
-    ) -> Result<Response, Error> {
-        let mut delay = config.initial_delay;
-
-        for attempt in 1..=config.max_attempts {
-            println!(
-                "   {} - Attempt {}/{}",
-                operation_name, attempt, config.max_attempts
-            );
-
-            match timeout(Duration::from_secs(2), client.send_async(command)).await {
-                Ok(Ok(response)) => {
-                    println!("   ✓ {} succeeded", operation_name);
-                    return Ok(response);
-                }
-                Ok(Err(e)) => {
-                    println!("   ✗ {} failed: {}", operation_name, e);
-                }
-                Err(_) => {
-                    println!("   ✗ {} timed out", operation_name);
-                }
-            }
-
-            if attempt < config.max_attempts {
-                println!("   Waiting {:?} before retry...", delay);
-                sleep(delay).await;
-
-                // Exponential backoff
-                delay = Duration::from_secs_f64(
-                    (delay.as_secs_f64() * config.backoff_factor)
-                        .min(config.max_delay.as_secs_f64()),
-                );
-            }
-        }
-
-        Err(Error::Io(std::io::Error::other(format!(
-            "{} failed after {} attempts",
-            operation_name, config.max_attempts
-        ))))
-    }
 
     // Execute a sequence of operations with retry
     println!("   Executing camera control sequence with automatic retry...\n");
 
     // Power on
-    let _ = send_with_retry(
-        &client,
-        &PowerCommand { power: Power::On },
-        &retry_config,
-        "Power On",
-    )
-    .await;
+    for attempt in 1..=retry_config.max_attempts {
+        println!("   Power On - Attempt {}/{}", attempt, retry_config.max_attempts);
+        let mut cam = camera.lock().await;
+        match timeout(Duration::from_secs(2), cam.power_on()).await {
+            Ok(Ok(_)) => {
+                println!("   ✓ Power On succeeded");
+                break;
+            }
+            Ok(Err(e)) => println!("   ✗ Power On failed: {}", e),
+            Err(_) => println!("   ✗ Power On timed out"),
+        }
+        if attempt < retry_config.max_attempts {
+            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            sleep(retry_config.initial_delay).await;
+        }
+    }
 
     sleep(Duration::from_secs(1)).await;
 
     // Move to home
-    let _ = send_with_retry(
-        &client,
-        &PanTiltCommand::Home,
-        &retry_config,
-        "Home Position",
-    )
-    .await;
+    for attempt in 1..=retry_config.max_attempts {
+        println!("   Home Position - Attempt {}/{}", attempt, retry_config.max_attempts);
+        let mut cam = camera.lock().await;
+        match timeout(Duration::from_secs(2), cam.home()).await {
+            Ok(Ok(_)) => {
+                println!("   ✓ Home Position succeeded");
+                break;
+            }
+            Ok(Err(e)) => println!("   ✗ Home Position failed: {}", e),
+            Err(_) => println!("   ✗ Home Position timed out"),
+        }
+        if attempt < retry_config.max_attempts {
+            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            sleep(retry_config.initial_delay).await;
+        }
+    }
 
     sleep(Duration::from_secs(2)).await;
 
     // Pan right
-    let _ = send_with_retry(
-        &client,
-        &PanTiltCommand::Move {
-            direction: PanTiltDirection::Right,
-            pan_speed: PanSpeed::new(5)?,
-            tilt_speed: TiltSpeed::new(0)?,
-        },
-        &retry_config,
-        "Pan Right",
-    )
-    .await;
+    for attempt in 1..=retry_config.max_attempts {
+        println!("   Pan Right - Attempt {}/{}", attempt, retry_config.max_attempts);
+        let mut cam = camera.lock().await;
+        match timeout(Duration::from_secs(2), cam.move_continuous(
+            grafton_visca::command::pan_tilt::PanTiltDirection::Right, 5, 0
+        )).await {
+            Ok(Ok(_)) => {
+                println!("   ✓ Pan Right succeeded");
+                break;
+            }
+            Ok(Err(e)) => println!("   ✗ Pan Right failed: {}", e),
+            Err(_) => println!("   ✗ Pan Right timed out"),
+        }
+        if attempt < retry_config.max_attempts {
+            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            sleep(retry_config.initial_delay).await;
+        }
+    }
 
     sleep(Duration::from_secs(2)).await;
 
     // Stop movement
-    let _ = send_with_retry(
-        &client,
-        &PanTiltCommand::Move {
-            direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0)?,
-            tilt_speed: TiltSpeed::new(0)?,
-        },
-        &retry_config,
-        "Stop Movement",
-    )
-    .await;
+    for attempt in 1..=retry_config.max_attempts {
+        println!("   Stop Movement - Attempt {}/{}", attempt, retry_config.max_attempts);
+        let mut cam = camera.lock().await;
+        match timeout(Duration::from_secs(2), cam.move_continuous(
+            grafton_visca::command::pan_tilt::PanTiltDirection::Stop, 0, 0
+        )).await {
+            Ok(Ok(_)) => {
+                println!("   ✓ Stop Movement succeeded");
+                break;
+            }
+            Ok(Err(e)) => println!("   ✗ Stop Movement failed: {}", e),
+            Err(_) => println!("   ✗ Stop Movement timed out"),
+        }
+        if attempt < retry_config.max_attempts {
+            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            sleep(retry_config.initial_delay).await;
+        }
+    }
 
     // Zoom in
-    let _ = send_with_retry(
-        &client,
-        &ZoomCommand::ZoomInStandard,
-        &retry_config,
-        "Zoom In",
-    )
-    .await;
+    for attempt in 1..=retry_config.max_attempts {
+        println!("   Zoom In - Attempt {}/{}", attempt, retry_config.max_attempts);
+        let mut cam = camera.lock().await;
+        match timeout(Duration::from_secs(2), cam.zoom_in()).await {
+            Ok(Ok(_)) => {
+                println!("   ✓ Zoom In succeeded");
+                break;
+            }
+            Ok(Err(e)) => println!("   ✗ Zoom In failed: {}", e),
+            Err(_) => println!("   ✗ Zoom In timed out"),
+        }
+        if attempt < retry_config.max_attempts {
+            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            sleep(retry_config.initial_delay).await;
+        }
+    }
 
     sleep(Duration::from_secs(1)).await;
 
     // Stop zoom
-    let _ = send_with_retry(&client, &ZoomCommand::Stop, &retry_config, "Stop Zoom").await;
+    for attempt in 1..=retry_config.max_attempts {
+        println!("   Stop Zoom - Attempt {}/{}", attempt, retry_config.max_attempts);
+        let mut cam = camera.lock().await;
+        match timeout(Duration::from_secs(2), cam.zoom_stop()).await {
+            Ok(Ok(_)) => {
+                println!("   ✓ Stop Zoom succeeded");
+                break;
+            }
+            Ok(Err(e)) => println!("   ✗ Stop Zoom failed: {}", e),
+            Err(_) => println!("   ✗ Stop Zoom timed out"),
+        }
+        if attempt < retry_config.max_attempts {
+            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            sleep(retry_config.initial_delay).await;
+        }
+    }
 
     println!("\n   Control sequence completed!");
     println!();
