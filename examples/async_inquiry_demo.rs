@@ -1,15 +1,19 @@
-//! Example program
-
-//! Example demonstrating the async inquiry API with Client.
+//! Example demonstrating Camera API limitations and inquiry command alternatives.
 //!
-//! This example shows how to:
-//! - Connect to a camera using async UDP transport
-//! - Send various inquiry commands asynchronously
-//! - Handle concurrent inquiries for better performance
-//! - Monitor camera state over time
+//! This example shows:
+//! - Why the Camera API doesn't support inquiry commands
+//! - Alternative approaches for camera state management
+//! - When to use the Client API vs Camera API
+//!
+//! Note: The Camera API is designed for type-safe camera control but does not
+//! support inquiry commands. For applications requiring camera state queries,
+//! use the Client API or implement state tracking in your application.
 
-use grafton_visca::command::{InquiryCommand, Response};
-use grafton_visca::{Client, Error, InquiryResponse};
+use grafton_visca::{
+    camera::{profiles::PTZOpticsG2, Camera},
+    transport::AsyncUdpTransport,
+    Error,
+};
 use std::env;
 use tokio::time::{sleep, Duration};
 
@@ -36,104 +40,148 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let client = Client::connect_udp_async(camera_addr).await?;
+    
+    // Create camera with async transport
+    let transport = AsyncUdpTransport::new(camera_addr).await?;
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
-    println!("\n=== Camera Inquiry Demo ===\n");
+    println!("\n=== Camera API vs Inquiry Commands ===\n");
 
-    // Basic camera status
-    println!("1. Basic Camera Status");
+    // Explain the limitation
+    println!("IMPORTANT: The Camera API does not support inquiry commands.");
+    println!("This is because:");
+    println!("1. The UnifiedTransport trait only supports fire-and-forget commands");
+    println!("2. Inquiry commands require response parsing which UnifiedTransport doesn't handle");
+    println!("3. The Camera API focuses on type-safe control, not state queries\n");
 
-    let power = client.send_async(&InquiryCommand::Power).await?;
-    if let Response::InquiryResponse(InquiryResponse::Power { on }) = power {
-        println!("   - Power: {}", if on { "ON" } else { "OFF" });
+    println!("For applications requiring inquiry commands, use the Client API instead.");
+    println!("This example demonstrates Camera API alternatives.\n");
+
+    // Demonstrate Camera API capabilities
+    println!("=== Camera Control Demo (without inquiries) ===\n");
+
+    // 1. Camera capabilities from profile
+    println!("1. Camera Capabilities (from profile, not inquiry):");
+    let caps = camera.capabilities();
+    println!("   - Model: {}", caps.model_name);
+    println!("   - Pan range: {:?} degrees", caps.pan_range_degrees);
+    println!("   - Tilt range: {:?} degrees", caps.tilt_range_degrees);
+    println!("   - Zoom range: {} steps", caps.zoom_steps);
+    println!("   - Focus range: {} steps", caps.focus_steps);
+    println!("   - Preset count: {}", caps.preset_count);
+    println!("   - Supports digital zoom: {}", caps.supports_digital_zoom);
+    println!("   - Max pan speed: {}", caps.max_pan_speed);
+    println!("   - Max tilt speed: {}", caps.max_tilt_speed);
+
+    // 2. State management approaches
+    println!("\n2. State Management Approaches:");
+    println!("   Since we can't query state, we can:");
+    println!("   a) Maintain state in application");
+    println!("   b) Always set known states");
+    println!("   c) Use the Client API when queries are needed\n");
+
+    // 3. Setting known states
+    println!("3. Setting Known States:");
+    
+    // Power on (we assume it might be off)
+    println!("   - Powering on camera...");
+    camera.power_on().await?;
+    sleep(Duration::from_secs(2)).await;
+    
+    // Set to home position (known state)
+    println!("   - Moving to home position...");
+    camera.home().await?;
+    sleep(Duration::from_secs(2)).await;
+    
+    // Set specific zoom level
+    println!("   - Setting zoom to minimum...");
+    camera.set_zoom(0x0000).await?;
+    
+    // Set exposure mode
+    println!("   - Setting exposure to auto...");
+    use grafton_visca::command::exposure::ExposureMode;
+    camera.set_exposure_mode(ExposureMode::Auto).await?;
+    
+    // Set white balance
+    println!("   - Setting white balance to auto...");
+    use grafton_visca::command::white_balance::WhiteBalanceMode;
+    camera.set_white_balance_mode(WhiteBalanceMode::Auto).await?;
+
+    // 4. Application-level state tracking
+    println!("\n4. Application-Level State Tracking Example:");
+    
+    // Example state structure
+    #[derive(Debug)]
+    struct CameraState {
+        _power_on: bool,
+        zoom_level: u16,
+        at_home: bool,
+        _exposure_mode: ExposureMode,
+        _white_balance_mode: WhiteBalanceMode,
     }
+    
+    let mut state = CameraState {
+        _power_on: true,  // We just powered it on
+        zoom_level: 0x0000,  // We set it to minimum
+        at_home: true,  // We moved to home
+        _exposure_mode: ExposureMode::Auto,
+        _white_balance_mode: WhiteBalanceMode::Auto,
+    };
+    
+    println!("   Current state: {:?}", state);
+    
+    // Update state as we control camera
+    println!("\n   - Zooming in...");
+    camera.zoom_in().await?;
+    sleep(Duration::from_secs(1)).await;
+    camera.zoom_stop().await?;
+    state.zoom_level = 0x1000;  // Estimate based on zoom time
+    state.at_home = false;  // No longer at exact home position
+    
+    println!("   Updated state: {:?}", state);
 
-    println!("\n2. Camera Position and Zoom");
-
-    let position = client.send_async(&InquiryCommand::PanTiltPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) = position {
-        println!("   - Pan/Tilt Position: pan={}, tilt={}", pan, tilt);
-    }
-
-    let zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = zoom {
-        println!("   - Zoom Position: {:02X?}", position);
-    }
-
-    let focus = client.send_async(&InquiryCommand::FocusPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::FocusPosition { position }) = focus {
-        println!("   - Focus Position: {:02X?}", position);
-    }
-
-    println!("\n3. Image Settings");
-
-    // Execute multiple inquiries concurrently for better performance
-    let exposure_future = client.send_async(&InquiryCommand::ExposureMode);
-    let wb_future = client.send_async(&InquiryCommand::WhiteBalanceMode);
-    let luminance_future = client.send_async(&InquiryCommand::Luminance);
-
-    let (exposure_result, wb_result, luminance_result) =
-        tokio::join!(exposure_future, wb_future, luminance_future);
-
-    if let Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) = exposure_result {
-        println!("   - Exposure Mode: {:?}", mode);
-    }
-
-    if let Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance { mode })) = wb_result {
-        println!("   - White Balance: {:?}", mode);
-    }
-
-    if let Ok(Response::InquiryResponse(InquiryResponse::Luminance(level))) = luminance_result {
-        println!("   - Luminance: {}", level);
-    }
-
-    println!("\n4. Additional Image Parameters");
-
-    let contrast = client.send_async(&InquiryCommand::Contrast).await?;
-    if let Response::InquiryResponse(InquiryResponse::Contrast(level)) = contrast {
-        println!("   - Contrast: {}", level);
-    }
-
-    let gain = client.send_async(&InquiryCommand::Gain).await?;
-    if let Response::InquiryResponse(InquiryResponse::Gain { gain }) = gain {
-        println!("   - Gain: {}", gain);
-    }
-
-    println!("\n5. Comprehensive Status Report");
-
-    // Create a comprehensive status report
-    let status_futures = vec![
-        client.send_async(&InquiryCommand::Power),
-        client.send_async(&InquiryCommand::PanTiltPosition),
-        client.send_async(&InquiryCommand::ZoomPosition),
-        client.send_async(&InquiryCommand::FocusPosition),
-        client.send_async(&InquiryCommand::ExposureMode),
-        client.send_async(&InquiryCommand::WhiteBalanceMode),
-    ];
-
-    let results = futures_util::future::try_join_all(status_futures).await?;
-
-    println!("   Complete Camera Status:");
-    for result in results {
-        if let Response::InquiryResponse(inquiry) = result {
-            println!("     - {:?}", inquiry);
+    // 5. When to use Client API
+    println!("\n5. When to Use Client API Instead:");
+    println!("   Use the Client API when you need:");
+    println!("   - Power status queries");
+    println!("   - Current position inquiries");
+    println!("   - Zoom position queries");
+    println!("   - Focus position queries");
+    println!("   - Any other camera state information");
+    
+    // Demonstrate Client API for inquiries
+    #[cfg(feature = "blocking-client")]
+    {
+        println!("\n6. Client API Inquiry Example:");
+        use grafton_visca::{Client, command::InquiryCommand};
+        
+        // Create a Client for inquiries
+        match Client::connect_udp(camera_addr) {
+            Ok(client) => {
+                // Now we can do inquiries
+                match client.send(&InquiryCommand::Power) {
+                    Ok(response) => println!("   Power inquiry response: {:?}", response),
+                    Err(e) => println!("   Power inquiry failed: {}", e),
+                }
+                
+                match client.send(&InquiryCommand::ZoomPosition) {
+                    Ok(response) => println!("   Zoom position response: {:?}", response),
+                    Err(e) => println!("   Zoom inquiry failed: {}", e),
+                }
+            }
+            Err(e) => {
+                println!("   Failed to create Client: {}", e);
+            }
         }
     }
 
-    println!("\n6. Monitoring Example (5 readings)");
+    println!("\n=== Summary ===");
+    println!("The Camera API provides:");
+    println!("✓ Type-safe camera control");
+    println!("✓ Profile-aware operations");
+    println!("✓ Compile-time validation");
+    println!("✗ No inquiry command support");
+    println!("\nFor full VISCA functionality including inquiries, use the Client API.");
 
-    for i in 1..=5 {
-        println!("   Reading #{}", i);
-
-        let current_zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
-        if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = current_zoom
-        {
-            println!("     - Current Zoom: {:02X?}", position);
-        }
-
-        sleep(Duration::from_secs(1)).await;
-    }
-
-    println!("\nInquiry demo completed successfully!");
     Ok(())
 }
