@@ -151,4 +151,3 @@ async fn main() -> Result<(), Error> {
     println!("\nInquiry demo completed!");
     Ok(())
 }
-

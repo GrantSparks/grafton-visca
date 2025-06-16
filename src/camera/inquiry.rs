@@ -580,4 +580,3 @@ impl<P: CameraProfile> Camera<P> {
         })
     }
 }
-
