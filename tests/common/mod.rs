@@ -19,7 +19,7 @@ use grafton_visca::{Command, Error};
 use grafton_visca::{command::ResponseType, InquiryResponse, Response};
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::transport::{BlockingAdapter, BlockingTransport, Transport};
+use grafton_visca::transport::{BlockingAdapter, BlockingTransport};
 
 // Import parse_response from the command module
 #[cfg(feature = "blocking-client")]

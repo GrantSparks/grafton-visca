@@ -13,8 +13,11 @@ mod common;
 use common::builders::*;
 use common::helpers::*;
 
-// Import the macros - they're exported at crate root
-use grafton_visca::*;
+// Import needed types
+use grafton_visca::{
+    profiles::GenericVisca,
+    Command, Error, Response,
+};
 
 #[cfg(feature = "blocking-client")]
 #[test]
