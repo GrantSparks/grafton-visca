@@ -16,10 +16,14 @@ pub mod macros;
 use grafton_visca::{Command, Error};
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{command::ResponseType, parse_response, InquiryResponse, Response, Transport};
+use grafton_visca::{command::ResponseType, InquiryResponse, Response};
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::transport::{BlockingAdapter, BlockingTransport};
+use grafton_visca::transport::{BlockingAdapter, BlockingTransport, Transport};
+
+// Import parse_response from the command module
+#[cfg(feature = "blocking-client")]
+use grafton_visca::command::parse_response;
 
 #[cfg(feature = "async-client")]
 use grafton_visca::transport::{Transport as AsyncTransport, TransportFuture};
@@ -255,9 +259,13 @@ impl MockDevice {
     }
 }
 
+// MockDevice no longer implements Transport directly since the new API
+// uses Camera<P> for high-level operations. Tests should use Camera<P>
+// with MockTransport for testing.
 #[cfg(feature = "blocking-client")]
-impl Transport for MockDevice {
-    fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
+impl MockDevice {
+    /// Execute a command and handle the response according to VISCA protocol
+    pub fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         // For blocking transport, we don't need futures
         use grafton_visca::transport::Transport;
         use std::future::Future;
