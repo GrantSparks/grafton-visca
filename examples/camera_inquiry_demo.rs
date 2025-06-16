@@ -123,18 +123,18 @@ async fn main() -> Result<(), Error> {
     // Query complete camera state
     println!("\n--- Complete Camera State ---");
     println!("Querying all camera settings...");
-    
+
     match camera.get_camera_state().await {
         Ok(state) => {
             println!("\nCamera State Summary:");
             println!("  Power: {}", if state.power { "ON" } else { "OFF" });
-            println!("  Position: {:.1}° pan, {:.1}° tilt", 
-                state.position.pan_degrees, 
-                state.position.tilt_degrees
+            println!(
+                "  Position: {:.1}° pan, {:.1}° tilt",
+                state.position.pan_degrees, state.position.tilt_degrees
             );
-            println!("  Optics: zoom=0x{:04X}, focus=0x{:04X}", 
-                state.optics.zoom, 
-                state.optics.focus
+            println!(
+                "  Optics: zoom=0x{:04X}, focus=0x{:04X}",
+                state.optics.zoom, state.optics.focus
             );
             println!("  Exposure: mode={:?}", state.exposure.mode);
             println!("  White Balance: {:?}", state.white_balance.mode);
@@ -151,3 +151,4 @@ async fn main() -> Result<(), Error> {
     println!("\nInquiry demo completed!");
     Ok(())
 }
+

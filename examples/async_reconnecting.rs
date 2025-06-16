@@ -82,7 +82,10 @@ async fn demo_basic_retry(camera_addr: &str) -> Result<(), Error> {
     // Test the connection by sending a command
     match timeout(Duration::from_secs(2), camera.home()).await {
         Ok(Ok(_)) => println!("   ✓ Connection is healthy"),
-        Ok(Err(e)) => println!("   ✗ Connection established but camera not responding: {}", e),
+        Ok(Err(e)) => println!(
+            "   ✗ Connection established but camera not responding: {}",
+            e
+        ),
         Err(_) => println!("   ✗ Health check timed out"),
     }
 
@@ -96,7 +99,9 @@ async fn demo_health_monitoring(camera_addr: &str) -> Result<(), Error> {
     println!("   Setting up periodic health checks...\n");
 
     let transport = AsyncTcpTransport::new(camera_addr).await?;
-    let camera = Arc::new(tokio::sync::Mutex::new(Camera::<PTZOpticsG2>::new(transport)));
+    let camera = Arc::new(tokio::sync::Mutex::new(Camera::<PTZOpticsG2>::new(
+        transport,
+    )));
     let is_healthy = Arc::new(AtomicBool::new(true));
     let health_check_count = Arc::new(AtomicU32::new(0));
 
@@ -187,13 +192,15 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
         backoff_factor: 2.0,
     };
 
-
     // Execute a sequence of operations with retry
     println!("   Executing camera control sequence with automatic retry...\n");
 
     // Power on
     for attempt in 1..=retry_config.max_attempts {
-        println!("   Power On - Attempt {}/{}", attempt, retry_config.max_attempts);
+        println!(
+            "   Power On - Attempt {}/{}",
+            attempt, retry_config.max_attempts
+        );
         let mut cam = camera.lock().await;
         match timeout(Duration::from_secs(2), cam.power_on()).await {
             Ok(Ok(_)) => {
@@ -204,7 +211,10 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
             Err(_) => println!("   ✗ Power On timed out"),
         }
         if attempt < retry_config.max_attempts {
-            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            println!(
+                "   Waiting {:?} before retry...",
+                retry_config.initial_delay
+            );
             sleep(retry_config.initial_delay).await;
         }
     }
@@ -213,7 +223,10 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
 
     // Move to home
     for attempt in 1..=retry_config.max_attempts {
-        println!("   Home Position - Attempt {}/{}", attempt, retry_config.max_attempts);
+        println!(
+            "   Home Position - Attempt {}/{}",
+            attempt, retry_config.max_attempts
+        );
         let mut cam = camera.lock().await;
         match timeout(Duration::from_secs(2), cam.home()).await {
             Ok(Ok(_)) => {
@@ -224,7 +237,10 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
             Err(_) => println!("   ✗ Home Position timed out"),
         }
         if attempt < retry_config.max_attempts {
-            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            println!(
+                "   Waiting {:?} before retry...",
+                retry_config.initial_delay
+            );
             sleep(retry_config.initial_delay).await;
         }
     }
@@ -233,11 +249,21 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
 
     // Pan right
     for attempt in 1..=retry_config.max_attempts {
-        println!("   Pan Right - Attempt {}/{}", attempt, retry_config.max_attempts);
+        println!(
+            "   Pan Right - Attempt {}/{}",
+            attempt, retry_config.max_attempts
+        );
         let mut cam = camera.lock().await;
-        match timeout(Duration::from_secs(2), cam.move_continuous(
-            grafton_visca::command::pan_tilt::PanTiltDirection::Right, 5, 0
-        )).await {
+        match timeout(
+            Duration::from_secs(2),
+            cam.move_continuous(
+                grafton_visca::command::pan_tilt::PanTiltDirection::Right,
+                5,
+                0,
+            ),
+        )
+        .await
+        {
             Ok(Ok(_)) => {
                 println!("   ✓ Pan Right succeeded");
                 break;
@@ -246,7 +272,10 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
             Err(_) => println!("   ✗ Pan Right timed out"),
         }
         if attempt < retry_config.max_attempts {
-            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            println!(
+                "   Waiting {:?} before retry...",
+                retry_config.initial_delay
+            );
             sleep(retry_config.initial_delay).await;
         }
     }
@@ -255,11 +284,21 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
 
     // Stop movement
     for attempt in 1..=retry_config.max_attempts {
-        println!("   Stop Movement - Attempt {}/{}", attempt, retry_config.max_attempts);
+        println!(
+            "   Stop Movement - Attempt {}/{}",
+            attempt, retry_config.max_attempts
+        );
         let mut cam = camera.lock().await;
-        match timeout(Duration::from_secs(2), cam.move_continuous(
-            grafton_visca::command::pan_tilt::PanTiltDirection::Stop, 0, 0
-        )).await {
+        match timeout(
+            Duration::from_secs(2),
+            cam.move_continuous(
+                grafton_visca::command::pan_tilt::PanTiltDirection::Stop,
+                0,
+                0,
+            ),
+        )
+        .await
+        {
             Ok(Ok(_)) => {
                 println!("   ✓ Stop Movement succeeded");
                 break;
@@ -268,14 +307,20 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
             Err(_) => println!("   ✗ Stop Movement timed out"),
         }
         if attempt < retry_config.max_attempts {
-            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            println!(
+                "   Waiting {:?} before retry...",
+                retry_config.initial_delay
+            );
             sleep(retry_config.initial_delay).await;
         }
     }
 
     // Zoom in
     for attempt in 1..=retry_config.max_attempts {
-        println!("   Zoom In - Attempt {}/{}", attempt, retry_config.max_attempts);
+        println!(
+            "   Zoom In - Attempt {}/{}",
+            attempt, retry_config.max_attempts
+        );
         let mut cam = camera.lock().await;
         match timeout(Duration::from_secs(2), cam.zoom_in()).await {
             Ok(Ok(_)) => {
@@ -286,7 +331,10 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
             Err(_) => println!("   ✗ Zoom In timed out"),
         }
         if attempt < retry_config.max_attempts {
-            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            println!(
+                "   Waiting {:?} before retry...",
+                retry_config.initial_delay
+            );
             sleep(retry_config.initial_delay).await;
         }
     }
@@ -295,7 +343,10 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
 
     // Stop zoom
     for attempt in 1..=retry_config.max_attempts {
-        println!("   Stop Zoom - Attempt {}/{}", attempt, retry_config.max_attempts);
+        println!(
+            "   Stop Zoom - Attempt {}/{}",
+            attempt, retry_config.max_attempts
+        );
         let mut cam = camera.lock().await;
         match timeout(Duration::from_secs(2), cam.zoom_stop()).await {
             Ok(Ok(_)) => {
@@ -306,7 +357,10 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
             Err(_) => println!("   ✗ Stop Zoom timed out"),
         }
         if attempt < retry_config.max_attempts {
-            println!("   Waiting {:?} before retry...", retry_config.initial_delay);
+            println!(
+                "   Waiting {:?} before retry...",
+                retry_config.initial_delay
+            );
             sleep(retry_config.initial_delay).await;
         }
     }

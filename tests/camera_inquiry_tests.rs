@@ -47,7 +47,7 @@ mod tests {
         let transport = MockTransport::new();
         // Response for power on
         transport.add_response(vec![0x90, 0x50, 0x02, 0xFF]);
-        
+
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
         let power = camera.get_power_state().await.unwrap();
         assert!(power);
@@ -58,12 +58,11 @@ mod tests {
         let transport = MockTransport::new();
         // Response for pan/tilt position (pan=0x0000, tilt=0x0000)
         transport.add_response(vec![
-            0x90, 0x50, 
-            0x00, 0x00, 0x00, 0x00, // Pan position
+            0x90, 0x50, 0x00, 0x00, 0x00, 0x00, // Pan position
             0x00, 0x00, 0x00, 0x00, // Tilt position
-            0xFF
+            0xFF,
         ]);
-        
+
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
         let (pan, tilt) = camera.get_position().await.unwrap();
         assert_eq!(pan.0, 0.0);
@@ -75,7 +74,7 @@ mod tests {
         let transport = MockTransport::new();
         // Response for zoom position 0x4000
         transport.add_response(vec![0x90, 0x50, 0x04, 0x00, 0x00, 0x00, 0xFF]);
-        
+
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
         let zoom = camera.get_zoom_position().await.unwrap();
         assert_eq!(zoom, 0x4000);
@@ -86,14 +85,14 @@ mod tests {
         let transport = MockTransport::new();
         // Add multiple responses for complete state query
         // Note: In a real implementation, we'd need to handle multiple inquiries
-        
+
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
-        
+
         // This test would need more sophisticated mocking to handle
         // the multiple queries that get_camera_state() makes
         // For now, we'll just verify it doesn't panic
         let result = camera.get_camera_state().await;
-        
+
         // It will likely fail due to response parsing, but shouldn't panic
         assert!(result.is_err() || result.is_ok());
     }
@@ -102,13 +101,14 @@ mod tests {
     async fn test_inquiry_error_handling() {
         let transport = MockTransport::new();
         // Don't add any responses - should get empty response
-        
+
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
-        
+
         // This should handle the error gracefully
         let result = camera.get_power_state().await;
-        
+
         // Should get an error (likely parsing error or unexpected response)
         assert!(result.is_err());
     }
 }
+
