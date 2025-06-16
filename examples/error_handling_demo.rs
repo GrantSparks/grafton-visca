@@ -256,4 +256,3 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     Ok(())
 }
-
