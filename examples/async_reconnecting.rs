@@ -181,7 +181,9 @@ async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
     struct RetryConfig {
         max_attempts: u32,
         initial_delay: Duration,
+        #[allow(dead_code)]
         max_delay: Duration,
+        #[allow(dead_code)]
         backoff_factor: f64,
     }
 
