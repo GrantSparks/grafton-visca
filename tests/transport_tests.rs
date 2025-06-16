@@ -22,7 +22,7 @@ mod tests {
             Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
         }
 
-        fn response_type(&self) -> Option<grafton_visca::ResponseType> {
+        fn response_type(&self) -> Option<grafton_visca::command::ResponseType> {
             None
         }
 

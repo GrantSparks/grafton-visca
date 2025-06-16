@@ -7,7 +7,7 @@
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::command::{
-    pan_tilt::{PanTiltCommand, PanTiltDirection},
+    pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
     preset::{PresetAction, PresetCommand, PresetNumber},
     zoom::{ZoomCommand, ZoomSpeed},
 };
@@ -17,8 +17,8 @@ use grafton_visca::command::{
 pub struct TestPanTiltBuilder {
     pan: i16,
     tilt: i16,
-    pan_speed: u8,
-    tilt_speed: u8,
+    pan_speed: PanSpeed,
+    tilt_speed: TiltSpeed,
 }
 
 #[cfg(feature = "blocking-client")]
@@ -28,8 +28,8 @@ impl TestPanTiltBuilder {
         Self {
             pan: 0,
             tilt: 0,
-            pan_speed: 10,
-            tilt_speed: 10,
+            pan_speed: PanSpeed::new(10).expect("Default pan speed should be valid"),
+            tilt_speed: TiltSpeed::new(10).expect("Default tilt speed should be valid"),
         }
     }
 
@@ -42,20 +42,24 @@ impl TestPanTiltBuilder {
 
     /// Set the pan speed.
     pub fn with_pan_speed(mut self, speed: u8) -> Self {
-        self.pan_speed = speed;
+        self.pan_speed = PanSpeed::new(speed)
+            .unwrap_or_else(|_| panic!("Pan speed {} should be valid", speed));
         self
     }
 
     /// Set the tilt speed.
     pub fn with_tilt_speed(mut self, speed: u8) -> Self {
-        self.tilt_speed = speed;
+        self.tilt_speed = TiltSpeed::new(speed)
+            .unwrap_or_else(|_| panic!("Tilt speed {} should be valid", speed));
         self
     }
 
     /// Set both speeds at once.
     pub fn with_speeds(mut self, pan_speed: u8, tilt_speed: u8) -> Self {
-        self.pan_speed = pan_speed;
-        self.tilt_speed = tilt_speed;
+        self.pan_speed = PanSpeed::new(pan_speed)
+            .unwrap_or_else(|_| panic!("Pan speed {} should be valid", pan_speed));
+        self.tilt_speed = TiltSpeed::new(tilt_speed)
+            .unwrap_or_else(|_| panic!("Tilt speed {} should be valid", tilt_speed));
         self
     }
 
@@ -97,8 +101,8 @@ impl TestPanTiltBuilder {
     pub fn build_stop() -> PanTiltCommand {
         PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: 0,
-            tilt_speed: 0,
+            pan_speed: PanSpeed::new(0).expect("Speed 0 should be valid"),
+            tilt_speed: TiltSpeed::new(0).expect("Speed 0 should be valid"),
         }
     }
 }
@@ -242,8 +246,8 @@ mod tests {
             } => {
                 assert_eq!(pan, 100);
                 assert_eq!(tilt, 200);
-                assert_eq!(pan_speed, 15);
-                assert_eq!(tilt_speed, 20);
+                assert_eq!(pan_speed.value(), 15);
+                assert_eq!(tilt_speed.value(), 20);
             }
             _ => panic!("Expected AbsolutePosition command"),
         }
