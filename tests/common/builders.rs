@@ -6,13 +6,10 @@
 #![allow(dead_code)] // These utilities are for future test use
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{
-    command::{
-        pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-        preset::{PresetCommand, PresetNumber},
-        zoom::{ZoomCommand, ZoomSpeed},
-    },
-    BrightnessLevel, ContrastLevel, GainLimit, GainValue, IrisLevel, SharpnessLevel, ShutterSpeed,
+use grafton_visca::command::{
+    pan_tilt::{PanTiltCommand, PanTiltDirection},
+    preset::{PresetAction, PresetCommand, PresetNumber},
+    zoom::{ZoomCommand, ZoomSpeed},
 };
 
 /// Builder for creating `PanTiltCommand` instances in tests.
@@ -20,8 +17,8 @@ use grafton_visca::{
 pub struct TestPanTiltBuilder {
     pan: i16,
     tilt: i16,
-    pan_speed: PanSpeed,
-    tilt_speed: TiltSpeed,
+    pan_speed: u8,
+    tilt_speed: u8,
 }
 
 #[cfg(feature = "blocking-client")]
@@ -31,8 +28,8 @@ impl TestPanTiltBuilder {
         Self {
             pan: 0,
             tilt: 0,
-            pan_speed: PanSpeed::new(10).expect("Default pan speed should be valid"),
-            tilt_speed: TiltSpeed::new(10).expect("Default tilt speed should be valid"),
+            pan_speed: 10,
+            tilt_speed: 10,
         }
     }
 
@@ -45,24 +42,20 @@ impl TestPanTiltBuilder {
 
     /// Set the pan speed.
     pub fn with_pan_speed(mut self, speed: u8) -> Self {
-        self.pan_speed =
-            PanSpeed::new(speed).unwrap_or_else(|_| panic!("Pan speed {} should be valid", speed));
+        self.pan_speed = speed;
         self
     }
 
     /// Set the tilt speed.
     pub fn with_tilt_speed(mut self, speed: u8) -> Self {
-        self.tilt_speed = TiltSpeed::new(speed)
-            .unwrap_or_else(|_| panic!("Tilt speed {} should be valid", speed));
+        self.tilt_speed = speed;
         self
     }
 
     /// Set both speeds at once.
     pub fn with_speeds(mut self, pan_speed: u8, tilt_speed: u8) -> Self {
-        self.pan_speed = PanSpeed::new(pan_speed)
-            .unwrap_or_else(|_| panic!("Pan speed {} should be valid", pan_speed));
-        self.tilt_speed = TiltSpeed::new(tilt_speed)
-            .unwrap_or_else(|_| panic!("Tilt speed {} should be valid", tilt_speed));
+        self.pan_speed = pan_speed;
+        self.tilt_speed = tilt_speed;
         self
     }
 
@@ -104,8 +97,8 @@ impl TestPanTiltBuilder {
     pub fn build_stop() -> PanTiltCommand {
         PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0).expect("Speed 0 should be valid"),
-            tilt_speed: TiltSpeed::new(0).expect("Speed 0 should be valid"),
+            pan_speed: 0,
+            tilt_speed: 0,
         }
     }
 }
@@ -142,7 +135,7 @@ impl TestPresetBuilder {
     /// Build a recall preset command.
     pub fn build_recall(self) -> PresetCommand {
         PresetCommand {
-            action: grafton_visca::command::preset::PresetAction::Recall,
+            action: PresetAction::Recall,
             preset_number: self.number,
         }
     }
@@ -150,7 +143,7 @@ impl TestPresetBuilder {
     /// Build a set preset command.
     pub fn build_set(self) -> PresetCommand {
         PresetCommand {
-            action: grafton_visca::command::preset::PresetAction::Set,
+            action: PresetAction::Set,
             preset_number: self.number,
         }
     }
@@ -158,7 +151,7 @@ impl TestPresetBuilder {
     /// Build a reset preset command.
     pub fn build_reset(self) -> PresetCommand {
         PresetCommand {
-            action: grafton_visca::command::preset::PresetAction::Reset,
+            action: PresetAction::Reset,
             preset_number: self.number,
         }
     }
@@ -225,51 +218,8 @@ impl TestZoomBuilder {
     }
 }
 
-/// Helpers for creating test parameter types.
-#[cfg(feature = "blocking-client")]
-pub struct TestParameters;
-
-#[cfg(feature = "blocking-client")]
-impl TestParameters {
-    /// Create a valid brightness level for tests.
-    pub fn brightness(level: u16) -> BrightnessLevel {
-        BrightnessLevel::new(level)
-            .unwrap_or_else(|_| panic!("Brightness level {} should be valid", level))
-    }
-
-    /// Create a valid contrast level for tests.
-    pub fn contrast(level: u8) -> ContrastLevel {
-        ContrastLevel::new(level)
-            .unwrap_or_else(|_| panic!("Contrast level {} should be valid", level))
-    }
-
-    /// Create a valid sharpness level for tests.
-    pub fn sharpness(level: u8) -> SharpnessLevel {
-        SharpnessLevel::new(level)
-            .unwrap_or_else(|_| panic!("Sharpness level {} should be valid", level))
-    }
-
-    /// Create a valid gain value for tests.
-    pub fn gain(value: u8) -> GainValue {
-        GainValue::new(value).unwrap_or_else(|_| panic!("Gain value {} should be valid", value))
-    }
-
-    /// Create a valid gain limit for tests.
-    pub fn gain_limit(limit: u8) -> GainLimit {
-        GainLimit::new(limit).unwrap_or_else(|_| panic!("Gain limit {} should be valid", limit))
-    }
-
-    /// Create a valid iris level for tests.
-    pub fn iris(level: u8) -> IrisLevel {
-        IrisLevel::new(level).unwrap_or_else(|_| panic!("Iris level {} should be valid", level))
-    }
-
-    /// Create a valid shutter speed for tests.
-    pub fn shutter(speed: u16) -> ShutterSpeed {
-        ShutterSpeed::new(speed)
-            .unwrap_or_else(|_| panic!("Shutter speed {} should be valid", speed))
-    }
-}
+// Note: TestParameters helpers removed since those types are no longer part of the public API
+// Tests that need these types should construct command objects directly
 
 #[cfg(all(test, feature = "blocking-client"))]
 mod tests {
@@ -292,8 +242,8 @@ mod tests {
             } => {
                 assert_eq!(pan, 100);
                 assert_eq!(tilt, 200);
-                assert_eq!(pan_speed.value(), 15);
-                assert_eq!(tilt_speed.value(), 20);
+                assert_eq!(pan_speed, 15);
+                assert_eq!(tilt_speed, 20);
             }
             _ => panic!("Expected AbsolutePosition command"),
         }
@@ -315,10 +265,5 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_parameters() {
-        assert_eq!(TestParameters::brightness(10).value(), 10);
-        assert_eq!(TestParameters::contrast(14).value(), 14); // Max is 14
-        assert_eq!(TestParameters::sharpness(5).value(), 5);
-    }
+    // TestParameters test removed since those types are no longer public
 }
