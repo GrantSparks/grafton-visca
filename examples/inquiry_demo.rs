@@ -1,10 +1,21 @@
 //! Example program
 
 //! Example demonstrating the high-level inquiry API for querying camera state.
+//!
+//! This example now uses the new Camera<P> API with full inquiry support!
 
-use grafton_visca::{Client, Error, InquiryExt};
+use grafton_visca::camera::{Camera, PTZOpticsG2};
+use grafton_visca::transport::{BlockingAdapter, TcpTransport};
+use grafton_visca::Error;
 use std::env;
 
+#[cfg(not(feature = "blocking-client"))]
+fn main() {
+    eprintln!("This example requires the 'blocking-client' feature.");
+    eprintln!("Run with: cargo run --example inquiry_demo --features blocking-client");
+}
+
+#[cfg(feature = "blocking-client")]
 fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -17,90 +28,111 @@ fn main() -> Result<(), Error> {
         std::process::exit(1);
     }
 
-    // Connect to camera
+    // Connect to camera using blocking transport
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
-    let mut client = Client::connect_udp(camera_addr)?;
+    let transport = TcpTransport::new(camera_addr)?;
+    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+
+    // We need to use tokio runtime for async methods
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(async {
+        run_inquiries(&mut camera).await
+    })?;
+
+    Ok(())
+}
+
+#[cfg(feature = "blocking-client")]
+async fn run_inquiries(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
 
     // Query individual camera settings
     println!("\n=== Individual Camera Queries ===");
 
     // Power state
-    let power = client.get_power_state()?;
+    let power = camera.get_power_state().await?;
     println!("Power: {}", if power { "ON" } else { "OFF" });
 
     if !power {
         println!("Camera is powered off. Some queries may not work.");
     }
 
-    // Position
-    let (pan, tilt) = client.get_pan_tilt_position()?;
-    println!("Pan/Tilt Position: pan={pan}, tilt={tilt}");
+    // Position in degrees
+    let (pan_deg, tilt_deg) = camera.get_position().await?;
+    println!("Position (degrees): pan={:.1}°, tilt={:.1}°", pan_deg.0, tilt_deg.0);
+    
+    // Position in VISCA units
+    let (pan_units, tilt_units) = camera.get_position_units().await?;
+    println!("Position (units): pan={}, tilt={}", pan_units.0, tilt_units.0);
 
     // Zoom
-    let zoom = client.get_zoom_position()?;
+    let zoom = camera.get_zoom_position().await?;
     println!("Zoom Position: 0x{zoom:04X}");
 
     // Focus
-    let focus = client.get_focus_position()?;
+    let focus = camera.get_focus_position().await?;
     println!("Focus Position: 0x{focus:04X}");
 
     // Exposure
-    let exposure_mode = client.get_exposure_mode()?;
+    let exposure_mode = camera.get_exposure_mode().await?;
     println!("Exposure Mode: {exposure_mode:?}");
 
-    if client.get_exposure_compensation_enabled()? {
-        let compensation = client.get_exposure_compensation()?;
+    if camera.get_exposure_compensation_enabled().await? {
+        let compensation = camera.get_exposure_compensation().await?;
         println!("Exposure Compensation: {compensation:+} EV");
     } else {
         println!("Exposure Compensation: Disabled");
     }
 
     // White Balance
-    let wb_mode = client.get_white_balance_mode()?;
+    let wb_mode = camera.get_white_balance_mode().await?;
     println!("White Balance Mode: {wb_mode:?}");
 
     // Image Settings
     println!("\n=== Image Settings ===");
-    let luminance = client.get_luminance()?;
+    let luminance = camera.get_luminance().await?;
     println!("Luminance: {luminance}");
 
-    let contrast = client.get_contrast()?;
+    let contrast = camera.get_contrast().await?;
     println!("Contrast: {contrast}");
 
-    let sharpness = client.get_sharpness()?;
+    let sharpness = camera.get_sharpness().await?;
     println!("Sharpness: {sharpness}");
 
-    let saturation = client.get_saturation()?;
+    let saturation = camera.get_saturation().await?;
     println!("Saturation: {saturation}");
 
-    let hue = client.get_hue()?;
+    let hue = camera.get_hue().await?;
     println!("Hue: {hue}");
 
     // Advanced Settings
     println!("\n=== Advanced Settings ===");
-    let (vertical_flip, horizontal_flip) = client.get_image_flip()?;
+    let (vertical_flip, horizontal_flip) = camera.get_image_flip().await?;
     println!("Image Flip: Vertical={vertical_flip}, Horizontal={horizontal_flip}");
 
-    let backlight = client.get_backlight_status()?;
+    let backlight = camera.get_backlight_status().await?;
     println!(
         "Backlight Compensation: {}",
         if backlight { "ON" } else { "OFF" }
     );
 
-    let bw_mode = client.get_black_white_mode()?;
+    let bw_mode = camera.get_black_white_mode().await?;
     println!("Black & White Mode: {}", if bw_mode { "ON" } else { "OFF" });
 
     // Get complete camera state
     println!("\n=== Complete Camera State ===");
     println!("Querying all camera settings...");
-    let state = client.get_camera_state()?;
+    let state = camera.get_camera_state().await?;
 
     println!("\nCamera State Summary:");
     println!("  Power: {}", if state.power { "ON" } else { "OFF" });
     println!(
-        "  Position: pan={}, tilt={}",
+        "  Position: pan={}, tilt={} (units)",
         state.position.pan, state.position.tilt
+    );
+    println!(
+        "  Position: pan={:.1}°, tilt={:.1}° (degrees)",
+        state.position.pan_degrees, state.position.tilt_degrees
     );
     println!(
         "  Optics: zoom=0x{:04X}, focus=0x{:04X}",

@@ -178,3 +178,7 @@ required-features = ["async-client"]
 name = "capability_query_demo"
 required-features = ["blocking-client"]
 
+[[example]]
+name = "camera_inquiry_demo"
+required-features = ["async-client"]
+

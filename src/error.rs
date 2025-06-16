@@ -189,6 +189,10 @@ pub enum Error {
         /// Reason for the validation failure.
         reason: String,
     },
+
+    /// No response received from camera.
+    #[error("No response received from camera")]
+    NoResponse,
 }
 
 impl Error {

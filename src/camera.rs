@@ -8,10 +8,12 @@ use crate::transport::Transport;
 
 pub mod builder;
 pub mod commands;
+pub mod inquiry;
 pub mod profiles;
 
 // Re-export commonly used types
 pub use builder::{CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder};
+pub use inquiry::{CameraState, Exposure, ImageSettings, Optics, Position, WhiteBalance};
 pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 
 /// Core camera abstraction with compile-time profile information.
