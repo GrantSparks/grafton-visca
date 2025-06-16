@@ -1,7 +1,7 @@
-//! Example demonstrating position conversion with the new Camera<P> API
+//! Example demonstrating position conversion with the new `Camera<P>` API
 //!
 //! This example shows how to:
-//! - Use the type-safe Camera<P> API with camera profiles
+//! - Use the type-safe `Camera<P>` API with camera profiles
 //! - Convert between different position units (VISCA, degrees, normalized)
 //! - Leverage compile-time safety with camera-specific constants
 //! - Query camera capabilities

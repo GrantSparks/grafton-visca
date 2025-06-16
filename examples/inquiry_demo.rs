@@ -2,7 +2,7 @@
 
 //! Example demonstrating the high-level inquiry API for querying camera state.
 //!
-//! This example now uses the new Camera<P> API with full inquiry support!
+//! This example now uses the new `Camera<P>` API with full inquiry support!
 
 use grafton_visca::camera::{Camera, PTZOpticsG2};
 use grafton_visca::transport::{BlockingAdapter, TcpTransport};

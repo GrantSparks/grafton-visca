@@ -1,4 +1,4 @@
-//! Example demonstrating Camera<P> inquiry methods.
+//! Example demonstrating `Camera<P>` inquiry methods.
 //!
 //! This example shows how to:
 //! - Query camera state using the type-safe Camera API

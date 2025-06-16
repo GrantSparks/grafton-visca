@@ -1,6 +1,6 @@
 //! PTZ builder pattern demonstration using the new Camera API
 //!
-//! This example demonstrates the type-safe Camera<P> API introduced
+//! This example demonstrates the type-safe `Camera<P>` API introduced
 //! in the camera profiles feature, showcasing:
 //! - Type-safe position units (Degrees, ViscaUnits, Normalized)
 //! - Camera profile-aware methods
@@ -9,7 +9,7 @@
 //!
 //! Note: While the original PTZ builder (Client::ptz()) is no longer available
 //! in the new API, this example shows how to achieve similar functionality
-//! using the Camera<P> API with helper functions and sequential operations.
+//! using the `Camera<P>` API with helper functions and sequential operations.
 
 #[cfg(not(feature = "async-client"))]
 use grafton_visca::{
@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate absolute positioning with validation
     println!("\n3. Profile-aware absolute positioning");
 
-    // The Camera<PTZOpticsG2> knows the valid ranges for this model
+    // The `Camera<PTZOpticsG2>` knows the valid ranges for this model
     let pan_degrees = 90.0; // PTZOpticsG2 supports ±170°
     let tilt_degrees = 30.0; // PTZOpticsG2 supports -30° to +90°
 

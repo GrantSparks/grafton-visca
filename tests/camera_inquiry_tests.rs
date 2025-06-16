@@ -1,4 +1,4 @@
-//! Tests for Camera<P> inquiry methods.
+//! Tests for `Camera<P>` inquiry methods.
 
 #[cfg(test)]
 mod tests {
