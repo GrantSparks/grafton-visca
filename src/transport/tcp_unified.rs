@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use super::common::BufferManager;
-use crate::ConnectionStats;
+use crate::connection::ConnectionStats;
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::io;
