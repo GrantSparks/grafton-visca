@@ -12,10 +12,7 @@
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
-    camera::{
-        profiles::PTZOpticsG2,
-        Camera,
-    },
+    camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
     transport::{BlockingAdapter, UdpTransport},
     Error,
@@ -114,7 +111,10 @@ fn demo_basic_reconnection(camera_addr: &str) -> Result<(), Error> {
 
     // Test the connection with power inquiry
     match block_on(camera.get_power_state()) {
-        Ok(is_on) => println!("   ✓ Connection verified, power state: {}", if is_on { "ON" } else { "OFF" }),
+        Ok(is_on) => println!(
+            "   ✓ Connection verified, power state: {}",
+            if is_on { "ON" } else { "OFF" }
+        ),
         Err(e) => println!("   ✗ Health check failed: {}", e),
     }
 
@@ -231,23 +231,24 @@ fn demo_resilient_camera(camera_addr: &str) -> Result<(), Error> {
     // Get current position
     match resilient.execute(|camera| block_on(camera.get_position())) {
         Ok((pan, tilt)) => {
-            println!("   ✓ Current position: pan={:.1}°, tilt={:.1}°", pan.0, tilt.0);
+            println!(
+                "   ✓ Current position: pan={:.1}°, tilt={:.1}°",
+                pan.0, tilt.0
+            );
         }
         Err(e) => println!("   ✗ Position inquiry failed: {}", e),
     }
 
     // Movement command
-    match resilient.execute(|camera| {
-        block_on(camera.move_continuous(PanTiltDirection::Right, 5, 0))
-    }) {
+    match resilient
+        .execute(|camera| block_on(camera.move_continuous(PanTiltDirection::Right, 5, 0)))
+    {
         Ok(_) => {
             println!("   ✓ Movement started");
             thread::sleep(Duration::from_secs(1));
 
             // Stop movement
-            let _ = resilient.execute(|camera| {
-                block_on(camera.stop())
-            });
+            let _ = resilient.execute(|camera| block_on(camera.stop()));
             println!("   ✓ Movement stopped");
         }
         Err(e) => println!("   ✗ Movement command failed: {}", e),
@@ -320,7 +321,10 @@ fn demo_connection_monitoring(camera_addr: &str) -> Result<(), Error> {
         let mut camera_guard = camera.lock().unwrap();
         match block_on(camera_guard.get_zoom_position()) {
             Ok(zoom) => {
-                println!("   ✓ Operation {} succeeded: zoom position = {:.1}x", i, zoom);
+                println!(
+                    "   ✓ Operation {} succeeded: zoom position = {:.1}x",
+                    i, zoom
+                );
             }
             Err(e) => println!("   ✗ Operation {} failed: {}", i, e),
         }
