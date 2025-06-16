@@ -5,7 +5,7 @@
 //! PTZOptics G2 documentation, testing both valid (positive) and invalid
 //! (negative) cases for each command.
 
-use grafton_visca::{constants::CameraModel, Command, Error};
+use crate::{constants::CameraModel, Command, Error};
 
 /// Helper function to test that a command is valid for G2
 fn assert_valid_for_g2<C: Command>(command: &C) {
@@ -38,7 +38,7 @@ fn assert_invalid_for_g2<C: Command>(command: &C, expected_reason: &str) {
 
 mod power_commands {
     use super::*;
-    use grafton_visca::command::power::{Power, PowerCommand};
+    use crate::command::power::{Power, PowerCommand};
 
     #[test]
     fn test_power_commands() {
@@ -52,7 +52,7 @@ mod power_commands {
 
 mod zoom_commands {
     use super::*;
-    use grafton_visca::command::zoom::{ZoomCommand, ZoomSpeed};
+    use crate::command::zoom::{ZoomCommand, ZoomSpeed};
 
     #[test]
     fn test_zoom_stop() {
@@ -94,7 +94,7 @@ mod zoom_commands {
 
 mod focus_commands {
     use super::*;
-    use grafton_visca::command::focus::{
+    use crate::command::focus::{
         AutoFocusSensitivity, AutoFocusSensitivityCommand, FocusCommand, FocusNearLimitCommand,
         FocusSpeed, FocusZone, FocusZoneCommand,
     };
@@ -189,7 +189,7 @@ mod focus_commands {
 
 mod pan_tilt_commands {
     use super::*;
-    use grafton_visca::command::pan_tilt::{
+    use crate::command::pan_tilt::{
         LimitCorner, PanSpeed, PanTiltCommand, PanTiltDirection, PanTiltLimitCommand, TiltSpeed,
     };
 
@@ -372,7 +372,7 @@ mod pan_tilt_commands {
 
 mod preset_commands {
     use super::*;
-    use grafton_visca::command::preset::{PresetAction, PresetCommand, PresetNumber};
+    use crate::command::preset::{PresetAction, PresetCommand, PresetNumber};
 
     #[test]
     fn test_preset_actions() {
@@ -399,16 +399,17 @@ mod preset_commands {
 
 mod exposure_commands {
     use super::*;
-    use grafton_visca::{
+    use crate::{
         command::{
             exposure::{
-                BrightCommand, DynamicRangeCommand, ExposureCommand, ExposureCompensationCommand,
-                ExposureCompensationLevel, ExposureMode, IrisCommand, ShutterCommand,
+                BrightCommand, DynamicRangeCommand, DynamicRangeLevel, ExposureCommand,
+                ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode, IrisCommand,
+                ShutterCommand,
             },
             gain::{AntiFlickerCommand, AntiFlickerMode, GainCommand, GainLimitCommand},
             image::BacklightCommand,
         },
-        BrightnessLevel, DynamicRangeLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed,
+        types::{BrightnessLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed},
     };
 
     #[test]
@@ -540,7 +541,7 @@ mod exposure_commands {
 
 mod white_balance_commands {
     use super::*;
-    use grafton_visca::command::{
+    use crate::command::{
         color::{
             BlueGainCommand, BlueTuningCommand, ColorTemperatureCommand, OnePushTriggerCommand,
             RedGainCommand, RedTuningCommand,
@@ -616,7 +617,7 @@ mod white_balance_commands {
 
 mod image_adjustment_commands {
     use super::*;
-    use grafton_visca::{
+    use crate::{
         command::{
             color::{HueCommand, SaturationCommand},
             image::{BlackWhiteCommand, NoiseReduction2DCommand, NoiseReduction3DCommand},
@@ -624,7 +625,7 @@ mod image_adjustment_commands {
                 ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode,
             },
         },
-        ContrastLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
+        types::{ContrastLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel},
     };
 
     #[test]
@@ -710,7 +711,7 @@ mod image_adjustment_commands {
 
 mod flip_commands {
     use super::*;
-    use grafton_visca::command::flip::{Flip, ImageFlipCommand};
+    use crate::command::flip::{Flip, ImageFlipCommand};
 
     #[test]
     fn test_image_flip() {
@@ -721,7 +722,7 @@ mod flip_commands {
 
 mod inquiry_commands {
     use super::*;
-    use grafton_visca::command::inquiry::InquiryCommand;
+    use crate::command::inquiry::InquiryCommand;
 
     #[test]
     fn test_all_inquiry_commands() {
@@ -789,7 +790,7 @@ fn test_comprehensive_g2_coverage() {
 // Additional tests to verify the newly implemented validations work correctly
 mod validation_tests {
     use super::*;
-    use grafton_visca::{
+    use crate::{
         command::{
             color::{BlueTuningCommand, HueCommand, RedTuningCommand, SaturationCommand},
             exposure::{
@@ -800,7 +801,7 @@ mod validation_tests {
             gain::GainLimitCommand,
             luminance_contrast_sharpness::{ContrastCommand, LuminanceCommand},
         },
-        BrightnessLevel, ContrastLevel, GainLimit, LuminanceLevel,
+        types::{BrightnessLevel, ContrastLevel, GainLimit, LuminanceLevel},
     };
 
     #[test]
