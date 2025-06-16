@@ -56,11 +56,8 @@ async fn main() -> Result<(), Error> {
         Err(e) => println!("   - Power inquiry failed: {}", e),
     }
 
-    // Auto focus status
-    match camera.get_auto_focus_enabled().await {
-        Ok(enabled) => println!("   - Auto Focus: {}", if enabled { "ON" } else { "OFF" }),
-        Err(e) => println!("   - Auto focus inquiry failed: {}", e),
-    }
+    // Note: VISCA protocol doesn't support querying auto-focus status
+    // Applications must track this based on the last focus command sent
 
     // 2. Position Inquiries with Profile-Aware Conversion
     println!("\n2. Position Inquiries (Profile-Aware):");
@@ -118,7 +115,7 @@ async fn main() -> Result<(), Error> {
         Err(e) => println!("   - Iris inquiry failed: {}", e),
     }
 
-    match camera.get_gain_value().await {
+    match camera.get_gain().await {
         Ok(gain) => println!("   - Gain: {:?}", gain),
         Err(e) => println!("   - Gain inquiry failed: {}", e),
     }
@@ -160,28 +157,36 @@ async fn main() -> Result<(), Error> {
     match camera.get_camera_state().await {
         Ok(state) => {
             println!("   Complete camera state retrieved:");
-            println!("   - Power: {}", if state.power_on { "ON" } else { "OFF" });
+            println!("   - Power: {}", if state.power { "ON" } else { "OFF" });
             println!(
                 "   - Position: pan={:.1}°, tilt={:.1}°",
-                state.pan_degrees, state.tilt_degrees
+                state.position.pan_degrees, state.position.tilt_degrees
             );
-            println!("   - Zoom: {:.1}x", state.zoom_magnification);
-            println!("   - Focus: {} (units)", state.focus_position);
-            println!(
-                "   - Auto Focus: {}",
-                if state.auto_focus { "ON" } else { "OFF" }
-            );
-            println!("   - Exposure Mode: {:?}", state.exposure_mode);
-            if let Some(shutter) = state.shutter_speed {
+            println!("   - Zoom: {} (units)", state.optics.zoom);
+            println!("   - Focus: {} (units)", state.optics.focus);
+            println!("   - Exposure Mode: {:?}", state.exposure.mode);
+            if let Some(shutter) = state.exposure.shutter {
                 println!("   - Shutter: {:?}", shutter);
             }
-            if let Some(iris) = state.iris {
+            if let Some(iris) = state.exposure.iris {
                 println!("   - Iris: {:?}", iris);
             }
-            if let Some(gain) = state.gain {
+            if let Some(gain) = state.exposure.gain {
                 println!("   - Gain: {:?}", gain);
             }
-            println!("   - WB Mode: {:?}", state.white_balance_mode);
+            println!("   - WB Mode: {:?}", state.white_balance.mode);
+            if let Some(red_gain) = state.white_balance.red_gain {
+                println!("   - Red Gain: {}", red_gain);
+            }
+            if let Some(blue_gain) = state.white_balance.blue_gain {
+                println!("   - Blue Gain: {}", blue_gain);
+            }
+            println!("   - Image Settings:");
+            println!("     - Luminance: {}", state.image.luminance);
+            println!("     - Contrast: {}", state.image.contrast);
+            println!("     - Sharpness: {}", state.image.sharpness);
+            println!("     - Saturation: {}", state.image.saturation);
+            println!("     - Hue: {}", state.image.hue);
         }
         Err(e) => println!("   - State query failed: {}", e),
     }
@@ -208,13 +213,13 @@ async fn main() -> Result<(), Error> {
     }
 
     // Change zoom and verify
-    println!("\n   - Setting zoom to 5x...");
-    camera.set_zoom_magnification(5.0).await?;
+    println!("\n   - Setting zoom to position 16384 (mid-range)...");
+    camera.set_zoom(16384).await?;
 
     sleep(Duration::from_secs(2)).await;
 
     match camera.get_zoom_position().await {
-        Ok(zoom) => println!("   - Verified zoom: {:.1}x", zoom),
+        Ok(zoom) => println!("   - Verified zoom position: {}", zoom),
         Err(e) => println!("   - Zoom verification failed: {}", e),
     }
 

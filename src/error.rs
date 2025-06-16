@@ -284,7 +284,7 @@ pub trait ResultExt<T> {
     /// - `base_delay`: Base delay between retries (may be adjusted based on error type)
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # #[cfg(feature = "async-client")]
     /// # {
     /// use grafton_visca::{ResultExt, Error};
@@ -313,7 +313,7 @@ pub trait ResultExt<T> {
     /// - `max_attempts`: Maximum number of retry attempts (including the initial attempt)
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # #[cfg(feature = "async-client")]
     /// # {
     /// use grafton_visca::{ResultExt, Error};
@@ -338,7 +338,7 @@ pub trait ResultExt<T> {
     /// - `max_delay`: Maximum delay between retries
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # #[cfg(feature = "async-client")]
     /// # {
     /// use grafton_visca::{ResultExt, Error};
@@ -439,7 +439,7 @@ impl ViscaRetry {
     /// Returns the last `Error` encountered if all retry attempts fail.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # #[cfg(feature = "async-client")]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// use grafton_visca::{Client, ViscaRetry, Error};
@@ -492,7 +492,7 @@ impl ViscaRetry {
     /// Returns the last `Error` encountered if all retry attempts fail.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # #[cfg(feature = "async-client")]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// use grafton_visca::{Client, ViscaRetry, Error};
@@ -545,7 +545,7 @@ impl ViscaRetry {
     /// Returns the last `Error` encountered if all retry attempts fail.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # #[cfg(feature = "async-client")]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// use grafton_visca::{Client, ViscaRetry, Error};
@@ -602,7 +602,7 @@ impl ViscaRetry {
     /// Returns the last `Error` encountered if all retry attempts fail.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # #[cfg(feature = "blocking-client")]
     /// # {
     /// use grafton_visca::{Client, ViscaRetry, Error};

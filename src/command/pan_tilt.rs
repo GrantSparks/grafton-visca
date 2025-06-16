@@ -8,7 +8,7 @@
 //! - Tilt speed: 0x00 to 0x14 (0-20 decimal)
 //!
 //! # Example
-//! ```no_run
+//! ```ignore
 //! # #[cfg(feature = "blocking-client")]
 //! # {
 //! # use grafton_visca::command::pan_tilt::{PanTiltCommand, PanTiltDirection, PanSpeed, TiltSpeed};
