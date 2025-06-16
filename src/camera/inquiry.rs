@@ -21,7 +21,7 @@ use super::{
 };
 
 /// Camera state information retrieved from inquiries.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct CameraState {
     /// Power state.
     pub power: bool,
@@ -88,7 +88,7 @@ pub struct WhiteBalance {
 }
 
 /// Image quality settings.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ImageSettings {
     /// Luminance level.
     pub luminance: u8,

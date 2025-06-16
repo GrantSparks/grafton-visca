@@ -4,7 +4,7 @@
 mod tests {
     use grafton_visca::camera::{Camera, PTZOpticsG2};
     use grafton_visca::transport::{Transport, TransportFuture};
-    use grafton_visca::{Command, Error};
+    use grafton_visca::Command;
     use std::sync::{Arc, Mutex};
 
     /// Mock transport that returns pre-configured responses.
