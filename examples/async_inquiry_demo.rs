@@ -49,7 +49,7 @@ async fn main() -> Result<(), Error> {
 
     // 1. Basic Status Inquiries
     println!("1. Basic Status Inquiries:");
-    
+
     // Power status
     match camera.get_power_state().await {
         Ok(is_on) => println!("   - Power: {}", if is_on { "ON" } else { "OFF" }),
@@ -64,11 +64,14 @@ async fn main() -> Result<(), Error> {
 
     // 2. Position Inquiries with Profile-Aware Conversion
     println!("\n2. Position Inquiries (Profile-Aware):");
-    
+
     // Get position in degrees (automatic conversion)
     match camera.get_position().await {
         Ok((pan, tilt)) => {
-            println!("   - Current position: pan={:.1}°, tilt={:.1}°", pan.0, tilt.0);
+            println!(
+                "   - Current position: pan={:.1}°, tilt={:.1}°",
+                pan.0, tilt.0
+            );
         }
         Err(e) => println!("   - Position inquiry failed: {}", e),
     }
@@ -76,14 +79,17 @@ async fn main() -> Result<(), Error> {
     // Get position in raw VISCA units
     match camera.get_position_units().await {
         Ok((pan, tilt)) => {
-            println!("   - Position (VISCA units): pan={}, tilt={}", pan.0, tilt.0);
+            println!(
+                "   - Position (VISCA units): pan={}, tilt={}",
+                pan.0, tilt.0
+            );
         }
         Err(e) => println!("   - Position units inquiry failed: {}", e),
     }
 
     // 3. Zoom and Focus Inquiries
     println!("\n3. Zoom and Focus Status:");
-    
+
     match camera.get_zoom_position().await {
         Ok(zoom) => println!("   - Zoom position: {:.1}x", zoom),
         Err(e) => println!("   - Zoom inquiry failed: {}", e),
@@ -96,7 +102,7 @@ async fn main() -> Result<(), Error> {
 
     // 4. Exposure Settings
     println!("\n4. Exposure Settings:");
-    
+
     match camera.get_exposure_mode().await {
         Ok(mode) => println!("   - Exposure mode: {:?}", mode),
         Err(e) => println!("   - Exposure mode inquiry failed: {}", e),
@@ -119,7 +125,7 @@ async fn main() -> Result<(), Error> {
 
     // 5. White Balance Settings
     println!("\n5. White Balance Settings:");
-    
+
     match camera.get_white_balance_mode().await {
         Ok(mode) => println!("   - White balance mode: {:?}", mode),
         Err(e) => println!("   - WB mode inquiry failed: {}", e),
@@ -137,7 +143,7 @@ async fn main() -> Result<(), Error> {
 
     // 6. Image Processing Settings
     println!("\n6. Image Processing:");
-    
+
     match camera.get_brightness().await {
         Ok(val) => println!("   - Brightness: {}", val),
         Err(e) => println!("   - Brightness inquiry failed: {}", e),
@@ -150,16 +156,21 @@ async fn main() -> Result<(), Error> {
 
     // 7. Comprehensive State Query
     println!("\n7. Comprehensive Camera State:");
-    
+
     match camera.get_camera_state().await {
         Ok(state) => {
             println!("   Complete camera state retrieved:");
             println!("   - Power: {}", if state.power_on { "ON" } else { "OFF" });
-            println!("   - Position: pan={:.1}°, tilt={:.1}°", 
-                     state.pan_degrees, state.tilt_degrees);
+            println!(
+                "   - Position: pan={:.1}°, tilt={:.1}°",
+                state.pan_degrees, state.tilt_degrees
+            );
             println!("   - Zoom: {:.1}x", state.zoom_magnification);
             println!("   - Focus: {} (units)", state.focus_position);
-            println!("   - Auto Focus: {}", if state.auto_focus { "ON" } else { "OFF" });
+            println!(
+                "   - Auto Focus: {}",
+                if state.auto_focus { "ON" } else { "OFF" }
+            );
             println!("   - Exposure Mode: {:?}", state.exposure_mode);
             if let Some(shutter) = state.shutter_speed {
                 println!("   - Shutter: {:?}", shutter);
@@ -177,18 +188,21 @@ async fn main() -> Result<(), Error> {
 
     // 8. Demonstrating Control with Inquiry Feedback
     println!("\n8. Control with Inquiry Feedback:");
-    
+
     // Move to a specific position and verify
     println!("   - Moving to pan=45°, tilt=-15°...");
     camera.set_position(Degrees(45.0), Degrees(-15.0)).await?;
-    
+
     // Wait for movement to complete
     sleep(Duration::from_secs(3)).await;
-    
+
     // Verify the position
     match camera.get_position().await {
         Ok((pan, tilt)) => {
-            println!("   - Verified position: pan={:.1}°, tilt={:.1}°", pan.0, tilt.0);
+            println!(
+                "   - Verified position: pan={:.1}°, tilt={:.1}°",
+                pan.0, tilt.0
+            );
         }
         Err(e) => println!("   - Position verification failed: {}", e),
     }
@@ -196,9 +210,9 @@ async fn main() -> Result<(), Error> {
     // Change zoom and verify
     println!("\n   - Setting zoom to 5x...");
     camera.set_zoom_magnification(5.0).await?;
-    
+
     sleep(Duration::from_secs(2)).await;
-    
+
     match camera.get_zoom_position().await {
         Ok(zoom) => println!("   - Verified zoom: {:.1}x", zoom),
         Err(e) => println!("   - Zoom verification failed: {}", e),
