@@ -285,7 +285,6 @@ impl<P: CameraProfile> Camera<P> {
         }
     }
 
-
     // White balance inquiries
 
     /// Get the current white balance mode.
