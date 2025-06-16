@@ -36,16 +36,13 @@ fn main() -> Result<(), Error> {
 
     // We need to use tokio runtime for async methods
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async {
-        run_inquiries(&mut camera).await
-    })?;
+    runtime.block_on(async { run_inquiries(&mut camera).await })?;
 
     Ok(())
 }
 
 #[cfg(feature = "blocking-client")]
 async fn run_inquiries(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
-
     // Query individual camera settings
     println!("\n=== Individual Camera Queries ===");
 
@@ -59,11 +56,17 @@ async fn run_inquiries(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
 
     // Position in degrees
     let (pan_deg, tilt_deg) = camera.get_position().await?;
-    println!("Position (degrees): pan={:.1}°, tilt={:.1}°", pan_deg.0, tilt_deg.0);
-    
+    println!(
+        "Position (degrees): pan={:.1}°, tilt={:.1}°",
+        pan_deg.0, tilt_deg.0
+    );
+
     // Position in VISCA units
     let (pan_units, tilt_units) = camera.get_position_units().await?;
-    println!("Position (units): pan={}, tilt={}", pan_units.0, tilt_units.0);
+    println!(
+        "Position (units): pan={}, tilt={}",
+        pan_units.0, tilt_units.0
+    );
 
     // Zoom
     let zoom = camera.get_zoom_position().await?;
