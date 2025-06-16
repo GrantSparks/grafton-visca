@@ -1,4 +1,5 @@
 #![allow(missing_docs)]
+#![allow(clippy::unwrap_used)] // Tests can use unwrap
 use crate::command::*;
 use crate::types::{BrightnessLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed};
 use crate::Command;
