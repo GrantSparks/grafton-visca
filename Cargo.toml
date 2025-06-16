@@ -43,10 +43,6 @@ name = "async_concurrent"
 required-features = ["async-client"]
 
 [[example]]
-name = "async_connection_pool"
-required-features = ["async-client"]
-
-[[example]]
 name = "async_health_check"
 required-features = ["async-client"]
 
@@ -76,10 +72,6 @@ name = "configurable_timeouts"
 required-features = ["blocking-client"]
 
 [[example]]
-name = "connection_pool"
-required-features = ["blocking-client"]
-
-[[example]]
 name = "control_demo"
 required-features = ["blocking-client"]
 
@@ -97,10 +89,6 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "inquiry_demo"
-required-features = ["blocking-client"]
-
-[[example]]
-name = "transport_basic_demo"
 required-features = ["blocking-client"]
 
 [[example]]
@@ -135,10 +123,6 @@ name = "enhanced_api_demo"
 required-features = ["blocking-client"]
 
 [[example]]
-name = "transport_extension_demo"
-required-features = ["blocking-client"]
-
-[[example]]
 name = "quick_start_demo"
 required-features = ["blocking-client"]
 
@@ -148,10 +132,6 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "type_safe_api_demo"
-required-features = ["blocking-client"]
-
-[[example]]
-name = "unified_extensions_demo"
 required-features = ["blocking-client"]
 
 [[example]]

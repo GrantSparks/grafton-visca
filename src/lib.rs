@@ -182,7 +182,7 @@ mod transport_future;
 // mod api;
 // mod ext;
 // mod prelude;
-mod timeout; // Keep this - used by command system
+pub mod timeout; // Public for use in macros
 
 // #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 // mod ptz_builder;

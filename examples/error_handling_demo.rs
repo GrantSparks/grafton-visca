@@ -1,415 +1,260 @@
-//! Example program
-
-//! # Phase E: Enhanced Error Handling Demo
+//! Error handling demonstration using the Camera API
 //!
-//! This example demonstrates the enhanced error handling capabilities implemented in Phase E,
-//! including the `ResultExt` trait and `ViscaRetry` utility for robust camera communication.
+//! This example demonstrates error handling patterns with the Camera API,
+//! including retry logic and error classification.
 
-use grafton_visca::Error;
-use std::time::Duration;
-
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use grafton_visca::ViscaRetry;
-
-#[cfg(feature = "blocking-client")]
 use grafton_visca::{
-    camera::{Camera, PTZOpticsG2},
+    camera::{profiles::PTZOpticsG2, Camera},
+    command::pan_tilt::PanTiltDirection,
     transport::{BlockingAdapter, UdpTransport},
-    ResultExt,
+    Error,
 };
+use std::time::{Duration, Instant};
 
-#[cfg(feature = "async-client")]
-use grafton_visca::{
-    camera::{Camera as AsyncCamera, PTZOpticsG2 as AsyncPTZOpticsG2},
-    transport::AsyncUdpTransport,
-};
-
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use log::{info, warn};
+// Use a minimal tokio runtime for blocking execution
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(fut)
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    println!("🚀 Phase E: Enhanced Error Handling Demo");
-    println!("==========================================");
+    println!("=== VISCA Error Handling Demo ===\n");
+    println!("This example demonstrates:");
+    println!("- Error handling patterns with the Camera API");
+    println!("- Implementing retry logic");
+    println!("- Classifying different error types\n");
 
-    // Demonstrate blocking error handling if feature is enabled
-    #[cfg(feature = "blocking-client")]
-    {
-        println!("\n📋 Blocking Error Handling Examples:");
-        blocking_error_handling_examples();
-    }
+    // Get camera address
+    let camera_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-    // Demonstrate async error handling if feature is enabled
-    #[cfg(feature = "async-client")]
-    {
-        println!("\n⚡ Async Error Handling Examples:");
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async_error_handling_examples())?;
-    }
-
-    // Show message when no features are enabled
-    #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
-    {
-        println!("\n⚠️  No client features enabled");
-        println!("💡 Enable with one of:");
-        println!("   cargo run --example phase_e_error_handling --features blocking-client");
-        println!("   cargo run --example phase_e_error_handling --features async-client");
-    }
-
-    // Demonstrate error classification (no features required)
+    // Demonstrate error classification first (no camera needed)
     demonstrate_error_classification();
 
-    println!("\n✅ Phase E error handling demonstration completed successfully!");
+    // Try to connect and demonstrate error handling
+    println!("\n2. Camera Connection and Error Handling:");
+    match demonstrate_camera_errors(&camera_addr) {
+        Ok(_) => println!("   ✓ Camera demonstration completed"),
+        Err(e) => println!("   ✗ Camera demonstration failed: {}", e),
+    }
+
+    println!("\n✅ Error handling demonstration completed!");
     Ok(())
 }
 
-#[cfg(feature = "blocking-client")]
-fn block_on<T>(fut: impl std::future::Future<Output = T>) -> T {
-    use std::task::Poll;
-
-    struct NoopWaker;
-
-    impl std::task::Wake for NoopWaker {
-        fn wake(self: std::sync::Arc<Self>) {}
-    }
-
-    let mut fut = Box::pin(fut);
-    let waker = std::sync::Arc::new(NoopWaker).into();
-    let mut cx = std::task::Context::from_waker(&waker);
-
-    loop {
-        match fut.as_mut().poll(&mut cx) {
-            Poll::Ready(val) => return val,
-            Poll::Pending => continue,
-        }
-    }
-}
-
-#[cfg(feature = "blocking-client")]
-fn blocking_error_handling_examples() {
-    use std::cell::Cell;
-
-    println!("1. Basic Error Context with ResultExt");
-    println!("   Using with_retry_context() to add logging to retryable errors");
-
-    // Simulate a result that would benefit from retry context
-    let simulated_busy_error: Result<(), Error> = Err(Error::CameraBusy);
-    match simulated_busy_error.with_retry_context() {
-        Ok(()) => println!("   ✅ Operation succeeded"),
-        Err(err) => {
-            println!("   ⚠️  Retryable error detected: {err}");
-            if err.is_retryable() {
-                println!("   💡 Suggestion: Use ViscaRetry utilities for automatic retry");
-                if let Some(delay) = err.suggested_retry_delay() {
-                    println!("   ⏱️  Suggested retry delay: {delay:?}");
-                }
-            }
-        }
-    }
-
-    println!("\n2. ViscaRetry::retry_blocking Examples");
-
-    // Example 1: Retry with custom parameters
-    println!("   a) Retry with custom base delay:");
-    let attempt_count = Cell::new(0);
-    let result = ViscaRetry::retry_blocking(
-        || {
-            // Simulate an operation that fails twice then succeeds
-            let count = attempt_count.get() + 1;
-            attempt_count.set(count);
-            if count < 3 {
-                println!("      Attempt {count}: Simulating CameraBusy error");
-                Err(Error::CameraBusy)
-            } else {
-                println!("      Attempt {count}: Success!");
-                Ok("Operation completed")
-            }
-        },
-        3,                         // max attempts
-        Duration::from_millis(50), // base delay
-    );
-
-    match result {
-        Ok(value) => println!("   ✅ Retry succeeded: {value}"),
-        Err(err) => println!("   ❌ Retry failed: {err}"),
-    }
-
-    // Reset counter for next example
-    println!("\n   b) Non-retryable error (fails immediately):");
-    let attempt_count2 = Cell::new(0);
-    let result: Result<&str, Error> = ViscaRetry::retry_blocking(
-        || {
-            let count = attempt_count2.get() + 1;
-            attempt_count2.set(count);
-            println!("      Attempt {count}: Simulating SyntaxError");
-            Err(Error::SyntaxError)
-        },
-        3,
-        Duration::from_millis(50),
-    );
-
-    match result {
-        Ok(_) => println!("   ✅ Unexpected success"),
-        Err(err) => {
-            println!("   ❌ Failed as expected: {err}");
-            println!("   💡 SyntaxError is not retryable, so only 1 attempt was made");
-        }
-    }
-
-    println!("\n3. Real Camera Operation Examples (if connected)");
-
-    // Try to connect to a camera
-    match UdpTransport::new("127.0.0.1:1259") {
-        Ok(transport) => {
-            let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
-            info!("   📹 Connected to camera, testing real operations");
-
-            // Try actual camera operations with retry
-            let pan_tilt_result = ViscaRetry::retry_blocking(
-                || block_on(camera.home()),
-                3,
-                Duration::from_millis(100),
-            );
-
-            match pan_tilt_result {
-                Ok(_) => {
-                    info!("   ✅ Pan/Tilt Home command succeeded");
-
-                    // Try zoom operation with different retry strategy
-                    let zoom_result = ViscaRetry::retry_blocking(
-                        || block_on(camera.zoom_in()),
-                        5,
-                        Duration::from_millis(200),
-                    );
-
-                    match zoom_result {
-                        Ok(_) => info!("   ✅ Zoom command succeeded"),
-                        Err(err) => warn!("   ⚠️  Zoom command failed: {err}"),
-                    }
-                }
-                Err(err) => {
-                    warn!("   ⚠️  Pan/Tilt command failed: {err}");
-                }
-            }
-        }
-        Err(err) => {
-            warn!("   ⚠️  Could not connect to camera: {err}");
-            println!("   💡 This is expected if no camera is connected");
-            println!("   💡 To test with a real camera, see the control_demo example");
-        }
-    }
-}
-
-#[cfg(feature = "async-client")]
-async fn demonstrate_async_retry() -> Result<(), Box<dyn std::error::Error>> {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
-
-    println!("1. Async Retry with ViscaRetry::retry_async");
-
-    let async_attempt_count = Arc::new(AtomicU32::new(0));
-    let async_attempt_count_clone = async_attempt_count.clone();
-
-    let result = ViscaRetry::retry_async(
-        move || {
-            let count = async_attempt_count_clone.clone();
-            async move {
-                let current = count.fetch_add(1, Ordering::SeqCst) + 1;
-                if current < 3 {
-                    println!("   Async attempt {current}: Simulating timeout");
-                    Err(Error::Timeout)
-                } else {
-                    println!("   Async attempt {current}: Success!");
-                    Ok("Async operation completed")
-                }
-            }
-        },
-        4,                          // max attempts
-        Duration::from_millis(100), // base delay
-    )
-    .await;
-
-    match result {
-        Ok(value) => println!("   ✅ Async retry succeeded: {value}"),
-        Err(err) => println!("   ❌ Async retry failed: {err}"),
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "async-client")]
-async fn demonstrate_async_suggested_delays() -> Result<(), Box<dyn std::error::Error>> {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
-
-    println!("\n2. Retry with Suggested Delays");
-
-    let suggested_attempt_count = Arc::new(AtomicU32::new(0));
-    let suggested_attempt_count_clone = suggested_attempt_count.clone();
-
-    let result = ViscaRetry::retry_with_suggested_delay_async(
-        move || {
-            let count = suggested_attempt_count_clone.clone();
-            async move {
-                let current = count.fetch_add(1, Ordering::SeqCst) + 1;
-                match current {
-                    1 => {
-                        println!("   Attempt 1: CameraBusy (suggested delay: 100ms)");
-                        Err(Error::CameraBusy)
-                    }
-                    2 => {
-                        println!("   Attempt 2: CameraMoving (suggested delay: 500ms)");
-                        Err(Error::CameraMoving { pan: 100, tilt: 50 })
-                    }
-                    3 => {
-                        println!("   Attempt 3: CommandTimeout (suggested delay: 1s)");
-                        Err(Error::CommandTimeout {
-                            duration: Duration::from_secs(5),
-                            command: "test".to_string(),
-                        })
-                    }
-                    _ => {
-                        println!("   Attempt 4: Success!");
-                        Ok("Operation completed with suggested delays")
-                    }
-                }
-            }
-        },
-        5,
-    )
-    .await;
-
-    match result {
-        Ok(value) => println!("   ✅ Suggested delay retry succeeded: {value}"),
-        Err(err) => println!("   ❌ Suggested delay retry failed: {err}"),
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "async-client")]
-async fn demonstrate_async_exponential_backoff() -> Result<(), Box<dyn std::error::Error>> {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
-
-    println!("\n3. Exponential Backoff Example");
-
-    let backoff_attempt_count = Arc::new(AtomicU32::new(0));
-    let backoff_attempt_count_clone = backoff_attempt_count.clone();
-
-    let result = ViscaRetry::retry_with_exponential_backoff_async(
-        move || {
-            let count = backoff_attempt_count_clone.clone();
-            async move {
-                let current = count.fetch_add(1, Ordering::SeqCst) + 1;
-                if current < 4 {
-                    println!("   Attempt {current}: CommandBufferFull");
-                    Err(Error::CommandBufferFull)
-                } else {
-                    println!("   Attempt {current}: Success!");
-                    Ok("Exponential backoff completed")
-                }
-            }
-        },
-        5,                          // max attempts
-        Duration::from_millis(25),  // initial delay: 25ms
-        Duration::from_millis(400), // max delay: 400ms
-    )
-    .await;
-    // Delays will be: 25ms, 50ms, 100ms, 200ms, 400ms...
-
-    match result {
-        Ok(value) => println!("   ✅ Exponential backoff succeeded: {value}"),
-        Err(err) => println!("   ❌ Exponential backoff failed: {err}"),
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "async-client")]
-async fn demonstrate_real_async_operations() -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n4. Real Async Camera Operations (if connected)");
-
-    // Try to connect to a camera for real async operations
-    let transport_result = match AsyncUdpTransport::new("127.0.0.1:1259").await {
-        Ok(transport) => Ok(transport),
-        Err(_) => AsyncUdpTransport::new("192.168.1.100:5678").await,
-    };
-
-    match transport_result {
-        Ok(transport) => {
-            let mut camera = AsyncCamera::<AsyncPTZOpticsG2>::new(transport);
-            info!("   📹 Connected to camera, testing real operations");
-
-            // Test direct operations (retry would require Arc<Mutex<Camera>> for async)
-            match camera.home().await {
-                Ok(_) => info!("   ✅ Async pan/tilt home succeeded"),
-                Err(err) => {
-                    warn!("   ⚠️  Async pan/tilt home failed: {err}");
-                    if err.is_retryable() {
-                        info!("   💡 This error is retryable with ViscaRetry utilities");
-                    }
-                }
-            }
-
-            match camera.zoom_in().await {
-                Ok(_) => info!("   ✅ Async zoom operation succeeded"),
-                Err(err) => {
-                    warn!("   ⚠️  Async zoom operation failed: {err}");
-                    if err.is_retryable() {
-                        info!("   💡 This error is retryable with ViscaRetry utilities");
-                    }
-                }
-            }
-
-            info!("   💡 Note: For retry with async camera operations, wrap the camera in Arc<Mutex<T>>");
-        }
-        Err(err) => {
-            warn!("   ⚠️  Could not connect to camera: {err}");
-            println!("   💡 This is expected if no camera is available");
-        }
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "async-client")]
-async fn async_error_handling_examples() -> Result<(), Box<dyn std::error::Error>> {
-    demonstrate_async_retry().await?;
-    demonstrate_async_suggested_delays().await?;
-    demonstrate_async_exponential_backoff().await?;
-    demonstrate_real_async_operations().await?;
-    Ok(())
-}
-
-/// Demonstrate error classification and retry decisions
 fn demonstrate_error_classification() {
-    println!("\n📊 Error Classification Examples:");
+    println!("1. Error Types and Classification:");
+    println!("   Different errors require different handling strategies\n");
 
+    // Create example errors to demonstrate
     let errors = vec![
-        Error::CameraBusy,
-        Error::CameraMoving { pan: 100, tilt: 50 },
-        Error::CommandTimeout {
-            duration: Duration::from_secs(5),
-            command: "test".to_string(),
-        },
-        Error::CommandBufferFull,
-        Error::Timeout,
-        Error::SyntaxError,
-        Error::CommandNotExecutable,
-        Error::PresetNotFound { id: 5 },
-        Error::FeatureNotSupported {
-            feature: "advanced_zoom".to_string(),
-        },
+        ("CameraBusy", Error::CameraBusy),
+        ("CameraMoving", Error::CameraMoving { pan: 100, tilt: 50 }),
+        (
+            "CommandTimeout",
+            Error::CommandTimeout {
+                duration: Duration::from_secs(5),
+                command: "zoom".to_string(),
+            },
+        ),
+        ("CommandBufferFull", Error::CommandBufferFull),
+        ("Timeout", Error::Timeout),
+        ("SyntaxError", Error::SyntaxError),
+        ("CommandNotExecutable", Error::CommandNotExecutable),
+        ("PresetNotFound", Error::PresetNotFound { id: 5 }),
+        (
+            "FeatureNotSupported",
+            Error::FeatureNotSupported {
+                feature: "advanced_zoom".to_string(),
+            },
+        ),
     ];
 
-    for error in errors {
-        println!("   Error: {error}");
-        println!("     Retryable: {}", error.is_retryable());
-        if let Some(delay) = error.suggested_retry_delay() {
-            println!("     Suggested delay: {delay:?}");
+    for (name, error) in errors {
+        println!("   {}: {}", name, error);
+        
+        // Check if error is transient (might succeed on retry)
+        let is_transient = matches!(
+            error,
+            Error::CameraBusy
+                | Error::CameraMoving { .. }
+                | Error::CommandTimeout { .. }
+                | Error::CommandBufferFull
+                | Error::Timeout
+        );
+        
+        println!("     Transient (retryable): {}", is_transient);
+        
+        // Suggest retry delay based on error type
+        let suggested_delay = match error {
+            Error::CameraBusy => Some(Duration::from_millis(100)),
+            Error::CameraMoving { .. } => Some(Duration::from_millis(500)),
+            Error::CommandTimeout { .. } => Some(Duration::from_secs(1)),
+            Error::CommandBufferFull => Some(Duration::from_millis(50)),
+            Error::Timeout => Some(Duration::from_millis(200)),
+            _ => None,
+        };
+        
+        if let Some(delay) = suggested_delay {
+            println!("     Suggested retry delay: {:?}", delay);
         }
         println!();
     }
+}
+
+fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
+    println!("   Attempting to connect to camera at {}...", camera_addr);
+    
+    // Try to create transport
+    let transport = match UdpTransport::new(camera_addr) {
+        Ok(t) => {
+            println!("   ✓ Transport created successfully");
+            t
+        }
+        Err(e) => {
+            println!("   ✗ Failed to create transport: {}", e);
+            println!("   💡 This is expected if the address is invalid");
+            return Err(Error::Io(e));
+        }
+    };
+
+    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    
+    // Demonstrate retry pattern
+    println!("\n3. Retry Pattern Implementation:");
+    println!("   Implementing exponential backoff for camera operations\n");
+    
+    // Example: Retry power on with exponential backoff
+    let max_attempts = 3;
+    let mut attempt = 0;
+    let mut backoff = Duration::from_millis(100);
+    
+    let result = loop {
+        attempt += 1;
+        println!("   Attempt {}/{}: Power on", attempt, max_attempts);
+        
+        let start = Instant::now();
+        match block_on(camera.power_on()) {
+            Ok(_) => {
+                let elapsed = start.elapsed();
+                println!("   ✓ Power on succeeded in {:?}", elapsed);
+                break Ok(());
+            }
+            Err(e) => {
+                let elapsed = start.elapsed();
+                println!("   ✗ Power on failed after {:?}: {}", elapsed, e);
+                
+                // Check if error is retryable
+                let is_retryable = matches!(
+                    e,
+                    Error::CameraBusy
+                        | Error::CommandTimeout { .. }
+                        | Error::CommandBufferFull
+                        | Error::Timeout
+                );
+                
+                if !is_retryable {
+                    println!("   💡 Error is not retryable, giving up");
+                    break Err(e);
+                }
+                
+                if attempt >= max_attempts {
+                    println!("   💡 Max attempts reached");
+                    break Err(e);
+                }
+                
+                println!("   ⏱️  Waiting {:?} before retry...", backoff);
+                std::thread::sleep(backoff);
+                backoff *= 2; // Exponential backoff
+            }
+        }
+    };
+    
+    if result.is_err() {
+        println!("\n   💡 Camera may not be connected or powered off");
+        println!("   💡 The retry pattern still demonstrates proper error handling");
+        return Ok(()); // Don't fail the demo
+    }
+    
+    // Wait for camera initialization
+    std::thread::sleep(Duration::from_secs(2));
+    
+    // Demonstrate handling specific errors
+    println!("\n4. Handling Specific Error Scenarios:");
+    
+    // Scenario 1: Camera busy during movement
+    println!("\n   a) Handling CameraBusy during movement:");
+    
+    // Start a movement
+    match block_on(camera.move_continuous(PanTiltDirection::Right, 10, 0)) {
+        Ok(_) => {
+            println!("   ✓ Started movement");
+            
+            // Try another command immediately (might get CameraBusy)
+            match block_on(camera.zoom_in()) {
+                Ok(_) => println!("   ✓ Zoom command accepted"),
+                Err(Error::CameraBusy) => {
+                    println!("   ⚠️  Camera busy (expected during movement)");
+                    println!("   💡 Wait for movement to complete or stop it first");
+                    
+                    // Stop movement
+                    std::thread::sleep(Duration::from_millis(500));
+                    block_on(camera.stop())?;
+                    
+                    // Retry zoom
+                    match block_on(camera.zoom_in()) {
+                        Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
+                        Err(e) => println!("   ✗ Zoom still failed: {}", e),
+                    }
+                }
+                Err(e) => println!("   ✗ Unexpected error: {}", e),
+            }
+        }
+        Err(e) => println!("   ✗ Failed to start movement: {}", e),
+    }
+    
+    // Scenario 2: Invalid preset
+    println!("\n   b) Handling invalid preset:");
+    
+    use grafton_visca::camera::profiles::G2PresetId;
+    
+    // Try to recall a preset that might not exist
+    match G2PresetId::new(99) {
+        Ok(preset_id) => {
+            match block_on(camera.recall_preset(preset_id)) {
+                Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
+                Err(Error::PresetNotFound { id }) => {
+                    println!("   ⚠️  Preset {} not found (expected)", id);
+                    println!("   💡 Save preset first or use a different ID");
+                }
+                Err(e) => println!("   ✗ Unexpected error: {}", e),
+            }
+        }
+        Err(_) => {
+            println!("   ⚠️  Preset ID 99 is out of range for this camera");
+            println!("   💡 PTZOptics G2 supports presets 0-99");
+        }
+    }
+    
+    // Scenario 3: Feature not supported
+    println!("\n   c) Handling unsupported features:");
+    println!("   💡 Some cameras don't support all VISCA features");
+    println!("   💡 Use capability queries to check support");
+    
+    // Get camera capabilities (profile-based, not from camera)
+    let caps = camera.capabilities();
+    println!("   ✓ Camera capabilities (from profile):");
+    println!("     Model: {}", caps.model_name);
+    println!("     Pan range: {:?} degrees", caps.pan_range_degrees);
+    println!("     Tilt range: {:?} degrees", caps.tilt_range_degrees);
+    println!("     Preset count: {}", caps.preset_count);
+    println!("   💡 These are based on the camera profile, not runtime queries");
+    
+    Ok(())
 }
