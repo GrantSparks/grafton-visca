@@ -178,10 +178,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
             }
             Err(e) => {
                 let elapsed = start.elapsed();
-                println!(
-                    "   ✗ Attempt {} failed after {:?}: {}",
-                    attempt, elapsed, e
-                );
+                println!("   ✗ Attempt {} failed after {:?}: {}", attempt, elapsed, e);
 
                 if attempt >= max_attempts {
                     println!("   Max attempts reached, giving up");
@@ -203,3 +200,4 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     Ok(())
 }
+
