@@ -14,10 +14,7 @@ use common::builders::*;
 use common::helpers::*;
 
 // Import needed types
-use grafton_visca::{
-    profiles::GenericVisca,
-    Command, Error, Response,
-};
+use grafton_visca::{profiles::GenericVisca, Command, Error, Response};
 
 #[cfg(feature = "blocking-client")]
 #[test]

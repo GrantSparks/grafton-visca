@@ -42,8 +42,8 @@ impl TestPanTiltBuilder {
 
     /// Set the pan speed.
     pub fn with_pan_speed(mut self, speed: u8) -> Self {
-        self.pan_speed = PanSpeed::new(speed)
-            .unwrap_or_else(|_| panic!("Pan speed {} should be valid", speed));
+        self.pan_speed =
+            PanSpeed::new(speed).unwrap_or_else(|_| panic!("Pan speed {} should be valid", speed));
         self
     }
 
