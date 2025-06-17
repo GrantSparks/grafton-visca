@@ -13,7 +13,7 @@ use tokio::sync::Mutex as AsyncMutex;
 #[cfg(not(feature = "tokio"))]
 use std::sync::Mutex;
 
-use crate::{transport::Transport, Command, Error as ViscaError, types::SocketId};
+use crate::{transport::Transport, types::SocketId, Command, Error as ViscaError};
 
 /// Configuration for resilient transport behavior.
 #[derive(Debug, Clone)]
@@ -269,6 +269,7 @@ impl<T: Transport + Clone + Send + Sync + 'static> Transport for ResilientTransp
             #[cfg(not(feature = "tokio"))]
             {
                 let _ = command; // Silence unused warning
+                let _ = socket_id; // Silence unused warning
                 return Err(ViscaError::InvalidState(
                     "Async transport requires tokio feature".to_string(),
                 ));

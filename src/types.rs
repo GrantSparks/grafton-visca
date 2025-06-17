@@ -672,7 +672,7 @@ mod tests {
 }
 
 /// User-friendly speed level abstraction for camera movements.
-/// 
+///
 /// This enum provides intuitive speed names that map to appropriate
 /// numeric values for different camera operations (pan, tilt, zoom, focus).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -863,7 +863,9 @@ impl NoiseReductionStrength {
     /// Convert to 2D noise reduction level (1-5).
     pub fn to_2d_level(self) -> Result<u8, Error> {
         match self {
-            Self::Off => Err(Error::InvalidParameter("2D noise reduction cannot be turned off, use level 1 for minimal".to_string())),
+            Self::Off => Err(Error::InvalidParameter(
+                "2D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
+            )),
             Self::Minimal => Ok(1),
             Self::Light => Ok(2),
             Self::Medium => Ok(3),
@@ -875,7 +877,9 @@ impl NoiseReductionStrength {
     /// Convert to 3D noise reduction level (1-8).
     pub fn to_3d_level(self) -> Result<u8, Error> {
         match self {
-            Self::Off => Err(Error::InvalidParameter("3D noise reduction cannot be turned off, use level 1 for minimal".to_string())),
+            Self::Off => Err(Error::InvalidParameter(
+                "3D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
+            )),
             Self::Minimal => Ok(1),
             Self::Light => Ok(2),
             Self::Medium => Ok(4),
@@ -893,13 +897,13 @@ mod speed_tests {
     fn test_speed_level_conversions() {
         assert_eq!(SpeedLevel::Slowest.to_pan_speed(), 1);
         assert_eq!(SpeedLevel::Fastest.to_pan_speed(), 24);
-        
+
         assert_eq!(SpeedLevel::Slowest.to_tilt_speed(), 1);
         assert_eq!(SpeedLevel::Fastest.to_tilt_speed(), 20);
-        
+
         assert_eq!(SpeedLevel::Slowest.to_zoom_speed(), 0);
         assert_eq!(SpeedLevel::Fastest.to_zoom_speed(), 7);
-        
+
         assert_eq!(SpeedLevel::Slowest.to_focus_speed(), 0);
         assert_eq!(SpeedLevel::Fastest.to_focus_speed(), 7);
     }
@@ -908,7 +912,7 @@ mod speed_tests {
     fn test_fstop_conversions() {
         assert_eq!(FStop::Closed.to_iris_level(), 0x00);
         assert_eq!(FStop::F1_8.to_iris_level(), 0x0C);
-        
+
         assert_eq!(FStop::from_iris_level(0x00), Some(FStop::Closed));
         assert_eq!(FStop::from_iris_level(0x0C), Some(FStop::F1_8));
         assert_eq!(FStop::from_iris_level(0xFF), None);
@@ -919,7 +923,7 @@ mod speed_tests {
         assert!(NoiseReductionStrength::Off.to_2d_level().is_err());
         assert_eq!(NoiseReductionStrength::Minimal.to_2d_level().unwrap(), 1);
         assert_eq!(NoiseReductionStrength::Maximum.to_2d_level().unwrap(), 5);
-        
+
         assert!(NoiseReductionStrength::Off.to_3d_level().is_err());
         assert_eq!(NoiseReductionStrength::Minimal.to_3d_level().unwrap(), 1);
         assert_eq!(NoiseReductionStrength::Maximum.to_3d_level().unwrap(), 8);

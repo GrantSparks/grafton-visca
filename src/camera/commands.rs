@@ -1,5 +1,6 @@
 //! Type-safe command methods for Camera.
 
+#[cfg(feature = "async-client")]
 use crate::{
     command::{
         color::{
@@ -34,11 +35,13 @@ use crate::{
     },
 };
 
+#[cfg(feature = "async-client")]
 use super::{
     units::{Degrees, Normalized, ViscaUnits},
     Camera, CameraProfile,
 };
 
+#[cfg(feature = "async-client")]
 impl<P: CameraProfile> Camera<P> {
     /// Power on the camera.
     pub async fn power_on(&mut self) -> Result<(), Error> {

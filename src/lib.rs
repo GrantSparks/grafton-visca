@@ -179,9 +179,14 @@ pub mod types;
 // Multi-camera support
 pub mod camera_pool;
 
-// Keep these private unless specifically needed
+// Reconnecting transport for automatic connection recovery
 #[cfg(feature = "async-client")]
-mod reconnecting_transport;
+pub mod reconnecting_transport;
+#[cfg(feature = "async-client")]
+pub use connection::ConnectionStats;
+#[cfg(feature = "async-client")]
+pub use reconnecting_transport::{ConnectionEvent, ReconnectingTransport, ReconnectionConfig};
+
 #[cfg(feature = "async-client")]
 mod transport_future;
 

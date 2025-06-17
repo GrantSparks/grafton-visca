@@ -155,11 +155,13 @@ mod tests {
         let mut adapter = BlockingAdapter(MockBlockingTransport);
         let cmd = DummyCommand;
 
-        adapter.send_command(&cmd).await?;
+        adapter
+            .send_command(&cmd, crate::types::SocketId::SOCKET_0)
+            .await?;
 
-        let responses = adapter.receive_response().await?;
-        assert_eq!(responses.len(), 1);
-        assert_eq!(responses[0], vec![0x90, 0x50, 0xFF]);
+        let (socket_id, response) = adapter.receive_response().await?;
+        assert_eq!(socket_id, crate::types::SocketId::SOCKET_0);
+        assert_eq!(response, vec![0x90, 0x50, 0xFF]);
         Ok(())
     }
 }

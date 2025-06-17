@@ -30,7 +30,10 @@ async fn test_async_send_receive_basic() {
     transport.add_response(vec![0x90, 0x50, 0xFF]).await;
 
     let command = PowerCommand { power: Power::On };
-    transport.send_command(&command).await.unwrap();
+    transport
+        .send_command(&command, grafton_visca::types::SocketId::SOCKET_0)
+        .await
+        .unwrap();
 
     let sent = transport.sent_commands.lock().await;
     assert_eq!(sent.len(), 1);
@@ -38,9 +41,8 @@ async fn test_async_send_receive_basic() {
 
     drop(sent); // Release lock
 
-    let responses = transport.receive_response().await.unwrap();
-    assert_eq!(responses.len(), 1);
-    assert_eq!(responses[0], vec![0x90, 0x50, 0xFF]);
+    let (_socket_id, response) = transport.receive_response().await.unwrap();
+    assert_eq!(response, vec![0x90, 0x50, 0xFF]);
 }
 
 #[tokio::test]
@@ -61,19 +63,28 @@ async fn test_concurrent_commands() {
     let t1 = transport.clone();
     let task1 = tokio::spawn(async move {
         let mut t = t1.lock().await;
-        t.send_command(&PanTiltCommand::Home).await
+        t.send_command(
+            &PanTiltCommand::Home,
+            grafton_visca::types::SocketId::SOCKET_0,
+        )
+        .await
     });
 
     let t2 = transport.clone();
     let task2 = tokio::spawn(async move {
         let mut t = t2.lock().await;
-        t.send_command(&ZoomCommand::Stop).await
+        t.send_command(&ZoomCommand::Stop, grafton_visca::types::SocketId::SOCKET_0)
+            .await
     });
 
     let t3 = transport.clone();
     let task3 = tokio::spawn(async move {
         let mut t = t3.lock().await;
-        t.send_command(&PowerCommand { power: Power::On }).await
+        t.send_command(
+            &PowerCommand { power: Power::On },
+            grafton_visca::types::SocketId::SOCKET_0,
+        )
+        .await
     });
 
     // All should complete successfully
@@ -107,7 +118,10 @@ async fn test_semaphore_limiting() {
             let mut transport = t.lock().await;
             transport.add_response(vec![0x90, 0x50, 0xFF]).await;
             transport
-                .send_command(&PowerCommand { power: Power::On })
+                .send_command(
+                    &PowerCommand { power: Power::On },
+                    grafton_visca::types::SocketId::SOCKET_0,
+                )
                 .await
                 .unwrap();
             drop(transport);
@@ -162,13 +176,24 @@ async fn test_error_propagation() {
 
     // First two commands should succeed
     transport
-        .send_command(&PowerCommand { power: Power::On })
+        .send_command(
+            &PowerCommand { power: Power::On },
+            grafton_visca::types::SocketId::SOCKET_0,
+        )
         .await
         .unwrap();
-    transport.send_command(&ZoomCommand::Stop).await.unwrap();
+    transport
+        .send_command(&ZoomCommand::Stop, grafton_visca::types::SocketId::SOCKET_0)
+        .await
+        .unwrap();
 
     // Third command should fail
-    let result = transport.send_command(&PanTiltCommand::Home).await;
+    let result = transport
+        .send_command(
+            &PanTiltCommand::Home,
+            grafton_visca::types::SocketId::SOCKET_0,
+        )
+        .await;
     assert!(result.is_err());
 
     match result.unwrap_err() {
@@ -194,13 +219,15 @@ async fn test_inquiry_async_handling() {
         .await;
 
     transport
-        .send_command(&InquiryCommand::PanTiltPosition)
+        .send_command(
+            &InquiryCommand::PanTiltPosition,
+            grafton_visca::types::SocketId::SOCKET_0,
+        )
         .await
         .unwrap();
 
-    let responses = transport.receive_response().await.unwrap();
-    assert_eq!(responses.len(), 1);
-    assert_eq!(responses[0].len(), 11); // Full inquiry response
+    let (_socket_id, response) = transport.receive_response().await.unwrap();
+    assert_eq!(response.len(), 11); // Full inquiry response
 }
 
 #[tokio::test]
@@ -253,18 +280,30 @@ async fn test_async_command_sequence() {
     transport.add_ack_completion(1).await; // Zoom
 
     // Execute command sequence
-    transport.send_command(&PanTiltCommand::Home).await.unwrap();
+    transport
+        .send_command(
+            &PanTiltCommand::Home,
+            grafton_visca::types::SocketId::SOCKET_0,
+        )
+        .await
+        .unwrap();
     let _ = transport.receive_response().await.unwrap(); // ACK
     let _ = transport.receive_response().await.unwrap(); // Completion
 
     transport
-        .send_command(&InquiryCommand::PanTiltPosition)
+        .send_command(
+            &InquiryCommand::PanTiltPosition,
+            grafton_visca::types::SocketId::SOCKET_0,
+        )
         .await
         .unwrap();
-    let pos_response = transport.receive_response().await.unwrap();
-    assert_eq!(pos_response[0].len(), 11); // Valid position response
+    let (_socket_id, pos_response) = transport.receive_response().await.unwrap();
+    assert_eq!(pos_response.len(), 11); // Valid position response
 
-    transport.send_command(&ZoomCommand::Stop).await.unwrap();
+    transport
+        .send_command(&ZoomCommand::Stop, grafton_visca::types::SocketId::SOCKET_0)
+        .await
+        .unwrap();
     let _ = transport.receive_response().await.unwrap(); // ACK
     let _ = transport.receive_response().await.unwrap(); // Completion
 
@@ -281,10 +320,13 @@ async fn test_mock_transport_utilities() {
 
     // Send a command and verify we get the error
     let command = PowerCommand { power: Power::On };
-    transport.send_command(&command).await.unwrap();
+    transport
+        .send_command(&command, grafton_visca::types::SocketId::SOCKET_0)
+        .await
+        .unwrap();
 
-    let responses = transport.receive_response().await.unwrap();
-    assert_eq!(responses[0], vec![0x90, 0x60, 0x02, 0xFF]);
+    let (_socket_id, response) = transport.receive_response().await.unwrap();
+    assert_eq!(response, vec![0x90, 0x60, 0x02, 0xFF]);
 
     // Verify command count
     assert_eq!(transport.command_count().await, 1);
@@ -299,13 +341,16 @@ async fn test_mock_transport_ack_completion_helper() {
     transport.add_ack_completion(0).await;
 
     let command = ZoomCommand::Stop;
-    transport.send_command(&command).await.unwrap();
+    transport
+        .send_command(&command, grafton_visca::types::SocketId::SOCKET_0)
+        .await
+        .unwrap();
 
     // Should get ACK
-    let ack = transport.receive_response().await.unwrap();
-    assert_eq!(ack[0], vec![0x90, 0x40, 0xFF]);
+    let (_socket_id, ack) = transport.receive_response().await.unwrap();
+    assert_eq!(ack, vec![0x90, 0x40, 0xFF]);
 
     // Should get completion
-    let completion = transport.receive_response().await.unwrap();
-    assert_eq!(completion[0], vec![0x90, 0x50, 0xFF]);
+    let (_socket_id, completion) = transport.receive_response().await.unwrap();
+    assert_eq!(completion, vec![0x90, 0x50, 0xFF]);
 }

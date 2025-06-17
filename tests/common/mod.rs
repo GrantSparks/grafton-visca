@@ -425,7 +425,11 @@ mod async_mock {
     }
 
     impl AsyncTransport for MockAsyncTransport {
-        fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
+        fn send_command<'a>(
+            &'a mut self,
+            command: &'a dyn Command,
+            _socket_id: grafton_visca::types::SocketId,
+        ) -> TransportFuture<'a, ()> {
             Box::pin(async move {
                 let count = self.sent_commands.lock().await.len();
 
@@ -446,7 +450,9 @@ mod async_mock {
             })
         }
 
-        fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
+        fn receive_response(
+            &mut self,
+        ) -> TransportFuture<'_, (grafton_visca::types::SocketId, Vec<u8>)> {
             Box::pin(async move {
                 sleep(Duration::from_millis(self.delay_ms)).await;
 
@@ -454,7 +460,10 @@ mod async_mock {
                 if responses.is_empty() {
                     Err(Error::Timeout)
                 } else {
-                    Ok(vec![responses.remove(0)])
+                    let response = responses.remove(0);
+                    // Extract socket ID from response or default to socket 0
+                    let socket_id = grafton_visca::types::SocketId::SOCKET_0;
+                    Ok((socket_id, response))
                 }
             })
         }

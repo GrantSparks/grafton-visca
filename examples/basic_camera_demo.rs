@@ -1,12 +1,13 @@
 //! Basic camera control demonstration using the new Camera API
 
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
+    camera::profiles::{G2PresetId, PTZOpticsG2},
     command::{
         exposure::ExposureMode, gain::AntiFlickerMode, image::ImageFlipMode,
         pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
     },
     transport::{BlockingAdapter, UdpTransport},
+    Camera,
 };
 use std::thread;
 use std::time::Duration;
@@ -87,8 +88,6 @@ fn demo_focus_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn st
 fn demo_preset_positions(
     camera: &mut Camera<PTZOpticsG2>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::camera::profiles::G2PresetId;
-
     println!("\n📍 Demo 5: Preset Positions");
 
     println!("Saving current position as preset 1...");

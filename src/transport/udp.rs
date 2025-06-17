@@ -83,9 +83,22 @@ impl BlockingTransport for UdpTransport {
     /// # Errors
     /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error sending the UDP packet.
-    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
-        let bytes = command.to_bytes()?;
-        log::debug!("Sending command: {bytes:02X?}");
+    fn send_command_blocking(
+        &mut self,
+        command: &dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> Result<(), Error> {
+        let mut bytes = command.to_bytes()?;
+
+        // Encode socket ID in the command header
+        if !bytes.is_empty() && bytes[0] == 0x81 {
+            bytes[0] = 0x80 | socket_id.value();
+        }
+
+        log::debug!(
+            "Sending command with socket {}: {bytes:02X?}",
+            socket_id.value()
+        );
 
         let _ = self
             .socket
@@ -101,9 +114,8 @@ impl BlockingTransport for UdpTransport {
     /// # Errors
     /// Returns `Error` if a receive timeout occurs or if there's
     /// an I/O error reading from the UDP socket.
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
+    fn receive_response_blocking(&mut self) -> Result<(crate::types::SocketId, Vec<u8>), Error> {
         let mut buffer = [0u8; 1024];
-        let mut responses = Vec::new();
 
         loop {
             match self.socket.recv_from(&mut buffer) {
@@ -114,24 +126,38 @@ impl BlockingTransport for UdpTransport {
                     self.stats.record_received(data.len());
 
                     if data.len() >= 3 && data[0] == 0x90 && data[data.len() - 1] == 0xFF {
-                        responses.push(data.clone());
+                        // Extract socket ID from response header
+                        let socket_id = if data[0] == 0x90 {
+                            crate::types::SocketId::SOCKET_0 // Default to socket 0
+                        } else {
+                            // Response format is 0x9X where X is socket ID
+                            let socket_value = data[0] & 0x0F;
+                            crate::types::SocketId::new(socket_value)
+                                .unwrap_or(crate::types::SocketId::SOCKET_0)
+                        };
 
+                        // Return completion or error responses immediately
                         if data.len() >= 3
                             && (data[1] == 0x50 || data[1] == 0x51 || (data[1] & 0x60) == 0x60)
                         {
-                            break;
+                            return Ok((socket_id, data));
                         }
+
+                        // For ACK responses, continue waiting
+                        if data[1] == 0x40 || data[1] == 0x41 {
+                            continue;
+                        }
+
+                        // Return other responses
+                        return Ok((socket_id, data));
                     }
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if responses.is_empty() {
-                        self.stats.record_error();
-                        return Err(Error::CommandTimeout {
-                            duration: Duration::from_secs(10),
-                            command: "receive_response".to_string(),
-                        });
-                    }
-                    break;
+                    self.stats.record_error();
+                    return Err(Error::CommandTimeout {
+                        duration: Duration::from_secs(10),
+                        command: "receive_response".to_string(),
+                    });
                 }
                 Err(e) => {
                     self.stats.record_error();
@@ -139,8 +165,6 @@ impl BlockingTransport for UdpTransport {
                 }
             }
         }
-
-        Ok(responses)
     }
 }
 
@@ -183,10 +207,23 @@ impl Transport for AsyncUdpTransport {
     /// # Errors
     /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error sending the UDP packet.
-    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> TransportFuture<'a, ()> {
         Box::pin(async move {
-            let bytes = command.to_bytes()?;
-            log::debug!("Sending command: {bytes:02X?}");
+            let mut bytes = command.to_bytes()?;
+
+            // Encode socket ID in the command header
+            if !bytes.is_empty() && bytes[0] == 0x81 {
+                bytes[0] = 0x80 | socket_id.value();
+            }
+
+            log::debug!(
+                "Sending command with socket {}: {bytes:02X?}",
+                socket_id.value()
+            );
 
             let _ = self
                 .socket
@@ -204,10 +241,9 @@ impl Transport for AsyncUdpTransport {
     /// # Errors
     /// Returns `Error` if a receive timeout occurs or if there's
     /// an I/O error reading from the UDP socket.
-    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)> {
         Box::pin(async move {
             let mut buffer = [0u8; 1024];
-            let mut responses = Vec::new();
 
             // Keep receiving until we get a completion or error response
             loop {
@@ -225,14 +261,30 @@ impl Transport for AsyncUdpTransport {
 
                         // Check if this is a complete VISCA response
                         if data.len() >= 3 && data[0] == 0x90 && data[data.len() - 1] == 0xFF {
-                            responses.push(data.clone());
+                            // Extract socket ID from response header
+                            let socket_id = if data[0] == 0x90 {
+                                crate::types::SocketId::SOCKET_0 // Default to socket 0
+                            } else {
+                                // Response format is 0x9X where X is socket ID
+                                let socket_value = data[0] & 0x0F;
+                                crate::types::SocketId::new(socket_value)
+                                    .unwrap_or(crate::types::SocketId::SOCKET_0)
+                            };
 
-                            // Check for completion or error
+                            // Return completion or error responses immediately
                             if data.len() >= 3
                                 && (data[1] == 0x50 || data[1] == 0x51 || (data[1] & 0x60) == 0x60)
                             {
-                                break;
+                                return Ok((socket_id, data));
                             }
+
+                            // For ACK responses, continue waiting
+                            if data[1] == 0x40 || data[1] == 0x41 {
+                                continue;
+                            }
+
+                            // Return other responses
+                            return Ok((socket_id, data));
                         }
                     }
                     Ok(Err(e)) => {
@@ -240,19 +292,14 @@ impl Transport for AsyncUdpTransport {
                         return Err(Error::Io(e));
                     }
                     Err(_) => {
-                        if responses.is_empty() {
-                            self.stats.record_error();
-                            return Err(Error::CommandTimeout {
-                                duration: Duration::from_secs(10),
-                                command: "receive_response".to_string(),
-                            });
-                        }
-                        break;
+                        self.stats.record_error();
+                        return Err(Error::CommandTimeout {
+                            duration: Duration::from_secs(10),
+                            command: "receive_response".to_string(),
+                        });
                     }
                 }
             }
-
-            Ok(responses)
         })
     }
 }
