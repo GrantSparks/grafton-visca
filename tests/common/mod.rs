@@ -133,7 +133,11 @@ impl MockTransport {
 
 #[cfg(feature = "blocking-client")]
 impl BlockingTransport for MockTransport {
-    fn send_command_blocking(&mut self, command: &dyn Command, _socket_id: SocketId) -> Result<(), Error> {
+    fn send_command_blocking(
+        &mut self,
+        command: &dyn Command,
+        _socket_id: SocketId,
+    ) -> Result<(), Error> {
         // Check if we should fail after N commands
         let count = self.commands_sent.lock().unwrap().len();
         if let Some(fail_after) = self.fail_after {
@@ -160,7 +164,9 @@ impl BlockingTransport for MockTransport {
             let mut responses = self.responses.lock().unwrap();
             responses
                 .pop_front()
-                .map_or(Err(Error::Timeout), |response| Ok((SocketId::SOCKET_0, response)))
+                .map_or(Err(Error::Timeout), |response| {
+                    Ok((SocketId::SOCKET_0, response))
+                })
         }
     }
 }
@@ -331,28 +337,22 @@ impl MockDevice {
 
         // For control commands, expect ACK then completion or direct error
         let (_socket_id, first) = block_on(self.transport.receive_response())?;
-            // Check for direct error response
-            if first.len() >= 4 && first[0] == 0x90 && first[1] == 0x60 {
-                return Err(Error::from_code(first[2]));
-            }
+        // Check for direct error response
+        if first.len() >= 4 && first[0] == 0x90 && first[1] == 0x60 {
+            return Err(Error::from_code(first[2]));
+        }
 
-            // Verify it's an ACK
-            if first.len() == 3 && first[0] == 0x90 && (first[1] & 0xF0) == 0x40 && first[2] == 0xFF
-            {
-                // Now receive completion
-                let (_socket_id, comp) = block_on(self.transport.receive_response())?;
-                // Check for error responses
-                if comp.len() >= 4 && comp[0] == 0x90 && comp[1] == 0x60 {
-                    return Err(Error::from_code(comp[2]));
-                }
-                // Check for completion
-                if comp.len() == 3
-                    && comp[0] == 0x90
-                    && (comp[1] & 0xF0) == 0x50
-                    && comp[2] == 0xFF
-                {
-                    return Ok(Response::Completion);
-                }
+        // Verify it's an ACK
+        if first.len() == 3 && first[0] == 0x90 && (first[1] & 0xF0) == 0x40 && first[2] == 0xFF {
+            // Now receive completion
+            let (_socket_id, comp) = block_on(self.transport.receive_response())?;
+            // Check for error responses
+            if comp.len() >= 4 && comp[0] == 0x90 && comp[1] == 0x60 {
+                return Err(Error::from_code(comp[2]));
+            }
+            // Check for completion
+            if comp.len() == 3 && comp[0] == 0x90 && (comp[1] & 0xF0) == 0x50 && comp[2] == 0xFF {
+                return Ok(Response::Completion);
             }
         }
 

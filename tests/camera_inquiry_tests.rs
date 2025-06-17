@@ -26,7 +26,11 @@ mod tests {
     }
 
     impl Transport for MockTransport {
-        fn send_command<'a>(&'a mut self, _command: &'a dyn Command, _socket_id: SocketId) -> TransportFuture<'a, ()> {
+        fn send_command<'a>(
+            &'a mut self,
+            _command: &'a dyn Command,
+            _socket_id: SocketId,
+        ) -> TransportFuture<'a, ()> {
             Box::pin(async move { Ok(()) })
         }
 

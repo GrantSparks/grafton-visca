@@ -1,9 +1,6 @@
 //! Inquiry methods for `Camera<P>`.
 
-use crate::command::{
-    exposure::ExposureMode,
-    white_balance::WhiteBalanceMode,
-};
+use crate::command::{exposure::ExposureMode, white_balance::WhiteBalanceMode};
 
 #[cfg(feature = "async-client")]
 use crate::{
