@@ -12,14 +12,8 @@ use tokio::sync::Mutex as AsyncMutex;
 
 #[cfg(not(feature = "tokio"))]
 use std::sync::Mutex;
-#[cfg(not(feature = "tokio"))]
-use std::thread::sleep;
 
-use crate::{
-    transport::Transport,
-    Command,
-    Error as ViscaError,
-};
+use crate::{transport::Transport, Command, Error as ViscaError};
 
 /// Configuration for resilient transport behavior.
 #[derive(Debug, Clone)]
@@ -208,7 +202,7 @@ impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
         let state = self.state.blocking_lock();
         #[cfg(not(feature = "tokio"))]
         let state = self.state.lock().unwrap();
-        
+
         state.stats.clone()
     }
 
@@ -223,22 +217,26 @@ impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
     #[cfg(feature = "tokio")]
     async fn reconnect_async(&self) -> Result<(), ViscaError> {
         for attempt in 1..=self.config.max_reconnect_attempts {
-            log::info!("Attempting to reconnect (attempt {}/{})", attempt, self.config.max_reconnect_attempts);
-            
+            log::info!(
+                "Attempting to reconnect (attempt {}/{})",
+                attempt,
+                self.config.max_reconnect_attempts
+            );
+
             match (self.factory)() {
                 Ok(new_transport) => {
                     let mut state = self.state.lock().await;
                     state.inner = Some(new_transport);
                     state.stats.successful_reconnections += 1;
                     drop(state);
-                    
+
                     self.notify_event(ResilienceEvent::Reconnected { attempts: attempt });
                     log::info!("Reconnection successful");
                     return Ok(());
                 }
                 Err(e) => {
                     log::error!("Reconnection attempt {} failed: {}", attempt, e);
-                    
+
                     if attempt < self.config.max_reconnect_attempts {
                         tokio::time::sleep(self.config.reconnect_delay).await;
                     }
@@ -248,187 +246,208 @@ impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
 
         let mut state = self.state.lock().await;
         state.stats.failed_reconnections += 1;
-        
+
         let error = "Failed to reconnect after maximum attempts".to_string();
         self.notify_event(ResilienceEvent::ReconnectionFailed {
             attempts: self.config.max_reconnect_attempts,
             error: error.clone(),
         });
-        
+
         Err(ViscaError::ConnectionLost { reason: error })
     }
-
 }
 
 impl<T: Transport + Clone + Send + Sync + 'static> Transport for ResilientTransport<T> {
-    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> crate::transport::TransportFuture<'a, ()> {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+    ) -> crate::transport::TransportFuture<'a, ()> {
         Box::pin(async move {
-            let mut delay = self.config.initial_retry_delay;
-            let mut last_error = None;
-
-            // Update stats for operation attempt
+            #[cfg(not(feature = "tokio"))]
             {
-                #[cfg(feature = "tokio")]
-                let mut state = self.state.lock().await;
-                #[cfg(not(feature = "tokio"))]
-                return Err(ViscaError::InvalidState("Async transport requires tokio feature".to_string()));
-                
-                state.stats.total_operations += 1;
+                let _ = command; // Silence unused warning
+                return Err(ViscaError::InvalidState(
+                    "Async transport requires tokio feature".to_string(),
+                ));
             }
 
-            for attempt in 0..=self.config.max_retries {
-                // Try the operation
-                let result = {
-                    #[cfg(feature = "tokio")]
+            #[cfg(feature = "tokio")]
+            {
+                let mut delay = self.config.initial_retry_delay;
+                let mut last_error = None;
+
+                // Update stats for operation attempt
+                {
                     let mut state = self.state.lock().await;
-                    #[cfg(not(feature = "tokio"))]
-                    return Err(ViscaError::InvalidState("Async transport requires tokio feature".to_string()));
+                    state.stats.total_operations += 1;
+                }
 
-                    if let Some(ref mut transport) = state.inner {
-                        transport.send_command(command).await
-                    } else {
-                        Err(ViscaError::ConnectionLost {
-                            reason: "Transport not connected".to_string(),
-                        })
-                    }
-                };
-
-                match result {
-                    Ok(()) => {
-                        // Update success stats
-                        #[cfg(feature = "tokio")]
+                for attempt in 0..=self.config.max_retries {
+                    // Try the operation
+                    let result = {
                         let mut state = self.state.lock().await;
-                        #[cfg(not(feature = "tokio"))]
-                        return Err(ViscaError::InvalidState("Async transport requires tokio feature".to_string()));
-
-                        state.last_success = Some(Instant::now());
-                        state.stats.last_success = Some(Instant::now());
-                        
-                        if attempt == 0 {
-                            state.stats.first_try_successes += 1;
+                        if let Some(ref mut transport) = state.inner {
+                            transport.send_command(command).await
                         } else {
-                            state.stats.retry_successes += 1;
-                            state.stats.total_retries += attempt as u64;
+                            Err(ViscaError::ConnectionLost {
+                                reason: "Transport not connected".to_string(),
+                            })
                         }
+                    };
 
-                        if attempt > 0 {
-                            self.notify_event(ResilienceEvent::OperationSucceeded { retries: attempt });
-                        }
+                    match result {
+                        Ok(()) => {
+                            // Update success stats
+                            let mut state = self.state.lock().await;
+                            state.last_success = Some(Instant::now());
+                            state.stats.last_success = Some(Instant::now());
 
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        // Check if this is a retryable error
-                        let is_retryable = matches!(&e, ViscaError::Io(_) | ViscaError::ConnectionLost { .. } | ViscaError::Timeout);
-                        last_error = Some(e);
-                        
-                        if is_retryable {
-                            if attempt < self.config.max_retries {
-                                log::warn!("Operation failed (attempt {}), retrying: {}", attempt + 1, e);
-                                
-                                // Try to reconnect if it's a connection error
-                                if matches!(e, ViscaError::ConnectionLost { .. }) {
-                                    let _ = self.reconnect_async().await;
-                                }
-                                
-                                // Wait before retry with exponential backoff
-                                #[cfg(feature = "tokio")]
-                                tokio::time::sleep(delay).await;
-                                
-                                delay = Duration::from_secs_f64(
-                                    (delay.as_secs_f64() * self.config.backoff_factor)
-                                        .min(self.config.max_retry_delay.as_secs_f64()),
-                                );
+                            if attempt == 0 {
+                                state.stats.first_try_successes += 1;
+                            } else {
+                                state.stats.retry_successes += 1;
+                                state.stats.total_retries += attempt as u64;
                             }
-                        } else {
-                            // Non-retryable error, fail immediately
-                            break;
+
+                            if attempt > 0 {
+                                self.notify_event(ResilienceEvent::OperationSucceeded {
+                                    retries: attempt,
+                                });
+                            }
+
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            // Check if this is a retryable error
+                            let is_retryable = matches!(
+                                &e,
+                                ViscaError::Io(_)
+                                    | ViscaError::ConnectionLost { .. }
+                                    | ViscaError::Timeout
+                            );
+
+                            if is_retryable {
+                                if attempt < self.config.max_retries {
+                                    log::warn!(
+                                        "Operation failed (attempt {}), retrying: {}",
+                                        attempt + 1,
+                                        e
+                                    );
+
+                                    // Try to reconnect if it's a connection error
+                                    if matches!(&e, ViscaError::ConnectionLost { .. }) {
+                                        let _ = self.reconnect_async().await;
+                                    }
+
+                                    last_error = Some(e);
+
+                                    // Wait before retry with exponential backoff
+                                    tokio::time::sleep(delay).await;
+
+                                    delay = Duration::from_secs_f64(
+                                        (delay.as_secs_f64() * self.config.backoff_factor)
+                                            .min(self.config.max_retry_delay.as_secs_f64()),
+                                    );
+                                }
+                            } else {
+                                // Non-retryable error, fail immediately
+                                last_error = Some(e);
+                                break;
+                            }
                         }
                     }
                 }
+
+                // All retries exhausted
+                let mut state = self.state.lock().await;
+                state.stats.failures += 1;
+                state.stats.last_failure = Some(Instant::now());
+                state.stats.total_retries += self.config.max_retries as u64;
+
+                let error = last_error
+                    .unwrap_or_else(|| ViscaError::InvalidState("No error recorded".to_string()));
+
+                self.notify_event(ResilienceEvent::OperationFailed {
+                    attempts: self.config.max_retries + 1,
+                    error: error.to_string(),
+                });
+
+                Err(error)
             }
-
-            // All retries exhausted
-            #[cfg(feature = "tokio")]
-            let mut state = self.state.lock().await;
-            #[cfg(not(feature = "tokio"))]
-            return Err(ViscaError::InvalidState("Async transport requires tokio feature".to_string()));
-
-            state.stats.failures += 1;
-            state.stats.last_failure = Some(Instant::now());
-            state.stats.total_retries += self.config.max_retries as u64;
-
-            let error = last_error.unwrap_or_else(|| ViscaError::InvalidState("No error recorded".to_string()));
-            
-            self.notify_event(ResilienceEvent::OperationFailed {
-                attempts: self.config.max_retries + 1,
-                error: error.to_string(),
-            });
-
-            Err(error)
         })
     }
 
     fn receive_response(&mut self) -> crate::transport::TransportFuture<'_, Vec<Vec<u8>>> {
         Box::pin(async move {
-            let mut delay = self.config.initial_retry_delay;
-            let mut last_error = None;
+            #[cfg(not(feature = "tokio"))]
+            return Err(ViscaError::InvalidState(
+                "Async transport requires tokio feature".to_string(),
+            ));
 
-            for attempt in 0..=self.config.max_retries {
-                // Try the operation
-                let result = {
-                    #[cfg(feature = "tokio")]
-                    let mut state = self.state.lock().await;
-                    #[cfg(not(feature = "tokio"))]
-                    return Err(ViscaError::InvalidState("Async transport requires tokio feature".to_string()));
+            #[cfg(feature = "tokio")]
+            {
+                let mut delay = self.config.initial_retry_delay;
+                let mut last_error = None;
 
-                    if let Some(ref mut transport) = state.inner {
-                        transport.receive_response().await
-                    } else {
-                        Err(ViscaError::ConnectionLost {
-                            reason: "Transport not connected".to_string(),
-                        })
-                    }
-                };
-
-                match result {
-                    Ok(responses) => {
-                        // Update success stats
-                        #[cfg(feature = "tokio")]
+                for attempt in 0..=self.config.max_retries {
+                    // Try the operation
+                    let result = {
                         let mut state = self.state.lock().await;
-                        #[cfg(not(feature = "tokio"))]
-                        return Err(ViscaError::InvalidState("Async transport requires tokio feature".to_string()));
-
-                        state.last_success = Some(Instant::now());
-                        return Ok(responses);
-                    }
-                    Err(e) => {
-                        // Check if this is a retryable error
-                        let is_retryable = matches!(&e, ViscaError::Io(_) | ViscaError::ConnectionLost { .. } | ViscaError::Timeout);
-                        last_error = Some(e);
-                        
-                        if is_retryable {
-                            if attempt < self.config.max_retries {
-                                log::warn!("Receive failed (attempt {}), retrying: {}", attempt + 1, e);
-                                
-                                // Wait before retry
-                                #[cfg(feature = "tokio")]
-                                tokio::time::sleep(delay).await;
-                                
-                                delay = Duration::from_secs_f64(
-                                    (delay.as_secs_f64() * self.config.backoff_factor)
-                                        .min(self.config.max_retry_delay.as_secs_f64()),
-                                );
-                            }
+                        if let Some(ref mut transport) = state.inner {
+                            transport.receive_response().await
                         } else {
-                            // Non-retryable error, fail immediately
-                            break;
+                            Err(ViscaError::ConnectionLost {
+                                reason: "Transport not connected".to_string(),
+                            })
+                        }
+                    };
+
+                    match result {
+                        Ok(responses) => {
+                            // Update success stats
+                            let mut state = self.state.lock().await;
+                            state.last_success = Some(Instant::now());
+                            return Ok(responses);
+                        }
+                        Err(e) => {
+                            // Check if this is a retryable error
+                            let is_retryable = matches!(
+                                &e,
+                                ViscaError::Io(_)
+                                    | ViscaError::ConnectionLost { .. }
+                                    | ViscaError::Timeout
+                            );
+
+                            if is_retryable {
+                                if attempt < self.config.max_retries {
+                                    log::warn!(
+                                        "Receive failed (attempt {}), retrying: {}",
+                                        attempt + 1,
+                                        e
+                                    );
+
+                                    last_error = Some(e);
+
+                                    // Wait before retry
+                                    tokio::time::sleep(delay).await;
+
+                                    delay = Duration::from_secs_f64(
+                                        (delay.as_secs_f64() * self.config.backoff_factor)
+                                            .min(self.config.max_retry_delay.as_secs_f64()),
+                                    );
+                                }
+                            } else {
+                                // Non-retryable error, fail immediately
+                                last_error = Some(e);
+                                break;
+                            }
                         }
                     }
                 }
-            }
 
-            Err(last_error.unwrap_or_else(|| ViscaError::InvalidState("No error recorded".to_string())))
+                Err(last_error
+                    .unwrap_or_else(|| ViscaError::InvalidState("No error recorded".to_string())))
+            }
         })
     }
 }

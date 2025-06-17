@@ -4,14 +4,11 @@
 //! with support for both concurrent and sequential execution modes.
 
 use crate::{
-    camera::{
-        units::{Degrees, Normalized, ViscaUnits},
-        Camera, CameraProfile,
-    },
+    camera::{Camera, CameraProfile},
     command::{
+        color::OnePushTriggerCommand,
         exposure::{ExposureCommand, ExposureMode, IrisCommand, ShutterCommand},
         focus::{FocusCommand, FocusSpeed},
-        gain::GainCommand,
         image::{BacklightCommand, NoiseReduction2DCommand, NoiseReduction3DCommand},
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         power::{Power, PowerCommand},
@@ -19,9 +16,8 @@ use crate::{
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
         zoom::{ZoomCommand, ZoomSpeed},
     },
-    transport::Transport,
     types::{GainLimit, IrisLevel, ShutterSpeed},
-    Command, Response, Error as ViscaError,
+    Command, Error as ViscaError, Response,
 };
 
 /// A command that has been prepared for execution.
@@ -32,13 +28,13 @@ struct PreparedCommand {
 
 /// Builder for creating command sequences on a Camera.
 pub struct CommandBuilder<'a, P: CameraProfile> {
-    camera: &'a Camera<P>,
+    camera: &'a mut Camera<P>,
     commands: Vec<PreparedCommand>,
 }
 
 impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// Creates a new command builder for the given camera.
-    pub(crate) fn new(camera: &'a Camera<P>) -> Self {
+    pub(crate) fn new(camera: &'a mut Camera<P>) -> Self {
         Self {
             camera,
             commands: Vec::new(),
@@ -66,10 +62,15 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
         self.add_command(PowerCommand { power: Power::On }, "Power On")
     }
 
-    /// Adds a power off command.
+    /// Adds a power off (standby) command.
     #[must_use]
     pub fn power_off(self) -> Self {
-        self.add_command(PowerCommand { power: Power::Off }, "Power Off")
+        self.add_command(
+            PowerCommand {
+                power: Power::Standby,
+            },
+            "Power Off",
+        )
     }
 
     // Pan/Tilt Commands
@@ -95,7 +96,14 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// Adds a pan/tilt stop command.
     #[must_use]
     pub fn pan_tilt_stop(self) -> Self {
-        self.add_command(PanTiltCommand::Stop, "Pan/Tilt Stop")
+        self.add_command(
+            PanTiltCommand::Move {
+                direction: PanTiltDirection::Stop,
+                pan_speed: PanSpeed::ZERO,
+                tilt_speed: TiltSpeed::ZERO,
+            },
+            "Pan/Tilt Stop",
+        )
     }
 
     /// Adds a pan/tilt home command.
@@ -115,27 +123,29 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
     ) -> Result<Self, ViscaError> {
-        let pan = P::degrees_to_pan_units(pan_deg);
-        let tilt = P::degrees_to_tilt_units(tilt_deg);
+        let pan = self.camera.profile().pan_degrees_to_units(pan_deg);
+        let tilt = self.camera.profile().tilt_degrees_to_units(tilt_deg);
 
         // Validate ranges
-        if pan < P::MIN_PAN_POSITION || pan > P::MAX_PAN_POSITION {
+        let pan_range = self.camera.profile().pan_range();
+        if !pan_range.contains(&pan) {
             return Err(ViscaError::InvalidParameter(format!(
                 "Pan position {} degrees ({} units) outside range [{}, {}]",
                 pan_deg,
                 pan,
-                P::MIN_PAN_POSITION,
-                P::MAX_PAN_POSITION
+                pan_range.start(),
+                pan_range.end()
             )));
         }
 
-        if tilt < P::MIN_TILT_POSITION || tilt > P::MAX_TILT_POSITION {
+        let tilt_range = self.camera.profile().tilt_range();
+        if !tilt_range.contains(&tilt) {
             return Err(ViscaError::InvalidParameter(format!(
                 "Tilt position {} degrees ({} units) outside range [{}, {}]",
                 tilt_deg,
                 tilt,
-                P::MIN_TILT_POSITION,
-                P::MAX_TILT_POSITION
+                tilt_range.start(),
+                tilt_range.end()
             )));
         }
 
@@ -159,8 +169,8 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
     ) -> Self {
-        let pan = P::degrees_to_pan_units(pan_deg);
-        let tilt = P::degrees_to_tilt_units(tilt_deg);
+        let pan = self.camera.profile().pan_degrees_to_units(pan_deg);
+        let tilt = self.camera.profile().tilt_degrees_to_units(tilt_deg);
 
         self.add_command(
             PanTiltCommand::RelativePosition {
@@ -295,7 +305,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     #[must_use]
     pub fn exposure_mode(self, mode: ExposureMode) -> Self {
         self.add_command(
-            ExposureCommand::Mode(mode),
+            ExposureCommand { mode },
             format!("Exposure Mode {:?}", mode),
         )
     }
@@ -312,17 +322,14 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// Adds an iris command.
     #[must_use]
     pub fn iris(self, value: IrisLevel) -> Self {
-        self.add_command(
-            IrisCommand::Direct(value),
-            format!("Iris {:?}", value),
-        )
+        self.add_command(IrisCommand::Direct(value), format!("Iris {:?}", value))
     }
 
-    /// Adds a gain command.
+    /// Adds a gain limit command.
     #[must_use]
-    pub fn gain(self, limit: GainLimit) -> Self {
+    pub fn gain_limit(self, limit: GainLimit) -> Self {
         self.add_command(
-            GainCommand::Limit(limit),
+            crate::command::gain::GainLimitCommand { limit },
             format!("Gain Limit {:?}", limit),
         )
     }
@@ -333,7 +340,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     #[must_use]
     pub fn white_balance_mode(self, mode: WhiteBalanceMode) -> Self {
         self.add_command(
-            WhiteBalanceCommand::Mode(mode),
+            WhiteBalanceCommand { mode },
             format!("White Balance {:?}", mode),
         )
     }
@@ -341,10 +348,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// Adds a one-push white balance trigger command.
     #[must_use]
     pub fn white_balance_one_push(self) -> Self {
-        self.add_command(
-            WhiteBalanceCommand::OnePushTrigger,
-            "One Push White Balance",
-        )
+        self.add_command(OnePushTriggerCommand, "One Push White Balance")
     }
 
     // Image Adjustment Commands
@@ -353,7 +357,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     #[must_use]
     pub fn backlight(self, enabled: bool) -> Self {
         self.add_command(
-            BacklightCommand::Set(enabled),
+            BacklightCommand { status: enabled },
             format!("Backlight {}", if enabled { "On" } else { "Off" }),
         )
     }
@@ -418,7 +422,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
 
         for (i, prepared) in self.commands.into_iter().enumerate() {
             log::debug!("Executing command {}: {}", i + 1, prepared.description);
-            
+
             match self.camera.send_raw(prepared.command.as_ref()) {
                 Ok(response) => responses.push(response),
                 Err(e) => {
@@ -444,7 +448,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
 
         for (i, prepared) in self.commands.into_iter().enumerate() {
             log::debug!("Executing command {}: {}", i + 1, prepared.description);
-            
+
             match self.camera.send_raw_async(prepared.command.as_ref()).await {
                 Ok(response) => responses.push(response),
                 Err(e) => {
@@ -459,25 +463,21 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
 
     /// Executes all commands concurrently (async only).
     ///
-    /// All commands are sent simultaneously. Returns results for all commands
-    /// in the same order they were added.
+    /// NOTE: This method is currently not available due to the requirement for
+    /// mutable access to the camera. VISCA cameras typically can only handle
+    /// one command at a time anyway, so sequential execution is recommended.
     ///
-    /// # Errors
-    /// Returns an error if any command fails. All commands are attempted regardless.
+    /// Use `execute_sequential_async` instead.
     #[cfg(feature = "tokio")]
-    pub async fn execute_concurrent_async(self) -> Result<Vec<Result<Response, ViscaError>>, ViscaError> {
-        use futures::future::join_all;
-
-        let camera = self.camera;
-        let futures: Vec<_> = self.commands
-            .into_iter()
-            .map(|prepared| async move {
-                log::debug!("Executing concurrent command: {}", prepared.description);
-                camera.send_raw_async(prepared.command.as_ref()).await
-            })
-            .collect();
-
-        Ok(join_all(futures).await)
+    #[deprecated(
+        note = "Use execute_sequential_async instead - VISCA cameras typically don't support concurrent commands"
+    )]
+    pub async fn execute_concurrent_async(
+        self,
+    ) -> Result<Vec<Result<Response, ViscaError>>, ViscaError> {
+        // For now, just execute sequentially
+        let results = self.execute_sequential_async().await?;
+        Ok(results.into_iter().map(Ok).collect())
     }
 
     /// Returns the number of commands in the sequence.
@@ -501,19 +501,17 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
 /// Extension trait to add command builder support to Camera.
 pub trait CommandBuilderExt<P: CameraProfile> {
     /// Creates a new command builder for this camera.
-    fn commands(&self) -> CommandBuilder<'_, P>;
+    fn commands(&mut self) -> CommandBuilder<'_, P>;
 }
 
 impl<P: CameraProfile> CommandBuilderExt<P> for Camera<P> {
-    fn commands(&self) -> CommandBuilder<'_, P> {
+    fn commands(&mut self) -> CommandBuilder<'_, P> {
         CommandBuilder::new(self)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::camera::profiles::PTZOpticsG2;
 
     #[test]
     fn test_command_builder_creation() {
