@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = BlockingAdapter(tcp_transport);
 
     // Create camera with PTZOpticsG2 profile
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("Camera created successfully!");
 
