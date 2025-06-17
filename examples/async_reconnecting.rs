@@ -1,20 +1,19 @@
-//! Example program
-
-//! Example demonstrating connection resilience and recovery with async operations.
+//! Example demonstrating automatic connection recovery with ReconnectingTransport.
 //!
-//! This example shows how to:
-//! - Handle connection failures gracefully
-//! - Implement retry logic for failed commands
-//! - Monitor connection health
-//! - Recover from network interruptions
+//! This example shows real-world usage of the ReconnectingTransport wrapper:
+//! - Handling network interruptions gracefully
+//! - Monitoring connection health
+//! - Building fault-tolerant camera control systems
 
-use grafton_visca::camera::{Camera, PTZOpticsG2};
-use grafton_visca::transport::AsyncTcpTransport;
-use grafton_visca::Error;
+use grafton_visca::{
+    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection,
+    transport::AsyncTcpTransport, Camera, ConnectionEvent, Error, ReconnectingTransport,
+    ReconnectionConfig,
+};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::{sleep, timeout};
+use std::time::{Duration, Instant};
+use tokio::time::{interval, sleep};
 
 #[cfg(not(feature = "async-client"))]
 fn main() {
@@ -27,347 +26,311 @@ fn main() {
 async fn main() -> Result<(), Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    println!("=== Async Connection Resilience Example ===\n");
+    println!("=== Async Auto-Reconnection Example ===\n");
 
     // Get camera address
     let camera_addr = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-    // Demonstrate different resilience scenarios
-    demo_basic_retry(&camera_addr).await?;
-    demo_health_monitoring(&camera_addr).await?;
-    demo_resilient_control(&camera_addr).await?;
+    // Run demonstrations
+    demo_connection_monitoring(&camera_addr).await?;
+    demo_continuous_operation(&camera_addr).await?;
+    demo_multi_camera_resilience(&camera_addr).await?;
 
     Ok(())
 }
 
 #[cfg(feature = "async-client")]
-async fn demo_basic_retry(camera_addr: &str) -> Result<(), Error> {
-    println!("1. Basic Retry Logic:");
-    println!("   Attempting to connect with retries...\n");
+async fn demo_connection_monitoring(camera_addr: &str) -> Result<(), Error> {
+    println!("1. Connection Health Monitoring with Auto-Recovery:");
+    println!("   Setting up camera with health monitoring...\n");
 
-    let max_retries = 3;
-    let retry_delay = Duration::from_secs(1);
+    // Track connection state
+    let is_connected = Arc::new(AtomicBool::new(false));
+    let reconnect_count = Arc::new(AtomicU32::new(0));
+    let last_error = Arc::new(Mutex::new(None::<String>));
 
-    let mut camera = None;
-
-    for attempt in 1..=max_retries {
-        println!("   Connection attempt {}/{}...", attempt, max_retries);
-
-        match AsyncTcpTransport::new(camera_addr).await {
-            Ok(transport) => {
-                println!("   ✓ Connected successfully!");
-                camera = Some(Camera::<PTZOpticsG2>::new(transport));
-                break;
-            }
-            Err(e) => {
-                println!("   ✗ Connection failed: {}", e);
-                if attempt < max_retries {
-                    println!("   Waiting {:?} before retry...", retry_delay);
-                    sleep(retry_delay).await;
-                }
-            }
-        }
-    }
-
-    let mut camera = match camera {
-        Some(c) => c,
-        None => {
-            println!("   ✗ All connection attempts failed");
-            return Ok(());
-        }
+    // Configure with health checks
+    let config = ReconnectionConfig {
+        max_retries: 10,
+        initial_delay: Duration::from_secs(1),
+        max_delay: Duration::from_secs(30),
+        backoff_factor: 2.0,
+        health_check_interval: Some(Duration::from_secs(10)),
     };
 
-    // Test the connection by sending a command
-    match timeout(Duration::from_secs(2), camera.home()).await {
-        Ok(Ok(_)) => println!("   ✓ Connection is healthy"),
-        Ok(Err(e)) => println!(
-            "   ✗ Connection established but camera not responding: {}",
-            e
-        ),
-        Err(_) => println!("   ✗ Health check timed out"),
-    }
+    // Create transport with connection tracking
+    let addr = camera_addr.to_string();
+    let mut transport = ReconnectingTransport::new(
+        move || {
+            let addr = addr.clone();
+            async move {
+                AsyncTcpTransport::new(&addr)
+                    .await
+                    .map_err(|e| Error::Io(e))
+            }
+        },
+        config,
+    )
+    .await?;
 
-    println!();
-    Ok(())
-}
+    // Set up event monitoring
+    let is_connected_clone = Arc::clone(&is_connected);
+    let reconnect_count_clone = Arc::clone(&reconnect_count);
+    let last_error_clone = Arc::clone(&last_error);
 
-#[cfg(feature = "async-client")]
-async fn demo_health_monitoring(camera_addr: &str) -> Result<(), Error> {
-    println!("2. Connection Health Monitoring:");
-    println!("   Setting up periodic health checks...\n");
+    transport.set_event_callback(Arc::new(move |event| {
+        let is_connected = Arc::clone(&is_connected_clone);
+        let reconnect_count = Arc::clone(&reconnect_count_clone);
+        let last_error = Arc::clone(&last_error_clone);
 
-    let transport = AsyncTcpTransport::new(camera_addr).await?;
-    let camera = Arc::new(tokio::sync::Mutex::new(Camera::<PTZOpticsG2>::new(
-        transport,
-    )));
-    let is_healthy = Arc::new(AtomicBool::new(true));
-    let health_check_count = Arc::new(AtomicU32::new(0));
+        tokio::spawn(async move {
+            match event {
+                ConnectionEvent::Connected => {
+                    is_connected.store(true, Ordering::SeqCst);
+                    println!("   ✅ Connection established");
+                }
+                ConnectionEvent::Disconnected { reason } => {
+                    is_connected.store(false, Ordering::SeqCst);
+                    let mut error = last_error.lock().await;
+                    *error = Some(reason.clone());
+                    println!("   ❌ Connection lost: {}", reason);
+                }
+                ConnectionEvent::ReconnectingStarted { .. } => {
+                    reconnect_count.fetch_add(1, Ordering::SeqCst);
+                }
+                _ => {}
+            }
+        });
+    }));
+
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Spawn health monitoring task
-    let camera_clone = camera.clone();
-    let is_healthy_clone = is_healthy.clone();
-    let health_check_count_clone = health_check_count.clone();
-
-    let health_monitor = tokio::spawn(async move {
-        let check_interval = Duration::from_secs(2);
+    let is_connected_monitor = Arc::clone(&is_connected);
+    let reconnect_monitor = Arc::clone(&reconnect_count);
+    let monitor_handle = tokio::spawn(async move {
+        let mut ticker = interval(Duration::from_secs(5));
+        let start_time = Instant::now();
 
         loop {
-            sleep(check_interval).await;
+            ticker.tick().await;
+            let connected = is_connected_monitor.load(Ordering::SeqCst);
+            let reconnects = reconnect_monitor.load(Ordering::SeqCst);
+            let uptime = start_time.elapsed();
 
-            let count = health_check_count_clone.fetch_add(1, Ordering::SeqCst) + 1;
-            print!("   Health check #{}: ", count);
+            println!(
+                "   📊 Status: {} | Reconnects: {} | Uptime: {:?}",
+                if connected {
+                    "🟢 Connected"
+                } else {
+                    "🔴 Disconnected"
+                },
+                reconnects,
+                uptime
+            );
 
-            // Try a simple command to check health
-            let mut cam = camera_clone.lock().await;
-            match timeout(Duration::from_secs(1), cam.home()).await {
-                Ok(Ok(_)) => {
-                    println!("✓ Healthy");
-                    is_healthy_clone.store(true, Ordering::SeqCst);
-                }
-                Ok(Err(e)) => {
-                    println!("✗ Error: {}", e);
-                    is_healthy_clone.store(false, Ordering::SeqCst);
-                }
-                Err(_) => {
-                    println!("✗ Timed out");
-                    is_healthy_clone.store(false, Ordering::SeqCst);
-                }
-            }
-
-            if count >= 5 {
+            if uptime > Duration::from_secs(30) {
                 break;
             }
         }
     });
 
-    // Perform operations while monitoring health
-    println!("   Performing operations with health monitoring...");
+    // Perform operations while monitoring runs
+    println!("   Starting operations with connection monitoring...\n");
 
-    for i in 1..=5 {
-        if !is_healthy.load(Ordering::SeqCst) {
-            println!("   ⚠️  Connection unhealthy, operation {} may fail", i);
+    for i in 1..=6 {
+        match camera.get_position().await {
+            Ok((pan, tilt)) => {
+                println!("   Op {}: Position = ({:.1}°, {:.1}°)", i, pan.0, tilt.0);
+            }
+            Err(e) => {
+                println!("   Op {}: Failed - {}", i, e);
+            }
         }
-
-        // Try to send a command
-        let mut cam = camera.lock().await;
-        match timeout(Duration::from_secs(1), cam.zoom_stop()).await {
-            Ok(Ok(_)) => println!("   ✓ Operation {} succeeded", i),
-            Ok(Err(e)) => println!("   ✗ Operation {} failed: {}", i, e),
-            Err(_) => println!("   ✗ Operation {} timed out", i),
-        }
-
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(5)).await;
     }
 
-    // Wait for health monitor to finish
-    let _ = health_monitor.await;
-
+    monitor_handle.abort();
     println!();
+
     Ok(())
 }
 
 #[cfg(feature = "async-client")]
-async fn demo_resilient_control(camera_addr: &str) -> Result<(), Error> {
-    println!("3. Resilient Camera Control:");
-    println!("   Implementing command retry with exponential backoff...\n");
+async fn demo_continuous_operation(camera_addr: &str) -> Result<(), Error> {
+    println!("2. Continuous Operation with Automatic Recovery:");
+    println!("   Running continuous pan/tilt pattern...\n");
 
-    let transport = AsyncTcpTransport::new(camera_addr).await?;
-    let camera = tokio::sync::Mutex::new(Camera::<PTZOpticsG2>::new(transport));
-
-    // Define retry configuration
-    #[derive(Clone)]
-    struct RetryConfig {
-        max_attempts: u32,
-        initial_delay: Duration,
-        #[allow(dead_code)]
-        max_delay: Duration,
-        #[allow(dead_code)]
-        backoff_factor: f64,
-    }
-
-    let retry_config = RetryConfig {
-        max_attempts: 3,
-        initial_delay: Duration::from_millis(100),
+    // Simple reconnection config
+    let config = ReconnectionConfig {
+        max_retries: 5,
+        initial_delay: Duration::from_millis(500),
         max_delay: Duration::from_secs(5),
         backoff_factor: 2.0,
+        health_check_interval: None,
     };
 
-    // Execute a sequence of operations with retry
-    println!("   Executing camera control sequence with automatic retry...\n");
-
-    // Power on
-    for attempt in 1..=retry_config.max_attempts {
-        println!(
-            "   Power On - Attempt {}/{}",
-            attempt, retry_config.max_attempts
-        );
-        let mut cam = camera.lock().await;
-        match timeout(Duration::from_secs(2), cam.power_on()).await {
-            Ok(Ok(_)) => {
-                println!("   ✓ Power On succeeded");
-                break;
+    let addr = camera_addr.to_string();
+    let transport = ReconnectingTransport::new(
+        move || {
+            let addr = addr.clone();
+            async move {
+                AsyncTcpTransport::new(&addr)
+                    .await
+                    .map_err(|e| Error::Io(e))
             }
-            Ok(Err(e)) => println!("   ✗ Power On failed: {}", e),
-            Err(_) => println!("   ✗ Power On timed out"),
-        }
-        if attempt < retry_config.max_attempts {
-            println!(
-                "   Waiting {:?} before retry...",
-                retry_config.initial_delay
-            );
-            sleep(retry_config.initial_delay).await;
+        },
+        config,
+    )
+    .await?;
+
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+
+    // Define movement pattern
+    let movements = vec![
+        (PanTiltDirection::Right, 5, 0, Duration::from_secs(2)),
+        (PanTiltDirection::Up, 0, 5, Duration::from_secs(2)),
+        (PanTiltDirection::Left, 5, 0, Duration::from_secs(2)),
+        (PanTiltDirection::Down, 0, 5, Duration::from_secs(2)),
+    ];
+
+    // Run pattern continuously
+    let start_time = Instant::now();
+    let mut cycle = 0;
+
+    while start_time.elapsed() < Duration::from_secs(20) {
+        cycle += 1;
+        println!("   🔄 Cycle {}", cycle);
+
+        for (direction, pan_speed, tilt_speed, duration) in &movements {
+            // Start movement
+            match camera
+                .move_continuous(*direction, *pan_speed, *tilt_speed)
+                .await
+            {
+                Ok(_) => print!("   → Moving {:?}... ", direction),
+                Err(e) => {
+                    println!("   ⚠️  Movement failed: {}", e);
+                    continue;
+                }
+            }
+
+            // Wait
+            sleep(*duration).await;
+
+            // Stop movement
+            match camera.stop().await {
+                Ok(_) => println!("stopped"),
+                Err(e) => println!("stop failed: {}", e),
+            }
         }
     }
 
-    sleep(Duration::from_secs(1)).await;
-
-    // Move to home
-    for attempt in 1..=retry_config.max_attempts {
-        println!(
-            "   Home Position - Attempt {}/{}",
-            attempt, retry_config.max_attempts
-        );
-        let mut cam = camera.lock().await;
-        match timeout(Duration::from_secs(2), cam.home()).await {
-            Ok(Ok(_)) => {
-                println!("   ✓ Home Position succeeded");
-                break;
-            }
-            Ok(Err(e)) => println!("   ✗ Home Position failed: {}", e),
-            Err(_) => println!("   ✗ Home Position timed out"),
-        }
-        if attempt < retry_config.max_attempts {
-            println!(
-                "   Waiting {:?} before retry...",
-                retry_config.initial_delay
-            );
-            sleep(retry_config.initial_delay).await;
-        }
-    }
-
-    sleep(Duration::from_secs(2)).await;
-
-    // Pan right
-    for attempt in 1..=retry_config.max_attempts {
-        println!(
-            "   Pan Right - Attempt {}/{}",
-            attempt, retry_config.max_attempts
-        );
-        let mut cam = camera.lock().await;
-        match timeout(
-            Duration::from_secs(2),
-            cam.move_continuous(
-                grafton_visca::command::pan_tilt::PanTiltDirection::Right,
-                5,
-                0,
-            ),
-        )
-        .await
-        {
-            Ok(Ok(_)) => {
-                println!("   ✓ Pan Right succeeded");
-                break;
-            }
-            Ok(Err(e)) => println!("   ✗ Pan Right failed: {}", e),
-            Err(_) => println!("   ✗ Pan Right timed out"),
-        }
-        if attempt < retry_config.max_attempts {
-            println!(
-                "   Waiting {:?} before retry...",
-                retry_config.initial_delay
-            );
-            sleep(retry_config.initial_delay).await;
-        }
-    }
-
-    sleep(Duration::from_secs(2)).await;
-
-    // Stop movement
-    for attempt in 1..=retry_config.max_attempts {
-        println!(
-            "   Stop Movement - Attempt {}/{}",
-            attempt, retry_config.max_attempts
-        );
-        let mut cam = camera.lock().await;
-        match timeout(
-            Duration::from_secs(2),
-            cam.move_continuous(
-                grafton_visca::command::pan_tilt::PanTiltDirection::Stop,
-                0,
-                0,
-            ),
-        )
-        .await
-        {
-            Ok(Ok(_)) => {
-                println!("   ✓ Stop Movement succeeded");
-                break;
-            }
-            Ok(Err(e)) => println!("   ✗ Stop Movement failed: {}", e),
-            Err(_) => println!("   ✗ Stop Movement timed out"),
-        }
-        if attempt < retry_config.max_attempts {
-            println!(
-                "   Waiting {:?} before retry...",
-                retry_config.initial_delay
-            );
-            sleep(retry_config.initial_delay).await;
-        }
-    }
-
-    // Zoom in
-    for attempt in 1..=retry_config.max_attempts {
-        println!(
-            "   Zoom In - Attempt {}/{}",
-            attempt, retry_config.max_attempts
-        );
-        let mut cam = camera.lock().await;
-        match timeout(Duration::from_secs(2), cam.zoom_in()).await {
-            Ok(Ok(_)) => {
-                println!("   ✓ Zoom In succeeded");
-                break;
-            }
-            Ok(Err(e)) => println!("   ✗ Zoom In failed: {}", e),
-            Err(_) => println!("   ✗ Zoom In timed out"),
-        }
-        if attempt < retry_config.max_attempts {
-            println!(
-                "   Waiting {:?} before retry...",
-                retry_config.initial_delay
-            );
-            sleep(retry_config.initial_delay).await;
-        }
-    }
-
-    sleep(Duration::from_secs(1)).await;
-
-    // Stop zoom
-    for attempt in 1..=retry_config.max_attempts {
-        println!(
-            "   Stop Zoom - Attempt {}/{}",
-            attempt, retry_config.max_attempts
-        );
-        let mut cam = camera.lock().await;
-        match timeout(Duration::from_secs(2), cam.zoom_stop()).await {
-            Ok(Ok(_)) => {
-                println!("   ✓ Stop Zoom succeeded");
-                break;
-            }
-            Ok(Err(e)) => println!("   ✗ Stop Zoom failed: {}", e),
-            Err(_) => println!("   ✗ Stop Zoom timed out"),
-        }
-        if attempt < retry_config.max_attempts {
-            println!(
-                "   Waiting {:?} before retry...",
-                retry_config.initial_delay
-            );
-            sleep(retry_config.initial_delay).await;
-        }
-    }
-
-    println!("\n   Control sequence completed!");
-    println!();
+    println!("   ✅ Continuous operation completed\n");
     Ok(())
 }
+
+#[cfg(feature = "async-client")]
+async fn demo_multi_camera_resilience(camera_addr: &str) -> Result<(), Error> {
+    println!("3. Multi-Camera System with Resilient Connections:");
+    println!("   Simulating control of multiple cameras...\n");
+
+    // Create multiple cameras with different addresses
+    let camera_addresses = vec![
+        camera_addr.to_string(),
+        camera_addr.replace("100", "101"),
+        camera_addr.replace("100", "102"),
+    ];
+
+    let config = ReconnectionConfig {
+        max_retries: 3,
+        initial_delay: Duration::from_millis(200),
+        max_delay: Duration::from_secs(2),
+        backoff_factor: 1.0,
+        health_check_interval: Some(Duration::from_secs(15)),
+    };
+
+    // Create cameras with resilient connections
+    let mut cameras = Vec::new();
+    for (idx, addr) in camera_addresses.iter().enumerate() {
+        println!("   Creating camera {} at {}...", idx + 1, addr);
+
+        let addr_clone = addr.clone();
+        match ReconnectingTransport::new(
+            move || {
+                let addr = addr_clone.clone();
+                async move {
+                    AsyncTcpTransport::new(&addr)
+                        .await
+                        .map_err(|e| Error::Io(e))
+                }
+            },
+            config,
+        )
+        .await
+        {
+            Ok(transport) => {
+                let camera = Camera::<PTZOpticsG2>::new(transport);
+                cameras.push(Some(camera));
+                println!("   ✓ Camera {} ready", idx + 1);
+            }
+            Err(e) => {
+                cameras.push(None);
+                println!("   ✗ Camera {} unavailable: {}", idx + 1, e);
+            }
+        }
+    }
+
+    // Control all available cameras
+    println!("\n   Sending commands to all available cameras:");
+
+    for (idx, camera_opt) in cameras.iter_mut().enumerate() {
+        if let Some(camera) = camera_opt {
+            print!("   Camera {}: ", idx + 1);
+            match camera.home().await {
+                Ok(_) => println!("✓ Homed"),
+                Err(e) => println!("✗ Failed: {}", e),
+            }
+        }
+    }
+
+    // Coordinate movement across cameras
+    println!("\n   Coordinating movement across cameras:");
+    let mut tasks = Vec::new();
+
+    for (idx, camera_opt) in cameras.into_iter().enumerate() {
+        if let Some(mut camera) = camera_opt {
+            let task = tokio::spawn(async move {
+                let delay = Duration::from_millis(idx as u64 * 500);
+                sleep(delay).await;
+
+                match camera.move_continuous(PanTiltDirection::Right, 10, 0).await {
+                    Ok(_) => {
+                        sleep(Duration::from_secs(2)).await;
+                        let _ = camera.stop().await;
+                        Ok(idx + 1)
+                    }
+                    Err(e) => Err((idx + 1, e)),
+                }
+            });
+            tasks.push(task);
+        }
+    }
+
+    // Wait for all movements
+    for task in tasks {
+        match task.await {
+            Ok(Ok(cam_num)) => println!("   ✓ Camera {} completed movement", cam_num),
+            Ok(Err((cam_num, e))) => println!("   ✗ Camera {} failed: {}", cam_num, e),
+            Err(e) => println!("   ✗ Task error: {}", e),
+        }
+    }
+
+    println!("\n   ✅ Multi-camera demonstration complete");
+    Ok(())
+}
+
+// Required for the event callback
+use tokio::sync::Mutex;

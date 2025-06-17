@@ -289,7 +289,11 @@ where
     /// Returns `Error` if the command serialization fails, if all
     /// reconnection attempts are exhausted, or if the underlying transport
     /// encounters a non-recoverable error.
-    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             // Try operation with retry on connection errors
             for attempt in 0..self.config.max_retries {
@@ -299,7 +303,7 @@ where
                 // Try to send
                 let mut state = self.state.lock().await;
                 if let Some(ref mut transport) = state.inner {
-                    match transport.send_command(command).await {
+                    match transport.send_command(command, socket_id).await {
                         Ok(()) => {
                             state.last_successful_operation = Some(Instant::now());
                             state.stats.record_sent(command.to_bytes()?.len());
@@ -342,7 +346,7 @@ where
     /// Returns `Error` if all reconnection attempts are exhausted,
     /// if the underlying transport encounters a non-recoverable error,
     /// or if a timeout occurs during reception.
-    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)> {
         Box::pin(async move {
             // Try operation with retry on connection errors
             for attempt in 0..self.config.max_retries {
@@ -353,12 +357,10 @@ where
                 let mut state = self.state.lock().await;
                 if let Some(ref mut transport) = state.inner {
                     match transport.receive_response().await {
-                        Ok(responses) => {
+                        Ok((socket_id, response)) => {
                             state.last_successful_operation = Some(Instant::now());
-                            for response in &responses {
-                                state.stats.record_received(response.len());
-                            }
-                            return Ok(responses);
+                            state.stats.record_received(response.len());
+                            return Ok((socket_id, response));
                         }
                         Err(e) => {
                             // Check if this is a connection error

@@ -26,14 +26,15 @@ pub trait CameraExtension<P: CameraProfile>: Sized {
 
 impl<P: CameraProfile> CameraExtension<P> for Camera<P> {
     fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
-        #[cfg(feature = "blocking-client")]
+        #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
         {
-            Camera::send_raw(self, command)
+            self.send_raw(command)
         }
-        #[cfg(not(feature = "blocking-client"))]
+        #[cfg(not(all(feature = "blocking-client", not(feature = "async-client"))))]
         {
+            let _ = command; // Suppress unused variable warning
             Err(ViscaError::InvalidState(
-                "Camera operations require async transport".to_string(),
+                "Camera operations require blocking transport".to_string(),
             ))
         }
     }

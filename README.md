@@ -64,14 +64,30 @@ client.set_pan_tilt_percentage(0.5, -0.25)?;     // Center-right, slightly down
 Built-in connection pooling and automatic reconnection are now standard:
 
 ```rust
-// Automatic reconnection on network failures
-let transport = ReconnectingTransport::new(transport)
-    .with_exponential_backoff();
+// Automatic reconnection on network failures with the new Camera<P> API
+use grafton_visca::{
+    Camera, ReconnectingTransport, ReconnectionConfig,
+    camera::profiles::PTZOpticsG2,
+    transport::AsyncTcpTransport,
+};
 
-// Manage multiple cameras with built-in pooling
-let pool = ConnectionPool::new()
-    .with_capacity(10)
-    .with_health_check_interval(Duration::from_secs(30));
+let config = ReconnectionConfig {
+    max_retries: 5,
+    initial_delay: Duration::from_millis(500),
+    max_delay: Duration::from_secs(10),
+    backoff_factor: 2.0,
+    health_check_interval: Some(Duration::from_secs(30)),
+};
+
+let transport = ReconnectingTransport::new(
+    || async { AsyncTcpTransport::new("192.168.1.100:5678").await.map_err(|e| Error::Io(e)) },
+    config
+).await?;
+
+let mut camera = Camera::<PTZOpticsG2>::new(transport);
+
+// Now all operations automatically retry on connection failures
+camera.home().await?;  // Will automatically reconnect if needed
 ```
 
 ### 🚦 Enhanced Error Handling
@@ -498,6 +514,83 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The client automatically manages VISCA's two-socket limitation, queuing commands as needed.
+
+### Automatic Connection Recovery
+
+For production environments, use `ReconnectingTransport` to automatically handle network interruptions:
+
+```rust
+use grafton_visca::{
+    Camera, ReconnectingTransport, ReconnectionConfig, ConnectionEvent,
+    camera::profiles::PTZOpticsG2,
+    transport::{AsyncTcpTransport, AsyncUdpTransport},
+};
+use std::sync::Arc;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    // Configure reconnection behavior
+    let config = ReconnectionConfig {
+        max_retries: 10,
+        initial_delay: Duration::from_secs(1),
+        max_delay: Duration::from_secs(30),
+        backoff_factor: 2.0,  // Exponential backoff
+        health_check_interval: Some(Duration::from_secs(60)),
+    };
+
+    // Create transport with automatic reconnection
+    let mut transport = ReconnectingTransport::new(
+        || async { 
+            AsyncTcpTransport::new("192.168.1.100:5678").await
+                .map_err(|e| Error::Io(e))
+        },
+        config
+    ).await?;
+
+    // Optional: Monitor connection events
+    transport.set_event_callback(Arc::new(|event| {
+        match event {
+            ConnectionEvent::Connected => println!("✅ Connected to camera"),
+            ConnectionEvent::Disconnected { reason } => println!("❌ Lost connection: {}", reason),
+            ConnectionEvent::ReconnectingStarted { attempt, max_attempts } => {
+                println!("🔄 Reconnecting... attempt {}/{}", attempt, max_attempts);
+            }
+            ConnectionEvent::ReconnectingFailed { attempt, error } => {
+                println!("⚠️ Reconnect attempt {} failed: {}", attempt, error);
+            }
+            ConnectionEvent::ReconnectionExhausted => {
+                println!("❌ All reconnection attempts failed");
+            }
+        }
+    }));
+
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+
+    // All operations now automatically retry on connection failures
+    loop {
+        match camera.get_position().await {
+            Ok((pan, tilt)) => {
+                println!("Position: pan={:.1}°, tilt={:.1}°", pan.0, tilt.0);
+            }
+            Err(e) => {
+                println!("Operation failed: {}", e);
+                // Transport will automatically reconnect in the background
+            }
+        }
+        
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+```
+
+The `ReconnectingTransport` wrapper:
+- Automatically reconnects on network failures
+- Uses exponential backoff to avoid overwhelming the network
+- Maintains connection statistics
+- Provides event callbacks for monitoring
+- Works with both TCP and UDP transports
+- Transparently retries failed operations
 
 ## Migrating from v0.3.0
 

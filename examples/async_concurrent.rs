@@ -8,10 +8,8 @@
 //! - Maximize throughput with concurrent operations
 
 use grafton_visca::{
-    camera::{Camera, PTZOpticsG2},
-    command::{pan_tilt::PanTiltDirection, InquiryCommand},
-    transport::AsyncUdpTransport,
-    Error,
+    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection,
+    transport::AsyncUdpTransport, Camera, Error,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -137,16 +135,13 @@ async fn main() -> Result<(), Error> {
         })
     };
 
-    // Use the transport for inquiry commands
+    // Use the camera's inquiry methods
     let inquiry_task = {
         let camera = Arc::clone(&camera);
         tokio::spawn(async move {
             let mut cam = camera.lock().await;
-            // Access transport for raw inquiry commands
-            let transport = cam.transport_mut();
-            let zoom_result = transport.send_command(&InquiryCommand::ZoomPosition).await;
-            let responses = transport.receive_response().await;
-            (zoom_result, responses)
+            // Use camera's built-in inquiry methods
+            cam.get_zoom_position().await
         })
     };
 
@@ -159,11 +154,10 @@ async fn main() -> Result<(), Error> {
     }
 
     match inquiry_result {
-        Ok((Ok(_), Ok(responses))) => {
-            println!("Inquiry completed, got {} responses", responses.len());
+        Ok(Ok(zoom_pos)) => {
+            println!("Current zoom position: 0x{:04X}", zoom_pos);
         }
-        Ok((Err(e), _)) => println!("Failed to send inquiry: {}", e),
-        Ok((_, Err(e))) => println!("Failed to receive response: {}", e),
+        Ok(Err(e)) => println!("Failed to query zoom position: {}", e),
         Err(e) => println!("Inquiry task failed: {}", e),
     }
 

@@ -547,7 +547,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Send a raw command to the camera (blocking).
-    #[cfg(feature = "blocking-client")]
+    #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
     pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
         use crate::sync_primitives::SemaphoreExt;
 
@@ -561,29 +561,36 @@ impl<P: CameraProfile> Camera<P> {
         };
 
         // Send command with socket ID
-        self.transport
-            .send_command_blocking(command, socket_id)
-            .map_err(|e| {
-                // Release socket on error
+        // Note: In blocking mode, we need to use a blocking runtime to execute async methods
+        // This is a limitation of the current design where Transport is async-only
+        // TODO: Consider adding a BlockingTransport wrapper or requiring BlockingAdapter
+
+        // For now, we'll panic with a clear message about the design limitation
+        panic!("Blocking mode requires using BlockingAdapter wrapper for transports. Use Camera::new(BlockingAdapter(transport)) instead of Camera::new(transport)");
+
+        // The proper implementation would require either:
+        // 1. A blocking runtime (not available without tokio)
+        // 2. Redesigning to require BlockingAdapter wrapper
+        // 3. Adding blocking methods to Transport trait
+
+        // Unreachable code after panic, but kept for reference:
+        #[allow(unreachable_code)]
+        {
+            loop {
+                let (_resp_socket_id, response_data): (crate::types::SocketId, Vec<u8>) =
+                    unreachable!();
+
                 let mut session = self.session.lock();
-                session.release_socket(socket_id);
-                e
-            })?;
-
-        // Wait for response
-        loop {
-            let (resp_socket_id, response_data) = self.transport.receive_response_blocking()?;
-
-            let mut session = self.session.lock();
-            match session.process_response(&response_data) {
-                Ok(Some((socket, response))) if socket == socket_id => {
-                    session.release_socket(socket_id);
-                    return Ok(response);
-                }
-                Ok(_) => continue, // Response for different socket, keep waiting
-                Err(e) => {
-                    session.release_socket(socket_id);
-                    return Err(e);
+                match session.process_response(&response_data) {
+                    Ok(Some((socket, response))) if socket == socket_id => {
+                        session.release_socket(socket_id);
+                        return Ok(response);
+                    }
+                    Ok(_) => continue, // Response for different socket, keep waiting
+                    Err(e) => {
+                        session.release_socket(socket_id);
+                        return Err(e);
+                    }
                 }
             }
         }
@@ -599,20 +606,14 @@ impl<P: CameraProfile> Camera<P> {
 
         // Get socket assignment from session
         let socket_id = {
-            #[cfg(feature = "async-client")]
             let mut session = self.session.lock().await;
-            #[cfg(not(feature = "async-client"))]
-            let mut session = self.session.lock();
             session.assign_socket(command.response_type())?
         };
 
         // Send command with socket ID
         if let Err(e) = self.transport.send_command(command, socket_id).await {
             // Release socket on error
-            #[cfg(feature = "async-client")]
             let mut session = self.session.lock().await;
-            #[cfg(not(feature = "async-client"))]
-            let mut session = self.session.lock();
             session.release_socket(socket_id);
             return Err(e);
         }
@@ -621,10 +622,7 @@ impl<P: CameraProfile> Camera<P> {
         loop {
             let (_resp_socket_id, response_data) = self.transport.receive_response().await?;
 
-            #[cfg(feature = "async-client")]
             let mut session = self.session.lock().await;
-            #[cfg(not(feature = "async-client"))]
-            let mut session = self.session.lock();
 
             match session.process_response(&response_data) {
                 Ok(Some((socket, response))) if socket == socket_id => {

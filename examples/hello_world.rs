@@ -1,10 +1,10 @@
 //! Example program demonstrating the new Camera API
 
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
+    camera::profiles::PTZOpticsG2,
     command::pan_tilt::PanTiltDirection,
     transport::{BlockingAdapter, TcpTransport, UdpTransport},
-    Error,
+    Camera, Error,
 };
 use log::{debug, info};
 use std::{env, time::Duration};

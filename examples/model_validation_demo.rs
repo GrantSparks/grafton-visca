@@ -6,12 +6,15 @@
 
 use grafton_visca::{
     camera::{
-        profiles::{G2Gain, G2PresetId, GenericPresetId},
+        profiles::{
+            G2Gain, G2PresetId, GenericPresetId, GenericVisca, PTZOptics30X, PTZOpticsG2,
+            SonyEVID70,
+        },
         units::{Degrees, ViscaUnits},
-        Camera, CameraProfile, GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70,
+        CameraProfile,
     },
     transport::{Transport, TransportFuture},
-    Command, Error,
+    Camera, Command, Error,
 };
 
 /// Mock transport for demonstration purposes.
@@ -19,12 +22,18 @@ use grafton_visca::{
 struct MockTransport;
 
 impl Transport for MockTransport {
-    fn send_command<'a>(&'a mut self, _command: &'a dyn Command) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(
+        &'a mut self,
+        _command: &'a dyn Command,
+        _socket_id: grafton_visca::types::SocketId,
+    ) -> TransportFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
 
-    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
-        Box::pin(async { Ok(vec![]) })
+    fn receive_response(
+        &mut self,
+    ) -> TransportFuture<'_, (grafton_visca::types::SocketId, Vec<u8>)> {
+        Box::pin(async { Ok((grafton_visca::types::SocketId::SOCKET_0, vec![])) })
     }
 }
 

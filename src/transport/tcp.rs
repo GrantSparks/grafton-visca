@@ -87,9 +87,22 @@ impl BlockingTransport for TcpTransport {
     /// # Errors
     /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error writing to the TCP socket.
-    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
-        let bytes = command.to_bytes()?;
-        log::debug!("Sending command: {bytes:02X?}");
+    fn send_command_blocking(
+        &mut self,
+        command: &dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> Result<(), Error> {
+        let mut bytes = command.to_bytes()?;
+
+        // Encode socket ID in the command header
+        if !bytes.is_empty() && bytes[0] == 0x81 {
+            bytes[0] = 0x80 | socket_id.value();
+        }
+
+        log::debug!(
+            "Sending command with socket {}: {bytes:02X?}",
+            socket_id.value()
+        );
 
         self.stream.write_all(&bytes).map_err(Error::Io)?;
 
@@ -104,9 +117,8 @@ impl BlockingTransport for TcpTransport {
     /// # Errors
     /// Returns `Error` if the connection is closed unexpectedly,
     /// if a read timeout occurs, or if an incomplete VISCA frame is received.
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
+    fn receive_response_blocking(&mut self) -> Result<(crate::types::SocketId, Vec<u8>), Error> {
         let mut buffer = [0u8; 1024];
-        let mut responses = Vec::new();
         let mut current_response = Vec::new();
 
         // Keep receiving until we get a completion or error response
@@ -131,7 +143,16 @@ impl BlockingTransport for TcpTransport {
                             log::debug!("Received response: {current_response:02X?}");
 
                             self.stats.record_received(current_response.len());
-                            responses.push(current_response.clone());
+
+                            // Extract socket ID from response header
+                            let socket_id = if current_response[0] == 0x90 {
+                                crate::types::SocketId::SOCKET_0 // Default to socket 0
+                            } else {
+                                // Response format is 0x9X where X is socket ID
+                                let socket_value = current_response[0] & 0x0F;
+                                crate::types::SocketId::new(socket_value)
+                                    .unwrap_or(crate::types::SocketId::SOCKET_0)
+                            };
 
                             // Check for completion or error
                             if current_response.len() >= 3
@@ -139,30 +160,34 @@ impl BlockingTransport for TcpTransport {
                                     || current_response[1] == 0x51
                                     || (current_response[1] & 0x60) == 0x60)
                             {
-                                return Ok(responses);
+                                return Ok((socket_id, current_response));
                             }
 
-                            current_response.clear();
+                            // For ACK responses, continue waiting for completion
+                            if current_response[1] == 0x40 || current_response[1] == 0x41 {
+                                current_response.clear();
+                                continue;
+                            }
+
+                            // Return other responses immediately
+                            return Ok((socket_id, current_response));
                         }
                     }
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if responses.is_empty() && current_response.is_empty() {
+                    if current_response.is_empty() {
                         self.stats.record_error();
                         return Err(Error::CommandTimeout {
                             duration: Duration::from_secs(10),
                             command: "receive_response".to_string(),
                         });
                     }
-                    if !current_response.is_empty() {
-                        // Incomplete frame
-                        self.stats.record_error();
-                        return Err(Error::Io(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "Incomplete VISCA frame",
-                        )));
-                    }
-                    return Ok(responses);
+                    // Incomplete frame
+                    self.stats.record_error();
+                    return Err(Error::Io(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Incomplete VISCA frame",
+                    )));
                 }
                 Err(e) => {
                     self.stats.record_error();
@@ -210,10 +235,23 @@ impl Transport for AsyncTcpTransport {
     /// # Errors
     /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error writing to the TCP socket.
-    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> TransportFuture<'a, ()> {
         Box::pin(async move {
-            let bytes = command.to_bytes()?;
-            log::debug!("Sending command: {bytes:02X?}");
+            let mut bytes = command.to_bytes()?;
+
+            // Encode socket ID in the command header
+            if !bytes.is_empty() && bytes[0] == 0x81 {
+                bytes[0] = 0x80 | socket_id.value();
+            }
+
+            log::debug!(
+                "Sending command with socket {}: {bytes:02X?}",
+                socket_id.value()
+            );
 
             self.stream.write_all(&bytes).await.map_err(Error::Io)?;
 
@@ -229,10 +267,9 @@ impl Transport for AsyncTcpTransport {
     /// # Errors
     /// Returns `Error` if the connection is closed unexpectedly,
     /// if a read timeout occurs, or if an incomplete VISCA frame is received.
-    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)> {
         Box::pin(async move {
             let mut buffer = [0u8; 1024];
-            let mut responses = Vec::new();
             let mut current_response = Vec::new();
 
             // Keep receiving until we get a completion or error response
@@ -259,7 +296,16 @@ impl Transport for AsyncTcpTransport {
                                 log::debug!("Received response: {current_response:02X?}");
 
                                 self.stats.record_received(current_response.len());
-                                responses.push(current_response.clone());
+
+                                // Extract socket ID from response header
+                                let socket_id = if current_response[0] == 0x90 {
+                                    crate::types::SocketId::SOCKET_0 // Default to socket 0
+                                } else {
+                                    // Response format is 0x9X where X is socket ID
+                                    let socket_value = current_response[0] & 0x0F;
+                                    crate::types::SocketId::new(socket_value)
+                                        .unwrap_or(crate::types::SocketId::SOCKET_0)
+                                };
 
                                 // Check for completion or error
                                 if current_response.len() >= 3
@@ -267,10 +313,17 @@ impl Transport for AsyncTcpTransport {
                                         || current_response[1] == 0x51
                                         || (current_response[1] & 0x60) == 0x60)
                                 {
-                                    return Ok(responses);
+                                    return Ok((socket_id, current_response));
                                 }
 
-                                current_response.clear();
+                                // For ACK responses, continue waiting for completion
+                                if current_response[1] == 0x40 || current_response[1] == 0x41 {
+                                    current_response.clear();
+                                    continue;
+                                }
+
+                                // Return other responses immediately
+                                return Ok((socket_id, current_response));
                             }
                         }
                     }
@@ -279,22 +332,19 @@ impl Transport for AsyncTcpTransport {
                         return Err(Error::Io(e));
                     }
                     Err(_) => {
-                        if responses.is_empty() && current_response.is_empty() {
+                        if current_response.is_empty() {
                             self.stats.record_error();
                             return Err(Error::CommandTimeout {
                                 duration: Duration::from_secs(10),
                                 command: "receive_response".to_string(),
                             });
                         }
-                        if !current_response.is_empty() {
-                            // Incomplete frame
-                            self.stats.record_error();
-                            return Err(Error::Io(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "Incomplete VISCA frame",
-                            )));
-                        }
-                        return Ok(responses);
+                        // Incomplete frame
+                        self.stats.record_error();
+                        return Err(Error::Io(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Incomplete VISCA frame",
+                        )));
                     }
                 }
             }

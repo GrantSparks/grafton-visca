@@ -5,10 +5,7 @@
 
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
-    command::{
-        exposure::ExposureMode,
-        pan_tilt::PanTiltDirection,
-    },
+    command::{exposure::ExposureMode, pan_tilt::PanTiltDirection},
     transport::{BlockingAdapter, UdpTransport},
     types::{FStop, NoiseReductionStrength, SpeedLevel},
 };
