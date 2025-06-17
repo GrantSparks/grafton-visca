@@ -2,23 +2,27 @@
 
 use crate::command::{
     exposure::ExposureMode,
-    focus::{AutoFocusSensitivity, FocusZone},
-    gain::AntiFlickerMode,
-    luminance_contrast_sharpness::SharpnessMode,
     white_balance::WhiteBalanceMode,
 };
 
 #[cfg(feature = "async-client")]
 use crate::{
-    command::{inquiry::InquiryCommand, response::Response, InquiryResponse},
+    command::{
+        focus::{AutoFocusSensitivity, FocusZone},
+        gain::AntiFlickerMode,
+        inquiry::InquiryCommand,
+        luminance_contrast_sharpness::SharpnessMode,
+        response::Response,
+        InquiryResponse,
+    },
     error::Error,
     Command,
 };
 
-use super::{
-    units::{Degrees, ViscaUnits},
-    Camera, CameraProfile,
-};
+use super::{Camera, CameraProfile};
+
+#[cfg(feature = "async-client")]
+use super::units::{Degrees, ViscaUnits};
 
 /// Camera state information retrieved from inquiries.
 #[derive(Debug, Clone, Copy)]

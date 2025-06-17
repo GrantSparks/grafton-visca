@@ -13,7 +13,7 @@ pub mod helpers;
 pub mod macros;
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{Command, Error};
+use grafton_visca::{types::SocketId, Command, Error};
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{command::ResponseType, InquiryResponse, Response};
@@ -133,7 +133,7 @@ impl MockTransport {
 
 #[cfg(feature = "blocking-client")]
 impl BlockingTransport for MockTransport {
-    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
+    fn send_command_blocking(&mut self, command: &dyn Command, _socket_id: SocketId) -> Result<(), Error> {
         // Check if we should fail after N commands
         let count = self.commands_sent.lock().unwrap().len();
         if let Some(fail_after) = self.fail_after {
@@ -153,14 +153,14 @@ impl BlockingTransport for MockTransport {
         }
     }
 
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
+    fn receive_response_blocking(&mut self) -> Result<(SocketId, Vec<u8>), Error> {
         if self.fail_receive {
             Err(Error::Io(std::io::Error::other("Mock receive error")))
         } else {
             let mut responses = self.responses.lock().unwrap();
             responses
                 .pop_front()
-                .map_or(Err(Error::Timeout), |response| Ok(vec![response]))
+                .map_or(Err(Error::Timeout), |response| Ok((SocketId::SOCKET_0, response)))
         }
     }
 }
@@ -303,7 +303,7 @@ impl MockDevice {
         );
 
         // Send the command
-        block_on(self.transport.send_command(command))?;
+        block_on(self.transport.send_command(command, SocketId::SOCKET_0))?;
 
         // Check if this is an inquiry command
         let is_inquiry = matches!(
@@ -322,18 +322,15 @@ impl MockDevice {
 
         if is_inquiry {
             // For inquiry commands, expect a direct response
-            let responses = block_on(self.transport.receive_response())?;
-            if let Some(response) = responses.into_iter().next() {
-                if let Some(resp_type) = command.response_type() {
-                    return parse_response(&response, &resp_type);
-                }
+            let (_socket_id, response) = block_on(self.transport.receive_response())?;
+            if let Some(resp_type) = command.response_type() {
+                return parse_response(&response, &resp_type);
             }
             return Err(Error::Timeout);
         }
 
         // For control commands, expect ACK then completion or direct error
-        let first_responses = block_on(self.transport.receive_response())?;
-        if let Some(first) = first_responses.into_iter().next() {
+        let (_socket_id, first) = block_on(self.transport.receive_response())?;
             // Check for direct error response
             if first.len() >= 4 && first[0] == 0x90 && first[1] == 0x60 {
                 return Err(Error::from_code(first[2]));
@@ -343,20 +340,18 @@ impl MockDevice {
             if first.len() == 3 && first[0] == 0x90 && (first[1] & 0xF0) == 0x40 && first[2] == 0xFF
             {
                 // Now receive completion
-                let comp_responses = block_on(self.transport.receive_response())?;
-                if let Some(comp) = comp_responses.into_iter().next() {
-                    // Check for error responses
-                    if comp.len() >= 4 && comp[0] == 0x90 && comp[1] == 0x60 {
-                        return Err(Error::from_code(comp[2]));
-                    }
-                    // Check for completion
-                    if comp.len() == 3
-                        && comp[0] == 0x90
-                        && (comp[1] & 0xF0) == 0x50
-                        && comp[2] == 0xFF
-                    {
-                        return Ok(Response::Completion);
-                    }
+                let (_socket_id, comp) = block_on(self.transport.receive_response())?;
+                // Check for error responses
+                if comp.len() >= 4 && comp[0] == 0x90 && comp[1] == 0x60 {
+                    return Err(Error::from_code(comp[2]));
+                }
+                // Check for completion
+                if comp.len() == 3
+                    && comp[0] == 0x90
+                    && (comp[1] & 0xF0) == 0x50
+                    && comp[2] == 0xFF
+                {
+                    return Ok(Response::Completion);
                 }
             }
         }

@@ -1,9 +1,10 @@
 //! Tests for `Camera<P>` inquiry methods.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "async-client"))]
 mod tests {
     use grafton_visca::camera::{Camera, PTZOpticsG2};
     use grafton_visca::transport::{Transport, TransportFuture};
+    use grafton_visca::types::SocketId;
     use grafton_visca::Command;
     use std::sync::{Arc, Mutex};
 
@@ -25,18 +26,18 @@ mod tests {
     }
 
     impl Transport for MockTransport {
-        fn send_command<'a>(&'a mut self, _command: &'a dyn Command) -> TransportFuture<'a, ()> {
+        fn send_command<'a>(&'a mut self, _command: &'a dyn Command, _socket_id: SocketId) -> TransportFuture<'a, ()> {
             Box::pin(async move { Ok(()) })
         }
 
-        fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
+        fn receive_response(&mut self) -> TransportFuture<'_, (SocketId, Vec<u8>)> {
             let responses = self.responses.clone();
             Box::pin(async move {
                 let mut guard = responses.lock().unwrap();
                 if guard.is_empty() {
-                    Ok(vec![vec![0x90, 0x50, 0xFF]]) // Default ACK
+                    Ok((SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF])) // Default ACK
                 } else {
-                    Ok(vec![guard.remove(0)])
+                    Ok((SocketId::SOCKET_0, guard.remove(0)))
                 }
             })
         }

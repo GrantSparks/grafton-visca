@@ -2,15 +2,20 @@
 
 use std::fmt::Display;
 use std::ops::RangeInclusive;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::sync::Arc;
 
 use crate::error::Error as ViscaError;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::session::Session;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::sync_primitives::{Mutex, Semaphore};
 use crate::transport::Transport;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{Command, Response};
 
 pub mod builder;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub mod command_builder;
 pub mod commands;
 pub mod extensions;
@@ -19,6 +24,7 @@ pub mod profiles;
 
 // Re-export commonly used types
 pub use builder::{CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder};
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use command_builder::CommandBuilderExt;
 pub use extensions::{CameraExtension, CustomManufacturerExt, DiagnosticsExt, ScriptingExt};
 pub use inquiry::{CameraState, Exposure, ImageSettings, Optics, Position, WhiteBalance};
@@ -28,7 +34,9 @@ pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 pub struct Camera<P: CameraProfile> {
     profile: P,
     transport: Box<dyn Transport>,
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     session: Arc<Mutex<Session>>,
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     semaphore: Arc<Semaphore>,
 }
 
@@ -479,7 +487,9 @@ impl<P: CameraProfile> Camera<P> {
         Self {
             profile: P::default(),
             transport: Box::new(transport),
+            #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             session: Arc::new(Mutex::new(Session::new())),
+            #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
         }
     }
@@ -489,7 +499,9 @@ impl<P: CameraProfile> Camera<P> {
         Self {
             profile,
             transport: Box::new(transport),
+            #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             session: Arc::new(Mutex::new(Session::new())),
+            #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
         }
     }
@@ -555,6 +567,7 @@ impl<P: CameraProfile> Camera<P> {
         let _permit = self.semaphore.acquire_permit();
 
         // Get socket assignment from session
+        #[allow(unused_variables)]
         let socket_id = {
             let mut session = self.session.lock();
             session.assign_socket(command.response_type())?
@@ -565,17 +578,22 @@ impl<P: CameraProfile> Camera<P> {
         // This is a limitation of the current design where Transport is async-only
         // TODO: Consider adding a BlockingTransport wrapper or requiring BlockingAdapter
 
-        // For now, we'll panic with a clear message about the design limitation
-        panic!("Blocking mode requires using BlockingAdapter wrapper for transports. Use Camera::new(BlockingAdapter(transport)) instead of Camera::new(transport)");
-
+        // This is a design limitation: blocking mode without async runtime is not supported
         // The proper implementation would require either:
         // 1. A blocking runtime (not available without tokio)
         // 2. Redesigning to require BlockingAdapter wrapper
         // 3. Adding blocking methods to Transport trait
-
-        // Unreachable code after panic, but kept for reference:
-        #[allow(unreachable_code)]
+        
+        // For now, return an error instead of panicking
+        return Err(ViscaError::InvalidState(
+            "Blocking mode requires tokio feature or a BlockingAdapter wrapper. \
+             Enable the 'tokio' feature or use Camera::new(BlockingAdapter(transport))".to_string()
+        ));
+        
+        // The following is unreachable but shows what the implementation would look like:
+        #[allow(unreachable_code, unused_variables, clippy::never_loop)]
         {
+            #[allow(clippy::diverging_sub_expression)]
             loop {
                 let (_resp_socket_id, response_data): (crate::types::SocketId, Vec<u8>) =
                     unreachable!();
