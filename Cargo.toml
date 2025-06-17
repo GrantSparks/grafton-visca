@@ -100,7 +100,7 @@ name = "position_conversion"
 required-features = ["blocking-client"]
 
 [[example]]
-name = "reconnecting_transport"
+name = "reconnecting_transport_demo"
 required-features = ["async-client", "blocking-client"]
 
 [[example]]
@@ -183,6 +183,5 @@ name = "user_friendly_api_demo"
 required-features = ["async-client", "blocking-client"]
 
 [[example]]
-name = "reconnecting_transport_demo"
-required-features = ["async-client"]
-
+name = "resilient_transport_demo"
+required-features = ["async-client", "blocking-client"]
