@@ -197,7 +197,7 @@ pub mod timeout; // Public for use in macros
 mod sync_primitives;
 
 // Core re-exports for Camera<P> API
-pub use camera::{Camera, CameraProfile};
+pub use camera::{Camera, CameraProfile, CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder};
 pub use command::{Command, InquiryResponse, Response};
 
 // Re-export unit types from camera module

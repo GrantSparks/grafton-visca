@@ -50,13 +50,13 @@ use super::{
 #[cfg(feature = "async-client")]
 impl<P: CameraProfile> Camera<P> {
     /// Power on the camera.
-    pub async fn power_on(&mut self) -> Result<(), Error> {
+    pub async fn power_on(&self) -> Result<(), Error> {
         let command = PowerCommand { power: Power::On };
         self.send_and_wait(&command).await
     }
 
     /// Power off the camera.
-    pub async fn power_off(&mut self) -> Result<(), Error> {
+    pub async fn power_off(&self) -> Result<(), Error> {
         let command = PowerCommand {
             power: Power::Standby,
         };
@@ -65,7 +65,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Set the camera to an absolute pan/tilt position in degrees.
     pub async fn set_position(
-        &mut self,
+        &self,
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
     ) -> Result<(), Error> {
@@ -105,7 +105,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Set the camera to an absolute position using VISCA units.
     pub async fn set_position_units(
-        &mut self,
+        &self,
         pan: ViscaUnits<i16>,
         tilt: ViscaUnits<i16>,
     ) -> Result<(), Error> {
@@ -140,7 +140,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Set the camera position using normalized coordinates (-1.0 to 1.0).
     pub async fn set_position_normalized(
-        &mut self,
+        &self,
         pan: Normalized<f32>,
         tilt: Normalized<f32>,
     ) -> Result<(), Error> {
@@ -167,7 +167,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Move the camera continuously in a direction.
     pub async fn move_continuous(
-        &mut self,
+        &self,
         direction: PanTiltDirection,
         pan_speed: u8,
         tilt_speed: u8,
@@ -190,7 +190,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Stop all camera movement.
-    pub async fn stop(&mut self) -> Result<(), Error> {
+    pub async fn stop(&self) -> Result<(), Error> {
         let command = PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::new(0)
@@ -202,12 +202,12 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Move camera to home position.
-    pub async fn home(&mut self) -> Result<(), Error> {
+    pub async fn home(&self) -> Result<(), Error> {
         self.send_and_wait(&PanTiltCommand::Home).await
     }
 
     /// Recall a preset position.
-    pub async fn recall_preset(&mut self, preset: P::PresetId) -> Result<(), Error> {
+    pub async fn recall_preset(&self, preset: P::PresetId) -> Result<(), Error> {
         let id: u8 = preset.into();
         let preset_number = PresetNumber::new(id)?;
         let command = PresetCommand {
@@ -218,7 +218,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set a preset position.
-    pub async fn set_preset(&mut self, preset: P::PresetId) -> Result<(), Error> {
+    pub async fn set_preset(&self, preset: P::PresetId) -> Result<(), Error> {
         let id: u8 = preset.into();
         let preset_number = PresetNumber::new(id)?;
         let command = PresetCommand {
@@ -229,7 +229,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Clear a preset position.
-    pub async fn clear_preset(&mut self, preset: P::PresetId) -> Result<(), Error> {
+    pub async fn clear_preset(&self, preset: P::PresetId) -> Result<(), Error> {
         let id: u8 = preset.into();
         let preset_number = PresetNumber::new(id)?;
         let command = PresetCommand {
@@ -240,22 +240,22 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Zoom in at standard speed.
-    pub async fn zoom_in(&mut self) -> Result<(), Error> {
+    pub async fn zoom_in(&self) -> Result<(), Error> {
         self.send_and_wait(&ZoomCommand::ZoomInStandard).await
     }
 
     /// Zoom out at standard speed.
-    pub async fn zoom_out(&mut self) -> Result<(), Error> {
+    pub async fn zoom_out(&self) -> Result<(), Error> {
         self.send_and_wait(&ZoomCommand::ZoomOutStandard).await
     }
 
     /// Stop zooming.
-    pub async fn zoom_stop(&mut self) -> Result<(), Error> {
+    pub async fn zoom_stop(&self) -> Result<(), Error> {
         self.send_and_wait(&ZoomCommand::Stop).await
     }
 
     /// Set zoom to direct position.
-    pub async fn set_zoom(&mut self, position: u16) -> Result<(), Error> {
+    pub async fn set_zoom(&self, position: u16) -> Result<(), Error> {
         if !P::ZOOM_RANGE.contains(&position) {
             return Err(Error::ParameterOutOfRange {
                 parameter: "zoom".to_string(),
@@ -269,17 +269,17 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set focus mode to auto.
-    pub async fn focus_auto(&mut self) -> Result<(), Error> {
+    pub async fn focus_auto(&self) -> Result<(), Error> {
         self.send_and_wait(&FocusCommand::Auto).await
     }
 
     /// Set focus mode to manual.
-    pub async fn focus_manual(&mut self) -> Result<(), Error> {
+    pub async fn focus_manual(&self) -> Result<(), Error> {
         self.send_and_wait(&FocusCommand::Manual).await
     }
 
     /// Set focus to direct position (manual mode).
-    pub async fn set_focus(&mut self, position: u16) -> Result<(), Error> {
+    pub async fn set_focus(&self, position: u16) -> Result<(), Error> {
         if !P::FOCUS_RANGE.contains(&position) {
             return Err(Error::ParameterOutOfRange {
                 parameter: "focus".to_string(),
@@ -293,19 +293,19 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set exposure mode.
-    pub async fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), Error> {
+    pub async fn set_exposure_mode(&self, mode: ExposureMode) -> Result<(), Error> {
         let command = ExposureCommand { mode };
         self.send_and_wait(&command).await
     }
 
     /// Set white balance mode.
-    pub async fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
+    pub async fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
         let command = WhiteBalanceCommand { mode };
         self.send_and_wait(&command).await
     }
 
     /// Set gain value.
-    pub async fn set_gain(&mut self, gain: P::GainValue) -> Result<(), Error> {
+    pub async fn set_gain(&self, gain: P::GainValue) -> Result<(), Error> {
         let value: u8 = gain.into();
         let gain_value = GainValue::new(value)?;
         self.send_and_wait(&GainCommand::Direct(gain_value)).await
@@ -314,33 +314,33 @@ impl<P: CameraProfile> Camera<P> {
     // Exposure Compensation Methods
 
     /// Enable exposure compensation.
-    pub async fn exposure_compensation_on(&mut self) -> Result<(), Error> {
+    pub async fn exposure_compensation_on(&self) -> Result<(), Error> {
         self.send_and_wait(&ExposureCompensationCommand::On).await
     }
 
     /// Disable exposure compensation.
-    pub async fn exposure_compensation_off(&mut self) -> Result<(), Error> {
+    pub async fn exposure_compensation_off(&self) -> Result<(), Error> {
         self.send_and_wait(&ExposureCompensationCommand::Off).await
     }
 
     /// Reset exposure compensation to 0.
-    pub async fn exposure_compensation_reset(&mut self) -> Result<(), Error> {
+    pub async fn exposure_compensation_reset(&self) -> Result<(), Error> {
         self.send_and_wait(&ExposureCompensationCommand::Reset)
             .await
     }
 
     /// Increase exposure compensation by one step.
-    pub async fn exposure_compensation_up(&mut self) -> Result<(), Error> {
+    pub async fn exposure_compensation_up(&self) -> Result<(), Error> {
         self.send_and_wait(&ExposureCompensationCommand::Up).await
     }
 
     /// Decrease exposure compensation by one step.
-    pub async fn exposure_compensation_down(&mut self) -> Result<(), Error> {
+    pub async fn exposure_compensation_down(&self) -> Result<(), Error> {
         self.send_and_wait(&ExposureCompensationCommand::Down).await
     }
 
     /// Set exposure compensation level directly (-7 to +7).
-    pub async fn set_exposure_compensation(&mut self, level: i8) -> Result<(), Error> {
+    pub async fn set_exposure_compensation(&self, level: i8) -> Result<(), Error> {
         let comp_level = ExposureCompensationLevel::new(level)?;
         self.send_and_wait(&ExposureCompensationCommand::Direct(comp_level))
             .await
@@ -349,7 +349,7 @@ impl<P: CameraProfile> Camera<P> {
     // Dynamic Range Methods
 
     /// Set dynamic range level (0-8).
-    pub async fn set_dynamic_range(&mut self, level: u8) -> Result<(), Error> {
+    pub async fn set_dynamic_range(&self, level: u8) -> Result<(), Error> {
         let dr_level = DynamicRangeLevel::new(level)?;
         self.send_and_wait(&DynamicRangeCommand::Direct(dr_level))
             .await
@@ -358,22 +358,22 @@ impl<P: CameraProfile> Camera<P> {
     // Iris Methods
 
     /// Reset iris to default.
-    pub async fn iris_reset(&mut self) -> Result<(), Error> {
+    pub async fn iris_reset(&self) -> Result<(), Error> {
         self.send_and_wait(&IrisCommand::Reset).await
     }
 
     /// Increase iris opening by one step.
-    pub async fn iris_up(&mut self) -> Result<(), Error> {
+    pub async fn iris_up(&self) -> Result<(), Error> {
         self.send_and_wait(&IrisCommand::Up).await
     }
 
     /// Decrease iris opening by one step.
-    pub async fn iris_down(&mut self) -> Result<(), Error> {
+    pub async fn iris_down(&self) -> Result<(), Error> {
         self.send_and_wait(&IrisCommand::Down).await
     }
 
     /// Set iris level directly.
-    pub async fn set_iris(&mut self, level: u8) -> Result<(), Error> {
+    pub async fn set_iris(&self, level: u8) -> Result<(), Error> {
         let iris_level = IrisLevel::new(level)?;
         self.send_and_wait(&IrisCommand::Direct(iris_level)).await
     }
@@ -381,22 +381,22 @@ impl<P: CameraProfile> Camera<P> {
     // Shutter Methods
 
     /// Reset shutter speed to default.
-    pub async fn shutter_reset(&mut self) -> Result<(), Error> {
+    pub async fn shutter_reset(&self) -> Result<(), Error> {
         self.send_and_wait(&ShutterCommand::Reset).await
     }
 
     /// Increase shutter speed by one step.
-    pub async fn shutter_up(&mut self) -> Result<(), Error> {
+    pub async fn shutter_up(&self) -> Result<(), Error> {
         self.send_and_wait(&ShutterCommand::Up).await
     }
 
     /// Decrease shutter speed by one step.
-    pub async fn shutter_down(&mut self) -> Result<(), Error> {
+    pub async fn shutter_down(&self) -> Result<(), Error> {
         self.send_and_wait(&ShutterCommand::Down).await
     }
 
     /// Set shutter speed directly.
-    pub async fn set_shutter(&mut self, speed: u16) -> Result<(), Error> {
+    pub async fn set_shutter(&self, speed: u16) -> Result<(), Error> {
         let shutter_speed = ShutterSpeed::new(speed)?;
         self.send_and_wait(&ShutterCommand::Direct(shutter_speed))
             .await
@@ -405,22 +405,22 @@ impl<P: CameraProfile> Camera<P> {
     // Brightness Methods
 
     /// Reset brightness to default.
-    pub async fn brightness_reset(&mut self) -> Result<(), Error> {
+    pub async fn brightness_reset(&self) -> Result<(), Error> {
         self.send_and_wait(&BrightCommand::Reset).await
     }
 
     /// Increase brightness by one step.
-    pub async fn brightness_up(&mut self) -> Result<(), Error> {
+    pub async fn brightness_up(&self) -> Result<(), Error> {
         self.send_and_wait(&BrightCommand::Up).await
     }
 
     /// Decrease brightness by one step.
-    pub async fn brightness_down(&mut self) -> Result<(), Error> {
+    pub async fn brightness_down(&self) -> Result<(), Error> {
         self.send_and_wait(&BrightCommand::Down).await
     }
 
     /// Set brightness level directly.
-    pub async fn set_brightness(&mut self, level: u16) -> Result<(), Error> {
+    pub async fn set_brightness(&self, level: u16) -> Result<(), Error> {
         let brightness_level = BrightnessLevel::new(level)?;
         self.send_and_wait(&BrightCommand::Direct(brightness_level))
             .await
@@ -429,94 +429,94 @@ impl<P: CameraProfile> Camera<P> {
     // Gain Methods (additional)
 
     /// Reset gain to default.
-    pub async fn gain_reset(&mut self) -> Result<(), Error> {
+    pub async fn gain_reset(&self) -> Result<(), Error> {
         self.send_and_wait(&GainCommand::Reset).await
     }
 
     /// Increase gain by one step.
-    pub async fn gain_up(&mut self) -> Result<(), Error> {
+    pub async fn gain_up(&self) -> Result<(), Error> {
         self.send_and_wait(&GainCommand::Up).await
     }
 
     /// Decrease gain by one step.
-    pub async fn gain_down(&mut self) -> Result<(), Error> {
+    pub async fn gain_down(&self) -> Result<(), Error> {
         self.send_and_wait(&GainCommand::Down).await
     }
 
     /// Set gain limit.
-    pub async fn set_gain_limit(&mut self, limit: u8) -> Result<(), Error> {
+    pub async fn set_gain_limit(&self, limit: u8) -> Result<(), Error> {
         let gain_limit = GainLimit::new(limit)?;
         self.send_and_wait(&GainLimitCommand { limit: gain_limit })
             .await
     }
 
     /// Set anti-flicker mode.
-    pub async fn set_anti_flicker(&mut self, mode: AntiFlickerMode) -> Result<(), Error> {
+    pub async fn set_anti_flicker(&self, mode: AntiFlickerMode) -> Result<(), Error> {
         self.send_and_wait(&AntiFlickerCommand { mode }).await
     }
 
     // Image Adjustment Methods
 
     /// Enable backlight compensation.
-    pub async fn backlight_on(&mut self) -> Result<(), Error> {
+    pub async fn backlight_on(&self) -> Result<(), Error> {
         self.send_and_wait(&BacklightCommand { status: true }).await
     }
 
     /// Disable backlight compensation.
-    pub async fn backlight_off(&mut self) -> Result<(), Error> {
+    pub async fn backlight_off(&self) -> Result<(), Error> {
         self.send_and_wait(&BacklightCommand { status: false })
             .await
     }
 
     /// Disable 2D noise reduction.
-    pub async fn noise_reduction_2d_off(&mut self) -> Result<(), Error> {
+    pub async fn noise_reduction_2d_off(&self) -> Result<(), Error> {
         self.send_and_wait(&NoiseReduction2DCommand::Off).await
     }
 
     /// Set 2D noise reduction level (1-5).
-    pub async fn set_noise_reduction_2d(&mut self, level: u8) -> Result<(), Error> {
+    pub async fn set_noise_reduction_2d(&self, level: u8) -> Result<(), Error> {
         let nr_level = NoiseReduction2DLevel::new(level)?;
         self.send_and_wait(&NoiseReduction2DCommand::Level(nr_level))
             .await
     }
 
     /// Disable 3D noise reduction.
-    pub async fn noise_reduction_3d_off(&mut self) -> Result<(), Error> {
+    pub async fn noise_reduction_3d_off(&self) -> Result<(), Error> {
         self.send_and_wait(&NoiseReduction3DCommand::Off).await
     }
 
     /// Set 3D noise reduction level (1-5).
-    pub async fn set_noise_reduction_3d(&mut self, level: u8) -> Result<(), Error> {
+    pub async fn set_noise_reduction_3d(&self, level: u8) -> Result<(), Error> {
         let nr_level = NoiseReduction3DLevel::new(level)?;
         self.send_and_wait(&NoiseReduction3DCommand::Level(nr_level))
             .await
     }
 
     /// Enable black and white mode.
-    pub async fn black_white_on(&mut self) -> Result<(), Error> {
+    pub async fn black_white_on(&self) -> Result<(), Error> {
         self.send_and_wait(&BlackWhiteCommand { on: true }).await
     }
 
     /// Disable black and white mode (color mode).
-    pub async fn black_white_off(&mut self) -> Result<(), Error> {
+    pub async fn black_white_off(&self) -> Result<(), Error> {
         self.send_and_wait(&BlackWhiteCommand { on: false }).await
     }
 
     /// Set image flip mode.
-    pub async fn set_image_flip(&mut self, mode: ImageFlipMode) -> Result<(), Error> {
+    pub async fn set_image_flip(&self, mode: ImageFlipMode) -> Result<(), Error> {
         self.send_and_wait(&ImageFlipCombinedCommand { mode }).await
     }
 
     // Flip Methods (Simple vertical flip)
 
     /// Enable image flip (vertical).
-    pub async fn flip_on(&mut self) -> Result<(), Error> {
+    pub async fn flip_on(&self) -> Result<(), Error> {
         self.send_and_wait(&ImageFlipCommand { flip: Flip::On })
             .await
     }
 
     /// Disable image flip (vertical).
-    pub async fn flip_off(&mut self) -> Result<(), Error> {
+    pub async fn flip_off(&self) -> Result<(), Error> {
         self.send_and_wait(&ImageFlipCommand { flip: Flip::Off })
             .await
     }
@@ -524,121 +524,121 @@ impl<P: CameraProfile> Camera<P> {
     // Color Adjustment Methods
 
     /// Trigger one-push white balance adjustment.
-    pub async fn one_push_white_balance(&mut self) -> Result<(), Error> {
+    pub async fn one_push_white_balance(&self) -> Result<(), Error> {
         self.send_and_wait(&OnePushTriggerCommand).await
     }
 
     /// Set red tuning level (-10 to +10).
-    pub async fn set_red_tuning(&mut self, level: i8) -> Result<(), Error> {
+    pub async fn set_red_tuning(&self, level: i8) -> Result<(), Error> {
         self.send_and_wait(&RedTuningCommand { level }).await
     }
 
     /// Set blue tuning level (-10 to +10).
-    pub async fn set_blue_tuning(&mut self, level: i8) -> Result<(), Error> {
+    pub async fn set_blue_tuning(&self, level: i8) -> Result<(), Error> {
         self.send_and_wait(&BlueTuningCommand { level }).await
     }
 
     /// Set saturation level (0x0 = 60%, 0xE = 200%).
-    pub async fn set_saturation(&mut self, level: u8) -> Result<(), Error> {
+    pub async fn set_saturation(&self, level: u8) -> Result<(), Error> {
         self.send_and_wait(&SaturationCommand { level }).await
     }
 
     /// Set hue level (0x0 to 0xE).
-    pub async fn set_hue(&mut self, level: u8) -> Result<(), Error> {
+    pub async fn set_hue(&self, level: u8) -> Result<(), Error> {
         self.send_and_wait(&HueCommand { level }).await
     }
 
     /// Reset color temperature to default.
-    pub async fn color_temperature_reset(&mut self) -> Result<(), Error> {
+    pub async fn color_temperature_reset(&self) -> Result<(), Error> {
         self.send_and_wait(&ColorTemperatureCommand::Reset).await
     }
 
     /// Increase color temperature (cooler/bluer).
-    pub async fn color_temperature_up(&mut self) -> Result<(), Error> {
+    pub async fn color_temperature_up(&self) -> Result<(), Error> {
         self.send_and_wait(&ColorTemperatureCommand::Up).await
     }
 
     /// Decrease color temperature (warmer/redder).
-    pub async fn color_temperature_down(&mut self) -> Result<(), Error> {
+    pub async fn color_temperature_down(&self) -> Result<(), Error> {
         self.send_and_wait(&ColorTemperatureCommand::Down).await
     }
 
     /// Set color temperature directly (0x00 = 2500K to 0x37 = 8000K).
-    pub async fn set_color_temperature(&mut self, temp: u16) -> Result<(), Error> {
+    pub async fn set_color_temperature(&self, temp: u16) -> Result<(), Error> {
         self.send_and_wait(&ColorTemperatureCommand::Direct(temp))
             .await
     }
 
     /// Reset red gain to default.
-    pub async fn red_gain_reset(&mut self) -> Result<(), Error> {
+    pub async fn red_gain_reset(&self) -> Result<(), Error> {
         self.send_and_wait(&RedGainCommand::Reset).await
     }
 
     /// Increase red gain by one step.
-    pub async fn red_gain_up(&mut self) -> Result<(), Error> {
+    pub async fn red_gain_up(&self) -> Result<(), Error> {
         self.send_and_wait(&RedGainCommand::Up).await
     }
 
     /// Decrease red gain by one step.
-    pub async fn red_gain_down(&mut self) -> Result<(), Error> {
+    pub async fn red_gain_down(&self) -> Result<(), Error> {
         self.send_and_wait(&RedGainCommand::Down).await
     }
 
     /// Set red gain directly.
-    pub async fn set_red_gain(&mut self, value: u8) -> Result<(), Error> {
+    pub async fn set_red_gain(&self, value: u8) -> Result<(), Error> {
         self.send_and_wait(&RedGainCommand::Direct(value)).await
     }
 
     /// Reset blue gain to default.
-    pub async fn blue_gain_reset(&mut self) -> Result<(), Error> {
+    pub async fn blue_gain_reset(&self) -> Result<(), Error> {
         self.send_and_wait(&BlueGainCommand::Reset).await
     }
 
     /// Increase blue gain by one step.
-    pub async fn blue_gain_up(&mut self) -> Result<(), Error> {
+    pub async fn blue_gain_up(&self) -> Result<(), Error> {
         self.send_and_wait(&BlueGainCommand::Up).await
     }
 
     /// Decrease blue gain by one step.
-    pub async fn blue_gain_down(&mut self) -> Result<(), Error> {
+    pub async fn blue_gain_down(&self) -> Result<(), Error> {
         self.send_and_wait(&BlueGainCommand::Down).await
     }
 
     /// Set blue gain directly.
-    pub async fn set_blue_gain(&mut self, value: u8) -> Result<(), Error> {
+    pub async fn set_blue_gain(&self, value: u8) -> Result<(), Error> {
         self.send_and_wait(&BlueGainCommand::Direct(value)).await
     }
 
     // Luminance, Contrast, and Sharpness Methods
 
     /// Set sharpness mode.
-    pub async fn set_sharpness_mode(&mut self, mode: SharpnessMode) -> Result<(), Error> {
+    pub async fn set_sharpness_mode(&self, mode: SharpnessMode) -> Result<(), Error> {
         self.send_and_wait(&SharpnessCommand::Mode(mode)).await
     }
 
     /// Reset sharpness to default.
-    pub async fn sharpness_reset(&mut self) -> Result<(), Error> {
+    pub async fn sharpness_reset(&self) -> Result<(), Error> {
         self.send_and_wait(&SharpnessCommand::Reset).await
     }
 
     /// Increase sharpness by one step.
-    pub async fn sharpness_up(&mut self) -> Result<(), Error> {
+    pub async fn sharpness_up(&self) -> Result<(), Error> {
         self.send_and_wait(&SharpnessCommand::Up).await
     }
 
     /// Decrease sharpness by one step.
-    pub async fn sharpness_down(&mut self) -> Result<(), Error> {
+    pub async fn sharpness_down(&self) -> Result<(), Error> {
         self.send_and_wait(&SharpnessCommand::Down).await
     }
 
     /// Set sharpness directly (0-11).
-    pub async fn set_sharpness(&mut self, value: u8) -> Result<(), Error> {
+    pub async fn set_sharpness(&self, value: u8) -> Result<(), Error> {
         self.send_and_wait(&SharpnessCommand::Direct { value })
             .await
     }
 
     /// Set luminance level.
-    pub async fn set_luminance(&mut self, level: u8) -> Result<(), Error> {
+    pub async fn set_luminance(&self, level: u8) -> Result<(), Error> {
         let luminance_level = LuminanceLevel::new(level)?;
         self.send_and_wait(&LuminanceCommand {
             value: luminance_level,
@@ -647,7 +647,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set contrast level.
-    pub async fn set_contrast(&mut self, level: u8) -> Result<(), Error> {
+    pub async fn set_contrast(&self, level: u8) -> Result<(), Error> {
         let contrast_level = ContrastLevel::new(level)?;
         self.send_and_wait(&ContrastCommand {
             value: contrast_level,
@@ -660,13 +660,13 @@ impl<P: CameraProfile> Camera<P> {
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 impl<P: CameraProfile> Camera<P> {
     /// Power on the camera.
-    pub fn power_on(&mut self) -> Result<(), Error> {
+    pub fn power_on(&self) -> Result<(), Error> {
         let command = PowerCommand { power: Power::On };
         self.send_and_wait(&command)
     }
 
     /// Power off the camera.
-    pub fn power_off(&mut self) -> Result<(), Error> {
+    pub fn power_off(&self) -> Result<(), Error> {
         let command = PowerCommand {
             power: Power::Standby,
         };
@@ -674,7 +674,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Stop all camera movement.
-    pub fn stop(&mut self) -> Result<(), Error> {
+    pub fn stop(&self) -> Result<(), Error> {
         let command = PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::new(0)
@@ -686,27 +686,27 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Move camera to home position.
-    pub fn home(&mut self) -> Result<(), Error> {
+    pub fn home(&self) -> Result<(), Error> {
         self.send_and_wait(&PanTiltCommand::Home)
     }
 
     /// Zoom in at standard speed.
-    pub fn zoom_in(&mut self) -> Result<(), Error> {
+    pub fn zoom_in(&self) -> Result<(), Error> {
         self.send_and_wait(&ZoomCommand::ZoomInStandard)
     }
 
     /// Zoom out at standard speed.
-    pub fn zoom_out(&mut self) -> Result<(), Error> {
+    pub fn zoom_out(&self) -> Result<(), Error> {
         self.send_and_wait(&ZoomCommand::ZoomOutStandard)
     }
 
     /// Stop zooming.
-    pub fn zoom_stop(&mut self) -> Result<(), Error> {
+    pub fn zoom_stop(&self) -> Result<(), Error> {
         self.send_and_wait(&ZoomCommand::Stop)
     }
 
     /// Set zoom to direct position.
-    pub fn set_zoom(&mut self, position: u16) -> Result<(), Error> {
+    pub fn set_zoom(&self, position: u16) -> Result<(), Error> {
         if !P::ZOOM_RANGE.contains(&position) {
             return Err(Error::ParameterOutOfRange {
                 parameter: "zoom".to_string(),
@@ -720,17 +720,17 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set focus mode to auto.
-    pub fn focus_auto(&mut self) -> Result<(), Error> {
+    pub fn focus_auto(&self) -> Result<(), Error> {
         self.send_and_wait(&FocusCommand::Auto)
     }
 
     /// Set focus mode to manual.
-    pub fn focus_manual(&mut self) -> Result<(), Error> {
+    pub fn focus_manual(&self) -> Result<(), Error> {
         self.send_and_wait(&FocusCommand::Manual)
     }
 
     /// Set the camera to an absolute pan/tilt position in degrees.
-    pub fn set_position(&mut self, pan: Degrees<f32>, tilt: Degrees<f32>) -> Result<(), Error> {
+    pub fn set_position(&self, pan: Degrees<f32>, tilt: Degrees<f32>) -> Result<(), Error> {
         // Convert degrees to VISCA units using the camera profile
         let pan_units = self.profile.pan_degrees_to_units(pan.0);
         let tilt_units = self.profile.tilt_degrees_to_units(tilt.0);
@@ -767,7 +767,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Move the camera continuously in a direction.
     pub fn move_continuous(
-        &mut self,
+        &self,
         direction: PanTiltDirection,
         pan_speed: u8,
         tilt_speed: u8,
@@ -790,7 +790,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Recall a preset position.
-    pub fn recall_preset(&mut self, preset: P::PresetId) -> Result<(), Error> {
+    pub fn recall_preset(&self, preset: P::PresetId) -> Result<(), Error> {
         let id: u8 = preset.into();
         let preset_number = PresetNumber::new(id)?;
         let command = PresetCommand {
@@ -801,7 +801,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set a preset position.
-    pub fn set_preset(&mut self, preset: P::PresetId) -> Result<(), Error> {
+    pub fn set_preset(&self, preset: P::PresetId) -> Result<(), Error> {
         let id: u8 = preset.into();
         let preset_number = PresetNumber::new(id)?;
         let command = PresetCommand {
@@ -812,19 +812,19 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set exposure mode.
-    pub fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), Error> {
+    pub fn set_exposure_mode(&self, mode: ExposureMode) -> Result<(), Error> {
         let command = ExposureCommand { mode };
         self.send_and_wait(&command)
     }
 
     /// Set white balance mode.
-    pub fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
+    pub fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
         let command = WhiteBalanceCommand { mode };
         self.send_and_wait(&command)
     }
 
     /// Set gain value.
-    pub fn set_gain(&mut self, gain: P::GainValue) -> Result<(), Error> {
+    pub fn set_gain(&self, gain: P::GainValue) -> Result<(), Error> {
         let value: u8 = gain.into();
         let gain_value = GainValue::new(value)?;
         self.send_and_wait(&GainCommand::Direct(gain_value))

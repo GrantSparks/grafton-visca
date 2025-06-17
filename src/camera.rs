@@ -69,7 +69,7 @@ mod minimal_executor {
 /// Core camera abstraction with compile-time profile information.
 pub struct Camera<P: CameraProfile> {
     profile: P,
-    transport: Box<dyn Transport>,
+    transport: Arc<Mutex<Box<dyn Transport>>>,
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     session: Arc<Mutex<Session>>,
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -522,7 +522,7 @@ impl<P: CameraProfile> Camera<P> {
     pub fn new(transport: impl Transport + 'static) -> Self {
         Self {
             profile: P::default(),
-            transport: Box::new(transport),
+            transport: Arc::new(Mutex::new(Box::new(transport))),
             #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             session: Arc::new(Mutex::new(Session::new())),
             #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -534,7 +534,7 @@ impl<P: CameraProfile> Camera<P> {
     pub fn with_profile(transport: impl Transport + 'static, profile: P) -> Self {
         Self {
             profile,
-            transport: Box::new(transport),
+            transport: Arc::new(Mutex::new(Box::new(transport))),
             #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             session: Arc::new(Mutex::new(Session::new())),
             #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -563,14 +563,12 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get a reference to the transport.
-    pub fn transport(&self) -> &dyn Transport {
-        &*self.transport
-    }
-
+    /// Note: This method is removed because the transport is now behind a Mutex.
+    /// Use send_raw methods instead for sending commands.
+    
     /// Get a mutable reference to the transport.
-    pub fn transport_mut(&mut self) -> &mut dyn Transport {
-        &mut *self.transport
-    }
+    /// Note: This method is removed because the transport is now behind a Mutex.
+    /// Use send_raw methods instead for sending commands.
 
     /// Get the camera profile.
     pub fn profile(&self) -> &P {
@@ -579,7 +577,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Send a command and wait for completion (async).
     #[cfg(feature = "async-client")]
-    async fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+    async fn send_and_wait(&self, command: &dyn Command) -> Result<(), ViscaError> {
         match self.send_raw_async(command).await? {
             Response::Completion => Ok(()),
             Response::Ack => {
@@ -596,7 +594,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Send a command and wait for completion (blocking).
     #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-    fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+    fn send_and_wait(&self, command: &dyn Command) -> Result<(), ViscaError> {
         match self.send_raw(command)? {
             Response::Completion => Ok(()),
             Response::Ack => {
@@ -613,7 +611,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Send a raw command to the camera (blocking).
     #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-    pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+    pub fn send_raw(&self, command: &dyn Command) -> Result<Response, ViscaError> {
         use self::minimal_executor::block_on_ready;
         use crate::sync_primitives::SemaphoreExt;
 
@@ -627,17 +625,22 @@ impl<P: CameraProfile> Camera<P> {
         };
 
         // Send command with socket ID using the minimal executor
-        if let Err(e) = block_on_ready(self.transport.send_command(command, socket_id)) {
-            // Release socket on error
-            let mut session = self.session.lock();
-            session.release_socket(socket_id);
-            return Err(e);
+        {
+            let mut transport = self.transport.lock();
+            if let Err(e) = block_on_ready(transport.send_command(command, socket_id)) {
+                // Release socket on error
+                let mut session = self.session.lock();
+                session.release_socket(socket_id);
+                return Err(e);
+            }
         }
 
         // Wait for response
         loop {
-            let (_resp_socket_id, response_data) =
-                block_on_ready(self.transport.receive_response())?;
+            let (_resp_socket_id, response_data) = {
+                let mut transport = self.transport.lock();
+                block_on_ready(transport.receive_response())?
+            };
 
             let mut session = self.session.lock();
             match session.process_response(&response_data) {
@@ -656,7 +659,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Send a raw command to the camera (async).
     #[cfg(feature = "async-client")]
-    pub async fn send_raw_async(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+    pub async fn send_raw_async(&self, command: &dyn Command) -> Result<Response, ViscaError> {
         use crate::sync_primitives::SemaphoreExt;
 
         // Acquire semaphore permit for concurrency control
@@ -669,16 +672,22 @@ impl<P: CameraProfile> Camera<P> {
         };
 
         // Send command with socket ID
-        if let Err(e) = self.transport.send_command(command, socket_id).await {
-            // Release socket on error
-            let mut session = self.session.lock().await;
-            session.release_socket(socket_id);
-            return Err(e);
+        {
+            let mut transport = self.transport.lock().await;
+            if let Err(e) = transport.send_command(command, socket_id).await {
+                // Release socket on error
+                let mut session = self.session.lock().await;
+                session.release_socket(socket_id);
+                return Err(e);
+            }
         }
 
         // Wait for response
         loop {
-            let (_resp_socket_id, response_data) = self.transport.receive_response().await?;
+            let (_resp_socket_id, response_data) = {
+                let mut transport = self.transport.lock().await;
+                transport.receive_response().await?
+            };
 
             let mut session = self.session.lock().await;
 

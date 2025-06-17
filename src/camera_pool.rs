@@ -305,12 +305,27 @@ impl<P: CameraProfile> CameraPool<P> {
     /// # Errors
     /// Returns an error if the camera is not found.
     pub fn health_check(&self, camera_id: &str) -> Result<bool, ViscaError> {
-        self.with_camera(camera_id, |_camera| {
-            // Try a simple operation as health check
-            // Since we can't do async in sync context, just return Ok(true)
-            // Real health check would need async version
-            Ok(true)
-        })
+        #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+        {
+            self.with_camera(camera_id, |camera| {
+                // Send a power inquiry command to check if the camera is responsive
+                use crate::command::inquiry::InquiryCommand;
+                
+                match camera.send_raw(&InquiryCommand::Power) {
+                    Ok(_) => Ok(true),  // Camera responded, it's healthy
+                    Err(_) => Ok(false), // Camera didn't respond, it's not healthy
+                }
+            })
+        }
+        
+        #[cfg(not(all(feature = "blocking-client", not(feature = "async-client"))))]
+        {
+            self.with_camera(camera_id, |_camera| {
+                // When async is enabled or blocking is disabled, we can't perform a real 
+                // health check without an async context, so just check if camera exists
+                Ok(true)
+            })
+        }
     }
 
     /// Performs health checks on all cameras.
@@ -505,12 +520,14 @@ impl<P: CameraProfile> CameraPool<P> {
 
     /// Async version of health_check.
     pub async fn health_check_async(&self, camera_id: &str) -> Result<bool, ViscaError> {
-        self.with_camera_async(camera_id, |_camera| async move {
-            // TODO: The camera pool stores Arc<Camera<P>>, which cannot be mutated.
-            // This needs a redesign to support mutable operations or the Camera
-            // should use interior mutability for its transport.
-            // For now, we'll just return true to indicate the camera exists in the pool.
-            Ok(true)
+        self.with_camera_async(camera_id, |camera| async move {
+            // Send a power inquiry command to check if the camera is responsive
+            use crate::command::inquiry::InquiryCommand;
+            
+            match camera.send_raw_async(&InquiryCommand::Power).await {
+                Ok(_) => Ok(true),  // Camera responded, it's healthy
+                Err(_) => Ok(false), // Camera didn't respond, it's not healthy
+            }
         })
         .await
     }

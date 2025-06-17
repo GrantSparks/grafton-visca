@@ -516,7 +516,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
                         prepared.description
                     );
 
-                    let mut camera_guard = camera.lock().await;
+                    let camera_guard = camera.lock().await;
                     let result = camera_guard.send_raw_async(prepared.command.as_ref()).await;
                     drop(camera_guard); // Release lock as soon as possible
 

@@ -11,6 +11,7 @@ use common::{
 };
 use grafton_visca::{
     command::power::{Power, PowerCommand},
+    reconnecting_transport::ConnectionEventCallback,
     transport::Transport,
     Command, ConnectionEvent, Error, ReconnectingTransport, ReconnectionConfig,
 };
@@ -49,6 +50,7 @@ impl Transport for FailingMockTransport {
     fn send_command<'a>(
         &'a mut self,
         command: &'a dyn Command,
+        socket_id: grafton_visca::types::SocketId,
     ) -> grafton_visca::transport::TransportFuture<'a, ()> {
         Box::pin(async move {
             // Check if we should fail
@@ -65,11 +67,11 @@ impl Transport for FailingMockTransport {
                 }
             }
 
-            self.inner.send_command(command).await
+            self.inner.send_command(command, socket_id).await
         })
     }
 
-    fn receive_response(&mut self) -> grafton_visca::transport::TransportFuture<'_, Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> grafton_visca::transport::TransportFuture<'_, (grafton_visca::types::SocketId, Vec<u8>)> {
         Box::pin(async move {
             // Check if we should fail
             if self.should_fail.load(Ordering::SeqCst) {
@@ -126,7 +128,7 @@ async fn test_basic_reconnection() {
     // Should work normally
     let cmd = PowerCommand { power: Power::On };
     assert_ok(
-        reconnecting.send_command(&cmd).await,
+        reconnecting.send_command(&cmd, grafton_visca::types::SocketId::SOCKET_0).await,
         "Send command should succeed",
     );
 
@@ -178,7 +180,7 @@ async fn test_reconnection_after_failure() {
 
     // This should succeed after reconnection
     assert_ok(
-        reconnecting.send_command(&cmd).await,
+        reconnecting.send_command(&cmd, grafton_visca::types::SocketId::SOCKET_0).await,
         "Command should succeed after reconnection",
     );
 
@@ -227,7 +229,7 @@ async fn test_max_retry_attempts() {
 
     // This should fail after max retries
     let cmd = PowerCommand { power: Power::On };
-    let result = reconnecting.send_command(&cmd).await;
+    let result = reconnecting.send_command(&cmd, grafton_visca::types::SocketId::SOCKET_0).await;
 
     assert!(result.is_err());
     let err = assert_err(result, "Command should fail after max retries");
@@ -282,7 +284,7 @@ async fn test_exponential_backoff() {
 
     // Trigger reconnection by sending a command that will fail
     let cmd = PowerCommand { power: Power::On };
-    let result = reconnecting.send_command(&cmd).await;
+    let result = reconnecting.send_command(&cmd, grafton_visca::types::SocketId::SOCKET_0).await;
     assert!(result.is_err());
 
     let times = attempt_times.lock().await;
@@ -314,7 +316,7 @@ async fn test_connection_event_callbacks() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = events.clone();
 
-    let callback: grafton_visca::ConnectionEventCallback = Arc::new(move |event| {
+    let callback: ConnectionEventCallback = Arc::new(move |event| {
         let events = events_clone.clone();
         tokio::spawn(async move {
             events.lock().await.push(event);
@@ -364,7 +366,7 @@ async fn test_connection_event_callbacks() {
 
     // Trigger failure and reconnection
     let cmd = PowerCommand { power: Power::On };
-    let _ = reconnecting.send_command(&cmd).await;
+    let _ = reconnecting.send_command(&cmd, grafton_visca::types::SocketId::SOCKET_0).await;
 
     // Give callbacks time to execute
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -431,7 +433,7 @@ async fn test_health_check_triggers_reconnection() {
     // First command should work
     let cmd = PowerCommand { power: Power::On };
     assert_ok(
-        reconnecting.send_command(&cmd).await,
+        reconnecting.send_command(&cmd, grafton_visca::types::SocketId::SOCKET_0).await,
         "First command should work",
     );
 
@@ -441,7 +443,7 @@ async fn test_health_check_triggers_reconnection() {
     // Next command should trigger health check and possible reconnection
     // The health check in ensure_connected will only trigger if the transport
     // has no responses queued for receive_response
-    let result = reconnecting.send_command(&cmd).await;
+    let result = reconnecting.send_command(&cmd, grafton_visca::types::SocketId::SOCKET_0).await;
 
     // This may not trigger reconnection because we added responses to the transport
     // The test assumption was wrong - health check in our implementation just tries
@@ -502,9 +504,9 @@ async fn test_concurrent_operations_during_reconnection() {
     let cmd1 = PowerCommand { power: Power::On };
     let cmd2 = PowerCommand { power: Power::On };
 
-    let handle1 = tokio::spawn(async move { reconnecting.send_command(&cmd1).await });
+    let handle1 = tokio::spawn(async move { reconnecting.send_command(&cmd1, grafton_visca::types::SocketId::SOCKET_0).await });
 
-    let handle2 = tokio::spawn(async move { reconnecting2.send_command(&cmd2).await });
+    let handle2 = tokio::spawn(async move { reconnecting2.send_command(&cmd2, grafton_visca::types::SocketId::SOCKET_1).await });
 
     // Both operations should complete (one might fail if it tried during reconnection)
     let result1 = assert_ok(handle1.await, "Task 1 should not panic");
@@ -533,7 +535,7 @@ async fn test_stats_tracking() {
     let cmd = PowerCommand { power: Power::On };
 
     assert_ok(
-        reconnecting.send_command(&cmd).await,
+        reconnecting.send_command(&cmd, grafton_visca::types::SocketId::SOCKET_0).await,
         "Send command for stats should succeed",
     );
     assert_ok(
