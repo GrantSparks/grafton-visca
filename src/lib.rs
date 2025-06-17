@@ -172,7 +172,9 @@ mod connection;
 mod constants;
 mod macros;
 mod session;
-mod types;
+
+/// Type definitions and abstractions
+pub mod types;
 
 // Multi-camera support
 pub mod camera_pool;
@@ -183,18 +185,10 @@ mod reconnecting_transport;
 #[cfg(feature = "async-client")]
 mod transport_future;
 
-// Extension traits and old API - commented out for removal
-// mod api;
-// mod ext;
-// mod prelude;
 pub mod timeout; // Public for use in macros
 
-// #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-// mod ptz_builder;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod sync_primitives;
-// #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-// mod unified_client;
 
 // Core re-exports for Camera<P> API
 pub use camera::{Camera, CameraProfile};
