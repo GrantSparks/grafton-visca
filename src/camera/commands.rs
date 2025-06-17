@@ -64,11 +64,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set the camera to an absolute pan/tilt position in degrees.
-    pub async fn set_position(
-        &self,
-        pan: Degrees<f32>,
-        tilt: Degrees<f32>,
-    ) -> Result<(), Error> {
+    pub async fn set_position(&self, pan: Degrees<f32>, tilt: Degrees<f32>) -> Result<(), Error> {
         // Convert degrees to VISCA units using the camera profile
         let pan_units = self.profile.pan_degrees_to_units(pan.0);
         let tilt_units = self.profile.tilt_degrees_to_units(tilt.0);

@@ -310,18 +310,18 @@ impl<P: CameraProfile> CameraPool<P> {
             self.with_camera(camera_id, |camera| {
                 // Send a power inquiry command to check if the camera is responsive
                 use crate::command::inquiry::InquiryCommand;
-                
+
                 match camera.send_raw(&InquiryCommand::Power) {
-                    Ok(_) => Ok(true),  // Camera responded, it's healthy
+                    Ok(_) => Ok(true),   // Camera responded, it's healthy
                     Err(_) => Ok(false), // Camera didn't respond, it's not healthy
                 }
             })
         }
-        
+
         #[cfg(not(all(feature = "blocking-client", not(feature = "async-client"))))]
         {
             self.with_camera(camera_id, |_camera| {
-                // When async is enabled or blocking is disabled, we can't perform a real 
+                // When async is enabled or blocking is disabled, we can't perform a real
                 // health check without an async context, so just check if camera exists
                 Ok(true)
             })
@@ -523,9 +523,9 @@ impl<P: CameraProfile> CameraPool<P> {
         self.with_camera_async(camera_id, |camera| async move {
             // Send a power inquiry command to check if the camera is responsive
             use crate::command::inquiry::InquiryCommand;
-            
+
             match camera.send_raw_async(&InquiryCommand::Power).await {
-                Ok(_) => Ok(true),  // Camera responded, it's healthy
+                Ok(_) => Ok(true),   // Camera responded, it's healthy
                 Err(_) => Ok(false), // Camera didn't respond, it's not healthy
             }
         })
