@@ -919,11 +919,14 @@ mod speed_tests {
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)] // OK in tests
     fn test_noise_reduction_strength() {
+        // Test 2D level conversions
         assert!(NoiseReductionStrength::Off.to_2d_level().is_err());
         assert_eq!(NoiseReductionStrength::Minimal.to_2d_level().unwrap(), 1);
         assert_eq!(NoiseReductionStrength::Maximum.to_2d_level().unwrap(), 5);
 
+        // Test 3D level conversions
         assert!(NoiseReductionStrength::Off.to_3d_level().is_err());
         assert_eq!(NoiseReductionStrength::Minimal.to_3d_level().unwrap(), 1);
         assert_eq!(NoiseReductionStrength::Maximum.to_3d_level().unwrap(), 8);

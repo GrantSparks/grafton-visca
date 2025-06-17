@@ -494,12 +494,14 @@ mod tests {
 
     #[test]
     fn test_resilience_stats() {
-        let mut stats = ResilienceStats::default();
-        stats.total_operations = 100;
-        stats.first_try_successes = 80;
-        stats.retry_successes = 15;
-        stats.failures = 5;
-        stats.total_retries = 25;
+        let stats = ResilienceStats {
+            total_operations: 100,
+            first_try_successes: 80,
+            retry_successes: 15,
+            failures: 5,
+            total_retries: 25,
+            ..Default::default()
+        };
 
         assert_eq!(stats.success_rate(), 95.0);
         assert_eq!(stats.average_retries(), 0.25);
