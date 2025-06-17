@@ -30,6 +30,42 @@ pub use extensions::{CameraExtension, CustomManufacturerExt, DiagnosticsExt, Scr
 pub use inquiry::{CameraState, Exposure, ImageSettings, Optics, Position, WhiteBalance};
 pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 
+/// Minimal executor for polling std::future::Ready futures without an async runtime.
+/// This is used for the blocking API when no async runtime is available.
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+mod minimal_executor {
+    use std::future::Future;
+    use std::sync::Arc;
+    use std::task::{Context, Poll};
+
+    /// A no-op waker that does nothing when woken.
+    /// This is safe for Ready futures since they are already complete.
+    struct NoopWaker;
+
+    impl std::task::Wake for NoopWaker {
+        fn wake(self: Arc<Self>) {}
+        fn wake_by_ref(self: &Arc<Self>) {}
+    }
+
+    /// Block on a future by polling it once.
+    ///
+    /// This only works for futures that are immediately ready (like std::future::Ready).
+    /// It will panic if the future returns Poll::Pending.
+    pub fn block_on_ready<F: Future>(fut: F) -> F::Output {
+        let waker = Arc::new(NoopWaker).into();
+        let mut cx = Context::from_waker(&waker);
+        let mut fut = Box::pin(fut);
+
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(output) => output,
+            Poll::Pending => panic!(
+                "block_on_ready() called on a future that returned Poll::Pending. \
+                 This executor only supports immediately-ready futures like std::future::Ready."
+            ),
+        }
+    }
+}
+
 /// Core camera abstraction with compile-time profile information.
 pub struct Camera<P: CameraProfile> {
     profile: P,
@@ -558,57 +594,61 @@ impl<P: CameraProfile> Camera<P> {
         }
     }
 
+    /// Send a command and wait for completion (blocking).
+    #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+    fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+        match self.send_raw(command)? {
+            Response::Completion => Ok(()),
+            Response::Ack => {
+                // Wait for completion after ACK
+                // This is handled internally by send_raw
+                Ok(())
+            }
+            response => Err(ViscaError::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
     /// Send a raw command to the camera (blocking).
     #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
     pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+        use self::minimal_executor::block_on_ready;
         use crate::sync_primitives::SemaphoreExt;
 
         // Acquire semaphore permit for concurrency control
         let _permit = self.semaphore.acquire_permit();
 
         // Get socket assignment from session
-        #[allow(unused_variables)]
         let socket_id = {
             let mut session = self.session.lock();
             session.assign_socket(command.response_type())?
         };
 
-        // Send command with socket ID
-        // Note: In blocking mode, we need to use a blocking runtime to execute async methods
-        // This is a limitation of the current design where Transport is async-only
-        // TODO: Consider adding a BlockingTransport wrapper or requiring BlockingAdapter
+        // Send command with socket ID using the minimal executor
+        if let Err(e) = block_on_ready(self.transport.send_command(command, socket_id)) {
+            // Release socket on error
+            let mut session = self.session.lock();
+            session.release_socket(socket_id);
+            return Err(e);
+        }
 
-        // This is a design limitation: blocking mode without async runtime is not supported
-        // The proper implementation would require either:
-        // 1. A blocking runtime (not available without tokio)
-        // 2. Redesigning to require BlockingAdapter wrapper
-        // 3. Adding blocking methods to Transport trait
-        
-        // For now, return an error instead of panicking
-        return Err(ViscaError::InvalidState(
-            "Blocking mode requires tokio feature or a BlockingAdapter wrapper. \
-             Enable the 'tokio' feature or use Camera::new(BlockingAdapter(transport))".to_string()
-        ));
-        
-        // The following is unreachable but shows what the implementation would look like:
-        #[allow(unreachable_code, unused_variables, clippy::never_loop)]
-        {
-            #[allow(clippy::diverging_sub_expression)]
-            loop {
-                let (_resp_socket_id, response_data): (crate::types::SocketId, Vec<u8>) =
-                    unreachable!();
+        // Wait for response
+        loop {
+            let (_resp_socket_id, response_data) =
+                block_on_ready(self.transport.receive_response())?;
 
-                let mut session = self.session.lock();
-                match session.process_response(&response_data) {
-                    Ok(Some((socket, response))) if socket == socket_id => {
-                        session.release_socket(socket_id);
-                        return Ok(response);
-                    }
-                    Ok(_) => continue, // Response for different socket, keep waiting
-                    Err(e) => {
-                        session.release_socket(socket_id);
-                        return Err(e);
-                    }
+            let mut session = self.session.lock();
+            match session.process_response(&response_data) {
+                Ok(Some((socket, response))) if socket == socket_id => {
+                    session.release_socket(socket_id);
+                    return Ok(response);
+                }
+                Ok(_) => continue, // Response for different socket, keep waiting
+                Err(e) => {
+                    session.release_socket(socket_id);
+                    return Err(e);
                 }
             }
         }

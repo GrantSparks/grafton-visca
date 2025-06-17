@@ -407,11 +407,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
 
     /// Adds a custom command to the sequence.
     #[must_use]
-    pub fn custom(
-        self,
-        command: impl Command + 'static,
-        description: impl Into<String>,
-    ) -> Self {
+    pub fn custom(self, command: impl Command + 'static, description: impl Into<String>) -> Self {
         self.add_command(command, description)
     }
 

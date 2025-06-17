@@ -170,21 +170,21 @@ pub struct MovementStep {
 #[derive(Debug, Clone, Copy)]
 pub enum MovementAction {
     /// Pan/tilt to absolute position.
-    PanTilt { 
+    PanTilt {
         /// Pan position in degrees.
-        pan: f32, 
+        pan: f32,
         /// Tilt position in degrees.
-        tilt: f32 
+        tilt: f32,
     },
     /// Zoom to absolute level.
-    Zoom { 
+    Zoom {
         /// Zoom level (0-16384).
-        level: u16 
+        level: u16,
     },
     /// Wait for a duration.
-    Wait { 
+    Wait {
         /// Duration to wait.
-        duration: std::time::Duration 
+        duration: std::time::Duration,
     },
 }
 

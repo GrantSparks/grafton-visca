@@ -240,9 +240,7 @@ fn demo_resilient_camera(camera_addr: &str) -> Result<(), Error> {
     }
 
     // Movement command
-    match resilient
-        .execute(|camera| perform_test_movement(camera))
-    {
+    match resilient.execute(|camera| perform_test_movement(camera)) {
         Ok(_) => {
             println!("   ✓ Movement started");
             thread::sleep(Duration::from_secs(1));

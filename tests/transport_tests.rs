@@ -11,9 +11,9 @@ mod tests {
     use grafton_visca::transport::{
         BlockingAdapter, BlockingTransport, TcpTransport, Transport, UdpTransport,
     };
-    use grafton_visca::{Command, Error};
     #[cfg(feature = "blocking-client")]
     use grafton_visca::types::SocketId;
+    use grafton_visca::{Command, Error};
 
     // Mock command for testing
     #[allow(dead_code)]
@@ -50,7 +50,11 @@ mod tests {
         struct MockBlockingTransport;
 
         impl BlockingTransport for MockBlockingTransport {
-            fn send_command_blocking(&mut self, _command: &dyn Command, _socket_id: SocketId) -> Result<(), Error> {
+            fn send_command_blocking(
+                &mut self,
+                _command: &dyn Command,
+                _socket_id: SocketId,
+            ) -> Result<(), Error> {
                 Ok(())
             }
 

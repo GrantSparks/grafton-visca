@@ -100,6 +100,10 @@ name = "position_conversion"
 required-features = ["blocking-client"]
 
 [[example]]
+name = "blocking_no_runtime"
+required-features = ["blocking-client"]
+
+[[example]]
 name = "reconnecting_transport"
 required-features = ["async-client", "blocking-client"]
 
