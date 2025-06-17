@@ -51,18 +51,22 @@ mod minimal_executor {
     /// Block on a future by polling it once.
     ///
     /// This only works for futures that are immediately ready (like std::future::Ready).
-    /// It will panic if the future returns Poll::Pending.
-    pub fn block_on_ready<F: Future>(fut: F) -> F::Output {
+    /// Returns a Result to handle the case where the future is not ready.
+    pub fn block_on_ready<F: Future>(fut: F) -> Result<F::Output, &'static str>
+    where
+        F::Output: std::fmt::Debug,
+    {
         let waker = Arc::new(NoopWaker).into();
         let mut cx = Context::from_waker(&waker);
         let mut fut = Box::pin(fut);
 
         match fut.as_mut().poll(&mut cx) {
-            Poll::Ready(output) => output,
-            Poll::Pending => panic!(
-                "block_on_ready() called on a future that returned Poll::Pending. \
-                 This executor only supports immediately-ready futures like std::future::Ready."
-            ),
+            Poll::Ready(output) => Ok(output),
+            Poll::Pending => {
+                // This should never happen with the futures we use (which are immediately ready)
+                // Return an error instead of panicking
+                Err("Future not ready - this executor only supports immediately-ready futures")
+            }
         }
     }
 }
@@ -623,7 +627,9 @@ impl<P: CameraProfile> Camera<P> {
         // Send command with socket ID using the minimal executor
         {
             let mut transport = self.transport.lock();
-            if let Err(e) = block_on_ready(transport.send_command(command, socket_id)) {
+            let send_result = block_on_ready(transport.send_command(command, socket_id))
+                .map_err(|e| ViscaError::InvalidState(e.to_string()))?;
+            if let Err(e) = send_result {
                 // Release socket on error
                 let mut session = self.session.lock();
                 session.release_socket(socket_id);
@@ -635,7 +641,9 @@ impl<P: CameraProfile> Camera<P> {
         loop {
             let (_resp_socket_id, response_data) = {
                 let mut transport = self.transport.lock();
-                block_on_ready(transport.receive_response())?
+                let receive_result = block_on_ready(transport.receive_response())
+                    .map_err(|e| ViscaError::InvalidState(e.to_string()))?;
+                receive_result?
             };
 
             let mut session = self.session.lock();

@@ -1,30 +1,15 @@
 //! Type-safe command methods for Camera.
 
+// Common imports for both async and blocking
 #[cfg(any(
     feature = "async-client",
     all(feature = "blocking-client", not(feature = "async-client"))
 ))]
 use crate::{
     command::{
-        color::{
-            BlueGainCommand, BlueTuningCommand, ColorTemperatureCommand, HueCommand,
-            OnePushTriggerCommand, RedGainCommand, RedTuningCommand, SaturationCommand,
-        },
-        exposure::{
-            BrightCommand, DynamicRangeCommand, DynamicRangeLevel, ExposureCommand,
-            ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode, IrisCommand,
-            ShutterCommand,
-        },
-        flip::{Flip, ImageFlipCommand},
+        exposure::{ExposureCommand, ExposureMode},
         focus::FocusCommand,
-        gain::{AntiFlickerCommand, AntiFlickerMode, GainCommand, GainLimitCommand},
-        image::{
-            BacklightCommand, BlackWhiteCommand, ImageFlipCombinedCommand, ImageFlipMode,
-            NoiseReduction2DCommand, NoiseReduction3DCommand,
-        },
-        luminance_contrast_sharpness::{
-            ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode,
-        },
+        gain::GainCommand,
         pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
         power::{Power, PowerCommand},
         preset::{PresetAction, PresetCommand, PresetNumber},
@@ -32,8 +17,33 @@ use crate::{
         zoom::ZoomCommand,
     },
     error::Error,
+    types::GainValue,
+};
+
+// Async-only imports
+#[cfg(feature = "async-client")]
+use crate::{
+    command::{
+        color::{
+            BlueGainCommand, BlueTuningCommand, ColorTemperatureCommand, HueCommand,
+            OnePushTriggerCommand, RedGainCommand, RedTuningCommand, SaturationCommand,
+        },
+        exposure::{
+            BrightCommand, DynamicRangeCommand, DynamicRangeLevel, ExposureCompensationCommand,
+            ExposureCompensationLevel, IrisCommand, ShutterCommand,
+        },
+        flip::{Flip, ImageFlipCommand},
+        gain::{AntiFlickerCommand, AntiFlickerMode, GainLimitCommand},
+        image::{
+            BacklightCommand, BlackWhiteCommand, ImageFlipCombinedCommand, ImageFlipMode,
+            NoiseReduction2DCommand, NoiseReduction3DCommand,
+        },
+        luminance_contrast_sharpness::{
+            ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode,
+        },
+    },
     types::{
-        BrightnessLevel, ContrastLevel, GainLimit, GainValue, IrisLevel, LuminanceLevel,
+        BrightnessLevel, ContrastLevel, GainLimit, IrisLevel, LuminanceLevel,
         NoiseReduction2DLevel, NoiseReduction3DLevel, ShutterSpeed,
     },
 };
@@ -42,10 +52,11 @@ use crate::{
     feature = "async-client",
     all(feature = "blocking-client", not(feature = "async-client"))
 ))]
-use super::{
-    units::{Degrees, Normalized, ViscaUnits},
-    Camera, CameraProfile,
-};
+use super::{units::Degrees, Camera, CameraProfile};
+
+// Async-only unit imports
+#[cfg(feature = "async-client")]
+use super::units::{Normalized, ViscaUnits};
 
 #[cfg(feature = "async-client")]
 impl<P: CameraProfile> Camera<P> {
