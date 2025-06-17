@@ -13,7 +13,7 @@ use tokio::sync::Mutex as AsyncMutex;
 #[cfg(not(feature = "tokio"))]
 use std::sync::Mutex;
 
-use crate::{transport::Transport, Command, Error as ViscaError};
+use crate::{transport::Transport, Command, Error as ViscaError, types::SocketId};
 
 /// Configuration for resilient transport behavior.
 #[derive(Debug, Clone)]
@@ -263,6 +263,7 @@ impl<T: Transport + Clone + Send + Sync + 'static> Transport for ResilientTransp
     fn send_command<'a>(
         &'a mut self,
         command: &'a dyn Command,
+        socket_id: SocketId,
     ) -> crate::transport::TransportFuture<'a, ()> {
         Box::pin(async move {
             #[cfg(not(feature = "tokio"))]
@@ -289,7 +290,7 @@ impl<T: Transport + Clone + Send + Sync + 'static> Transport for ResilientTransp
                     let result = {
                         let mut state = self.state.lock().await;
                         if let Some(ref mut transport) = state.inner {
-                            transport.send_command(command).await
+                            transport.send_command(command, socket_id).await
                         } else {
                             Err(ViscaError::ConnectionLost {
                                 reason: "Transport not connected".to_string(),
@@ -379,7 +380,7 @@ impl<T: Transport + Clone + Send + Sync + 'static> Transport for ResilientTransp
         })
     }
 
-    fn receive_response(&mut self) -> crate::transport::TransportFuture<'_, Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> crate::transport::TransportFuture<'_, (SocketId, Vec<u8>)> {
         Box::pin(async move {
             #[cfg(not(feature = "tokio"))]
             return Err(ViscaError::InvalidState(
@@ -405,11 +406,11 @@ impl<T: Transport + Clone + Send + Sync + 'static> Transport for ResilientTransp
                     };
 
                     match result {
-                        Ok(responses) => {
+                        Ok(response) => {
                             // Update success stats
                             let mut state = self.state.lock().await;
                             state.last_success = Some(Instant::now());
-                            return Ok(responses);
+                            return Ok(response);
                         }
                         Err(e) => {
                             // Check if this is a retryable error
