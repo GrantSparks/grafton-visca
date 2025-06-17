@@ -3,19 +3,21 @@
 //! This example shows how to wrap any transport with resilient behavior to handle
 //! network issues gracefully.
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "async-client")]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     transport::{
         resilient::{ResilienceConfig, ResilienceEvent, ResilientTransport},
         unified::UnifiedTransport,
+        Transport,
     },
+    types::Degrees,
     Error,
 };
 use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -41,9 +43,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config,
         Box::new(|| {
             // Factory function to recreate transport on failure
-            // In a real application, this would create a new connection
-            UnifiedTransport::create_udp("192.168.1.100:1259")
-                .map(|t| Box::new(t) as Box<dyn grafton_visca::transport::Transport>)
+            Box::pin(async move {
+                UnifiedTransport::create_udp("192.168.1.100:1259")
+                    .await
+                    .map(|t| Box::new(t) as Box<dyn Transport>)
+            })
         }),
     );
 
@@ -72,18 +76,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
 
     // Create camera with resilient transport
-    let mut camera: Camera<PTZOpticsG2> = Camera::new(Box::new(resilient));
+    let mut camera: Camera<PTZOpticsG2> = Camera::new(resilient);
 
     // Normal camera operations - resilient transport handles failures transparently
     println!("Moving camera to home position...");
-    camera.pan_tilt_home()?;
+    camera.home().await?;
 
     // Simulate some operations that might fail
     println!("\nPerforming camera operations...");
     for i in 1..=5 {
         println!("Operation {}", i);
-        match camera.get_pan_tilt_position() {
-            Ok(pos) => println!("  Position: pan={}, tilt={}", pos.pan, pos.tilt),
+        match camera.get_position().await {
+            Ok((pan, tilt)) => {
+                let Degrees(pan_deg) = pan;
+                let Degrees(tilt_deg) = tilt;
+                println!("  Position: pan={:.1}°, tilt={:.1}°", pan_deg, tilt_deg);
+            }
             Err(e) => println!("  Failed to get position: {}", e),
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -94,18 +102,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nResilience Statistics:");
     println!("  Total operations: {}", stats.total_operations);
     println!("  First try successes: {}", stats.first_try_successes);
-    println!("  Retried successes: {}", stats.retried_successes);
+    println!("  Retried successes: {}", stats.retry_successes);
     println!("  Total failures: {}", stats.failures);
     println!("  Total retries: {}", stats.total_retries);
-    println!("  Successful reconnections: {}", stats.successful_reconnections);
+    println!(
+        "  Successful reconnections: {}",
+        stats.successful_reconnections
+    );
     println!("  Failed reconnections: {}", stats.failed_reconnections);
 
     println!("\nDemo completed!");
     Ok(())
 }
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(not(feature = "async-client"))]
 fn main() {
-    println!("This example requires the 'tokio' feature to be enabled.");
-    println!("Run with: cargo run --example resilient_transport_demo --features tokio");
+    println!("This example requires the 'async-client' feature to be enabled.");
+    println!("Run with: cargo run --example resilient_transport_demo --features async-client");
 }
