@@ -238,6 +238,7 @@ impl Default for ConnectionStats {
 }
 
 /// Extension trait for VISCA transports to add connection management capabilities
+#[allow(dead_code)]
 pub trait ConnectionManagement {
     /// Check if the connection is healthy by sending a simple inquiry
     ///
@@ -255,6 +256,7 @@ use crate::transport_future::TransportFuture;
 
 /// Async version of the connection management trait
 #[cfg(feature = "async-client")]
+#[allow(dead_code)]
 pub trait AsyncConnectionManagement: Send + Sync {
     /// Check if the connection is healthy by sending a simple inquiry
     fn is_healthy(&mut self) -> TransportFuture<'_, bool>;
