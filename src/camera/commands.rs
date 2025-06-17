@@ -316,7 +316,8 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Reset exposure compensation to 0.
     pub async fn exposure_compensation_reset(&mut self) -> Result<(), Error> {
-        self.send_and_wait(&ExposureCompensationCommand::Reset).await
+        self.send_and_wait(&ExposureCompensationCommand::Reset)
+            .await
     }
 
     /// Increase exposure compensation by one step.
@@ -332,7 +333,8 @@ impl<P: CameraProfile> Camera<P> {
     /// Set exposure compensation level directly (-7 to +7).
     pub async fn set_exposure_compensation(&mut self, level: i8) -> Result<(), Error> {
         let comp_level = ExposureCompensationLevel::new(level)?;
-        self.send_and_wait(&ExposureCompensationCommand::Direct(comp_level)).await
+        self.send_and_wait(&ExposureCompensationCommand::Direct(comp_level))
+            .await
     }
 
     // Dynamic Range Methods
@@ -340,7 +342,8 @@ impl<P: CameraProfile> Camera<P> {
     /// Set dynamic range level (0-8).
     pub async fn set_dynamic_range(&mut self, level: u8) -> Result<(), Error> {
         let dr_level = DynamicRangeLevel::new(level)?;
-        self.send_and_wait(&DynamicRangeCommand::Direct(dr_level)).await
+        self.send_and_wait(&DynamicRangeCommand::Direct(dr_level))
+            .await
     }
 
     // Iris Methods
@@ -386,7 +389,8 @@ impl<P: CameraProfile> Camera<P> {
     /// Set shutter speed directly.
     pub async fn set_shutter(&mut self, speed: u16) -> Result<(), Error> {
         let shutter_speed = ShutterSpeed::new(speed)?;
-        self.send_and_wait(&ShutterCommand::Direct(shutter_speed)).await
+        self.send_and_wait(&ShutterCommand::Direct(shutter_speed))
+            .await
     }
 
     // Brightness Methods
@@ -409,7 +413,8 @@ impl<P: CameraProfile> Camera<P> {
     /// Set brightness level directly.
     pub async fn set_brightness(&mut self, level: u16) -> Result<(), Error> {
         let brightness_level = BrightnessLevel::new(level)?;
-        self.send_and_wait(&BrightCommand::Direct(brightness_level)).await
+        self.send_and_wait(&BrightCommand::Direct(brightness_level))
+            .await
     }
 
     // Gain Methods (additional)
@@ -432,7 +437,8 @@ impl<P: CameraProfile> Camera<P> {
     /// Set gain limit.
     pub async fn set_gain_limit(&mut self, limit: u8) -> Result<(), Error> {
         let gain_limit = GainLimit::new(limit)?;
-        self.send_and_wait(&GainLimitCommand { limit: gain_limit }).await
+        self.send_and_wait(&GainLimitCommand { limit: gain_limit })
+            .await
     }
 
     /// Set anti-flicker mode.
@@ -449,7 +455,8 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Disable backlight compensation.
     pub async fn backlight_off(&mut self) -> Result<(), Error> {
-        self.send_and_wait(&BacklightCommand { status: false }).await
+        self.send_and_wait(&BacklightCommand { status: false })
+            .await
     }
 
     /// Disable 2D noise reduction.
@@ -460,7 +467,8 @@ impl<P: CameraProfile> Camera<P> {
     /// Set 2D noise reduction level (1-5).
     pub async fn set_noise_reduction_2d(&mut self, level: u8) -> Result<(), Error> {
         let nr_level = NoiseReduction2DLevel::new(level)?;
-        self.send_and_wait(&NoiseReduction2DCommand::Level(nr_level)).await
+        self.send_and_wait(&NoiseReduction2DCommand::Level(nr_level))
+            .await
     }
 
     /// Disable 3D noise reduction.
@@ -471,7 +479,8 @@ impl<P: CameraProfile> Camera<P> {
     /// Set 3D noise reduction level (1-5).
     pub async fn set_noise_reduction_3d(&mut self, level: u8) -> Result<(), Error> {
         let nr_level = NoiseReduction3DLevel::new(level)?;
-        self.send_and_wait(&NoiseReduction3DCommand::Level(nr_level)).await
+        self.send_and_wait(&NoiseReduction3DCommand::Level(nr_level))
+            .await
     }
 
     /// Enable black and white mode.
@@ -493,12 +502,14 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Enable image flip (vertical).
     pub async fn flip_on(&mut self) -> Result<(), Error> {
-        self.send_and_wait(&ImageFlipCommand { flip: Flip::On }).await
+        self.send_and_wait(&ImageFlipCommand { flip: Flip::On })
+            .await
     }
 
     /// Disable image flip (vertical).
     pub async fn flip_off(&mut self) -> Result<(), Error> {
-        self.send_and_wait(&ImageFlipCommand { flip: Flip::Off }).await
+        self.send_and_wait(&ImageFlipCommand { flip: Flip::Off })
+            .await
     }
 
     // Color Adjustment Methods
@@ -545,7 +556,8 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Set color temperature directly (0x00 = 2500K to 0x37 = 8000K).
     pub async fn set_color_temperature(&mut self, temp: u16) -> Result<(), Error> {
-        self.send_and_wait(&ColorTemperatureCommand::Direct(temp)).await
+        self.send_and_wait(&ColorTemperatureCommand::Direct(temp))
+            .await
     }
 
     /// Reset red gain to default.
@@ -612,22 +624,25 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Set sharpness directly (0-11).
     pub async fn set_sharpness(&mut self, value: u8) -> Result<(), Error> {
-        self.send_and_wait(&SharpnessCommand::Direct { value }).await
+        self.send_and_wait(&SharpnessCommand::Direct { value })
+            .await
     }
 
     /// Set luminance level.
     pub async fn set_luminance(&mut self, level: u8) -> Result<(), Error> {
         let luminance_level = LuminanceLevel::new(level)?;
         self.send_and_wait(&LuminanceCommand {
-                value: luminance_level,
-            }).await
+            value: luminance_level,
+        })
+        .await
     }
 
     /// Set contrast level.
     pub async fn set_contrast(&mut self, level: u8) -> Result<(), Error> {
         let contrast_level = ContrastLevel::new(level)?;
         self.send_and_wait(&ContrastCommand {
-                value: contrast_level,
-            }).await
+            value: contrast_level,
+        })
+        .await
     }
 }

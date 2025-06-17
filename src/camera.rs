@@ -573,7 +573,7 @@ impl<P: CameraProfile> Camera<P> {
         // Wait for response
         loop {
             let (resp_socket_id, response_data) = self.transport.receive_response_blocking()?;
-            
+
             let mut session = self.session.lock();
             match session.process_response(&response_data) {
                 Ok(Some((socket, response))) if socket == socket_id => {
@@ -620,12 +620,12 @@ impl<P: CameraProfile> Camera<P> {
         // Wait for response
         loop {
             let (_resp_socket_id, response_data) = self.transport.receive_response().await?;
-            
+
             #[cfg(feature = "async-client")]
             let mut session = self.session.lock().await;
             #[cfg(not(feature = "async-client"))]
             let mut session = self.session.lock();
-            
+
             match session.process_response(&response_data) {
                 Ok(Some((socket, response))) if socket == socket_id => {
                     session.release_socket(socket_id);

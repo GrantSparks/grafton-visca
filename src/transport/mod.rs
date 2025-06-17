@@ -127,7 +127,9 @@ mod tests {
             Ok(())
         }
 
-        fn receive_response_blocking(&mut self) -> Result<(crate::types::SocketId, Vec<u8>), Error> {
+        fn receive_response_blocking(
+            &mut self,
+        ) -> Result<(crate::types::SocketId, Vec<u8>), Error> {
             Ok((crate::types::SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF]))
         }
     }
