@@ -2,7 +2,6 @@
 
 use std::fmt::Display;
 use std::ops::RangeInclusive;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::sync::Arc;
 
 use crate::error::Error as ViscaError;
@@ -13,6 +12,8 @@ use crate::sync_primitives::{Mutex, Semaphore};
 use crate::transport::Transport;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{Command, Response};
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+use std::sync::Mutex;
 
 pub mod builder;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -562,7 +563,7 @@ impl<P: CameraProfile> Camera<P> {
         self.profile.capability_summary()
     }
 
-    // Note: transport() and transport_mut() methods have been removed because 
+    // Note: transport() and transport_mut() methods have been removed because
     // the transport is now behind a Mutex. Use send_raw methods instead for sending commands.
 
     /// Get the camera profile.
