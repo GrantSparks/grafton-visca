@@ -178,6 +178,7 @@ mod session;
 pub mod types;
 
 // Multi-camera support
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub mod camera_pool;
 
 // Reconnecting transport for automatic connection recovery

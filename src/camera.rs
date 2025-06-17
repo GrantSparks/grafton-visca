@@ -2,6 +2,7 @@
 
 use std::fmt::Display;
 use std::ops::RangeInclusive;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::sync::Arc;
 
 use crate::error::Error as ViscaError;
@@ -9,11 +10,10 @@ use crate::error::Error as ViscaError;
 use crate::session::Session;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::sync_primitives::{Mutex, Semaphore};
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::transport::Transport;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{Command, Response};
-#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
-use std::sync::Mutex;
 
 pub mod builder;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -74,6 +74,7 @@ mod minimal_executor {
 /// Core camera abstraction with compile-time profile information.
 pub struct Camera<P: CameraProfile> {
     profile: P,
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     transport: Arc<Mutex<Box<dyn Transport>>>,
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     session: Arc<Mutex<Session>>,
@@ -522,29 +523,49 @@ pub struct CameraCapabilities {
     pub max_tilt_speed: u8,
 }
 
+// Default implementation for Camera when no features are enabled
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+impl<P: CameraProfile> Default for Camera<P> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<P: CameraProfile> Camera<P> {
     /// Create a new camera with the given transport.
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     pub fn new(transport: impl Transport + 'static) -> Self {
         Self {
             profile: P::default(),
             transport: Arc::new(Mutex::new(Box::new(transport))),
-            #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             session: Arc::new(Mutex::new(Session::new())),
-            #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
         }
     }
 
+    /// Create a new camera without transport (profile only).
+    #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+    pub fn new() -> Self {
+        Self {
+            profile: P::default(),
+        }
+    }
+
     /// Create a camera with a custom profile instance.
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     pub fn with_profile(transport: impl Transport + 'static, profile: P) -> Self {
         Self {
             profile,
             transport: Arc::new(Mutex::new(Box::new(transport))),
-            #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             session: Arc::new(Mutex::new(Session::new())),
-            #[cfg(any(feature = "blocking-client", feature = "async-client"))]
             semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
         }
+    }
+
+    /// Create a camera with a custom profile instance (no transport).
+    #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+    pub fn with_profile(profile: P) -> Self {
+        Self { profile }
     }
 
     /// Get the camera's capabilities.
