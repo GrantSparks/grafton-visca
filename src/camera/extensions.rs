@@ -14,21 +14,21 @@ use crate::{
 /// custom methods on `Camera<P>` instances.
 pub trait CameraExtension<P: CameraProfile>: Sized {
     /// Execute a raw command on the camera.
-    fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError>;
+    fn send_raw(&self, command: &dyn Command) -> Result<Response, ViscaError>;
 
     /// Execute a raw command asynchronously.
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "async-client")]
     fn send_raw_async(
-        &mut self,
+        &self,
         command: &dyn Command,
     ) -> impl std::future::Future<Output = Result<Response, ViscaError>> + Send;
 }
 
 impl<P: CameraProfile> CameraExtension<P> for Camera<P> {
-    fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+    fn send_raw(&self, command: &dyn Command) -> Result<Response, ViscaError> {
         #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
         {
-            self.send_raw(command)
+            Camera::send_raw(self, command)
         }
         #[cfg(not(all(feature = "blocking-client", not(feature = "async-client"))))]
         {
@@ -39,8 +39,8 @@ impl<P: CameraProfile> CameraExtension<P> for Camera<P> {
         }
     }
 
-    #[cfg(feature = "tokio")]
-    async fn send_raw_async(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+    #[cfg(feature = "async-client")]
+    async fn send_raw_async(&self, command: &dyn Command) -> Result<Response, ViscaError> {
         Camera::send_raw_async(self, command).await
     }
 }
@@ -50,7 +50,7 @@ impl<P: CameraProfile> CameraExtension<P> for Camera<P> {
 /// Users can create their own extension traits following this pattern.
 pub trait CustomManufacturerExt<P: CameraProfile>: CameraExtension<P> {
     /// Example: Send a custom manufacturer-specific command.
-    fn send_manufacturer_command(&mut self, data: &[u8]) -> Result<Response, ViscaError> {
+    fn send_manufacturer_command(&self, data: &[u8]) -> Result<Response, ViscaError> {
         // Create a custom command
         struct ManufacturerCommand<'a> {
             data: &'a [u8],
@@ -84,7 +84,7 @@ impl<P: CameraProfile> CustomManufacturerExt<P> for Camera<P> {}
 /// Extension trait for advanced camera diagnostics.
 pub trait DiagnosticsExt<P: CameraProfile>: CameraExtension<P> {
     /// Get detailed diagnostic information.
-    fn get_diagnostics(&mut self) -> Result<DiagnosticInfo, ViscaError> {
+    fn get_diagnostics(&self) -> Result<DiagnosticInfo, ViscaError> {
         // This is just an example - real implementation would query multiple status values
         Ok(DiagnosticInfo {
             model: P::MODEL_NAME.to_string(),
@@ -95,7 +95,7 @@ pub trait DiagnosticsExt<P: CameraProfile>: CameraExtension<P> {
     }
 
     /// Run a self-test sequence.
-    fn run_self_test(&mut self) -> Result<SelfTestResult, ViscaError> {
+    fn run_self_test(&self) -> Result<SelfTestResult, ViscaError> {
         // Example self-test implementation
         Ok(SelfTestResult {
             pan_tilt_ok: true,
@@ -137,7 +137,7 @@ impl<P: CameraProfile> DiagnosticsExt<P> for Camera<P> {}
 /// Extension trait for camera scripting and automation.
 pub trait ScriptingExt<P: CameraProfile>: CameraExtension<P> {
     /// Execute a sequence of movements with timing.
-    fn execute_movement_script(&mut self, script: &[MovementStep]) -> Result<(), ViscaError> {
+    fn execute_movement_script(&self, script: &[MovementStep]) -> Result<(), ViscaError> {
         for step in script {
             match &step.action {
                 MovementAction::PanTilt { pan, tilt } => {
@@ -198,7 +198,7 @@ impl<P: CameraProfile> ScriptingExt<P> for Camera<P> {}
 ///     /// My custom camera extension.
 ///     pub trait MyCustomExt {
 ///         /// Do something custom.
-///         fn my_custom_method(&mut self) -> Result<(), ViscaError> {
+///         fn my_custom_method(&self) -> Result<(), ViscaError> {
 ///             // Implementation
 ///             Ok(())
 ///         }
@@ -212,7 +212,7 @@ macro_rules! camera_extension_trait {
         $vis:vis trait $name:ident {
             $(
                 $(#[$method_meta:meta])*
-                fn $method:ident(&mut self $(, $param:ident: $type:ty)*) -> Result<$ret:ty, ViscaError> $body:block
+                fn $method:ident(&self $(, $param:ident: $type:ty)*) -> Result<$ret:ty, ViscaError> $body:block
             )*
         }
     ) => {
@@ -220,7 +220,7 @@ macro_rules! camera_extension_trait {
         $vis trait $name<P: $crate::camera::CameraProfile>: $crate::camera::extensions::CameraExtension<P> {
             $(
                 $(#[$method_meta])*
-                fn $method(&mut self $(, $param: $type)*) -> Result<$ret, $crate::Error> $body
+                fn $method(&self $(, $param: $type)*) -> Result<$ret, $crate::Error> $body
             )*
         }
 
@@ -237,7 +237,7 @@ mod tests {
         #[allow(dead_code)]
         trait TestExt {
             /// Test method.
-            fn test_method(&mut self, value: u8) -> Result<bool, ViscaError> {
+            fn test_method(&self, value: u8) -> Result<bool, ViscaError> {
                 Ok(value > 0)
             }
         }
