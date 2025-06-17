@@ -562,13 +562,8 @@ impl<P: CameraProfile> Camera<P> {
         self.profile.capability_summary()
     }
 
-    /// Get a reference to the transport.
-    /// Note: This method is removed because the transport is now behind a Mutex.
-    /// Use send_raw methods instead for sending commands.
-    
-    /// Get a mutable reference to the transport.
-    /// Note: This method is removed because the transport is now behind a Mutex.
-    /// Use send_raw methods instead for sending commands.
+    // Note: transport() and transport_mut() methods have been removed because 
+    // the transport is now behind a Mutex. Use send_raw methods instead for sending commands.
 
     /// Get the camera profile.
     pub fn profile(&self) -> &P {
