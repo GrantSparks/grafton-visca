@@ -169,11 +169,13 @@ pub mod transport;
 
 // Internal modules - not part of public API
 mod connection;
-// mod connection_pool; // Uses old Client API - removed
 mod constants;
 mod macros;
 mod session;
 mod types;
+
+// Multi-camera support
+pub mod camera_pool;
 
 // Keep these private unless specifically needed
 #[cfg(feature = "async-client")]

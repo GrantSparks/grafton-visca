@@ -5,14 +5,19 @@ use std::ops::RangeInclusive;
 
 use crate::error::Error as ViscaError;
 use crate::transport::Transport;
+use crate::{Command, Response};
 
 pub mod builder;
 pub mod commands;
+pub mod command_builder;
+pub mod extensions;
 pub mod inquiry;
 pub mod profiles;
 
 // Re-export commonly used types
 pub use builder::{CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder};
+pub use command_builder::CommandBuilderExt;
+pub use extensions::{CameraExtension, CustomManufacturerExt, DiagnosticsExt, ScriptingExt};
 pub use inquiry::{CameraState, Exposure, ImageSettings, Optics, Position, WhiteBalance};
 pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 
@@ -513,6 +518,27 @@ impl<P: CameraProfile> Camera<P> {
     /// Get the camera profile.
     pub fn profile(&self) -> &P {
         &self.profile
+    }
+
+    /// Send a raw command to the camera (blocking).
+    pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+        // This would need proper implementation
+        Err(ViscaError::InvalidState("Blocking transport not implemented".to_string()))
+    }
+
+    /// Send a raw command to the camera (async).
+    #[cfg(feature = "tokio")]
+    pub async fn send_raw_async(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+        use crate::command::response::parse_response;
+        
+        self.transport.send_command(command).await?;
+        let responses = self.transport.receive_response().await?;
+        
+        if let Some(response_bytes) = responses.first() {
+            parse_response(response_bytes).map_err(|_| ViscaError::InvalidResponse)
+        } else {
+            Err(ViscaError::Timeout)
+        }
     }
 }
 

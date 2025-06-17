@@ -18,6 +18,7 @@ mod tcp;
 mod tcp_unified;
 mod udp;
 pub mod unified;
+pub mod resilient;
 
 // Public re-exports
 #[cfg(feature = "blocking-client")]
