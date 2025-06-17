@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use crate::{transport::Transport, types::SocketId, Command, Error as ViscaError};
 
 /// Configuration for resilient transport behavior.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ResilienceConfig {
     /// Maximum number of retry attempts for a single operation
     pub max_retries: usize,
@@ -91,7 +91,7 @@ pub enum ResilienceEvent {
 pub type EventCallback = Arc<dyn Fn(ResilienceEvent) + Send + Sync>;
 
 /// Statistics for the resilient transport
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ResilienceStats {
     /// Total number of operations attempted
     pub total_operations: u64,
@@ -137,6 +137,7 @@ impl ResilienceStats {
 /// Internal state for the resilient transport
 struct TransportState<T> {
     /// The underlying transport
+    #[allow(dead_code)]
     inner: Option<T>,
     /// Last successful operation time
     #[allow(dead_code)]
@@ -161,6 +162,15 @@ pub struct ResilientTransport<T: Transport> {
     factory: TransportFactory<T>,
     /// Optional event callback
     event_callback: Option<EventCallback>,
+}
+
+impl<T: Transport> std::fmt::Debug for ResilientTransport<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResilientTransport")
+            .field("config", &self.config)
+            .field("has_event_callback", &self.event_callback.is_some())
+            .finish()
+    }
 }
 
 impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
@@ -202,9 +212,12 @@ impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
         #[cfg(feature = "tokio")]
         let state = self.state.blocking_lock();
         #[cfg(not(feature = "tokio"))]
-        let state = self.state.lock().unwrap();
+        let state = match self.state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
 
-        state.stats.clone()
+        state.stats
     }
 
     /// Notifies about an event if a callback is set.
@@ -270,9 +283,9 @@ impl<T: Transport + Clone + Send + Sync + 'static> Transport for ResilientTransp
             {
                 let _ = command; // Silence unused warning
                 let _ = socket_id; // Silence unused warning
-                return Err(ViscaError::InvalidState(
+                Err(ViscaError::InvalidState(
                     "Async transport requires tokio feature".to_string(),
-                ));
+                ))
             }
 
             #[cfg(feature = "tokio")]
@@ -460,7 +473,7 @@ impl<T: Transport + Clone> Clone for ResilientTransport<T> {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
-            config: self.config.clone(),
+            config: self.config,
             factory: self.factory.clone(),
             event_callback: self.event_callback.clone(),
         }

@@ -1,4 +1,4 @@
-//! Extension trait system for Camera<P> API.
+//! Extension trait system for `Camera<P>` API.
 //!
 //! This module provides a trait-based extension system that allows users to add
 //! custom functionality to cameras without modifying the core library.
@@ -11,7 +11,7 @@ use crate::{
 /// Base trait for camera extensions.
 ///
 /// This trait allows users to extend camera functionality by implementing
-/// custom methods on Camera<P> instances.
+/// custom methods on `Camera<P>` instances.
 pub trait CameraExtension<P: CameraProfile>: Sized {
     /// Execute a raw command on the camera.
     fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError>;
@@ -56,7 +56,7 @@ pub trait CustomManufacturerExt<P: CameraProfile>: CameraExtension<P> {
             data: &'a [u8],
         }
 
-        impl<'a> Command for ManufacturerCommand<'a> {
+        impl Command for ManufacturerCommand<'_> {
             fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
                 let mut bytes = vec![0x81, 0x01]; // Standard header
                 bytes.extend_from_slice(self.data);
@@ -120,7 +120,7 @@ pub struct DiagnosticInfo {
 }
 
 /// Self-test result structure.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SelfTestResult {
     /// Pan/tilt mechanism test result.
     pub pan_tilt_ok: bool,
@@ -167,19 +167,30 @@ pub struct MovementStep {
 }
 
 /// Actions that can be performed in a movement script.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum MovementAction {
     /// Pan/tilt to absolute position.
-    PanTilt { pan: f32, tilt: f32 },
+    PanTilt { 
+        /// Pan position in degrees.
+        pan: f32, 
+        /// Tilt position in degrees.
+        tilt: f32 
+    },
     /// Zoom to absolute level.
-    Zoom { level: u16 },
+    Zoom { 
+        /// Zoom level (0-16384).
+        level: u16 
+    },
     /// Wait for a duration.
-    Wait { duration: std::time::Duration },
+    Wait { 
+        /// Duration to wait.
+        duration: std::time::Duration 
+    },
 }
 
 impl<P: CameraProfile> ScriptingExt<P> for Camera<P> {}
 
-/// Macro to easily create extension traits for Camera<P>.
+/// Macro to easily create extension traits for `Camera<P>`.
 ///
 /// # Example
 /// ```ignore
@@ -223,6 +234,7 @@ mod tests {
     // Test that the macro works
     camera_extension_trait! {
         /// Test extension trait.
+        #[allow(dead_code)]
         trait TestExt {
             /// Test method.
             fn test_method(&mut self, value: u8) -> Result<bool, ViscaError> {

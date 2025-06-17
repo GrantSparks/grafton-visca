@@ -57,7 +57,7 @@ pub trait Transport: Send + Sync {
     fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)>;
 }
 
-/// Implementation of Transport for Box<dyn Transport> to allow dynamic dispatch.
+/// Implementation of Transport for `Box<dyn Transport>` to allow dynamic dispatch.
 impl Transport for Box<dyn Transport> {
     fn send_command<'a>(
         &'a mut self,

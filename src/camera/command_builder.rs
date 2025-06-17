@@ -1,4 +1,4 @@
-//! Fluent command builder for Camera<P> API.
+//! Fluent command builder for `Camera<P>` API.
 //!
 //! This module provides a builder interface for creating complex command sequences
 //! with support for both concurrent and sequential execution modes.
@@ -32,6 +32,14 @@ pub struct CommandBuilder<'a, P: CameraProfile> {
     commands: Vec<PreparedCommand>,
 }
 
+impl<P: CameraProfile> std::fmt::Debug for CommandBuilder<'_, P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommandBuilder")
+            .field("commands", &self.commands.len())
+            .finish()
+    }
+}
+
 impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// Creates a new command builder for the given camera.
     pub(crate) fn new(camera: &'a mut Camera<P>) -> Self {
@@ -44,7 +52,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// Adds a command to the sequence.
     fn add_command(
         mut self,
-        command: impl Command + Send + Sync + 'static,
+        command: impl Command + 'static,
         description: impl Into<String>,
     ) -> Self {
         self.commands.push(PreparedCommand {
@@ -401,7 +409,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     #[must_use]
     pub fn custom(
         self,
-        command: impl Command + Send + Sync + 'static,
+        command: impl Command + 'static,
         description: impl Into<String>,
     ) -> Self {
         self.add_command(command, description)

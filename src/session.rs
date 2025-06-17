@@ -170,6 +170,22 @@ impl Session {
             }
         }
     }
+    
+    // Test helper methods
+    #[cfg(test)]
+    fn pending_count(&self) -> usize {
+        self.pending_commands.len()
+    }
+    
+    #[cfg(test)]
+    fn get_pending_command(&self, socket: SocketId) -> Option<&PendingCommand> {
+        self.pending_commands.get(&socket)
+    }
+    
+    #[cfg(test)]
+    fn clear_all(&mut self) {
+        self.pending_commands.clear();
+    }
 }
 
 #[cfg(test)]

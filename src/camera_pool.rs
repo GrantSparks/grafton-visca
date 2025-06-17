@@ -1,4 +1,4 @@
-//! Camera pooling for managing multiple VISCA cameras with the Camera<P> API.
+//! Camera pooling for managing multiple VISCA cameras with the `Camera<P>` API.
 //!
 //! This module provides a pool that manages multiple camera connections of the same
 //! profile type, with health monitoring, automatic cleanup, and concurrent operations.
@@ -22,7 +22,7 @@ use crate::{
 };
 
 /// Configuration for the camera pool.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct PoolConfig {
     /// How often to run health checks on all connections.
     pub health_check_interval: Duration,
@@ -126,6 +126,14 @@ pub struct CameraPool<P: CameraProfile> {
     #[cfg(not(feature = "tokio"))]
     cameras: Arc<RwLock<HashMap<String, PooledCamera<P>>>>,
     config: PoolConfig,
+}
+
+impl<P: CameraProfile> std::fmt::Debug for CameraPool<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CameraPool")
+            .field("config", &self.config)
+            .finish()
+    }
 }
 
 impl<P: CameraProfile> CameraPool<P> {
