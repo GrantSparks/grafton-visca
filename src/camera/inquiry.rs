@@ -7,7 +7,7 @@ use crate::{
         gain::AntiFlickerMode,
         inquiry::InquiryCommand,
         luminance_contrast_sharpness::SharpnessMode,
-        response::{parse_response, Response},
+        response::Response,
         white_balance::WhiteBalanceMode,
         InquiryResponse,
     },
@@ -107,25 +107,7 @@ impl<P: CameraProfile> Camera<P> {
     ///
     /// This method is used internally for inquiry commands that need to receive data back.
     async fn send_and_receive(&mut self, command: &dyn Command) -> Result<Response, Error> {
-        // Send the command
-        self.transport.send_command(command).await?;
-
-        // Receive response frames
-        let response_frames = self.transport.receive_response().await?;
-
-        // Parse the response
-        if response_frames.is_empty() {
-            return Err(Error::NoResponse);
-        }
-
-        // For now, we'll process the first response frame
-        // In a more complete implementation, we might need to handle multiple frames
-        if let Some(response_type) = command.response_type() {
-            parse_response(&response_frames[0], &response_type)
-        } else {
-            // For commands without a specific response type, parse as unknown
-            Ok(Response::Unknown(response_frames[0].clone()))
-        }
+        self.send_raw_async(command).await
     }
 
     // Power inquiries

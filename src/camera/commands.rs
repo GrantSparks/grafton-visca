@@ -43,7 +43,7 @@ impl<P: CameraProfile> Camera<P> {
     /// Power on the camera.
     pub async fn power_on(&mut self) -> Result<(), Error> {
         let command = PowerCommand { power: Power::On };
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Power off the camera.
@@ -51,7 +51,7 @@ impl<P: CameraProfile> Camera<P> {
         let command = PowerCommand {
             power: Power::Standby,
         };
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Set the camera to an absolute pan/tilt position in degrees.
@@ -91,7 +91,7 @@ impl<P: CameraProfile> Camera<P> {
             tilt: tilt_units,
         };
 
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Set the camera to an absolute position using VISCA units.
@@ -126,7 +126,7 @@ impl<P: CameraProfile> Camera<P> {
             tilt: tilt.0,
         };
 
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Set the camera position using normalized coordinates (-1.0 to 1.0).
@@ -153,7 +153,7 @@ impl<P: CameraProfile> Camera<P> {
             tilt: tilt_units,
         };
 
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Move the camera continuously in a direction.
@@ -177,7 +177,7 @@ impl<P: CameraProfile> Camera<P> {
             })?,
         };
 
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Stop all camera movement.
@@ -189,12 +189,12 @@ impl<P: CameraProfile> Camera<P> {
             tilt_speed: TiltSpeed::new(0)
                 .map_err(|_| Error::InvalidParameter("Invalid tilt speed: 0".to_string()))?,
         };
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Move camera to home position.
     pub async fn home(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&PanTiltCommand::Home).await
+        self.send_and_wait(&PanTiltCommand::Home).await
     }
 
     /// Recall a preset position.
@@ -205,7 +205,7 @@ impl<P: CameraProfile> Camera<P> {
             action: PresetAction::Recall,
             preset_number,
         };
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Set a preset position.
@@ -216,7 +216,7 @@ impl<P: CameraProfile> Camera<P> {
             action: PresetAction::Set,
             preset_number,
         };
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Clear a preset position.
@@ -227,26 +227,22 @@ impl<P: CameraProfile> Camera<P> {
             action: PresetAction::Reset,
             preset_number,
         };
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Zoom in at standard speed.
     pub async fn zoom_in(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ZoomCommand::ZoomInStandard)
-            .await
+        self.send_and_wait(&ZoomCommand::ZoomInStandard).await
     }
 
     /// Zoom out at standard speed.
     pub async fn zoom_out(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ZoomCommand::ZoomOutStandard)
-            .await
+        self.send_and_wait(&ZoomCommand::ZoomOutStandard).await
     }
 
     /// Stop zooming.
     pub async fn zoom_stop(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&ZoomCommand::Stop).await
+        self.send_and_wait(&ZoomCommand::Stop).await
     }
 
     /// Set zoom to direct position.
@@ -260,19 +256,17 @@ impl<P: CameraProfile> Camera<P> {
             });
         }
 
-        self.transport
-            .send_command(&ZoomCommand::Direct(position))
-            .await
+        self.send_and_wait(&ZoomCommand::Direct(position)).await
     }
 
     /// Set focus mode to auto.
     pub async fn focus_auto(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&FocusCommand::Auto).await
+        self.send_and_wait(&FocusCommand::Auto).await
     }
 
     /// Set focus mode to manual.
     pub async fn focus_manual(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&FocusCommand::Manual).await
+        self.send_and_wait(&FocusCommand::Manual).await
     }
 
     /// Set focus to direct position (manual mode).
@@ -286,75 +280,59 @@ impl<P: CameraProfile> Camera<P> {
             });
         }
 
-        self.transport
-            .send_command(&FocusCommand::Direct(position))
-            .await
+        self.send_and_wait(&FocusCommand::Direct(position)).await
     }
 
     /// Set exposure mode.
     pub async fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), Error> {
         let command = ExposureCommand { mode };
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Set white balance mode.
     pub async fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
         let command = WhiteBalanceCommand { mode };
-        self.transport.send_command(&command).await
+        self.send_and_wait(&command).await
     }
 
     /// Set gain value.
     pub async fn set_gain(&mut self, gain: P::GainValue) -> Result<(), Error> {
         let value: u8 = gain.into();
         let gain_value = GainValue::new(value)?;
-        self.transport
-            .send_command(&GainCommand::Direct(gain_value))
-            .await
+        self.send_and_wait(&GainCommand::Direct(gain_value)).await
     }
 
     // Exposure Compensation Methods
 
     /// Enable exposure compensation.
     pub async fn exposure_compensation_on(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ExposureCompensationCommand::On)
-            .await
+        self.send_and_wait(&ExposureCompensationCommand::On).await
     }
 
     /// Disable exposure compensation.
     pub async fn exposure_compensation_off(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ExposureCompensationCommand::Off)
-            .await
+        self.send_and_wait(&ExposureCompensationCommand::Off).await
     }
 
     /// Reset exposure compensation to 0.
     pub async fn exposure_compensation_reset(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ExposureCompensationCommand::Reset)
-            .await
+        self.send_and_wait(&ExposureCompensationCommand::Reset).await
     }
 
     /// Increase exposure compensation by one step.
     pub async fn exposure_compensation_up(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ExposureCompensationCommand::Up)
-            .await
+        self.send_and_wait(&ExposureCompensationCommand::Up).await
     }
 
     /// Decrease exposure compensation by one step.
     pub async fn exposure_compensation_down(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ExposureCompensationCommand::Down)
-            .await
+        self.send_and_wait(&ExposureCompensationCommand::Down).await
     }
 
     /// Set exposure compensation level directly (-7 to +7).
     pub async fn set_exposure_compensation(&mut self, level: i8) -> Result<(), Error> {
         let comp_level = ExposureCompensationLevel::new(level)?;
-        self.transport
-            .send_command(&ExposureCompensationCommand::Direct(comp_level))
-            .await
+        self.send_and_wait(&ExposureCompensationCommand::Direct(comp_level)).await
     }
 
     // Dynamic Range Methods
@@ -362,354 +340,294 @@ impl<P: CameraProfile> Camera<P> {
     /// Set dynamic range level (0-8).
     pub async fn set_dynamic_range(&mut self, level: u8) -> Result<(), Error> {
         let dr_level = DynamicRangeLevel::new(level)?;
-        self.transport
-            .send_command(&DynamicRangeCommand::Direct(dr_level))
-            .await
+        self.send_and_wait(&DynamicRangeCommand::Direct(dr_level)).await
     }
 
     // Iris Methods
 
     /// Reset iris to default.
     pub async fn iris_reset(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&IrisCommand::Reset).await
+        self.send_and_wait(&IrisCommand::Reset).await
     }
 
     /// Increase iris opening by one step.
     pub async fn iris_up(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&IrisCommand::Up).await
+        self.send_and_wait(&IrisCommand::Up).await
     }
 
     /// Decrease iris opening by one step.
     pub async fn iris_down(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&IrisCommand::Down).await
+        self.send_and_wait(&IrisCommand::Down).await
     }
 
     /// Set iris level directly.
     pub async fn set_iris(&mut self, level: u8) -> Result<(), Error> {
         let iris_level = IrisLevel::new(level)?;
-        self.transport
-            .send_command(&IrisCommand::Direct(iris_level))
-            .await
+        self.send_and_wait(&IrisCommand::Direct(iris_level)).await
     }
 
     // Shutter Methods
 
     /// Reset shutter speed to default.
     pub async fn shutter_reset(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&ShutterCommand::Reset).await
+        self.send_and_wait(&ShutterCommand::Reset).await
     }
 
     /// Increase shutter speed by one step.
     pub async fn shutter_up(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&ShutterCommand::Up).await
+        self.send_and_wait(&ShutterCommand::Up).await
     }
 
     /// Decrease shutter speed by one step.
     pub async fn shutter_down(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&ShutterCommand::Down).await
+        self.send_and_wait(&ShutterCommand::Down).await
     }
 
     /// Set shutter speed directly.
     pub async fn set_shutter(&mut self, speed: u16) -> Result<(), Error> {
         let shutter_speed = ShutterSpeed::new(speed)?;
-        self.transport
-            .send_command(&ShutterCommand::Direct(shutter_speed))
-            .await
+        self.send_and_wait(&ShutterCommand::Direct(shutter_speed)).await
     }
 
     // Brightness Methods
 
     /// Reset brightness to default.
     pub async fn brightness_reset(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&BrightCommand::Reset).await
+        self.send_and_wait(&BrightCommand::Reset).await
     }
 
     /// Increase brightness by one step.
     pub async fn brightness_up(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&BrightCommand::Up).await
+        self.send_and_wait(&BrightCommand::Up).await
     }
 
     /// Decrease brightness by one step.
     pub async fn brightness_down(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&BrightCommand::Down).await
+        self.send_and_wait(&BrightCommand::Down).await
     }
 
     /// Set brightness level directly.
     pub async fn set_brightness(&mut self, level: u16) -> Result<(), Error> {
         let brightness_level = BrightnessLevel::new(level)?;
-        self.transport
-            .send_command(&BrightCommand::Direct(brightness_level))
-            .await
+        self.send_and_wait(&BrightCommand::Direct(brightness_level)).await
     }
 
     // Gain Methods (additional)
 
     /// Reset gain to default.
     pub async fn gain_reset(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&GainCommand::Reset).await
+        self.send_and_wait(&GainCommand::Reset).await
     }
 
     /// Increase gain by one step.
     pub async fn gain_up(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&GainCommand::Up).await
+        self.send_and_wait(&GainCommand::Up).await
     }
 
     /// Decrease gain by one step.
     pub async fn gain_down(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&GainCommand::Down).await
+        self.send_and_wait(&GainCommand::Down).await
     }
 
     /// Set gain limit.
     pub async fn set_gain_limit(&mut self, limit: u8) -> Result<(), Error> {
         let gain_limit = GainLimit::new(limit)?;
-        self.transport
-            .send_command(&GainLimitCommand { limit: gain_limit })
-            .await
+        self.send_and_wait(&GainLimitCommand { limit: gain_limit }).await
     }
 
     /// Set anti-flicker mode.
     pub async fn set_anti_flicker(&mut self, mode: AntiFlickerMode) -> Result<(), Error> {
-        self.transport
-            .send_command(&AntiFlickerCommand { mode })
-            .await
+        self.send_and_wait(&AntiFlickerCommand { mode }).await
     }
 
     // Image Adjustment Methods
 
     /// Enable backlight compensation.
     pub async fn backlight_on(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&BacklightCommand { status: true })
-            .await
+        self.send_and_wait(&BacklightCommand { status: true }).await
     }
 
     /// Disable backlight compensation.
     pub async fn backlight_off(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&BacklightCommand { status: false })
-            .await
+        self.send_and_wait(&BacklightCommand { status: false }).await
     }
 
     /// Disable 2D noise reduction.
     pub async fn noise_reduction_2d_off(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&NoiseReduction2DCommand::Off)
-            .await
+        self.send_and_wait(&NoiseReduction2DCommand::Off).await
     }
 
     /// Set 2D noise reduction level (1-5).
     pub async fn set_noise_reduction_2d(&mut self, level: u8) -> Result<(), Error> {
         let nr_level = NoiseReduction2DLevel::new(level)?;
-        self.transport
-            .send_command(&NoiseReduction2DCommand::Level(nr_level))
-            .await
+        self.send_and_wait(&NoiseReduction2DCommand::Level(nr_level)).await
     }
 
     /// Disable 3D noise reduction.
     pub async fn noise_reduction_3d_off(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&NoiseReduction3DCommand::Off)
-            .await
+        self.send_and_wait(&NoiseReduction3DCommand::Off).await
     }
 
     /// Set 3D noise reduction level (1-5).
     pub async fn set_noise_reduction_3d(&mut self, level: u8) -> Result<(), Error> {
         let nr_level = NoiseReduction3DLevel::new(level)?;
-        self.transport
-            .send_command(&NoiseReduction3DCommand::Level(nr_level))
-            .await
+        self.send_and_wait(&NoiseReduction3DCommand::Level(nr_level)).await
     }
 
     /// Enable black and white mode.
     pub async fn black_white_on(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&BlackWhiteCommand { on: true })
-            .await
+        self.send_and_wait(&BlackWhiteCommand { on: true }).await
     }
 
     /// Disable black and white mode (color mode).
     pub async fn black_white_off(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&BlackWhiteCommand { on: false })
-            .await
+        self.send_and_wait(&BlackWhiteCommand { on: false }).await
     }
 
     /// Set image flip mode.
     pub async fn set_image_flip(&mut self, mode: ImageFlipMode) -> Result<(), Error> {
-        self.transport
-            .send_command(&ImageFlipCombinedCommand { mode })
-            .await
+        self.send_and_wait(&ImageFlipCombinedCommand { mode }).await
     }
 
     // Flip Methods (Simple vertical flip)
 
     /// Enable image flip (vertical).
     pub async fn flip_on(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ImageFlipCommand { flip: Flip::On })
-            .await
+        self.send_and_wait(&ImageFlipCommand { flip: Flip::On }).await
     }
 
     /// Disable image flip (vertical).
     pub async fn flip_off(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ImageFlipCommand { flip: Flip::Off })
-            .await
+        self.send_and_wait(&ImageFlipCommand { flip: Flip::Off }).await
     }
 
     // Color Adjustment Methods
 
     /// Trigger one-push white balance adjustment.
     pub async fn one_push_white_balance(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&OnePushTriggerCommand).await
+        self.send_and_wait(&OnePushTriggerCommand).await
     }
 
     /// Set red tuning level (-10 to +10).
     pub async fn set_red_tuning(&mut self, level: i8) -> Result<(), Error> {
-        self.transport
-            .send_command(&RedTuningCommand { level })
-            .await
+        self.send_and_wait(&RedTuningCommand { level }).await
     }
 
     /// Set blue tuning level (-10 to +10).
     pub async fn set_blue_tuning(&mut self, level: i8) -> Result<(), Error> {
-        self.transport
-            .send_command(&BlueTuningCommand { level })
-            .await
+        self.send_and_wait(&BlueTuningCommand { level }).await
     }
 
     /// Set saturation level (0x0 = 60%, 0xE = 200%).
     pub async fn set_saturation(&mut self, level: u8) -> Result<(), Error> {
-        self.transport
-            .send_command(&SaturationCommand { level })
-            .await
+        self.send_and_wait(&SaturationCommand { level }).await
     }
 
     /// Set hue level (0x0 to 0xE).
     pub async fn set_hue(&mut self, level: u8) -> Result<(), Error> {
-        self.transport.send_command(&HueCommand { level }).await
+        self.send_and_wait(&HueCommand { level }).await
     }
 
     /// Reset color temperature to default.
     pub async fn color_temperature_reset(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ColorTemperatureCommand::Reset)
-            .await
+        self.send_and_wait(&ColorTemperatureCommand::Reset).await
     }
 
     /// Increase color temperature (cooler/bluer).
     pub async fn color_temperature_up(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ColorTemperatureCommand::Up)
-            .await
+        self.send_and_wait(&ColorTemperatureCommand::Up).await
     }
 
     /// Decrease color temperature (warmer/redder).
     pub async fn color_temperature_down(&mut self) -> Result<(), Error> {
-        self.transport
-            .send_command(&ColorTemperatureCommand::Down)
-            .await
+        self.send_and_wait(&ColorTemperatureCommand::Down).await
     }
 
     /// Set color temperature directly (0x00 = 2500K to 0x37 = 8000K).
     pub async fn set_color_temperature(&mut self, temp: u16) -> Result<(), Error> {
-        self.transport
-            .send_command(&ColorTemperatureCommand::Direct(temp))
-            .await
+        self.send_and_wait(&ColorTemperatureCommand::Direct(temp)).await
     }
 
     /// Reset red gain to default.
     pub async fn red_gain_reset(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&RedGainCommand::Reset).await
+        self.send_and_wait(&RedGainCommand::Reset).await
     }
 
     /// Increase red gain by one step.
     pub async fn red_gain_up(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&RedGainCommand::Up).await
+        self.send_and_wait(&RedGainCommand::Up).await
     }
 
     /// Decrease red gain by one step.
     pub async fn red_gain_down(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&RedGainCommand::Down).await
+        self.send_and_wait(&RedGainCommand::Down).await
     }
 
     /// Set red gain directly.
     pub async fn set_red_gain(&mut self, value: u8) -> Result<(), Error> {
-        self.transport
-            .send_command(&RedGainCommand::Direct(value))
-            .await
+        self.send_and_wait(&RedGainCommand::Direct(value)).await
     }
 
     /// Reset blue gain to default.
     pub async fn blue_gain_reset(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&BlueGainCommand::Reset).await
+        self.send_and_wait(&BlueGainCommand::Reset).await
     }
 
     /// Increase blue gain by one step.
     pub async fn blue_gain_up(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&BlueGainCommand::Up).await
+        self.send_and_wait(&BlueGainCommand::Up).await
     }
 
     /// Decrease blue gain by one step.
     pub async fn blue_gain_down(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&BlueGainCommand::Down).await
+        self.send_and_wait(&BlueGainCommand::Down).await
     }
 
     /// Set blue gain directly.
     pub async fn set_blue_gain(&mut self, value: u8) -> Result<(), Error> {
-        self.transport
-            .send_command(&BlueGainCommand::Direct(value))
-            .await
+        self.send_and_wait(&BlueGainCommand::Direct(value)).await
     }
 
     // Luminance, Contrast, and Sharpness Methods
 
     /// Set sharpness mode.
     pub async fn set_sharpness_mode(&mut self, mode: SharpnessMode) -> Result<(), Error> {
-        self.transport
-            .send_command(&SharpnessCommand::Mode(mode))
-            .await
+        self.send_and_wait(&SharpnessCommand::Mode(mode)).await
     }
 
     /// Reset sharpness to default.
     pub async fn sharpness_reset(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&SharpnessCommand::Reset).await
+        self.send_and_wait(&SharpnessCommand::Reset).await
     }
 
     /// Increase sharpness by one step.
     pub async fn sharpness_up(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&SharpnessCommand::Up).await
+        self.send_and_wait(&SharpnessCommand::Up).await
     }
 
     /// Decrease sharpness by one step.
     pub async fn sharpness_down(&mut self) -> Result<(), Error> {
-        self.transport.send_command(&SharpnessCommand::Down).await
+        self.send_and_wait(&SharpnessCommand::Down).await
     }
 
     /// Set sharpness directly (0-11).
     pub async fn set_sharpness(&mut self, value: u8) -> Result<(), Error> {
-        self.transport
-            .send_command(&SharpnessCommand::Direct { value })
-            .await
+        self.send_and_wait(&SharpnessCommand::Direct { value }).await
     }
 
     /// Set luminance level.
     pub async fn set_luminance(&mut self, level: u8) -> Result<(), Error> {
         let luminance_level = LuminanceLevel::new(level)?;
-        self.transport
-            .send_command(&LuminanceCommand {
+        self.send_and_wait(&LuminanceCommand {
                 value: luminance_level,
-            })
-            .await
+            }).await
     }
 
     /// Set contrast level.
     pub async fn set_contrast(&mut self, level: u8) -> Result<(), Error> {
         let contrast_level = ContrastLevel::new(level)?;
-        self.transport
-            .send_command(&ContrastCommand {
+        self.send_and_wait(&ContrastCommand {
                 value: contrast_level,
-            })
-            .await
+            }).await
     }
 }

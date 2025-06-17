@@ -191,8 +191,8 @@ pub mod timeout; // Public for use in macros
 
 // #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 // mod ptz_builder;
-// #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-// mod sync_primitives;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+mod sync_primitives;
 // #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 // mod unified_client;
 
