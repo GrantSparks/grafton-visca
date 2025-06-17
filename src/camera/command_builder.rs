@@ -493,12 +493,12 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     pub async fn execute_concurrent(self) -> Result<Vec<Result<Response, ViscaError>>, ViscaError> {
         use futures_util::future::join_all;
         use std::sync::Arc;
-        
+
         // We need to share the camera between concurrent tasks
         // This is safe because we have the semaphore limiting concurrent access
         let camera_arc = Arc::new(tokio::sync::Mutex::new(self.camera));
         let commands = self.commands;
-        
+
         // Create futures for all commands
         let futures: Vec<_> = commands
             .into_iter()
@@ -506,22 +506,28 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
             .map(|(i, prepared)| {
                 let camera = camera_arc.clone();
                 async move {
-                    log::debug!("Starting concurrent command {}: {}", i + 1, prepared.description);
-                    
+                    log::debug!(
+                        "Starting concurrent command {}: {}",
+                        i + 1,
+                        prepared.description
+                    );
+
                     let mut camera_guard = camera.lock().await;
                     let result = camera_guard.send_raw_async(prepared.command.as_ref()).await;
                     drop(camera_guard); // Release lock as soon as possible
-                    
+
                     match &result {
-                        Ok(_) => log::debug!("Command {} completed successfully", prepared.description),
+                        Ok(_) => {
+                            log::debug!("Command {} completed successfully", prepared.description)
+                        }
                         Err(e) => log::error!("Command {} failed: {}", prepared.description, e),
                     }
-                    
+
                     result
                 }
             })
             .collect();
-        
+
         // Execute all commands concurrently
         Ok(join_all(futures).await)
     }
