@@ -14,11 +14,11 @@ use crate::{error::Error, Command};
 
 // Submodules
 pub mod common;
+pub mod resilient;
 mod tcp;
 mod tcp_unified;
 mod udp;
 pub mod unified;
-pub mod resilient;
 
 // Public re-exports
 #[cfg(feature = "blocking-client")]
@@ -47,6 +47,17 @@ pub trait Transport: Send + Sync {
     /// Returns a vector of response frames that have been received.
     /// Each frame is a complete VISCA response (starts with 0x90 and ends with 0xFF).
     fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>>;
+}
+
+/// Implementation of Transport for Box<dyn Transport> to allow dynamic dispatch.
+impl Transport for Box<dyn Transport> {
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
+        (**self).send_command(command)
+    }
+
+    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
+        (**self).receive_response()
+    }
 }
 
 /// Trait for blocking transport implementations.

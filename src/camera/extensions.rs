@@ -5,10 +5,11 @@
 
 use crate::{
     camera::{Camera, CameraProfile},
-    command::response::parse_response,
-    transport::Transport,
-    Command, Response, Error as ViscaError,
+    Command, Error as ViscaError, Response,
 };
+
+#[cfg(feature = "tokio")]
+use crate::command::response::parse_response;
 
 /// Base trait for camera extensions.
 ///
@@ -17,28 +18,36 @@ use crate::{
 pub trait CameraExtension<P: CameraProfile>: Sized {
     /// Execute a raw command on the camera.
     fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError>;
-    
+
     /// Execute a raw command asynchronously.
     #[cfg(feature = "tokio")]
-    fn send_raw_async(&mut self, command: &dyn Command) -> impl std::future::Future<Output = Result<Response, ViscaError>> + Send;
+    fn send_raw_async(
+        &mut self,
+        command: &dyn Command,
+    ) -> impl std::future::Future<Output = Result<Response, ViscaError>> + Send;
 }
 
 impl<P: CameraProfile> CameraExtension<P> for Camera<P> {
-    fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+    fn send_raw(&mut self, _command: &dyn Command) -> Result<Response, ViscaError> {
         // This would need to be implemented based on the transport's blocking capabilities
         // For now, we'll return an error indicating async-only operation
-        Err(ViscaError::InvalidState("Camera operations require async transport".to_string()))
+        Err(ViscaError::InvalidState(
+            "Camera operations require async transport".to_string(),
+        ))
     }
-    
+
     #[cfg(feature = "tokio")]
     async fn send_raw_async(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
         // Send command and receive response
         self.transport.send_command(command).await?;
         let responses = self.transport.receive_response().await?;
-        
+
         // Parse the first response
         if let Some(response_bytes) = responses.first() {
-            parse_response(response_bytes).map_err(|_| ViscaError::InvalidResponse)
+            // We don't know the expected response type for raw commands
+            // For now, we'll return the raw response as Unknown
+            use crate::Response;
+            Ok(Response::Unknown(response_bytes.clone()))
         } else {
             Err(ViscaError::Timeout)
         }
@@ -55,7 +64,7 @@ pub trait CustomManufacturerExt<P: CameraProfile>: CameraExtension<P> {
         struct ManufacturerCommand<'a> {
             data: &'a [u8],
         }
-        
+
         impl<'a> Command for ManufacturerCommand<'a> {
             fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
                 let mut bytes = vec![0x81, 0x01]; // Standard header
@@ -63,16 +72,16 @@ pub trait CustomManufacturerExt<P: CameraProfile>: CameraExtension<P> {
                 bytes.push(0xFF); // Terminator
                 Ok(bytes)
             }
-            
+
             fn response_type(&self) -> Option<crate::command::ResponseType> {
                 None // Unknown response type
             }
-            
+
             fn command_category(&self) -> crate::timeout::CommandCategory {
                 crate::timeout::CommandCategory::Quick
             }
         }
-        
+
         let command = ManufacturerCommand { data };
         self.send_raw(&command)
     }
@@ -93,7 +102,7 @@ pub trait DiagnosticsExt<P: CameraProfile>: CameraExtension<P> {
             error_count: 0,
         })
     }
-    
+
     /// Run a self-test sequence.
     fn run_self_test(&mut self) -> Result<SelfTestResult, ViscaError> {
         // Example self-test implementation
@@ -212,15 +221,14 @@ macro_rules! camera_extension_trait {
                 fn $method(&mut self $(, $param: $type)*) -> Result<$ret, $crate::Error> $body
             )*
         }
-        
+
         impl<P: $crate::camera::CameraProfile> $name<P> for $crate::Camera<P> {}
     };
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    
+
     // Test that the macro works
     camera_extension_trait! {
         /// Test extension trait.
@@ -231,7 +239,7 @@ mod tests {
             }
         }
     }
-    
+
     #[test]
     fn test_extension_trait_macro() {
         // This is mainly a compile-time test

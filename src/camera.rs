@@ -8,8 +8,8 @@ use crate::transport::Transport;
 use crate::{Command, Response};
 
 pub mod builder;
-pub mod commands;
 pub mod command_builder;
+pub mod commands;
 pub mod extensions;
 pub mod inquiry;
 pub mod profiles;
@@ -521,21 +521,49 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Send a raw command to the camera (blocking).
-    pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+    pub fn send_raw(&mut self, _command: &dyn Command) -> Result<Response, ViscaError> {
         // This would need proper implementation
-        Err(ViscaError::InvalidState("Blocking transport not implemented".to_string()))
+        Err(ViscaError::InvalidState(
+            "Blocking transport not implemented".to_string(),
+        ))
     }
 
     /// Send a raw command to the camera (async).
     #[cfg(feature = "tokio")]
     pub async fn send_raw_async(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
         use crate::command::response::parse_response;
-        
+
         self.transport.send_command(command).await?;
         let responses = self.transport.receive_response().await?;
-        
+
         if let Some(response_bytes) = responses.first() {
-            parse_response(response_bytes).map_err(|_| ViscaError::InvalidResponse)
+            // If the command expects a specific response type, parse it
+            if let Some(response_type) = command.response_type() {
+                parse_response(response_bytes, &response_type).map_err(|_| {
+                    ViscaError::InvalidResponse {
+                        expected: format!("{:?}", response_type),
+                        actual: response_bytes.to_vec(),
+                    }
+                })
+            } else {
+                // No specific response expected, check for ACK/completion
+                if response_bytes.len() >= 3
+                    && response_bytes[0] == 0x90
+                    && response_bytes[response_bytes.len() - 1] == 0xFF
+                {
+                    match response_bytes[1] {
+                        0x40..=0x4F => Ok(Response::Ack),
+                        0x50..=0x5F => Ok(Response::Completion),
+                        0x60..=0x6F => Err(ViscaError::from_code(response_bytes[2])),
+                        _ => Ok(Response::Unknown(response_bytes.to_vec())),
+                    }
+                } else {
+                    Err(ViscaError::InvalidResponse {
+                        expected: "ACK or Completion".to_string(),
+                        actual: response_bytes.to_vec(),
+                    })
+                }
+            }
         } else {
             Err(ViscaError::Timeout)
         }
