@@ -39,23 +39,35 @@ pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> 
 /// This is the main transport abstraction in v0.4.0, designed to be async-first
 /// while supporting blocking operations through adapters.
 pub trait Transport: Send + Sync {
-    /// Send a VISCA command to the camera asynchronously.
-    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()>;
-
-    /// Receive response frames from the camera asynchronously.
+    /// Send a VISCA command to the camera asynchronously with a specific socket ID.
     ///
-    /// Returns a vector of response frames that have been received.
-    /// Each frame is a complete VISCA response (starts with 0x90 and ends with 0xFF).
-    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>>;
+    /// The socket ID is used for tracking concurrent commands. VISCA cameras typically
+    /// support Socket 0 and Socket 1 for up to 2 concurrent commands.
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> TransportFuture<'a, ()>;
+
+    /// Receive a response frame from the camera asynchronously.
+    ///
+    /// Returns a tuple of (socket_id, response_data) where:
+    /// - socket_id identifies which command this response belongs to
+    /// - response_data is the complete VISCA response (starts with 0x90 and ends with 0xFF)
+    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)>;
 }
 
 /// Implementation of Transport for Box<dyn Transport> to allow dynamic dispatch.
 impl Transport for Box<dyn Transport> {
-    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
-        (**self).send_command(command)
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> TransportFuture<'a, ()> {
+        (**self).send_command(command, socket_id)
     }
 
-    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)> {
         (**self).receive_response()
     }
 }
@@ -66,11 +78,15 @@ impl Transport for Box<dyn Transport> {
 #[doc(hidden)]
 #[cfg(feature = "blocking-client")]
 pub trait BlockingTransport {
-    /// Send a VISCA command to the camera synchronously.
-    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error>;
+    /// Send a VISCA command to the camera synchronously with a specific socket ID.
+    fn send_command_blocking(
+        &mut self,
+        command: &dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> Result<(), Error>;
 
-    /// Receive response frames from the camera synchronously.
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error>;
+    /// Receive a response frame from the camera synchronously.
+    fn receive_response_blocking(&mut self) -> Result<(crate::types::SocketId, Vec<u8>), Error>;
 }
 
 /// Adapter that implements the async Transport trait for any BlockingTransport.
@@ -83,11 +99,15 @@ pub struct BlockingAdapter<T: BlockingTransport>(pub T);
 
 #[cfg(feature = "blocking-client")]
 impl<T: BlockingTransport + Send + Sync> Transport for BlockingAdapter<T> {
-    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
-        Box::pin(async move { self.0.send_command_blocking(command) })
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> TransportFuture<'a, ()> {
+        Box::pin(async move { self.0.send_command_blocking(command, socket_id) })
     }
 
-    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)> {
         Box::pin(async move { self.0.receive_response_blocking() })
     }
 }
@@ -99,12 +119,16 @@ mod tests {
     struct MockBlockingTransport;
 
     impl BlockingTransport for MockBlockingTransport {
-        fn send_command_blocking(&mut self, _command: &dyn Command) -> Result<(), Error> {
+        fn send_command_blocking(
+            &mut self,
+            _command: &dyn Command,
+            _socket_id: crate::types::SocketId,
+        ) -> Result<(), Error> {
             Ok(())
         }
 
-        fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
-            Ok(vec![vec![0x90, 0x50, 0xFF]])
+        fn receive_response_blocking(&mut self) -> Result<(crate::types::SocketId, Vec<u8>), Error> {
+            Ok((crate::types::SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF]))
         }
     }
 

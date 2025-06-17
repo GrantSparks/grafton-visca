@@ -8,9 +8,6 @@ use crate::{
     Command, Error as ViscaError, Response,
 };
 
-#[cfg(feature = "tokio")]
-use crate::command::response::parse_response;
-
 /// Base trait for camera extensions.
 ///
 /// This trait allows users to extend camera functionality by implementing
@@ -28,29 +25,22 @@ pub trait CameraExtension<P: CameraProfile>: Sized {
 }
 
 impl<P: CameraProfile> CameraExtension<P> for Camera<P> {
-    fn send_raw(&mut self, _command: &dyn Command) -> Result<Response, ViscaError> {
-        // This would need to be implemented based on the transport's blocking capabilities
-        // For now, we'll return an error indicating async-only operation
-        Err(ViscaError::InvalidState(
-            "Camera operations require async transport".to_string(),
-        ))
+    fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+        #[cfg(feature = "blocking-client")]
+        {
+            Camera::send_raw(self, command)
+        }
+        #[cfg(not(feature = "blocking-client"))]
+        {
+            Err(ViscaError::InvalidState(
+                "Camera operations require async transport".to_string(),
+            ))
+        }
     }
 
     #[cfg(feature = "tokio")]
     async fn send_raw_async(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
-        // Send command and receive response
-        self.transport.send_command(command).await?;
-        let responses = self.transport.receive_response().await?;
-
-        // Parse the first response
-        if let Some(response_bytes) = responses.first() {
-            // We don't know the expected response type for raw commands
-            // For now, we'll return the raw response as Unknown
-            use crate::Response;
-            Ok(Response::Unknown(response_bytes.clone()))
-        } else {
-            Err(ViscaError::Timeout)
-        }
+        Camera::send_raw_async(self, command).await
     }
 }
 

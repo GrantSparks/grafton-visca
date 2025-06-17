@@ -2,8 +2,11 @@
 
 use std::fmt::Display;
 use std::ops::RangeInclusive;
+use std::sync::Arc;
 
 use crate::error::Error as ViscaError;
+use crate::session::Session;
+use crate::sync_primitives::{Mutex, Semaphore};
 use crate::transport::Transport;
 use crate::{Command, Response};
 
@@ -25,6 +28,8 @@ pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 pub struct Camera<P: CameraProfile> {
     profile: P,
     transport: Box<dyn Transport>,
+    session: Arc<Mutex<Session>>,
+    semaphore: Arc<Semaphore>,
 }
 
 impl<P: CameraProfile> std::fmt::Debug for Camera<P> {
@@ -474,6 +479,8 @@ impl<P: CameraProfile> Camera<P> {
         Self {
             profile: P::default(),
             transport: Box::new(transport),
+            session: Arc::new(Mutex::new(Session::new())),
+            semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
         }
     }
 
@@ -482,6 +489,8 @@ impl<P: CameraProfile> Camera<P> {
         Self {
             profile,
             transport: Box::new(transport),
+            session: Arc::new(Mutex::new(Session::new())),
+            semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
         }
     }
 
@@ -520,52 +529,114 @@ impl<P: CameraProfile> Camera<P> {
         &self.profile
     }
 
+    /// Send a command and wait for completion (async).
+    #[cfg(feature = "async-client")]
+    async fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+        match self.send_raw_async(command).await? {
+            Response::Completion => Ok(()),
+            Response::Ack => {
+                // Wait for completion after ACK
+                // This is handled internally by send_raw_async
+                Ok(())
+            }
+            response => Err(ViscaError::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
     /// Send a raw command to the camera (blocking).
-    pub fn send_raw(&mut self, _command: &dyn Command) -> Result<Response, ViscaError> {
-        // This would need proper implementation
-        Err(ViscaError::InvalidState(
-            "Blocking transport not implemented".to_string(),
-        ))
+    #[cfg(feature = "blocking-client")]
+    pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+        use crate::sync_primitives::SemaphoreExt;
+
+        // Acquire semaphore permit for concurrency control
+        let _permit = self.semaphore.acquire_permit();
+
+        // Get socket assignment from session
+        let socket_id = {
+            let mut session = self.session.lock();
+            session.assign_socket(command.response_type())?
+        };
+
+        // Send command with socket ID
+        self.transport
+            .send_command_blocking(command, socket_id)
+            .map_err(|e| {
+                // Release socket on error
+                let mut session = self.session.lock();
+                session.release_socket(socket_id);
+                e
+            })?;
+
+        // Wait for response
+        loop {
+            let (resp_socket_id, response_data) = self.transport.receive_response_blocking()?;
+            
+            let mut session = self.session.lock();
+            match session.process_response(&response_data) {
+                Ok(Some((socket, response))) if socket == socket_id => {
+                    session.release_socket(socket_id);
+                    return Ok(response);
+                }
+                Ok(_) => continue, // Response for different socket, keep waiting
+                Err(e) => {
+                    session.release_socket(socket_id);
+                    return Err(e);
+                }
+            }
+        }
     }
 
     /// Send a raw command to the camera (async).
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "async-client")]
     pub async fn send_raw_async(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
-        use crate::command::response::parse_response;
+        use crate::sync_primitives::SemaphoreExt;
 
-        self.transport.send_command(command).await?;
-        let responses = self.transport.receive_response().await?;
+        // Acquire semaphore permit for concurrency control
+        let _permit = self.semaphore.acquire_permit().await?;
 
-        if let Some(response_bytes) = responses.first() {
-            // If the command expects a specific response type, parse it
-            if let Some(response_type) = command.response_type() {
-                parse_response(response_bytes, &response_type).map_err(|_| {
-                    ViscaError::InvalidResponse {
-                        expected: format!("{:?}", response_type),
-                        actual: response_bytes.to_vec(),
-                    }
-                })
-            } else {
-                // No specific response expected, check for ACK/completion
-                if response_bytes.len() >= 3
-                    && response_bytes[0] == 0x90
-                    && response_bytes[response_bytes.len() - 1] == 0xFF
-                {
-                    match response_bytes[1] {
-                        0x40..=0x4F => Ok(Response::Ack),
-                        0x50..=0x5F => Ok(Response::Completion),
-                        0x60..=0x6F => Err(ViscaError::from_code(response_bytes[2])),
-                        _ => Ok(Response::Unknown(response_bytes.to_vec())),
-                    }
-                } else {
-                    Err(ViscaError::InvalidResponse {
-                        expected: "ACK or Completion".to_string(),
-                        actual: response_bytes.to_vec(),
-                    })
+        // Get socket assignment from session
+        let socket_id = {
+            #[cfg(feature = "async-client")]
+            let mut session = self.session.lock().await;
+            #[cfg(not(feature = "async-client"))]
+            let mut session = self.session.lock();
+            session.assign_socket(command.response_type())?
+        };
+
+        // Send command with socket ID
+        if let Err(e) = self.transport.send_command(command, socket_id).await {
+            // Release socket on error
+            #[cfg(feature = "async-client")]
+            let mut session = self.session.lock().await;
+            #[cfg(not(feature = "async-client"))]
+            let mut session = self.session.lock();
+            session.release_socket(socket_id);
+            return Err(e);
+        }
+
+        // Wait for response
+        loop {
+            let (_resp_socket_id, response_data) = self.transport.receive_response().await?;
+            
+            #[cfg(feature = "async-client")]
+            let mut session = self.session.lock().await;
+            #[cfg(not(feature = "async-client"))]
+            let mut session = self.session.lock();
+            
+            match session.process_response(&response_data) {
+                Ok(Some((socket, response))) if socket == socket_id => {
+                    session.release_socket(socket_id);
+                    return Ok(response);
+                }
+                Ok(_) => continue, // Response for different socket, keep waiting
+                Err(e) => {
+                    session.release_socket(socket_id);
+                    return Err(e);
                 }
             }
-        } else {
-            Err(ViscaError::Timeout)
         }
     }
 }

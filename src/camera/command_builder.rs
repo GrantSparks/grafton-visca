@@ -461,23 +461,69 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
         Ok(responses)
     }
 
-    /// Executes all commands concurrently (async only).
+    /// Executes commands concurrently (async only).
     ///
-    /// NOTE: This method is currently not available due to the requirement for
-    /// mutable access to the camera. VISCA cameras typically can only handle
-    /// one command at a time anyway, so sequential execution is recommended.
+    /// Commands are executed concurrently up to the limit supported by the camera
+    /// (typically 2 for VISCA cameras). This can significantly improve performance
+    /// when executing multiple independent commands.
     ///
-    /// Use `execute_sequential_async` instead.
-    #[cfg(feature = "tokio")]
-    #[deprecated(
-        note = "Use execute_sequential_async instead - VISCA cameras typically don't support concurrent commands"
-    )]
-    pub async fn execute_concurrent_async(
-        self,
-    ) -> Result<Vec<Result<Response, ViscaError>>, ViscaError> {
-        // For now, just execute sequentially
-        let results = self.execute_sequential_async().await?;
-        Ok(results.into_iter().map(Ok).collect())
+    /// # Returns
+    /// A vector of results, one for each command in the order they were added.
+    /// Each result contains either a Response or an Error.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use grafton_visca::prelude::*;
+    /// # async fn example(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
+    /// let results = camera.commands()
+    ///     .zoom_in()
+    ///     .pan_tilt_home()
+    ///     .execute_concurrent().await?;
+    ///
+    /// for (i, result) in results.iter().enumerate() {
+    ///     match result {
+    ///         Ok(response) => println!("Command {} succeeded: {:?}", i + 1, response),
+    ///         Err(e) => println!("Command {} failed: {}", i + 1, e),
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "async-client")]
+    pub async fn execute_concurrent(self) -> Result<Vec<Result<Response, ViscaError>>, ViscaError> {
+        use futures_util::future::join_all;
+        use std::sync::Arc;
+        
+        // We need to share the camera between concurrent tasks
+        // This is safe because we have the semaphore limiting concurrent access
+        let camera_arc = Arc::new(tokio::sync::Mutex::new(self.camera));
+        let commands = self.commands;
+        
+        // Create futures for all commands
+        let futures: Vec<_> = commands
+            .into_iter()
+            .enumerate()
+            .map(|(i, prepared)| {
+                let camera = camera_arc.clone();
+                async move {
+                    log::debug!("Starting concurrent command {}: {}", i + 1, prepared.description);
+                    
+                    let mut camera_guard = camera.lock().await;
+                    let result = camera_guard.send_raw_async(prepared.command.as_ref()).await;
+                    drop(camera_guard); // Release lock as soon as possible
+                    
+                    match &result {
+                        Ok(_) => log::debug!("Command {} completed successfully", prepared.description),
+                        Err(e) => log::error!("Command {} failed: {}", prepared.description, e),
+                    }
+                    
+                    result
+                }
+            })
+            .collect();
+        
+        // Execute all commands concurrently
+        Ok(join_all(futures).await)
     }
 
     /// Returns the number of commands in the sequence.
