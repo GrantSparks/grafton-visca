@@ -139,6 +139,7 @@ struct TransportState<T> {
     /// The underlying transport
     inner: Option<T>,
     /// Last successful operation time
+    #[allow(dead_code)]
     last_success: Option<Instant>,
     /// Statistics
     stats: ResilienceStats,
@@ -207,6 +208,7 @@ impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
     }
 
     /// Notifies about an event if a callback is set.
+    #[allow(dead_code)]
     fn notify_event(&self, event: ResilienceEvent) {
         if let Some(ref callback) = self.event_callback {
             callback(event);
