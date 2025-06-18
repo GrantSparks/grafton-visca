@@ -1,14 +1,12 @@
-//! Example program
+//! Example program demonstrating the new Camera API
 
 use grafton_visca::{
-    command::{
-        pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-        zoom::{ZoomCommand, ZoomSpeed},
-        InquiryCommand, PanTiltCommand,
-    },
-    Client, Error, InquiryResponse, Response,
+    camera::profiles::PTZOpticsG2,
+    command::pan_tilt::PanTiltDirection,
+    transport::{BlockingAdapter, TcpTransport, UdpTransport},
+    Camera, Error,
 };
-use log::{debug, error, info};
+use log::{debug, info};
 use std::{env, time::Duration};
 
 fn parse_args() -> (String, String) {
@@ -30,7 +28,10 @@ fn parse_args() -> (String, String) {
     (protocol, ip_address)
 }
 
-fn create_client(protocol: &str, ip_address: &str) -> Result<Client, Box<dyn std::error::Error>> {
+fn create_camera(
+    protocol: &str,
+    ip_address: &str,
+) -> Result<Camera<PTZOpticsG2>, Box<dyn std::error::Error>> {
     let udp_port = "1259";
     let tcp_port = "5678";
 
@@ -42,14 +43,24 @@ fn create_client(protocol: &str, ip_address: &str) -> Result<Client, Box<dyn std
     };
 
     if use_udp {
-        Client::connect_udp(&address)
+        let udp_transport = UdpTransport::new(&address)?;
+        Ok(Camera::new(BlockingAdapter(udp_transport)))
     } else {
-        Client::connect_tcp(&address)
+        let tcp_transport = TcpTransport::new(&address)?;
+        Ok(Camera::new(BlockingAdapter(tcp_transport)))
     }
-    .map_err(|e| e.into())
 }
 
-fn perform_pan_tilt_movements(client: &Client) -> Result<(), Error> {
+// Use a minimal tokio runtime for blocking execution
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(fut)
+}
+
+fn perform_pan_tilt_movements(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
     let complex_movements = [
         (PanTiltDirection::Up, 5, 3),
         (PanTiltDirection::Right, 4, 3),
@@ -61,22 +72,12 @@ fn perform_pan_tilt_movements(client: &Client) -> Result<(), Error> {
 
     for (direction, pan_speed, tilt_speed) in &complex_movements {
         debug!("Sending Pan/Tilt {direction:?} command");
-        let pan_tilt_command = PanTiltCommand::Move {
-            direction: *direction,
-            pan_speed: PanSpeed::new(*pan_speed)?,
-            tilt_speed: TiltSpeed::new(*tilt_speed)?,
-        };
-        client.send(&pan_tilt_command)?;
+        block_on(camera.move_continuous(*direction, *pan_speed, *tilt_speed))?;
 
         std::thread::sleep(Duration::from_secs(3));
 
         debug!("Sending Pan/Tilt stop command");
-        let pan_tilt_stop_command = PanTiltCommand::Move {
-            direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0x00)?,
-            tilt_speed: TiltSpeed::new(0x00)?,
-        };
-        client.send(&pan_tilt_stop_command)?;
+        block_on(camera.stop())?;
 
         std::thread::sleep(Duration::from_secs(1));
     }
@@ -84,89 +85,61 @@ fn perform_pan_tilt_movements(client: &Client) -> Result<(), Error> {
     Ok(())
 }
 
-fn perform_zoom_movements(client: &Client) -> Result<(), Error> {
-    let zoom_movements = [
-        ZoomCommand::ZoomInStandard,
-        ZoomCommand::ZoomOutStandard,
-        ZoomCommand::ZoomInVariable(ZoomSpeed::new(5).unwrap()),
-        ZoomCommand::ZoomOutVariable(ZoomSpeed::new(5).unwrap()),
-    ];
+fn perform_zoom_movements(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+    debug!("Zooming in (standard speed)");
+    block_on(camera.zoom_in())?;
+    std::thread::sleep(Duration::from_secs(3));
 
-    for command in &zoom_movements {
-        debug!("Sending {command:?} command");
-        if let Err(e) = client.send(command) {
-            error!("Error while sending zoom command: {e:?}");
-            return Err(e);
-        }
+    debug!("Stopping zoom");
+    block_on(camera.zoom_stop())?;
+    std::thread::sleep(Duration::from_secs(1));
 
-        std::thread::sleep(Duration::from_secs(3));
+    debug!("Zooming out (standard speed)");
+    block_on(camera.zoom_out())?;
+    std::thread::sleep(Duration::from_secs(3));
 
-        debug!("Inquiring Zoom position after {command:?}");
-        if let Ok(Response::InquiryResponse(InquiryResponse::ZoomPosition { position })) =
-            client.send(&InquiryCommand::ZoomPosition)
-        {
-            info!("Zoom position after {command:?}: {position}");
-        } else {
-            error!("Failed to get Zoom position after {command:?}");
-        }
-    }
+    debug!("Stopping zoom");
+    block_on(camera.zoom_stop())?;
 
-    debug!("Sending Zoom stop command");
-    client.send(&ZoomCommand::Stop)?;
+    // Set zoom to specific position (50%)
+    debug!("Setting zoom to 50%");
+    let zoom_50_percent = 0x3800; // Half of max zoom for G2
+    block_on(camera.set_zoom(zoom_50_percent))?;
+    std::thread::sleep(Duration::from_secs(2));
 
     Ok(())
 }
 
-fn inquire_pan_tilt_position(client: &Client) {
-    debug!("Inquiring Pan/Tilt position");
-    if let Ok(Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt })) =
-        client.send(&InquiryCommand::PanTiltPosition)
-    {
-        info!("Pan position: {pan}, Tilt position: {tilt}");
-    } else {
-        error!("Failed to get Pan/Tilt position");
-    }
-}
-
-fn inquire_zoom_position(client: &Client, label: &str) {
-    debug!("Inquiring {label} Zoom position");
-    if let Ok(Response::InquiryResponse(InquiryResponse::ZoomPosition { position })) =
-        client.send(&InquiryCommand::ZoomPosition)
-    {
-        info!("{label} Zoom position: {position}");
-    } else {
-        error!("Failed to get {label} Zoom position");
-    }
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    info!("Starting application");
+    info!("Starting grafton-visca hello_world example");
 
     let (protocol, ip_address) = parse_args();
-    let client = create_client(&protocol, &ip_address)?;
+    let mut camera = create_camera(&protocol, &ip_address)?;
+
+    // Display camera capabilities
+    let caps = camera.capabilities();
+    info!("Camera Model: {}", caps.model_name);
+    info!("Pan Range: {:?} degrees", caps.pan_range_degrees);
+    info!("Tilt Range: {:?} degrees", caps.tilt_range_degrees);
+    info!("Max Pan Speed: {}", caps.max_pan_speed);
+    info!("Max Tilt Speed: {}", caps.max_tilt_speed);
 
     debug!("Sending Pan/Tilt home command");
-    client.send(&PanTiltCommand::Home)?;
-    std::thread::sleep(Duration::from_secs(1));
+    block_on(camera.home())?;
+    std::thread::sleep(Duration::from_secs(2));
 
-    inquire_pan_tilt_position(&client);
+    perform_pan_tilt_movements(&mut camera)?;
 
-    perform_pan_tilt_movements(&client)?;
+    perform_zoom_movements(&mut camera)?;
 
-    inquire_pan_tilt_position(&client);
+    debug!("Returning to home position");
+    block_on(camera.home())?;
+    std::thread::sleep(Duration::from_secs(2));
 
-    inquire_zoom_position(&client, "initial");
+    debug!("Resetting zoom");
+    block_on(camera.set_zoom(0x0000))?;
 
-    perform_zoom_movements(&client)?;
-
-    inquire_zoom_position(&client, "final");
-
-    debug!("Sending Pan/Tilt home command");
-    client.send(&PanTiltCommand::Home)?;
-
-    debug!("Sending Zoom home command");
-    client.send(&ZoomCommand::ZoomOutStandard)?;
-
+    info!("Demo complete!");
     Ok(())
 }

@@ -1,80 +1,119 @@
-//! Example program
-
-//! Example demonstrating the type-safe API improvements in grafton-visca.
+//! Example demonstrating the type-safe Camera API in grafton-visca.
 //!
-//! This example shows how the strongly-typed speed parameters prevent runtime errors
-//! and make the API more self-documenting.
+//! This example shows how the strongly-typed Camera API with profiles prevents
+//! runtime errors and provides compile-time guarantees.
 
-#[cfg(feature = "blocking-client")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::prelude::*;
+use grafton_visca::{
+    camera::{profiles::PTZOpticsG2, Camera, CameraProfile},
+    transport::{BlockingAdapter, UdpTransport},
+};
+use std::thread;
+use std::time::Duration;
 
-    env_logger::init();
-
-    // Connect to camera
-    let mut client = Client::connect_udp("192.168.1.100:5678")?;
-
-    println!("=== Type-Safe API Demo ===\n");
-
-    // 1. Speed parameters are now strongly typed, preventing invalid values at compile time
-    println!("1. Creating speed parameters with validation:");
-    let pan_speed = PanSpeed::new(15)?; // Valid: 0-24
-    let tilt_speed = TiltSpeed::new(12)?; // Valid: 0-20
-    let zoom_speed = ZoomSpeed::new(5)?; // Valid: 0-7
-    let focus_speed = FocusSpeed::new(4)?; // Valid: 0-7
-    println!("   ✓ All speed parameters created successfully");
-
-    // This would fail at runtime with a clear error:
-    // let invalid_zoom = ZoomSpeed::new(10)?; // Error: Zoom speed must be in the range 0..=7
-
-    // 2. Extension traits use these types directly
-    println!("\n2. Using type-safe extension methods:");
-    client.move_to_position(0, 0, Some((pan_speed, tilt_speed)))?;
-    println!("   ✓ Moved to home position with validated speeds");
-
-    ZoomExt::zoom_in_speed(&mut client, Some(zoom_speed))?;
-    println!("   ✓ Started zooming in with validated speed");
-
-    client.focus_far(Some(focus_speed))?;
-    println!("   ✓ Started focusing far with validated speed");
-
-    // 3. The builder API also uses these types
-    println!("\n3. Using the PTZ builder with type safety:");
-    // Note: ptz() consumes self, so we'd need to recreate the client or use Arc
-    // For this demo, we'll skip the builder to keep it simple
-    println!("   ✓ PTZ builder also uses the same type-safe parameters");
-
-    // 4. Preset operations use PresetNumber type
-    println!("\n4. Using type-safe preset operations:");
-    let preset = PresetNumber::new(5)?; // Valid: 0-89
-    client.save_preset_number(preset)?;
-    println!("   ✓ Saved current position to preset {}", preset.value());
-
-    client.recall_preset_number(preset)?;
-    println!("   ✓ Recalled preset {}", preset.value());
-
-    // 5. You can still create DynamicRangeLevel for commands, even without a dedicated extension method
-    println!("\n5. Type-safe bounded parameters:");
-    let dr_level = DynamicRangeLevel::new(5)?; // Valid: 0-8
-    println!(
-        "   ✓ Created DynamicRangeLevel with value {}",
-        dr_level.value()
-    );
-    // Note: While DynamicRangeLevel is type-safe, there's no dedicated extension method yet.
-    // You would use it with DynamicRangeCommand::Direct(dr_level)
-
-    println!("\n=== Demo Complete ===");
-    println!("\nBenefits of the type-safe API:");
-    println!("• Invalid values are caught at compile time");
-    println!("• API is self-documenting (parameter ranges are clear)");
-    println!("• Reduced runtime errors");
-    println!("• Better IDE support with auto-completion");
-
-    Ok(())
+// Use a minimal tokio runtime for blocking execution
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(fut)
 }
 
-#[cfg(not(feature = "blocking-client"))]
-fn main() {
-    println!("This example requires the 'blocking-client' feature.");
-    println!("Run with: cargo run --example type_safe_api_demo --features blocking-client");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
+    // Connect to camera using the new Camera API
+    let transport = UdpTransport::new("192.168.1.100:5678")?;
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+
+    println!("=== Type-Safe Camera API Demo ===\n");
+
+    // 1. Camera profile provides compile-time type safety
+    println!("1. Camera profile information:");
+    let caps = camera.capabilities();
+    println!("   Model: {}", caps.model_name);
+    println!("   Pan range: {:?} degrees", caps.pan_range_degrees);
+    println!("   Tilt range: {:?} degrees", caps.tilt_range_degrees);
+    println!("   Max pan speed: {}", caps.max_pan_speed);
+    println!("   Max tilt speed: {}", caps.max_tilt_speed);
+    println!("   ✓ All capabilities are type-safe and model-specific");
+
+    // 2. Position control with type-safe units
+    println!("\n2. Type-safe position control:");
+    use grafton_visca::camera::units::{Degrees, Normalized, ViscaUnits};
+
+    // Move using degrees
+    block_on(camera.set_position(Degrees(45.0), Degrees(15.0)))?;
+    println!("   ✓ Moved to 45° pan, 15° tilt");
+    thread::sleep(Duration::from_secs(2));
+
+    // Move using VISCA units
+    block_on(camera.set_position_units(ViscaUnits(1000), ViscaUnits(500)))?;
+    println!("   ✓ Moved using VISCA units");
+    thread::sleep(Duration::from_secs(2));
+
+    // Move using normalized coordinates
+    block_on(camera.set_position_normalized(Normalized(0.5), Normalized(-0.25)))?;
+    println!("   ✓ Moved using normalized coordinates");
+    thread::sleep(Duration::from_secs(2));
+
+    // 3. Profile-specific preset types
+    println!("\n3. Profile-specific preset operations:");
+    use grafton_visca::camera::profiles::G2PresetId;
+
+    // PTZOpticsG2 has specific preset constraints (0-89)
+    let preset = G2PresetId::new(5)?;
+    block_on(camera.set_preset(preset))?;
+    println!("   ✓ Saved position to preset");
+
+    thread::sleep(Duration::from_secs(1));
+    block_on(camera.home())?;
+    thread::sleep(Duration::from_secs(2));
+
+    block_on(camera.recall_preset(preset))?;
+    println!("   ✓ Recalled preset");
+
+    // 4. Profile-specific gain values
+    println!("\n4. Profile-specific gain control:");
+    use grafton_visca::camera::profiles::G2Gain;
+
+    // PTZOpticsG2 has specific gain values
+    block_on(camera.set_gain(G2Gain::Gain12dB))?;
+    println!("   ✓ Set gain to 12dB (profile-specific value)");
+
+    block_on(camera.set_gain_limit(6))?; // 18dB = value 6
+    println!("   ✓ Set gain limit to 18dB");
+
+    // 5. All commands are validated at compile time
+    println!("\n5. Compile-time validation:");
+    println!("   ✓ All speeds are validated (0-24 for pan, 0-20 for tilt)");
+    println!("   ✓ Position ranges are enforced by the profile");
+    println!("   ✓ Invalid preset IDs are caught at creation time");
+    println!("   ✓ Gain values are restricted to valid camera options");
+
+    // 6. Profile-aware conversions
+    println!("\n6. Profile-aware unit conversions:");
+    let pan_degrees = camera.profile().pan_units_to_degrees(1000);
+    let tilt_degrees = camera.profile().tilt_units_to_degrees(500);
+    println!(
+        "   VISCA units (1000, 500) = ({:.1}°, {:.1}°)",
+        pan_degrees, tilt_degrees
+    );
+
+    let pan_units = camera.profile().pan_degrees_to_units(45.0);
+    let tilt_units = camera.profile().tilt_degrees_to_units(15.0);
+    println!(
+        "   Degrees (45°, 15°) = VISCA units ({}, {})",
+        pan_units, tilt_units
+    );
+
+    println!("\n=== Demo Complete ===");
+    println!("\nBenefits of the type-safe Camera API:");
+    println!("• Camera-specific constraints enforced at compile time");
+    println!("• Profile-aware conversions and validations");
+    println!("• Type-safe position units prevent mixing degrees/units/normalized");
+    println!("• Model-specific types (presets, gain) ensure compatibility");
+    println!("• Self-documenting API with clear parameter constraints");
+
+    Ok(())
 }

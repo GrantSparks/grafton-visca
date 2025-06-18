@@ -1,15 +1,19 @@
-//! Example program
-
-//! Example demonstrating the async inquiry API with Client.
+//! Example demonstrating Camera API inquiry commands.
 //!
-//! This example shows how to:
-//! - Connect to a camera using async UDP transport
-//! - Send various inquiry commands asynchronously
-//! - Handle concurrent inquiries for better performance
-//! - Monitor camera state over time
+//! This example shows:
+//! - How to use inquiry commands with the Camera<P> API
+//! - Profile-aware position conversions
+//! - Getting comprehensive camera state
+//! - Querying various camera parameters
+//!
+//! The Camera API now supports full inquiry functionality through the
+//! send_and_receive() method, making it a complete replacement for the Client API.
 
-use grafton_visca::command::{InquiryCommand, Response};
-use grafton_visca::{Client, Error, InquiryResponse};
+use grafton_visca::{
+    camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
+    transport::AsyncUdpTransport,
+    Error,
+};
 use std::env;
 use tokio::time::{sleep, Duration};
 
@@ -29,111 +33,204 @@ async fn main() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         eprintln!("Usage: {} <camera_ip:port>", args[0]);
-        eprintln!("Example: {} 192.168.1.100:5678", args[0]);
+        eprintln!("Example: {} 192.168.1.100:52381", args[0]);
         std::process::exit(1);
     }
 
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let client = Client::connect_udp_async(camera_addr).await?;
 
-    println!("\n=== Camera Inquiry Demo ===\n");
+    // Create camera with async transport
+    let transport = AsyncUdpTransport::new(camera_addr).await?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
-    // Basic camera status
-    println!("1. Basic Camera Status");
+    println!("\n=== Camera API Inquiry Commands Demo ===\n");
 
-    let power = client.send_async(&InquiryCommand::Power).await?;
-    if let Response::InquiryResponse(InquiryResponse::Power { on }) = power {
-        println!("   - Power: {}", if on { "ON" } else { "OFF" });
+    // 1. Basic Status Inquiries
+    println!("1. Basic Status Inquiries:");
+
+    // Power status
+    match camera.get_power_state().await {
+        Ok(is_on) => println!("   - Power: {}", if is_on { "ON" } else { "OFF" }),
+        Err(e) => println!("   - Power inquiry failed: {}", e),
     }
 
-    println!("\n2. Camera Position and Zoom");
+    // Note: VISCA protocol doesn't support querying auto-focus status
+    // Applications must track this based on the last focus command sent
 
-    let position = client.send_async(&InquiryCommand::PanTiltPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) = position {
-        println!("   - Pan/Tilt Position: pan={}, tilt={}", pan, tilt);
-    }
+    // 2. Position Inquiries with Profile-Aware Conversion
+    println!("\n2. Position Inquiries (Profile-Aware):");
 
-    let zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = zoom {
-        println!("   - Zoom Position: {:02X?}", position);
-    }
-
-    let focus = client.send_async(&InquiryCommand::FocusPosition).await?;
-    if let Response::InquiryResponse(InquiryResponse::FocusPosition { position }) = focus {
-        println!("   - Focus Position: {:02X?}", position);
-    }
-
-    println!("\n3. Image Settings");
-
-    // Execute multiple inquiries concurrently for better performance
-    let exposure_future = client.send_async(&InquiryCommand::ExposureMode);
-    let wb_future = client.send_async(&InquiryCommand::WhiteBalanceMode);
-    let luminance_future = client.send_async(&InquiryCommand::Luminance);
-
-    let (exposure_result, wb_result, luminance_result) =
-        tokio::join!(exposure_future, wb_future, luminance_future);
-
-    if let Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) = exposure_result {
-        println!("   - Exposure Mode: {:?}", mode);
-    }
-
-    if let Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance { mode })) = wb_result {
-        println!("   - White Balance: {:?}", mode);
-    }
-
-    if let Ok(Response::InquiryResponse(InquiryResponse::Luminance(level))) = luminance_result {
-        println!("   - Luminance: {}", level);
-    }
-
-    println!("\n4. Additional Image Parameters");
-
-    let contrast = client.send_async(&InquiryCommand::Contrast).await?;
-    if let Response::InquiryResponse(InquiryResponse::Contrast(level)) = contrast {
-        println!("   - Contrast: {}", level);
-    }
-
-    let gain = client.send_async(&InquiryCommand::Gain).await?;
-    if let Response::InquiryResponse(InquiryResponse::Gain { gain }) = gain {
-        println!("   - Gain: {}", gain);
-    }
-
-    println!("\n5. Comprehensive Status Report");
-
-    // Create a comprehensive status report
-    let status_futures = vec![
-        client.send_async(&InquiryCommand::Power),
-        client.send_async(&InquiryCommand::PanTiltPosition),
-        client.send_async(&InquiryCommand::ZoomPosition),
-        client.send_async(&InquiryCommand::FocusPosition),
-        client.send_async(&InquiryCommand::ExposureMode),
-        client.send_async(&InquiryCommand::WhiteBalanceMode),
-    ];
-
-    let results = futures_util::future::try_join_all(status_futures).await?;
-
-    println!("   Complete Camera Status:");
-    for result in results {
-        if let Response::InquiryResponse(inquiry) = result {
-            println!("     - {:?}", inquiry);
+    // Get position in degrees (automatic conversion)
+    match camera.get_position().await {
+        Ok((pan, tilt)) => {
+            println!(
+                "   - Current position: pan={:.1}°, tilt={:.1}°",
+                pan.0, tilt.0
+            );
         }
+        Err(e) => println!("   - Position inquiry failed: {}", e),
     }
 
-    println!("\n6. Monitoring Example (5 readings)");
-
-    for i in 1..=5 {
-        println!("   Reading #{}", i);
-
-        let current_zoom = client.send_async(&InquiryCommand::ZoomPosition).await?;
-        if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = current_zoom
-        {
-            println!("     - Current Zoom: {:02X?}", position);
+    // Get position in raw VISCA units
+    match camera.get_position_units().await {
+        Ok((pan, tilt)) => {
+            println!(
+                "   - Position (VISCA units): pan={}, tilt={}",
+                pan.0, tilt.0
+            );
         }
-
-        sleep(Duration::from_secs(1)).await;
+        Err(e) => println!("   - Position units inquiry failed: {}", e),
     }
 
-    println!("\nInquiry demo completed successfully!");
+    // 3. Zoom and Focus Inquiries
+    println!("\n3. Zoom and Focus Status:");
+
+    match camera.get_zoom_position().await {
+        Ok(zoom) => println!("   - Zoom position: {:.1}x", zoom),
+        Err(e) => println!("   - Zoom inquiry failed: {}", e),
+    }
+
+    match camera.get_focus_position().await {
+        Ok(focus) => println!("   - Focus position: {} (raw units)", focus),
+        Err(e) => println!("   - Focus inquiry failed: {}", e),
+    }
+
+    // 4. Exposure Settings
+    println!("\n4. Exposure Settings:");
+
+    match camera.get_exposure_mode().await {
+        Ok(mode) => println!("   - Exposure mode: {:?}", mode),
+        Err(e) => println!("   - Exposure mode inquiry failed: {}", e),
+    }
+
+    match camera.get_shutter_speed().await {
+        Ok(speed) => println!("   - Shutter speed: {:?}", speed),
+        Err(e) => println!("   - Shutter inquiry failed: {}", e),
+    }
+
+    match camera.get_iris_position().await {
+        Ok(iris) => println!("   - Iris: {:?}", iris),
+        Err(e) => println!("   - Iris inquiry failed: {}", e),
+    }
+
+    match camera.get_gain().await {
+        Ok(gain) => println!("   - Gain: {:?}", gain),
+        Err(e) => println!("   - Gain inquiry failed: {}", e),
+    }
+
+    // 5. White Balance Settings
+    println!("\n5. White Balance Settings:");
+
+    match camera.get_white_balance_mode().await {
+        Ok(mode) => println!("   - White balance mode: {:?}", mode),
+        Err(e) => println!("   - WB mode inquiry failed: {}", e),
+    }
+
+    match camera.get_red_gain().await {
+        Ok(gain) => println!("   - Red gain: {}", gain),
+        Err(e) => println!("   - Red gain inquiry failed: {}", e),
+    }
+
+    match camera.get_blue_gain().await {
+        Ok(gain) => println!("   - Blue gain: {}", gain),
+        Err(e) => println!("   - Blue gain inquiry failed: {}", e),
+    }
+
+    // 6. Image Processing Settings
+    println!("\n6. Image Processing:");
+
+    match camera.get_brightness().await {
+        Ok(val) => println!("   - Brightness: {}", val),
+        Err(e) => println!("   - Brightness inquiry failed: {}", e),
+    }
+
+    match camera.get_sharpness().await {
+        Ok(val) => println!("   - Sharpness: {}", val),
+        Err(e) => println!("   - Sharpness inquiry failed: {}", e),
+    }
+
+    // 7. Comprehensive State Query
+    println!("\n7. Comprehensive Camera State:");
+
+    match camera.get_camera_state().await {
+        Ok(state) => {
+            println!("   Complete camera state retrieved:");
+            println!("   - Power: {}", if state.power { "ON" } else { "OFF" });
+            println!(
+                "   - Position: pan={:.1}°, tilt={:.1}°",
+                state.position.pan_degrees, state.position.tilt_degrees
+            );
+            println!("   - Zoom: {} (units)", state.optics.zoom);
+            println!("   - Focus: {} (units)", state.optics.focus);
+            println!("   - Exposure Mode: {:?}", state.exposure.mode);
+            if let Some(shutter) = state.exposure.shutter {
+                println!("   - Shutter: {:?}", shutter);
+            }
+            if let Some(iris) = state.exposure.iris {
+                println!("   - Iris: {:?}", iris);
+            }
+            if let Some(gain) = state.exposure.gain {
+                println!("   - Gain: {:?}", gain);
+            }
+            println!("   - WB Mode: {:?}", state.white_balance.mode);
+            if let Some(red_gain) = state.white_balance.red_gain {
+                println!("   - Red Gain: {}", red_gain);
+            }
+            if let Some(blue_gain) = state.white_balance.blue_gain {
+                println!("   - Blue Gain: {}", blue_gain);
+            }
+            println!("   - Image Settings:");
+            println!("     - Luminance: {}", state.image.luminance);
+            println!("     - Contrast: {}", state.image.contrast);
+            println!("     - Sharpness: {}", state.image.sharpness);
+            println!("     - Saturation: {}", state.image.saturation);
+            println!("     - Hue: {}", state.image.hue);
+        }
+        Err(e) => println!("   - State query failed: {}", e),
+    }
+
+    // 8. Demonstrating Control with Inquiry Feedback
+    println!("\n8. Control with Inquiry Feedback:");
+
+    // Move to a specific position and verify
+    println!("   - Moving to pan=45°, tilt=-15°...");
+    camera.set_position(Degrees(45.0), Degrees(-15.0)).await?;
+
+    // Wait for movement to complete
+    sleep(Duration::from_secs(3)).await;
+
+    // Verify the position
+    match camera.get_position().await {
+        Ok((pan, tilt)) => {
+            println!(
+                "   - Verified position: pan={:.1}°, tilt={:.1}°",
+                pan.0, tilt.0
+            );
+        }
+        Err(e) => println!("   - Position verification failed: {}", e),
+    }
+
+    // Change zoom and verify
+    println!("\n   - Setting zoom to position 16384 (mid-range)...");
+    camera.set_zoom(16384).await?;
+
+    sleep(Duration::from_secs(2)).await;
+
+    match camera.get_zoom_position().await {
+        Ok(zoom) => println!("   - Verified zoom position: {}", zoom),
+        Err(e) => println!("   - Zoom verification failed: {}", e),
+    }
+
+    println!("\n=== Summary ===");
+    println!("The Camera API now provides:");
+    println!("✓ Type-safe camera control");
+    println!("✓ Profile-aware operations");
+    println!("✓ Compile-time validation");
+    println!("✓ Full inquiry command support");
+    println!("✓ Automatic unit conversions");
+    println!("\nThe Camera<P> API is now a complete replacement for the Client API!");
+
     Ok(())
 }

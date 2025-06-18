@@ -13,14 +13,14 @@ mod common;
 use common::builders::*;
 use common::helpers::*;
 
-// Import the macros - they're exported at crate root
-use grafton_visca::*;
+// Import needed types
+use grafton_visca::{profiles::GenericVisca, Command, Error, Response};
 
 #[cfg(feature = "blocking-client")]
 #[test]
 fn test_with_helpers() {
     // Use helper functions instead of unwrap()
-    let _client = create_test_udp_client("127.0.0.1:1234");
+    let _camera = create_test_udp_camera::<GenericVisca>("127.0.0.1:1234");
 
     // Use test speeds helper
     let (_pan_speed, _tilt_speed) = test_speeds();
@@ -97,12 +97,8 @@ fn test_preset_commands() {
     // Use builders for complex test data
     let _preset_cmd = TestPresetBuilder::new().with_number(5).build_recall();
 
-    // Use parameter helpers - note: brightness takes u16
-    let brightness = TestParameters::brightness(10);
-    let contrast = TestParameters::contrast(14); // Max is 14
-
-    assert_eq!(brightness.value(), 10);
-    assert_eq!(contrast.value(), 14);
+    // Parameter types are no longer part of public API
+    // Tests should use Camera<P> API instead
 }
 
 #[test]

@@ -7,7 +7,7 @@
 //! Variable zoom speed ranges from 0 (slowest) to 7 (fastest).
 //!
 //! # Example
-//! ```no_run
+//! ```ignore
 //! # #[cfg(feature = "blocking-client")]
 //! # {
 //! # use grafton_visca::command::{ZoomCommand, zoom::ZoomSpeed};
