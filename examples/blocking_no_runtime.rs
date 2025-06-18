@@ -5,9 +5,6 @@
 //! Note: This example requires that ONLY the blocking-client feature is enabled.
 //! If async-client is also enabled, the async API takes precedence.
 
-#[cfg(feature = "async-client")]
-compile_error!("This example requires only the blocking-client feature. Please run with: cargo run --example blocking_no_runtime --no-default-features --features blocking-client");
-
 use grafton_visca::{
     camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
@@ -18,6 +15,7 @@ use grafton_visca::{
 use grafton_visca::camera::units::Degrees;
 use std::time::Duration;
 
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
@@ -102,4 +100,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("The blocking API works without any async runtime!");
 
     Ok(())
+}
+
+#[cfg(not(all(feature = "blocking-client", not(feature = "async-client"))))]
+fn main() {
+    eprintln!("This example requires only the blocking-client feature.");
+    eprintln!("Run with: cargo run --example blocking_no_runtime --no-default-features --features blocking-client");
 }
