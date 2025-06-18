@@ -22,7 +22,7 @@ mod tests {
     async fn test_resilient_transport_async_tcp_factory() {
         // Test creating ResilientTransport with async factory for AsyncTcpTransport
         let addr = "192.168.1.100:1259";
-        
+
         // Try to create initial transport
         let tcp = match AsyncTcpTransport::new(addr).await {
             Ok(t) => t,
@@ -46,7 +46,7 @@ mod tests {
         // Test that it implements Transport
         let command = ZoomCommand::Stop;
         let result = resilient.send_command(&command, SocketId::SOCKET_0).await;
-        
+
         // We don't care if it succeeds (no camera), just that it compiles
         let _ = result;
     }
@@ -55,7 +55,7 @@ mod tests {
     async fn test_resilient_transport_async_udp_factory() {
         // Test creating ResilientTransport with async factory for AsyncUdpTransport
         let addr = "192.168.1.100:52381";
-        
+
         // Try to create initial transport
         let udp = match AsyncUdpTransport::new(addr).await {
             Ok(t) => t,
@@ -77,8 +77,8 @@ mod tests {
         );
 
         // Create camera with resilient transport
-        let mut camera: Camera<PTZOpticsG2> = Camera::new(resilient);
-        
+        let camera: Camera<PTZOpticsG2> = Camera::new(resilient);
+
         // Test basic operation
         let _ = camera.get_power_state().await;
     }
@@ -88,10 +88,10 @@ mod tests {
         // Test that the factory function is called on reconnection
         let reconnect_count = Arc::new(AtomicU32::new(0));
         let count_clone = reconnect_count.clone();
-        
+
         // Create a transport that always fails
         struct FailingTransport;
-        
+
         impl Transport for FailingTransport {
             fn send_command<'a>(
                 &'a mut self,
@@ -105,7 +105,9 @@ mod tests {
                 })
             }
 
-            fn receive_response(&mut self) -> grafton_visca::transport::TransportFuture<'_, (SocketId, Vec<u8>)> {
+            fn receive_response(
+                &mut self,
+            ) -> grafton_visca::transport::TransportFuture<'_, (SocketId, Vec<u8>)> {
                 Box::pin(async move {
                     Err(ViscaError::ConnectionLost {
                         reason: "Test failure".to_string(),
@@ -118,7 +120,7 @@ mod tests {
         let mut config = ResilienceConfig::default();
         config.max_retries = 1;
         config.max_reconnect_attempts = 3;
-        
+
         let mut resilient = ResilientTransport::new_async(
             FailingTransport,
             move || {
@@ -142,12 +144,12 @@ mod tests {
         // Test that event callbacks are triggered correctly
         let events = Arc::new(tokio::sync::Mutex::new(Vec::new()));
         let events_clone = events.clone();
-        
+
         // Create a transport that fails once then succeeds
         struct FlakeyTransport {
             fail_count: Arc<AtomicU32>,
         }
-        
+
         impl Transport for FlakeyTransport {
             fn send_command<'a>(
                 &'a mut self,
@@ -164,18 +166,18 @@ mod tests {
                 })
             }
 
-            fn receive_response(&mut self) -> grafton_visca::transport::TransportFuture<'_, (SocketId, Vec<u8>)> {
-                Box::pin(async move {
-                    Ok((SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF]))
-                })
+            fn receive_response(
+                &mut self,
+            ) -> grafton_visca::transport::TransportFuture<'_, (SocketId, Vec<u8>)> {
+                Box::pin(async move { Ok((SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF])) })
             }
         }
 
         let fail_count = Arc::new(AtomicU32::new(0));
-        
+
         let mut config = ResilienceConfig::default();
         config.max_retries = 2;
-        
+
         let fail_count_factory = fail_count.clone();
         let mut resilient = ResilientTransport::new_async(
             FlakeyTransport {
@@ -183,11 +185,7 @@ mod tests {
             },
             move || {
                 let fail_count = fail_count_factory.clone();
-                async move {
-                    Ok(FlakeyTransport {
-                        fail_count,
-                    })
-                }
+                async move { Ok(FlakeyTransport { fail_count }) }
             },
             config,
         );
@@ -211,11 +209,11 @@ mod tests {
         // Check events
         let recorded_events = events.lock().await;
         assert!(!recorded_events.is_empty(), "Should have recorded events");
-        
+
         // Should have an OperationSucceeded event with retries > 0
-        let has_retry_success = recorded_events.iter().any(|e| {
-            matches!(e, ResilienceEvent::OperationSucceeded { retries } if *retries > 0)
-        });
+        let has_retry_success = recorded_events
+            .iter()
+            .any(|e| matches!(e, ResilienceEvent::OperationSucceeded { retries } if *retries > 0));
         assert!(has_retry_success, "Should have retry success event");
     }
 
@@ -225,7 +223,7 @@ mod tests {
         struct CountingTransport {
             call_count: Arc<AtomicU32>,
         }
-        
+
         impl Transport for CountingTransport {
             fn send_command<'a>(
                 &'a mut self,
@@ -243,18 +241,18 @@ mod tests {
                 })
             }
 
-            fn receive_response(&mut self) -> grafton_visca::transport::TransportFuture<'_, (SocketId, Vec<u8>)> {
-                Box::pin(async move {
-                    Ok((SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF]))
-                })
+            fn receive_response(
+                &mut self,
+            ) -> grafton_visca::transport::TransportFuture<'_, (SocketId, Vec<u8>)> {
+                Box::pin(async move { Ok((SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF])) })
             }
         }
 
         let call_count = Arc::new(AtomicU32::new(0));
-        
+
         let mut config = ResilienceConfig::default();
         config.max_retries = 3;
-        
+
         let call_count_factory = call_count.clone();
         let mut resilient = ResilientTransport::new_async(
             CountingTransport {
@@ -262,11 +260,7 @@ mod tests {
             },
             move || {
                 let call_count = call_count_factory.clone();
-                async move {
-                    Ok(CountingTransport {
-                        call_count,
-                    })
-                }
+                async move { Ok(CountingTransport { call_count }) }
             },
             config,
         );
@@ -280,7 +274,10 @@ mod tests {
         // Check statistics
         let stats = resilient.stats();
         assert_eq!(stats.total_operations, 3, "Should have 3 total operations");
-        assert!(stats.retry_successes > 0, "Should have some retry successes");
+        assert!(
+            stats.retry_successes > 0,
+            "Should have some retry successes"
+        );
         assert_eq!(stats.failures, 0, "Should have no failures");
         assert!(stats.success_rate() > 99.0, "Success rate should be 100%");
     }

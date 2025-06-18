@@ -10,10 +10,7 @@ use grafton_visca::{
         Camera, CameraExtension, CommandBuilderExt, DiagnosticsExt,
     },
     camera_pool::{CameraInfo, CameraPool, PoolConfig},
-    transport::{
-        resilient::ResilienceConfig,
-        AsyncUdpTransport,
-    },
+    transport::{resilient::ResilienceConfig, AsyncUdpTransport},
     Error,
 };
 use std::time::Duration;
@@ -67,10 +64,16 @@ async fn resilient_transport_demo() -> Result<(), Error> {
 
     println!("  Resilience configuration:");
     println!("    - Max retries: {}", config.max_retries);
-    println!("    - Initial retry delay: {:?}", config.initial_retry_delay);
+    println!(
+        "    - Initial retry delay: {:?}",
+        config.initial_retry_delay
+    );
     println!("    - Max retry delay: {:?}", config.max_retry_delay);
     println!("    - Backoff factor: {}", config.backoff_factor);
-    println!("    - Max reconnect attempts: {}", config.max_reconnect_attempts);
+    println!(
+        "    - Max reconnect attempts: {}",
+        config.max_reconnect_attempts
+    );
 
     // In a real application, you would use ResilientTransport with a transport that implements Clone
     // For now, let's demonstrate with a regular transport
@@ -110,7 +113,8 @@ async fn camera_pool_demo() -> Result<(), Error> {
 
         // In real code, create actual transports
         let transport =
-            Box::new(AsyncUdpTransport::new(&format!("192.168.1.{}:52381", 100 + i)).await?) as Box<dyn grafton_visca::transport::Transport>;
+            Box::new(AsyncUdpTransport::new(&format!("192.168.1.{}:52381", 100 + i)).await?)
+                as Box<dyn grafton_visca::transport::Transport>;
 
         match pool.add_camera_async(info, transport).await {
             Ok(_camera) => println!("  ✓ Added camera {} to pool", i),

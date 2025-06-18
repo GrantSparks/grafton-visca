@@ -33,7 +33,7 @@ fn main() -> Result<(), Error> {
 
     // Connect to camera using UDP
     let udp_transport = UdpTransport::new("192.168.1.100:1259")?;
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
     println!("Connected to camera via UDP");
 
     // Or connect using TCP

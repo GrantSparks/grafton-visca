@@ -80,7 +80,7 @@ async fn demo_ptzoptics_g2() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a G2 camera (simulated connection)
     let transport = MockTransport;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // 1. Valid zoom position for G2 (20X optical)
     println!("1. Testing valid zoom position (20X):");
@@ -152,7 +152,7 @@ async fn demo_ptzoptics_30x() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     let transport = MockTransport;
-    let mut camera = Camera::<PTZOptics30X>::new(transport);
+    let camera = Camera::<PTZOptics30X>::new(transport);
 
     // 1. 30X can handle higher zoom values than G2
     println!("1. Testing 30X zoom position:");
@@ -189,7 +189,7 @@ async fn demo_sony_evid70() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     let transport = MockTransport;
-    let mut camera = Camera::<SonyEVID70>::new(transport);
+    let camera = Camera::<SonyEVID70>::new(transport);
 
     // 1. EVI-D70 has limited pan range
     println!("1. Testing EVI-D70 pan limits:");
@@ -264,7 +264,7 @@ async fn demo_generic_visca() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     let transport = MockTransport;
-    let mut camera = Camera::<GenericVisca>::new(transport);
+    let camera = Camera::<GenericVisca>::new(transport);
 
     // Generic VISCA allows wide ranges for compatibility
     println!("1. Generic camera accepts wide ranges:");

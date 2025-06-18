@@ -124,7 +124,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

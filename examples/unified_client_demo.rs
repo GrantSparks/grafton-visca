@@ -51,7 +51,7 @@ async fn async_tcp_example() -> Result<(), Error> {
 
     // Create a camera with async TCP transport
     let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // All operations are naturally async
     println!("Powering on camera...");
@@ -75,7 +75,7 @@ async fn transport_flexibility_example() -> Result<(), Error> {
     // Example 1: UDP with blocking adapter
     {
         let udp = UdpTransport::new("192.168.1.100:5678")?;
-        let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp));
+        let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp));
 
         println!("UDP camera - moving up...");
         camera.move_continuous(PanTiltDirection::Up, 0, 10).await?;
@@ -87,7 +87,7 @@ async fn transport_flexibility_example() -> Result<(), Error> {
     #[cfg(feature = "async-client")]
     {
         let tcp = AsyncTcpTransport::new("192.168.1.100:5678").await?;
-        let mut camera = Camera::<PTZOpticsG2>::new(tcp);
+        let camera = Camera::<PTZOpticsG2>::new(tcp);
 
         println!("TCP camera - moving down...");
         camera

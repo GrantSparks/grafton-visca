@@ -281,8 +281,7 @@ impl Transport for AsyncTcpTransport {
             // Keep receiving until we get a completion or error response
             loop {
                 let mut stream = self.stream.lock().await;
-                match tokio::time::timeout(Duration::from_secs(10), stream.read(&mut buffer))
-                    .await
+                match tokio::time::timeout(Duration::from_secs(10), stream.read(&mut buffer)).await
                 {
                     Ok(Ok(0)) => {
                         drop(stream);

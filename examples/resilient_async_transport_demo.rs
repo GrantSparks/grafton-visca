@@ -6,20 +6,14 @@
 
 #[cfg(all(feature = "tokio", feature = "async-client"))]
 use grafton_visca::{
-    camera::{Camera, profiles::PTZOpticsG2},
-    command::{
-        zoom::ZoomCommand,
-        pan_tilt::PanTiltCommand,
-    },
+    camera::{profiles::PTZOpticsG2, Camera},
+    command::{pan_tilt::PanTiltCommand, zoom::ZoomCommand},
     transport::{
-        resilient::{ResilientTransport, ResilienceConfig, ResilienceEvent},
-        AsyncTcpTransport,
-        AsyncUdpTransport,
+        resilient::{ResilienceConfig, ResilienceEvent, ResilientTransport},
+        AsyncTcpTransport, AsyncUdpTransport,
     },
     Error as ViscaError,
 };
-use std::sync::Arc;
-use std::time::Duration;
 
 #[cfg(all(feature = "tokio", feature = "async-client"))]
 #[tokio::main]
@@ -47,7 +41,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Initial retry delay: {:?}", config.initial_retry_delay);
     println!("  Max retry delay: {:?}", config.max_retry_delay);
     println!("  Reconnect delay: {:?}", config.reconnect_delay);
-    println!("  Max reconnect attempts: {}\n", config.max_reconnect_attempts);
+    println!(
+        "  Max reconnect attempts: {}\n",
+        config.max_reconnect_attempts
+    );
 
     // Example 1: Resilient TCP Transport
     println!("Example 1: Creating Resilient TCP Transport");
@@ -80,35 +77,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create the resilient transport with event monitoring
-    let mut tcp_resilient = ResilientTransport::new(
-        tcp_transport,
-        tcp_factory,
-        config,
-    );
+    let mut tcp_resilient = ResilientTransport::new(tcp_transport, tcp_factory, config);
 
     // Set up event callback to monitor resilience events
-    let event_callback = Arc::new(|event: ResilienceEvent| {
-        match event {
-            ResilienceEvent::OperationSucceeded { retries } => {
-                if retries > 0 {
-                    println!("  ↻ Operation succeeded after {} retries", retries);
-                }
+    let event_callback = Arc::new(|event: ResilienceEvent| match event {
+        ResilienceEvent::OperationSucceeded { retries } => {
+            if retries > 0 {
+                println!("  ↻ Operation succeeded after {} retries", retries);
             }
-            ResilienceEvent::OperationFailed { attempts, error } => {
-                println!("  ✗ Operation failed after {} attempts: {}", attempts, error);
-            }
-            ResilienceEvent::Reconnected { attempts } => {
-                println!("  ↻ Reconnected after {} attempts", attempts);
-            }
-            ResilienceEvent::ReconnectionFailed { attempts, error } => {
-                println!("  ✗ Reconnection failed after {} attempts: {}", attempts, error);
-            }
-            ResilienceEvent::HealthCheckPassed => {
-                println!("  ✓ Health check passed");
-            }
-            ResilienceEvent::HealthCheckFailed { error } => {
-                println!("  ✗ Health check failed: {}", error);
-            }
+        }
+        ResilienceEvent::OperationFailed { attempts, error } => {
+            println!(
+                "  ✗ Operation failed after {} attempts: {}",
+                attempts, error
+            );
+        }
+        ResilienceEvent::Reconnected { attempts } => {
+            println!("  ↻ Reconnected after {} attempts", attempts);
+        }
+        ResilienceEvent::ReconnectionFailed { attempts, error } => {
+            println!(
+                "  ✗ Reconnection failed after {} attempts: {}",
+                attempts, error
+            );
+        }
+        ResilienceEvent::HealthCheckPassed => {
+            println!("  ✓ Health check passed");
+        }
+        ResilienceEvent::HealthCheckFailed { error } => {
+            println!("  ✗ Health check failed: {}", error);
         }
     });
 
@@ -173,11 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create the resilient UDP transport
-    let mut udp_resilient = ResilientTransport::new(
-        udp_transport,
-        udp_factory,
-        config,
-    );
+    let mut udp_resilient = ResilientTransport::new(udp_transport, udp_factory, config);
 
     udp_resilient.set_event_callback(event_callback);
 
