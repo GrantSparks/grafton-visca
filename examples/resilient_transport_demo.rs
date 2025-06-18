@@ -134,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Note: In a real application, you would keep a reference to the resilient transport
     // to access statistics. For this demo, we'll show the pattern with the TCP transport.
     println!("\nShowing statistics pattern with TCP transport:");
-    let stats = resilient_tcp.stats();
+    let stats = resilient_tcp.stats().await;
     println!("\nResilience Statistics:");
     println!("  Total operations: {}", stats.total_operations);
     println!("  First try successes: {}", stats.first_try_successes);
