@@ -45,9 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Creating new async TCP transport...");
             AsyncTcpTransport::new(tcp_addr)
                 .await
-                .map_err(|e| grafton_visca::Error::Io(e))
+                .map_err(grafton_visca::Error::Io)
         },
-        config.clone(),
+        config,
     );
 
     // Example 2: Using async factory with AsyncUdpTransport
@@ -56,16 +56,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let udp_transport = AsyncUdpTransport::new(udp_addr).await?;
 
     // Create resilient transport with async factory
-    let resilient_udp = ResilientTransport::new_async(
+    let _resilient_udp = ResilientTransport::new_async(
         udp_transport,
         move || async move {
             // Async factory function
             println!("Creating new UDP transport...");
             AsyncUdpTransport::new(udp_addr)
                 .await
-                .map_err(|e| grafton_visca::Error::Io(e))
+                .map_err(grafton_visca::Error::Io)
         },
-        config.clone(),
+        config,
     );
 
     // Example 3: Using async factory with AsyncTcpTransport
@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Creating new async TCP transport...");
             AsyncTcpTransport::new(async_tcp_addr)
                 .await
-                .map_err(|e| grafton_visca::Error::Io(e))
+                .map_err(grafton_visca::Error::Io)
         },
         config,
     );

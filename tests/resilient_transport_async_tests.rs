@@ -35,11 +35,7 @@ mod tests {
         // Create resilient transport with async factory
         let mut resilient = ResilientTransport::new_async(
             tcp,
-            move || async move {
-                AsyncTcpTransport::new(addr)
-                    .await
-                    .map_err(|e| ViscaError::Io(e))
-            },
+            move || async move { AsyncTcpTransport::new(addr).await.map_err(ViscaError::Io) },
             ResilienceConfig::default(),
         );
 
@@ -68,11 +64,7 @@ mod tests {
         // Create resilient transport with async factory
         let resilient = ResilientTransport::new_async(
             udp,
-            move || async move {
-                AsyncUdpTransport::new(addr)
-                    .await
-                    .map_err(|e| ViscaError::Io(e))
-            },
+            move || async move { AsyncUdpTransport::new(addr).await.map_err(ViscaError::Io) },
             ResilienceConfig::default(),
         );
 
@@ -117,9 +109,11 @@ mod tests {
         }
 
         // Create resilient transport with factory that counts calls
-        let mut config = ResilienceConfig::default();
-        config.max_retries = 1;
-        config.max_reconnect_attempts = 3;
+        let config = ResilienceConfig {
+            max_retries: 1,
+            max_reconnect_attempts: 3,
+            ..Default::default()
+        };
 
         let mut resilient = ResilientTransport::new_async(
             FailingTransport,
@@ -175,8 +169,10 @@ mod tests {
 
         let fail_count = Arc::new(AtomicU32::new(0));
 
-        let mut config = ResilienceConfig::default();
-        config.max_retries = 2;
+        let config = ResilienceConfig {
+            max_retries: 2,
+            ..Default::default()
+        };
 
         let fail_count_factory = fail_count.clone();
         let mut resilient = ResilientTransport::new_async(
@@ -250,8 +246,10 @@ mod tests {
 
         let call_count = Arc::new(AtomicU32::new(0));
 
-        let mut config = ResilienceConfig::default();
-        config.max_retries = 3;
+        let config = ResilienceConfig {
+            max_retries: 3,
+            ..Default::default()
+        };
 
         let call_count_factory = call_count.clone();
         let mut resilient = ResilientTransport::new_async(

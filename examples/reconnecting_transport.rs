@@ -224,7 +224,7 @@ fn demo_resilient_camera(camera_addr: &str) -> Result<(), Error> {
     println!("   Testing resilient command execution...\n");
 
     // Test connection
-    match resilient.execute(|camera| perform_test_movement(camera)) {
+    match resilient.execute(perform_test_movement) {
         Ok(()) => {
             println!("   ✓ Test command successful");
         }
@@ -232,7 +232,7 @@ fn demo_resilient_camera(camera_addr: &str) -> Result<(), Error> {
     }
 
     // Send another test command
-    match resilient.execute(|camera| perform_test_movement(camera)) {
+    match resilient.execute(perform_test_movement) {
         Ok(()) => {
             println!("   ✓ Second test command successful");
         }
@@ -240,13 +240,13 @@ fn demo_resilient_camera(camera_addr: &str) -> Result<(), Error> {
     }
 
     // Movement command
-    match resilient.execute(|camera| perform_test_movement(camera)) {
+    match resilient.execute(perform_test_movement) {
         Ok(_) => {
             println!("   ✓ Movement started");
             thread::sleep(Duration::from_secs(1));
 
             // Stop movement
-            let _ = resilient.execute(|camera| perform_test_movement(camera));
+            let _ = resilient.execute(perform_test_movement);
             println!("   ✓ Movement stopped");
         }
         Err(e) => println!("   ✗ Movement command failed: {}", e),

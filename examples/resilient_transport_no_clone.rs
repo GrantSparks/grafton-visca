@@ -8,9 +8,13 @@ use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     transport::{
         resilient::{ResilienceConfig, ResilienceEvent, ResilientTransport},
-        AsyncTcpTransport, AsyncUdpTransport,
+        AsyncUdpTransport,
     },
 };
+#[cfg(feature = "async-client")]
+use std::sync::Arc;
+#[cfg(feature = "async-client")]
+use std::time::Duration;
 
 #[cfg(feature = "async-client")]
 #[tokio::main]
@@ -42,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Reconnecting to camera at {}...", camera_addr);
             AsyncUdpTransport::new(camera_addr)
                 .await
-                .map_err(|e| grafton_visca::Error::Io(e))
+                .map_err(grafton_visca::Error::Io)
         },
         config,
     );
@@ -62,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
 
     // Create camera with resilient transport
-    let mut camera: Camera<PTZOpticsG2> = Camera::new(resilient);
+    let camera: Camera<PTZOpticsG2> = Camera::new(resilient);
 
     // Perform operations - the resilient transport handles failures transparently
     println!("Testing camera connection...");
