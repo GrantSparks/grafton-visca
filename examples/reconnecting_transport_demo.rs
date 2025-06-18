@@ -69,7 +69,7 @@ async fn demo_reconnecting_tcp(camera_addr: &str) -> Result<(), Error> {
             AsyncTcpTransport::new(&addr)
                 .await
                 .map(|t| Box::new(t) as Box<dyn Transport>)
-                .map_err(|e| Error::Io(e))
+                .map_err(Error::Io)
         }
     };
 
@@ -155,7 +155,7 @@ async fn demo_reconnecting_udp(camera_addr: &str) -> Result<(), Error> {
             AsyncUdpTransport::new(&addr)
                 .await
                 .map(|t| Box::new(t) as Box<dyn Transport>)
-                .map_err(|e| Error::Io(e))
+                .map_err(Error::Io)
         }
     };
 

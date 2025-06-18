@@ -21,7 +21,7 @@ mod tests {
         let factory = || async {
             AsyncTcpTransport::new("192.168.1.100:52381")
                 .await
-                .map_err(|e| grafton_visca::Error::Io(e))
+                .map_err(grafton_visca::Error::Io)
         };
 
         // Create initial transport
@@ -62,7 +62,7 @@ mod tests {
         let factory = || async {
             AsyncUdpTransport::new("192.168.1.100:52381")
                 .await
-                .map_err(|e| grafton_visca::Error::Io(e))
+                .map_err(grafton_visca::Error::Io)
         };
 
         // Create initial transport
@@ -114,7 +114,7 @@ mod tests {
                 futures::executor::block_on(async {
                     AsyncTcpTransport::new("192.168.1.100:52381")
                         .await
-                        .map_err(|e| grafton_visca::Error::Io(e))
+                        .map_err(grafton_visca::Error::Io)
                 })
             },
             ResilienceConfig::default(),

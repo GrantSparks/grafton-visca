@@ -34,12 +34,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let camera_ip = "192.168.1.100:52381";
 
     // Configure resilience behavior
-    let mut config = ResilienceConfig::default();
-    config.max_retries = 5;
-    config.initial_retry_delay = Duration::from_millis(500);
-    config.max_retry_delay = Duration::from_secs(10);
-    config.reconnect_delay = Duration::from_secs(2);
-    config.max_reconnect_attempts = 10;
+    let config = ResilienceConfig {
+        max_retries: 5,
+        initial_retry_delay: Duration::from_millis(500),
+        max_retry_delay: Duration::from_secs(10),
+        reconnect_delay: Duration::from_secs(2),
+        max_reconnect_attempts: 10,
+        ..Default::default()
+    };
 
     println!("Resilience Configuration:");
     println!("  Max retries: {}", config.max_retries);
@@ -74,9 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         move || {
             let ip = camera_ip.clone();
             futures::executor::block_on(async move {
-                AsyncTcpTransport::new(&ip)
-                    .await
-                    .map_err(|e| ViscaError::Io(e))
+                AsyncTcpTransport::new(&ip).await.map_err(ViscaError::Io)
             })
         }
     };
@@ -167,9 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         move || {
             let ip = camera_ip.clone();
             futures::executor::block_on(async move {
-                AsyncUdpTransport::new(&ip)
-                    .await
-                    .map_err(|e| ViscaError::Io(e))
+                AsyncUdpTransport::new(&ip).await.map_err(ViscaError::Io)
             })
         }
     };

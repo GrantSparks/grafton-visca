@@ -31,7 +31,7 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     println!("Connecting to camera at {}...", camera_addr);
     let transport = AsyncTcpTransport::new(&camera_addr).await?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Query power state
     println!("\n--- Power State ---");
