@@ -14,8 +14,6 @@ use crate::{error::Error, Command};
 
 // Submodules
 pub mod common;
-/// Mock transport implementation for testing
-pub mod mock;
 pub mod resilient;
 mod tcp;
 mod tcp_unified;

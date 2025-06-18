@@ -1,30 +1,13 @@
+//! Core transport traits and types for the new minimal transport layer.
+//!
+//! This module provides supporting traits and types for the unified Transport trait.
+
 use std::time::Duration;
+use std::sync::Arc;
 use crate::error::Error;
-
-/// Core transport trait defining the interface for sending and receiving VISCA commands
-pub trait Transport: Send + Sync {
-    /// Send a command and wait for a response
-    fn send_command(&mut self, command: &[u8]) -> Result<Vec<u8>, Error>;
-    
-    /// Check if the transport is connected
-    fn is_connected(&self) -> bool;
-    
-    /// Close the transport connection
-    fn close(&mut self) -> Result<(), Error>;
-}
-
-/// Async transport trait for async/await support
-#[cfg(feature = "async-client")]
-pub trait AsyncTransport: Send + Sync {
-    /// Send a command and wait for a response asynchronously
-    fn send_command(&mut self, command: &[u8]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, Error>> + Send + '_>>;
-    
-    /// Check if the transport is connected
-    fn is_connected(&self) -> bool;
-    
-    /// Close the transport connection asynchronously
-    fn close(&mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + '_>>;
-}
+use crate::Command;
+use crate::types::SocketId;
+use super::{Transport, TransportFuture};
 
 /// Builder trait for creating configured transport instances
 pub trait TransportBuilder: Sized {
@@ -125,4 +108,21 @@ pub trait TransportExt: Transport {
     
     /// Get the transport configuration
     fn config(&self) -> &TransportConfig;
+}
+
+// Blanket implementation for Arc<T> where T: Transport
+impl<T: Transport + ?Sized> Transport for Arc<T> {
+    fn send_command<'a>(
+        &'a mut self,
+        _command: &'a dyn Command,
+        _socket_id: SocketId,
+    ) -> TransportFuture<'a, ()> {
+        // Arc requires special handling for mutability
+        // This is a limitation we'll need to address in the design
+        unimplemented!("Arc<T> cannot provide mutable access required by Transport trait")
+    }
+
+    fn receive_response(&mut self) -> TransportFuture<'_, (SocketId, Vec<u8>)> {
+        unimplemented!("Arc<T> cannot provide mutable access required by Transport trait")
+    }
 }
