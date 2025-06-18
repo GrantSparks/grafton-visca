@@ -543,6 +543,31 @@ impl<T: Transport + Send + Sync + 'static> Transport for ResilientTransport<T> {
     }
 }
 
+impl<T: Transport> Clone for ResilientTransport<T> {
+    fn clone(&self) -> Self {
+        #[cfg(feature = "tokio")]
+        {
+            Self {
+                state: Arc::clone(&self.state),
+                config: self.config,
+                factory: match &self.factory {
+                    TransportFactory::Sync(f) => TransportFactory::Sync(Arc::clone(f)),
+                    TransportFactory::Async(f) => TransportFactory::Async(Arc::clone(f)),
+                },
+                event_callback: self.event_callback.as_ref().map(Arc::clone),
+            }
+        }
+        #[cfg(not(feature = "tokio"))]
+        {
+            Self {
+                state: Arc::clone(&self.state),
+                config: self.config,
+                event_callback: self.event_callback.as_ref().map(Arc::clone),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

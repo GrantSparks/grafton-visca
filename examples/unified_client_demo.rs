@@ -28,7 +28,7 @@ fn blocking_udp_example() -> Result<(), Error> {
 
     // Create a camera with blocking UDP transport
     let transport = UdpTransport::new("192.168.1.100:5678")?;
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
 
     // All operations are async but we use block_on for blocking execution
     println!("Powering on camera...");
@@ -110,7 +110,7 @@ async fn profile_switching_example() -> Result<(), Error> {
     {
         use grafton_visca::camera::profiles::G2PresetId;
         let transport2 = UdpTransport::new("192.168.1.100:5678")?;
-        let mut g2_camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport2));
+        let g2_camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport2));
 
         println!("G2 Camera - saving preset 1...");
         let preset = G2PresetId::new(1)?;
@@ -120,7 +120,7 @@ async fn profile_switching_example() -> Result<(), Error> {
     // Generic VISCA camera (wider compatibility)
     {
         use grafton_visca::camera::profiles::{GenericPresetId, GenericVisca};
-        let mut generic_camera = Camera::<GenericVisca>::new(BlockingAdapter(transport));
+        let generic_camera = Camera::<GenericVisca>::new(BlockingAdapter(transport));
 
         println!("Generic Camera - recalling preset 0...");
         let preset = GenericPresetId::new(0);

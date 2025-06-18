@@ -30,7 +30,7 @@ fn main() -> Result<(), Error> {
 
     // Connect to camera using new Camera API with UDP transport
     let transport = UdpTransport::new("192.168.1.100:5678")?;
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
 
     println!("=== Enhanced Camera API Demo ===\n");
 

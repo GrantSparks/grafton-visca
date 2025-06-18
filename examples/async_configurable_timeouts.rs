@@ -221,7 +221,7 @@ async fn demonstrate_timeout_recovery(camera: &mut Camera<PTZOpticsG2>) -> Resul
         match AsyncTcpTransport::new("192.168.1.100:5678").await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");
-                let mut tcp_camera = Camera::<PTZOpticsG2>::new(transport);
+                let tcp_camera = Camera::<PTZOpticsG2>::new(transport);
 
                 // For custom timeout, wrap the operation
                 let custom_timeout = Duration::from_secs(30);

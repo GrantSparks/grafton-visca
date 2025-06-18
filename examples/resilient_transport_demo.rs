@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tcp_transport = AsyncTcpTransport::new(tcp_addr).await?;
 
     // Create resilient transport with async factory
-    let mut resilient_tcp = ResilientTransport::new_async(
+    let resilient_tcp = ResilientTransport::new_async(
         tcp_transport,
         move || async move {
             // Async factory function
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let udp_transport = AsyncUdpTransport::new(udp_addr).await?;
 
     // Create resilient transport with async factory
-    let mut resilient_udp = ResilientTransport::new_async(
+    let resilient_udp = ResilientTransport::new_async(
         udp_transport,
         move || async move {
             // Async factory function
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
 
     // Create camera with resilient transport (using async TCP for demo)
-    let mut camera: Camera<PTZOpticsG2> = Camera::new(resilient_async_tcp);
+    let camera: Camera<PTZOpticsG2> = Camera::new(resilient_async_tcp);
 
     // Normal camera operations - resilient transport handles failures transparently
     println!("\nMoving camera to home position...");
