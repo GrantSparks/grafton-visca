@@ -5,55 +5,58 @@
 //! and provide better failure messages, reducing the need for #[allow(...)] directives.
 #![allow(dead_code)] // These utilities are for future test use
 
-#[cfg(feature = "blocking-client")]
-use grafton_visca::{Client, PanSpeed, TiltSpeed};
-
 use std::fmt::Debug;
 
-/// Creates a test UDP client with descriptive error message.
+#[cfg(feature = "blocking-client")]
+use grafton_visca::{
+    camera::{Camera, CameraProfile},
+    transport::{BlockingAdapter, TcpTransport, UdpTransport},
+};
+
+/// Creates a test UDP camera with descriptive error message.
 ///
 /// # Example
 /// ```no_run
-/// # use grafton_visca::tests::common::helpers::create_test_udp_client;
-/// let client = create_test_udp_client("127.0.0.1:1234");
+/// # use grafton_visca::tests::common::helpers::create_test_udp_camera;
+/// # use grafton_visca::profiles::GenericVisca;
+/// let camera = create_test_udp_camera::<GenericVisca>("127.0.0.1:1234");
 /// ```
 #[cfg(feature = "blocking-client")]
-pub fn create_test_udp_client(addr: &str) -> Client {
-    Client::connect_udp(addr)
-        .unwrap_or_else(|e| panic!("Failed to create UDP client at {}: {:?}", addr, e))
+pub fn create_test_udp_camera<P: CameraProfile>(addr: &str) -> Camera<P> {
+    let transport = UdpTransport::new(addr)
+        .unwrap_or_else(|e| panic!("Failed to create UDP transport at {}: {:?}", addr, e));
+    Camera::new(BlockingAdapter(transport))
 }
 
-/// Creates a test TCP client with descriptive error message.
+/// Creates a test TCP camera with descriptive error message.
 ///
 /// # Example
 /// ```no_run
-/// # use grafton_visca::tests::common::helpers::create_test_tcp_client;
-/// let client = create_test_tcp_client("127.0.0.1:5678");
+/// # use grafton_visca::tests::common::helpers::create_test_tcp_camera;
+/// # use grafton_visca::profiles::GenericVisca;
+/// let camera = create_test_tcp_camera::<GenericVisca>("127.0.0.1:5678");
 /// ```
 #[cfg(feature = "blocking-client")]
-pub fn create_test_tcp_client(addr: &str) -> Client {
-    Client::connect_tcp(addr)
-        .unwrap_or_else(|e| panic!("Failed to create TCP client at {}: {:?}", addr, e))
+pub fn create_test_tcp_camera<P: CameraProfile>(addr: &str) -> Camera<P> {
+    let transport = TcpTransport::new(addr)
+        .unwrap_or_else(|e| panic!("Failed to create TCP transport at {}: {:?}", addr, e));
+    Camera::new(BlockingAdapter(transport))
 }
 
-/// Standard test speeds to avoid repetitive expect() calls.
+/// Standard test speeds to avoid repetitive magic numbers.
 ///
 /// Returns commonly used pan and tilt speeds for tests.
 #[cfg(feature = "blocking-client")]
-pub fn test_speeds() -> (PanSpeed, TiltSpeed) {
-    (
-        PanSpeed::new(10).expect("PanSpeed 10 should be valid"),
-        TiltSpeed::new(10).expect("TiltSpeed 10 should be valid"),
-    )
+pub fn test_speeds() -> (u8, u8) {
+    (10, 10)
 }
 
 /// Test speeds with custom values.
 #[cfg(feature = "blocking-client")]
-pub fn test_speeds_with(pan: u8, tilt: u8) -> (PanSpeed, TiltSpeed) {
-    (
-        PanSpeed::new(pan).unwrap_or_else(|_| panic!("PanSpeed {} should be valid", pan)),
-        TiltSpeed::new(tilt).unwrap_or_else(|_| panic!("TiltSpeed {} should be valid", tilt)),
-    )
+pub fn test_speeds_with(pan: u8, tilt: u8) -> (u8, u8) {
+    // In the new API, speeds are just u8 values
+    // Camera profiles handle validation
+    (pan, tilt)
 }
 
 /// Assert that a Result is Ok and return the value with context.

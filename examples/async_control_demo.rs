@@ -1,6 +1,4 @@
-//! Example program
-
-//! Example demonstrating the async control API with Client.
+//! Example demonstrating the async control API with Camera.
 //!
 //! This example shows how to:
 //! - Execute concurrent camera operations for better performance
@@ -9,12 +7,16 @@
 //! - Perform smooth camera movements
 //! - Control focus with async operations
 
-use grafton_visca::command::{
-    pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-    preset::{PresetAction, PresetNumber},
-    FocusCommand, InquiryCommand, PanTiltCommand, PresetCommand, Response, ZoomCommand,
+use grafton_visca::{
+    camera::{
+        profiles::{G2PresetId, PTZOpticsG2},
+        units::ViscaUnits,
+        Camera,
+    },
+    command::pan_tilt::PanTiltDirection,
+    transport::AsyncUdpTransport,
+    Error,
 };
-use grafton_visca::{Client, Error};
 use std::env;
 use tokio::time::{sleep, Duration};
 
@@ -41,176 +43,102 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let client = Client::connect_udp_async(camera_addr).await?;
+    let transport = AsyncUdpTransport::new(camera_addr).await?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("\n=== Async Camera Control Demo ===\n");
 
-    // Concurrent Operations Example
-    println!("1. Concurrent Operations");
-    println!("   - Executing multiple queries concurrently...");
-
-    // Start multiple operations concurrently
-    let power_future = client.send_async(&InquiryCommand::Power);
-    let position_future = client.send_async(&InquiryCommand::PanTiltPosition);
-    let zoom_future = client.send_async(&InquiryCommand::ZoomPosition);
-
-    let (power_result, position_result, zoom_result) =
-        tokio::join!(power_future, position_future, zoom_future);
-
-    // Handle power response
-    if let Ok(Response::InquiryResponse(grafton_visca::InquiryResponse::Power { on })) =
-        power_result
-    {
-        println!("   - Power: {}", if on { "ON" } else { "OFF" });
-    }
-
-    // Handle position response
-    if let Ok(Response::InquiryResponse(grafton_visca::InquiryResponse::PanTiltPosition {
-        pan,
-        tilt,
-    })) = position_result
-    {
-        println!("   - Position: pan={}, tilt={}", pan, tilt);
-    }
-
-    // Handle zoom response
-    if let Ok(Response::InquiryResponse(grafton_visca::InquiryResponse::ZoomPosition {
-        position,
-    })) = zoom_result
-    {
-        println!("   - Zoom: {:02X?}", position);
-    }
+    // Display camera capabilities
+    let caps = camera.capabilities();
+    println!("Camera Model: {}", caps.model_name);
+    println!("Pan Range: {:?} degrees", caps.pan_range_degrees);
+    println!("Tilt Range: {:?} degrees", caps.tilt_range_degrees);
+    println!("Max Pan Speed: {}", caps.max_pan_speed);
+    println!("Max Tilt Speed: {}", caps.max_tilt_speed);
 
     // Sequential Control Operations
-    println!("\n2. Sequential Control Operations");
+    println!("\n1. Sequential Control Operations");
 
     println!("   - Moving to home position...");
-    client.send_async(&PanTiltCommand::Home).await?;
+    camera.home().await?;
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Setting up shot 1...");
-    client
-        .send_async(&PanTiltCommand::AbsolutePosition {
-            pan: 800,
-            tilt: -200,
-            pan_speed: PanSpeed::new(15)?,
-            tilt_speed: TiltSpeed::new(15)?,
-        })
+    camera
+        .set_position_units(ViscaUnits(800), ViscaUnits(-200))
         .await?;
-    client.send_async(&ZoomCommand::Direct(0x1800)).await?;
+    camera.set_zoom(0x1800).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 10...");
-    client
-        .send_async(&PresetCommand {
-            action: PresetAction::Set,
-            preset_number: PresetNumber::new(10)?,
-        })
-        .await?;
+    let preset10 = G2PresetId::new(10)?;
+    camera.set_preset(preset10).await?;
     sleep(Duration::from_millis(500)).await;
 
     println!("   - Setting up shot 2...");
-    client
-        .send_async(&PanTiltCommand::AbsolutePosition {
-            pan: -600,
-            tilt: 400,
-            pan_speed: PanSpeed::new(10)?,
-            tilt_speed: TiltSpeed::new(10)?,
-        })
+    camera
+        .set_position_units(ViscaUnits(-600), ViscaUnits(400))
         .await?;
-    client.send_async(&ZoomCommand::Direct(0x3000)).await?;
+    camera.set_zoom(0x3000).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 11...");
-    client
-        .send_async(&PresetCommand {
-            action: PresetAction::Set,
-            preset_number: PresetNumber::new(11)?,
-        })
-        .await?;
+    let preset11 = G2PresetId::new(11)?;
+    camera.set_preset(preset11).await?;
     sleep(Duration::from_millis(500)).await;
 
     // Smooth Movement Example
-    println!("\n3. Smooth Movement Sequence");
+    println!("\n2. Smooth Movement Sequence");
 
     println!("   - Starting smooth pan...");
-    client
-        .send_async(&PanTiltCommand::Move {
-            direction: PanTiltDirection::Right,
-            pan_speed: PanSpeed::new(8)?,
-            tilt_speed: TiltSpeed::new(0)?,
-        })
+    camera
+        .move_continuous(PanTiltDirection::Right, 8, 0)
         .await?;
 
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Starting diagonal movement...");
-    client
-        .send_async(&PanTiltCommand::Move {
-            direction: PanTiltDirection::UpRight,
-            pan_speed: PanSpeed::new(8)?,
-            tilt_speed: TiltSpeed::new(5)?,
-        })
+    camera
+        .move_continuous(PanTiltDirection::UpRight, 8, 5)
         .await?;
 
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Stopping movement...");
-    client
-        .send_async(&PanTiltCommand::Move {
-            direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0)?,
-            tilt_speed: TiltSpeed::new(0)?,
-        })
-        .await?;
+    camera.stop().await?;
 
     // Focus Operations
-    println!("\n4. Focus Control");
+    println!("\n3. Focus Control");
 
     println!("   - Setting manual focus...");
-    client.send_async(&FocusCommand::Manual).await?;
+    camera.focus_manual().await?;
 
-    println!("   - Focus operations...");
-    if let Ok(speed) = grafton_visca::command::focus::FocusSpeed::new(2) {
-        client.send_async(&FocusCommand::FarVariable(speed)).await?;
-    }
+    println!("   - Adjusting focus...");
+    // Direct focus position
+    camera.set_focus(0x6000).await?;
     sleep(Duration::from_secs(1)).await;
-    client.send_async(&FocusCommand::Stop).await?;
 
     println!("   - Restoring auto focus...");
-    client.send_async(&FocusCommand::Auto).await?;
+    camera.focus_auto().await?;
 
     // Preset Recall Demo
-    println!("\n5. Preset Recall Demo");
+    println!("\n4. Preset Recall Demo");
 
-    for preset_num in [10, 11] {
-        println!("   - Recalling preset {}...", preset_num);
-        client
-            .send_async(&PresetCommand {
-                action: PresetAction::Recall,
-                preset_number: PresetNumber::new(preset_num)?,
-            })
-            .await?;
-        sleep(Duration::from_secs(3)).await;
-    }
+    println!("   - Recalling preset 10...");
+    camera.recall_preset(preset10).await?;
+    sleep(Duration::from_secs(3)).await;
+
+    println!("   - Recalling preset 11...");
+    camera.recall_preset(preset11).await?;
+    sleep(Duration::from_secs(3)).await;
 
     println!("   - Returning to home...");
-    client.send_async(&PanTiltCommand::Home).await?;
+    camera.home().await?;
 
     // Clean up presets
-    println!("\n6. Cleanup");
-    client
-        .send_async(&PresetCommand {
-            action: PresetAction::Reset,
-            preset_number: PresetNumber::new(10)?,
-        })
-        .await?;
-    client
-        .send_async(&PresetCommand {
-            action: PresetAction::Reset,
-            preset_number: PresetNumber::new(11)?,
-        })
-        .await?;
+    println!("\n5. Cleanup");
+    camera.clear_preset(preset10).await?;
+    camera.clear_preset(preset11).await?;
 
     println!("\nDemo completed successfully!");
     Ok(())

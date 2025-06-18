@@ -670,3 +670,265 @@ mod tests {
         assert!(NoiseReduction3DLevel::new(9).is_err());
     }
 }
+
+/// User-friendly speed level abstraction for camera movements.
+///
+/// This enum provides intuitive speed names that map to appropriate
+/// numeric values for different camera operations (pan, tilt, zoom, focus).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpeedLevel {
+    /// Slowest speed - for precise adjustments
+    Slowest,
+    /// Slow speed
+    Slow,
+    /// Medium speed - default for most operations
+    Medium,
+    /// Fast speed
+    Fast,
+    /// Fastest speed - may cause jerky movements
+    Fastest,
+}
+
+impl SpeedLevel {
+    /// Convert to pan speed value (0-24).
+    #[must_use]
+    pub fn to_pan_speed(self) -> u8 {
+        match self {
+            Self::Slowest => 1,
+            Self::Slow => 6,
+            Self::Medium => 12,
+            Self::Fast => 18,
+            Self::Fastest => 24,
+        }
+    }
+
+    /// Convert to tilt speed value (0-20).
+    #[must_use]
+    pub fn to_tilt_speed(self) -> u8 {
+        match self {
+            Self::Slowest => 1,
+            Self::Slow => 5,
+            Self::Medium => 10,
+            Self::Fast => 15,
+            Self::Fastest => 20,
+        }
+    }
+
+    /// Convert to zoom speed value (0-7).
+    #[must_use]
+    pub fn to_zoom_speed(self) -> u8 {
+        match self {
+            Self::Slowest => 0,
+            Self::Slow => 2,
+            Self::Medium => 4,
+            Self::Fast => 6,
+            Self::Fastest => 7,
+        }
+    }
+
+    /// Convert to focus speed value (0-7).
+    #[must_use]
+    pub fn to_focus_speed(self) -> u8 {
+        match self {
+            Self::Slowest => 0,
+            Self::Slow => 2,
+            Self::Medium => 4,
+            Self::Fast => 6,
+            Self::Fastest => 7,
+        }
+    }
+}
+
+impl Default for SpeedLevel {
+    fn default() -> Self {
+        Self::Medium
+    }
+}
+
+/// F-stop values for iris control.
+///
+/// Provides named constants for common F-stop values used in camera iris control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FStop {
+    /// Iris closed
+    Closed,
+    /// F11
+    F11,
+    /// F9.6
+    F9_6,
+    /// F8
+    F8,
+    /// F6.8
+    F6_8,
+    /// F5.6
+    F5_6,
+    /// F4.8
+    F4_8,
+    /// F4
+    F4,
+    /// F3.4
+    F3_4,
+    /// F2.8
+    F2_8,
+    /// F2.4
+    F2_4,
+    /// F2.0
+    F2,
+    /// F1.8
+    F1_8,
+}
+
+impl FStop {
+    /// Convert to iris level value.
+    #[must_use]
+    pub fn to_iris_level(self) -> u8 {
+        match self {
+            Self::Closed => 0x00,
+            Self::F11 => 0x01,
+            Self::F9_6 => 0x02,
+            Self::F8 => 0x03,
+            Self::F6_8 => 0x04,
+            Self::F5_6 => 0x05,
+            Self::F4_8 => 0x06,
+            Self::F4 => 0x07,
+            Self::F3_4 => 0x08,
+            Self::F2_8 => 0x09,
+            Self::F2_4 => 0x0A,
+            Self::F2 => 0x0B,
+            Self::F1_8 => 0x0C,
+        }
+    }
+
+    /// Create from iris level value.
+    pub fn from_iris_level(level: u8) -> Option<Self> {
+        match level {
+            0x00 => Some(Self::Closed),
+            0x01 => Some(Self::F11),
+            0x02 => Some(Self::F9_6),
+            0x03 => Some(Self::F8),
+            0x04 => Some(Self::F6_8),
+            0x05 => Some(Self::F5_6),
+            0x06 => Some(Self::F4_8),
+            0x07 => Some(Self::F4),
+            0x08 => Some(Self::F3_4),
+            0x09 => Some(Self::F2_8),
+            0x0A => Some(Self::F2_4),
+            0x0B => Some(Self::F2),
+            0x0C => Some(Self::F1_8),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for FStop {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Closed => write!(f, "Closed"),
+            Self::F11 => write!(f, "F11"),
+            Self::F9_6 => write!(f, "F9.6"),
+            Self::F8 => write!(f, "F8"),
+            Self::F6_8 => write!(f, "F6.8"),
+            Self::F5_6 => write!(f, "F5.6"),
+            Self::F4_8 => write!(f, "F4.8"),
+            Self::F4 => write!(f, "F4"),
+            Self::F3_4 => write!(f, "F3.4"),
+            Self::F2_8 => write!(f, "F2.8"),
+            Self::F2_4 => write!(f, "F2.4"),
+            Self::F2 => write!(f, "F2.0"),
+            Self::F1_8 => write!(f, "F1.8"),
+        }
+    }
+}
+
+/// Noise reduction strength levels.
+///
+/// Provides intuitive names for noise reduction settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoiseReductionStrength {
+    /// Noise reduction disabled
+    Off,
+    /// Minimal noise reduction
+    Minimal,
+    /// Light noise reduction
+    Light,
+    /// Medium noise reduction
+    Medium,
+    /// Strong noise reduction
+    Strong,
+    /// Maximum noise reduction
+    Maximum,
+}
+
+impl NoiseReductionStrength {
+    /// Convert to 2D noise reduction level (1-5).
+    pub fn to_2d_level(self) -> Result<u8, Error> {
+        match self {
+            Self::Off => Err(Error::InvalidParameter(
+                "2D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
+            )),
+            Self::Minimal => Ok(1),
+            Self::Light => Ok(2),
+            Self::Medium => Ok(3),
+            Self::Strong => Ok(4),
+            Self::Maximum => Ok(5),
+        }
+    }
+
+    /// Convert to 3D noise reduction level (1-8).
+    pub fn to_3d_level(self) -> Result<u8, Error> {
+        match self {
+            Self::Off => Err(Error::InvalidParameter(
+                "3D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
+            )),
+            Self::Minimal => Ok(1),
+            Self::Light => Ok(2),
+            Self::Medium => Ok(4),
+            Self::Strong => Ok(6),
+            Self::Maximum => Ok(8),
+        }
+    }
+}
+
+#[cfg(test)]
+mod speed_tests {
+    use super::*;
+
+    #[test]
+    fn test_speed_level_conversions() {
+        assert_eq!(SpeedLevel::Slowest.to_pan_speed(), 1);
+        assert_eq!(SpeedLevel::Fastest.to_pan_speed(), 24);
+
+        assert_eq!(SpeedLevel::Slowest.to_tilt_speed(), 1);
+        assert_eq!(SpeedLevel::Fastest.to_tilt_speed(), 20);
+
+        assert_eq!(SpeedLevel::Slowest.to_zoom_speed(), 0);
+        assert_eq!(SpeedLevel::Fastest.to_zoom_speed(), 7);
+
+        assert_eq!(SpeedLevel::Slowest.to_focus_speed(), 0);
+        assert_eq!(SpeedLevel::Fastest.to_focus_speed(), 7);
+    }
+
+    #[test]
+    fn test_fstop_conversions() {
+        assert_eq!(FStop::Closed.to_iris_level(), 0x00);
+        assert_eq!(FStop::F1_8.to_iris_level(), 0x0C);
+
+        assert_eq!(FStop::from_iris_level(0x00), Some(FStop::Closed));
+        assert_eq!(FStop::from_iris_level(0x0C), Some(FStop::F1_8));
+        assert_eq!(FStop::from_iris_level(0xFF), None);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)] // OK in tests
+    fn test_noise_reduction_strength() {
+        // Test 2D level conversions
+        assert!(NoiseReductionStrength::Off.to_2d_level().is_err());
+        assert_eq!(NoiseReductionStrength::Minimal.to_2d_level().unwrap(), 1);
+        assert_eq!(NoiseReductionStrength::Maximum.to_2d_level().unwrap(), 5);
+
+        // Test 3D level conversions
+        assert!(NoiseReductionStrength::Off.to_3d_level().is_err());
+        assert_eq!(NoiseReductionStrength::Minimal.to_3d_level().unwrap(), 1);
+        assert_eq!(NoiseReductionStrength::Maximum.to_3d_level().unwrap(), 8);
+    }
+}

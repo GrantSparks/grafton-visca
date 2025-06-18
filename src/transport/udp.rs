@@ -11,9 +11,15 @@ use std::net::UdpSocket;
 #[cfg(feature = "async-client")]
 use tokio::net::UdpSocket as TokioUdpSocket;
 
+#[cfg(feature = "async-client")]
+use std::sync::{Arc, Mutex as StdMutex};
+
+#[cfg(feature = "async-client")]
+use tokio::sync::Mutex;
+
 // Crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{error::Error, Command, ConnectionStats};
+use crate::{connection::ConnectionStats, error::Error, Command};
 
 #[cfg(feature = "blocking-client")]
 use super::BlockingTransport;
@@ -83,9 +89,22 @@ impl BlockingTransport for UdpTransport {
     /// # Errors
     /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error sending the UDP packet.
-    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<(), Error> {
-        let bytes = command.to_bytes()?;
-        log::debug!("Sending command: {bytes:02X?}");
+    fn send_command_blocking(
+        &mut self,
+        command: &dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> Result<(), Error> {
+        let mut bytes = command.to_bytes()?;
+
+        // Encode socket ID in the command header
+        if !bytes.is_empty() && bytes[0] == 0x81 {
+            bytes[0] = 0x80 | socket_id.value();
+        }
+
+        log::debug!(
+            "Sending command with socket {}: {bytes:02X?}",
+            socket_id.value()
+        );
 
         let _ = self
             .socket
@@ -101,9 +120,8 @@ impl BlockingTransport for UdpTransport {
     /// # Errors
     /// Returns `Error` if a receive timeout occurs or if there's
     /// an I/O error reading from the UDP socket.
-    fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
+    fn receive_response_blocking(&mut self) -> Result<(crate::types::SocketId, Vec<u8>), Error> {
         let mut buffer = [0u8; 1024];
-        let mut responses = Vec::new();
 
         loop {
             match self.socket.recv_from(&mut buffer) {
@@ -114,24 +132,38 @@ impl BlockingTransport for UdpTransport {
                     self.stats.record_received(data.len());
 
                     if data.len() >= 3 && data[0] == 0x90 && data[data.len() - 1] == 0xFF {
-                        responses.push(data.clone());
+                        // Extract socket ID from response header
+                        let socket_id = if data[0] == 0x90 {
+                            crate::types::SocketId::SOCKET_0 // Default to socket 0
+                        } else {
+                            // Response format is 0x9X where X is socket ID
+                            let socket_value = data[0] & 0x0F;
+                            crate::types::SocketId::new(socket_value)
+                                .unwrap_or(crate::types::SocketId::SOCKET_0)
+                        };
 
+                        // Return completion or error responses immediately
                         if data.len() >= 3
                             && (data[1] == 0x50 || data[1] == 0x51 || (data[1] & 0x60) == 0x60)
                         {
-                            break;
+                            return Ok((socket_id, data));
                         }
+
+                        // For ACK responses, continue waiting
+                        if data[1] == 0x40 || data[1] == 0x41 {
+                            continue;
+                        }
+
+                        // Return other responses
+                        return Ok((socket_id, data));
                     }
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if responses.is_empty() {
-                        self.stats.record_error();
-                        return Err(Error::CommandTimeout {
-                            duration: Duration::from_secs(10),
-                            command: "receive_response".to_string(),
-                        });
-                    }
-                    break;
+                    self.stats.record_error();
+                    return Err(Error::CommandTimeout {
+                        duration: Duration::from_secs(10),
+                        command: "receive_response".to_string(),
+                    });
                 }
                 Err(e) => {
                     self.stats.record_error();
@@ -139,18 +171,16 @@ impl BlockingTransport for UdpTransport {
                 }
             }
         }
-
-        Ok(responses)
     }
 }
 
 /// Async UDP transport for VISCA communication.
 #[cfg(feature = "async-client")]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AsyncUdpTransport {
-    socket: TokioUdpSocket,
+    socket: Arc<Mutex<TokioUdpSocket>>,
     address: String,
-    stats: ConnectionStats,
+    stats: Arc<StdMutex<ConnectionStats>>,
 }
 
 #[cfg(feature = "async-client")]
@@ -163,16 +193,16 @@ impl AsyncUdpTransport {
     pub async fn new(address: &str) -> io::Result<Self> {
         let socket = TokioUdpSocket::bind("0.0.0.0:0").await?;
         Ok(Self {
-            socket,
+            socket: Arc::new(Mutex::new(socket)),
             address: address.to_string(),
-            stats: ConnectionStats::new(),
+            stats: Arc::new(StdMutex::new(ConnectionStats::new())),
         })
     }
 
-    /// Returns the connection statistics.
+    /// Returns a clone of the connection statistics.
     #[must_use]
-    pub const fn stats(&self) -> &ConnectionStats {
-        &self.stats
+    pub fn stats(&self) -> ConnectionStats {
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -183,18 +213,37 @@ impl Transport for AsyncUdpTransport {
     /// # Errors
     /// Returns `Error` if the command serialization fails or if there's
     /// an I/O error sending the UDP packet.
-    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, ()> {
-        Box::pin(async move {
-            let bytes = command.to_bytes()?;
-            log::debug!("Sending command: {bytes:02X?}");
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+        socket_id: crate::types::SocketId,
+    ) -> TransportFuture<'a, ()> {
+        let socket = self.socket.clone();
+        let stats = self.stats.clone();
+        let address = self.address.clone();
 
-            let _ = self
-                .socket
-                .send_to(&bytes, &self.address)
+        Box::pin(async move {
+            let mut bytes = command.to_bytes()?;
+
+            // Encode socket ID in the command header
+            if !bytes.is_empty() && bytes[0] == 0x81 {
+                bytes[0] = 0x80 | socket_id.value();
+            }
+
+            log::debug!(
+                "Sending command with socket {}: {bytes:02X?}",
+                socket_id.value()
+            );
+
+            let socket_guard = socket.lock().await;
+            let _ = socket_guard
+                .send_to(&bytes, &address)
                 .await
                 .map_err(Error::Io)?;
 
-            self.stats.record_sent(bytes.len());
+            if let Ok(stats_guard) = stats.lock() {
+                stats_guard.record_sent(bytes.len());
+            }
             Ok(())
         })
     }
@@ -204,16 +253,19 @@ impl Transport for AsyncUdpTransport {
     /// # Errors
     /// Returns `Error` if a receive timeout occurs or if there's
     /// an I/O error reading from the UDP socket.
-    fn receive_response(&mut self) -> TransportFuture<'_, Vec<Vec<u8>>> {
+    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)> {
+        let socket = self.socket.clone();
+        let stats = self.stats.clone();
+
         Box::pin(async move {
             let mut buffer = [0u8; 1024];
-            let mut responses = Vec::new();
 
             // Keep receiving until we get a completion or error response
             loop {
+                let socket_guard = socket.lock().await;
                 match tokio::time::timeout(
                     Duration::from_secs(10),
-                    self.socket.recv_from(&mut buffer),
+                    socket_guard.recv_from(&mut buffer),
                 )
                 .await
                 {
@@ -221,38 +273,55 @@ impl Transport for AsyncUdpTransport {
                         let data = buffer[..size].to_vec();
                         log::debug!("Received data: {data:02X?}");
 
-                        self.stats.record_received(data.len());
+                        if let Ok(stats_guard) = stats.lock() {
+                            stats_guard.record_received(data.len());
+                        }
 
                         // Check if this is a complete VISCA response
                         if data.len() >= 3 && data[0] == 0x90 && data[data.len() - 1] == 0xFF {
-                            responses.push(data.clone());
+                            // Extract socket ID from response header
+                            let socket_id = if data[0] == 0x90 {
+                                crate::types::SocketId::SOCKET_0 // Default to socket 0
+                            } else {
+                                // Response format is 0x9X where X is socket ID
+                                let socket_value = data[0] & 0x0F;
+                                crate::types::SocketId::new(socket_value)
+                                    .unwrap_or(crate::types::SocketId::SOCKET_0)
+                            };
 
-                            // Check for completion or error
+                            // Return completion or error responses immediately
                             if data.len() >= 3
                                 && (data[1] == 0x50 || data[1] == 0x51 || (data[1] & 0x60) == 0x60)
                             {
-                                break;
+                                return Ok((socket_id, data));
                             }
+
+                            // For ACK responses, continue waiting
+                            if data[1] == 0x40 || data[1] == 0x41 {
+                                continue;
+                            }
+
+                            // Return other responses
+                            return Ok((socket_id, data));
                         }
                     }
                     Ok(Err(e)) => {
-                        self.stats.record_error();
+                        if let Ok(stats_guard) = stats.lock() {
+                            stats_guard.record_error();
+                        }
                         return Err(Error::Io(e));
                     }
                     Err(_) => {
-                        if responses.is_empty() {
-                            self.stats.record_error();
-                            return Err(Error::CommandTimeout {
-                                duration: Duration::from_secs(10),
-                                command: "receive_response".to_string(),
-                            });
+                        if let Ok(stats_guard) = stats.lock() {
+                            stats_guard.record_error();
                         }
-                        break;
+                        return Err(Error::CommandTimeout {
+                            duration: Duration::from_secs(10),
+                            command: "receive_response".to_string(),
+                        });
                     }
                 }
             }
-
-            Ok(responses)
         })
     }
 }

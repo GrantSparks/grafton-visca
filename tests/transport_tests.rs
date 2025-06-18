@@ -11,6 +11,8 @@ mod tests {
     use grafton_visca::transport::{
         BlockingAdapter, BlockingTransport, TcpTransport, Transport, UdpTransport,
     };
+    #[cfg(feature = "blocking-client")]
+    use grafton_visca::types::SocketId;
     use grafton_visca::{Command, Error};
 
     // Mock command for testing
@@ -22,7 +24,7 @@ mod tests {
             Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
         }
 
-        fn response_type(&self) -> Option<grafton_visca::ResponseType> {
+        fn response_type(&self) -> Option<grafton_visca::command::ResponseType> {
             None
         }
 
@@ -48,12 +50,16 @@ mod tests {
         struct MockBlockingTransport;
 
         impl BlockingTransport for MockBlockingTransport {
-            fn send_command_blocking(&mut self, _command: &dyn Command) -> Result<(), Error> {
+            fn send_command_blocking(
+                &mut self,
+                _command: &dyn Command,
+                _socket_id: SocketId,
+            ) -> Result<(), Error> {
                 Ok(())
             }
 
-            fn receive_response_blocking(&mut self) -> Result<Vec<Vec<u8>>, Error> {
-                Ok(vec![vec![0x90, 0x50, 0xFF]])
+            fn receive_response_blocking(&mut self) -> Result<(SocketId, Vec<u8>), Error> {
+                Ok((SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF]))
             }
         }
 

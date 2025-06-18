@@ -3,6 +3,10 @@
 //! This module provides constants for `PTZOptics` cameras including position ranges,
 //! speed limits, and utilities for converting between different unit systems.
 
+// This module contains many constants and utility functions that are part of the public API
+// but may not be used internally. They are intended for library users.
+#![allow(dead_code)]
+
 // Standard library imports
 // (none)
 

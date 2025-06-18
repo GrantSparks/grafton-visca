@@ -43,6 +43,10 @@ pub use self::{
     zoom::*,
 };
 
+// Unit tests for command module
+#[cfg(test)]
+mod tests;
+
 /// Trait for all VISCA commands.
 ///
 /// This trait must be implemented by all command types to provide:

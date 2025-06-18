@@ -8,35 +8,6 @@ use crate::{
     types::SocketId,
 };
 
-/// Parse a VISCA response, optionally with a specific expected type.
-fn parse_response(data: &[u8], response_type: Option<ResponseType>) -> Result<Response, Error> {
-    if data.len() < 3 || data[0] != 0x90 || data[data.len() - 1] != 0xFF {
-        return Err(Error::InvalidResponseFormat);
-    }
-
-    match data[1] {
-        0x40..=0x4F => Ok(Response::Ack),
-        0x50..=0x5F => {
-            if data.len() == 3 {
-                Ok(Response::Completion)
-            } else if let Some(rtype) = response_type {
-                parse_response_typed(data, &rtype)
-            } else {
-                // Return a generic inquiry response without parsing
-                Ok(Response::Unknown(data.to_vec()))
-            }
-        }
-        0x60..=0x6F => {
-            if data.len() >= 3 {
-                Err(Error::from_code(data[2]))
-            } else {
-                Err(Error::InvalidResponseFormat)
-            }
-        }
-        _ => Ok(Response::Unknown(data.to_vec())),
-    }
-}
-
 /// Represents a command that is currently being processed by the camera
 #[derive(Debug, Clone, Copy)]
 pub struct PendingCommand {
@@ -200,106 +171,20 @@ impl Session {
         }
     }
 
-    /// Clears all pending commands
-    pub fn clear_all(&mut self) {
-        self.pending_commands.clear();
-        debug!("Cleared all pending commands");
-    }
-
-    /// Gets the count of currently pending commands
-    #[must_use]
-    pub fn pending_count(&self) -> usize {
+    // Test helper methods
+    #[cfg(test)]
+    fn pending_count(&self) -> usize {
         self.pending_commands.len()
     }
 
-    /// Marks a socket as acknowledged (ACK received).
-    pub fn mark_acknowledged(&mut self, socket_id: SocketId) {
-        if let Some(cmd) = self.pending_commands.get_mut(&socket_id) {
-            cmd.acknowledged = true;
-            debug!("{socket_id} acknowledged");
-        }
+    #[cfg(test)]
+    fn get_pending_command(&self, socket: SocketId) -> Option<&PendingCommand> {
+        self.pending_commands.get(&socket)
     }
 
-    /// Process a raw response and update session state.
-    pub fn handle_response(&mut self, data: &[u8]) -> Response {
-        // Parse the basic response structure
-        let response = match parse_response(data, None) {
-            Ok(r) => r,
-            Err(e) => {
-                error!("Failed to parse response: {e}");
-                return Response::Error(e);
-            }
-        };
-
-        // Handle ACK - we need to extract socket ID from the raw data
-        if matches!(&response, Response::Ack) {
-            // ACK responses have format 0x90 0x4X 0xFF where X is the socket ID
-            if data.len() >= 2 {
-                let socket_raw = data[1] & 0x0F;
-                if let Ok(socket_id) = SocketId::new(socket_raw) {
-                    self.mark_acknowledged(socket_id);
-                }
-            }
-        }
-
-        // Handle completion or error responses - extract socket ID from raw data
-        match &response {
-            Response::Completion | Response::InquiryResponse(_) | Response::Error(_) => {
-                // Completion and inquiry responses have format 0x90 0x5X ... 0xFF where X is the socket ID
-                // Error responses have format 0x90 0x6X ... 0xFF where X is the socket ID
-                if data.len() >= 2 {
-                    let socket_raw = data[1] & 0x0F;
-                    if let Ok(socket_id) = SocketId::new(socket_raw) {
-                        self.release_socket(socket_id);
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        // Check if this is an inquiry response we're expecting
-        if let Response::InquiryResponse(_) = &response {
-            if data.len() >= 2 {
-                let socket_raw = data[1] & 0x0F;
-                if let Ok(socket_id) = SocketId::new(socket_raw) {
-                    // If we have a expected response type, try to parse with it
-                    if let Some(expected_type) = self
-                        .pending_commands
-                        .get(&socket_id)
-                        .and_then(|cmd| cmd.response_type)
-                    {
-                        match parse_response_typed(data, &expected_type) {
-                            Ok(parsed) => return parsed,
-                            Err(e) => {
-                                error!("Failed to parse typed response: {e}");
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        response
-    }
-
-    /// Gets the expected response type for a socket.
-    #[must_use]
-    pub fn get_response_type(&self, socket_id: SocketId) -> Option<ResponseType> {
-        self.pending_commands
-            .get(&socket_id)
-            .and_then(|cmd| cmd.response_type)
-    }
-
-    /// Checks if a socket is currently in use.
-    #[must_use]
-    pub fn is_socket_busy(&self, socket_id: SocketId) -> bool {
-        self.pending_commands.contains_key(&socket_id)
-    }
-
-    /// Gets information about a pending command on a socket.
-    #[must_use]
-    pub fn get_pending_command(&self, socket_id: SocketId) -> Option<&PendingCommand> {
-        self.pending_commands.get(&socket_id)
+    #[cfg(test)]
+    fn clear_all(&mut self) {
+        self.pending_commands.clear();
     }
 }
 
