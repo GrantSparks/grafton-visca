@@ -16,6 +16,11 @@ use grafton_visca::{
 };
 
 #[cfg(all(feature = "tokio", feature = "async-client"))]
+use std::sync::Arc;
+#[cfg(all(feature = "tokio", feature = "async-client"))]
+use std::time::Duration;
+
+#[cfg(all(feature = "tokio", feature = "async-client"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -112,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tcp_resilient.set_event_callback(event_callback.clone());
 
     // Create a camera with the resilient transport
-    let mut tcp_camera = Camera::<PTZOpticsG2>::new(tcp_resilient.clone());
+    let tcp_camera = Camera::<PTZOpticsG2>::new(tcp_resilient.clone());
 
     println!("\nTesting TCP resilient transport:");
 
@@ -175,7 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     udp_resilient.set_event_callback(event_callback);
 
     // Create a camera with the resilient UDP transport
-    let mut udp_camera = Camera::<PTZOpticsG2>::new(udp_resilient.clone());
+    let udp_camera = Camera::<PTZOpticsG2>::new(udp_resilient.clone());
 
     println!("\nTesting UDP resilient transport:");
 
@@ -193,7 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Clone the UDP resilient transport
     let cloned_transport = udp_resilient.clone();
-    let mut cloned_camera = Camera::<PTZOpticsG2>::new(cloned_transport);
+    let cloned_camera = Camera::<PTZOpticsG2>::new(cloned_transport);
 
     println!("✓ Successfully cloned resilient transport");
 

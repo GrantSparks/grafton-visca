@@ -40,11 +40,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let camera_ip = "192.168.1.100:52381";
     let base_transport = AsyncUdpTransport::new(camera_ip).await?;
 
-    let mut resilient_transport = ResilientTransport::new(
+    let mut resilient_transport = ResilientTransport::new_async(
         base_transport,
         move || {
             let ip = camera_ip.to_string();
-            Box::pin(async move { AsyncUdpTransport::new(&ip).await })
+            Box::pin(async move {
+                AsyncUdpTransport::new(&ip)
+                    .await
+                    .map_err(|e| grafton_visca::Error::Io(e))
+            })
         },
         config,
     );
@@ -77,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
 
     // Create camera - all operations will now automatically retry!
-    let mut camera = Camera::<PTZOpticsG2>::new(resilient_transport);
+    let camera = Camera::<PTZOpticsG2>::new(resilient_transport);
 
     println!("Camera created with automatic retry and reconnection.");
     println!("Try disconnecting the camera network to see reconnection in action!\n");

@@ -43,7 +43,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera with async transport
     let transport = AsyncUdpTransport::new(camera_addr).await?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("\n=== Camera API Inquiry Commands Demo ===\n");
 
