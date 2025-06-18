@@ -7,11 +7,9 @@ use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
         units::Degrees,
-        Camera,
     },
     camera_pool::{CameraInfo, CameraPool, PoolConfig},
     transport::AsyncUdpTransport,
-    Error,
 };
 use std::collections::HashMap;
 use std::time::Duration;

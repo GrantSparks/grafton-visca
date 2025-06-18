@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Box::pin(async move {
                 AsyncUdpTransport::new(&ip)
                     .await
-                    .map_err(|e| grafton_visca::Error::Io(e))
+                    .map_err(grafton_visca::Error::Io)
             })
         },
         config,

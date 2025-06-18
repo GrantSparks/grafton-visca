@@ -5,6 +5,7 @@
 //! Note: This example requires that ONLY the blocking-client feature is enabled.
 //! If async-client is also enabled, the async API takes precedence.
 
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use grafton_visca::{
     camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
@@ -12,7 +13,9 @@ use grafton_visca::{
 };
 
 // Import Degrees from the correct path
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use grafton_visca::camera::units::Degrees;
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use std::time::Duration;
 
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
