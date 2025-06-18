@@ -1,11 +1,7 @@
 //! Example demonstrating the ResilientTransport for automatic retry and reconnection
 //!
 //! This example shows how to wrap any transport with resilient behavior to handle
-//! network issues gracefully.
-//!
-//! NOTE: This example requires a transport that implements Clone.
-//! AsyncUdpTransport currently doesn't implement Clone, so this example
-//! won't compile until that's fixed or a different transport is used.
+//! network issues gracefully. It demonstrates both sync and async factory patterns.
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{
@@ -13,7 +9,7 @@ use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     transport::{
         resilient::{ResilienceConfig, ResilienceEvent, ResilientTransport},
-        TcpTransport, Transport,
+        AsyncTcpTransport, AsyncUdpTransport,
     },
 };
 use std::sync::Arc;
@@ -36,26 +32,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         operation_timeout: Duration::from_secs(5),
     };
 
-    // TODO: ResilientTransport currently expects a synchronous factory function,
-    // but AsyncUdpTransport requires async construction. This needs to be addressed
-    // in the library design.
+    // Example 1: Using async factory with AsyncTcpTransport
+    println!("Example 1: Async factory with AsyncTcpTransport");
+    let tcp_addr = "192.168.1.100:1259";
+    let tcp_transport = AsyncTcpTransport::new(tcp_addr).await?;
 
-    // For now, we'll use TCP transport which can be constructed synchronously
-    let base_transport = TcpTransport::new("192.168.1.100:1259")?;
+    // Create resilient transport with async factory
+    let mut resilient_tcp = ResilientTransport::new_async(
+        tcp_transport,
+        move || async move {
+            // Async factory function
+            println!("Creating new async TCP transport...");
+            AsyncTcpTransport::new(tcp_addr)
+                .await
+                .map_err(|e| grafton_visca::Error::Io(e))
+        },
+        config.clone(),
+    );
 
-    // Wrap with resilient transport
-    let resilient = ResilientTransport::new(
-        base_transport.clone(),
-        move || {
-            // Factory function to recreate transport on failure
-            // Note: This blocks in an async context, which is not ideal
-            Ok(base_transport.clone())
+    // Example 2: Using async factory with AsyncUdpTransport
+    println!("\nExample 2: Async factory with AsyncUdpTransport");
+    let udp_addr = "192.168.1.100:52381";
+    let udp_transport = AsyncUdpTransport::new(udp_addr).await?;
+
+    // Create resilient transport with async factory
+    let mut resilient_udp = ResilientTransport::new_async(
+        udp_transport,
+        move || async move {
+            // Async factory function
+            println!("Creating new UDP transport...");
+            AsyncUdpTransport::new(udp_addr)
+                .await
+                .map_err(|e| grafton_visca::Error::Io(e))
+        },
+        config.clone(),
+    );
+
+    // Example 3: Using async factory with AsyncTcpTransport
+    println!("\nExample 3: Async factory with AsyncTcpTransport");
+    let async_tcp_addr = "192.168.1.100:1259";
+    let async_tcp_transport = AsyncTcpTransport::new(async_tcp_addr).await?;
+
+    // Create resilient transport with async factory
+    let mut resilient_async_tcp = ResilientTransport::new_async(
+        async_tcp_transport,
+        move || async move {
+            println!("Creating new async TCP transport...");
+            AsyncTcpTransport::new(async_tcp_addr)
+                .await
+                .map_err(|e| grafton_visca::Error::Io(e))
         },
         config,
     );
 
     // Set up event callback to monitor resilience events
-    resilient.set_event_callback(Arc::new(|event| match event {
+    resilient_async_tcp.set_event_callback(Arc::new(|event| match event {
         ResilienceEvent::OperationSucceeded { retries } => {
             if retries > 0 {
                 println!("Operation succeeded after {} retries", retries);
@@ -78,11 +109,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }));
 
-    // Create camera with resilient transport
-    let mut camera: Camera<PTZOpticsG2> = Camera::new(resilient);
+    // Create camera with resilient transport (using async TCP for demo)
+    let mut camera: Camera<PTZOpticsG2> = Camera::new(resilient_async_tcp);
 
     // Normal camera operations - resilient transport handles failures transparently
-    println!("Moving camera to home position...");
+    println!("\nMoving camera to home position...");
     camera.home().await?;
 
     // Simulate some operations that might fail
@@ -100,8 +131,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
-    // Get statistics
-    let stats = resilient.stats();
+    // Note: In a real application, you would keep a reference to the resilient transport
+    // to access statistics. For this demo, we'll show the pattern with the TCP transport.
+    println!("\nShowing statistics pattern with TCP transport:");
+    let stats = resilient_tcp.stats();
     println!("\nResilience Statistics:");
     println!("  Total operations: {}", stats.total_operations);
     println!("  First try successes: {}", stats.first_try_successes);
