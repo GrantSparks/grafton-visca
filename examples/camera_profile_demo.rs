@@ -17,7 +17,7 @@ async fn main() -> Result<(), Error> {
 
     // Create a G2 camera with TCP transport
     let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Display camera capabilities
     let caps = camera.capabilities();

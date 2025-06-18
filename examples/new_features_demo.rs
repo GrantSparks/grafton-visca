@@ -5,15 +5,17 @@
 //! - Extension traits for custom functionality
 
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera, CameraExtension, CommandBuilderExt, DiagnosticsExt},
+    camera::{
+        profiles::{G2PresetId, PTZOpticsG2},
+        Camera, CameraExtension, CommandBuilderExt, DiagnosticsExt,
+    },
     camera_pool::{CameraInfo, CameraPool, PoolConfig},
     transport::{
-        resilient::{ResilienceConfig, ResilienceEvent, ResilientTransport},
-        UdpTransport,
+        resilient::ResilienceConfig,
+        AsyncUdpTransport,
     },
     Error,
 };
-use std::sync::Arc;
 use std::time::Duration;
 
 #[tokio::main]
@@ -55,46 +57,32 @@ async fn resilient_transport_demo() -> Result<(), Error> {
         operation_timeout: Duration::from_secs(5),
     };
 
-    // Create base transport
-    let base_transport = UdpTransport::new("192.168.1.100:52381")?;
+    // TODO: ResilientTransport currently expects a synchronous factory function,
+    // but AsyncUdpTransport requires async construction. This needs to be addressed
+    // in the library design.
 
-    // Wrap with resilient transport
-    let mut resilient = ResilientTransport::new(
-        base_transport,
-        || UdpTransport::new("192.168.1.100:52381"),
-        config,
-    );
+    // Note: ResilientTransport requires Clone trait which AsyncTcpTransport doesn't implement
+    // This is a known limitation in the current design
+    // For demonstration, we'll show the configuration and concept
 
-    // Set up event monitoring
-    resilient.set_event_callback(Arc::new(|event| match event {
-        ResilienceEvent::OperationSucceeded { retries } => {
-            println!("  ✓ Operation succeeded after {} retries", retries);
-        }
-        ResilienceEvent::OperationFailed { attempts, error } => {
-            println!(
-                "  ✗ Operation failed after {} attempts: {}",
-                attempts, error
-            );
-        }
-        ResilienceEvent::Reconnected { attempts } => {
-            println!("  ↻ Reconnected after {} attempts", attempts);
-        }
-        ResilienceEvent::HealthCheckPassed => {
-            println!("  ♥ Health check passed");
-        }
-        _ => {}
-    }));
+    println!("  Resilience configuration:");
+    println!("    - Max retries: {}", config.max_retries);
+    println!("    - Initial retry delay: {:?}", config.initial_retry_delay);
+    println!("    - Max retry delay: {:?}", config.max_retry_delay);
+    println!("    - Backoff factor: {}", config.backoff_factor);
+    println!("    - Max reconnect attempts: {}", config.max_reconnect_attempts);
 
-    // Create camera with resilient transport
-    let mut camera = Camera::<PTZOpticsG2>::new(resilient);
+    // In a real application, you would use ResilientTransport with a transport that implements Clone
+    // For now, let's demonstrate with a regular transport
+    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
-    // Operations will automatically retry on failure
-    println!("Executing commands with automatic retry...");
-    camera.power_on().await?;
-    camera.home().await?;
-
-    // Get statistics (would need to keep reference to resilient transport)
-    println!("Resilience stats: Available via ResilientTransport reference");
+    // Simulate operations
+    println!("\nPerforming operations (without resilience wrapper):");
+    match camera.get_power_state().await {
+        Ok(power) => println!("  Power state: {}", if power { "ON" } else { "OFF" }),
+        Err(e) => println!("  Failed: {}", e),
+    }
 
     Ok(())
 }
@@ -121,10 +109,11 @@ async fn camera_pool_demo() -> Result<(), Error> {
             .with_metadata("ip", format!("192.168.1.{}", 100 + i));
 
         // In real code, create actual transports
-        let transport = Box::new(UdpTransport::new(&format!("192.168.1.{}:52381", 100 + i))?);
+        let transport =
+            Box::new(AsyncUdpTransport::new(&format!("192.168.1.{}:52381", 100 + i)).await?) as Box<dyn grafton_visca::transport::Transport>;
 
         match pool.add_camera_async(info, transport).await {
-            Ok(camera) => println!("  ✓ Added camera {} to pool", i),
+            Ok(_camera) => println!("  ✓ Added camera {} to pool", i),
             Err(e) => println!("  ✗ Failed to add camera {}: {}", i, e),
         }
     }
@@ -134,7 +123,7 @@ async fn camera_pool_demo() -> Result<(), Error> {
     let result = pool
         .with_camera_async(
             "cam1",
-            |camera| async move { camera.power_state_async().await },
+            |camera| async move { camera.get_power_state().await },
         )
         .await;
 
@@ -149,7 +138,7 @@ async fn camera_pool_demo() -> Result<(), Error> {
     // Execute command on all cameras concurrently
     println!("\nExecuting home command on all cameras concurrently:");
     let results = pool
-        .with_all_cameras_async(|camera| async move { camera.home_async().await })
+        .with_all_cameras_async(|camera| async move { camera.home().await })
         .await;
 
     for (id, result) in results {
@@ -184,7 +173,7 @@ async fn camera_pool_demo() -> Result<(), Error> {
 async fn command_builder_demo() -> Result<(), Error> {
     println!("Using CommandBuilder for complex sequences...");
 
-    let transport = UdpTransport::new("192.168.1.100:52381")?;
+    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Build and execute a complex sequence
@@ -214,7 +203,7 @@ async fn command_builder_demo() -> Result<(), Error> {
             grafton_visca::command::pan_tilt::TiltSpeed::new(15).unwrap(),
         )?
         .zoom_in(grafton_visca::command::zoom::ZoomSpeed::new(5).unwrap())
-        .preset_set(PTZOpticsG2::PresetId::from(1))
+        .preset_set(G2PresetId::new(1).unwrap())
         .pan_tilt_to_degrees(
             -45.0,
             0.0,
@@ -222,7 +211,7 @@ async fn command_builder_demo() -> Result<(), Error> {
             grafton_visca::command::pan_tilt::TiltSpeed::new(15).unwrap(),
         )?
         .zoom_out(grafton_visca::command::zoom::ZoomSpeed::new(5).unwrap())
-        .preset_set(PTZOpticsG2::PresetId::from(2))
+        .preset_set(G2PresetId::new(2).unwrap())
         .execute_sequential_async()
         .await?;
 
@@ -236,18 +225,18 @@ async fn command_builder_demo() -> Result<(), Error> {
     let concurrent_results = camera
         .commands()
         .custom(
-            grafton_visca::command::inquiry::PowerStateInquiry,
+            grafton_visca::command::inquiry::InquiryCommand::Power,
             "Query Power State",
         )
         .custom(
-            grafton_visca::command::inquiry::ZoomPositionInquiry,
+            grafton_visca::command::inquiry::InquiryCommand::ZoomPosition,
             "Query Zoom Position",
         )
         .custom(
-            grafton_visca::command::inquiry::FocusModeInquiry,
+            grafton_visca::command::inquiry::InquiryCommand::FocusPosition,
             "Query Focus Mode",
         )
-        .execute_concurrent_async()
+        .execute_concurrent()
         .await?;
 
     let successful = concurrent_results.iter().filter(|r| r.is_ok()).count();
@@ -264,8 +253,8 @@ async fn command_builder_demo() -> Result<(), Error> {
 async fn extension_traits_demo() -> Result<(), Error> {
     println!("Using extension traits for custom functionality...");
 
-    let transport = UdpTransport::new("192.168.1.100:52381")?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Use DiagnosticsExt trait
     println!("Getting camera diagnostics:");
@@ -331,36 +320,24 @@ async fn extension_traits_demo() -> Result<(), Error> {
     Ok(())
 }
 
-// Define a custom extension trait
-use grafton_visca::camera_extension_trait;
+// Example: Define a custom extension trait manually
+#[allow(dead_code)]
+trait BroadcastExt<P: grafton_visca::camera::CameraProfile>: CameraExtension<P> {
+    /// Set up camera for broadcast (custom preset).
+    fn setup_for_broadcast(&self) -> Result<(), Error> {
+        println!("  Setting up camera for broadcast...");
+        // In real implementation, this would configure multiple settings
+        // using self.send_raw() or self.send_raw_async()
+        Ok(())
+    }
 
-camera_extension_trait! {
-    /// Custom broadcast-specific extensions.
-    trait BroadcastExt {
-        /// Set up camera for broadcast (custom preset).
-        fn setup_for_broadcast(&mut self) -> Result<(), Error> {
-            println!("  Setting up camera for broadcast...");
-            // In real implementation, this would configure multiple settings
-            Ok(())
-        }
-
-        /// Enable tally light (if supported).
-        fn set_tally(&mut self, on: bool) -> Result<(), Error> {
-            println!("  Tally light: {}", if on { "ON" } else { "OFF" });
-            // Would send custom command for tally light
-            Ok(())
-        }
+    /// Enable tally light (if supported).
+    fn set_tally(&self, on: bool) -> Result<(), Error> {
+        println!("  Tally light: {}", if on { "ON" } else { "OFF" });
+        // Would send custom command for tally light
+        Ok(())
     }
 }
 
-// Usage of custom extension:
-fn use_custom_extension() -> Result<(), Error> {
-    let transport = UdpTransport::new("192.168.1.100:52381")?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
-
-    // Use our custom broadcast extension
-    camera.setup_for_broadcast()?;
-    camera.set_tally(true)?;
-
-    Ok(())
-}
+// Implement the extension for all Camera<P> types
+impl<P: grafton_visca::camera::CameraProfile> BroadcastExt<P> for Camera<P> {}

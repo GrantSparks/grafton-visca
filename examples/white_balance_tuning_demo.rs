@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create camera with PTZOptics G2 profile
     let udp_transport = UdpTransport::new("192.168.1.100:52381")?;
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
 
     // Demonstrate fine-tuning commands
     println!("Demonstrating white balance fine-tuning...");

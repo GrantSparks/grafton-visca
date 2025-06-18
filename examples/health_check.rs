@@ -61,7 +61,7 @@ fn test_udp_health(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
 
     // Test basic commands as health check
     println!("\nSending test commands...");
@@ -117,7 +117,7 @@ fn test_tcp_health(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(tcp_transport));
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(tcp_transport));
 
     // Test basic commands
     println!("\nSending test commands...");

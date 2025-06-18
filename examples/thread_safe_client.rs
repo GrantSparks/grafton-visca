@@ -7,7 +7,7 @@
 //! Default camera address: 192.168.1.100:5678
 
 use grafton_visca::{
-    camera::{Camera, PTZOpticsG2},
+    camera::{Camera, CameraExtension, PTZOpticsG2},
     command::{
         pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
         PanTiltCommand, Power, PowerCommand, ZoomCommand,
@@ -18,15 +18,6 @@ use grafton_visca::{
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-
-// Use a minimal tokio runtime for blocking execution
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(fut)
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -52,11 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Power on the camera
     println!("Powering on camera...");
     {
-        let mut cam = camera.lock().unwrap();
-        block_on(
-            cam.transport_mut()
-                .send_command(&PowerCommand { power: Power::On }),
-        )?;
+        let cam = camera.lock().unwrap();
+        cam.send_raw(&PowerCommand { power: Power::On })?;
     }
     thread::sleep(Duration::from_secs(2));
 
@@ -67,45 +55,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Move up-right
         {
-            let mut cam = camera1.lock().unwrap();
-            block_on(cam.transport_mut().send_command(&PanTiltCommand::Move {
+            let cam = camera1.lock().unwrap();
+            cam.send_raw(&PanTiltCommand::Move {
                 direction: PanTiltDirection::UpRight,
                 pan_speed: PanSpeed::new(0x10)?,
                 tilt_speed: TiltSpeed::new(0x10)?,
-            }))?;
+            })?;
         }
         thread::sleep(Duration::from_secs(2));
 
         // Stop movement
         {
-            let mut cam = camera1.lock().unwrap();
-            block_on(cam.transport_mut().send_command(&PanTiltCommand::Move {
+            let cam = camera1.lock().unwrap();
+            cam.send_raw(&PanTiltCommand::Move {
                 direction: PanTiltDirection::Stop,
                 pan_speed: PanSpeed::new(0)?,
                 tilt_speed: TiltSpeed::new(0)?,
-            }))?;
+            })?;
         }
         thread::sleep(Duration::from_millis(500));
 
         // Move down-left
         {
-            let mut cam = camera1.lock().unwrap();
-            block_on(cam.transport_mut().send_command(&PanTiltCommand::Move {
+            let cam = camera1.lock().unwrap();
+            cam.send_raw(&PanTiltCommand::Move {
                 direction: PanTiltDirection::DownLeft,
                 pan_speed: PanSpeed::new(0x10)?,
                 tilt_speed: TiltSpeed::new(0x10)?,
-            }))?;
+            })?;
         }
         thread::sleep(Duration::from_secs(2));
 
         // Stop and return home
         {
-            let mut cam = camera1.lock().unwrap();
-            block_on(cam.transport_mut().send_command(&PanTiltCommand::Move {
+            let cam = camera1.lock().unwrap();
+            cam.send_raw(&PanTiltCommand::Move {
                 direction: PanTiltDirection::Stop,
                 pan_speed: PanSpeed::new(0)?,
                 tilt_speed: TiltSpeed::new(0)?,
-            }))?;
+            })?;
         }
         thread::sleep(Duration::from_millis(500));
         {
@@ -127,34 +115,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Zoom in
         {
-            let mut cam = camera2.lock().unwrap();
-            block_on(
-                cam.transport_mut()
-                    .send_command(&ZoomCommand::ZoomInStandard),
-            )?;
+            let cam = camera2.lock().unwrap();
+            cam.send_raw(&ZoomCommand::ZoomInStandard)?;
         }
         thread::sleep(Duration::from_secs(2));
 
         // Stop zoom (using ZoomStop command)
         {
-            let mut cam = camera2.lock().unwrap();
-            block_on(cam.transport_mut().send_command(&ZoomCommand::Stop))?;
+            let cam = camera2.lock().unwrap();
+            cam.send_raw(&ZoomCommand::Stop)?;
         }
 
         // Zoom out
         {
-            let mut cam = camera2.lock().unwrap();
-            block_on(
-                cam.transport_mut()
-                    .send_command(&ZoomCommand::ZoomOutStandard),
-            )?;
+            let cam = camera2.lock().unwrap();
+            cam.send_raw(&ZoomCommand::ZoomOutStandard)?;
         }
         thread::sleep(Duration::from_secs(2));
 
         // Stop zoom
         {
-            let mut cam = camera2.lock().unwrap();
-            block_on(cam.transport_mut().send_command(&ZoomCommand::Stop))?;
+            let cam = camera2.lock().unwrap();
+            cam.send_raw(&ZoomCommand::Stop)?;
         }
 
         println!("[Thread 2] Zoom complete");
@@ -168,10 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Try to access the camera from the main thread
     {
         let mut cam = camera.lock().unwrap();
-        match block_on(
-            cam.transport_mut()
-                .send_command(&ZoomCommand::ZoomInStandard),
-        ) {
+        match block_on(cam.send_raw(&ZoomCommand::ZoomInStandard)) {
             Ok(_) => println!("[Main] Successfully sent command"),
             Err(e) => println!("[Main] Error: {:?}", e),
         }
@@ -203,10 +182,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Power off (using Standby since there's no Off)
     println!("\nSetting camera to standby...");
     {
-        let mut cam = camera.lock().unwrap();
-        block_on(cam.transport_mut().send_command(&PowerCommand {
+        let cam = camera.lock().unwrap();
+        cam.send_raw(&PowerCommand {
             power: Power::Standby,
-        }))?;
+        })?;
     }
 
     Ok(())

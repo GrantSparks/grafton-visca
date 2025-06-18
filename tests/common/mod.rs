@@ -271,6 +271,7 @@ impl MockDevice {
 #[cfg(feature = "blocking-client")]
 impl MockDevice {
     /// Execute a command and handle the response according to VISCA protocol
+    #[allow(dead_code)]
     pub fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         // For blocking transport, we don't need futures
         use grafton_visca::transport::Transport;
