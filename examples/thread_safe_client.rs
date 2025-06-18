@@ -6,14 +6,18 @@
 //! Run with: cargo run --example thread_safe_client --no-default-features --features blocking-client [CAMERA_IP:PORT]
 //! Default camera address: 192.168.1.100:5678
 
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use grafton_visca::{
     camera::{Camera, CameraProfile, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
     transport::{BlockingAdapter, UdpTransport},
     Error,
 };
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use std::sync::{Arc, Mutex};
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use std::thread;
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use std::time::Duration;
 
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
@@ -149,18 +153,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Model: {}", PTZOpticsG2::MODEL_NAME);
     println!(
         "Pan range: {:?} degrees",
-        PTZOpticsG2::pan_degree_range(&PTZOpticsG2::default())
+        PTZOpticsG2::pan_degree_range(&PTZOpticsG2)
     );
     println!(
         "Tilt range: {:?} degrees",
-        PTZOpticsG2::tilt_degree_range(&PTZOpticsG2::default())
+        PTZOpticsG2::tilt_degree_range(&PTZOpticsG2)
     );
     println!("Max pan speed: {}", PTZOpticsG2::MAX_PAN_SPEED);
     println!("Max tilt speed: {}", PTZOpticsG2::MAX_TILT_SPEED);
     println!("Preset count: {}", PTZOpticsG2::max_preset_id() + 1);
     println!(
         "Supports digital zoom: {}",
-        PTZOpticsG2::digital_zoom_supported(&PTZOpticsG2::default())
+        PTZOpticsG2::digital_zoom_supported(&PTZOpticsG2)
     );
 
     // Power off
