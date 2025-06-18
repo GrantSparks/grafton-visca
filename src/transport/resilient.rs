@@ -148,14 +148,15 @@ struct TransportState<T> {
     stats: ResilienceStats,
 }
 
+/// Future type for async transport factory
+pub type TransportFactoryFuture<T> = Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send>>;
+
 /// Factory for creating transport instances
 pub enum TransportFactory<T> {
     /// Synchronous factory function
     Sync(Arc<dyn Fn() -> Result<T, ViscaError> + Send + Sync>),
     /// Asynchronous factory function
-    Async(
-        Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send>> + Send + Sync>,
-    ),
+    Async(Arc<dyn Fn() -> TransportFactoryFuture<T> + Send + Sync>),
 }
 
 impl<T> std::fmt::Debug for TransportFactory<T> {

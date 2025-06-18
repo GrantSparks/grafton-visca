@@ -149,8 +149,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate `Camera<P>` specific features
     println!("\nCamera profile information:");
     println!("Model: {}", PTZOpticsG2::MODEL_NAME);
-    println!("Pan range: {:?} degrees", PTZOpticsG2::pan_degree_range(&PTZOpticsG2::default()));
-    println!("Tilt range: {:?} degrees", PTZOpticsG2::tilt_degree_range(&PTZOpticsG2::default()));
+    println!(
+        "Pan range: {:?} degrees",
+        PTZOpticsG2::pan_degree_range(&PTZOpticsG2::default())
+    );
+    println!(
+        "Tilt range: {:?} degrees",
+        PTZOpticsG2::tilt_degree_range(&PTZOpticsG2::default())
+    );
     println!("Max pan speed: {}", PTZOpticsG2::MAX_PAN_SPEED);
     println!("Max tilt speed: {}", PTZOpticsG2::MAX_TILT_SPEED);
     println!("Preset count: {}", PTZOpticsG2::max_preset_id() + 1);
