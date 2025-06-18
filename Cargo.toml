@@ -65,7 +65,7 @@ required-features = ["async-client"]
 
 [[example]]
 name = "thread_safe_client"
-required-features = ["async-client", "blocking-client"]
+required-features = ["blocking-client"]
 
 [[example]]
 name = "configurable_timeouts"

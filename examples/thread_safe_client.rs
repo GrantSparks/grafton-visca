@@ -3,15 +3,15 @@
 //! This example shows how to use the `Camera<P>` API to control a camera
 //! from multiple threads using Arc<Mutex<Camera>> for thread safety.
 //!
-//! Run with: cargo run --example thread_safe_client [CAMERA_IP:PORT]
+//! Run with: cargo run --example thread_safe_client --no-default-features --features blocking-client [CAMERA_IP:PORT]
 //! Default camera address: 192.168.1.100:5678
 
+#[cfg(feature = "async-client")]
+compile_error!("This example requires only the blocking-client feature. Please run with: cargo run --example thread_safe_client --no-default-features --features blocking-client");
+
 use grafton_visca::{
-    camera::{Camera, CameraExtension, PTZOpticsG2},
-    command::{
-        pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed},
-        PanTiltCommand, Power, PowerCommand, ZoomCommand,
-    },
+    camera::{Camera, CameraProfile, PTZOpticsG2},
+    command::pan_tilt::PanTiltDirection,
     transport::{BlockingAdapter, UdpTransport},
     Error,
 };
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Powering on camera...");
     {
         let cam = camera.lock().unwrap();
-        cam.send_raw(&PowerCommand { power: Power::On })?;
+        cam.power_on()?;
     }
     thread::sleep(Duration::from_secs(2));
 
@@ -56,49 +56,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Move up-right
         {
             let cam = camera1.lock().unwrap();
-            cam.send_raw(&PanTiltCommand::Move {
-                direction: PanTiltDirection::UpRight,
-                pan_speed: PanSpeed::new(0x10)?,
-                tilt_speed: TiltSpeed::new(0x10)?,
-            })?;
+            cam.move_continuous(PanTiltDirection::UpRight, 16, 16)?;
         }
         thread::sleep(Duration::from_secs(2));
 
         // Stop movement
         {
             let cam = camera1.lock().unwrap();
-            cam.send_raw(&PanTiltCommand::Move {
-                direction: PanTiltDirection::Stop,
-                pan_speed: PanSpeed::new(0)?,
-                tilt_speed: TiltSpeed::new(0)?,
-            })?;
+            cam.stop()?;
         }
         thread::sleep(Duration::from_millis(500));
 
         // Move down-left
         {
             let cam = camera1.lock().unwrap();
-            cam.send_raw(&PanTiltCommand::Move {
-                direction: PanTiltDirection::DownLeft,
-                pan_speed: PanSpeed::new(0x10)?,
-                tilt_speed: TiltSpeed::new(0x10)?,
-            })?;
+            cam.move_continuous(PanTiltDirection::DownLeft, 16, 16)?;
         }
         thread::sleep(Duration::from_secs(2));
 
         // Stop and return home
         {
             let cam = camera1.lock().unwrap();
-            cam.send_raw(&PanTiltCommand::Move {
-                direction: PanTiltDirection::Stop,
-                pan_speed: PanSpeed::new(0)?,
-                tilt_speed: TiltSpeed::new(0)?,
-            })?;
+            cam.stop()?;
         }
         thread::sleep(Duration::from_millis(500));
         {
-            let mut cam = camera1.lock().unwrap();
-            block_on(cam.transport_mut().send_command(&PanTiltCommand::Home))?;
+            let cam = camera1.lock().unwrap();
+            cam.home()?;
         }
 
         println!("[Thread 1] Pan/tilt complete");
@@ -116,27 +100,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Zoom in
         {
             let cam = camera2.lock().unwrap();
-            cam.send_raw(&ZoomCommand::ZoomInStandard)?;
-        }
-        thread::sleep(Duration::from_secs(2));
-
-        // Stop zoom (using ZoomStop command)
-        {
-            let cam = camera2.lock().unwrap();
-            cam.send_raw(&ZoomCommand::Stop)?;
-        }
-
-        // Zoom out
-        {
-            let cam = camera2.lock().unwrap();
-            cam.send_raw(&ZoomCommand::ZoomOutStandard)?;
+            cam.zoom_in()?;
         }
         thread::sleep(Duration::from_secs(2));
 
         // Stop zoom
         {
             let cam = camera2.lock().unwrap();
-            cam.send_raw(&ZoomCommand::Stop)?;
+            cam.zoom_stop()?;
+        }
+
+        // Zoom out
+        {
+            let cam = camera2.lock().unwrap();
+            cam.zoom_out()?;
+        }
+        thread::sleep(Duration::from_secs(2));
+
+        // Stop zoom
+        {
+            let cam = camera2.lock().unwrap();
+            cam.zoom_stop()?;
         }
 
         println!("[Thread 2] Zoom complete");
@@ -149,8 +133,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Try to access the camera from the main thread
     {
-        let mut cam = camera.lock().unwrap();
-        match block_on(cam.send_raw(&ZoomCommand::ZoomInStandard)) {
+        let cam = camera.lock().unwrap();
+        match cam.zoom_in() {
             Ok(_) => println!("[Main] Successfully sent command"),
             Err(e) => println!("[Main] Error: {:?}", e),
         }
@@ -164,28 +148,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate `Camera<P>` specific features
     println!("\nCamera profile information:");
-    {
-        let cam = camera.lock().unwrap();
-        let capabilities = cam.capabilities();
-        println!("Model: {}", capabilities.model_name);
-        println!("Pan range: {:?} degrees", capabilities.pan_range_degrees);
-        println!("Tilt range: {:?} degrees", capabilities.tilt_range_degrees);
-        println!("Max pan speed: {}", capabilities.max_pan_speed);
-        println!("Max tilt speed: {}", capabilities.max_tilt_speed);
-        println!("Preset count: {}", capabilities.preset_count);
-        println!(
-            "Supports digital zoom: {}",
-            capabilities.supports_digital_zoom
-        );
-    }
+    println!("Model: {}", PTZOpticsG2::MODEL_NAME);
+    println!("Pan range: {:?} degrees", PTZOpticsG2::pan_degree_range(&PTZOpticsG2::default()));
+    println!("Tilt range: {:?} degrees", PTZOpticsG2::tilt_degree_range(&PTZOpticsG2::default()));
+    println!("Max pan speed: {}", PTZOpticsG2::MAX_PAN_SPEED);
+    println!("Max tilt speed: {}", PTZOpticsG2::MAX_TILT_SPEED);
+    println!("Preset count: {}", PTZOpticsG2::max_preset_id() + 1);
+    println!(
+        "Supports digital zoom: {}",
+        PTZOpticsG2::digital_zoom_supported(&PTZOpticsG2::default())
+    );
 
-    // Power off (using Standby since there's no Off)
-    println!("\nSetting camera to standby...");
+    // Power off
+    println!("\nPowering off camera...");
     {
         let cam = camera.lock().unwrap();
-        cam.send_raw(&PowerCommand {
-            power: Power::Standby,
-        })?;
+        cam.power_off()?;
     }
 
     Ok(())

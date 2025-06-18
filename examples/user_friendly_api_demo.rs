@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create camera with default address
     let transport = UdpTransport::new("192.168.1.100:1259")?;
-    let mut camera: Camera<PTZOpticsG2> = Camera::new(BlockingAdapter(transport));
+    let camera: Camera<PTZOpticsG2> = Camera::new(BlockingAdapter(transport));
 
     // Example 1: Using SpeedLevel for intuitive movement control
     println!("=== Speed Level Demo ===");

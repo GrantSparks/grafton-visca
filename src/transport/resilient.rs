@@ -153,7 +153,9 @@ pub enum TransportFactory<T> {
     /// Synchronous factory function
     Sync(Arc<dyn Fn() -> Result<T, ViscaError> + Send + Sync>),
     /// Asynchronous factory function
-    Async(Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send>> + Send + Sync>),
+    Async(
+        Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send>> + Send + Sync>,
+    ),
 }
 
 impl<T> std::fmt::Debug for TransportFactory<T> {
@@ -175,6 +177,7 @@ pub struct ResilientTransport<T: Transport> {
     /// Configuration
     config: ResilienceConfig,
     /// Factory for creating new transport instances
+    #[cfg(feature = "tokio")]
     factory: TransportFactory<T>,
     /// Optional event callback
     event_callback: Option<EventCallback>,
@@ -190,12 +193,36 @@ impl<T: Transport> std::fmt::Debug for ResilientTransport<T> {
 }
 
 impl<T: Transport + Send + Sync + 'static> ResilientTransport<T> {
+    /// Creates a new resilient transport wrapper without reconnection support.
+    ///
+    /// This constructor is available when tokio is not enabled. It provides retry
+    /// logic but not reconnection capabilities.
+    ///
+    /// # Arguments
+    /// * `transport` - The initial transport instance
+    /// * `config` - Resilience configuration
+    #[cfg(not(feature = "tokio"))]
+    pub fn new(transport: T, config: ResilienceConfig) -> Self {
+        let state = TransportState {
+            inner: Some(transport),
+            last_success: Some(Instant::now()),
+            stats: ResilienceStats::default(),
+        };
+
+        Self {
+            state: Arc::new(Mutex::new(state)),
+            config,
+            event_callback: None,
+        }
+    }
+
     /// Creates a new resilient transport wrapper with a synchronous factory.
     ///
     /// # Arguments
     /// * `transport` - The initial transport instance
     /// * `factory` - Function to create new transport instances for reconnection
     /// * `config` - Resilience configuration
+    #[cfg(feature = "tokio")]
     pub fn new<F>(transport: T, factory: F, config: ResilienceConfig) -> Self
     where
         F: Fn() -> Result<T, ViscaError> + Send + Sync + 'static,
@@ -207,10 +234,7 @@ impl<T: Transport + Send + Sync + 'static> ResilientTransport<T> {
         };
 
         Self {
-            #[cfg(feature = "tokio")]
             state: Arc::new(AsyncMutex::new(state)),
-            #[cfg(not(feature = "tokio"))]
-            state: Arc::new(Mutex::new(state)),
             config,
             factory: TransportFactory::Sync(Arc::new(factory)),
             event_callback: None,
@@ -517,7 +541,6 @@ impl<T: Transport + Send + Sync + 'static> Transport for ResilientTransport<T> {
         })
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -3,13 +3,11 @@
 #[cfg(all(feature = "tokio", feature = "async-client"))]
 mod tests {
     use grafton_visca::{
-        transport::{
-            resilient::{ResilientTransport, ResilienceConfig},
-            AsyncTcpTransport,
-            AsyncUdpTransport,
-            Transport,
-        },
         command::zoom::ZoomCommand,
+        transport::{
+            resilient::{ResilienceConfig, ResilientTransport},
+            AsyncTcpTransport, AsyncUdpTransport, Transport,
+        },
         types::SocketId,
     };
     use std::sync::Arc;

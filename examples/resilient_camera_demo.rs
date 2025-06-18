@@ -13,7 +13,6 @@ use grafton_visca::{
         resilient::{ResilienceConfig, ResilienceEvent, ResilientTransport},
         AsyncUdpTransport,
     },
-    Error,
 };
 use std::sync::Arc;
 use std::time::Duration;

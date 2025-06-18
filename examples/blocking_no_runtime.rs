@@ -9,18 +9,21 @@
 compile_error!("This example requires only the blocking-client feature. Please run with: cargo run --example blocking_no_runtime --no-default-features --features blocking-client");
 
 use grafton_visca::{
-    camera::{profiles::G2PresetId, units::Degrees, Camera, PTZOpticsG2},
+    camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
     transport::{BlockingAdapter, TcpTransport},
 };
+
+// Import Degrees from the correct path
+use grafton_visca::camera::units::Degrees;
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
 
-    // Camera IP address
-    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100".to_string());
+    // Camera IP address with port
+    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:52381".to_string());
     println!("Connecting to camera at {}", camera_ip);
 
     // Create a blocking TCP transport

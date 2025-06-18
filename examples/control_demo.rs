@@ -39,7 +39,7 @@ fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
     let transport = UdpTransport::new(camera_addr)?;
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
 
     println!("\n=== Camera Control Demo ===\n");
 

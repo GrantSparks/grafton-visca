@@ -44,7 +44,7 @@ async fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
     let transport = AsyncUdpTransport::new(camera_addr).await?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("\n=== Async Camera Control Demo ===\n");
 

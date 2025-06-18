@@ -11,8 +11,6 @@ use grafton_visca::{
         AsyncTcpTransport, AsyncUdpTransport,
     },
 };
-use std::sync::Arc;
-use std::time::Duration;
 
 #[cfg(feature = "async-client")]
 #[tokio::main]
@@ -50,19 +48,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Set up event monitoring
-    resilient.set_event_callback(Arc::new(|event| {
-        match event {
-            ResilienceEvent::OperationSucceeded { retries } if retries > 0 => {
-                println!("✓ Operation succeeded after {} retries", retries);
-            }
-            ResilienceEvent::Reconnected { attempts } => {
-                println!("✓ Reconnected after {} attempts", attempts);
-            }
-            ResilienceEvent::OperationFailed { attempts, error } => {
-                println!("✗ Operation failed after {} attempts: {}", attempts, error);
-            }
-            _ => {}
+    resilient.set_event_callback(Arc::new(|event| match event {
+        ResilienceEvent::OperationSucceeded { retries } if retries > 0 => {
+            println!("✓ Operation succeeded after {} retries", retries);
         }
+        ResilienceEvent::Reconnected { attempts } => {
+            println!("✓ Reconnected after {} attempts", attempts);
+        }
+        ResilienceEvent::OperationFailed { attempts, error } => {
+            println!("✗ Operation failed after {} attempts: {}", attempts, error);
+        }
+        _ => {}
     }));
 
     // Create camera with resilient transport
@@ -70,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Perform operations - the resilient transport handles failures transparently
     println!("Testing camera connection...");
-    
+
     match camera.get_power_state().await {
         Ok(power) => println!("Camera power state: {:?}", power),
         Err(e) => println!("Failed to get power state: {}", e),
@@ -78,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Try some operations that might fail and be retried
     println!("\nPerforming camera operations...");
-    
+
     // Home position
     if let Err(e) = camera.home().await {
         println!("Home command failed: {}", e);

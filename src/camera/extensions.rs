@@ -190,13 +190,13 @@ pub enum MovementAction {
 
 impl<P: CameraProfile> ScriptingExt<P> for Camera<P> {}
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{camera::profiles::PTZOpticsG2, Camera};
+    use crate::Camera;
 
     // Test extension trait defined manually
+    #[allow(dead_code)]
     trait TestExt<P: CameraProfile>: CameraExtension<P> {
         /// Test method.
         fn test_method(&self, value: u8) -> Result<bool, ViscaError> {
