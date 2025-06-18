@@ -274,16 +274,20 @@ impl<T: Transport + Send + Sync + 'static> ResilientTransport<T> {
     }
 
     /// Gets a snapshot of the current statistics.
+    #[cfg(feature = "tokio")]
+    pub async fn stats(&self) -> ResilienceStats {
+        let state = self.state.lock().await;
+        state.stats
+    }
+
+    /// Gets a snapshot of the current statistics.
+    #[cfg(not(feature = "tokio"))]
     #[must_use]
     pub fn stats(&self) -> ResilienceStats {
-        #[cfg(feature = "tokio")]
-        let state = self.state.blocking_lock();
-        #[cfg(not(feature = "tokio"))]
         let state = match self.state.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-
         state.stats
     }
 

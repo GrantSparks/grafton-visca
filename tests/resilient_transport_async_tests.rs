@@ -270,7 +270,7 @@ mod tests {
         }
 
         // Check statistics
-        let stats = resilient.stats();
+        let stats = resilient.stats().await;
         assert_eq!(stats.total_operations, 3, "Should have 3 total operations");
         assert!(
             stats.retry_successes > 0,

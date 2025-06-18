@@ -139,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Get statistics from the resilient transport
-    let stats = tcp_resilient.stats();
+    let stats = tcp_resilient.stats().await;
     println!("\nTCP Transport Statistics:");
     println!("  Total operations: {}", stats.total_operations);
     println!("  Success rate: {:.1}%", stats.success_rate());
