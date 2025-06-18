@@ -45,22 +45,22 @@
 //!     transport::{BlockingAdapter, UdpTransport},
 //! };
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a camera with PTZOpticsG2 profile
 //! let udp_transport = UdpTransport::new("192.168.1.100:52381")?;
 //! let transport = BlockingAdapter(udp_transport);
 //! let mut camera = Camera::<PTZOpticsG2>::new(transport);
 //!
 //! // Power on and move to home position
-//! camera.power_on().await?;
-//! camera.home().await?;
+//! camera.power_on()?;
+//! camera.home()?;
 //!
 //! // Move to specific position (automatic degree conversion)
-//! camera.set_position(Degrees(45.0), Degrees(-15.0)).await?;
+//! camera.set_position(Degrees(45.0), Degrees(-15.0))?;
 //!
-//! // Query current state
-//! let (pan, tilt) = camera.get_position().await?;
-//! println!("Current position: pan={:.1}°, tilt={:.1}°", pan.0, tilt.0);
+//! // Control zoom
+//! camera.zoom_in()?;
+//! camera.zoom_stop()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -81,7 +81,7 @@
 //! use grafton_visca::{Camera, camera::CustomProfileBuilder};
 //! # use grafton_visca::transport::{BlockingAdapter, UdpTransport};
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let profile = CustomProfileBuilder::new("My Custom Camera")
 //!     .pan_range(-170..=170)
 //!     .tilt_range(-90..=90)
@@ -120,16 +120,15 @@
 //! ```no_run
 //! # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2, units::{Degrees, ViscaUnits}};
 //! # use grafton_visca::transport::UdpTransport;
-//! # async fn example(mut camera: Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
+//! # fn example(mut camera: Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
 //! // Work in degrees (recommended)
-//! camera.set_position(Degrees(45.0), Degrees(-15.0)).await?;
+//! camera.set_position(Degrees(45.0), Degrees(-15.0))?;
 //!
-//! // Or use raw VISCA units if needed
-//! camera.set_position_units(ViscaUnits(0x1234), ViscaUnits(0x5678)).await?;
+//! // Stop all movement
+//! camera.stop()?;
 //!
-//! // Query position in your preferred units
-//! let (pan_deg, tilt_deg) = camera.get_position().await?; // Returns Degrees
-//! let (pan_units, tilt_units) = camera.get_position_units().await?; // Returns ViscaUnits
+//! // Move to home position
+//! camera.home()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -139,11 +138,11 @@
 //! The library provides comprehensive error types for all VISCA error conditions:
 //!
 //! ```no_run
-//! # use grafton_visca::{Camera, Error, ViscaUnits};
-//! # use grafton_visca::camera::profiles::PTZOpticsG2;
+//! # use grafton_visca::{Camera, Error};
+//! # use grafton_visca::camera::{profiles::PTZOpticsG2, units::Degrees};
 //! # use grafton_visca::transport::UdpTransport;
-//! # async fn example(mut camera: Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
-//! match camera.set_position_units(ViscaUnits(16384), ViscaUnits(0)).await {
+//! # fn example(mut camera: Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
+//! match camera.set_position(Degrees(180.0), Degrees(0.0)) {
 //!     Ok(_) => println!("Position set successfully"),
 //!     Err(Error::SyntaxError) => println!("Position out of range"),
 //!     Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
