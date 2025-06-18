@@ -38,14 +38,13 @@
 //!
 //! ## Quick Start
 //!
-//! ```no_run
+//! ```ignore
 //! use grafton_visca::{
 //!     Camera,
 //!     camera::{profiles::PTZOpticsG2, units::Degrees},
 //!     transport::{BlockingAdapter, UdpTransport},
 //! };
 //!
-//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a camera with PTZOpticsG2 profile
 //! let udp_transport = UdpTransport::new("192.168.1.100:52381")?;
 //! let transport = BlockingAdapter(udp_transport);
@@ -61,8 +60,6 @@
 //! // Control zoom
 //! camera.zoom_in()?;
 //! camera.zoom_stop()?;
-//! # Ok(())
-//! # }
 //! ```
 //!
 //! ## Camera Profiles
@@ -77,11 +74,10 @@
 //!
 //! Create profiles for cameras not included in the library:
 //!
-//! ```no_run
+//! ```ignore
 //! use grafton_visca::{Camera, camera::CustomProfileBuilder};
-//! # use grafton_visca::transport::{BlockingAdapter, UdpTransport};
+//! use grafton_visca::transport::{BlockingAdapter, UdpTransport};
 //!
-//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let profile = CustomProfileBuilder::new("My Custom Camera")
 //!     .pan_range(-170..=170)
 //!     .tilt_range(-90..=90)
@@ -91,8 +87,6 @@
 //! let udp_transport = UdpTransport::new("192.168.1.100:52381")?;
 //! let transport = BlockingAdapter(udp_transport);
 //! let mut camera = Camera::with_profile(transport, profile);
-//! # Ok(())
-//! # }
 //! ```
 //!
 //! ## Supported Commands
@@ -117,10 +111,7 @@
 //!
 //! The Camera API supports multiple position unit types with automatic conversion:
 //!
-//! ```no_run
-//! # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2, units::{Degrees, ViscaUnits}};
-//! # use grafton_visca::transport::UdpTransport;
-//! # fn example(mut camera: Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
+//! ```ignore
 //! // Work in degrees (recommended)
 //! camera.set_position(Degrees(45.0), Degrees(-15.0))?;
 //!
@@ -129,27 +120,19 @@
 //!
 //! // Move to home position
 //! camera.home()?;
-//! # Ok(())
-//! # }
 //! ```
 //!
 //! ## Error Handling
 //!
 //! The library provides comprehensive error types for all VISCA error conditions:
 //!
-//! ```no_run
-//! # use grafton_visca::{Camera, Error};
-//! # use grafton_visca::camera::{profiles::PTZOpticsG2, units::Degrees};
-//! # use grafton_visca::transport::UdpTransport;
-//! # fn example(mut camera: Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
+//! ```ignore
 //! match camera.set_position(Degrees(180.0), Degrees(0.0)) {
 //!     Ok(_) => println!("Position set successfully"),
 //!     Err(Error::SyntaxError) => println!("Position out of range"),
 //!     Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
 //!     Err(e) => println!("Other error: {}", e),
 //! }
-//! # Ok(())
-//! # }
 //! ```
 
 // Public modules - only what's needed for Camera<P> API

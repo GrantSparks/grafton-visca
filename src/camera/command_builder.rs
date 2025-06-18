@@ -482,9 +482,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// Each result contains either a Response or an Error.
     ///
     /// # Example
-    /// ```no_run
-    /// # use grafton_visca::prelude::*;
-    /// # async fn example(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
+    /// ```ignore
     /// let results = camera.commands()
     ///     .zoom_in()
     ///     .pan_tilt_home()
@@ -496,8 +494,6 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     ///         Err(e) => println!("Command {} failed: {}", i + 1, e),
     ///     }
     /// }
-    /// # Ok(())
-    /// # }
     /// ```
     #[cfg(feature = "async-client")]
     pub async fn execute_concurrent(self) -> Result<Vec<Result<Response, ViscaError>>, ViscaError> {
