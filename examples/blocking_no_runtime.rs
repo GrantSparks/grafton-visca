@@ -23,7 +23,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Camera IP address with port
-    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:52381".to_string());
+    let camera_ip =
+        std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:52381".to_string());
     println!("Connecting to camera at {}", camera_ip);
 
     // Create a blocking TCP transport
