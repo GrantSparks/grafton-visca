@@ -4,6 +4,8 @@
 //! handles connection failures, reconnection with configurable retry policies,
 //! and transparent recovery from network issues.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -146,8 +148,22 @@ struct TransportState<T> {
     stats: ResilienceStats,
 }
 
-/// Factory function for creating transports
-pub type TransportFactory<T> = Arc<dyn Fn() -> Result<T, ViscaError> + Send + Sync>;
+/// Factory for creating transport instances
+pub enum TransportFactory<T> {
+    /// Synchronous factory function
+    Sync(Arc<dyn Fn() -> Result<T, ViscaError> + Send + Sync>),
+    /// Asynchronous factory function
+    Async(Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<T, ViscaError>> + Send>> + Send + Sync>),
+}
+
+impl<T> std::fmt::Debug for TransportFactory<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransportFactory::Sync(_) => write!(f, "TransportFactory::Sync"),
+            TransportFactory::Async(_) => write!(f, "TransportFactory::Async"),
+        }
+    }
+}
 
 /// A transport wrapper that provides resilience through retries and reconnection.
 pub struct ResilientTransport<T: Transport> {
@@ -173,8 +189,8 @@ impl<T: Transport> std::fmt::Debug for ResilientTransport<T> {
     }
 }
 
-impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
-    /// Creates a new resilient transport wrapper.
+impl<T: Transport + Send + Sync + 'static> ResilientTransport<T> {
+    /// Creates a new resilient transport wrapper with a synchronous factory.
     ///
     /// # Arguments
     /// * `transport` - The initial transport instance
@@ -196,7 +212,33 @@ impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
             #[cfg(not(feature = "tokio"))]
             state: Arc::new(Mutex::new(state)),
             config,
-            factory: Arc::new(factory),
+            factory: TransportFactory::Sync(Arc::new(factory)),
+            event_callback: None,
+        }
+    }
+
+    /// Creates a new resilient transport wrapper with an asynchronous factory.
+    ///
+    /// # Arguments
+    /// * `transport` - The initial transport instance
+    /// * `factory` - Async function to create new transport instances for reconnection
+    /// * `config` - Resilience configuration
+    #[cfg(feature = "tokio")]
+    pub fn new_async<F, Fut>(transport: T, factory: F, config: ResilienceConfig) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<T, ViscaError>> + Send + 'static,
+    {
+        let state = TransportState {
+            inner: Some(transport),
+            last_success: Some(Instant::now()),
+            stats: ResilienceStats::default(),
+        };
+
+        Self {
+            state: Arc::new(AsyncMutex::new(state)),
+            config,
+            factory: TransportFactory::Async(Arc::new(move || Box::pin(factory()))),
             event_callback: None,
         }
     }
@@ -238,9 +280,16 @@ impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
                 self.config.max_reconnect_attempts
             );
 
-            match (self.factory)() {
+            let result = match &self.factory {
+                TransportFactory::Sync(factory) => factory(),
+                TransportFactory::Async(factory) => factory().await,
+            };
+
+            match result {
                 Ok(new_transport) => {
                     let mut state = self.state.lock().await;
+                    // Take ownership of the old transport (dropping it)
+                    let _ = state.inner.take();
                     state.inner = Some(new_transport);
                     state.stats.successful_reconnections += 1;
                     drop(state);
@@ -272,7 +321,7 @@ impl<T: Transport + Clone + Send + Sync + 'static> ResilientTransport<T> {
     }
 }
 
-impl<T: Transport + Clone + Send + Sync + 'static> Transport for ResilientTransport<T> {
+impl<T: Transport + Send + Sync + 'static> Transport for ResilientTransport<T> {
     fn send_command<'a>(
         &'a mut self,
         command: &'a dyn Command,
@@ -469,16 +518,6 @@ impl<T: Transport + Clone + Send + Sync + 'static> Transport for ResilientTransp
     }
 }
 
-impl<T: Transport + Clone> Clone for ResilientTransport<T> {
-    fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-            config: self.config,
-            factory: self.factory.clone(),
-            event_callback: self.event_callback.clone(),
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

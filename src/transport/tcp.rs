@@ -4,6 +4,9 @@
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use std::{io, time::Duration};
 
+#[cfg(feature = "async-client")]
+use std::sync::Arc;
+
 // Crate imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{connection::ConnectionStats, error::Error, Command};
@@ -200,10 +203,10 @@ impl BlockingTransport for TcpTransport {
 
 /// Async TCP transport for VISCA communication.
 #[cfg(feature = "async-client")]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AsyncTcpTransport {
-    stream: TokioTcpStream,
-    stats: ConnectionStats,
+    stream: Arc<tokio::sync::Mutex<TokioTcpStream>>,
+    stats: Arc<std::sync::Mutex<ConnectionStats>>,
 }
 
 #[cfg(feature = "async-client")]
@@ -216,15 +219,15 @@ impl AsyncTcpTransport {
     pub async fn new(address: &str) -> io::Result<Self> {
         let stream = TokioTcpStream::connect(address).await?;
         Ok(Self {
-            stream,
-            stats: ConnectionStats::new(),
+            stream: Arc::new(tokio::sync::Mutex::new(stream)),
+            stats: Arc::new(std::sync::Mutex::new(ConnectionStats::new())),
         })
     }
 
-    /// Returns the connection statistics.
+    /// Returns a clone of the connection statistics.
     #[must_use]
-    pub const fn stats(&self) -> &ConnectionStats {
-        &self.stats
+    pub fn stats(&self) -> ConnectionStats {
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -253,11 +256,14 @@ impl Transport for AsyncTcpTransport {
                 socket_id.value()
             );
 
-            self.stream.write_all(&bytes).await.map_err(Error::Io)?;
+            let mut stream = self.stream.lock().await;
+            stream.write_all(&bytes).await.map_err(Error::Io)?;
+            stream.flush().await.map_err(Error::Io)?;
+            drop(stream);
 
-            self.stream.flush().await.map_err(Error::Io)?;
-
-            self.stats.record_sent(bytes.len());
+            if let Ok(stats) = self.stats.lock() {
+                stats.record_sent(bytes.len());
+            }
             Ok(())
         })
     }
@@ -274,17 +280,22 @@ impl Transport for AsyncTcpTransport {
 
             // Keep receiving until we get a completion or error response
             loop {
-                match tokio::time::timeout(Duration::from_secs(10), self.stream.read(&mut buffer))
+                let mut stream = self.stream.lock().await;
+                match tokio::time::timeout(Duration::from_secs(10), stream.read(&mut buffer))
                     .await
                 {
                     Ok(Ok(0)) => {
-                        self.stats.record_error();
+                        drop(stream);
+                        if let Ok(stats) = self.stats.lock() {
+                            stats.record_error();
+                        }
                         return Err(Error::Io(io::Error::new(
                             io::ErrorKind::UnexpectedEof,
                             "Connection closed by camera",
                         )));
                     }
                     Ok(Ok(size)) => {
+                        drop(stream);
                         for &byte in &buffer[..size] {
                             current_response.push(byte);
 
@@ -295,7 +306,9 @@ impl Transport for AsyncTcpTransport {
                             {
                                 log::debug!("Received response: {current_response:02X?}");
 
-                                self.stats.record_received(current_response.len());
+                                if let Ok(stats) = self.stats.lock() {
+                                    stats.record_received(current_response.len());
+                                }
 
                                 // Extract socket ID from response header
                                 let socket_id = if current_response[0] == 0x90 {
@@ -328,19 +341,27 @@ impl Transport for AsyncTcpTransport {
                         }
                     }
                     Ok(Err(e)) => {
-                        self.stats.record_error();
+                        drop(stream);
+                        if let Ok(stats) = self.stats.lock() {
+                            stats.record_error();
+                        }
                         return Err(Error::Io(e));
                     }
                     Err(_) => {
+                        drop(stream);
                         if current_response.is_empty() {
-                            self.stats.record_error();
+                            if let Ok(stats) = self.stats.lock() {
+                                stats.record_error();
+                            }
                             return Err(Error::CommandTimeout {
                                 duration: Duration::from_secs(10),
                                 command: "receive_response".to_string(),
                             });
                         }
                         // Incomplete frame
-                        self.stats.record_error();
+                        if let Ok(stats) = self.stats.lock() {
+                            stats.record_error();
+                        }
                         return Err(Error::Io(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "Incomplete VISCA frame",

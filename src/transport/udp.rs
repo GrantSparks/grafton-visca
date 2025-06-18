@@ -241,7 +241,7 @@ impl Transport for AsyncUdpTransport {
                 .await
                 .map_err(Error::Io)?;
 
-            if let Ok(mut stats_guard) = stats.lock() {
+            if let Ok(stats_guard) = stats.lock() {
                 stats_guard.record_sent(bytes.len());
             }
             Ok(())
@@ -273,7 +273,7 @@ impl Transport for AsyncUdpTransport {
                         let data = buffer[..size].to_vec();
                         log::debug!("Received data: {data:02X?}");
 
-                        if let Ok(mut stats_guard) = stats.lock() {
+                        if let Ok(stats_guard) = stats.lock() {
                             stats_guard.record_received(data.len());
                         }
 
@@ -306,13 +306,13 @@ impl Transport for AsyncUdpTransport {
                         }
                     }
                     Ok(Err(e)) => {
-                        if let Ok(mut stats_guard) = stats.lock() {
+                        if let Ok(stats_guard) = stats.lock() {
                             stats_guard.record_error();
                         }
                         return Err(Error::Io(e));
                     }
                     Err(_) => {
-                        if let Ok(mut stats_guard) = stats.lock() {
+                        if let Ok(stats_guard) = stats.lock() {
                             stats_guard.record_error();
                         }
                         return Err(Error::CommandTimeout {
