@@ -1,9 +1,16 @@
 //! Example demonstrating the blocking API without any async runtime.
 //!
 //! This shows that the blocking API can work without tokio or any async dependencies.
+//!
+//! Note: This example requires that ONLY the blocking-client feature is enabled.
+//! If async-client is also enabled, the async API takes precedence.
+
+#[cfg(feature = "async-client")]
+compile_error!("This example requires only the blocking-client feature. Please run with: cargo run --example blocking_no_runtime --no-default-features --features blocking-client");
 
 use grafton_visca::{
-    camera::{Camera, PTZOpticsG2},
+    camera::{profiles::G2PresetId, units::Degrees, Camera, PTZOpticsG2},
+    command::pan_tilt::PanTiltDirection,
     transport::{BlockingAdapter, TcpTransport},
 };
 use std::time::Duration;
@@ -54,8 +61,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test pan/tilt movement
     println!("Testing pan/tilt movement...");
-    use grafton_visca::camera::units::Degrees;
-    use grafton_visca::command::pan_tilt::PanTiltDirection;
 
     // Move right
     println!("Moving right...");
@@ -74,8 +79,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::sleep(Duration::from_secs(2));
 
     // Test presets
-    use grafton_visca::camera::profiles::G2PresetId;
-
     println!("Setting preset 1...");
     let preset1 = G2PresetId::new(1)?;
     camera.set_preset(preset1)?;

@@ -4,10 +4,13 @@
 //! replacing manual Arc<Mutex<Camera>> patterns with CameraPool.
 
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
+    camera::{
+        profiles::{G2PresetId, PTZOpticsG2},
+        units::Degrees,
+        Camera,
+    },
     camera_pool::{CameraInfo, CameraPool, PoolConfig},
-    command::preset::PresetNumber,
-    transport::UdpTransport,
+    transport::AsyncUdpTransport,
     Error,
 };
 use std::collections::HashMap;
@@ -46,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_location("Main Auditorium")
             .with_metadata("ip", address);
 
-        let transport = match UdpTransport::new(address) {
+        let transport = match AsyncUdpTransport::new(address).await {
             Ok(t) => Box::new(t),
             Err(e) => {
                 println!("  ✗ Failed to create transport for {}: {}", name, e);
@@ -78,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Initialize all cameras to home position
     println!("\nExample 1: Moving all cameras to home position...");
     let home_results = pool
-        .with_all_cameras_async(|camera| async move { camera.home_async().await })
+        .with_all_cameras_async(|camera| async move { camera.home().await })
         .await;
 
     for (id, result) in home_results {
@@ -100,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (camera_id, (pan, tilt)) in positions {
         let result = pool
             .with_camera_async(camera_id, |camera| async move {
-                camera.pan_tilt_to_async(Degrees(pan), Degrees(tilt)).await
+                camera.set_position(Degrees(pan), Degrees(tilt)).await
             })
             .await;
 
@@ -114,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExample 3: Saving current positions as preset 1...");
     let preset_results = pool
         .with_all_cameras_async(|camera| async move {
-            camera.preset_set_async(PresetNumber::new(1).unwrap()).await
+            camera.set_preset(G2PresetId::new(1).unwrap()).await
         })
         .await;
 
@@ -132,7 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Phase 1: All cameras to center...");
     let _ = pool
         .with_all_cameras_async(|camera| async move {
-            camera.pan_tilt_to_async(Degrees(0.0), Degrees(0.0)).await
+            camera.set_position(Degrees(0.0), Degrees(0.0)).await
         })
         .await;
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -149,7 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (id, (pan, tilt)) in fan_positions {
         let _ = pool
             .with_camera_async(id, |camera| async move {
-                camera.pan_tilt_to_async(Degrees(pan), Degrees(tilt)).await
+                camera.set_position(Degrees(pan), Degrees(tilt)).await
             })
             .await;
     }
@@ -159,9 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Phase 3: Return to saved positions...");
     let _ = pool
         .with_all_cameras_async(|camera| async move {
-            camera
-                .preset_recall_async(PresetNumber::new(1).unwrap())
-                .await
+            camera.recall_preset(G2PresetId::new(1).unwrap()).await
         })
         .await;
 

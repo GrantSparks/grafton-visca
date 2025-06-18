@@ -4,17 +4,18 @@
 //! replacing manual command-by-command execution.
 
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::Degrees, Camera, CommandBuilderExt},
+    camera::{
+        profiles::{G2PresetId, PTZOpticsG2},
+        Camera, CommandBuilderExt,
+    },
     command::{
         exposure::ExposureMode,
         focus::FocusSpeed,
         pan_tilt::{PanSpeed, TiltSpeed},
-        preset::PresetNumber,
         white_balance::WhiteBalanceMode,
         zoom::ZoomSpeed,
     },
-    transport::UdpTransport,
-    Error,
+    transport::AsyncUdpTransport,
 };
 
 #[tokio::main]
@@ -24,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Command Sequence Builder Demo ===");
     println!("Building complex camera operations fluently\n");
 
-    let transport = UdpTransport::new("192.168.1.100:52381")?;
+    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Example 1: Camera initialization sequence
@@ -63,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             TiltSpeed::new(20).unwrap(),
         )?
         .zoom_to(0) // Full wide
-        .preset_set(PresetNumber::new(1).unwrap())
+        .preset_set(G2PresetId::new(1).unwrap())
         // Position 2: Close-up left
         .pan_tilt_to_degrees(
             -45.0,
@@ -72,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             TiltSpeed::new(15).unwrap(),
         )?
         .zoom_to(16384) // 50% zoom
-        .preset_set(PresetNumber::new(2).unwrap())
+        .preset_set(G2PresetId::new(2).unwrap())
         // Position 3: Close-up right
         .pan_tilt_to_degrees(
             45.0,
@@ -81,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             TiltSpeed::new(15).unwrap(),
         )?
         .zoom_to(16384)
-        .preset_set(PresetNumber::new(3).unwrap())
+        .preset_set(G2PresetId::new(3).unwrap())
         // Position 4: Audience view
         .pan_tilt_to_degrees(
             180.0,
@@ -90,9 +91,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             TiltSpeed::new(10).unwrap(),
         )?
         .zoom_to(8192) // 25% zoom
-        .preset_set(PresetNumber::new(4).unwrap())
+        .preset_set(G2PresetId::new(4).unwrap())
         // Return to position 1
-        .preset_recall(PresetNumber::new(1).unwrap())
+        .preset_recall(G2PresetId::new(1).unwrap())
         .execute_sequential_async()
         .await?;
 
@@ -108,14 +109,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .commands()
         // Set manual exposure for consistent look
         .exposure_mode(ExposureMode::Manual)
-        .shutter_speed(grafton_visca::types::ShutterSpeed::Shutter1_250)
-        .iris(grafton_visca::types::IrisLevel::F5_6)
-        .gain(grafton_visca::types::GainLimit::Limit9dB)
+        .shutter_speed(grafton_visca::types::ShutterSpeed::new(0x06).unwrap()) // 1/250
+        .iris(grafton_visca::types::IrisLevel::new(0x05).unwrap()) // F5.6
+        .gain(grafton_visca::types::GainLimit::new(0x9).unwrap()) // 9dB limit
         // Fine-tune image quality
-        .aperture(grafton_visca::command::image::ApertureValue::new(8).unwrap())
         .white_balance_mode(WhiteBalanceMode::Indoor)
-        .noise_reduction(3) // High noise reduction
-        .flicker_reduction(true)
+        // Note: noise_reduction and flicker_reduction methods would go here if implemented
         .execute_sequential_async()
         .await?;
 
@@ -128,17 +127,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 4: Concurrent Status Queries");
     println!("Querying multiple status values simultaneously...");
 
-    use grafton_visca::command::inquiry::*;
+    use grafton_visca::command::inquiry::InquiryCommand;
 
     let query_results = camera
         .commands()
-        .custom(PowerStateInquiry, "Power State")
-        .custom(ZoomPositionInquiry, "Zoom Position")
-        .custom(FocusModeInquiry, "Focus Mode")
-        .custom(ExposureModeInquiry, "Exposure Mode")
-        .custom(WhiteBalanceModeInquiry, "White Balance Mode")
-        .custom(PanTiltPositionInquiry, "Pan/Tilt Position")
-        .execute_concurrent_async()
+        .custom(InquiryCommand::Power, "Power State")
+        .custom(InquiryCommand::ZoomPosition, "Zoom Position")
+        .custom(InquiryCommand::FocusPosition, "Focus Mode")
+        .custom(InquiryCommand::ExposureMode, "Exposure Mode")
+        .custom(InquiryCommand::WhiteBalanceMode, "White Balance Mode")
+        .custom(InquiryCommand::PanTiltPosition, "Pan/Tilt Position")
+        .execute_concurrent()
         .await?;
 
     println!("  Query results:");
@@ -157,7 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = camera.commands();
 
     // Check power and add power on if needed
-    match camera.power_state_async().await {
+    match camera.get_power_state().await {
         Ok(false) => {
             println!("  Camera is off, adding power on command");
             builder = builder.power_on();
@@ -167,8 +166,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Check position and add home if not centered
-    match camera.position_async().await {
-        Ok((pan, tilt)) if pan.0.abs() > 5.0 || tilt.0.abs() > 5.0 => {
+    match camera.get_position().await {
+        Ok((pan_deg, tilt_deg)) if pan_deg.0.abs() > 5.0 || tilt_deg.0.abs() > 5.0 => {
             println!("  Camera not centered, adding home command");
             builder = builder.pan_tilt_home();
         }

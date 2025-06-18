@@ -2,17 +2,19 @@
 //!
 //! This example shows how to wrap any transport with resilient behavior to handle
 //! network issues gracefully.
+//!
+//! NOTE: This example requires a transport that implements Clone.
+//! AsyncUdpTransport currently doesn't implement Clone, so this example
+//! won't compile until that's fixed or a different transport is used.
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{
+    camera::units::Degrees,
     camera::{profiles::PTZOpticsG2, Camera},
     transport::{
         resilient::{ResilienceConfig, ResilienceEvent, ResilientTransport},
-        unified::UnifiedTransport,
-        Transport,
+        TcpTransport, Transport,
     },
-    types::Degrees,
-    Error,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,21 +36,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         operation_timeout: Duration::from_secs(5),
     };
 
-    // Create the base transport
-    let base_transport = UnifiedTransport::create_udp("192.168.1.100:1259").await?;
+    // TODO: ResilientTransport currently expects a synchronous factory function,
+    // but AsyncUdpTransport requires async construction. This needs to be addressed
+    // in the library design.
+
+    // For now, we'll use TCP transport which can be constructed synchronously
+    let base_transport = TcpTransport::new("192.168.1.100:1259")?;
 
     // Wrap with resilient transport
     let resilient = ResilientTransport::new(
-        base_transport,
-        config,
-        Box::new(|| {
+        base_transport.clone(),
+        move || {
             // Factory function to recreate transport on failure
-            Box::pin(async move {
-                UnifiedTransport::create_udp("192.168.1.100:1259")
-                    .await
-                    .map(|t| Box::new(t) as Box<dyn Transport>)
-            })
-        }),
+            // Note: This blocks in an async context, which is not ideal
+            Ok(base_transport.clone())
+        },
+        config,
     );
 
     // Set up event callback to monitor resilience events

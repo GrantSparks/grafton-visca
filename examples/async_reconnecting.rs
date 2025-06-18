@@ -65,11 +65,7 @@ async fn demo_connection_monitoring(camera_addr: &str) -> Result<(), Error> {
     let mut transport = ReconnectingTransport::new(
         move || {
             let addr = addr.clone();
-            async move {
-                AsyncTcpTransport::new(&addr)
-                    .await
-                    .map_err(|e| Error::Io(e))
-            }
+            async move { AsyncTcpTransport::new(&addr).await.map_err(Error::Io) }
         },
         config,
     )
@@ -105,7 +101,7 @@ async fn demo_connection_monitoring(camera_addr: &str) -> Result<(), Error> {
         });
     }));
 
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Spawn health monitoring task
     let is_connected_monitor = Arc::clone(&is_connected);
@@ -141,9 +137,10 @@ async fn demo_connection_monitoring(camera_addr: &str) -> Result<(), Error> {
     println!("   Starting operations with connection monitoring...\n");
 
     for i in 1..=6 {
-        match camera.get_position().await {
-            Ok((pan, tilt)) => {
-                println!("   Op {}: Position = ({:.1}°, {:.1}°)", i, pan.0, tilt.0);
+        // Send a simple command to test connection
+        match camera.stop().await {
+            Ok(_) => {
+                println!("   Op {}: Stop command sent successfully", i);
             }
             Err(e) => {
                 println!("   Op {}: Failed - {}", i, e);
@@ -176,17 +173,13 @@ async fn demo_continuous_operation(camera_addr: &str) -> Result<(), Error> {
     let transport = ReconnectingTransport::new(
         move || {
             let addr = addr.clone();
-            async move {
-                AsyncTcpTransport::new(&addr)
-                    .await
-                    .map_err(|e| Error::Io(e))
-            }
+            async move { AsyncTcpTransport::new(&addr).await.map_err(Error::Io) }
         },
         config,
     )
     .await?;
 
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Define movement pattern
     let movements = vec![
@@ -238,7 +231,7 @@ async fn demo_multi_camera_resilience(camera_addr: &str) -> Result<(), Error> {
     println!("   Simulating control of multiple cameras...\n");
 
     // Create multiple cameras with different addresses
-    let camera_addresses = vec![
+    let camera_addresses = [
         camera_addr.to_string(),
         camera_addr.replace("100", "101"),
         camera_addr.replace("100", "102"),
@@ -261,11 +254,7 @@ async fn demo_multi_camera_resilience(camera_addr: &str) -> Result<(), Error> {
         match ReconnectingTransport::new(
             move || {
                 let addr = addr_clone.clone();
-                async move {
-                    AsyncTcpTransport::new(&addr)
-                        .await
-                        .map_err(|e| Error::Io(e))
-                }
+                async move { AsyncTcpTransport::new(&addr).await.map_err(Error::Io) }
             },
             config,
         )
@@ -301,7 +290,7 @@ async fn demo_multi_camera_resilience(camera_addr: &str) -> Result<(), Error> {
     let mut tasks = Vec::new();
 
     for (idx, camera_opt) in cameras.into_iter().enumerate() {
-        if let Some(mut camera) = camera_opt {
+        if let Some(camera) = camera_opt {
             let task = tokio::spawn(async move {
                 let delay = Duration::from_millis(idx as u64 * 500);
                 sleep(delay).await;

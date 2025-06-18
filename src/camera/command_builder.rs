@@ -28,7 +28,7 @@ struct PreparedCommand {
 
 /// Builder for creating command sequences on a Camera.
 pub struct CommandBuilder<'a, P: CameraProfile> {
-    camera: &'a mut Camera<P>,
+    camera: &'a Camera<P>,
     commands: Vec<PreparedCommand>,
 }
 
@@ -42,7 +42,7 @@ impl<P: CameraProfile> std::fmt::Debug for CommandBuilder<'_, P> {
 
 impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// Creates a new command builder for the given camera.
-    pub(crate) fn new(camera: &'a mut Camera<P>) -> Self {
+    pub(crate) fn new(camera: &'a Camera<P>) -> Self {
         Self {
             camera,
             commands: Vec::new(),
@@ -342,6 +342,12 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
         )
     }
 
+    /// Adds a gain limit command (alias for gain_limit).
+    #[must_use]
+    pub fn gain(self, limit: GainLimit) -> Self {
+        self.gain_limit(limit)
+    }
+
     // White Balance Commands
 
     /// Adds a white balance mode command.
@@ -446,7 +452,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     ///
     /// # Errors
     /// Returns an error if any command fails. Execution stops at the first error.
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "async-client")]
     pub async fn execute_sequential_async(self) -> Result<Vec<Response>, ViscaError> {
         let mut responses = Vec::with_capacity(self.commands.len());
 
@@ -557,11 +563,11 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
 /// Extension trait to add command builder support to Camera.
 pub trait CommandBuilderExt<P: CameraProfile> {
     /// Creates a new command builder for this camera.
-    fn commands(&mut self) -> CommandBuilder<'_, P>;
+    fn commands(&self) -> CommandBuilder<'_, P>;
 }
 
 impl<P: CameraProfile> CommandBuilderExt<P> for Camera<P> {
-    fn commands(&mut self) -> CommandBuilder<'_, P> {
+    fn commands(&self) -> CommandBuilder<'_, P> {
         CommandBuilder::new(self)
     }
 }

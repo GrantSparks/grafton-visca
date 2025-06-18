@@ -190,62 +190,25 @@ pub enum MovementAction {
 
 impl<P: CameraProfile> ScriptingExt<P> for Camera<P> {}
 
-/// Macro to easily create extension traits for `Camera<P>`.
-///
-/// # Example
-/// ```ignore
-/// camera_extension_trait! {
-///     /// My custom camera extension.
-///     pub trait MyCustomExt {
-///         /// Do something custom.
-///         fn my_custom_method(&self) -> Result<(), ViscaError> {
-///             // Implementation
-///             Ok(())
-///         }
-///     }
-/// }
-/// ```
-#[macro_export]
-macro_rules! camera_extension_trait {
-    (
-        $(#[$meta:meta])*
-        $vis:vis trait $name:ident {
-            $(
-                $(#[$method_meta:meta])*
-                fn $method:ident(&self $(, $param:ident: $type:ty)*) -> Result<$ret:ty, ViscaError> $body:block
-            )*
-        }
-    ) => {
-        $(#[$meta])*
-        $vis trait $name<P: $crate::camera::CameraProfile>: $crate::camera::extensions::CameraExtension<P> {
-            $(
-                $(#[$method_meta])*
-                fn $method(&self $(, $param: $type)*) -> Result<$ret, $crate::Error> $body
-            )*
-        }
-
-        impl<P: $crate::camera::CameraProfile> $name<P> for $crate::Camera<P> {}
-    };
-}
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::{camera::profiles::PTZOpticsG2, Camera};
 
-    // Test that the macro works
-    camera_extension_trait! {
-        /// Test extension trait.
-        #[allow(dead_code)]
-        trait TestExt {
-            /// Test method.
-            fn test_method(&self, value: u8) -> Result<bool, ViscaError> {
-                Ok(value > 0)
-            }
+    // Test extension trait defined manually
+    trait TestExt<P: CameraProfile>: CameraExtension<P> {
+        /// Test method.
+        fn test_method(&self, value: u8) -> Result<bool, ViscaError> {
+            Ok(value > 0)
         }
     }
 
+    impl<P: CameraProfile> TestExt<P> for Camera<P> {}
+
     #[test]
-    fn test_extension_trait_macro() {
+    fn test_extension_trait_pattern() {
         // This is mainly a compile-time test
-        // The macro should create a valid trait
+        // The trait should be properly implemented
     }
 }

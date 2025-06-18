@@ -2,12 +2,16 @@
 //!
 //! Compare this with async_reconnecting.rs to see how much simpler
 //! the new ResilientTransport makes automatic reconnection.
+//!
+//! NOTE: This example requires a transport that implements Clone.
+//! AsyncUdpTransport currently doesn't implement Clone, so this example
+//! won't compile until that's fixed or a different transport is used.
 
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     transport::{
         resilient::{ResilienceConfig, ResilienceEvent, ResilientTransport},
-        UdpTransport,
+        AsyncUdpTransport,
     },
     Error,
 };
@@ -35,10 +39,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create resilient transport
     let camera_ip = "192.168.1.100:52381";
-    let base_transport = UdpTransport::new(camera_ip)?;
+    let base_transport = AsyncUdpTransport::new(camera_ip).await?;
 
-    let mut resilient_transport =
-        ResilientTransport::new(base_transport, move || UdpTransport::new(camera_ip), config);
+    let mut resilient_transport = ResilientTransport::new(
+        base_transport,
+        move || {
+            let ip = camera_ip.to_string();
+            Box::pin(async move { AsyncUdpTransport::new(&ip).await })
+        },
+        config,
+    );
 
     // Add event monitoring
     resilient_transport.set_event_callback(Arc::new(|event| match event {
@@ -78,13 +88,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Executing camera operations...");
 
         // Power query - will automatically retry on failure
-        match camera.power_state_async().await {
+        match camera.get_power_state().await {
             Ok(is_on) => {
                 println!("  Power state: {}", if is_on { "ON" } else { "OFF" });
 
                 if !is_on {
                     println!("  Powering on...");
-                    camera.power_on_async().await?;
+                    camera.power_on().await?;
                 }
             }
             Err(e) => {
@@ -95,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Get position - automatic retry on network issues
-        match camera.position_async().await {
+        match camera.get_position().await {
             Ok((pan, tilt)) => {
                 println!("  Current position: pan={:.1}°, tilt={:.1}°", pan.0, tilt.0);
             }
@@ -105,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Get zoom - automatic retry on network issues
-        match camera.zoom_position_async().await {
+        match camera.get_zoom_position().await {
             Ok(zoom) => {
                 println!("  Zoom position: {}", zoom);
             }
