@@ -1,0 +1,101 @@
+//! Tests for camera concurrency control with semaphore and session management.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+#[cfg(feature = "async-client")]
+use grafton_visca::{
+    camera::{Camera, GenericVisca},
+    command::{
+        pan_tilt::PanTiltPositionInquiry,
+        zoom::ZoomPositionInquiry,
+    },
+    transport::{AsyncTcpTransport, ChannelTransport, ChannelTransportBuilder},
+    Result,
+};
+
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+use grafton_visca::{
+    camera::{Camera, GenericVisca},
+    transport::{BlockingAdapter, UdpTransport},
+    Result,
+};
+
+#[cfg(feature = "async-client")]
+#[tokio::test]
+async fn test_camera_readiness_check() -> Result<()> {
+    // Create a mock TCP transport for testing
+    let tcp_transport = AsyncTcpTransport::new("127.0.0.1:0").await?;
+    let channel_transport = ChannelTransportBuilder::new(tcp_transport).build();
+    let camera = Arc::new(Camera::<GenericVisca>::new(channel_transport));
+
+    // Initially should be ready
+    assert!(camera.is_ready());
+    assert_eq!(camera.pending_commands(), 0);
+
+    Ok(())
+}
+
+#[cfg(feature = "async-client")]
+#[tokio::test]
+#[ignore = "Requires actual network transport"]
+async fn test_concurrent_command_limit() -> Result<()> {
+    // This test would require a mock transport that can simulate delays
+    // For now, we'll skip it as it requires actual network behavior
+    let tcp_transport = AsyncTcpTransport::new("127.0.0.1:0").await?;
+    let channel_transport = ChannelTransportBuilder::new(tcp_transport).build();
+    let camera = Arc::new(Camera::<GenericVisca>::new(channel_transport));
+
+    // Send two commands to fill both sockets
+    let cam1 = camera.clone();
+    let cam2 = camera.clone();
+    let cam3 = camera.clone();
+
+    let handle1 = tokio::spawn(async move {
+        cam1.send_raw_async(&PanTiltPositionInquiry).await
+    });
+
+    let handle2 = tokio::spawn(async move {
+        cam2.send_raw_async(&ZoomPositionInquiry).await
+    });
+
+    // Give commands time to start
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // Camera should not be ready when both sockets are in use
+    assert!(!camera.is_ready());
+    assert_eq!(camera.pending_commands(), 2);
+
+    // Third command should wait for a socket to become available
+    let start = tokio::time::Instant::now();
+    let handle3 = tokio::spawn(async move {
+        cam3.send_raw_async(&PanTiltPositionInquiry).await
+    });
+
+    // Cancel the first two tasks to free up sockets
+    handle1.abort();
+    handle2.abort();
+
+    // Wait for the third command to complete
+    let _ = handle3.await;
+    let elapsed = start.elapsed();
+
+    // The third command should have waited for a socket
+    assert!(elapsed >= Duration::from_millis(10));
+
+    Ok(())
+}
+
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[test]
+fn test_blocking_camera_readiness() -> Result<()> {
+    // Create a UDP transport for testing (won't actually connect)
+    let udp_transport = UdpTransport::new("127.0.0.1:0")?;
+    let camera = Camera::<GenericVisca>::new(BlockingAdapter(udp_transport));
+
+    // Initially should be ready
+    assert!(camera.is_ready());
+    assert_eq!(camera.pending_commands(), 0);
+
+    Ok(())
+}

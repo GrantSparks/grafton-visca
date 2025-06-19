@@ -69,27 +69,6 @@ impl Session {
         }
     }
 
-    /// Returns the number of currently pending commands.
-    ///
-    /// This will be between 0 and 2, as VISCA supports a maximum of 2 concurrent commands.
-    #[must_use]
-    pub fn pending_count(&self) -> usize {
-        self.pending_commands.len()
-    }
-
-    /// Checks if a specific socket has a pending command.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn has_pending(&self, socket_id: SocketId) -> bool {
-        self.pending_commands.contains_key(&socket_id)
-    }
-
-    /// Checks if all sockets are currently in use.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn is_full(&self) -> bool {
-        self.pending_commands.len() >= 2
-    }
 }
 
 impl Default for Session {
@@ -126,12 +105,16 @@ impl Session {
                     response_type,
                     acknowledged: false,
                 });
-                debug!("Assigned {socket_id} for new command");
+                debug!("Assigned {socket_id} for new command (type: {:?})", response_type);
                 return Ok(socket_id);
             }
         }
 
         // Both sockets are in use
+        debug!("Cannot assign socket - both sockets are in use:");
+        for (socket_id, cmd) in &self.pending_commands {
+            debug!("  {socket_id}: {:?}, acknowledged: {}", cmd.response_type, cmd.acknowledged);
+        }
         Err(Error::CommandBufferFull)
     }
 
@@ -267,6 +250,11 @@ impl Session {
     }
 
     // Test helper methods
+    #[cfg(test)]
+    fn pending_count(&self) -> usize {
+        self.pending_commands.len()
+    }
+
     #[cfg(test)]
     fn get_pending_command(&self, socket: SocketId) -> Option<&PendingCommand> {
         self.pending_commands.get(&socket)
