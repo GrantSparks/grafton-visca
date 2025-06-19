@@ -27,7 +27,7 @@ use tokio::time::{sleep, timeout};
 async fn test_async_send_receive_basic() {
     let mock = MockAsyncTransport::new();
     mock.add_response(vec![0x90, 0x50, 0xFF]).await;
-    
+
     let sent_commands = mock.sent_commands.clone();
     let mut transport = mock.into_visca_transport();
 
@@ -44,15 +44,15 @@ async fn test_async_send_receive_basic() {
 #[tokio::test]
 async fn test_concurrent_commands() {
     // Test that multiple commands can be sent concurrently
-    // Note: ViscaTransport handles its own internal state, so we need to use 
+    // Note: ViscaTransport handles its own internal state, so we need to use
     // a channel transport or similar for true concurrent access
     let mock = MockAsyncTransport::new();
-    
+
     // Prepare responses for 3 commands
     mock.add_ack_completion(0).await;
     mock.add_ack_completion(1).await;
     mock.add_ack_completion(0).await; // Socket 0 reused after completion
-    
+
     let command_counter = mock.command_counter.clone();
     let transport = Arc::new(Mutex::new(mock.into_visca_transport()));
 
@@ -101,17 +101,17 @@ async fn test_semaphore_limiting() {
 
         let task = tokio::spawn(async move {
             let _permit = sem.acquire().await.unwrap();
-            
+
             // Create a new ViscaTransport for this task
             let mock = MockAsyncTransport::new().with_delay(50);
             mock.add_response(vec![0x90, 0x50, 0xFF]).await;
             let mut visca_transport = mock.into_visca_transport();
-            
+
             let _response = visca_transport
                 .send_command(&PowerCommand { power: Power::On })
                 .await
                 .unwrap();
-            
+
             sleep(Duration::from_millis(100)).await; // Simulate command execution time
         });
 
@@ -167,7 +167,7 @@ async fn test_error_propagation() {
     // Add responses for first two commands
     mock.add_response(vec![0x90, 0x50, 0xFF]).await;
     mock.add_response(vec![0x90, 0x50, 0xFF]).await;
-    
+
     let mut transport = mock.into_visca_transport();
 
     // First two commands should succeed
@@ -194,15 +194,14 @@ async fn test_inquiry_async_handling() {
     let mock = MockAsyncTransport::new();
 
     // Add inquiry response (no ACK for inquiries)
-    mock
-        .add_response(vec![
-            0x90, 0x50, // Header
-            0x00, 0x01, 0x02, 0x03, // Pan
-            0x04, 0x05, 0x06, 0x07, // Tilt
-            0xFF,
-        ])
-        .await;
-    
+    mock.add_response(vec![
+        0x90, 0x50, // Header
+        0x00, 0x01, 0x02, 0x03, // Pan
+        0x04, 0x05, 0x06, 0x07, // Tilt
+        0xFF,
+    ])
+    .await;
+
     let mut transport = mock.into_visca_transport();
 
     let response = transport
@@ -212,13 +211,10 @@ async fn test_inquiry_async_handling() {
 
     // Should get parsed pan/tilt position response
     match response {
-        Response::Inquiry(inquiry) => {
+        Response::InquiryResponse(_inquiry) => {
             // Inquiry responses are parsed correctly
         }
-        _ => panic!(
-            "Expected inquiry response, got {:?}",
-            response
-        ),
+        _ => panic!("Expected inquiry response, got {:?}", response),
     }
 }
 
@@ -226,10 +222,10 @@ async fn test_inquiry_async_handling() {
 async fn test_concurrent_timeout_handling() {
     // Test that timeouts in concurrent operations don't affect each other
     let mock = MockAsyncTransport::new().with_delay(50);
-    
+
     // Add response only for first command
     mock.add_response(vec![0x90, 0x50, 0xFF]).await;
-    
+
     let transport = Arc::new(Mutex::new(mock.into_visca_transport()));
 
     let command1 = PowerCommand { power: Power::On };
@@ -272,7 +268,7 @@ async fn test_async_command_sequence() {
     ])
     .await; // Position inquiry
     mock.add_ack_completion(1).await; // Zoom
-    
+
     let command_counter = mock.command_counter.clone();
     let mut transport = mock.into_visca_transport();
 
@@ -285,7 +281,7 @@ async fn test_async_command_sequence() {
         .await
         .unwrap();
     match pos_response {
-        Response::Inquiry(_) => {}
+        Response::InquiryResponse(_) => {}
         _ => panic!("Expected inquiry response"),
     }
 
@@ -302,7 +298,7 @@ async fn test_mock_transport_utilities() {
 
     // Use add_response to queue a custom response
     mock.add_response(vec![0x90, 0x60, 0x02, 0xFF]).await; // Syntax error
-    
+
     let command_counter = mock.command_counter.clone();
     let mut transport = mock.into_visca_transport();
 
@@ -326,7 +322,7 @@ async fn test_mock_transport_ack_completion_helper() {
 
     // Use the helper to add both ACK and completion
     mock.add_ack_completion(0).await;
-    
+
     let mut transport = mock.into_visca_transport();
 
     let command = ZoomCommand::Stop;

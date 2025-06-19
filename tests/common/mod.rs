@@ -137,14 +137,12 @@ impl BlockingTransport for MockTransport {
         if self.fail_receive {
             return Err(Error::Io(std::io::Error::other("Mock receive error")));
         }
-        self.responses
-            .lock()
-            .unwrap()
-            .pop_front()
-            .ok_or_else(|| Error::Io(std::io::Error::new(
+        self.responses.lock().unwrap().pop_front().ok_or_else(|| {
+            Error::Io(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "Mock timeout - no response queued",
-            )))
+            ))
+        })
     }
 
     fn is_connected(&self) -> bool {
@@ -166,11 +164,14 @@ impl MockTransport {
 
 // Async version of MockTransport for feature parity
 #[cfg(feature = "async-client")]
-use grafton_visca::transport::{RawTransport, TransportFuture, ViscaTransport as AsyncViscaTransport};
-#[cfg(feature = "async-client")]
-use tokio::sync::Mutex as AsyncMutex;
+use grafton_visca::{
+    transport::{RawTransport, TransportFuture, ViscaTransport as AsyncViscaTransport},
+    Error,
+};
 #[cfg(feature = "async-client")]
 use std::time::Duration;
+#[cfg(feature = "async-client")]
+use tokio::sync::Mutex as AsyncMutex;
 
 /// Async mock transport for testing - feature parity with MockTransport
 #[cfg(feature = "async-client")]
@@ -267,13 +268,13 @@ impl RawTransport for MockAsyncTransport {
             if self.fail_send {
                 return Err(Error::Io(std::io::Error::other("Mock send error")));
             }
-            
+
             self.sent_commands.lock().await.push(data.to_vec());
-            
+
             if let Some(delay) = self.delay_ms {
                 tokio::time::sleep(Duration::from_millis(delay)).await;
             }
-            
+
             Ok(())
         })
     }
@@ -288,16 +289,12 @@ impl RawTransport for MockAsyncTransport {
                 tokio::time::sleep(Duration::from_millis(delay)).await;
             }
 
-            self.responses
-                .lock()
-                .await
-                .pop_front()
-                .ok_or_else(|| {
-                    Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "Mock timeout - no response queued",
-                    ))
-                })
+            self.responses.lock().await.pop_front().ok_or_else(|| {
+                Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Mock timeout - no response queued",
+                ))
+            })
         })
     }
 

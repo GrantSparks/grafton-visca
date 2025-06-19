@@ -25,22 +25,19 @@ const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 /// VISCA transport wrapper that handles protocol-specific logic.
 ///
 /// This wraps any raw transport and adds VISCA protocol handling:
-/// - Command formatting with sequence numbers
+/// - Command formatting and termination
 /// - ACK/Completion response handling
 /// - Response parsing and validation
+/// - Timeout error conversion
 #[derive(Debug)]
 pub struct ViscaTransport<T: Transport> {
     transport: T,
-    sequence: u8,
 }
 
 impl<T: Transport> ViscaTransport<T> {
     /// Create a new VISCA transport wrapping a raw transport.
     pub fn new(transport: T) -> Self {
-        Self {
-            transport,
-            sequence: 1,
-        }
+        Self { transport }
     }
 
     /// Get a reference to the underlying transport.
@@ -53,12 +50,6 @@ impl<T: Transport> ViscaTransport<T> {
         &mut self.transport
     }
 
-    /// Get the next sequence number (1-7, wrapping).
-    fn next_sequence(&mut self) -> u8 {
-        let seq = self.sequence;
-        self.sequence = if seq >= 7 { 1 } else { seq + 1 };
-        seq
-    }
 
     /// Send a VISCA command and wait for the response.
     pub fn send_command(&mut self, command: &dyn Command) -> Result<Response, Error> {

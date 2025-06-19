@@ -10,7 +10,7 @@ mod common;
 mod blocking_tests {
     use super::common::MockTransport;
     use grafton_visca::{
-        camera::{Camera, PTZOpticsG2, profiles::G2PresetId},
+        camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
         Error,
     };
 
@@ -40,7 +40,7 @@ mod blocking_tests {
     fn test_camera_home_command() {
         let mock = MockTransport::new();
         mock.add_ack_completion(0);
-        
+
         let commands_sent = mock.commands_sent.clone();
         let transport = mock.into_visca_transport();
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
@@ -74,17 +74,17 @@ mod blocking_tests {
 
         // Test zoom stop
         assert!(camera.zoom_stop().is_ok());
-        
+
         // Test zoom in
         assert!(camera.zoom_in().is_ok());
-        
+
         // Test zoom out
         assert!(camera.zoom_out().is_ok());
 
         // Verify all commands were sent
         let commands = commands_sent.lock().unwrap();
         assert_eq!(commands.len(), 3);
-        
+
         // Zoom stop: 81 01 04 07 00 FF
         assert_eq!(commands[0], vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]);
         // Zoom in: 81 01 04 07 02 FF (tele standard)
@@ -108,13 +108,13 @@ mod blocking_tests {
         let result = camera.set_preset(preset_id);
         assert!(result.is_ok(), "Set preset should succeed");
 
-        // Recall preset 5  
+        // Recall preset 5
         let result = camera.recall_preset(preset_id);
         assert!(result.is_ok(), "Recall preset should succeed");
 
         let commands = commands_sent.lock().unwrap();
         assert_eq!(commands.len(), 2);
-        
+
         // Store preset 5: 81 01 04 3F 01 05 FF
         assert_eq!(commands[0], vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x05, 0xFF]);
         // Recall preset 5: 81 01 04 3F 02 05 FF
@@ -133,7 +133,7 @@ mod blocking_tests {
         // Send a command that will get an error response
         let result = camera.power_on();
         assert!(result.is_err(), "Should get an error");
-        
+
         match result {
             Err(Error::SyntaxError) => {
                 // Expected error type
@@ -151,7 +151,7 @@ mod blocking_tests {
 
         let result = camera.home();
         assert!(result.is_err(), "Should timeout");
-        
+
         match result {
             Err(Error::Timeout) => {
                 // Expected timeout
@@ -163,7 +163,7 @@ mod blocking_tests {
     #[test]
     fn test_camera_command_sequence() {
         let mock = MockTransport::new();
-        
+
         // Queue responses for a sequence of commands
         mock.add_ack_completion(0); // Home
         mock.add_ack_completion(1); // Zoom stop
@@ -191,8 +191,7 @@ mod blocking_tests {
 mod async_tests {
     use super::common::MockAsyncTransport;
     use grafton_visca::{
-        camera::{Camera, PTZOpticsG2},
-        types::G2PresetId,
+        camera::{Camera, PTZOpticsG2, profiles::G2PresetId},
         Error,
     };
 
@@ -201,7 +200,7 @@ mod async_tests {
         // Create a mock that returns ACK and completion
         let mock = MockAsyncTransport::new();
         mock.add_ack_completion(0).await;
-        
+
         let sent_commands = mock.sent_commands.clone();
         let transport = mock.into_visca_transport();
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
@@ -224,7 +223,7 @@ mod async_tests {
     async fn test_async_camera_home_command() {
         let mock = MockAsyncTransport::new();
         mock.add_ack_completion(0).await;
-        
+
         let sent_commands = mock.sent_commands.clone();
         let transport = mock.into_visca_transport();
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
@@ -248,13 +247,13 @@ mod async_tests {
         // Create a mock with delay that will cause timeout
         let mock = MockAsyncTransport::new().with_delay(200);
         // Don't add any responses
-        
+
         let transport = mock.into_visca_transport();
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
         let result = camera.home().await;
         assert!(result.is_err(), "Should timeout");
-        
+
         match result {
             Err(Error::Timeout) => {
                 // Expected timeout
@@ -272,7 +271,7 @@ mod async_tests {
         // Add responses for concurrent commands
         mock.add_ack_completion(0).await;
         mock.add_ack_completion(1).await;
-        
+
         let command_counter = mock.command_counter.clone();
         let transport = mock.into_visca_transport();
         let camera = Arc::new(Mutex::new(Camera::<PTZOpticsG2>::new(transport)));
