@@ -3,11 +3,15 @@
 //! This module provides a channel-based transport that allows for safe sharing
 //! across threads without requiring explicit locking.
 
+#[cfg(feature = "async-client")]
 use tokio::sync::{mpsc, oneshot};
 
+#[cfg(feature = "async-client")]
 use super::{RawTransport, ViscaTransport};
+#[cfg(feature = "async-client")]
 use crate::{error::Error, Command, Response};
 
+#[cfg(feature = "async-client")]
 /// Configuration for the channel transport.
 #[derive(Debug, Clone, Copy)]
 pub struct ChannelConfig {
@@ -15,12 +19,14 @@ pub struct ChannelConfig {
     pub queue_size: usize,
 }
 
+#[cfg(feature = "async-client")]
 impl Default for ChannelConfig {
     fn default() -> Self {
         Self { queue_size: 100 }
     }
 }
 
+#[cfg(feature = "async-client")]
 /// Command request sent through the channel.
 struct CommandRequest {
     /// The command to send
@@ -29,6 +35,7 @@ struct CommandRequest {
     response_tx: oneshot::Sender<Result<Response, Error>>,
 }
 
+#[cfg(feature = "async-client")]
 /// Channel-based transport that can be safely shared across threads.
 ///
 /// This transport wrapper uses channels to communicate with a worker task
@@ -39,6 +46,7 @@ pub struct ChannelTransport {
     command_tx: mpsc::Sender<CommandRequest>,
 }
 
+#[cfg(feature = "async-client")]
 impl ChannelTransport {
     /// Create a new channel transport wrapping an existing VISCA transport.
     ///

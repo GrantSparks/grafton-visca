@@ -15,8 +15,10 @@ use tokio::sync::RwLock as AsyncRwLock;
 #[cfg(not(feature = "tokio"))]
 use std::sync::RwLock;
 
+#[cfg(feature = "async-client")]
+use crate::camera::CameraTransport;
 use crate::{
-    camera::{Camera, CameraProfile, CameraTransport},
+    camera::{Camera, CameraProfile},
     Error as ViscaError,
 };
 
@@ -154,6 +156,7 @@ impl<P: CameraProfile> CameraPool<P> {
     /// Returns an error if:
     /// - The pool is at maximum capacity
     /// - A camera with the same ID already exists
+    #[cfg(feature = "async-client")]
     pub fn add_camera(
         &self,
         info: CameraInfo,

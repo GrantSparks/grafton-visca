@@ -7,7 +7,8 @@
 #[cfg(feature = "async-client")]
 pub use tokio::sync::Mutex;
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[allow(unused_imports)]
 pub use parking_lot::Mutex;
 
 // Semaphore abstraction that works for both sync and async
@@ -50,6 +51,7 @@ mod async_semaphore {
     }
 }
 
+// Blocking-only implementation removed - use async-first API
 #[cfg(not(feature = "async-client"))]
 mod sync_semaphore {
     // Standard library imports
@@ -68,6 +70,7 @@ mod sync_semaphore {
     }
 
     impl Semaphore {
+        #[allow(dead_code)]
         pub fn new(permits: usize) -> Self {
             Self {
                 state: Arc::new((Mutex::new(permits), Condvar::new())),
@@ -88,6 +91,7 @@ mod sync_semaphore {
             Permit { semaphore: self }
         }
 
+        #[allow(dead_code)]
         pub fn available_permits(&self) -> usize {
             let (lock, _) = &*self.state;
             *lock.lock()
@@ -108,10 +112,10 @@ mod sync_semaphore {
 #[cfg(feature = "async-client")]
 pub use async_semaphore::{Permit, Semaphore};
 
-#[cfg(not(feature = "async-client"))]
-pub use sync_semaphore::{Permit, Semaphore};
+// Note: Blocking-only semaphore removed. Use async with runtime for blocking.
 
 // Helper trait to unify acquire behavior
+#[allow(dead_code)]
 pub trait SemaphoreExt {
     type Permit<'a>
     where
@@ -120,8 +124,7 @@ pub trait SemaphoreExt {
     #[cfg(feature = "async-client")]
     async fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::Error>;
 
-    #[cfg(not(feature = "async-client"))]
-    fn acquire_permit(&self) -> Self::Permit<'_>;
+    // Note: Blocking acquire_permit removed. Use async version with runtime.
 }
 
 impl SemaphoreExt for Semaphore {
@@ -135,8 +138,5 @@ impl SemaphoreExt for Semaphore {
         self.acquire().await
     }
 
-    #[cfg(not(feature = "async-client"))]
-    fn acquire_permit(&self) -> Self::Permit<'_> {
-        self.acquire()
-    }
+    // Note: Blocking implementation removed. Use async version with runtime.
 }
