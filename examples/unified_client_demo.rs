@@ -5,6 +5,7 @@
 
 mod common;
 use common::blocking::UdpTransport;
+#[cfg(feature = "async-client")]
 use common::r#async::AsyncTcpTransport;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
@@ -13,15 +14,6 @@ use grafton_visca::{
     Error,
 };
 use std::time::Duration;
-
-// Include the transport implementations from the example files
-#[path = "udp_transport.rs"]
-mod udp_transport;
-
-#[cfg(feature = "async-client")]
-#[path = "tcp_transport.rs"]
-mod tcp_transport;
-#[cfg(feature = "async-client")]
 
 // Helper for using async code in sync context
 fn block_on<F: std::future::Future>(fut: F) -> F::Output {

@@ -14,7 +14,7 @@ use common::builders::*;
 use common::helpers::*;
 
 // Import needed types
-use grafton_visca::{camera::GenericVisca, Command, Error, Response};
+use grafton_visca::{Command, Error, Response};
 
 #[cfg(feature = "blocking-client")]
 #[test]

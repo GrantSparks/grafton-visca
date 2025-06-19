@@ -100,7 +100,7 @@
 //!
 //! ```ignore
 //! use grafton_visca::{Transport, TransportFuture, Command, Response, Error};
-//! 
+//!
 //! struct MyTransport {
 //!     // Your transport state
 //! }

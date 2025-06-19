@@ -6,8 +6,6 @@ use grafton_visca::camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, So
 use grafton_visca::transport::BlockingAdapter;
 
 // Include the transport implementation from the example file
-#[path = "udp_transport.rs"]
-mod udp_transport;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using blocking transport

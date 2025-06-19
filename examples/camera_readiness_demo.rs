@@ -21,7 +21,7 @@ use common::r#async::AsyncUdpTransport;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Duration;
-    
+
     use grafton_visca::{
         camera::{Camera, GenericVisca},
         command::inquiry::InquiryCommand,

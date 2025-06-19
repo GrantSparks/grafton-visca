@@ -24,7 +24,7 @@ use std::time::Duration;
 /// ```ignore
 /// use serialport::{SerialPort, SerialPortSettings};
 /// ```
-trait SerialPort: Read + Write + Send {
+pub trait SerialPort: Read + Write + Send {
     fn set_timeout(&mut self, timeout: Duration) -> io::Result<()>;
 }
 
@@ -59,10 +59,8 @@ impl Read for MockSerialPort {
                 "No data available",
             ));
         }
-        
-        for i in 0..len {
-            buf[i] = self.read_buffer[i];
-        }
+
+        buf[..len].copy_from_slice(&self.read_buffer[..len]);
         self.read_buffer.drain(0..len);
         Ok(len)
     }
@@ -88,7 +86,7 @@ impl SerialPort for MockSerialPort {
 
 /// Connection statistics for tracking transport performance
 #[derive(Debug, Default)]
-struct ConnectionStats {
+pub struct ConnectionStats {
     commands_sent: usize,
     responses_received: usize,
     errors: usize,
@@ -98,15 +96,15 @@ impl ConnectionStats {
     fn new() -> Self {
         Self::default()
     }
-    
+
     fn record_sent(&mut self, _bytes: usize) {
         self.commands_sent += 1;
     }
-    
+
     fn record_received(&mut self, _bytes: usize) {
         self.responses_received += 1;
     }
-    
+
     fn record_error(&mut self) {
         self.errors += 1;
     }
@@ -149,7 +147,10 @@ impl SerialTransport {
     ///     })
     /// }
     /// ```
-    pub fn new(port: Box<dyn SerialPort>, camera_address: u8) -> io::Result<Self> {
+    pub fn new(mut port: Box<dyn SerialPort>, camera_address: u8) -> io::Result<Self> {
+        // Set a reasonable timeout for serial operations
+        port.set_timeout(Duration::from_millis(500))?;
+
         Ok(Self {
             port,
             stats: ConnectionStats::new(),
@@ -165,18 +166,18 @@ impl SerialTransport {
     /// Send a command over serial
     fn send_command_bytes(&mut self, command: &dyn Command) -> Result<(), Error> {
         let mut bytes = command.to_bytes()?;
-        
+
         // Replace generic address with specific camera address
         if !bytes.is_empty() && bytes[0] == 0x81 {
             bytes[0] = 0x80 | self.camera_address;
         }
-        
+
         log::debug!("Sending serial command: {:02X?}", bytes);
-        
+
         self.port.write_all(&bytes).map_err(Error::Io)?;
         self.port.flush().map_err(Error::Io)?;
         self.stats.record_sent(bytes.len());
-        
+
         Ok(())
     }
 
@@ -184,7 +185,7 @@ impl SerialTransport {
     fn receive_response(&mut self) -> Result<Vec<u8>, Error> {
         let mut buffer = [0u8; 256];
         let mut response = Vec::new();
-        
+
         // Read until we get a complete VISCA frame (ends with 0xFF)
         loop {
             match self.port.read(&mut buffer) {
@@ -198,7 +199,7 @@ impl SerialTransport {
                 Ok(size) => {
                     for &byte in &buffer[..size] {
                         response.push(byte);
-                        
+
                         // Check for end of VISCA frame
                         if byte == 0xFF && response.len() >= 3 && response[0] == 0x90 {
                             log::debug!("Received serial response: {:02X?}", response);
@@ -233,14 +234,14 @@ impl SerialTransport {
         }
 
         let response_type = response[1] & 0xF0;
-        
+
         match response_type {
             // ACK response (serial doesn't use sockets, so we ignore the socket bits)
             0x40 => {
                 log::debug!("ACK received");
                 Ok(Response::Ack)
             }
-            
+
             // Completion response
             0x50 => {
                 if response.len() == 3 {
@@ -253,7 +254,7 @@ impl SerialTransport {
                     Ok(Response::Completion)
                 }
             }
-            
+
             // Error response
             0x60 => {
                 if response.len() >= 4 {
@@ -265,7 +266,7 @@ impl SerialTransport {
                     Err(Error::InvalidResponseFormat)
                 }
             }
-            
+
             _ => {
                 log::error!("Unknown response type: {:#02X}", response[1]);
                 Err(Error::InvalidResponseFormat)
@@ -278,14 +279,14 @@ impl BlockingTransport for SerialTransport {
     fn send_command_blocking(&mut self, command: &dyn Command) -> Result<Response, Error> {
         // Send command
         self.send_command_bytes(command)?;
-        
+
         // Wait for responses
         let mut _received_ack = false;
-        
+
         loop {
             let response_data = self.receive_response()?;
             let response = self.process_response(&response_data)?;
-            
+
             match response {
                 Response::Ack => {
                     _received_ack = true;
@@ -327,7 +328,7 @@ impl Transport for AsyncSerialTransport {
         };
         let response_type = command.response_type();
         let inner_clone = self.inner.clone();
-        
+
         Box::pin(async move {
             // Use blocking task to avoid blocking the async runtime
             tokio::task::spawn_blocking(move || {
@@ -335,32 +336,32 @@ impl Transport for AsyncSerialTransport {
                     expected: "Lock".to_string(),
                     actual: vec![],
                 })?;
-                
+
                 // Create a minimal command that just returns the bytes we already have
                 struct BytesCommand {
                     bytes: Vec<u8>,
                     response_type: Option<ResponseType>,
                 }
-                
+
                 impl Command for BytesCommand {
                     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
                         Ok(self.bytes.clone())
                     }
-                    
+
                     fn response_type(&self) -> Option<ResponseType> {
                         self.response_type
                     }
-                    
+
                     fn command_category(&self) -> grafton_visca::timeout::CommandCategory {
                         grafton_visca::timeout::CommandCategory::Quick
                     }
                 }
-                
+
                 let cmd = BytesCommand {
                     bytes: command_bytes,
                     response_type,
                 };
-                
+
                 transport.send_command_blocking(&cmd)
             })
             .await
@@ -374,7 +375,7 @@ impl Transport for AsyncSerialTransport {
 
 fn main() {
     println!("=== Serial Transport Example ===\n");
-    
+
     println!("This example demonstrates how to implement a serial transport for VISCA.");
     println!("In a real implementation, you would:");
     println!("1. Add `serialport` as a dependency in Cargo.toml");
@@ -400,38 +401,38 @@ fn main() {
     println!("- Camera addressing via command byte modification");
     println!("- Different timeout handling");
     println!("- May need to handle daisy-chaining");
-    
+
     // Demonstrate with mock
     println!("\n--- Mock Demonstration ---");
-    
+
     let mut mock_port = MockSerialPort::new();
-    
+
     // Simulate some responses
     mock_port.simulate_response(vec![0x90, 0x41, 0xFF]); // ACK
     mock_port.simulate_response(vec![0x90, 0x51, 0xFF]); // Completion
-    
+
     let mut transport = SerialTransport::new(Box::new(mock_port), 1).unwrap();
-    
+
     // Mock command
     struct TestCommand;
     impl Command for TestCommand {
         fn to_bytes(&self) -> Result<Vec<u8>, Error> {
             Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
         }
-        
+
         fn response_type(&self) -> Option<ResponseType> {
             None
         }
-        
+
         fn command_category(&self) -> grafton_visca::timeout::CommandCategory {
             grafton_visca::timeout::CommandCategory::Quick
         }
     }
-    
+
     match transport.send_command_blocking(&TestCommand) {
         Ok(response) => println!("Received response: {:?}", response),
         Err(e) => println!("Error: {}", e),
     }
-    
+
     println!("\n=== Serial Transport Example Complete ===");
 }

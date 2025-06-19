@@ -3,10 +3,8 @@
 //! This example demonstrates basic camera control using the new Camera API.
 
 #[cfg(feature = "blocking-client")]
-#[path = "udp_transport.rs"]
-mod udp_transport;
-#[cfg(feature = "blocking-client")]
 mod common;
+#[cfg(feature = "blocking-client")]
 use common::blocking::UdpTransport;
 
 #[cfg(feature = "blocking-client")]

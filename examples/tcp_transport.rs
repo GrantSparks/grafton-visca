@@ -704,18 +704,18 @@ fn main() {
 #[cfg(feature = "blocking-client")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    
+
     use grafton_visca::command::zoom::ZoomCommand;
-    
+
     // Create transport
     let mut transport = TcpTransport::new("192.168.1.100:5678")?;
-    
+
     // Send a command
     let command = ZoomCommand::Stop;
     let response = transport.send_command_blocking(&command)?;
-    
+
     println!("Response: {response:?}");
-    
+
     Ok(())
 }
 
@@ -723,17 +723,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    
+
     use grafton_visca::command::zoom::ZoomCommand;
-    
+
     // Create transport
     let mut transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
-    
+
     // Send a command
     let command = ZoomCommand::Stop;
     let response = transport.send_command(&command).await?;
-    
+
     println!("Response: {response:?}");
-    
+
     Ok(())
 }

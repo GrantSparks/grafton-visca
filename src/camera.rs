@@ -663,10 +663,9 @@ impl<P: CameraProfile> Camera<P> {
 
         // Send command and wait for response using the transport
         let mut transport = self.transport.lock();
-        let result = block_on_ready(transport.send_command(command))
-            .map_err(|e| ViscaError::InvalidState(e.to_string()))?;
 
-        result
+        block_on_ready(transport.send_command(command))
+            .map_err(|e| ViscaError::InvalidState(e.to_string()))?
     }
 
     /// Send a raw command to the camera (async).

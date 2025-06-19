@@ -3,8 +3,6 @@
 //! This shows how to create complex command sequences fluently,
 //! replacing manual command-by-command execution.
 
-#[path = "udp_transport.rs"]
-mod udp_transport;
 mod common;
 use common::r#async::AsyncUdpTransport;
 

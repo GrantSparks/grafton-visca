@@ -10,10 +10,6 @@ use grafton_visca::{
 };
 
 // Include the transport implementations from the example files
-#[cfg(feature = "async-client")]
-#[path = "tcp_transport.rs"]
-mod tcp_transport;
-#[cfg(feature = "async-client")]
 
 #[cfg(feature = "async-client")]
 #[tokio::main]

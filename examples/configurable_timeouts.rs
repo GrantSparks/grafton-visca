@@ -8,8 +8,6 @@
 //! Note: The Camera API doesn't have built-in timeout support.
 //! This example shows patterns for timing operations.
 
-#[path = "udp_transport.rs"]
-mod udp_transport;
 mod common;
 use common::blocking::UdpTransport;
 

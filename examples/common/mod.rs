@@ -5,12 +5,14 @@
 //! transport implementations, examples need to provide their own.
 
 #[cfg(feature = "blocking-client")]
+#[allow(unused_imports)]
 pub mod blocking {
     pub use super::tcp_transport::TcpTransport;
     pub use super::udp_transport::UdpTransport;
 }
 
 #[cfg(feature = "async-client")]
+#[allow(unused_imports)]
 pub mod r#async {
     pub use super::tcp_transport::AsyncTcpTransport;
     pub use super::udp_transport::AsyncUdpTransport;

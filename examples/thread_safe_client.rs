@@ -11,6 +11,7 @@ mod common;
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use common::blocking::UdpTransport;
 
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use grafton_visca::{
     camera::{Camera, CameraProfile, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,

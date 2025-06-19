@@ -21,8 +21,6 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 // Include the transport implementations from the example files
-#[path = "udp_transport.rs"]
-mod udp_transport;
 
 #[cfg(not(feature = "async-client"))]
 fn main() {
