@@ -46,12 +46,11 @@
 //! use grafton_visca::{
 //!     Camera,
 //!     camera::{profiles::PTZOpticsG2, units::Degrees},
-//!     transport::BlockingAdapter,
+//!     transport::blocking::create,
 //! };
 //!
-//! // Implement or include a transport (see examples/tcp_transport.rs, examples/udp_transport.rs)
-//! let udp_transport = UdpTransport::new("192.168.1.100:52381")?;
-//! let transport = BlockingAdapter(udp_transport);
+//! // Create blocking transport - no async runtime needed!
+//! let transport = create::udp("192.168.1.100:52381")?;
 //! let mut camera = Camera::<PTZOpticsG2>::new(transport);
 //!
 //! // Power on and move to home position
@@ -80,7 +79,7 @@
 //!
 //! ```ignore
 //! use grafton_visca::{Camera, camera::CustomProfileBuilder};
-//! use grafton_visca::transport::BlockingAdapter;
+//! use grafton_visca::transport::blocking::create;
 //!
 //! let profile = CustomProfileBuilder::new("My Custom Camera")
 //!     .pan_range(-170..=170)
@@ -88,9 +87,8 @@
 //!     .zoom_range(0x0000..=0xA000)
 //!     .build();
 //!
-//! // Use your transport implementation
-//! let udp_transport = UdpTransport::new("192.168.1.100:52381")?;
-//! let transport = BlockingAdapter(udp_transport);
+//! // Create blocking transport
+//! let transport = create::udp("192.168.1.100:52381")?;
 //! let mut camera = Camera::with_profile(transport, profile);
 //! ```
 //!
@@ -189,10 +187,6 @@ mod constants;
 mod macros;
 /// Type definitions and abstractions
 pub mod types;
-
-// Multi-camera support
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub mod camera_pool;
 
 pub mod timeout; // Public for use in macros
 

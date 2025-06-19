@@ -31,8 +31,8 @@ fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a camera with the new API
-    let transport = UdpTransport::new("192.168.1.100:5678")?;
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let transport = common::blocking::udp_transport("192.168.1.100:5678")?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("=== Testing Comprehensive Camera API ===\n");
 

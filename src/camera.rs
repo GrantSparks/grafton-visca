@@ -8,51 +8,14 @@ use std::sync::Arc;
 use crate::error::Error as ViscaError;
 #[cfg(feature = "async-client")]
 use crate::sync_primitives::{Mutex, Semaphore};
+#[cfg(feature = "blocking-client")]
+use crate::transport::blocking::{
+    Transport as BlockingTransport, ViscaTransport as BlockingViscaTransport,
+};
 #[cfg(feature = "async-client")]
 use crate::transport::{ChannelTransport, RawTransport, ViscaTransport};
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{Command, Response};
-
-/// Trait for transports that can send VISCA commands.
-/// This provides a simple interface that both ViscaTransport and ChannelTransport implement.
-#[cfg(feature = "async-client")]
-pub trait CameraTransport: Send + Sync + std::fmt::Debug {
-    /// Send a VISCA command and wait for response.
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn Command,
-    ) -> crate::transport::TransportFuture<'a, Response>;
-}
-
-#[cfg(feature = "async-client")]
-impl<T: RawTransport> CameraTransport for ViscaTransport<T> {
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn Command,
-    ) -> crate::transport::TransportFuture<'a, Response> {
-        Box::pin(async move { self.send_command(command).await })
-    }
-}
-
-#[cfg(feature = "async-client")]
-impl CameraTransport for ChannelTransport {
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn Command,
-    ) -> crate::transport::TransportFuture<'a, Response> {
-        Box::pin(async move { self.send_command(command).await })
-    }
-}
-
-#[cfg(feature = "async-client")]
-impl CameraTransport for Box<dyn CameraTransport> {
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn Command,
-    ) -> crate::transport::TransportFuture<'a, Response> {
-        (**self).send_command(command)
-    }
-}
 
 pub mod builder;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -66,13 +29,14 @@ pub mod profiles;
 pub use builder::{CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder};
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use command_builder::CommandBuilderExt;
-pub use extensions::{CameraExtension, CustomManufacturerExt, DiagnosticsExt, ScriptingExt};
+pub use extensions::CameraExtension;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub use extensions::{CustomManufacturerExt, DiagnosticsExt, ScriptingExt};
 pub use inquiry::{CameraState, Exposure, ImageSettings, Optics, Position, WhiteBalance};
 pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 
-/// Minimal executor for polling std::future::Ready futures without an async runtime.
-/// This is used for the blocking API when no async runtime is available.
 // Removed: blocking-only minimal_executor - new transport API is async-first
+// This was used for the blocking API when no async runtime is available.
 /*
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 mod minimal_executor {
@@ -115,12 +79,38 @@ mod minimal_executor {
 */
 
 /// Core camera abstraction with compile-time profile information.
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 pub struct Camera<P: CameraProfile> {
     profile: P,
-    #[cfg(feature = "async-client")]
+    transport: Box<dyn BlockingCameraTransport>,
+}
+
+/// Core camera abstraction with compile-time profile information.
+#[cfg(feature = "async-client")]
+pub struct Camera<P: CameraProfile> {
+    profile: P,
     transport: Arc<Mutex<Box<dyn CameraTransport>>>,
-    #[cfg(feature = "async-client")]
     semaphore: Arc<Semaphore>,
+}
+
+/// Core camera abstraction with compile-time profile information.
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+pub struct Camera<P: CameraProfile> {
+    profile: P,
+}
+
+/// Trait for blocking transports that can send VISCA commands.
+#[cfg(feature = "blocking-client")]
+pub trait BlockingCameraTransport: Send + Sync {
+    /// Send a VISCA command and wait for response.
+    fn send_command(&mut self, command: &dyn Command) -> Result<Response, ViscaError>;
+}
+
+#[cfg(feature = "blocking-client")]
+impl<T: BlockingTransport> BlockingCameraTransport for BlockingViscaTransport<T> {
+    fn send_command(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+        self.send_command(command)
+    }
 }
 
 impl<P: CameraProfile> std::fmt::Debug for Camera<P> {
@@ -583,14 +573,53 @@ impl<P: CameraProfile> Default for Camera<P> {
     }
 }
 
+/// Trait for async transports that can send VISCA commands.
+#[cfg(feature = "async-client")]
+pub trait CameraTransport: Send + Sync + std::fmt::Debug {
+    /// Send a VISCA command and wait for response.
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+    ) -> crate::transport::TransportFuture<'a, Response>;
+}
+
+#[cfg(feature = "async-client")]
+impl<T: RawTransport> CameraTransport for ViscaTransport<T> {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+    ) -> crate::transport::TransportFuture<'a, Response> {
+        Box::pin(async move { self.send_command(command).await })
+    }
+}
+
+#[cfg(feature = "async-client")]
+impl CameraTransport for ChannelTransport {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+    ) -> crate::transport::TransportFuture<'a, Response> {
+        Box::pin(async move { self.send_command(command).await })
+    }
+}
+
 impl<P: CameraProfile> Camera<P> {
-    /// Create a new camera with the given transport.
+    /// Create a new camera with blocking transport.
+    #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+    pub fn new(transport: impl BlockingCameraTransport + 'static) -> Self {
+        Self {
+            profile: P::default(),
+            transport: Box::new(transport),
+        }
+    }
+
+    /// Create a new camera with async transport.
     #[cfg(feature = "async-client")]
     pub fn new(transport: impl CameraTransport + 'static) -> Self {
         Self {
             profile: P::default(),
             transport: Arc::new(Mutex::new(Box::new(transport))),
-            semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
+            semaphore: Arc::new(Semaphore::new(2)),
         }
     }
 
@@ -603,12 +632,21 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Create a camera with a custom profile instance.
+    #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+    pub fn with_profile(transport: impl BlockingCameraTransport + 'static, profile: P) -> Self {
+        Self {
+            profile,
+            transport: Box::new(transport),
+        }
+    }
+
+    /// Create a camera with a custom profile instance.
     #[cfg(feature = "async-client")]
     pub fn with_profile(transport: impl CameraTransport + 'static, profile: P) -> Self {
         Self {
             profile,
             transport: Arc::new(Mutex::new(Box::new(transport))),
-            semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
+            semaphore: Arc::new(Semaphore::new(2)),
         }
     }
 
@@ -663,26 +701,9 @@ impl<P: CameraProfile> Camera<P> {
         2 - self.semaphore.available_permits()
     }
 
-    /// Send a command and wait for completion (async).
-    #[cfg(feature = "async-client")]
-    async fn send_and_wait(&self, command: &dyn Command) -> Result<(), ViscaError> {
-        match self.send_raw_async(command).await? {
-            Response::Completion => Ok(()),
-            Response::Ack => {
-                // ACK should not be returned as final response with new API
-                // Transport handles waiting for completion
-                Ok(())
-            }
-            response => Err(ViscaError::InvalidResponse {
-                expected: "Completion".to_string(),
-                actual: format!("{:?}", response).into_bytes(),
-            }),
-        }
-    }
-
-    /// Send a command and wait for completion (blocking).
+    /// Send a command and wait for completion.
     #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-    fn send_and_wait(&self, command: &dyn Command) -> Result<(), ViscaError> {
+    fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
         match self.send_raw(command)? {
             Response::Completion => Ok(()),
             Response::Ack => {
@@ -697,12 +718,32 @@ impl<P: CameraProfile> Camera<P> {
         }
     }
 
-    // Note: Blocking send_raw removed. The new transport API is async-first.
-    // For blocking usage, wrap async calls with a runtime as shown in blocking_no_runtime.rs
-
-    /// Send a raw command to the camera (async).
+    /// Send a command and wait for completion.
     #[cfg(feature = "async-client")]
-    pub async fn send_raw_async(&self, command: &dyn Command) -> Result<Response, ViscaError> {
+    async fn send_and_wait(&self, command: &dyn Command) -> Result<(), ViscaError> {
+        match self.send_raw(command).await? {
+            Response::Completion => Ok(()),
+            Response::Ack => {
+                // ACK should not be returned as final response with new API
+                // Transport handles waiting for completion
+                Ok(())
+            }
+            response => Err(ViscaError::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
+    /// Send a raw command to the camera.
+    #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+    pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+        self.transport.send_command(command)
+    }
+
+    /// Send a raw command to the camera.
+    #[cfg(feature = "async-client")]
+    pub async fn send_raw(&self, command: &dyn Command) -> Result<Response, ViscaError> {
         use crate::sync_primitives::SemaphoreExt;
 
         // Acquire semaphore permit for concurrency control

@@ -42,9 +42,6 @@ tokio-test = "0.4"
 name = "async_concurrent"
 required-features = ["async-client"]
 
-[[example]]
-name = "async_health_check"
-required-features = ["async-client"]
 
 [[example]]
 name = "async_inquiry_demo"
@@ -65,31 +62,28 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "configurable_timeouts"
-required-features = ["async-client", "blocking-client"]
 
 [[example]]
 name = "control_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "basic_camera_demo"
-required-features = ["async-client", "blocking-client"]
+required-features = ["blocking-client"]
 
-[[example]]
-name = "health_check"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "hello_world"
-required-features = ["async-client", "blocking-client"]
+required-features = ["blocking-client"]
 
 [[example]]
 name = "inquiry_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "unified_client_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "position_conversion"
@@ -100,35 +94,37 @@ name = "blocking_no_runtime"
 required-features = ["blocking-client"]
 
 [[example]]
+name = "blocking_simple"
+required-features = ["blocking-client"]
+
+[[example]]
 name = "declarative_macro_test"
 
 [[example]]
 name = "ptz_builder_demo"
-required-features = ["async-client", "blocking-client"]
 
 [[example]]
 name = "model_validation_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "error_handling_demo"
-required-features = ["async-client", "blocking-client"]
 
 [[example]]
 name = "enhanced_api_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "quick_start_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "test_extension_traits"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "type_safe_api_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "unified_transport_demo"
@@ -136,11 +132,11 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "image_and_gain_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "white_balance_tuning_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "camera_profile_demo"
@@ -160,19 +156,17 @@ required-features = ["async-client"]
 
 [[example]]
 name = "command_sequences_demo"
-required-features = ["async-client", "blocking-client"]
 
-[[example]]
-name = "multi_camera_control_demo"
-required-features = ["async-client", "blocking-client"]
+
+
 
 [[example]]
 name = "new_features_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "user_friendly_api_demo"
-required-features = ["async-client", "blocking-client"]
+
 
 [[example]]
 name = "channel_transport_demo"

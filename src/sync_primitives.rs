@@ -77,6 +77,7 @@ mod sync_semaphore {
             }
         }
 
+        #[allow(dead_code)]
         pub fn acquire(&self) -> Permit<'_> {
             let (lock, cvar) = &*self.state;
             let mut count = lock.lock();
@@ -127,6 +128,7 @@ pub trait SemaphoreExt {
     // Note: Blocking acquire_permit removed. Use async version with runtime.
 }
 
+#[cfg(feature = "async-client")]
 impl SemaphoreExt for Semaphore {
     type Permit<'a>
         = Permit<'a>

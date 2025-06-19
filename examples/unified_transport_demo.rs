@@ -1,52 +1,24 @@
 //! Demonstrates the unified transport API that works for both async and blocking contexts.
 
 mod common;
-use common::blocking::TcpTransport;
 use grafton_visca::command::{power::Power, PowerCommand};
-use grafton_visca::transport::Transport;
 use grafton_visca::Error;
-
-// Include the transport implementations from the example files
 
 #[cfg(feature = "blocking-client")]
 fn blocking_example() -> Result<(), Error> {
-    use grafton_visca::transport::BlockingAdapter;
+    use common::blocking;
 
     println!("=== Blocking Transport Example ===");
 
-    // Create a blocking TCP transport
-    let tcp = TcpTransport::new("192.168.1.100:5678").map_err(Error::Io)?;
+    // Create a blocking TCP transport with VISCA protocol handling
+    let mut transport = blocking::tcp_transport("192.168.1.100:5678")?;
 
-    // Wrap it in the adapter to use the Transport trait
-    let mut transport = BlockingAdapter(tcp);
-
-    // Use the transport interface
+    // Use the transport directly - no adapter needed!
     let power_cmd = PowerCommand { power: Power::On };
 
-    // This blocks immediately in blocking context
-    // Since we're using the Transport interface which returns futures,
-    // we need to use a minimal executor to poll them
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::sync::Arc;
-    use std::task::{Context, Poll, Wake};
-
-    struct NoopWaker;
-    impl Wake for NoopWaker {
-        fn wake(self: Arc<Self>) {}
-    }
-
-    let waker = Arc::new(NoopWaker).into();
-    let mut cx = Context::from_waker(&waker);
-
-    let mut send_fut = transport.send_command(&power_cmd);
-    match Pin::new(&mut send_fut).poll(&mut cx) {
-        Poll::Ready(result) => {
-            let response = result?;
-            println!("Command response: {:?}", response);
-        }
-        Poll::Pending => return Err(Error::Timeout),
-    }
+    // This blocks and returns immediately with the response
+    let response = transport.send_command(&power_cmd)?;
+    println!("Command response: {:?}", response);
 
     println!("Power on command sent successfully!");
 
@@ -54,18 +26,15 @@ fn blocking_example() -> Result<(), Error> {
 }
 
 #[cfg(feature = "async-client")]
-use common::r#async::AsyncTcpTransport;
-
-#[cfg(feature = "async-client")]
 async fn async_example() -> Result<(), Error> {
+    use common::r#async;
+
     println!("=== Async Transport Example ===");
 
-    // Create an async TCP transport
-    let mut transport = AsyncTcpTransport::new("192.168.1.100:5678")
-        .await
-        .map_err(Error::Io)?;
+    // Create an async TCP transport with VISCA protocol handling
+    let mut transport = r#async::tcp_transport("192.168.1.100:5678").await?;
 
-    // Use the transport interface - same API!
+    // Use the transport interface - similar API to blocking!
     let power_cmd = PowerCommand { power: Power::On };
 
     // This returns a future that we await
@@ -111,13 +80,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Example showing how to write transport-agnostic code
-#[allow(dead_code)]
-fn transport_agnostic_function<T: Transport>(
-    transport: &mut T,
-    command: &dyn grafton_visca::Command,
-) {
-    // This function works with any transport implementation
-    let _future = transport.send_command(command);
-    // In real code, you would await or poll this future
-}
+// The new transport API has separate blocking and async interfaces
+// For transport-agnostic code, you would use either:
+// 1. Blocking: transport::blocking::ViscaTransport<T> where T: Transport
+// 2. Async: transport::ViscaTransport<T> where T: RawTransport
+//
+// This separation provides cleaner APIs for each use case without
+// forcing async overhead on blocking scenarios.

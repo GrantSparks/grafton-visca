@@ -15,7 +15,7 @@ fn main() {
 mod common;
 
 #[cfg(feature = "async-client")]
-use common::r#async::AsyncUdpTransport;
+use common::r#async::udp_transport;
 
 #[cfg(feature = "async-client")]
 #[tokio::main]
@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Create camera with async UDP transport
-    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
+    let transport = udp_transport("192.168.1.100:52381").await?;
     let camera = Camera::<GenericVisca>::new(transport);
 
     println!("Camera Readiness Demo");

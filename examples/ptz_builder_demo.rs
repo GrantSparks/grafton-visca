@@ -14,7 +14,7 @@
 #[cfg(not(feature = "async-client"))]
 mod common;
 #[cfg(not(feature = "async-client"))]
-use common::blocking::UdpTransport;
+use common::blocking::udp_transport;
 
 #[cfg(not(feature = "async-client"))]
 use grafton_visca::{
@@ -24,24 +24,12 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
-    transport::BlockingAdapter,
 };
 
 #[cfg(not(feature = "async-client"))]
 use std::thread;
-
 #[cfg(not(feature = "async-client"))]
 use std::time::Duration;
-
-// Use a minimal tokio runtime for blocking execution
-#[cfg(not(feature = "async-client"))]
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(fut)
-}
 
 #[cfg(not(feature = "async-client"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -50,19 +38,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== PTZ Builder Pattern Demo with Camera<P> API ===");
 
     // Create a type-safe camera instance with PTZOpticsG2 profile
-    let udp_transport = UdpTransport::new("192.168.1.100:52381")?;
-    let transport = BlockingAdapter(udp_transport);
+    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
+    let transport = udp_transport(&camera_ip)?;
     let mut camera = Camera::<PTZOpticsG2>::new(transport);
     println!("Connected to PTZOptics G2 camera");
 
     // Demonstrate sequential command execution with type-safe units
     println!("\n1. Type-safe position control with Degrees");
-    block_on(camera.home())?;
+    camera.home()?;
     println!("   ✓ Moved to home position");
     thread::sleep(Duration::from_secs(2));
 
     // Set position using degrees - compiler enforces correct units
-    block_on(camera.set_position(Degrees(45.0), Degrees(-15.0)))?;
+    camera.set_position(Degrees(45.0), Degrees(-15.0))?;
     println!("   ✓ Set position to pan=45°, tilt=-15°");
     thread::sleep(Duration::from_secs(2));
 
@@ -70,23 +58,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2. Sequential movement operations");
 
     // Move to preset position first
-    block_on(camera.home())?;
+    camera.home()?;
     thread::sleep(Duration::from_secs(1));
 
     // Continuous movement
-    block_on(camera.move_continuous(PanTiltDirection::UpRight, 12, 10))?;
+    camera.move_continuous(PanTiltDirection::UpRight, 12, 10)?;
     thread::sleep(Duration::from_millis(500));
-    block_on(camera.stop())?;
+    camera.stop()?;
     println!("   ✓ Executed: Home → Move UpRight → Stop");
 
     // Zoom operations
-    block_on(camera.set_zoom(0x4000))?;
+    camera.set_zoom(0x4000)?;
     println!("   ✓ Set zoom to 0x4000");
     thread::sleep(Duration::from_secs(1));
 
     // Focus control
-    block_on(camera.focus_manual())?;
-    block_on(camera.set_focus(0x8000))?;
+    camera.focus_manual()?;
+    camera.set_focus(0x8000)?;
     println!("   ✓ Set manual focus to 0x8000");
 
     // Demonstrate absolute positioning with validation
@@ -96,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pan_degrees = 90.0; // PTZOpticsG2 supports ±170°
     let tilt_degrees = 30.0; // PTZOpticsG2 supports -30° to +90°
 
-    match block_on(camera.set_position(Degrees(pan_degrees), Degrees(tilt_degrees))) {
+    match camera.set_position(Degrees(pan_degrees), Degrees(tilt_degrees)) {
         Ok(_) => println!(
             "   ✓ Set position to pan={}°, tilt={}°",
             pan_degrees, tilt_degrees
@@ -110,15 +98,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Save current position to preset using G2-specific preset ID
     let preset_id = G2PresetId::new(1)?;
-    block_on(camera.set_preset(preset_id))?;
+    camera.set_preset(preset_id)?;
     println!("   ✓ Saved current position to preset {}", preset_id);
 
     // Move to a different position
-    block_on(camera.set_position(Degrees(-45.0), Degrees(0.0)))?;
+    camera.set_position(Degrees(-45.0), Degrees(0.0))?;
     thread::sleep(Duration::from_secs(2));
 
     // Recall the saved preset
-    block_on(camera.recall_preset(preset_id))?;
+    camera.recall_preset(preset_id)?;
     println!("   ✓ Recalled preset {}", preset_id);
     thread::sleep(Duration::from_secs(2));
 
@@ -156,21 +144,21 @@ fn perform_scan_sequence(
     use grafton_visca::camera::units::Degrees;
 
     // Return to home
-    block_on(camera.home())?;
+    camera.home()?;
     thread::sleep(Duration::from_secs(1));
 
     // Scan left
-    block_on(camera.move_continuous(PanTiltDirection::Left, 8, 0))?;
+    camera.move_continuous(PanTiltDirection::Left, 8, 0)?;
     thread::sleep(Duration::from_secs(2));
-    block_on(camera.stop())?;
+    camera.stop()?;
 
     // Scan right
-    block_on(camera.move_continuous(PanTiltDirection::Right, 8, 0))?;
+    camera.move_continuous(PanTiltDirection::Right, 8, 0)?;
     thread::sleep(Duration::from_secs(4));
-    block_on(camera.stop())?;
+    camera.stop()?;
 
     // Return to center
-    block_on(camera.set_position(Degrees(0.0), Degrees(0.0)))?;
+    camera.set_position(Degrees(0.0), Degrees(0.0))?;
 
     Ok(())
 }
@@ -178,7 +166,7 @@ fn perform_scan_sequence(
 #[cfg(feature = "async-client")]
 mod common;
 #[cfg(feature = "async-client")]
-use common::r#async::AsyncUdpTransport;
+use common::r#async::udp_transport;
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{
@@ -201,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Async PTZ Pattern Demo with Camera<P> API ===");
 
     // Create async camera with type-safe profile
-    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
+    let transport = udp_transport("192.168.1.100:52381").await?;
     let mut camera = Camera::<PTZOpticsG2>::new(transport);
     println!("Connected to PTZOptics G2 camera (async)");
 

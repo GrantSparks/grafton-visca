@@ -667,13 +667,13 @@ impl<P: CameraProfile> Camera<P> {
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 impl<P: CameraProfile> Camera<P> {
     /// Power on the camera.
-    pub fn power_on(&self) -> Result<(), Error> {
+    pub fn power_on(&mut self) -> Result<(), Error> {
         let command = PowerCommand { power: Power::On };
         self.send_and_wait(&command)
     }
 
     /// Power off the camera.
-    pub fn power_off(&self) -> Result<(), Error> {
+    pub fn power_off(&mut self) -> Result<(), Error> {
         let command = PowerCommand {
             power: Power::Standby,
         };
@@ -681,7 +681,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Stop all camera movement.
-    pub fn stop(&self) -> Result<(), Error> {
+    pub fn stop(&mut self) -> Result<(), Error> {
         let command = PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::new(0)
@@ -693,27 +693,27 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Move camera to home position.
-    pub fn home(&self) -> Result<(), Error> {
+    pub fn home(&mut self) -> Result<(), Error> {
         self.send_and_wait(&PanTiltCommand::Home)
     }
 
     /// Zoom in at standard speed.
-    pub fn zoom_in(&self) -> Result<(), Error> {
+    pub fn zoom_in(&mut self) -> Result<(), Error> {
         self.send_and_wait(&ZoomCommand::ZoomInStandard)
     }
 
     /// Zoom out at standard speed.
-    pub fn zoom_out(&self) -> Result<(), Error> {
+    pub fn zoom_out(&mut self) -> Result<(), Error> {
         self.send_and_wait(&ZoomCommand::ZoomOutStandard)
     }
 
     /// Stop zooming.
-    pub fn zoom_stop(&self) -> Result<(), Error> {
+    pub fn zoom_stop(&mut self) -> Result<(), Error> {
         self.send_and_wait(&ZoomCommand::Stop)
     }
 
     /// Set zoom to direct position.
-    pub fn set_zoom(&self, position: u16) -> Result<(), Error> {
+    pub fn set_zoom(&mut self, position: u16) -> Result<(), Error> {
         if !P::ZOOM_RANGE.contains(&position) {
             return Err(Error::ParameterOutOfRange {
                 parameter: "zoom".to_string(),
@@ -727,17 +727,31 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set focus mode to auto.
-    pub fn focus_auto(&self) -> Result<(), Error> {
+    pub fn focus_auto(&mut self) -> Result<(), Error> {
         self.send_and_wait(&FocusCommand::Auto)
     }
 
     /// Set focus mode to manual.
-    pub fn focus_manual(&self) -> Result<(), Error> {
+    pub fn focus_manual(&mut self) -> Result<(), Error> {
         self.send_and_wait(&FocusCommand::Manual)
     }
 
+    /// Set focus to direct position (manual mode).
+    pub fn set_focus(&mut self, position: u16) -> Result<(), Error> {
+        if !P::FOCUS_RANGE.contains(&position) {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "focus".to_string(),
+                value: position as i32,
+                min: *P::FOCUS_RANGE.start() as i32,
+                max: *P::FOCUS_RANGE.end() as i32,
+            });
+        }
+
+        self.send_and_wait(&FocusCommand::Direct(position))
+    }
+
     /// Set the camera to an absolute pan/tilt position in degrees.
-    pub fn set_position(&self, pan: Degrees<f32>, tilt: Degrees<f32>) -> Result<(), Error> {
+    pub fn set_position(&mut self, pan: Degrees<f32>, tilt: Degrees<f32>) -> Result<(), Error> {
         // Convert degrees to VISCA units using the camera profile
         let pan_units = self.profile.pan_degrees_to_units(pan.0);
         let tilt_units = self.profile.tilt_degrees_to_units(tilt.0);
@@ -774,7 +788,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Move the camera continuously in a direction.
     pub fn move_continuous(
-        &self,
+        &mut self,
         direction: PanTiltDirection,
         pan_speed: u8,
         tilt_speed: u8,
@@ -797,7 +811,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Recall a preset position.
-    pub fn recall_preset(&self, preset: P::PresetId) -> Result<(), Error> {
+    pub fn recall_preset(&mut self, preset: P::PresetId) -> Result<(), Error> {
         let id: u8 = preset.into();
         let preset_number = PresetNumber::new(id)?;
         let command = PresetCommand {
@@ -808,7 +822,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set a preset position.
-    pub fn set_preset(&self, preset: P::PresetId) -> Result<(), Error> {
+    pub fn set_preset(&mut self, preset: P::PresetId) -> Result<(), Error> {
         let id: u8 = preset.into();
         let preset_number = PresetNumber::new(id)?;
         let command = PresetCommand {
@@ -819,19 +833,19 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Set exposure mode.
-    pub fn set_exposure_mode(&self, mode: ExposureMode) -> Result<(), Error> {
+    pub fn set_exposure_mode(&mut self, mode: ExposureMode) -> Result<(), Error> {
         let command = ExposureCommand { mode };
         self.send_and_wait(&command)
     }
 
     /// Set white balance mode.
-    pub fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
+    pub fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
         let command = WhiteBalanceCommand { mode };
         self.send_and_wait(&command)
     }
 
     /// Set gain value.
-    pub fn set_gain(&self, gain: P::GainValue) -> Result<(), Error> {
+    pub fn set_gain(&mut self, gain: P::GainValue) -> Result<(), Error> {
         let value: u8 = gain.into();
         let gain_value = GainValue::new(value)?;
         self.send_and_wait(&GainCommand::Direct(gain_value))

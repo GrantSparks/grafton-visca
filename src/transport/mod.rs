@@ -1,9 +1,16 @@
-//! Simple, clean transport layer for VISCA communication.
+//! Transport layer for VISCA communication.
 //!
-//! ## Core Components
-//! - `RawTransport` trait: Simple I/O interface
-//! - `ViscaTransport<T>`: Handles all VISCA protocol logic
-//! - Built-in implementations: TCP, UDP, Serial
+//! This module provides both blocking and async transport implementations.
+//! The blocking API is the primary interface, with async support as an optional feature.
+//!
+//! ## Blocking Transport (Default)
+//! - `blocking::Transport` trait: Synchronous I/O interface
+//! - `blocking::ViscaTransport<T>`: Handles VISCA protocol logic
+//! - Built-in implementations: TCP, UDP
+//!
+//! ## Async Transport (Optional)
+//! - `RawTransport` trait: Asynchronous I/O interface
+//! - `ViscaTransport<T>`: Async protocol handling
 //! - `ChannelTransport`: Thread-safe wrapper
 
 #[cfg(feature = "async-client")]
@@ -34,15 +41,25 @@ pub trait RawTransport: Send + Sync + Debug {
     fn description(&self) -> &str;
 }
 
-// Submodules
+// Blocking transport module (always available)
+pub mod blocking;
+
+// Re-export blocking types for easier access
+pub use blocking::{
+    TcpTransport as BlockingTcpTransport, Transport as BlockingTransport,
+    UdpTransport as BlockingUdpTransport, ViscaTransport as BlockingViscaTransport,
+};
+
+// For backward compatibility
+pub use blocking::Transport;
+
+// Async transport modules (optional)
 #[cfg(feature = "async-client")]
 mod channel;
 #[cfg(feature = "async-client")]
 mod implementations;
 #[cfg(feature = "async-client")]
 mod session;
-
-// Re-exports
 #[cfg(feature = "async-client")]
 pub use channel::{ChannelConfig, ChannelTransport};
 #[cfg(feature = "async-client")]

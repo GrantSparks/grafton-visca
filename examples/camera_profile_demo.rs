@@ -1,7 +1,7 @@
 //! Example demonstrating the new Camera API with type-safe profiles.
 
 mod common;
-use common::r#async::AsyncTcpTransport;
+use common::r#async::tcp_transport;
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -17,7 +17,7 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a G2 camera with TCP transport
-    let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let transport = tcp_transport("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Display camera capabilities

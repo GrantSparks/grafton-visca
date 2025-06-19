@@ -109,7 +109,7 @@ impl<P: CameraProfile> Camera<P> {
     /// This method is used internally for inquiry commands that need to receive data back.
     #[cfg(feature = "async-client")]
     async fn send_and_receive(&self, command: &dyn Command) -> Result<Response, Error> {
-        self.send_raw_async(command).await
+        self.send_raw(command).await
     }
 
     // Power inquiries

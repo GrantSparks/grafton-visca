@@ -19,18 +19,17 @@ use grafton_visca::{Command, Error};
 use grafton_visca::{InquiryResponse, Response};
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::transport::{BlockingAdapter, BlockingTransport};
+use grafton_visca::transport::blocking::{Transport as BlockingTransport, ViscaTransport};
 
 // Import parse_response from the command module
 #[cfg(feature = "blocking-client")]
 use grafton_visca::command::parse_response;
 
-#[cfg(feature = "async-client")]
-use grafton_visca::transport::{Transport as AsyncTransport, TransportFuture};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// A flexible mock transport for testing various scenarios.
+#[derive(Clone)]
 #[allow(dead_code)] // Complete testing API - not all methods used in every test
 pub struct MockTransport {
     /// Queue of responses to return
@@ -133,84 +132,41 @@ impl MockTransport {
 
 #[cfg(feature = "blocking-client")]
 impl BlockingTransport for MockTransport {
-    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<Response, Error> {
-        // Check if we should fail after N commands
-        let count = self.commands_sent.lock().unwrap().len();
-        if let Some(fail_after) = self.fail_after {
-            if count >= fail_after {
-                return Err(Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionAborted,
-                    "Mock failure after N commands",
-                )));
-            }
-        }
-
+    fn send(&mut self, data: &[u8]) -> Result<(), Error> {
         if self.fail_send {
             return Err(Error::Io(std::io::Error::other("Mock send error")));
         }
+        self.commands_sent.lock().unwrap().push(data.to_vec());
+        Ok(())
+    }
 
-        // Store the command that was sent
-        self.commands_sent.lock().unwrap().push(command.to_bytes()?);
-
-        // Simulate receiving responses
+    fn receive(&mut self, _timeout: std::time::Duration) -> Result<Vec<u8>, Error> {
         if self.fail_receive {
             return Err(Error::Io(std::io::Error::other("Mock receive error")));
         }
 
-        // For testing, we'll return responses based on what's queued
-        let mut responses_guard = self.responses.lock().unwrap();
+        self.responses.lock().unwrap().pop_front().ok_or_else(|| {
+            Error::Io(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Mock timeout - no response queued",
+            ))
+        })
+    }
 
-        // If this is an inquiry command, return the first response directly
-        if command.response_type().is_some() {
-            if let Some(response_bytes) = responses_guard.pop_front() {
-                // Parse the response based on type
-                if let Some(resp_type) = command.response_type() {
-                    return parse_response(&response_bytes, &resp_type);
-                }
-            }
-            return Err(Error::Timeout);
-        }
+    fn is_connected(&self) -> bool {
+        true
+    }
 
-        // For control commands, simulate ACK then completion/error
-        // First check if we have any response
-        if let Some(first_response) = responses_guard.pop_front() {
-            // Check if it's an error response
-            if first_response.len() >= 4 && first_response[0] == 0x90 && first_response[1] == 0x60 {
-                return Ok(Response::Error(Error::from_code(first_response[2])));
-            }
+    fn description(&self) -> &str {
+        "Mock transport for testing"
+    }
+}
 
-            // For testing, if we get an ACK, look for completion
-            if first_response.len() == 3
-                && first_response[0] == 0x90
-                && (first_response[1] & 0xF0) == 0x40
-            {
-                // Got ACK, now get completion
-                if let Some(second_response) = responses_guard.pop_front() {
-                    if second_response.len() >= 4
-                        && second_response[0] == 0x90
-                        && second_response[1] == 0x60
-                    {
-                        return Ok(Response::Error(Error::from_code(second_response[2])));
-                    }
-                    if second_response.len() == 3
-                        && second_response[0] == 0x90
-                        && (second_response[1] & 0xF0) == 0x50
-                    {
-                        return Ok(Response::Completion);
-                    }
-                }
-            }
-
-            // Direct completion response
-            if first_response.len() == 3
-                && first_response[0] == 0x90
-                && (first_response[1] & 0xF0) == 0x50
-            {
-                return Ok(Response::Completion);
-            }
-        }
-
-        Err(Error::Timeout)
+// Helper to create a ViscaTransport for testing
+#[cfg(feature = "blocking-client")]
+impl MockTransport {
+    pub fn into_visca_transport(self) -> ViscaTransport<Self> {
+        ViscaTransport::new(self)
     }
 }
 

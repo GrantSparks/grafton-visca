@@ -4,7 +4,7 @@
 //! This shows various patterns for handling retries at the application level.
 
 mod common;
-use common::r#async::AsyncTcpTransport;
+use common::r#async::tcp_transport;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     Error,
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn simple_retry_example() -> Result<(), Error> {
     println!("1. Simple retry with fixed delay:");
 
-    let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let transport = tcp_transport("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Simple retry loop with fixed delay
@@ -68,7 +68,7 @@ async fn simple_retry_example() -> Result<(), Error> {
 async fn exponential_backoff_example() -> Result<(), Error> {
     println!("\n2. Exponential backoff retry:");
 
-    let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let transport = tcp_transport("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Exponential backoff configuration
@@ -113,7 +113,7 @@ async fn custom_wrapper_example() -> Result<(), Error> {
     println!("\n3. Custom retry wrapper:");
 
     // Create a camera with our retry wrapper
-    let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let transport = tcp_transport("192.168.1.100:5678").await?;
     let camera = RetryingCamera::new(
         Camera::<PTZOpticsG2>::new(transport),
         RetryConfig {
@@ -296,7 +296,7 @@ where
 async fn advanced_retry_example() -> Result<(), Error> {
     println!("\n4. Advanced retry with error classification:");
 
-    let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let transport = tcp_transport("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Use the retry function with error classification

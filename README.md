@@ -222,12 +222,14 @@ Connection pooling is now built-in for managing multiple cameras!
 
 ### Basic Camera Control
 
+#### Blocking Mode (Default)
 ```rust
-use grafton_visca::prelude::*;
+use grafton_visca::{Camera, transport::blocking::create, camera::profiles::PTZOpticsG2};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Connect to camera - just one client type now!
-    let camera = Client::new("192.168.1.100:52381")?;
+    // Create blocking transport - no async runtime needed!
+    let transport = create::tcp("192.168.1.100:5678")?;
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
     
     // Power on
     camera.power_on()?;
@@ -235,11 +237,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Move to home position
     camera.home()?;
     
-    // Zoom in using high-level API
+    // Zoom control
     camera.zoom_in()?;
+    camera.set_zoom(0x4000)?;  // Direct zoom position
     
-    // Or use specific magnification
-    camera.zoom_to_magnification(5.0)?;
+    Ok(())
+}
+```
+
+#### Async Mode (Optional)
+```rust
+use grafton_visca::{Camera, transport::create, camera::profiles::PTZOpticsG2};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create async transport
+    let transport = create::tcp("192.168.1.100:5678").await?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
+    
+    // Power on
+    camera.power_on().await?;
+    
+    // Move to home position
+    camera.home().await?;
+    
+    // Zoom control
+    camera.zoom_in().await?;
+    camera.set_zoom(0x4000).await?;
     
     Ok(())
 }

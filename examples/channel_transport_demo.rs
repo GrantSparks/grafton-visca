@@ -4,7 +4,7 @@
 //! a transport across multiple threads without explicit locking.
 
 mod common;
-use common::r#async::AsyncTcpTransport;
+use common::r#async::tcp_transport;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Create the underlying transport
-    let tcp_transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let tcp_transport = tcp_transport("192.168.1.100:5678").await?;
 
     // Wrap it in a ChannelTransport with custom configuration
     let channel_transport = ChannelTransportBuilder::new(tcp_transport)
@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Example showing how to use Arc<ChannelTransport> directly
 #[allow(dead_code)]
 async fn demo_arc_transport() -> Result<(), Box<dyn std::error::Error>> {
-    let tcp_transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let tcp_transport = tcp_transport("192.168.1.100:5678").await?;
 
     let channel_transport = Arc::new(ChannelTransport::new(tcp_transport, Default::default()));
 

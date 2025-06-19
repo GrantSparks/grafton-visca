@@ -3,8 +3,6 @@
 //! This module provides simple helper functions for creating transports
 //! that examples can use consistently.
 
-use std::time::Duration;
-
 #[cfg(feature = "async-client")]
 pub use grafton_visca::transport::{
     create, ChannelTransport, SerialTransport, TcpTransport, UdpTransport, ViscaTransport,
@@ -47,11 +45,21 @@ pub mod r#async {
 
 #[cfg(feature = "blocking-client")]
 pub mod blocking {
-    use super::*;
+    use grafton_visca::transport::blocking::{
+        create, TcpTransport as BlockingTcp, UdpTransport as BlockingUdp, ViscaTransport,
+    };
 
-    /// For blocking examples, we provide the same interface but note that
-    /// the new API is async-first. Blocking examples should use the async
-    /// transports with appropriate runtime handling.
-    pub type TcpTransport = ViscaTransport<grafton_visca::transport::TcpTransport>;
-    pub type UdpTransport = ViscaTransport<grafton_visca::transport::UdpTransport>;
+    /// Blocking transport types
+    pub type TcpTransport = BlockingTcp;
+    pub type UdpTransport = BlockingUdp;
+
+    /// Create a TCP transport for blocking examples
+    pub fn tcp_transport(address: &str) -> std::io::Result<ViscaTransport<TcpTransport>> {
+        create::tcp(address)
+    }
+
+    /// Create a UDP transport for blocking examples  
+    pub fn udp_transport(address: &str) -> std::io::Result<ViscaTransport<UdpTransport>> {
+        create::udp(address)
+    }
 }

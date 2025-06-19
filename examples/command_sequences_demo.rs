@@ -4,7 +4,7 @@
 //! replacing manual command-by-command execution.
 
 mod common;
-use common::r#async::AsyncUdpTransport;
+use common::r#async::udp_transport;
 
 use grafton_visca::{
     camera::{
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Command Sequence Builder Demo ===");
     println!("Building complex camera operations fluently\n");
 
-    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
+    let transport = udp_transport("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Example 1: Camera initialization sequence

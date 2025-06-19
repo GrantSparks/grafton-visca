@@ -2,55 +2,52 @@
 //!
 //! This module provides a trait-based extension system that allows users to add
 //! custom functionality to cameras without modifying the core library.
+//!
+//! The extension traits are only available when transport features are enabled:
+//! - `blocking-client`: Provides blocking command execution
+//! - `async-client`: Provides async command execution
 
-use crate::{
-    camera::{Camera, CameraProfile},
-    Command, Error as ViscaError, Response,
-};
+use crate::camera::{Camera, CameraProfile};
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+use crate::{Command, Error as ViscaError, Response};
 
 /// Base trait for camera extensions.
 ///
 /// This trait allows users to extend camera functionality by implementing
 /// custom methods on `Camera<P>` instances.
-pub trait CameraExtension<P: CameraProfile>: Sized {
-    /// Execute a raw command on the camera.
-    fn send_raw(&self, command: &dyn Command) -> Result<Response, ViscaError>;
+///
+/// Note: This trait is only useful when transport features are enabled.
+/// Without `blocking-client` or `async-client`, cameras have no transport capability.
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub trait CameraExtension<P: CameraProfile>: Sized {}
 
-    /// Execute a raw command asynchronously.
-    #[cfg(feature = "async-client")]
-    fn send_raw_async(
-        &self,
-        command: &dyn Command,
-    ) -> impl std::future::Future<Output = Result<Response, ViscaError>> + Send;
-}
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+impl<P: CameraProfile> CameraExtension<P> for Camera<P> {}
 
-impl<P: CameraProfile> CameraExtension<P> for Camera<P> {
-    fn send_raw(&self, command: &dyn Command) -> Result<Response, ViscaError> {
-        #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-        {
-            Camera::send_raw(self, command)
-        }
-        #[cfg(not(all(feature = "blocking-client", not(feature = "async-client"))))]
-        {
-            let _ = command; // Suppress unused variable warning
-            Err(ViscaError::InvalidState(
-                "Camera operations require blocking transport".to_string(),
-            ))
-        }
-    }
+// Provide a no-op extension trait when no transport features are enabled
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+/// Base trait for camera extensions.
+///
+/// This trait serves as a marker trait that all camera extensions must implement.
+/// It ensures that extensions can only be implemented for types that are `Sized`.
+pub trait CameraExtension<P: CameraProfile>: Sized {}
 
-    #[cfg(feature = "async-client")]
-    async fn send_raw_async(&self, command: &dyn Command) -> Result<Response, ViscaError> {
-        Camera::send_raw_async(self, command).await
-    }
-}
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+impl<P: CameraProfile> CameraExtension<P> for Camera<P> {}
 
 /// Example extension trait for custom manufacturer commands.
 ///
 /// Users can create their own extension traits following this pattern.
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub trait CustomManufacturerExt<P: CameraProfile>: CameraExtension<P> {
     /// Example: Send a custom manufacturer-specific command.
-    fn send_manufacturer_command(&self, data: &[u8]) -> Result<Response, ViscaError> {
+    fn send_manufacturer_command(&mut self, data: &[u8]) -> Result<Response, ViscaError>;
+}
+
+// Implementation for Camera<P> types
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+impl<P: CameraProfile> CustomManufacturerExt<P> for Camera<P> {
+    fn send_manufacturer_command(&mut self, data: &[u8]) -> Result<Response, ViscaError> {
         // Create a custom command
         struct ManufacturerCommand<'a> {
             data: &'a [u8],
@@ -78,13 +75,11 @@ pub trait CustomManufacturerExt<P: CameraProfile>: CameraExtension<P> {
     }
 }
 
-// Blanket implementation for all Camera<P> types
-impl<P: CameraProfile> CustomManufacturerExt<P> for Camera<P> {}
-
 /// Extension trait for advanced camera diagnostics.
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub trait DiagnosticsExt<P: CameraProfile>: CameraExtension<P> {
     /// Get detailed diagnostic information.
-    fn get_diagnostics(&self) -> Result<DiagnosticInfo, ViscaError> {
+    fn get_diagnostics(&mut self) -> Result<DiagnosticInfo, ViscaError> {
         // This is just an example - real implementation would query multiple status values
         Ok(DiagnosticInfo {
             model: P::MODEL_NAME.to_string(),
@@ -95,7 +90,7 @@ pub trait DiagnosticsExt<P: CameraProfile>: CameraExtension<P> {
     }
 
     /// Run a self-test sequence.
-    fn run_self_test(&self) -> Result<SelfTestResult, ViscaError> {
+    fn run_self_test(&mut self) -> Result<SelfTestResult, ViscaError> {
         // Example self-test implementation
         Ok(SelfTestResult {
             pan_tilt_ok: true,
@@ -132,12 +127,14 @@ pub struct SelfTestResult {
     pub exposure_ok: bool,
 }
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 impl<P: CameraProfile> DiagnosticsExt<P> for Camera<P> {}
 
 /// Extension trait for camera scripting and automation.
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub trait ScriptingExt<P: CameraProfile>: CameraExtension<P> {
     /// Execute a sequence of movements with timing.
-    fn execute_movement_script(&self, script: &[MovementStep]) -> Result<(), ViscaError> {
+    fn execute_movement_script(&mut self, script: &[MovementStep]) -> Result<(), ViscaError> {
         for step in script {
             match &step.action {
                 MovementAction::PanTilt { pan, tilt } => {
@@ -188,12 +185,13 @@ pub enum MovementAction {
     },
 }
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 impl<P: CameraProfile> ScriptingExt<P> for Camera<P> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Camera;
+    use crate::{Camera, Error as ViscaError};
 
     // Test extension trait defined manually
     #[allow(dead_code)]

@@ -21,6 +21,7 @@ use crate::{
 };
 
 /// A command that has been prepared for execution.
+#[allow(dead_code)]
 struct PreparedCommand {
     command: Box<dyn Command + Send + Sync>,
     description: String,
@@ -428,21 +429,11 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// Returns an error if any command fails. Execution stops at the first error.
     #[cfg(not(feature = "tokio"))]
     pub fn execute_sequential(self) -> Result<Vec<Response>, ViscaError> {
-        let mut responses = Vec::with_capacity(self.commands.len());
-
-        for (i, prepared) in self.commands.into_iter().enumerate() {
-            log::debug!("Executing command {}: {}", i + 1, prepared.description);
-
-            match self.camera.send_raw(prepared.command.as_ref()) {
-                Ok(response) => responses.push(response),
-                Err(e) => {
-                    log::error!("Command {} failed: {}", prepared.description, e);
-                    return Err(e);
-                }
-            }
-        }
-
-        Ok(responses)
+        // The new transport API is async-first
+        // Use execute_sequential_async with a runtime for blocking usage
+        Err(ViscaError::InvalidState(
+            "execute_sequential requires async runtime - use execute_sequential_async".to_string(),
+        ))
     }
 
     /// Executes all commands sequentially (async).
@@ -459,7 +450,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
         for (i, prepared) in self.commands.into_iter().enumerate() {
             log::debug!("Executing command {}: {}", i + 1, prepared.description);
 
-            match self.camera.send_raw_async(prepared.command.as_ref()).await {
+            match self.camera.send_raw(prepared.command.as_ref()).await {
                 Ok(response) => responses.push(response),
                 Err(e) => {
                     log::error!("Command {} failed: {}", prepared.description, e);
@@ -519,7 +510,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
                     );
 
                     let camera_guard = camera.lock().await;
-                    let result = camera_guard.send_raw_async(prepared.command.as_ref()).await;
+                    let result = camera_guard.send_raw(prepared.command.as_ref()).await;
                     drop(camera_guard); // Release lock as soon as possible
 
                     match &result {

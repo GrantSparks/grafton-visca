@@ -4,8 +4,6 @@
 
 #[cfg(feature = "blocking-client")]
 mod common;
-#[cfg(feature = "blocking-client")]
-use common::blocking::UdpTransport;
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::{
@@ -15,7 +13,6 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
-    transport::BlockingAdapter,
     Error,
 };
 #[cfg(feature = "blocking-client")]
@@ -36,14 +33,14 @@ fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::init();
 
-    // Connect to camera using UDP
-    let udp_transport = UdpTransport::new("192.168.1.100:1259")?;
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
+    // Connect to camera using UDP (async transport with block_on)
+    let udp_transport = block_on(common::r#async::udp_transport("192.168.1.100:1259"))?;
+    let camera = Camera::<PTZOpticsG2>::new(udp_transport);
     println!("Connected to camera via UDP");
 
     // Or connect using TCP
-    // let tcp_transport = TcpTransport::new("192.168.1.100:5678")?;
-    // let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(tcp_transport));
+    // let tcp_transport = block_on(common::r#async::tcp_transport("192.168.1.100:5678"))?;
+    // let mut camera = Camera::<PTZOpticsG2>::new(tcp_transport);
 
     // Display camera capabilities
     let caps = camera.capabilities();

@@ -8,7 +8,7 @@ mod common;
 use common::blocking::TcpTransport;
 
 use grafton_visca::camera::{Camera, PTZOpticsG2};
-use grafton_visca::transport::BlockingAdapter;
+
 use grafton_visca::Error;
 use std::env;
 
@@ -34,8 +34,8 @@ fn main() -> Result<(), Error> {
     // Connect to camera using blocking transport
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
-    let transport = TcpTransport::new(camera_addr)?;
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let transport = common::blocking::tcp_transport(camera_addr)?;
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
     // We need to use tokio runtime for async methods
     let runtime = tokio::runtime::Runtime::new()?;

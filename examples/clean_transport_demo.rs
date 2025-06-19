@@ -3,7 +3,6 @@
 //! This example shows the simplified, cleaned-up transport API without
 //! any legacy compatibility layers.
 
-use std::time::Duration;
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{

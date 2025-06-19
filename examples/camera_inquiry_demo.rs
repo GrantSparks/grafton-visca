@@ -7,7 +7,7 @@
 //! - Use profile-aware unit conversions
 
 mod common;
-use common::r#async::AsyncTcpTransport;
+use common::r#async::tcp_transport;
 use grafton_visca::camera::{Camera, PTZOpticsG2};
 use grafton_visca::Error;
 
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Error> {
 
     // Connect to camera
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = AsyncTcpTransport::new(&camera_addr).await?;
+    let transport = tcp_transport(&camera_addr).await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Query power state
