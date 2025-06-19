@@ -21,7 +21,6 @@ mod tcp;
 /// Core transport traits and types
 pub mod traits;
 mod udp;
-pub mod unified;
 
 // Public re-exports
 #[cfg(feature = "blocking-client")]
@@ -29,9 +28,6 @@ pub use self::{tcp::TcpTransport, udp::UdpTransport};
 
 #[cfg(feature = "async-client")]
 pub use self::{tcp::AsyncTcpTransport, udp::AsyncUdpTransport};
-
-// Unified transport re-exports
-pub use self::unified::UnifiedTransport;
 
 // Channel transport re-exports
 #[cfg(feature = "async-client")]
