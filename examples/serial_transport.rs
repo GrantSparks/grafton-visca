@@ -14,7 +14,7 @@ use std::{io, time::Duration};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::{
-    command::response::{parse_response as parse_response_typed, Response},
+    command::response::Response,
     Command, Error,
 };
 
@@ -141,12 +141,9 @@ impl BlockingTransport for SerialTransport {
                                     if response.len() == 3 {
                                         Ok(Response::Completion)
                                     } else {
-                                        // Try to parse as typed response if available
-                                        if let Some(resp_type) = command.response_type() {
-                                            parse_response_typed(&response, &resp_type)
-                                        } else {
-                                            Ok(Response::Completion)
-                                        }
+                                        // For demo purposes, just return completion for data responses
+                                        // In a real implementation, you'd parse the specific response type
+                                        Ok(Response::Completion)
                                     }
                                 }
                                 0x60 => {

@@ -15,9 +15,12 @@ mod async_example {
     use grafton_visca::{
         camera::{Camera, PTZOpticsG2},
         command::response::Response,
-        transport::{BlockingTransport, Transport, TransportFuture},
+        transport::{Transport, TransportFuture},
         Command, Error,
     };
+
+    #[cfg(feature = "blocking-client")]
+    use grafton_visca::transport::BlockingTransport;
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
@@ -77,6 +80,7 @@ mod async_example {
     }
 
     /// Implement the blocking transport trait
+    #[cfg(feature = "blocking-client")]
     impl BlockingTransport for MockTransport {
         fn send_command_blocking(&mut self, command: &dyn Command) -> Result<Response, Error> {
             // Log the command being sent
