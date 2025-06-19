@@ -10,6 +10,8 @@
 use crate::camera::{Camera, CameraProfile};
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{Error, Response};
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+use crate::Command;
 
 /// Base trait for camera extensions.
 ///
