@@ -3,16 +3,21 @@
 //! These implementations demonstrate how minimal transport-specific code can be
 //! when all VISCA protocol logic is handled by ViscaTransport.
 
+#[cfg(feature = "async-client")]
 use std::{io, time::Duration};
 
+#[cfg(feature = "async-client")]
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UdpSocket},
 };
 
+#[cfg(feature = "async-client")]
 use super::{RawTransport, TransportFuture};
+#[cfg(feature = "async-client")]
 use crate::error::Error;
 
+#[cfg(feature = "async-client")]
 /// TCP transport implementation.
 #[derive(Debug)]
 pub struct TcpTransport {
@@ -20,6 +25,7 @@ pub struct TcpTransport {
     description: String,
 }
 
+#[cfg(feature = "async-client")]
 impl TcpTransport {
     /// Create a new TCP transport.
     pub async fn connect(address: &str) -> io::Result<Self> {
@@ -42,6 +48,7 @@ impl TcpTransport {
     }
 }
 
+#[cfg(feature = "async-client")]
 impl RawTransport for TcpTransport {
     fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
         Box::pin(async move {
@@ -105,6 +112,7 @@ impl RawTransport for TcpTransport {
     }
 }
 
+#[cfg(feature = "async-client")]
 /// UDP transport implementation.
 #[derive(Debug)]
 pub struct UdpTransport {
@@ -113,6 +121,7 @@ pub struct UdpTransport {
     description: String,
 }
 
+#[cfg(feature = "async-client")]
 impl UdpTransport {
     /// Create a new UDP transport.
     pub async fn connect(address: &str) -> io::Result<Self> {
@@ -125,6 +134,7 @@ impl UdpTransport {
     }
 }
 
+#[cfg(feature = "async-client")]
 impl RawTransport for UdpTransport {
     fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
         Box::pin(async move {
@@ -167,6 +177,7 @@ impl RawTransport for UdpTransport {
     }
 }
 
+#[cfg(feature = "async-client")]
 /// Serial transport implementation (mock for demonstration).
 #[derive(Debug)]
 pub struct SerialTransport {
@@ -174,6 +185,7 @@ pub struct SerialTransport {
     description: String,
 }
 
+#[cfg(feature = "async-client")]
 impl SerialTransport {
     /// Create a new serial transport.
     /// In a real implementation, this would take a serial port.
@@ -185,6 +197,7 @@ impl SerialTransport {
     }
 }
 
+#[cfg(feature = "async-client")]
 impl RawTransport for SerialTransport {
     fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
         Box::pin(async move {

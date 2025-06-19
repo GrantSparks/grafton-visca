@@ -3,6 +3,7 @@
 //! Handles all VISCA protocol logic including socket management, response parsing,
 //! and command lifecycle management.
 
+#[cfg(feature = "async-client")]
 use crate::{
     command::response::{parse_response as parse_response_typed, Response, ResponseType},
     error::Error,
@@ -10,8 +11,10 @@ use crate::{
     Command,
 };
 
+#[cfg(feature = "async-client")]
 use super::RawTransport;
 
+#[cfg(feature = "async-client")]
 /// VISCA transport that handles protocol logic and manages an underlying raw transport.
 ///
 /// This is the main transport type that users interact with. It wraps a RawTransport
@@ -22,12 +25,14 @@ pub struct ViscaTransport<T: RawTransport> {
     pending_commands: [Option<PendingCommand>; 2],
 }
 
+#[cfg(feature = "async-client")]
 #[derive(Debug, Clone, Copy)]
 struct PendingCommand {
     response_type: Option<ResponseType>,
     acknowledged: bool,
 }
 
+#[cfg(feature = "async-client")]
 impl<T: RawTransport> ViscaTransport<T> {
     /// Create a new VISCA transport wrapping a raw transport.
     pub fn new(raw: T) -> Self {
