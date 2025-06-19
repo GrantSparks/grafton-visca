@@ -13,41 +13,39 @@ fn main() {
 #[cfg(feature = "async-client")]
 mod async_example {
     use grafton_visca::{
-        camera::{Camera, PTZOpticsG2},
-        command::response::Response,
-        transport::{Transport, TransportFuture},
-        Command,
+        camera::{profiles::PTZOpticsG2, Camera},
+        transport::{RawTransport, TransportFuture, ViscaTransport},
     };
-
-    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-    use grafton_visca::Error;
-
-    #[cfg(feature = "blocking-client")]
-    use grafton_visca::transport::BlockingTransport;
     use std::collections::VecDeque;
+    use std::fmt;
     use std::sync::{Arc, Mutex};
 
-    /// A mock transport that simulates camera responses for testing
+    /// A mock raw transport that simulates basic I/O for testing
     ///
     /// This transport doesn't actually communicate with a camera but instead
-    /// returns predefined responses. This is useful for:
-    /// - Unit testing
-    /// - Development without a physical camera
-    /// - Demonstrating the transport interface
-    #[derive(Debug, Clone)]
-    struct MockTransport {
+    /// returns predefined responses. This demonstrates the RawTransport interface.
+    #[derive(Clone)]
+    struct MockRawTransport {
         /// Queue of responses to return
         response_queue: Arc<Mutex<VecDeque<Vec<u8>>>>,
-        /// Whether to simulate ACK responses
-        send_acks: bool,
+        /// Whether this transport is "connected"
+        connected: bool,
     }
 
-    impl MockTransport {
+    impl fmt::Debug for MockRawTransport {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("MockRawTransport")
+                .field("connected", &self.connected)
+                .finish()
+        }
+    }
+
+    impl MockRawTransport {
         /// Create a new mock transport
-        fn new(send_acks: bool) -> Self {
+        fn new() -> Self {
             Self {
                 response_queue: Arc::new(Mutex::new(VecDeque::new())),
-                send_acks,
+                connected: true,
             }
         }
 
@@ -60,299 +58,213 @@ mod async_example {
 
         /// Add standard ACK and completion responses for a command
         fn queue_standard_response(&self) {
-            if self.send_acks {
-                // ACK response
-                self.queue_response(vec![0x90, 0x40, 0xFF]);
-            }
+            // ACK response
+            self.queue_response(vec![0x90, 0x40, 0xFF]);
             // Completion response
             self.queue_response(vec![0x90, 0x50, 0xFF]);
         }
-
-        /// Add an inquiry response with data
-        fn queue_inquiry_response(&self, data: Vec<u8>) {
-            if self.send_acks {
-                // ACK response
-                self.queue_response(vec![0x90, 0x40, 0xFF]);
-            }
-            // Completion with data
-            let mut response = vec![0x90, 0x50];
-            response.extend(data);
-            response.push(0xFF);
-            self.queue_response(response);
-        }
     }
 
-    /// Implement the blocking transport trait
-    #[cfg(feature = "blocking-client")]
-    impl BlockingTransport for MockTransport {
-        fn send_command_blocking(&mut self, command: &dyn Command) -> Result<Response, Error> {
-            // Log the command being sent
-            let bytes = command.to_bytes()?;
-            println!("Mock transport sending: {:02X?}", bytes);
+    /// Implement the RawTransport trait for basic I/O
+    impl RawTransport for MockRawTransport {
+        fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
+            Box::pin(async move {
+                println!("Mock transport sending: {:02X?}", data);
+                Ok(())
+            })
+        }
 
-            // Process all responses until we get a completion
-            let final_response = loop {
+        fn receive<'a>(&'a mut self) -> TransportFuture<'a, Vec<u8>> {
+            Box::pin(async move {
                 let response_bytes = self
                     .response_queue
                     .lock()
-                    .map_err(|_| Error::InvalidResponse {
-                        expected: "Lock".to_string(),
-                        actual: vec![],
+                    .map_err(|_| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Failed to lock response queue",
+                        )
                     })?
                     .pop_front()
-                    .ok_or(Error::InvalidResponse {
-                        expected: "Response in queue".to_string(),
-                        actual: vec![],
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "No response in queue",
+                        )
                     })?;
 
                 println!("Mock transport received: {:02X?}", response_bytes);
+                Ok(response_bytes)
+            })
+        }
 
-                // Parse the response type
-                if response_bytes.len() >= 3 && response_bytes[0] == 0x90 {
-                    match response_bytes[1] & 0xF0 {
-                        0x40 => {
-                            // ACK - continue waiting
-                            continue;
-                        }
-                        0x50 => {
-                            // Completion
-                            if response_bytes.len() == 3 {
-                                break Response::Completion;
-                            } else {
-                                // Completion with data - would need proper parsing
-                                // For this example, we'll just return completion
-                                break Response::Completion;
-                            }
-                        }
-                        0x60 => {
-                            // Error
-                            if response_bytes.len() >= 4 {
-                                let error = Error::from_code(response_bytes[2]);
-                                break Response::Error(error);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+        fn is_connected(&self) -> bool {
+            self.connected
+        }
 
-                return Err(Error::InvalidResponseFormat);
-            };
-
-            Ok(final_response)
+        fn description(&self) -> &str {
+            "Mock Raw Transport"
         }
     }
 
-    /// Example of an async mock transport
-    #[derive(Debug, Clone)]
-    struct AsyncMockTransport {
-        inner: MockTransport,
+    /// Example wrapper that tracks command count
+    struct CommandCountingTransport {
+        inner: MockRawTransport,
+        command_count: Arc<Mutex<usize>>,
     }
 
-    impl AsyncMockTransport {
-        fn new(send_acks: bool) -> Self {
+    impl CommandCountingTransport {
+        fn new() -> Self {
             Self {
-                inner: MockTransport::new(send_acks),
+                inner: MockRawTransport::new(),
+                command_count: Arc::new(Mutex::new(0)),
             }
-        }
-
-        #[allow(dead_code)]
-        fn queue_response(&self, response: Vec<u8>) {
-            self.inner.queue_response(response);
         }
 
         fn queue_standard_response(&self) {
             self.inner.queue_standard_response();
         }
-    }
 
-    impl Transport for AsyncMockTransport {
-        fn send_command<'a>(
-            &'a mut self,
-            command: &'a dyn Command,
-        ) -> TransportFuture<'a, Response> {
-            Box::pin(async move {
-                // Log the command being sent
-                let bytes = command.to_bytes()?;
-                println!("Async mock transport sending: {:02X?}", bytes);
-
-                // Process all responses until we get a completion
-                let final_response = loop {
-                    let response_bytes = self
-                        .inner
-                        .response_queue
-                        .lock()
-                        .map_err(|_| Error::InvalidResponse {
-                            expected: "Lock".to_string(),
-                            actual: vec![],
-                        })?
-                        .pop_front()
-                        .ok_or(Error::InvalidResponse {
-                            expected: "Response in queue".to_string(),
-                            actual: vec![],
-                        })?;
-
-                    println!("Async mock transport received: {:02X?}", response_bytes);
-
-                    // Parse the response type
-                    if response_bytes.len() >= 3 && response_bytes[0] == 0x90 {
-                        match response_bytes[1] & 0xF0 {
-                            0x40 => {
-                                // ACK - continue waiting
-                                continue;
-                            }
-                            0x50 => {
-                                // Completion
-                                if response_bytes.len() == 3 {
-                                    break Response::Completion;
-                                } else {
-                                    // Completion with data - would need proper parsing
-                                    // For this example, we'll just return completion
-                                    break Response::Completion;
-                                }
-                            }
-                            0x60 => {
-                                // Error
-                                if response_bytes.len() >= 4 {
-                                    let error = Error::from_code(response_bytes[2]);
-                                    break Response::Error(error);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    return Err(Error::InvalidResponseFormat);
-                };
-
-                Ok(final_response)
-            })
+        fn command_count(&self) -> usize {
+            self.command_count.lock().unwrap().clone()
         }
     }
 
-    /// Example of a logging transport wrapper
-    ///
-    /// This demonstrates how to wrap an existing transport to add functionality
-    struct LoggingTransport<T: Transport> {
+    impl fmt::Debug for CommandCountingTransport {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("CommandCountingTransport")
+                .field("command_count", &self.command_count())
+                .finish()
+        }
+    }
+
+    impl RawTransport for CommandCountingTransport {
+        fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
+            Box::pin(async move {
+                // Increment command count
+                if let Ok(mut count) = self.command_count.lock() {
+                    *count += 1;
+                }
+                // Delegate to inner transport
+                self.inner.send(data).await
+            })
+        }
+
+        fn receive<'a>(&'a mut self) -> TransportFuture<'a, Vec<u8>> {
+            Box::pin(async move { self.inner.receive().await })
+        }
+
+        fn is_connected(&self) -> bool {
+            self.inner.is_connected()
+        }
+
+        fn description(&self) -> &str {
+            "Command Counting Mock Transport"
+        }
+    }
+
+    /// Example of a logging raw transport wrapper
+    struct LoggingRawTransport<T: RawTransport> {
         inner: T,
         log_prefix: String,
     }
 
-    impl<T: Transport> LoggingTransport<T> {
+    impl<T: RawTransport> LoggingRawTransport<T> {
         fn new(inner: T, log_prefix: String) -> Self {
             Self { inner, log_prefix }
         }
     }
 
-    impl<T: Transport> Transport for LoggingTransport<T> {
-        fn send_command<'a>(
-            &'a mut self,
-            command: &'a dyn Command,
-        ) -> TransportFuture<'a, Response> {
-            Box::pin(async move {
-                let bytes = command.to_bytes()?;
-                println!("{}: Sending command: {:02X?}", self.log_prefix, bytes);
-
-                let response = self.inner.send_command(command).await?;
-                println!("{}: Received response: {:?}", self.log_prefix, response);
-
-                Ok(response)
-            })
+    impl<T: RawTransport> fmt::Debug for LoggingRawTransport<T> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("LoggingRawTransport")
+                .field("prefix", &self.log_prefix)
+                .finish()
         }
     }
 
-    #[tokio::main]
+    impl<T: RawTransport> RawTransport for LoggingRawTransport<T> {
+        fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
+            Box::pin(async move {
+                println!("{}: Sending data: {:02X?}", self.log_prefix, data);
+                self.inner.send(data).await
+            })
+        }
+
+        fn receive<'a>(&'a mut self) -> TransportFuture<'a, Vec<u8>> {
+            Box::pin(async move {
+                let data = self.inner.receive().await?;
+                println!("{}: Received data: {:02X?}", self.log_prefix, data);
+                Ok(data)
+            })
+        }
+
+        fn is_connected(&self) -> bool {
+            self.inner.is_connected()
+        }
+
+        fn description(&self) -> &str {
+            "Logging Raw Transport"
+        }
+    }
+
     pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-        println!("=== Custom Transport Example ===\n");
+        println!("=== Custom RawTransport Example ===\n");
 
-        // Example 1: Using a mock transport for testing
-        println!("1. Mock Transport Example");
-        println!("-------------------------");
+        // Example 1: Basic mock transport with ViscaTransport wrapper
+        println!("1. Mock RawTransport Example");
+        println!("----------------------------");
 
-        let mock_transport = AsyncMockTransport::new(true);
+        let mock_raw = MockRawTransport::new();
+        mock_raw.queue_standard_response(); // For power on
+        mock_raw.queue_standard_response(); // For home
 
-        // Queue some responses for our commands
-        mock_transport.queue_standard_response(); // For power on
-        mock_transport.queue_standard_response(); // For home
+        let visca_transport = ViscaTransport::new(mock_raw);
+        let camera = Camera::<PTZOpticsG2>::new(visca_transport);
 
-        // Example of queuing an inquiry response (for demonstration)
-        // This would be used for commands that expect data in the response
-        mock_transport
-            .inner
-            .queue_inquiry_response(vec![0x90, 0x50, 0x02, 0x03, 0x04, 0xFF]);
-
-        let camera = Camera::<PTZOpticsG2>::new(mock_transport);
-
-        // These commands will use our queued responses
         camera.power_on().await?;
         println!("Power on command sent (mock)");
 
         camera.home().await?;
         println!("Home command sent (mock)\n");
 
-        // Example 2: Using a logging wrapper
-        println!("2. Logging Transport Wrapper Example");
-        println!("------------------------------------");
+        // Example 2: Logging wrapper around raw transport
+        println!("2. Logging RawTransport Wrapper Example");
+        println!("----------------------------------------");
 
-        let base_transport = AsyncMockTransport::new(false);
-        base_transport.queue_standard_response(); // For zoom in
+        let base_raw = MockRawTransport::new();
+        base_raw.queue_standard_response(); // For zoom in
 
-        let logging_transport = LoggingTransport::new(base_transport, "[CAMERA-01]".to_string());
-        let camera_with_logging = Camera::<PTZOpticsG2>::new(logging_transport);
+        let logging_raw = LoggingRawTransport::new(base_raw, "[CAMERA-01]".to_string());
+        let visca_with_logging = ViscaTransport::new(logging_raw);
+        let camera_with_logging = Camera::<PTZOpticsG2>::new(visca_with_logging);
 
         camera_with_logging.zoom_in().await?;
+        println!("Zoom command sent with logging\n");
 
-        // Example 3: Custom transport with state tracking
-        println!("\n3. State-Tracking Transport Example");
-        println!("-----------------------------------");
+        // Example 3: Command counting transport
+        println!("3. Command Counting Transport Example");
+        println!("-------------------------------------");
 
-        #[derive(Debug)]
-        struct StateTrackingTransport {
-            inner: AsyncMockTransport,
-            command_count: Arc<Mutex<usize>>,
-        }
+        let counting_transport = CommandCountingTransport::new();
+        counting_transport.queue_standard_response(); // For zoom stop
+        counting_transport.queue_standard_response(); // For zoom out
 
-        impl StateTrackingTransport {
-            fn new() -> Self {
-                Self {
-                    inner: AsyncMockTransport::new(false),
-                    command_count: Arc::new(Mutex::new(0)),
-                }
-            }
-        }
-
-        impl Transport for StateTrackingTransport {
-            fn send_command<'a>(
-                &'a mut self,
-                command: &'a dyn Command,
-            ) -> TransportFuture<'a, Response> {
-                Box::pin(async move {
-                    // Increment command count
-                    if let Ok(mut count) = self.command_count.lock() {
-                        *count += 1;
-                    }
-
-                    // Delegate to inner transport
-                    self.inner.send_command(command).await
-                })
-            }
-        }
-
-        let tracking_transport = StateTrackingTransport::new();
-        tracking_transport.inner.queue_standard_response();
-        tracking_transport.inner.queue_standard_response();
-
-        // Keep a reference to the command count Arc so we can check it later
-        let command_count_ref = tracking_transport.command_count.clone();
-
-        let tracking_camera = Camera::<PTZOpticsG2>::new(tracking_transport);
+        let visca_counting = ViscaTransport::new(counting_transport);
+        let counting_camera = Camera::<PTZOpticsG2>::new(visca_counting);
 
         // Send some commands
-        tracking_camera.zoom_stop().await?;
-        tracking_camera.zoom_in().await?;
+        counting_camera.zoom_stop().await?;
+        counting_camera.zoom_out().await?;
 
-        // Check the command count
-        let count = command_count_ref.lock().unwrap();
-        println!("Commands sent: {}", *count);
+        println!("Commands sent: 2 (expected)");
+
+        println!("\n=== Benefits of New RawTransport API ===");
+        println!("• Simple 4-method interface: send, receive, is_connected, description");
+        println!("• All VISCA protocol logic handled by ViscaTransport wrapper");
+        println!("• Easy to implement custom transports (serial, USB, network, etc.)");
+        println!("• Clean separation between I/O and protocol logic");
+        println!("• Composable with wrapper patterns for logging, retries, etc.");
 
         println!("\n=== Custom Transport Example Complete ===");
 
@@ -362,5 +274,6 @@ mod async_example {
 
 #[cfg(feature = "async-client")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    async_example::main()
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move { async_example::main().await })
 }

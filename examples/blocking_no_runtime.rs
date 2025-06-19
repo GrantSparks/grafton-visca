@@ -1,89 +1,84 @@
-//! Example demonstrating the blocking API without any async runtime.
+//! Example demonstrating how to use the new async transport API
+//! in a blocking context using a minimal runtime.
 //!
-//! This shows that the blocking API can work without tokio or any async dependencies.
-//!
-//! Note: This example requires that ONLY the blocking-client feature is enabled.
-//! If async-client is also enabled, the async API takes precedence.
+//! The new transport API is async-first, but this shows how to use it
+//! in blocking code with a minimal tokio runtime.
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-mod common;
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-use common::blocking::TcpTransport;
-
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use grafton_visca::{
     camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
-    transport::BlockingAdapter,
+    transport::create,
 };
 
 // Import Degrees from the correct path
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use grafton_visca::camera::units::Degrees;
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use std::time::Duration;
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+// Use a minimal tokio runtime for blocking execution
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(fut)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
 
     // Camera IP address with port
-    let camera_ip =
-        std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:52381".to_string());
+    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
     println!("Connecting to camera at {}", camera_ip);
 
-    // Create a blocking TCP transport
-    let tcp_transport = TcpTransport::new(&camera_ip)?;
-
-    // Wrap it in a BlockingAdapter to make it compatible with the Camera struct
-    let transport = BlockingAdapter(tcp_transport);
+    // Create transport using the new clean API
+    let transport = block_on(create::tcp(&camera_ip))?;
 
     // Create camera with PTZOpticsG2 profile
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
-    println!("Camera created successfully!");
+    println!("Camera created successfully with new transport API!");
 
     // Test basic operations
-    println!("\nTesting blocking API without async runtime:");
+    println!("\nTesting new async transport API in blocking context:");
 
     // Power on
     println!("Powering on...");
-    camera.power_on()?;
+    block_on(camera.power_on())?;
 
     // Wait a moment for camera to initialize
     std::thread::sleep(Duration::from_secs(2));
 
     // Move to home position
     println!("Moving to home position...");
-    camera.home()?;
+    block_on(camera.home())?;
 
     // Wait for movement to complete
     std::thread::sleep(Duration::from_secs(3));
 
     // Test zoom
     println!("Testing zoom in...");
-    camera.zoom_in()?;
+    block_on(camera.zoom_in())?;
     std::thread::sleep(Duration::from_millis(500));
 
     println!("Stopping zoom...");
-    camera.zoom_stop()?;
+    block_on(camera.zoom_stop())?;
 
     // Test pan/tilt movement
     println!("Testing pan/tilt movement...");
 
     // Move right
     println!("Moving right...");
-    camera.move_continuous(PanTiltDirection::Right, 5, 0)?;
+    block_on(camera.move_continuous(PanTiltDirection::Right, 5, 0))?;
     std::thread::sleep(Duration::from_millis(500));
 
     // Stop movement
     println!("Stopping movement...");
-    camera.stop()?;
+    block_on(camera.stop())?;
 
     // Move to specific position
     println!("Moving to position (30°, 15°)...");
-    camera.set_position(Degrees(30.0), Degrees(15.0))?;
+    block_on(camera.set_position(Degrees(30.0), Degrees(15.0)))?;
 
     // Wait for movement
     std::thread::sleep(Duration::from_secs(2));
@@ -91,27 +86,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test presets
     println!("Setting preset 1...");
     let preset1 = G2PresetId::new(1)?;
-    camera.set_preset(preset1)?;
+    block_on(camera.set_preset(preset1))?;
 
     // Move to a different position
     println!("Moving to position (-30°, -15°)...");
-    camera.set_position(Degrees(-30.0), Degrees(-15.0))?;
+    block_on(camera.set_position(Degrees(-30.0), Degrees(-15.0)))?;
     std::thread::sleep(Duration::from_secs(2));
 
     // Recall preset
     println!("Recalling preset 1...");
-    camera.recall_preset(preset1)?;
+    block_on(camera.recall_preset(preset1))?;
 
     std::thread::sleep(Duration::from_secs(2));
 
     println!("\nAll tests completed successfully!");
-    println!("The blocking API works without any async runtime!");
+    println!("The new async transport API works in blocking context with minimal runtime!");
 
     Ok(())
 }
 
-#[cfg(not(all(feature = "blocking-client", not(feature = "async-client"))))]
-fn main() {
-    eprintln!("This example requires only the blocking-client feature.");
-    eprintln!("Run with: cargo run --example blocking_no_runtime --no-default-features --features blocking-client");
-}
+// The new transport API is async-first but can be used in any context with block_on
