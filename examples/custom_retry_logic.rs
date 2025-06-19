@@ -26,6 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 3: Custom retry wrapper struct
     custom_wrapper_example().await?;
 
+    // Example 4: Advanced retry with error classification
+    advanced_retry_example().await?;
+
     Ok(())
 }
 
@@ -123,6 +126,17 @@ async fn custom_wrapper_example() -> Result<(), Error> {
     // Now all operations automatically retry
     match camera.zoom_in().await {
         Ok(_) => println!("  ✓ Zoom in successful"),
+        Err(e) => println!("  ✗ Failed after retries: {}", e),
+    }
+
+    // Use other retry methods
+    match camera.home().await {
+        Ok(_) => println!("  ✓ Home successful"),
+        Err(e) => println!("  ✗ Failed after retries: {}", e),
+    }
+
+    match camera.get_power_state().await {
+        Ok(power_on) => println!("  ✓ Power state: {}", if power_on { "ON" } else { "OFF" }),
         Err(e) => println!("  ✗ Failed after retries: {}", e),
     }
 
@@ -275,4 +289,39 @@ where
         }
     }
     unreachable!()
+}
+
+/// Example 4: Advanced retry with error classification
+async fn advanced_retry_example() -> Result<(), Error> {
+    println!("\n4. Advanced retry with error classification:");
+
+    let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
+
+    // Use the retry function with error classification
+    let result = retry_with_classification(|| async { camera.get_power_state().await }, 3).await;
+
+    match result {
+        Ok(power_on) => println!(
+            "  ✓ Power state retrieved: {}",
+            if power_on { "ON" } else { "OFF" }
+        ),
+        Err(e) => println!("  ✗ Failed with non-retryable error: {}", e),
+    }
+
+    // Another example with a different operation
+    let zoom_result = retry_with_classification(|| async { camera.zoom_in().await }, 3).await;
+
+    match zoom_result {
+        Ok(_) => println!("  ✓ Zoom in successful with retry classification"),
+        Err(e) => {
+            if is_retryable(&e) {
+                println!("  ✗ Failed with retryable error after all attempts: {}", e);
+            } else {
+                println!("  ✗ Failed with non-retryable error: {}", e);
+            }
+        }
+    }
+
+    Ok(())
 }
