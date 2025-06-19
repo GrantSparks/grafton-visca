@@ -5,7 +5,6 @@
 //! This example now uses the new `Camera<P>` API with full inquiry support!
 
 mod common;
-use common::blocking::TcpTransport;
 
 use grafton_visca::camera::{Camera, PTZOpticsG2};
 

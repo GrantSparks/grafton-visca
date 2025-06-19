@@ -8,8 +8,9 @@
 //! - `async-client`: Provides async command execution
 
 use crate::camera::{Camera, CameraProfile};
+use crate::Error;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{Command, Error as ViscaError, Response};
+use crate::{Command, Response};
 
 /// Base trait for camera extensions.
 ///
@@ -41,20 +42,20 @@ impl<P: CameraProfile> CameraExtension<P> for Camera<P> {}
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub trait CustomManufacturerExt<P: CameraProfile>: CameraExtension<P> {
     /// Example: Send a custom manufacturer-specific command.
-    fn send_manufacturer_command(&mut self, data: &[u8]) -> Result<Response, ViscaError>;
+    fn send_manufacturer_command(&mut self, data: &[u8]) -> Result<Response, Error>;
 }
 
 // Implementation for Camera<P> types
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 impl<P: CameraProfile> CustomManufacturerExt<P> for Camera<P> {
-    fn send_manufacturer_command(&mut self, data: &[u8]) -> Result<Response, ViscaError> {
+    fn send_manufacturer_command(&mut self, data: &[u8]) -> Result<Response, Error> {
         // Create a custom command
         struct ManufacturerCommand<'a> {
             data: &'a [u8],
         }
 
         impl Command for ManufacturerCommand<'_> {
-            fn to_bytes(&self) -> Result<Vec<u8>, ViscaError> {
+            fn to_bytes(&self) -> Result<Vec<u8>, Error> {
                 let mut bytes = vec![0x81, 0x01]; // Standard header
                 bytes.extend_from_slice(self.data);
                 bytes.push(0xFF); // Terminator
@@ -79,7 +80,7 @@ impl<P: CameraProfile> CustomManufacturerExt<P> for Camera<P> {
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub trait DiagnosticsExt<P: CameraProfile>: CameraExtension<P> {
     /// Get detailed diagnostic information.
-    fn get_diagnostics(&mut self) -> Result<DiagnosticInfo, ViscaError> {
+    fn get_diagnostics(&mut self) -> Result<DiagnosticInfo, Error> {
         // This is just an example - real implementation would query multiple status values
         Ok(DiagnosticInfo {
             model: P::MODEL_NAME.to_string(),
@@ -90,7 +91,7 @@ pub trait DiagnosticsExt<P: CameraProfile>: CameraExtension<P> {
     }
 
     /// Run a self-test sequence.
-    fn run_self_test(&mut self) -> Result<SelfTestResult, ViscaError> {
+    fn run_self_test(&mut self) -> Result<SelfTestResult, Error> {
         // Example self-test implementation
         Ok(SelfTestResult {
             pan_tilt_ok: true,
@@ -134,7 +135,7 @@ impl<P: CameraProfile> DiagnosticsExt<P> for Camera<P> {}
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub trait ScriptingExt<P: CameraProfile>: CameraExtension<P> {
     /// Execute a sequence of movements with timing.
-    fn execute_movement_script(&mut self, script: &[MovementStep]) -> Result<(), ViscaError> {
+    fn execute_movement_script(&mut self, script: &[MovementStep]) -> Result<(), Error> {
         for step in script {
             match &step.action {
                 MovementAction::PanTilt { pan, tilt } => {
@@ -191,13 +192,13 @@ impl<P: CameraProfile> ScriptingExt<P> for Camera<P> {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Camera, Error as ViscaError};
+    use crate::{Camera, Error};
 
     // Test extension trait defined manually
     #[allow(dead_code)]
     trait TestExt<P: CameraProfile>: CameraExtension<P> {
         /// Test method.
-        fn test_method(&self, value: u8) -> Result<bool, ViscaError> {
+        fn test_method(&self, value: u8) -> Result<bool, Error> {
             Ok(value > 0)
         }
     }

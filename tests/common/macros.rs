@@ -195,29 +195,6 @@ macro_rules! assert_send_ok {
     }};
 }
 
-/// Run a test with a mock device that returns standard ACK/Completion.
-///
-/// # Example
-/// ```no_run
-/// # #[cfg(feature = "blocking-client")]
-/// # {
-/// with_mock_device!(|device| {
-///     // Test code here
-/// });
-/// # }
-/// ```
-// Temporarily disabled due to transport redesign
-// #[cfg(feature = "blocking-client")]
-#[cfg(feature = "disabled-blocking-client")]
-#[macro_export]
-macro_rules! with_mock_device {
-    ($body:expr) => {{
-        // Temporarily disabled due to transport redesign
-        // let device = $crate::tests::common::MockDevice::with_completion();
-        let mut device = device;
-        $body(&mut device)
-    }};
-}
 
 #[cfg(test)]
 mod tests {
