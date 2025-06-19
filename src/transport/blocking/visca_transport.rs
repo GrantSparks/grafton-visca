@@ -50,7 +50,6 @@ impl<T: Transport> ViscaTransport<T> {
         &mut self.transport
     }
 
-
     /// Send a VISCA command and wait for the response.
     pub fn send_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         // Get command bytes

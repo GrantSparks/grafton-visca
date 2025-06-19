@@ -4,11 +4,7 @@
 //! to implement the basic send/receive operations. All VISCA protocol logic
 //! is handled by the library.
 
-use std::{
-    collections::VecDeque,
-    pin::Pin,
-    sync::{Arc, Mutex},
-};
+use std::sync::Mutex;
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{

@@ -8,9 +8,8 @@
 //! - `async-client`: Provides async command execution
 
 use crate::camera::{Camera, CameraProfile};
-use crate::Error;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{Command, Response};
+use crate::{Error, Response};
 
 /// Base trait for camera extensions.
 ///

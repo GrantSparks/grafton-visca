@@ -160,7 +160,7 @@ impl<T: RawTransport> ViscaTransport<T> {
         command: &dyn Command,
         socket_id: SocketId,
     ) -> Result<(), Error> {
-        let mut bytes = command.to_bytes()?;
+        let bytes = command.to_bytes()?;
 
         // For VISCA over IP, socket management is done at protocol level
         // Don't modify the camera address byte
