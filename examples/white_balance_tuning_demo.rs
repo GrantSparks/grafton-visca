@@ -2,8 +2,6 @@
 
 //! Demonstrates white balance fine-tuning commands.
 
-#[path = "udp_transport.rs"]
-mod udp_transport;
 mod common;
 use common::blocking::UdpTransport;
 

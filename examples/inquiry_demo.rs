@@ -4,8 +4,6 @@
 //!
 //! This example now uses the new `Camera<P>` API with full inquiry support!
 
-#[path = "tcp_transport.rs"]
-mod tcp_transport;
 mod common;
 use common::blocking::TcpTransport;
 

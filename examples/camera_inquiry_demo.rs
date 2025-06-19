@@ -12,8 +12,6 @@ use grafton_visca::camera::{Camera, PTZOpticsG2};
 use grafton_visca::Error;
 
 // Include the transport implementation from the example file
-#[path = "tcp_transport.rs"]
-mod tcp_transport;
 
 #[cfg(not(feature = "async-client"))]
 fn main() {

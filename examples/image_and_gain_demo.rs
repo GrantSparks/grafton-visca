@@ -2,8 +2,6 @@
 
 //! Example demonstrating image quality and gain control features.
 
-#[path = "udp_transport.rs"]
-mod udp_transport;
 mod common;
 use common::blocking::UdpTransport;
 

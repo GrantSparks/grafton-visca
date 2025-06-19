@@ -6,7 +6,7 @@
 
 use grafton_visca::{
     camera::{Camera, PTZOpticsG2},
-    command::response::{Response, ResponseType},
+    command::response::Response,
     transport::{BlockingTransport, Transport, TransportFuture},
     Command, Error,
 };
@@ -75,11 +75,8 @@ impl BlockingTransport for MockTransport {
         let bytes = command.to_bytes()?;
         println!("Mock transport sending: {:02X?}", bytes);
 
-        // Get the next response from the queue
-        let mut final_response = None;
-
         // Process all responses until we get a completion
-        loop {
+        let final_response = loop {
             let response_bytes = self
                 .response_queue
                 .lock()
@@ -105,21 +102,18 @@ impl BlockingTransport for MockTransport {
                     0x50 => {
                         // Completion
                         if response_bytes.len() == 3 {
-                            final_response = Some(Response::Completion);
-                            break;
+                            break Response::Completion;
                         } else {
                             // Completion with data - would need proper parsing
                             // For this example, we'll just return completion
-                            final_response = Some(Response::Completion);
-                            break;
+                            break Response::Completion;
                         }
                     }
                     0x60 => {
                         // Error
                         if response_bytes.len() >= 4 {
                             let error = Error::from_code(response_bytes[2]);
-                            final_response = Some(Response::Error(error));
-                            break;
+                            break Response::Error(error);
                         }
                     }
                     _ => {}
@@ -127,12 +121,9 @@ impl BlockingTransport for MockTransport {
             }
 
             return Err(Error::InvalidResponseFormat);
-        }
+        };
 
-        final_response.ok_or(Error::InvalidResponse {
-            expected: "Valid response".to_string(),
-            actual: vec![],
-        })
+        Ok(final_response)
     }
 }
 
@@ -149,6 +140,7 @@ impl AsyncMockTransport {
         }
     }
 
+    #[allow(dead_code)]
     fn queue_response(&self, response: Vec<u8>) {
         self.inner.queue_response(response);
     }
@@ -186,10 +178,10 @@ impl<T: Transport> Transport for LoggingTransport<T> {
         Box::pin(async move {
             let bytes = command.to_bytes()?;
             println!("{}: Sending command: {:02X?}", self.log_prefix, bytes);
-            
+
             let response = self.inner.send_command(command).await?;
             println!("{}: Received response: {:?}", self.log_prefix, response);
-            
+
             Ok(response)
         })
     }
@@ -202,44 +194,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Using a mock transport for testing
     println!("1. Mock Transport Example");
     println!("-------------------------");
-    
-    let mut mock_transport = AsyncMockTransport::new(true);
-    
+
+    let mock_transport = AsyncMockTransport::new(true);
+
     // Queue some responses for our commands
     mock_transport.queue_standard_response(); // For power on
     mock_transport.queue_standard_response(); // For home
-    
-    let mut camera = Camera::<PTZOpticsG2>::new(mock_transport);
-    
+
+    // Example of queuing an inquiry response (for demonstration)
+    // This would be used for commands that expect data in the response
+    mock_transport
+        .inner
+        .queue_inquiry_response(vec![0x90, 0x50, 0x02, 0x03, 0x04, 0xFF]);
+
+    let camera = Camera::<PTZOpticsG2>::new(mock_transport);
+
     // These commands will use our queued responses
     camera.power_on().await?;
     println!("Power on command sent (mock)");
-    
+
     camera.home().await?;
     println!("Home command sent (mock)\n");
 
     // Example 2: Using a logging wrapper
     println!("2. Logging Transport Wrapper Example");
     println!("------------------------------------");
-    
-    let mut base_transport = AsyncMockTransport::new(false);
+
+    let base_transport = AsyncMockTransport::new(false);
     base_transport.queue_standard_response(); // For zoom in
-    
-    let mut logging_transport = LoggingTransport::new(base_transport, "[CAMERA-01]".to_string());
-    let mut camera_with_logging = Camera::<PTZOpticsG2>::new(logging_transport);
-    
+
+    let logging_transport = LoggingTransport::new(base_transport, "[CAMERA-01]".to_string());
+    let camera_with_logging = Camera::<PTZOpticsG2>::new(logging_transport);
+
     camera_with_logging.zoom_in().await?;
 
     // Example 3: Custom transport with state tracking
     println!("\n3. State-Tracking Transport Example");
     println!("-----------------------------------");
-    
+
     #[derive(Debug)]
     struct StateTrackingTransport {
         inner: AsyncMockTransport,
         command_count: Arc<Mutex<usize>>,
     }
-    
+
     impl StateTrackingTransport {
         fn new() -> Self {
             Self {
@@ -247,44 +245,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 command_count: Arc::new(Mutex::new(0)),
             }
         }
-        
-        fn get_command_count(&self) -> usize {
-            self.command_count.lock().unwrap().clone()
-        }
     }
-    
+
     impl Transport for StateTrackingTransport {
-        fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, Response> {
+        fn send_command<'a>(
+            &'a mut self,
+            command: &'a dyn Command,
+        ) -> TransportFuture<'a, Response> {
             Box::pin(async move {
                 // Increment command count
                 if let Ok(mut count) = self.command_count.lock() {
                     *count += 1;
                 }
-                
+
                 // Delegate to inner transport
                 self.inner.send_command(command).await
             })
         }
     }
-    
-    let mut tracking_transport = StateTrackingTransport::new();
+
+    let tracking_transport = StateTrackingTransport::new();
     tracking_transport.inner.queue_standard_response();
     tracking_transport.inner.queue_standard_response();
-    
+
     // Keep a reference to the command count Arc so we can check it later
     let command_count_ref = tracking_transport.command_count.clone();
-    
-    let mut tracking_camera = Camera::<PTZOpticsG2>::new(tracking_transport);
-    
+
+    let tracking_camera = Camera::<PTZOpticsG2>::new(tracking_transport);
+
     // Send some commands
     tracking_camera.zoom_stop().await?;
     tracking_camera.zoom_in().await?;
-    
+
     // Check the command count
     let count = command_count_ref.lock().unwrap();
     println!("Commands sent: {}", *count);
 
     println!("\n=== Custom Transport Example Complete ===");
-    
+
     Ok(())
 }

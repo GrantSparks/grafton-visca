@@ -3,8 +3,6 @@
 //! This example shows how to use SpeedLevel, FStop, and NoiseReductionStrength
 //! enums for more intuitive camera control.
 
-#[path = "udp_transport.rs"]
-mod udp_transport;
 mod common;
 use common::blocking::UdpTransport;
 

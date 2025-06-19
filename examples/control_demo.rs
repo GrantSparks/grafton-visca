@@ -2,8 +2,6 @@
 
 //! Example demonstrating the high-level control API for camera operations.
 
-#[path = "udp_transport.rs"]
-mod udp_transport;
 mod common;
 use common::blocking::UdpTransport;
 

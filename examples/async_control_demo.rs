@@ -7,8 +7,6 @@
 //! - Perform smooth camera movements
 //! - Control focus with async operations
 
-#[path = "udp_transport.rs"]
-mod udp_transport;
 mod common;
 use common::r#async::AsyncUdpTransport;
 

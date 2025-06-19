@@ -7,9 +7,6 @@ use grafton_visca::transport::Transport;
 use grafton_visca::Error;
 
 // Include the transport implementations from the example files
-#[cfg(feature = "blocking-client")]
-#[path = "tcp_transport.rs"]
-mod tcp_transport;
 
 #[cfg(feature = "blocking-client")]
 fn blocking_example() -> Result<(), Error> {
@@ -61,7 +58,6 @@ use common::r#async::AsyncTcpTransport;
 
 #[cfg(feature = "async-client")]
 async fn async_example() -> Result<(), Error> {
-
     println!("=== Async Transport Example ===");
 
     // Create an async TCP transport

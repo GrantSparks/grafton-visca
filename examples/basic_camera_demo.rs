@@ -1,7 +1,5 @@
 //! Basic camera control demonstration using the new Camera API
 
-#[path = "udp_transport.rs"]
-mod udp_transport;
 mod common;
 use common::blocking::UdpTransport;
 

@@ -4,9 +4,7 @@ mod common;
 use common::blocking::TcpTransport;
 use common::blocking::UdpTransport;
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2,
-    command::pan_tilt::PanTiltDirection,
-    transport::BlockingAdapter,
+    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, transport::BlockingAdapter,
     Camera, Error,
 };
 use log::{debug, info};

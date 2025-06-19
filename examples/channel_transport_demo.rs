@@ -8,12 +8,7 @@ use common::r#async::AsyncTcpTransport;
 use std::sync::Arc;
 use std::time::Duration;
 
-#[path = "tcp_transport.rs"]
-mod tcp_transport;
-
-use grafton_visca::transport::{
-    ChannelTransport, ChannelTransportBuilder, Transport,
-};
+use grafton_visca::transport::{ChannelTransport, ChannelTransportBuilder, Transport};
 use grafton_visca::{camera::profiles::PTZOpticsG2, Camera, Command};
 
 #[tokio::main]

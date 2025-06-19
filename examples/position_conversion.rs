@@ -16,11 +16,9 @@
 #[cfg(feature = "async-client")]
 mod common;
 use common::r#async::AsyncTcpTransport;
-use grafton_visca::{
-    camera::{
-        units::{Degrees, Normalized, ViscaUnits},
-        Camera, CameraProfile, PTZOpticsG2,
-    },
+use grafton_visca::camera::{
+    units::{Degrees, Normalized, ViscaUnits},
+    Camera, CameraProfile, PTZOpticsG2,
 };
 #[cfg(feature = "async-client")]
 use log::info;
