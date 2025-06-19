@@ -25,15 +25,8 @@ impl Transport for MockTransport {
     fn send_command<'a>(
         &'a mut self,
         _command: &'a dyn Command,
-        _socket_id: grafton_visca::types::SocketId,
-    ) -> TransportFuture<'a, ()> {
-        Box::pin(async { Ok(()) })
-    }
-
-    fn receive_response(
-        &mut self,
-    ) -> TransportFuture<'_, (grafton_visca::types::SocketId, Vec<u8>)> {
-        Box::pin(async { Ok((grafton_visca::types::SocketId::SOCKET_0, vec![])) })
+    ) -> TransportFuture<'a, grafton_visca::Response> {
+        Box::pin(async { Ok(grafton_visca::Response::Completion) })
     }
 }
 

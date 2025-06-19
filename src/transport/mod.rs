@@ -10,7 +10,7 @@ use std::{future::Future, pin::Pin};
 // (none)
 
 // Workspace / local-crate imports
-use crate::{error::Error, Command};
+use crate::{error::Error, Command, Response};
 
 // Submodules
 /// Channel-based transport for thread-safe sharing
@@ -18,7 +18,6 @@ use crate::{error::Error, Command};
 pub mod channel;
 pub mod common;
 mod tcp;
-mod tcp_unified;
 /// Core transport traits and types
 pub mod traits;
 mod udp;
@@ -32,14 +31,11 @@ pub use self::{tcp::TcpTransport, udp::UdpTransport};
 pub use self::{tcp::AsyncTcpTransport, udp::AsyncUdpTransport};
 
 // Unified transport re-exports
-pub use self::tcp_unified::UnifiedTcpTransport;
 pub use self::unified::UnifiedTransport;
 
 // Channel transport re-exports
 #[cfg(feature = "async-client")]
-pub use self::channel::{
-    ChannelTransport, ChannelTransportBuilder, ChannelTransportConfig, Priority,
-};
+pub use self::channel::{ChannelTransport, ChannelTransportBuilder, ChannelTransportConfig};
 
 /// Type alias for the future returned by async transport methods.
 pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
@@ -47,38 +43,35 @@ pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> 
 /// Primary async transport trait for VISCA communication.
 ///
 /// This is the main transport abstraction in v0.4.0, designed to be async-first
-/// while supporting blocking operations through adapters.
+/// while supporting blocking operations through adapters. The transport now handles
+/// the complete command lifecycle including socket management and response matching.
 pub trait Transport: Send + Sync {
-    /// Send a VISCA command to the camera asynchronously with a specific socket ID.
+    /// Send a VISCA command and wait for its complete response.
     ///
-    /// The socket ID is used for tracking concurrent commands. VISCA cameras typically
-    /// support Socket 0 and Socket 1 for up to 2 concurrent commands.
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn Command,
-        socket_id: crate::types::SocketId,
-    ) -> TransportFuture<'a, ()>;
-
-    /// Receive a response frame from the camera asynchronously.
+    /// This method handles the entire command lifecycle:
+    /// 1. Automatically assigns an available socket (0 or 1)
+    /// 2. Sends the command with the appropriate socket ID
+    /// 3. Waits for and processes all responses (ACK, completion, or error)
+    /// 4. Returns the final response
     ///
-    /// Returns a tuple of (socket_id, response_data) where:
-    /// - socket_id identifies which command this response belongs to
-    /// - response_data is the complete VISCA response (starts with 0x90 and ends with 0xFF)
-    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)>;
+    /// # Arguments
+    /// * `command` - The VISCA command to send
+    ///
+    /// # Returns
+    /// The final response from the camera (completion with data for inquiries,
+    /// or simple completion for control commands)
+    ///
+    /// # Errors
+    /// - `Error::CommandBufferFull` if both sockets are in use
+    /// - Transport errors if communication fails
+    /// - VISCA errors if the camera rejects the command
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, Response>;
 }
 
 /// Implementation of Transport for `Box<dyn Transport>` to allow dynamic dispatch.
 impl Transport for Box<dyn Transport> {
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn Command,
-        socket_id: crate::types::SocketId,
-    ) -> TransportFuture<'a, ()> {
-        (**self).send_command(command, socket_id)
-    }
-
-    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)> {
-        (**self).receive_response()
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, Response> {
+        (**self).send_command(command)
     }
 }
 
@@ -88,15 +81,8 @@ impl Transport for Box<dyn Transport> {
 #[doc(hidden)]
 #[cfg(feature = "blocking-client")]
 pub trait BlockingTransport {
-    /// Send a VISCA command to the camera synchronously with a specific socket ID.
-    fn send_command_blocking(
-        &mut self,
-        command: &dyn Command,
-        socket_id: crate::types::SocketId,
-    ) -> Result<(), Error>;
-
-    /// Receive a response frame from the camera synchronously.
-    fn receive_response_blocking(&mut self) -> Result<(crate::types::SocketId, Vec<u8>), Error>;
+    /// Send a VISCA command and wait for its complete response (blocking).
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<Response, Error>;
 }
 
 /// Adapter that implements the async Transport trait for any BlockingTransport.
@@ -109,38 +95,21 @@ pub struct BlockingAdapter<T: BlockingTransport>(pub T);
 
 #[cfg(feature = "blocking-client")]
 impl<T: BlockingTransport + Send + Sync> Transport for BlockingAdapter<T> {
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn Command,
-        socket_id: crate::types::SocketId,
-    ) -> TransportFuture<'a, ()> {
-        Box::pin(async move { self.0.send_command_blocking(command, socket_id) })
-    }
-
-    fn receive_response(&mut self) -> TransportFuture<'_, (crate::types::SocketId, Vec<u8>)> {
-        Box::pin(async move { self.0.receive_response_blocking() })
+    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, Response> {
+        Box::pin(async move { self.0.send_command_blocking(command) })
     }
 }
 
 #[cfg(all(test, feature = "blocking-client"))]
 mod tests {
     use super::*;
+    use crate::Response as ViscaResponse;
 
     struct MockBlockingTransport;
 
     impl BlockingTransport for MockBlockingTransport {
-        fn send_command_blocking(
-            &mut self,
-            _command: &dyn Command,
-            _socket_id: crate::types::SocketId,
-        ) -> Result<(), Error> {
-            Ok(())
-        }
-
-        fn receive_response_blocking(
-            &mut self,
-        ) -> Result<(crate::types::SocketId, Vec<u8>), Error> {
-            Ok((crate::types::SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF]))
+        fn send_command_blocking(&mut self, _command: &dyn Command) -> Result<Response, Error> {
+            Ok(ViscaResponse::Completion)
         }
     }
 
@@ -165,13 +134,8 @@ mod tests {
         let mut adapter = BlockingAdapter(MockBlockingTransport);
         let cmd = DummyCommand;
 
-        adapter
-            .send_command(&cmd, crate::types::SocketId::SOCKET_0)
-            .await?;
-
-        let (socket_id, response) = adapter.receive_response().await?;
-        assert_eq!(socket_id, crate::types::SocketId::SOCKET_0);
-        assert_eq!(response, vec![0x90, 0x50, 0xFF]);
+        let response = adapter.send_command(&cmd).await?;
+        assert!(matches!(response, ViscaResponse::Completion));
         Ok(())
     }
 }

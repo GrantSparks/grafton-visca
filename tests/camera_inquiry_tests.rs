@@ -4,8 +4,7 @@
 mod tests {
     use grafton_visca::camera::{Camera, PTZOpticsG2};
     use grafton_visca::transport::{Transport, TransportFuture};
-    use grafton_visca::types::SocketId;
-    use grafton_visca::Command;
+    use grafton_visca::{Command, Response as ViscaResponse};
     use std::sync::{Arc, Mutex};
 
     /// Mock transport that returns pre-configured responses.
@@ -28,20 +27,24 @@ mod tests {
     impl Transport for MockTransport {
         fn send_command<'a>(
             &'a mut self,
-            _command: &'a dyn Command,
-            _socket_id: SocketId,
-        ) -> TransportFuture<'a, ()> {
-            Box::pin(async move { Ok(()) })
-        }
-
-        fn receive_response(&mut self) -> TransportFuture<'_, (SocketId, Vec<u8>)> {
+            command: &'a dyn Command,
+        ) -> TransportFuture<'a, ViscaResponse> {
             let responses = self.responses.clone();
             Box::pin(async move {
+                // For testing, simulate the command being sent and response received
                 let mut guard = responses.lock().unwrap();
                 if guard.is_empty() {
-                    Ok((SocketId::SOCKET_0, vec![0x90, 0x50, 0xFF])) // Default ACK
+                    Ok(ViscaResponse::Completion) // Default completion
                 } else {
-                    Ok((SocketId::SOCKET_0, guard.remove(0)))
+                    let response_bytes = guard.remove(0);
+                    // For inquiry commands, parse the response
+                    if let Some(resp_type) = command.response_type() {
+                        use grafton_visca::command::parse_response;
+                        parse_response(&response_bytes, &resp_type)
+                    } else {
+                        // Control command - return completion
+                        Ok(ViscaResponse::Completion)
+                    }
                 }
             })
         }
