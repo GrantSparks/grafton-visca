@@ -83,6 +83,7 @@ name = "inquiry_demo"
 
 [[example]]
 name = "unified_client_demo"
+required-features = ["async-client"]
 
 
 [[example]]
@@ -112,6 +113,7 @@ name = "error_handling_demo"
 
 [[example]]
 name = "enhanced_api_demo"
+required-features = ["async-client"]
 
 
 [[example]]
@@ -120,6 +122,7 @@ name = "quick_start_demo"
 
 [[example]]
 name = "test_extension_traits"
+required-features = ["async-client"]
 
 
 [[example]]
@@ -132,10 +135,12 @@ required-features = ["blocking-client"]
 
 [[example]]
 name = "image_and_gain_demo"
+required-features = ["async-client"]
 
 
 [[example]]
 name = "white_balance_tuning_demo"
+required-features = ["async-client"]
 
 
 [[example]]

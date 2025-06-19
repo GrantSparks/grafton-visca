@@ -11,6 +11,7 @@ pub use grafton_visca::transport::{
 #[cfg(feature = "async-client")]
 pub mod r#async {
     use super::*;
+    use std::time::Duration;
 
     /// Create a TCP transport for examples
     pub async fn tcp_transport(address: &str) -> std::io::Result<ViscaTransport<TcpTransport>> {

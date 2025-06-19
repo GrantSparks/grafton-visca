@@ -3,14 +3,21 @@
 //! This example shows how to use the ChannelTransport wrapper to safely share
 //! a transport across multiple threads without explicit locking.
 
+#[cfg(feature = "async-client")]
 mod common;
+#[cfg(feature = "async-client")]
 use common::r#async::tcp_transport;
+#[cfg(feature = "async-client")]
 use std::sync::Arc;
+#[cfg(feature = "async-client")]
 use std::time::Duration;
 
+#[cfg(feature = "async-client")]
 use grafton_visca::transport::{ChannelTransport, ChannelTransportBuilder, Transport};
+#[cfg(feature = "async-client")]
 use grafton_visca::{camera::profiles::PTZOpticsG2, Camera, Command};
 
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -125,9 +132,11 @@ async fn demo_arc_transport() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // Mock transport for demonstration
+#[cfg(feature = "async-client")]
 #[allow(dead_code)]
 struct MockTransport;
 
+#[cfg(feature = "async-client")]
 impl Transport for MockTransport {
     fn send_command<'a>(
         &'a mut self,
@@ -135,4 +144,10 @@ impl Transport for MockTransport {
     ) -> grafton_visca::transport::TransportFuture<'a, grafton_visca::Response> {
         Box::pin(async { Ok(grafton_visca::Response::Completion) })
     }
+}
+
+#[cfg(not(feature = "async-client"))]
+fn main() {
+    eprintln!("This example requires the 'async-client' feature to be enabled.");
+    eprintln!("Run with: cargo run --example channel_transport_demo --features async-client");
 }

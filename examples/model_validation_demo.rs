@@ -4,6 +4,7 @@
 //! constraints at compile time and runtime. It shows how different camera profiles
 //! (PTZOpticsG2, PTZOptics30X, SonyEVID70) have different ranges and capabilities.
 
+#[cfg(feature = "async-client")]
 use grafton_visca::{
     camera::{
         profiles::{
@@ -17,10 +18,12 @@ use grafton_visca::{
     Camera, Command, Error,
 };
 
+#[cfg(feature = "async-client")]
 /// Mock transport for demonstration purposes.
 /// In real usage, you would use UdpTransport or TcpTransport.
 struct MockTransport;
 
+#[cfg(feature = "async-client")]
 impl Transport for MockTransport {
     fn send_command<'a>(
         &'a mut self,
@@ -30,6 +33,7 @@ impl Transport for MockTransport {
     }
 }
 
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -66,6 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "async-client")]
 async fn demo_ptzoptics_g2() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== PTZOptics G2 Demo ===");
     println!("Model: 20X optical zoom, ±170° pan, -30° to +90° tilt");
@@ -139,6 +144,7 @@ async fn demo_ptzoptics_g2() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "async-client")]
 async fn demo_ptzoptics_30x() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== PTZOptics 30X Demo ===");
     println!("Model: 30X optical zoom, ±180° pan, -90° to +120° tilt");
@@ -176,6 +182,7 @@ async fn demo_ptzoptics_30x() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "async-client")]
 async fn demo_sony_evid70() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Sony EVI-D70 Demo ===");
     println!("Model: 18X optical zoom, ±100° pan, ±25° tilt");
@@ -251,6 +258,7 @@ async fn demo_sony_evid70() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(feature = "async-client")]
 async fn demo_generic_visca() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Generic VISCA Demo ===");
     println!("Model: Unknown camera with permissive ranges");
@@ -277,4 +285,10 @@ async fn demo_generic_visca() -> Result<(), Box<dyn std::error::Error>> {
 
     println!();
     Ok(())
+}
+
+#[cfg(not(feature = "async-client"))]
+fn main() {
+    eprintln!("This example requires the 'async-client' feature to be enabled.");
+    eprintln!("Run with: cargo run --example model_validation_demo --features async-client");
 }
