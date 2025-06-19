@@ -4,15 +4,25 @@
 //! that can be used with the grafton-visca library. We'll create a
 //! simple in-memory transport for testing purposes.
 
+#[cfg(not(feature = "async-client"))]
+fn main() {
+    eprintln!("This example requires the async-client feature.");
+    eprintln!("Run with: cargo run --example custom_transport_example --features async-client");
+}
+
+#[cfg(feature = "async-client")]
 use grafton_visca::{
     camera::{Camera, PTZOpticsG2},
     command::response::Response,
     transport::{BlockingTransport, Transport, TransportFuture},
     Command, Error,
 };
+#[cfg(feature = "async-client")]
 use std::collections::VecDeque;
+#[cfg(feature = "async-client")]
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "async-client")]
 /// A mock transport that simulates camera responses for testing
 ///
 /// This transport doesn't actually communicate with a camera but instead
@@ -187,6 +197,7 @@ impl<T: Transport> Transport for LoggingTransport<T> {
     }
 }
 
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Custom Transport Example ===\n");
