@@ -16,8 +16,11 @@ mod async_example {
         camera::{Camera, PTZOpticsG2},
         command::response::Response,
         transport::{Transport, TransportFuture},
-        Command, Error,
+        Command,
     };
+
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+    use grafton_visca::Error;
 
     #[cfg(feature = "blocking-client")]
     use grafton_visca::transport::BlockingTransport;
@@ -168,8 +171,60 @@ mod async_example {
             command: &'a dyn Command,
         ) -> TransportFuture<'a, Response> {
             Box::pin(async move {
-                // Simply delegate to the blocking implementation
-                self.inner.send_command_blocking(command)
+                // Log the command being sent
+                let bytes = command.to_bytes()?;
+                println!("Async mock transport sending: {:02X?}", bytes);
+
+                // Process all responses until we get a completion
+                let final_response = loop {
+                    let response_bytes = self
+                        .inner
+                        .response_queue
+                        .lock()
+                        .map_err(|_| Error::InvalidResponse {
+                            expected: "Lock".to_string(),
+                            actual: vec![],
+                        })?
+                        .pop_front()
+                        .ok_or(Error::InvalidResponse {
+                            expected: "Response in queue".to_string(),
+                            actual: vec![],
+                        })?;
+
+                    println!("Async mock transport received: {:02X?}", response_bytes);
+
+                    // Parse the response type
+                    if response_bytes.len() >= 3 && response_bytes[0] == 0x90 {
+                        match response_bytes[1] & 0xF0 {
+                            0x40 => {
+                                // ACK - continue waiting
+                                continue;
+                            }
+                            0x50 => {
+                                // Completion
+                                if response_bytes.len() == 3 {
+                                    break Response::Completion;
+                                } else {
+                                    // Completion with data - would need proper parsing
+                                    // For this example, we'll just return completion
+                                    break Response::Completion;
+                                }
+                            }
+                            0x60 => {
+                                // Error
+                                if response_bytes.len() >= 4 {
+                                    let error = Error::from_code(response_bytes[2]);
+                                    break Response::Error(error);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    return Err(Error::InvalidResponseFormat);
+                };
+
+                Ok(final_response)
             })
         }
     }
