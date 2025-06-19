@@ -11,6 +11,7 @@ use std::{io, time::Duration};
 use std::sync::Arc;
 
 // Crate imports
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use grafton_visca::{
     command::response::{parse_response as parse_response_typed, Response, ResponseType},
     types::SocketId,
