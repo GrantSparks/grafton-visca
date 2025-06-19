@@ -43,6 +43,10 @@ mod async_semaphore {
                 .map_err(|_| crate::Error::InvalidParameter("Semaphore closed".into()))?;
             Ok(Permit { _permit: permit })
         }
+
+        pub fn available_permits(&self) -> usize {
+            self.inner.available_permits()
+        }
     }
 }
 
@@ -82,6 +86,11 @@ mod sync_semaphore {
             *count -= 1;
             drop(count); // Explicitly drop the mutex guard early
             Permit { semaphore: self }
+        }
+
+        pub fn available_permits(&self) -> usize {
+            let (lock, _) = &*self.state;
+            *lock.lock()
         }
     }
 
