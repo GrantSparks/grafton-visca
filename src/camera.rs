@@ -91,6 +91,18 @@ impl<P: CameraProfile> std::fmt::Debug for Camera<P> {
     }
 }
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+impl<P: CameraProfile + Clone> Clone for Camera<P> {
+    fn clone(&self) -> Self {
+        Self {
+            profile: self.profile.clone(),
+            transport: self.transport.clone(),
+            session: self.session.clone(),
+            semaphore: self.semaphore.clone(),
+        }
+    }
+}
+
 /// Trait defining camera-specific capabilities and conversions.
 pub trait CameraProfile: Default + Send + Sync + std::fmt::Debug {
     /// Camera model name for identification.
@@ -595,6 +607,7 @@ impl<P: CameraProfile> Camera<P> {
     pub fn profile(&self) -> &P {
         &self.profile
     }
+
 
     /// Send a command and wait for completion (async).
     #[cfg(feature = "async-client")]
