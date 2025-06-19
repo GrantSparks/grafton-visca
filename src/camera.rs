@@ -30,8 +30,6 @@ pub use builder::{CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use command_builder::CommandBuilderExt;
 pub use extensions::CameraExtension;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use extensions::{CustomManufacturerExt, DiagnosticsExt, ScriptingExt};
 pub use inquiry::{CameraState, Exposure, ImageSettings, Optics, Position, WhiteBalance};
 pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 
