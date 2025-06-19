@@ -614,7 +614,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
 
     // Send a command
-    let command = ZoomCommand::stop();
+    let command = ZoomCommand::Stop;
     let response = transport.send_command(&command).await?;
 
     println!("Response: {response:?}");
