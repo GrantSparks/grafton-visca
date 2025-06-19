@@ -91,6 +91,18 @@ impl<P: CameraProfile> std::fmt::Debug for Camera<P> {
     }
 }
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+impl<P: CameraProfile + Clone> Clone for Camera<P> {
+    fn clone(&self) -> Self {
+        Self {
+            profile: self.profile.clone(),
+            transport: self.transport.clone(),
+            session: self.session.clone(),
+            semaphore: self.semaphore.clone(),
+        }
+    }
+}
+
 /// Trait defining camera-specific capabilities and conversions.
 pub trait CameraProfile: Default + Send + Sync + std::fmt::Debug {
     /// Camera model name for identification.
@@ -594,6 +606,23 @@ impl<P: CameraProfile> Camera<P> {
     /// Get the camera profile.
     pub fn profile(&self) -> &P {
         &self.profile
+    }
+
+    /// Check if the camera can accept a new command without blocking.
+    ///
+    /// Returns `true` if at least one command slot is available,
+    /// `false` if all slots are in use and the next command will block.
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+    pub fn is_ready(&self) -> bool {
+        self.semaphore.available_permits() > 0
+    }
+
+    /// Get the number of currently pending commands.
+    ///
+    /// Returns a value between 0 and 2, as VISCA supports up to 2 concurrent commands.
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+    pub fn pending_commands(&self) -> usize {
+        2 - self.semaphore.available_permits()
     }
 
     /// Send a command and wait for completion (async).
