@@ -7,11 +7,8 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera::{Camera, GenericVisca},
-    command::{
-        pan_tilt::PanTiltPositionInquiry,
-        zoom::ZoomPositionInquiry,
-    },
-    transport::UnifiedTransport,
+    command::inquiry::InquiryCommand,
+    transport::AsyncUdpTransport,
     Result,
 };
 
@@ -19,8 +16,8 @@ use grafton_visca::{
 async fn main() -> Result<()> {
     env_logger::init();
 
-    // Create camera with unified transport
-    let transport = UnifiedTransport::create_udp("192.168.1.100:52381")?;
+    // Create camera with async UDP transport
+    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
     let camera = Camera::<GenericVisca>::new(transport);
 
     println!("Camera Readiness Demo");
@@ -39,14 +36,14 @@ async fn main() -> Result<()> {
     
     let handle1 = tokio::spawn(async move {
         println!("  Task 1: Querying pan/tilt position");
-        let result = cam1.send_raw_async(&PanTiltPositionInquiry).await;
+        let result = cam1.send_raw_async(&InquiryCommand::PanTiltPosition).await;
         println!("  Task 1: Complete - {:?}", result.is_ok());
         result
     });
 
     let handle2 = tokio::spawn(async move {
         println!("  Task 2: Querying zoom position");
-        let result = cam2.send_raw_async(&ZoomPositionInquiry).await;
+        let result = cam2.send_raw_async(&InquiryCommand::ZoomPosition).await;
         println!("  Task 2: Complete - {:?}", result.is_ok());
         result
     });
@@ -70,7 +67,7 @@ async fn main() -> Result<()> {
         }
         
         let start = tokio::time::Instant::now();
-        let result = cam3.send_raw_async(&PanTiltPositionInquiry).await;
+        let result = cam3.send_raw_async(&InquiryCommand::PanTiltPosition).await;
         let elapsed = start.elapsed();
         
         println!("  Task 3: Complete after {:?} - {:?}", elapsed, result.is_ok());
