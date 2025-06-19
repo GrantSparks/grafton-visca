@@ -1,28 +1,57 @@
-//! Common utilities for examples
+//! Common utilities for examples using the new clean transport API.
 //!
-//! This module provides shared transport implementations that can be used
-//! across all examples. Since the core library no longer includes concrete
-//! transport implementations, examples need to provide their own.
+//! This module provides simple helper functions for creating transports
+//! that examples can use consistently.
 
-#[cfg(feature = "blocking-client")]
-#[allow(unused_imports)]
-pub mod blocking {
-    pub use super::tcp_transport::TcpTransport;
-    pub use super::udp_transport::UdpTransport;
-}
+use std::time::Duration;
 
 #[cfg(feature = "async-client")]
-#[allow(unused_imports)]
+pub use grafton_visca::transport::{
+    create, ChannelTransport, SerialTransport, TcpTransport, UdpTransport, ViscaTransport,
+};
+
+#[cfg(feature = "async-client")]
 pub mod r#async {
-    pub use super::tcp_transport::AsyncTcpTransport;
-    pub use super::udp_transport::AsyncUdpTransport;
+    use super::*;
+
+    /// Create a TCP transport for examples
+    pub async fn tcp_transport(address: &str) -> std::io::Result<ViscaTransport<TcpTransport>> {
+        create::tcp(address).await
+    }
+
+    /// Create a TCP transport with timeout for examples
+    pub async fn tcp_transport_timeout(
+        address: &str,
+        timeout: Duration,
+    ) -> std::io::Result<ViscaTransport<TcpTransport>> {
+        create::tcp_timeout(address, timeout).await
+    }
+
+    /// Create a UDP transport for examples
+    pub async fn udp_transport(address: &str) -> std::io::Result<ViscaTransport<UdpTransport>> {
+        create::udp(address).await
+    }
+
+    /// Create a serial transport for examples
+    pub fn serial_transport(camera_address: u8) -> ViscaTransport<SerialTransport> {
+        create::serial(camera_address)
+    }
+
+    /// Create a channel transport for examples
+    pub fn channel_transport<T: grafton_visca::transport::RawTransport + 'static>(
+        transport: ViscaTransport<T>,
+    ) -> ChannelTransport {
+        create::channel(transport)
+    }
 }
 
-// Re-export the transport implementations from the example files
-#[path = "../tcp_transport.rs"]
-#[allow(dead_code)]
-mod tcp_transport;
+#[cfg(feature = "blocking-client")]
+pub mod blocking {
+    use super::*;
 
-#[path = "../udp_transport.rs"]
-#[allow(dead_code)]
-mod udp_transport;
+    /// For blocking examples, we provide the same interface but note that
+    /// the new API is async-first. Blocking examples should use the async
+    /// transports with appropriate runtime handling.
+    pub type TcpTransport = ViscaTransport<grafton_visca::transport::TcpTransport>;
+    pub type UdpTransport = ViscaTransport<grafton_visca::transport::UdpTransport>;
+}

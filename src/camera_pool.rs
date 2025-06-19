@@ -16,8 +16,7 @@ use tokio::sync::RwLock as AsyncRwLock;
 use std::sync::RwLock;
 
 use crate::{
-    camera::{Camera, CameraProfile},
-    transport::Transport,
+    camera::{Camera, CameraProfile, CameraTransport},
     Error as ViscaError,
 };
 
@@ -158,7 +157,7 @@ impl<P: CameraProfile> CameraPool<P> {
     pub fn add_camera(
         &self,
         info: CameraInfo,
-        transport: Box<dyn Transport>,
+        transport: Box<dyn CameraTransport>,
     ) -> Result<Arc<Camera<P>>, ViscaError> {
         #[cfg(feature = "tokio")]
         let mut cameras = self.cameras.blocking_write();
@@ -449,7 +448,7 @@ impl<P: CameraProfile> CameraPool<P> {
     pub async fn add_camera_async(
         &self,
         info: CameraInfo,
-        transport: Box<dyn Transport>,
+        transport: Box<dyn CameraTransport>,
     ) -> Result<Arc<Camera<P>>, ViscaError> {
         let mut cameras = self.cameras.write().await;
 

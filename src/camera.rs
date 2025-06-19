@@ -9,9 +9,50 @@ use crate::error::Error as ViscaError;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::sync_primitives::{Mutex, Semaphore};
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::transport::Transport;
+use crate::transport::{ChannelTransport, RawTransport, ViscaTransport};
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{Command, Response};
+
+/// Trait for transports that can send VISCA commands.
+/// This provides a simple interface that both ViscaTransport and ChannelTransport implement.
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub trait CameraTransport: Send + Sync + std::fmt::Debug {
+    /// Send a VISCA command and wait for response.
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+    ) -> crate::transport::TransportFuture<'a, Response>;
+}
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+impl<T: RawTransport> CameraTransport for ViscaTransport<T> {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+    ) -> crate::transport::TransportFuture<'a, Response> {
+        Box::pin(async move { self.send_command(command).await })
+    }
+}
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+impl CameraTransport for ChannelTransport {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+    ) -> crate::transport::TransportFuture<'a, Response> {
+        Box::pin(async move { self.send_command(command).await })
+    }
+}
+
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+impl CameraTransport for Box<dyn CameraTransport> {
+    fn send_command<'a>(
+        &'a mut self,
+        command: &'a dyn Command,
+    ) -> crate::transport::TransportFuture<'a, Response> {
+        (**self).send_command(command)
+    }
+}
 
 pub mod builder;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -73,7 +114,7 @@ mod minimal_executor {
 pub struct Camera<P: CameraProfile> {
     profile: P,
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-    transport: Arc<Mutex<Box<dyn Transport>>>,
+    transport: Arc<Mutex<Box<dyn CameraTransport>>>,
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     semaphore: Arc<Semaphore>,
 }
@@ -541,7 +582,7 @@ impl<P: CameraProfile> Default for Camera<P> {
 impl<P: CameraProfile> Camera<P> {
     /// Create a new camera with the given transport.
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-    pub fn new(transport: impl Transport + 'static) -> Self {
+    pub fn new(transport: impl CameraTransport + 'static) -> Self {
         Self {
             profile: P::default(),
             transport: Arc::new(Mutex::new(Box::new(transport))),
@@ -559,7 +600,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Create a camera with a custom profile instance.
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-    pub fn with_profile(transport: impl Transport + 'static, profile: P) -> Self {
+    pub fn with_profile(transport: impl CameraTransport + 'static, profile: P) -> Self {
         Self {
             profile,
             transport: Arc::new(Mutex::new(Box::new(transport))),

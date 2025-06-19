@@ -1,16 +1,11 @@
-//! Example program demonstrating the new Camera API
+//! Simple hello world example using the new clean transport API.
 
-mod common;
-use common::blocking::TcpTransport;
-use common::blocking::UdpTransport;
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, transport::BlockingAdapter,
-    Camera, Error,
+    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, transport::create, Camera,
+    Error,
 };
 use log::{debug, info};
 use std::{env, time::Duration};
-
-// Transport implementations are already available via the common module
 
 fn parse_args() -> (String, String) {
     let default_protocol = "udp";
@@ -31,7 +26,7 @@ fn parse_args() -> (String, String) {
     (protocol, ip_address)
 }
 
-fn create_camera(
+async fn create_camera(
     protocol: &str,
     ip_address: &str,
 ) -> Result<Camera<PTZOpticsG2>, Box<dyn std::error::Error>> {
@@ -46,24 +41,15 @@ fn create_camera(
     };
 
     if use_udp {
-        let udp_transport = UdpTransport::new(&address)?;
-        Ok(Camera::new(BlockingAdapter(udp_transport)))
+        let transport = create::udp(&address).await?;
+        Ok(Camera::new(transport))
     } else {
-        let tcp_transport = TcpTransport::new(&address)?;
-        Ok(Camera::new(BlockingAdapter(tcp_transport)))
+        let transport = create::tcp(&address).await?;
+        Ok(Camera::new(transport))
     }
 }
 
-// Use a minimal tokio runtime for blocking execution
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(fut)
-}
-
-fn perform_pan_tilt_movements(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+async fn perform_pan_tilt_movements(camera: &Camera<PTZOpticsG2>) -> Result<(), Error> {
     let complex_movements = [
         (PanTiltDirection::Up, 5, 3),
         (PanTiltDirection::Right, 4, 3),
@@ -75,50 +61,53 @@ fn perform_pan_tilt_movements(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Er
 
     for (direction, pan_speed, tilt_speed) in &complex_movements {
         debug!("Sending Pan/Tilt {direction:?} command");
-        block_on(camera.move_continuous(*direction, *pan_speed, *tilt_speed))?;
+        camera
+            .move_continuous(*direction, *pan_speed, *tilt_speed)
+            .await?;
 
-        std::thread::sleep(Duration::from_secs(3));
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         debug!("Sending Pan/Tilt stop command");
-        block_on(camera.stop())?;
+        camera.stop().await?;
 
-        std::thread::sleep(Duration::from_secs(1));
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     Ok(())
 }
 
-fn perform_zoom_movements(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+async fn perform_zoom_movements(camera: &Camera<PTZOpticsG2>) -> Result<(), Error> {
     debug!("Zooming in (standard speed)");
-    block_on(camera.zoom_in())?;
-    std::thread::sleep(Duration::from_secs(3));
+    camera.zoom_in().await?;
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     debug!("Stopping zoom");
-    block_on(camera.zoom_stop())?;
-    std::thread::sleep(Duration::from_secs(1));
+    camera.zoom_stop().await?;
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     debug!("Zooming out (standard speed)");
-    block_on(camera.zoom_out())?;
-    std::thread::sleep(Duration::from_secs(3));
+    camera.zoom_out().await?;
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     debug!("Stopping zoom");
-    block_on(camera.zoom_stop())?;
+    camera.zoom_stop().await?;
 
     // Set zoom to specific position (50%)
     debug!("Setting zoom to 50%");
     let zoom_50_percent = 0x3800; // Half of max zoom for G2
-    block_on(camera.set_zoom(zoom_50_percent))?;
-    std::thread::sleep(Duration::from_secs(2));
+    camera.set_zoom(zoom_50_percent).await?;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     info!("Starting grafton-visca hello_world example");
 
     let (protocol, ip_address) = parse_args();
-    let mut camera = create_camera(&protocol, &ip_address)?;
+    let camera = create_camera(&protocol, &ip_address).await?;
 
     // Display camera capabilities
     let caps = camera.capabilities();
@@ -129,19 +118,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Max Tilt Speed: {}", caps.max_tilt_speed);
 
     debug!("Sending Pan/Tilt home command");
-    block_on(camera.home())?;
-    std::thread::sleep(Duration::from_secs(2));
+    camera.home().await?;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
-    perform_pan_tilt_movements(&mut camera)?;
+    perform_pan_tilt_movements(&camera).await?;
 
-    perform_zoom_movements(&mut camera)?;
+    perform_zoom_movements(&camera).await?;
 
     debug!("Returning to home position");
-    block_on(camera.home())?;
-    std::thread::sleep(Duration::from_secs(2));
+    camera.home().await?;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     debug!("Resetting zoom");
-    block_on(camera.set_zoom(0x0000))?;
+    camera.set_zoom(0x0000).await?;
 
     info!("Demo complete!");
     Ok(())

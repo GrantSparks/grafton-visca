@@ -1,5 +1,3 @@
-//! Example program
-
 //! Example demonstrating health check and connection monitoring.
 //!
 //! This example shows how to:
@@ -7,13 +5,13 @@
 //! - Monitor connection status
 //! - Handle connection failures
 //! - Use both UDP and TCP transports
-
-mod common;
-use common::blocking::{TcpTransport, UdpTransport};
+//!
+//! Uses the new clean transport API where all VISCA protocol logic
+//! is handled by the library.
 
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
-    transport::BlockingAdapter,
+    transport::create,
     Error,
 };
 use std::thread;
@@ -52,8 +50,15 @@ fn main() -> Result<(), Error> {
 fn test_udp_health(camera_addr: &str) -> Result<(), Error> {
     println!("Testing UDP connection to {}...", camera_addr);
 
-    // Try to connect
-    let udp_transport = match UdpTransport::new(camera_addr) {
+    // Adjust port for UDP (typically 1259)
+    let udp_addr = if camera_addr.contains(":5678") {
+        camera_addr.replace(":5678", ":1259")
+    } else {
+        camera_addr.to_string()
+    };
+
+    // Try to connect using the new clean API
+    let transport = match block_on(create::udp(&udp_addr)) {
         Ok(t) => {
             println!("✓ UDP transport created");
             t
@@ -64,7 +69,7 @@ fn test_udp_health(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Test basic commands as health check
     println!("\nSending test commands...");
@@ -108,8 +113,8 @@ fn test_tcp_health(camera_addr: &str) -> Result<(), Error> {
         camera_addr.to_string()
     };
 
-    // Try to connect
-    let tcp_transport = match TcpTransport::new(&tcp_addr) {
+    // Try to connect using the new clean API
+    let transport = match block_on(create::tcp(&tcp_addr)) {
         Ok(t) => {
             println!("✓ TCP transport created");
             t
@@ -120,7 +125,7 @@ fn test_tcp_health(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(tcp_transport));
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Test basic commands
     println!("\nSending test commands...");

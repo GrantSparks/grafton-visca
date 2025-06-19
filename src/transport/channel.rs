@@ -1,25 +1,21 @@
 //! Channel-based transport wrapper for thread-safe VISCA communication.
 //!
 //! This module provides a channel-based transport that allows for safe sharing
-//! across threads without requiring explicit locking. Commands are sent through
-//! channels to a worker task that manages the underlying transport.
+//! across threads without requiring explicit locking.
 
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{
-    error::Error,
-    transport::{Transport, TransportFuture},
-    Command, Response,
-};
+use super::{RawTransport, ViscaTransport};
+use crate::{error::Error, Command, Response};
 
 /// Configuration for the channel transport.
 #[derive(Debug, Clone, Copy)]
-pub struct ChannelTransportConfig {
+pub struct ChannelConfig {
     /// Maximum number of commands that can be queued
     pub queue_size: usize,
 }
 
-impl Default for ChannelTransportConfig {
+impl Default for ChannelConfig {
     fn default() -> Self {
         Self { queue_size: 100 }
     }
@@ -36,8 +32,7 @@ struct CommandRequest {
 /// Channel-based transport that can be safely shared across threads.
 ///
 /// This transport wrapper uses channels to communicate with a worker task
-/// that manages the underlying transport. This allows the transport to be
-/// cloned and shared without requiring explicit locking.
+/// that manages the underlying VISCA transport.
 #[derive(Clone, Debug)]
 pub struct ChannelTransport {
     /// Sender for command requests
@@ -45,19 +40,17 @@ pub struct ChannelTransport {
 }
 
 impl ChannelTransport {
-    /// Create a new channel transport wrapping an existing transport.
+    /// Create a new channel transport wrapping an existing VISCA transport.
     ///
     /// This spawns a worker task that manages the underlying transport.
-    pub fn new<T>(transport: T, config: ChannelTransportConfig) -> Self
-    where
-        T: Transport + 'static,
-    {
+    pub fn new<T: RawTransport + 'static>(
+        mut transport: ViscaTransport<T>,
+        config: ChannelConfig,
+    ) -> Self {
         let (command_tx, mut command_rx) = mpsc::channel::<CommandRequest>(config.queue_size);
 
         // Spawn the worker task
         tokio::spawn(async move {
-            let mut transport = transport;
-
             while let Some(request) = command_rx.recv().await {
                 // Send command and get response
                 let result = transport.send_command(request.command.as_ref()).await;
@@ -69,17 +62,11 @@ impl ChannelTransport {
 
         Self { command_tx }
     }
-}
 
-impl Transport for ChannelTransport {
     /// Send a VISCA command and wait for its complete response.
-    fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, Response> {
+    pub async fn send_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         // We need to clone the command data since we can't send a reference through channels
-        let command_bytes = match command.to_bytes() {
-            Ok(bytes) => bytes,
-            Err(e) => return Box::pin(async move { Err(e) }),
-        };
-
+        let command_bytes = command.to_bytes()?;
         let response_type = command.response_type();
         let category = command.command_category();
 
@@ -110,53 +97,21 @@ impl Transport for ChannelTransport {
             category,
         });
 
-        let command_tx = self.command_tx.clone();
+        let (response_tx, response_rx) = oneshot::channel();
 
-        Box::pin(async move {
-            let (response_tx, response_rx) = oneshot::channel();
+        let request = CommandRequest {
+            command: owned_command,
+            response_tx,
+        };
 
-            let request = CommandRequest {
-                command: owned_command,
-                response_tx,
-            };
+        // Send command to worker
+        self.command_tx.send(request).await.map_err(|_| {
+            Error::TransportError("Channel transport worker disconnected".to_string())
+        })?;
 
-            // Send command to worker
-            command_tx.send(request).await.map_err(|_| {
-                Error::TransportError("Channel transport worker disconnected".to_string())
-            })?;
-
-            // Wait for response
-            response_rx.await.map_err(|_| {
-                Error::TransportError("Failed to receive response from worker".to_string())
-            })?
-        })
-    }
-}
-
-/// Builder for creating channel transports with custom configuration.
-#[derive(Debug)]
-pub struct ChannelTransportBuilder<T> {
-    transport: T,
-    config: ChannelTransportConfig,
-}
-
-impl<T: Transport + 'static> ChannelTransportBuilder<T> {
-    /// Create a new builder with default configuration.
-    pub fn new(transport: T) -> Self {
-        Self {
-            transport,
-            config: ChannelTransportConfig::default(),
-        }
-    }
-
-    /// Set the queue size for pending commands.
-    pub fn queue_size(mut self, size: usize) -> Self {
-        self.config.queue_size = size;
-        self
-    }
-
-    /// Build the channel transport.
-    pub fn build(self) -> ChannelTransport {
-        ChannelTransport::new(self.transport, self.config)
+        // Wait for response
+        response_rx.await.map_err(|_| {
+            Error::TransportError("Failed to receive response from worker".to_string())
+        })?
     }
 }
