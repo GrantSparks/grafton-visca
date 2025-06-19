@@ -13,10 +13,10 @@ pub mod helpers;
 pub mod macros;
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{types::SocketId, Command, Error};
+use grafton_visca::{Command, Error};
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{command::ResponseType, InquiryResponse, Response};
+use grafton_visca::{InquiryResponse, Response};
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::transport::{BlockingAdapter, BlockingTransport};
@@ -133,11 +133,7 @@ impl MockTransport {
 
 #[cfg(feature = "blocking-client")]
 impl BlockingTransport for MockTransport {
-    fn send_command_blocking(
-        &mut self,
-        command: &dyn Command,
-        _socket_id: SocketId,
-    ) -> Result<(), Error> {
+    fn send_command_blocking(&mut self, command: &dyn Command) -> Result<Response, Error> {
         // Check if we should fail after N commands
         let count = self.commands_sent.lock().unwrap().len();
         if let Some(fail_after) = self.fail_after {
@@ -150,24 +146,71 @@ impl BlockingTransport for MockTransport {
         }
 
         if self.fail_send {
-            Err(Error::Io(std::io::Error::other("Mock send error")))
-        } else {
-            self.commands_sent.lock().unwrap().push(command.to_bytes()?);
-            Ok(())
+            return Err(Error::Io(std::io::Error::other("Mock send error")));
         }
-    }
 
-    fn receive_response_blocking(&mut self) -> Result<(SocketId, Vec<u8>), Error> {
+        // Store the command that was sent
+        self.commands_sent.lock().unwrap().push(command.to_bytes()?);
+
+        // Simulate receiving responses
         if self.fail_receive {
-            Err(Error::Io(std::io::Error::other("Mock receive error")))
-        } else {
-            let mut responses = self.responses.lock().unwrap();
-            responses
-                .pop_front()
-                .map_or(Err(Error::Timeout), |response| {
-                    Ok((SocketId::SOCKET_0, response))
-                })
+            return Err(Error::Io(std::io::Error::other("Mock receive error")));
         }
+
+        // For testing, we'll return responses based on what's queued
+        let mut responses_guard = self.responses.lock().unwrap();
+
+        // If this is an inquiry command, return the first response directly
+        if command.response_type().is_some() {
+            if let Some(response_bytes) = responses_guard.pop_front() {
+                // Parse the response based on type
+                if let Some(resp_type) = command.response_type() {
+                    return parse_response(&response_bytes, &resp_type);
+                }
+            }
+            return Err(Error::Timeout);
+        }
+
+        // For control commands, simulate ACK then completion/error
+        // First check if we have any response
+        if let Some(first_response) = responses_guard.pop_front() {
+            // Check if it's an error response
+            if first_response.len() >= 4 && first_response[0] == 0x90 && first_response[1] == 0x60 {
+                return Ok(Response::Error(Error::from_code(first_response[2])));
+            }
+
+            // For testing, if we get an ACK, look for completion
+            if first_response.len() == 3
+                && first_response[0] == 0x90
+                && (first_response[1] & 0xF0) == 0x40
+            {
+                // Got ACK, now get completion
+                if let Some(second_response) = responses_guard.pop_front() {
+                    if second_response.len() >= 4
+                        && second_response[0] == 0x90
+                        && second_response[1] == 0x60
+                    {
+                        return Ok(Response::Error(Error::from_code(second_response[2])));
+                    }
+                    if second_response.len() == 3
+                        && second_response[0] == 0x90
+                        && (second_response[1] & 0xF0) == 0x50
+                    {
+                        return Ok(Response::Completion);
+                    }
+                }
+            }
+
+            // Direct completion response
+            if first_response.len() == 3
+                && first_response[0] == 0x90
+                && (first_response[1] & 0xF0) == 0x50
+            {
+                return Ok(Response::Completion);
+            }
+        }
+
+        Err(Error::Timeout)
     }
 }
 
@@ -309,58 +352,8 @@ impl MockDevice {
             |_| {},
         );
 
-        // Send the command
-        block_on(self.transport.send_command(command, SocketId::SOCKET_0))?;
-
-        // Check if this is an inquiry command
-        let is_inquiry = matches!(
-            command.response_type(),
-            Some(
-                ResponseType::Power
-                    | ResponseType::PanTiltPosition
-                    | ResponseType::ZoomPosition
-                    | ResponseType::FocusPosition
-                    | ResponseType::ExposureMode
-                    | ResponseType::WhiteBalanceMode
-                    | ResponseType::Sharpness
-                    | ResponseType::ExposureCompensation
-            )
-        );
-
-        if is_inquiry {
-            // For inquiry commands, expect a direct response
-            let (_socket_id, response) = block_on(self.transport.receive_response())?;
-            if let Some(resp_type) = command.response_type() {
-                return parse_response(&response, &resp_type);
-            }
-            return Err(Error::Timeout);
-        }
-
-        // For control commands, expect ACK then completion or direct error
-        let (_socket_id, first) = block_on(self.transport.receive_response())?;
-        // Check for direct error response
-        if first.len() >= 4 && first[0] == 0x90 && first[1] == 0x60 {
-            return Err(Error::from_code(first[2]));
-        }
-
-        // Verify it's an ACK
-        if first.len() == 3 && first[0] == 0x90 && (first[1] & 0xF0) == 0x40 && first[2] == 0xFF {
-            // Now receive completion
-            let (_socket_id, comp) = block_on(self.transport.receive_response())?;
-            // Check for error responses
-            if comp.len() >= 4 && comp[0] == 0x90 && comp[1] == 0x60 {
-                return Err(Error::from_code(comp[2]));
-            }
-            // Check for completion
-            if comp.len() == 3 && comp[0] == 0x90 && (comp[1] & 0xF0) == 0x50 && comp[2] == 0xFF {
-                return Ok(Response::Completion);
-            }
-        }
-
-        Err(Error::InvalidResponse {
-            expected: "ACK followed by completion".to_string(),
-            actual: vec![],
-        })
+        // Send the command and get response using the new unified API
+        block_on(self.transport.send_command(command))
     }
 }
 
@@ -424,8 +417,7 @@ mod async_mock {
         fn send_command<'a>(
             &'a mut self,
             command: &'a dyn Command,
-            _socket_id: grafton_visca::types::SocketId,
-        ) -> TransportFuture<'a, ()> {
+        ) -> TransportFuture<'a, grafton_visca::Response> {
             Box::pin(async move {
                 let count = self.sent_commands.lock().await.len();
 
@@ -442,25 +434,80 @@ mod async_mock {
                 self.sent_commands.lock().await.push(bytes);
 
                 sleep(Duration::from_millis(self.delay_ms)).await;
-                Ok(())
-            })
-        }
 
-        fn receive_response(
-            &mut self,
-        ) -> TransportFuture<'_, (grafton_visca::types::SocketId, Vec<u8>)> {
-            Box::pin(async move {
-                sleep(Duration::from_millis(self.delay_ms)).await;
-
+                // Simulate receiving responses
                 let mut responses = self.responses.lock().await;
-                if responses.is_empty() {
-                    Err(Error::Timeout)
-                } else {
-                    let response = responses.remove(0);
-                    // Extract socket ID from response or default to socket 0
-                    let socket_id = grafton_visca::types::SocketId::SOCKET_0;
-                    Ok((socket_id, response))
+
+                // If this is an inquiry command, return the first response directly
+                if let Some(resp_type) = command.response_type() {
+                    if !responses.is_empty() {
+                        let response_bytes = responses.remove(0);
+                        // Parse the response based on type
+                        use grafton_visca::command::parse_response;
+                        return parse_response(&response_bytes, &resp_type);
+                    }
+                    return Err(Error::Timeout);
                 }
+
+                // For control commands, simulate ACK then completion/error
+                if !responses.is_empty() {
+                    let first_response = responses[0].clone();
+
+                    // Check if it's an error response
+                    if first_response.len() >= 4
+                        && first_response[0] == 0x90
+                        && first_response[1] == 0x60
+                    {
+                        let error_code = first_response[2];
+                        responses.remove(0);
+                        return Ok(grafton_visca::Response::Error(Error::from_code(error_code)));
+                    }
+
+                    // For testing, if we get an ACK, look for completion
+                    if first_response.len() == 3
+                        && first_response[0] == 0x90
+                        && (first_response[1] & 0xF0) == 0x40
+                    {
+                        // Remove ACK
+                        responses.remove(0);
+
+                        // Simulate delay between ACK and completion
+                        sleep(Duration::from_millis(self.delay_ms)).await;
+
+                        // Now get completion
+                        if !responses.is_empty() {
+                            let second_response = responses[0].clone();
+                            if second_response.len() >= 4
+                                && second_response[0] == 0x90
+                                && second_response[1] == 0x60
+                            {
+                                let error_code = second_response[2];
+                                responses.remove(0);
+                                return Ok(grafton_visca::Response::Error(Error::from_code(
+                                    error_code,
+                                )));
+                            }
+                            if second_response.len() == 3
+                                && second_response[0] == 0x90
+                                && (second_response[1] & 0xF0) == 0x50
+                            {
+                                responses.remove(0);
+                                return Ok(grafton_visca::Response::Completion);
+                            }
+                        }
+                    }
+
+                    // Direct completion response
+                    if first_response.len() == 3
+                        && first_response[0] == 0x90
+                        && (first_response[1] & 0xF0) == 0x50
+                    {
+                        responses.remove(0);
+                        return Ok(grafton_visca::Response::Completion);
+                    }
+                }
+
+                Err(Error::Timeout)
             })
         }
     }

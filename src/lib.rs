@@ -154,8 +154,6 @@ mod connection;
 mod constants;
 mod macros;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-mod session;
-
 /// Type definitions and abstractions
 pub mod types;
 
