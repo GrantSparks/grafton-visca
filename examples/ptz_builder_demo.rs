@@ -12,6 +12,11 @@
 //! using the `Camera<P>` API with helper functions and sequential operations.
 
 #[cfg(not(feature = "async-client"))]
+mod common;
+#[cfg(not(feature = "async-client"))]
+use common::blocking::UdpTransport;
+
+#[cfg(not(feature = "async-client"))]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -19,7 +24,7 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
 };
 
 #[cfg(not(feature = "async-client"))]
@@ -171,6 +176,11 @@ fn perform_scan_sequence(
 }
 
 #[cfg(feature = "async-client")]
+mod common;
+#[cfg(feature = "async-client")]
+use common::r#async::AsyncUdpTransport;
+
+#[cfg(feature = "async-client")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -178,7 +188,6 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
-    transport::AsyncUdpTransport,
 };
 
 #[cfg(feature = "async-client")]

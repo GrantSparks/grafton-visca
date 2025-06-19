@@ -1,12 +1,13 @@
 //! Example demonstrating the new Camera API with type-safe profiles.
 
+mod common;
+use common::r#async::AsyncTcpTransport;
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
         units::{Degrees, Normalized},
         Camera,
     },
-    transport::AsyncTcpTransport,
     Error,
 };
 

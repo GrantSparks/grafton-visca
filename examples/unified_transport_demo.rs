@@ -1,12 +1,19 @@
 //! Demonstrates the unified transport API that works for both async and blocking contexts.
 
+mod common;
+use common::blocking::TcpTransport;
 use grafton_visca::command::{power::Power, PowerCommand};
 use grafton_visca::transport::Transport;
 use grafton_visca::Error;
 
+// Include the transport implementations from the example files
+#[cfg(feature = "blocking-client")]
+#[path = "tcp_transport.rs"]
+mod tcp_transport;
+
 #[cfg(feature = "blocking-client")]
 fn blocking_example() -> Result<(), Error> {
-    use grafton_visca::transport::{BlockingAdapter, TcpTransport};
+    use grafton_visca::transport::BlockingAdapter;
 
     println!("=== Blocking Transport Example ===");
 
@@ -50,8 +57,10 @@ fn blocking_example() -> Result<(), Error> {
 }
 
 #[cfg(feature = "async-client")]
+use common::r#async::AsyncTcpTransport;
+
+#[cfg(feature = "async-client")]
 async fn async_example() -> Result<(), Error> {
-    use grafton_visca::transport::AsyncTcpTransport;
 
     println!("=== Async Transport Example ===");
 

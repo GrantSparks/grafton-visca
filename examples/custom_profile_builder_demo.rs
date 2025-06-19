@@ -1,5 +1,7 @@
 //! Example demonstrating the custom camera profile builder pattern.
 
+mod common;
+use common::r#async::AsyncTcpTransport;
 use grafton_visca::{
     camera::{
         Camera, CameraProfile, CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder,
@@ -7,8 +9,11 @@ use grafton_visca::{
     Error,
 };
 
+// Include the transport implementations from the example files
 #[cfg(feature = "async-client")]
-use grafton_visca::transport::AsyncTcpTransport;
+#[path = "tcp_transport.rs"]
+mod tcp_transport;
+#[cfg(feature = "async-client")]
 
 #[cfg(feature = "async-client")]
 #[tokio::main]

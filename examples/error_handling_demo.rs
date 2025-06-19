@@ -3,10 +3,13 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
+mod common;
+use common::blocking::UdpTransport;
+
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
     Error,
 };
 use std::time::{Duration, Instant};

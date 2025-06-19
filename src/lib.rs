@@ -33,19 +33,23 @@
 //! - **Complete Command Coverage**: Full support for PTZOptics G2 and other VISCA cameras
 //! - **Profile-Aware Conversions**: Automatic unit conversions based on camera model
 //! - **Comprehensive Inquiry**: Query camera state for all supported features
-//! - **Multiple Transports**: Both UDP and TCP support with async/await
+//! - **Transport Abstraction**: Implement your own transport (TCP, UDP, serial, etc.)
 //! - **Builder Patterns**: Create custom camera profiles for any VISCA camera
 //!
 //! ## Quick Start
+//!
+//! Transport implementations are provided as examples. You can either:
+//! 1. Copy the transport implementations from the examples directory
+//! 2. Implement your own transport based on the Transport trait
 //!
 //! ```ignore
 //! use grafton_visca::{
 //!     Camera,
 //!     camera::{profiles::PTZOpticsG2, units::Degrees},
-//!     transport::{BlockingAdapter, UdpTransport},
+//!     transport::BlockingAdapter,
 //! };
 //!
-//! // Create a camera with PTZOpticsG2 profile
+//! // Implement or include a transport (see examples/tcp_transport.rs, examples/udp_transport.rs)
 //! let udp_transport = UdpTransport::new("192.168.1.100:52381")?;
 //! let transport = BlockingAdapter(udp_transport);
 //! let mut camera = Camera::<PTZOpticsG2>::new(transport);
@@ -76,7 +80,7 @@
 //!
 //! ```ignore
 //! use grafton_visca::{Camera, camera::CustomProfileBuilder};
-//! use grafton_visca::transport::{BlockingAdapter, UdpTransport};
+//! use grafton_visca::transport::BlockingAdapter;
 //!
 //! let profile = CustomProfileBuilder::new("My Custom Camera")
 //!     .pan_range(-170..=170)
@@ -84,10 +88,41 @@
 //!     .zoom_range(0x0000..=0xA000)
 //!     .build();
 //!
+//! // Use your transport implementation
 //! let udp_transport = UdpTransport::new("192.168.1.100:52381")?;
 //! let transport = BlockingAdapter(udp_transport);
 //! let mut camera = Camera::with_profile(transport, profile);
 //! ```
+//!
+//! ## Transport Implementation
+//!
+//! The library provides a `Transport` trait that you can implement for any communication method:
+//!
+//! ```ignore
+//! use grafton_visca::{Transport, TransportFuture, Command, Response, Error};
+//! 
+//! struct MyTransport {
+//!     // Your transport state
+//! }
+//!
+//! impl Transport for MyTransport {
+//!     fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, Response> {
+//!         Box::pin(async move {
+//!             // Send command bytes
+//!             let bytes = command.to_bytes()?;
+//!             // ... send bytes ...
+//!             // ... receive response ...
+//!             Ok(Response::Completion)
+//!         })
+//!     }
+//! }
+//! ```
+//!
+//! Example transport implementations are provided in the `examples/` directory:
+//! - `tcp_transport.rs` - TCP/IP transport with session management
+//! - `udp_transport.rs` - UDP/IP transport
+//! - `serial_transport.rs` - Serial port transport example
+//! - `custom_transport_example.rs` - Mock and wrapper transports
 //!
 //! ## Supported Commands
 //!

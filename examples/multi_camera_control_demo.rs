@@ -3,13 +3,14 @@
 //! This example shows how to control multiple cameras efficiently,
 //! replacing manual Arc<Mutex<Camera>> patterns with CameraPool.
 
+mod common;
+use common::r#async::AsyncUdpTransport;
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
         units::Degrees,
     },
     camera_pool::{CameraInfo, CameraPool, PoolConfig},
-    transport::AsyncUdpTransport,
 };
 use std::collections::HashMap;
 use std::time::Duration;

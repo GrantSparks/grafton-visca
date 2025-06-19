@@ -3,13 +3,14 @@
 //! - CommandBuilder for fluent command sequences
 //! - Extension traits for custom functionality
 
+mod common;
+use common::r#async::AsyncUdpTransport;
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
         Camera, CameraExtension, CommandBuilderExt, DiagnosticsExt,
     },
     camera_pool::{CameraInfo, CameraPool, PoolConfig},
-    transport::AsyncUdpTransport,
     Error,
 };
 use std::time::Duration;
