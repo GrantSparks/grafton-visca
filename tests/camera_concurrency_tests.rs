@@ -25,7 +25,7 @@ use grafton_visca::{
 #[cfg(feature = "async-client")]
 use common::MockAsyncTransport;
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use common::MockTransport;
 
 #[cfg(feature = "async-client")]
