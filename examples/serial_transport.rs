@@ -13,10 +13,7 @@
 use std::{io, time::Duration};
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use grafton_visca::{
-    command::response::Response,
-    Command, Error,
-};
+use grafton_visca::{command::response::Response, Command, Error};
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::transport::BlockingTransport;
