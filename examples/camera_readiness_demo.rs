@@ -30,10 +30,10 @@ async fn main() -> Result<()> {
 
     // Send two commands concurrently (filling both sockets)
     println!("\nSending two concurrent commands...");
-    
+
     let cam1 = camera.clone();
     let cam2 = camera.clone();
-    
+
     let handle1 = tokio::spawn(async move {
         println!("  Task 1: Querying pan/tilt position");
         let result = cam1.send_raw_async(&InquiryCommand::PanTiltPosition).await;
@@ -60,17 +60,21 @@ async fn main() -> Result<()> {
     let cam3 = camera.clone();
     let handle3 = tokio::spawn(async move {
         println!("\nTask 3: Attempting to send command while sockets are full...");
-        
+
         // Check readiness before sending
         if !cam3.is_ready() {
             println!("  Task 3: Camera not ready (all sockets in use), command will wait");
         }
-        
+
         let start = tokio::time::Instant::now();
         let result = cam3.send_raw_async(&InquiryCommand::PanTiltPosition).await;
         let elapsed = start.elapsed();
-        
-        println!("  Task 3: Complete after {:?} - {:?}", elapsed, result.is_ok());
+
+        println!(
+            "  Task 3: Complete after {:?} - {:?}",
+            elapsed,
+            result.is_ok()
+        );
         result
     });
 

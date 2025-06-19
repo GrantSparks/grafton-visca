@@ -609,7 +609,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Check if the camera can accept a new command without blocking.
-    /// 
+    ///
     /// Returns `true` if at least one command slot is available,
     /// `false` if all slots are in use and the next command will block.
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -618,13 +618,12 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the number of currently pending commands.
-    /// 
+    ///
     /// Returns a value between 0 and 2, as VISCA supports up to 2 concurrent commands.
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     pub fn pending_commands(&self) -> usize {
         2 - self.semaphore.available_permits()
     }
-
 
     /// Send a command and wait for completion (async).
     #[cfg(feature = "async-client")]

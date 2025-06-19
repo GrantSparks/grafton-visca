@@ -56,13 +56,11 @@ async fn test_concurrent_command_limit() -> Result<()> {
     let cam1 = camera.clone();
     let cam2 = camera.clone();
 
-    let handle1 = tokio::spawn(async move {
-        cam1.send_raw_async(&InquiryCommand::PanTiltPosition).await
-    });
+    let handle1 =
+        tokio::spawn(async move { cam1.send_raw_async(&InquiryCommand::PanTiltPosition).await });
 
-    let handle2 = tokio::spawn(async move {
-        cam2.send_raw_async(&InquiryCommand::ZoomPosition).await
-    });
+    let handle2 =
+        tokio::spawn(async move { cam2.send_raw_async(&InquiryCommand::ZoomPosition).await });
 
     // Give commands time to start
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -74,7 +72,7 @@ async fn test_concurrent_command_limit() -> Result<()> {
     // Wait for the first two commands to complete
     let _ = handle1.await;
     let _ = handle2.await;
-    
+
     // Now camera should be ready again
     assert!(camera.is_ready());
     assert_eq!(camera.pending_commands(), 0);

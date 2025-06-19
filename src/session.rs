@@ -41,7 +41,7 @@ pub struct PendingCommand {
 /// let socket_id = session.assign_socket(None)?;
 ///
 /// // 2. Send command via transport (handled externally)
-/// 
+///
 /// // 3. Process responses as they arrive
 /// match session.process_response(&response_bytes)? {
 ///     Some((socket, Response::Ack)) => { /* Command acknowledged */ }
@@ -68,7 +68,6 @@ impl Session {
             pending_commands: HashMap::new(),
         }
     }
-
 }
 
 impl Default for Session {
@@ -105,7 +104,10 @@ impl Session {
                     response_type,
                     acknowledged: false,
                 });
-                debug!("Assigned {socket_id} for new command (type: {:?})", response_type);
+                debug!(
+                    "Assigned {socket_id} for new command (type: {:?})",
+                    response_type
+                );
                 return Ok(socket_id);
             }
         }
@@ -113,7 +115,10 @@ impl Session {
         // Both sockets are in use
         debug!("Cannot assign socket - both sockets are in use:");
         for (socket_id, cmd) in &self.pending_commands {
-            debug!("  {socket_id}: {:?}, acknowledged: {}", cmd.response_type, cmd.acknowledged);
+            debug!(
+                "  {socket_id}: {:?}, acknowledged: {}",
+                cmd.response_type, cmd.acknowledged
+            );
         }
         Err(Error::CommandBufferFull)
     }
