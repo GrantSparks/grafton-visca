@@ -3,6 +3,13 @@
 //! This example demonstrates basic camera control using the new Camera API.
 
 #[cfg(feature = "blocking-client")]
+#[path = "udp_transport.rs"]
+mod udp_transport;
+#[cfg(feature = "blocking-client")]
+mod common;
+use common::blocking::UdpTransport;
+
+#[cfg(feature = "blocking-client")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -10,7 +17,7 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
     Error,
 };
 #[cfg(feature = "blocking-client")]

@@ -6,10 +6,14 @@
 //! If async-client is also enabled, the async API takes precedence.
 
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+mod common;
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+use common::blocking::TcpTransport;
+
 use grafton_visca::{
     camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
-    transport::{BlockingAdapter, TcpTransport},
+    transport::BlockingAdapter,
 };
 
 // Import Degrees from the correct path

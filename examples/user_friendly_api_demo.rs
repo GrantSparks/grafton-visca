@@ -3,10 +3,15 @@
 //! This example shows how to use SpeedLevel, FStop, and NoiseReductionStrength
 //! enums for more intuitive camera control.
 
+#[path = "udp_transport.rs"]
+mod udp_transport;
+mod common;
+use common::blocking::UdpTransport;
+
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{exposure::ExposureMode, pan_tilt::PanTiltDirection},
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
     types::{FStop, NoiseReductionStrength, SpeedLevel},
 };
 use std::time::Duration;

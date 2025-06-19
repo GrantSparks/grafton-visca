@@ -7,6 +7,11 @@
 //! - Perform smooth camera movements
 //! - Control focus with async operations
 
+#[path = "udp_transport.rs"]
+mod udp_transport;
+mod common;
+use common::r#async::AsyncUdpTransport;
+
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -14,7 +19,6 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
-    transport::AsyncUdpTransport,
     Error,
 };
 use std::env;

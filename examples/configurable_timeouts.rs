@@ -8,10 +8,15 @@
 //! Note: The Camera API doesn't have built-in timeout support.
 //! This example shows patterns for timing operations.
 
+#[path = "udp_transport.rs"]
+mod udp_transport;
+mod common;
+use common::blocking::UdpTransport;
+
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     command::pan_tilt::PanTiltDirection,
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
     Error,
 };
 use std::time::{Duration, Instant};

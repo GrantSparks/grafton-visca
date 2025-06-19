@@ -12,14 +12,19 @@ fn main() {
 }
 
 #[cfg(feature = "async-client")]
+mod common;
+
+#[cfg(feature = "async-client")]
+use common::r#async::AsyncUdpTransport;
+
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Duration;
-
+    
     use grafton_visca::{
         camera::{Camera, GenericVisca},
         command::inquiry::InquiryCommand,
-        transport::AsyncUdpTransport,
     };
     env_logger::init();
 

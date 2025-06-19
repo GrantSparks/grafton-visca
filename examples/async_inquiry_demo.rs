@@ -9,9 +9,13 @@
 //! The Camera API now supports full inquiry functionality through the
 //! send_and_receive() method, making it a complete replacement for the Client API.
 
+#[path = "udp_transport.rs"]
+mod udp_transport;
+mod common;
+use common::r#async::AsyncUdpTransport;
+
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
-    transport::AsyncUdpTransport,
     Error,
 };
 use std::env;

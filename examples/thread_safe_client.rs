@@ -7,10 +7,14 @@
 //! Default camera address: 192.168.1.100:5678
 
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+mod common;
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+use common::blocking::UdpTransport;
+
 use grafton_visca::{
     camera::{Camera, CameraProfile, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
     Error,
 };
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]

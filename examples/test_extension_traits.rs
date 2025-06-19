@@ -3,13 +3,16 @@
 //! This example shows how the Camera API provides all control methods
 //! directly without needing extension traits.
 
+mod common;
+use common::blocking::UdpTransport;
+
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{
         exposure::ExposureMode, image::ImageFlipMode, pan_tilt::PanTiltDirection,
         white_balance::WhiteBalanceMode,
     },
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
     Error,
 };
 use std::thread;
