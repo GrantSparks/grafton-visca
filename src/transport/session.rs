@@ -162,10 +162,8 @@ impl<T: RawTransport> ViscaTransport<T> {
     ) -> Result<(), Error> {
         let mut bytes = command.to_bytes()?;
 
-        // Encode socket ID in the command header
-        if !bytes.is_empty() && bytes[0] == 0x81 {
-            bytes[0] = 0x80 | socket_id.value();
-        }
+        // For VISCA over IP, socket management is done at protocol level
+        // Don't modify the camera address byte
 
         log::debug!(
             "Sending command with socket {}: {bytes:02X?}",

@@ -195,7 +195,6 @@ macro_rules! assert_send_ok {
     }};
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::assert_command_bytes;

@@ -51,9 +51,7 @@ fn test_with_helpers() {
 #[test]
 fn test_with_mock_transport() {
     use common::MockTransport;
-    use grafton_visca::{
-        camera::{Camera, PTZOpticsG2},
-    };
+    use grafton_visca::camera::{Camera, PTZOpticsG2};
 
     // Create a mock that returns specific responses
     let mock = MockTransport::with_ack_completion();
@@ -62,10 +60,7 @@ fn test_with_mock_transport() {
     let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Send command and verify response
-    assert_ok(
-        camera.power_on(),
-        "Power on command should succeed",
-    );
+    assert_ok(camera.power_on(), "Power on command should succeed");
 
     // Verify command was sent
     let commands = commands_sent.lock().unwrap();
@@ -133,15 +128,9 @@ mod integration_style_tests {
         let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
         // Test multiple commands
-        assert_ok(
-            camera.home(),
-            "Home command should succeed",
-        );
+        assert_ok(camera.home(), "Home command should succeed");
 
-        assert_ok(
-            camera.zoom_stop(),
-            "Zoom stop command should succeed",
-        );
+        assert_ok(camera.zoom_stop(), "Zoom stop command should succeed");
 
         // Verify commands were sent
         let commands = commands_sent.lock().unwrap();
