@@ -1,7 +1,7 @@
 //! Example demonstrating the custom camera profile builder pattern.
 
 mod common;
-use common::r#async::AsyncTcpTransport;
+use common::r#async::tcp_transport;
 use grafton_visca::{
     camera::{
         Camera, CameraProfile, CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder,
@@ -134,7 +134,7 @@ async fn run_demo() -> Result<(), Error> {
 
     // Create a camera with the custom profile
     println!("\n5. Creating camera with custom profile:");
-    let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let transport = tcp_transport("192.168.1.100:5678").await?;
     let camera = Camera::with_profile(transport, simple_profile);
 
     let caps = camera.capabilities();

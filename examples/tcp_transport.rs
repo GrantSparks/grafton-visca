@@ -3,7 +3,6 @@
 //! This example shows how simple TCP transport creation is with the new API.
 //! All VISCA protocol logic is handled by the library.
 
-use std::time::Duration;
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{command::zoom::ZoomCommand, transport::create};

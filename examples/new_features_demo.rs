@@ -1,16 +1,14 @@
 //! Demonstration of new Camera<P> API features:
-//! - CameraPool for multi-camera management
 //! - CommandBuilder for fluent command sequences
 //! - Extension traits for custom functionality
 
 mod common;
-use common::r#async::AsyncUdpTransport;
+use common::r#async::udp_transport;
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
         Camera, CameraExtension, CommandBuilderExt, DiagnosticsExt,
     },
-    camera_pool::{CameraInfo, CameraPool, PoolConfig},
     Error,
 };
 use std::time::Duration;
@@ -22,97 +20,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate all new features
     println!("=== VISCA Camera New Features Demo ===\n");
 
-    println!("1. Camera Pool for multi-camera management:");
-    camera_pool_demo().await?;
-
-    println!("\n2. Command Builder for fluent sequences:");
+    println!("1. Command Builder for fluent sequences:");
     command_builder_demo().await?;
 
-    println!("\n3. Extension traits for custom functionality:");
+    println!("\n2. Extension traits for custom functionality:");
     extension_traits_demo().await?;
-
-    Ok(())
-}
-
-/// Demonstrates CameraPool for managing multiple cameras
-async fn camera_pool_demo() -> Result<(), Error> {
-    println!("Creating camera pool for multi-camera management...");
-
-    // Configure pool
-    let config = PoolConfig {
-        health_check_interval: Duration::from_secs(60),
-        auto_remove_unhealthy: true,
-        max_idle_time: Some(Duration::from_secs(300)),
-        max_cameras: Some(10),
-    };
-
-    let pool = CameraPool::<PTZOpticsG2>::new(config);
-
-    // Add cameras to pool
-    for i in 1..=3 {
-        let info = CameraInfo::new(format!("cam{}", i))
-            .with_name(format!("Camera {}", i))
-            .with_location(format!("Studio {}", i))
-            .with_metadata("ip", format!("192.168.1.{}", 100 + i));
-
-        // In real code, create actual transports
-        let transport =
-            Box::new(AsyncUdpTransport::new(&format!("192.168.1.{}:52381", 100 + i)).await?)
-                as Box<dyn grafton_visca::transport::Transport>;
-
-        match pool.add_camera_async(info, transport).await {
-            Ok(_camera) => println!("  ✓ Added camera {} to pool", i),
-            Err(e) => println!("  ✗ Failed to add camera {}: {}", i, e),
-        }
-    }
-
-    // Execute command on specific camera
-    println!("\nExecuting command on camera 'cam1':");
-    let result = pool
-        .with_camera_async(
-            "cam1",
-            |camera| async move { camera.get_power_state().await },
-        )
-        .await;
-
-    match result {
-        Ok(power_on) => println!(
-            "  Camera 1 power state: {}",
-            if power_on { "ON" } else { "OFF" }
-        ),
-        Err(e) => println!("  Failed to query camera 1: {}", e),
-    }
-
-    // Execute command on all cameras concurrently
-    println!("\nExecuting home command on all cameras concurrently:");
-    let results = pool
-        .with_all_cameras_async(|camera| async move { camera.home().await })
-        .await;
-
-    for (id, result) in results {
-        match result {
-            Ok(_) => println!("  ✓ Camera {} moved to home", id),
-            Err(e) => println!("  ✗ Camera {} failed: {}", id, e),
-        }
-    }
-
-    // Get pool statistics
-    println!("\nPool statistics:");
-    for stats in pool.get_all_stats() {
-        println!(
-            "  {} - Success: {}, Failed: {}, Healthy: {}",
-            stats.info.id, stats.successful_ops, stats.failed_ops, stats.is_healthy
-        );
-    }
-
-    // Perform maintenance
-    println!("\nPerforming pool maintenance...");
-    let report = pool.maintenance();
-    println!(
-        "  Removed {} unhealthy, {} stale cameras",
-        report.unhealthy_removed.len(),
-        report.stale_removed.len()
-    );
 
     Ok(())
 }
@@ -121,7 +33,7 @@ async fn camera_pool_demo() -> Result<(), Error> {
 async fn command_builder_demo() -> Result<(), Error> {
     println!("Using CommandBuilder for complex sequences...");
 
-    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
+    let transport = udp_transport("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Build and execute a complex sequence
@@ -201,7 +113,7 @@ async fn command_builder_demo() -> Result<(), Error> {
 async fn extension_traits_demo() -> Result<(), Error> {
     println!("Using extension traits for custom functionality...");
 
-    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
+    let transport = udp_transport("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Use DiagnosticsExt trait

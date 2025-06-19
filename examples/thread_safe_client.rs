@@ -15,7 +15,6 @@ use common::blocking::UdpTransport;
 use grafton_visca::{
     camera::{Camera, CameraProfile, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
-    transport::BlockingAdapter,
     Error,
 };
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
@@ -39,8 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at {}...", camera_addr);
 
     // Create UDP transport and Camera with PTZOpticsG2 profile
-    let transport = UdpTransport::new(camera_addr)?;
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let transport = common::blocking::udp_transport(camera_addr)?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Wrap the camera in Arc<Mutex> for thread-safe access
     let camera = Arc::new(Mutex::new(camera));

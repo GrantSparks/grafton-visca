@@ -9,24 +9,14 @@
 //! This example shows patterns for timing operations.
 
 mod common;
-use common::blocking::UdpTransport;
+use common::blocking::udp_transport;
 
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     command::pan_tilt::PanTiltDirection,
-    transport::BlockingAdapter,
     Error,
 };
 use std::time::{Duration, Instant};
-
-// Use a minimal tokio runtime for blocking execution
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(fut)
-}
 
 fn main() -> Result<(), Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -51,8 +41,8 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     use grafton_visca::camera::profiles::G2PresetId;
 
     println!("Connecting to camera at {}...", camera_addr);
-    let udp_transport = UdpTransport::new(camera_addr)?;
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
+    let transport = udp_transport(camera_addr)?;
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("Note: The Camera API doesn't have built-in timeout support.");
     println!("These examples show execution timing patterns.\n");
@@ -64,7 +54,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     // Note: Direct power inquiry method not available in Camera API
     // Power on command (will succeed if already on)
     let start = Instant::now();
-    match block_on(camera.power_on()) {
+    match camera.power_on() {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Power on command completed in {:?}", elapsed);
@@ -72,28 +62,9 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
         Err(e) => println!("   ✗ Power on failed: {}", e),
     }
 
-    // Position inquiry
-    let start = Instant::now();
-    match block_on(camera.get_position()) {
-        Ok((pan, tilt)) => {
-            let elapsed = start.elapsed();
-            println!(
-                "   ✓ Position inquiry completed in {:?}: pan={:?}, tilt={:?}",
-                elapsed, pan, tilt
-            );
-        }
-        Err(e) => println!("   ✗ Position inquiry failed: {}", e),
-    }
-
-    // Zoom position inquiry
-    let start = Instant::now();
-    match block_on(camera.get_zoom_position()) {
-        Ok(zoom) => {
-            let elapsed = start.elapsed();
-            println!("   ✓ Zoom inquiry completed in {:?}: {}", elapsed, zoom);
-        }
-        Err(e) => println!("   ✗ Zoom inquiry failed: {}", e),
-    }
+    // Note: The Camera API doesn't have inquiry methods like get_position() or get_zoom_position()
+    // These would need to be implemented using the inquiry module
+    println!("   Note: Position and zoom inquiries not available in Camera API");
 
     println!();
 
@@ -105,7 +76,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     println!("   These commands may take longer to acknowledge\n");
 
     let start = Instant::now();
-    match block_on(camera.move_continuous(PanTiltDirection::Left, 15, 0)) {
+    match camera.move_continuous(PanTiltDirection::Left, 15, 0) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Start movement completed in {:?}", elapsed);
@@ -115,7 +86,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
             // Stop movement
             let stop_start = Instant::now();
-            match block_on(camera.stop()) {
+            match camera.stop() {
                 Ok(_) => {
                     let stop_elapsed = stop_start.elapsed();
                     println!("   ✓ Stop movement completed in {:?}", stop_elapsed);
@@ -134,7 +105,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     // Save preset
     let start = Instant::now();
-    match block_on(camera.set_preset(preset_id)) {
+    match camera.set_preset(preset_id) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Save preset completed in {:?}", elapsed);
@@ -143,12 +114,12 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     }
 
     // Move away
-    block_on(camera.set_position(Degrees(0.0), Degrees(0.0)))?;
+    camera.set_position(Degrees(0.0), Degrees(0.0))?;
     std::thread::sleep(Duration::from_secs(1));
 
     // Recall preset
     let start = Instant::now();
-    match block_on(camera.recall_preset(preset_id)) {
+    match camera.recall_preset(preset_id) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Recall preset completed in {:?}", elapsed);
@@ -170,12 +141,14 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
         println!("   Attempt {}/{}", attempt, max_attempts);
 
         let start = Instant::now();
-        match block_on(camera.get_focus_position()) {
-            Ok(focus) => {
+        // Note: get_focus_position() is not available in Camera API
+        // Using a simple command instead for timing demonstration
+        match camera.focus_auto() {
+            Ok(_) => {
                 let elapsed = start.elapsed();
                 println!(
-                    "   ✓ Success on attempt {} in {:?}: focus position = {}",
-                    attempt, elapsed, focus
+                    "   ✓ Success on attempt {} in {:?}: focus set to auto",
+                    attempt, elapsed
                 );
                 break;
             }

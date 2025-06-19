@@ -34,7 +34,7 @@ fn main() -> Result<(), Error> {
 
     // Create camera with PTZOptics G2 profile
     let udp_transport = UdpTransport::new("192.168.1.100:5678")?;
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp_transport));
+    let camera = Camera::<PTZOpticsG2>::new(udp_transport);
 
     println!("Connected to camera. Demonstrating image and gain controls...");
 

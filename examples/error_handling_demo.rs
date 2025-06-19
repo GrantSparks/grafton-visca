@@ -4,24 +4,14 @@
 //! including retry logic and error classification.
 
 mod common;
-use common::blocking::UdpTransport;
+use common::blocking::udp_transport;
 
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
-    transport::BlockingAdapter,
     Error,
 };
 use std::time::{Duration, Instant};
-
-// Use a minimal tokio runtime for blocking execution
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(fut)
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -115,7 +105,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match UdpTransport::new(camera_addr) {
+    let transport = match udp_transport(camera_addr) {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -127,7 +117,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -143,7 +133,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         println!("   Attempt {}/{}: Power on", attempt, max_attempts);
 
         let start = Instant::now();
-        match block_on(camera.power_on()) {
+        match camera.power_on() {
             Ok(_) => {
                 let elapsed = start.elapsed();
                 println!("   ✓ Power on succeeded in {:?}", elapsed);
@@ -195,12 +185,12 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("\n   a) Handling CameraBusy during movement:");
 
     // Start a movement
-    match block_on(camera.move_continuous(PanTiltDirection::Right, 10, 0)) {
+    match camera.move_continuous(PanTiltDirection::Right, 10, 0) {
         Ok(_) => {
             println!("   ✓ Started movement");
 
             // Try another command immediately (might get CameraBusy)
-            match block_on(camera.zoom_in()) {
+            match camera.zoom_in() {
                 Ok(_) => println!("   ✓ Zoom command accepted"),
                 Err(Error::CameraBusy) => {
                     println!("   ⚠️  Camera busy (expected during movement)");
@@ -208,10 +198,10 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
                     // Stop movement
                     std::thread::sleep(Duration::from_millis(500));
-                    block_on(camera.stop())?;
+                    camera.stop()?;
 
                     // Retry zoom
-                    match block_on(camera.zoom_in()) {
+                    match camera.zoom_in() {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
                         Err(e) => println!("   ✗ Zoom still failed: {}", e),
                     }
@@ -229,7 +219,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
-        Ok(preset_id) => match block_on(camera.recall_preset(preset_id)) {
+        Ok(preset_id) => match camera.recall_preset(preset_id) {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
                 println!("   ⚠️  Preset {} not found (expected)", id);

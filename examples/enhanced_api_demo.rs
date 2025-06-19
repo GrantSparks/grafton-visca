@@ -32,8 +32,8 @@ fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Connect to camera using new Camera API with UDP transport
-    let transport = UdpTransport::new("192.168.1.100:5678")?;
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let transport = common::blocking::udp_transport("192.168.1.100:5678")?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("=== Enhanced Camera API Demo ===\n");
 

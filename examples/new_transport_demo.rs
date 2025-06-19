@@ -4,7 +4,6 @@
 //! code duplication by moving all VISCA protocol logic into the library.
 //! Transport implementations now only need to handle the actual I/O.
 
-use std::time::Duration;
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{

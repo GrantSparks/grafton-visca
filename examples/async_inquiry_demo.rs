@@ -10,7 +10,7 @@
 //! send_and_receive() method, making it a complete replacement for the Client API.
 
 mod common;
-use common::r#async::AsyncUdpTransport;
+use common::r#async::udp_transport;
 
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to camera at {}...", camera_addr);
 
     // Create camera with async transport
-    let transport = AsyncUdpTransport::new(camera_addr).await?;
+    let transport = udp_transport(camera_addr).await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("\n=== Camera API Inquiry Commands Demo ===\n");

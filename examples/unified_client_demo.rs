@@ -6,7 +6,7 @@
 mod common;
 use common::blocking::UdpTransport;
 #[cfg(feature = "async-client")]
-use common::r#async::AsyncTcpTransport;
+use common::r#async::tcp_transport;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
@@ -28,8 +28,8 @@ fn blocking_udp_example() -> Result<(), Error> {
     println!("=== Blocking UDP Example ===");
 
     // Create a camera with blocking UDP transport
-    let transport = UdpTransport::new("192.168.1.100:5678")?;
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let transport = common::blocking::udp_transport("192.168.1.100:5678")?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // All operations are async but we use block_on for blocking execution
     println!("Powering on camera...");
@@ -51,7 +51,7 @@ async fn async_tcp_example() -> Result<(), Error> {
     println!("\n=== Async TCP Example ===");
 
     // Create a camera with async TCP transport
-    let transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    let transport = tcp_transport("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // All operations are naturally async
@@ -76,7 +76,7 @@ async fn transport_flexibility_example() -> Result<(), Error> {
     // Example 1: UDP with blocking adapter
     {
         let udp = UdpTransport::new("192.168.1.100:5678")?;
-        let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(udp));
+        let camera = Camera::<PTZOpticsG2>::new(udp);
 
         println!("UDP camera - moving up...");
         camera.move_continuous(PanTiltDirection::Up, 0, 10).await?;
@@ -87,7 +87,7 @@ async fn transport_flexibility_example() -> Result<(), Error> {
     // Example 2: TCP async
     #[cfg(feature = "async-client")]
     {
-        let tcp = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+        let tcp = tcp_transport("192.168.1.100:5678").await?;
         let camera = Camera::<PTZOpticsG2>::new(tcp);
 
         println!("TCP camera - moving down...");
@@ -105,13 +105,13 @@ async fn profile_switching_example() -> Result<(), Error> {
     println!("\n=== Profile Switching Example ===");
 
     // You can use different profiles for different camera models
-    let transport = UdpTransport::new("192.168.1.100:5678")?;
+    let transport = common::blocking::udp_transport("192.168.1.100:5678")?;
 
     // PTZOptics G2 camera
     {
         use grafton_visca::camera::profiles::G2PresetId;
         let transport2 = UdpTransport::new("192.168.1.100:5678")?;
-        let g2_camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport2));
+        let g2_camera = Camera::<PTZOpticsG2>::new(transport2);
 
         println!("G2 Camera - saving preset 1...");
         let preset = G2PresetId::new(1)?;
@@ -121,7 +121,7 @@ async fn profile_switching_example() -> Result<(), Error> {
     // Generic VISCA camera (wider compatibility)
     {
         use grafton_visca::camera::profiles::{GenericPresetId, GenericVisca};
-        let generic_camera = Camera::<GenericVisca>::new(BlockingAdapter(transport));
+        let generic_camera = Camera::<GenericVisca>::new(transport);
 
         println!("Generic Camera - recalling preset 0...");
         let preset = GenericPresetId::new(0);

@@ -26,8 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Connect to camera using the new Camera API
-    let transport = UdpTransport::new("192.168.1.100:5678")?;
-    let camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
+    let transport = common::blocking::udp_transport("192.168.1.100:5678")?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("=== Type-Safe Camera API Demo ===\n");
 

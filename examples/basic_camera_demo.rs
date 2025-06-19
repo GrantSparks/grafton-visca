@@ -1,243 +1,311 @@
-//! Basic camera control demonstration using the new Camera API
-
-mod common;
-use common::blocking::UdpTransport;
+//! Basic camera control demonstration showing blocking-first and async approaches
+//!
+//! This example demonstrates common camera operations using the new API design.
 
 use grafton_visca::{
-    camera::profiles::{G2PresetId, PTZOpticsG2},
+    camera::{profiles::PTZOpticsG2, units::Degrees},
     command::{
-        exposure::ExposureMode, gain::AntiFlickerMode, image::ImageFlipMode,
-        pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
+        exposure::ExposureMode, pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
     },
-    transport::BlockingAdapter,
-    Camera,
+    Camera, Error,
 };
-use std::thread;
 use std::time::Duration;
 
-// Use a minimal tokio runtime for blocking execution
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(fut)
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+mod blocking_demo {
+    use super::*;
+    use grafton_visca::transport::blocking::create;
+    use std::thread;
+
+    pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+        println!("🎥 Basic Camera Demo - Blocking Mode");
+        println!("====================================\n");
+
+        // Create blocking transport
+        let transport = create::tcp("192.168.1.100:5678")?;
+        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+
+        // Demo 1: Power Control
+        demo_power_control(&mut camera)?;
+
+        // Demo 2: Pan/Tilt Movement
+        demo_pan_tilt_movement(&mut camera)?;
+
+        // Demo 3: Zoom Control
+        demo_zoom_control(&mut camera)?;
+
+        // Demo 4: Focus Control
+        demo_focus_control(&mut camera)?;
+
+        // Demo 5: Exposure Settings
+        demo_exposure_settings(&mut camera)?;
+
+        // Demo 6: White Balance
+        demo_white_balance(&mut camera)?;
+
+        // Demo 7: Position Control
+        demo_position_control(&mut camera)?;
+
+        println!("\n✅ All demos completed successfully!");
+        Ok(())
+    }
+
+    fn demo_power_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("📍 Demo 1: Power Control");
+        println!("Powering on camera...");
+        camera.power_on()?;
+        println!("✅ Camera powered on successfully");
+        thread::sleep(Duration::from_secs(2));
+        Ok(())
+    }
+
+    fn demo_pan_tilt_movement(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 2: Pan/Tilt Movement");
+
+        println!("Moving to home position...");
+        camera.home()?;
+        thread::sleep(Duration::from_secs(2));
+
+        println!("Moving camera up-right...");
+        camera.move_continuous(PanTiltDirection::UpRight, 16, 16)?;
+        thread::sleep(Duration::from_secs(1));
+
+        println!("Stopping movement...");
+        camera.stop()?;
+        Ok(())
+    }
+
+    fn demo_zoom_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 3: Zoom Control");
+
+        println!("Zooming in...");
+        camera.zoom_in()?;
+        thread::sleep(Duration::from_secs(1));
+
+        println!("Stopping zoom...");
+        camera.zoom_stop()?;
+
+        println!("Setting zoom to 50%...");
+        camera.set_zoom(0x3800)?; // Mid-range zoom
+        thread::sleep(Duration::from_secs(1));
+
+        println!("Resetting zoom...");
+        camera.set_zoom(0x0000)?;
+        Ok(())
+    }
+
+    fn demo_focus_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 4: Focus Control");
+
+        println!("Setting auto-focus mode...");
+        camera.focus_auto()?;
+        thread::sleep(Duration::from_millis(500));
+
+        println!("Switching to manual focus...");
+        camera.focus_manual()?;
+        Ok(())
+    }
+
+    fn demo_exposure_settings(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 5: Exposure Settings");
+
+        println!("Setting exposure to auto...");
+        camera.set_exposure_mode(ExposureMode::Auto)?;
+        thread::sleep(Duration::from_millis(500));
+
+        println!("Switching to shutter priority mode...");
+        camera.set_exposure_mode(ExposureMode::Shutter)?;
+        Ok(())
+    }
+
+    fn demo_white_balance(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 6: White Balance");
+
+        println!("Setting white balance to auto...");
+        camera.set_white_balance_mode(WhiteBalanceMode::Auto)?;
+        thread::sleep(Duration::from_millis(500));
+
+        println!("Switching to indoor mode...");
+        camera.set_white_balance_mode(WhiteBalanceMode::Indoor)?;
+        Ok(())
+    }
+
+    fn demo_position_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 7: Position Control");
+
+        println!("Moving to specific position (45°, 20°)...");
+        camera.set_position(Degrees(45.0), Degrees(20.0))?;
+        thread::sleep(Duration::from_secs(2));
+
+        println!("Moving to position (-30°, -10°)...");
+        camera.set_position(Degrees(-30.0), Degrees(-10.0))?;
+        thread::sleep(Duration::from_secs(2));
+
+        println!("Returning to home...");
+        camera.home()?;
+        thread::sleep(Duration::from_secs(2));
+        Ok(())
+    }
 }
 
-fn demo_power_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 1: Power Control");
-    println!("Powering on camera...");
-    block_on(camera.power_on())?;
-    println!("✅ Camera powered on successfully");
-    thread::sleep(Duration::from_secs(2));
-    Ok(())
+#[cfg(feature = "async-client")]
+mod async_demo {
+    use super::*;
+    use grafton_visca::transport::create;
+
+    pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
+        println!("🎥 Basic Camera Demo - Async Mode");
+        println!("==================================\n");
+
+        // Create async transport
+        let transport = create::tcp("192.168.1.100:5678").await?;
+        let camera = Camera::<PTZOpticsG2>::new(transport);
+
+        // Demo 1: Power Control
+        demo_power_control(&camera).await?;
+
+        // Demo 2: Pan/Tilt Movement
+        demo_pan_tilt_movement(&camera).await?;
+
+        // Demo 3: Zoom Control
+        demo_zoom_control(&camera).await?;
+
+        // Demo 4: Focus Control
+        demo_focus_control(&camera).await?;
+
+        // Demo 5: Exposure Settings
+        demo_exposure_settings(&camera).await?;
+
+        // Demo 6: White Balance
+        demo_white_balance(&camera).await?;
+
+        // Demo 7: Position Control
+        demo_position_control(&camera).await?;
+
+        println!("\n✅ All demos completed successfully!");
+        Ok(())
+    }
+
+    async fn demo_power_control(camera: &Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("📍 Demo 1: Power Control");
+        println!("Powering on camera...");
+        camera.power_on().await?;
+        println!("✅ Camera powered on successfully");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        Ok(())
+    }
+
+    async fn demo_pan_tilt_movement(camera: &Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 2: Pan/Tilt Movement");
+
+        println!("Moving to home position...");
+        camera.home().await?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        println!("Moving camera up-right...");
+        camera
+            .move_continuous(PanTiltDirection::UpRight, 16, 16)
+            .await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        println!("Stopping movement...");
+        camera.stop().await?;
+        Ok(())
+    }
+
+    async fn demo_zoom_control(camera: &Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 3: Zoom Control");
+
+        println!("Zooming in...");
+        camera.zoom_in().await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        println!("Stopping zoom...");
+        camera.zoom_stop().await?;
+
+        println!("Setting zoom to 50%...");
+        camera.set_zoom(0x3800).await?; // Mid-range zoom
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        println!("Resetting zoom...");
+        camera.set_zoom(0x0000).await?;
+        Ok(())
+    }
+
+    async fn demo_focus_control(camera: &Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 4: Focus Control");
+
+        println!("Setting auto-focus mode...");
+        camera.focus_auto().await?;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        println!("Switching to manual focus...");
+        camera.focus_manual().await?;
+        Ok(())
+    }
+
+    async fn demo_exposure_settings(camera: &Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 5: Exposure Settings");
+
+        println!("Setting exposure to auto...");
+        camera.set_exposure_mode(ExposureMode::Auto).await?;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        println!("Switching to shutter priority mode...");
+        camera.set_exposure_mode(ExposureMode::Shutter).await?;
+        Ok(())
+    }
+
+    async fn demo_white_balance(camera: &Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 6: White Balance");
+
+        println!("Setting white balance to auto...");
+        camera
+            .set_white_balance_mode(WhiteBalanceMode::Auto)
+            .await?;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        println!("Switching to indoor mode...");
+        camera
+            .set_white_balance_mode(WhiteBalanceMode::Indoor)
+            .await?;
+        Ok(())
+    }
+
+    async fn demo_position_control(camera: &Camera<PTZOpticsG2>) -> Result<(), Error> {
+        println!("\n📍 Demo 7: Position Control");
+
+        println!("Moving to specific position (45°, 20°)...");
+        camera.set_position(Degrees(45.0), Degrees(20.0)).await?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        println!("Moving to position (-30°, -10°)...");
+        camera.set_position(Degrees(-30.0), Degrees(-10.0)).await?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        println!("Returning to home...");
+        camera.home().await?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        Ok(())
+    }
 }
 
-fn demo_pan_tilt_movement(
-    camera: &mut Camera<PTZOpticsG2>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 2: Pan/Tilt Movement");
-
-    println!("Moving to home position...");
-    block_on(camera.home())?;
-    thread::sleep(Duration::from_secs(2));
-
-    println!("Moving camera up-right...");
-    block_on(camera.move_continuous(PanTiltDirection::UpRight, 16, 16))?;
-    thread::sleep(Duration::from_secs(1));
-
-    println!("Stopping movement...");
-    block_on(camera.stop())?;
-    Ok(())
-}
-
-fn demo_zoom_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 3: Zoom Control");
-
-    println!("Zooming in...");
-    block_on(camera.zoom_in())?;
-    thread::sleep(Duration::from_secs(1));
-
-    block_on(camera.zoom_stop())?;
-
-    println!("Zooming out...");
-    block_on(camera.zoom_out())?;
-    thread::sleep(Duration::from_secs(1));
-
-    block_on(camera.zoom_stop())?;
-
-    println!("Setting zoom to 25%...");
-    block_on(camera.set_zoom(0x1C00))?; // 25% of G2's max zoom
-    Ok(())
-}
-
-fn demo_focus_control(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 4: Focus Control");
-
-    println!("Setting auto focus...");
-    block_on(camera.focus_auto())?;
-    thread::sleep(Duration::from_secs(1));
-
-    println!("Setting manual focus...");
-    block_on(camera.focus_manual())?;
-    block_on(camera.set_focus(0x6000))?;
-    thread::sleep(Duration::from_secs(1));
-
-    println!("Returning to auto focus...");
-    block_on(camera.focus_auto())?;
-    Ok(())
-}
-
-fn demo_preset_positions(
-    camera: &mut Camera<PTZOpticsG2>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 5: Preset Positions");
-
-    println!("Saving current position as preset 1...");
-    let preset1 = G2PresetId::new(1)?;
-    block_on(camera.set_preset(preset1))?;
-    thread::sleep(Duration::from_secs(1));
-
-    println!("Moving camera to a different position...");
-    block_on(camera.move_continuous(PanTiltDirection::DownLeft, 16, 16))?;
-    thread::sleep(Duration::from_secs(1));
-    block_on(camera.stop())?;
-
-    println!("Recalling preset 1...");
-    block_on(camera.recall_preset(preset1))?;
-    thread::sleep(Duration::from_secs(2));
-    Ok(())
-}
-
-fn demo_exposure_control(
-    camera: &mut Camera<PTZOpticsG2>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 6: Exposure Control");
-
-    println!("Setting manual exposure mode...");
-    block_on(camera.set_exposure_mode(ExposureMode::Manual))?;
-
-    println!("Adjusting iris to F4.0...");
-    block_on(camera.set_iris(6))?;
-
-    println!("Setting shutter speed...");
-    block_on(camera.set_shutter(10))?;
-
-    println!("Returning to auto exposure...");
-    block_on(camera.set_exposure_mode(ExposureMode::Auto))?;
-    Ok(())
-}
-
-fn demo_color_adjustments(
-    camera: &mut Camera<PTZOpticsG2>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 7: Color Adjustments");
-
-    println!("Setting white balance to auto...");
-    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Auto))?;
-
-    println!("Adjusting saturation...");
-    block_on(camera.set_saturation(8))?;
-
-    println!("Adjusting hue...");
-    block_on(camera.set_hue(7))?;
-
-    println!("Setting color temperature to 5600K...");
-    block_on(camera.set_color_temperature(0x20))?; // Approximate 5600K
-    Ok(())
-}
-
-fn demo_image_quality(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 8: Image Quality Settings");
-
-    println!("Setting luminance...");
-    block_on(camera.set_luminance(8))?;
-
-    println!("Setting contrast...");
-    block_on(camera.set_contrast(8))?;
-
-    println!("Setting sharpness...");
-    block_on(camera.set_sharpness(8))?;
-
-    println!("Setting brightness...");
-    block_on(camera.set_brightness(8))?;
-    Ok(())
-}
-
-fn demo_camera_info(camera: &Camera<PTZOpticsG2>) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 9: Camera Information");
-
-    let caps = camera.capabilities();
-    println!("Camera Model: {}", caps.model_name);
-    println!("Pan Range: {:?} degrees", caps.pan_range_degrees);
-    println!("Tilt Range: {:?} degrees", caps.tilt_range_degrees);
-    println!("Zoom Steps: {}", caps.zoom_steps);
-    println!("Focus Steps: {}", caps.focus_steps);
-    println!("Preset Count: {}", caps.preset_count);
-    println!("Supports Digital Zoom: {}", caps.supports_digital_zoom);
-    println!("Max Pan Speed: {}", caps.max_pan_speed);
-    println!("Max Tilt Speed: {}", caps.max_tilt_speed);
-    Ok(())
-}
-
-fn demo_advanced_features(
-    camera: &mut Camera<PTZOpticsG2>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n📍 Demo 10: Advanced Features");
-
-    println!("Setting 2D noise reduction...");
-    block_on(camera.set_noise_reduction_2d(3))?;
-
-    println!("Setting backlight compensation...");
-    block_on(camera.backlight_on())?;
-
-    println!("Setting image flip (horizontal)...");
-    block_on(camera.set_image_flip(ImageFlipMode::Horizontal))?;
-    thread::sleep(Duration::from_secs(1));
-
-    println!("Resetting image flip...");
-    block_on(camera.set_image_flip(ImageFlipMode::Off))?;
-
-    println!("Setting anti-flicker mode...");
-    block_on(camera.set_anti_flicker(AntiFlickerMode::Hz60))?;
-
-    println!("Disabling backlight compensation...");
-    block_on(camera.backlight_off())?;
-    Ok(())
-}
-
+// Main function adapts based on features
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
     env_logger::init();
+    blocking_demo::run()
+}
 
-    // Get camera IP from environment or use default
-    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100:5678".to_string());
+#[cfg(feature = "async-client")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+    async_demo::run().await
+}
 
-    println!("🎥 Grafton VISCA Demo - Connecting to camera at {camera_ip}");
-    println!("{}", "=".repeat(50));
-
-    // Create camera with UDP transport
-    let transport = UdpTransport::new(&camera_ip)?;
-    let mut camera = Camera::<PTZOpticsG2>::new(BlockingAdapter(transport));
-
-    // Run all demos
-    demo_power_control(&mut camera)?;
-    demo_pan_tilt_movement(&mut camera)?;
-    demo_zoom_control(&mut camera)?;
-    demo_focus_control(&mut camera)?;
-    demo_preset_positions(&mut camera)?;
-    demo_exposure_control(&mut camera)?;
-    demo_color_adjustments(&mut camera)?;
-    demo_image_quality(&mut camera)?;
-    demo_camera_info(&camera)?;
-    demo_advanced_features(&mut camera)?;
-
-    // Return to home position
-    println!("\n🏁 Demo complete! Returning to home position...");
-    block_on(camera.home())?;
-
-    println!("\n✨ All demos completed successfully!");
-    println!("{}", "=".repeat(50));
-
-    Ok(())
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+fn main() {
+    eprintln!("This example requires either 'blocking-client' or 'async-client' feature.");
+    eprintln!("Try: cargo run --example basic_camera_demo --features blocking-client");
 }
