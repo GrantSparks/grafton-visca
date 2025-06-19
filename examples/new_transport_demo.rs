@@ -7,10 +7,10 @@
 #[cfg(feature = "async-client")]
 use grafton_visca::{
     command::zoom::ZoomCommand,
-    transport::{
-        builders, ChannelTransport, ChannelTransportBuilder, ChannelTransportConfig, Transport,
-    },
+    transport::{create, ChannelTransport, RawTransport, ViscaTransport},
 };
+#[cfg(feature = "async-client")]
+use std::time::Duration;
 
 #[cfg(not(feature = "async-client"))]
 fn main() {
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: Simple TCP transport
     println!("1. Creating TCP transport session...");
-    match builders::tcp_with_timeout("192.168.1.100:5678", Duration::from_secs(5)).await {
+    match create::tcp_timeout("192.168.1.100:5678", Duration::from_secs(5)).await {
         Ok(mut transport) => {
             println!("   ✓ TCP transport created: {}", transport.description());
 
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 2: Simple UDP transport
     println!("2. Creating UDP transport session...");
-    match builders::udp("192.168.1.100:52381").await {
+    match create::udp("192.168.1.100:52381").await {
         Ok(mut transport) => {
             println!("   ✓ UDP transport created: {}", transport.description());
 
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 3: Serial transport (mock)
     println!("3. Creating serial transport session...");
-    let mut transport = builders::serial(1); // Camera address 1
+    let mut transport = create::serial(1); // Camera address 1
     println!("   ✓ Serial transport created: {}", transport.description());
 
     // Send a command
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 4: Channel-wrapped transport for thread safety
     println!("4. Creating channel-wrapped TCP transport for thread safety...");
-    match builders::tcp("192.168.1.100:5678").await {
+    match create::tcp("192.168.1.100:5678").await {
         Ok(tcp_transport) => {
             let channel_transport = ChannelTransportBuilder::new(tcp_transport)
                 .queue_size(50)

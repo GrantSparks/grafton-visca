@@ -4,9 +4,7 @@
 //! This test file demonstrates how to use the improved test helpers
 //! and patterns to write tests without needing #[allow(...)] directives.
 
-// Temporarily disabled due to transport redesign
-// #![cfg(feature = "blocking-client")]
-#![cfg(feature = "disabled-blocking-client")]
+#![cfg(feature = "blocking-client")]
 
 #[path = "common/mod.rs"]
 mod common;
@@ -16,7 +14,7 @@ use common::builders::*;
 use common::helpers::*;
 
 // Import needed types
-use grafton_visca::{Command, Error, Response};
+use grafton_visca::{Command, Error};
 
 #[cfg(feature = "blocking-client")]
 #[test]
@@ -52,24 +50,27 @@ fn test_with_helpers() {
 #[cfg(feature = "blocking-client")]
 #[test]
 fn test_with_mock_transport() {
-    use common::{MockDevice, MockTransport};
-    use grafton_visca::command::{power::Power, PowerCommand};
+    use common::MockTransport;
+    use grafton_visca::{
+        camera::{Camera, PTZOpticsG2},
+    };
 
     // Create a mock that returns specific responses
     let mock = MockTransport::with_ack_completion();
-    let mut device = MockDevice::from_transport(mock);
+    let commands_sent = mock.commands_sent.clone();
+    let transport = mock.into_visca_transport();
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Send command and verify response
-    let response = assert_ok(
-        device.execute_command(&PowerCommand { power: Power::On }),
+    assert_ok(
+        camera.power_on(),
         "Power on command should succeed",
     );
 
-    // Response doesn't implement PartialEq, so check the variant
-    match response {
-        Response::Completion => {}
-        _ => panic!("Expected Completion response, got {:?}", response),
-    }
+    // Verify command was sent
+    let commands = commands_sent.lock().unwrap();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0], vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
 }
 
 #[cfg(feature = "blocking-client")]
@@ -119,37 +120,31 @@ mod integration_style_tests {
     #[cfg(feature = "blocking-client")]
     #[test]
     fn test_command_sequence() {
-        use common::MockDevice;
-        use grafton_visca::command::{pan_tilt::PanTiltCommand, zoom::ZoomCommand};
+        use common::MockTransport;
+        use grafton_visca::camera::{Camera, PTZOpticsG2};
 
-        // Create mock device with expected responses
-        let mut device = MockDevice::with_completion();
+        // Create mock with expected responses
+        let mock = MockTransport::new();
+        mock.add_ack_completion(0); // Home
+        mock.add_ack_completion(1); // Zoom stop
 
-        // Queue additional responses for multiple commands
-        device.add_response(create_ack_response(0));
-        device.add_response(create_completion_response(0));
+        let commands_sent = mock.commands_sent.clone();
+        let transport = mock.into_visca_transport();
+        let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
         // Test multiple commands
-        let home_response = assert_ok(
-            device.execute_command(&PanTiltCommand::Home),
+        assert_ok(
+            camera.home(),
             "Home command should succeed",
         );
-        match home_response {
-            Response::Completion => {}
-            _ => panic!("Expected Completion response, got {:?}", home_response),
-        }
 
-        let zoom_response = assert_ok(
-            device.execute_command(&ZoomCommand::Stop),
+        assert_ok(
+            camera.zoom_stop(),
             "Zoom stop command should succeed",
         );
-        match zoom_response {
-            Response::Completion => {}
-            _ => panic!("Expected Completion response, got {:?}", zoom_response),
-        }
 
         // Verify commands were sent
-        let commands = device.commands_sent();
+        let commands = commands_sent.lock().unwrap();
         assert_eq!(commands.len(), 2, "Should have sent 2 commands");
 
         // Check specific command bytes
@@ -157,6 +152,11 @@ mod integration_style_tests {
             &commands[0],
             &[0x81, 0x01, 0x06, 0x04],
             "First command should be PTZ Home",
+        );
+        assert_bytes_eq(
+            &commands[1],
+            &[0x81, 0x01, 0x04, 0x07, 0x00, 0xFF],
+            "Second command should be Zoom Stop",
         );
     }
 }

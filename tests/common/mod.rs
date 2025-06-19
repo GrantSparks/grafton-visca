@@ -13,17 +13,10 @@ pub mod helpers;
 pub mod macros;
 
 #[cfg(feature = "blocking-client")]
-use grafton_visca::{Command, Error};
-
-#[cfg(feature = "blocking-client")]
-use grafton_visca::{InquiryResponse, Response};
+use grafton_visca::Error;
 
 #[cfg(feature = "blocking-client")]
 use grafton_visca::transport::blocking::{Transport as BlockingTransport, ViscaTransport};
-
-// Import parse_response from the command module
-#[cfg(feature = "blocking-client")]
-use grafton_visca::command::parse_response;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -144,13 +137,14 @@ impl BlockingTransport for MockTransport {
         if self.fail_receive {
             return Err(Error::Io(std::io::Error::other("Mock receive error")));
         }
-
-        self.responses.lock().unwrap().pop_front().ok_or_else(|| {
-            Error::Io(std::io::Error::new(
+        self.responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or_else(|| Error::Io(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "Mock timeout - no response queued",
-            ))
-        })
+            )))
     }
 
     fn is_connected(&self) -> bool {
@@ -170,308 +164,157 @@ impl MockTransport {
     }
 }
 
-/// A mock device implementation that properly handles VISCA protocol.
-// Temporarily disabled due to transport redesign
-// #[cfg(feature = "blocking-client")]
-#[cfg(feature = "disabled-blocking-client")]
-#[allow(dead_code)] // Complete testing API - not all methods used in every test
-pub struct MockDevice {
-    transport: BlockingAdapter<MockTransport>,
+// Async version of MockTransport for feature parity
+#[cfg(feature = "async-client")]
+use grafton_visca::transport::{RawTransport, TransportFuture, ViscaTransport as AsyncViscaTransport};
+#[cfg(feature = "async-client")]
+use tokio::sync::Mutex as AsyncMutex;
+#[cfg(feature = "async-client")]
+use std::time::Duration;
+
+/// Async mock transport for testing - feature parity with MockTransport
+#[cfg(feature = "async-client")]
+#[derive(Clone)]
+pub struct MockAsyncTransport {
+    /// Queue of responses to return
+    pub responses: Arc<AsyncMutex<VecDeque<Vec<u8>>>>,
+    /// Commands that have been sent
+    pub sent_commands: Arc<AsyncMutex<Vec<Vec<u8>>>>,
+    /// Whether to fail on send
+    pub fail_send: bool,
+    /// Whether to fail on receive
+    pub fail_receive: bool,
+    /// Fail after N commands (for testing error scenarios)
+    pub fail_after: Option<usize>,
+    /// Command counter
+    pub command_counter: Arc<AsyncMutex<usize>>,
+    /// Optional delay in milliseconds
+    pub delay_ms: Option<u64>,
 }
 
-// Temporarily disabled due to transport redesign
-// #[cfg(feature = "blocking-client")]
-#[cfg(feature = "disabled-blocking-client")]
-#[allow(dead_code)] // Complete testing API - not all methods used in every test
-impl MockDevice {
-    /// Create a new mock device.
+#[cfg(feature = "async-client")]
+impl MockAsyncTransport {
+    /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
         Self {
-            transport: BlockingAdapter(MockTransport::new()),
+            responses: Arc::new(AsyncMutex::new(VecDeque::new())),
+            sent_commands: Arc::new(AsyncMutex::new(Vec::new())),
+            fail_send: false,
+            fail_receive: false,
+            fail_after: None,
+            command_counter: Arc::new(AsyncMutex::new(0)),
+            delay_ms: None,
         }
     }
 
-    /// Create a mock device that returns completion for all commands.
-    pub fn with_completion() -> Self {
-        Self {
-            transport: BlockingAdapter(MockTransport::with_ack_completion()),
-        }
-    }
-
-    /// Create from a custom mock transport.
-    pub const fn from_transport(transport: MockTransport) -> Self {
-        Self {
-            transport: BlockingAdapter(transport),
-        }
+    /// Create with a delay (in milliseconds).
+    pub fn with_delay(mut self, delay_ms: u64) -> Self {
+        self.delay_ms = Some(delay_ms);
+        self
     }
 
     /// Add a response to the queue.
-    pub fn add_response(&self, response: Vec<u8>) {
-        self.transport.0.add_response(response);
+    pub async fn add_response(&self, response: Vec<u8>) {
+        self.responses.lock().await.push_back(response);
     }
 
-    /// Add an inquiry response.
-    pub fn queue_inquiry_response(&self, response: InquiryResponse) {
-        // Convert the inquiry response to bytes based on its type
-        let bytes = match response {
-            InquiryResponse::Power { on } => {
-                vec![0x90, 0x50, if on { 0x02 } else { 0x03 }, 0xFF]
-            }
-            InquiryResponse::PanTiltPosition { pan, tilt } => {
-                // Extract 4-bit nibbles from 16-bit signed values
-                // Using transmute for protocol-level bit manipulation
-                let pan_u16 = u16::from_ne_bytes(pan.to_ne_bytes());
-                let tilt_u16 = u16::from_ne_bytes(tilt.to_ne_bytes());
-                vec![
-                    0x90,
-                    0x50,
-                    ((pan_u16 >> 12) & 0x0F) as u8,
-                    ((pan_u16 >> 8) & 0x0F) as u8,
-                    ((pan_u16 >> 4) & 0x0F) as u8,
-                    (pan_u16 & 0x0F) as u8,
-                    ((tilt_u16 >> 12) & 0x0F) as u8,
-                    ((tilt_u16 >> 8) & 0x0F) as u8,
-                    ((tilt_u16 >> 4) & 0x0F) as u8,
-                    (tilt_u16 & 0x0F) as u8,
-                    0xFF,
-                ]
-            }
-            InquiryResponse::ZoomPosition { position } => {
-                vec![
-                    0x90,
-                    0x50,
-                    ((position >> 12) & 0x0F) as u8,
-                    ((position >> 8) & 0x0F) as u8,
-                    ((position >> 4) & 0x0F) as u8,
-                    (position & 0x0F) as u8,
-                    0xFF,
-                ]
-            }
-            _ => vec![0x90, 0x50, 0xFF], // Generic completion for unsupported types
-        };
-        self.add_response(bytes);
+    /// Add an ACK followed by completion response.
+    pub async fn add_ack_completion(&self, socket: u8) {
+        self.add_response(vec![0x90, 0x40 | socket, 0xFF]).await; // ACK
+        self.add_response(vec![0x90, 0x50 | socket, 0xFF]).await; // Completion
     }
 
-    /// Get the commands that were sent.
-    pub fn commands_sent(&self) -> Vec<Vec<u8>> {
-        self.transport.0.commands_sent()
+    /// Get the command count.
+    pub async fn command_count(&self) -> usize {
+        *self.command_counter.lock().await
     }
 
-    /// Get the last command that was sent.
-    pub fn last_command(&self) -> Option<Vec<u8>> {
-        self.transport.0.last_command()
-    }
-
-    /// Clear the command history.
-    pub fn clear_commands(&self) {
-        self.transport.0.clear_commands();
+    /// Configure to fail after N commands.
+    pub fn fail_after_n_commands(mut self, n: usize) -> Self {
+        self.fail_after = Some(n);
+        self
     }
 }
 
-// MockDevice no longer implements Transport directly since the new API
-// uses Camera<P> for high-level operations. Tests should use Camera<P>
-// with MockTransport for testing.
-#[cfg(feature = "blocking-client")]
-impl MockDevice {
-    /// Execute a command and handle the response according to VISCA protocol
-    #[allow(dead_code)]
-    pub fn execute_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
-        // For blocking transport, we don't need futures
-        use grafton_visca::transport::Transport;
-        use std::future::Future;
-        use std::pin::Pin;
-        use std::task::{Context, Poll, Waker};
-
-        // Simple executor for our blocking adapter
-        fn block_on<F: Future>(mut fut: F) -> F::Output {
-            let waker = unsafe {
-                Waker::from_raw(std::task::RawWaker::new(
-                    std::ptr::null(),
-                    &std::task::RawWakerVTable::new(
-                        |_| std::task::RawWaker::new(std::ptr::null(), &VTABLE),
-                        |_| {},
-                        |_| {},
-                        |_| {},
-                    ),
-                ))
-            };
-            let mut cx = Context::from_waker(&waker);
-
-            loop {
-                match unsafe { Pin::new_unchecked(&mut fut) }.poll(&mut cx) {
-                    Poll::Ready(val) => return val,
-                    Poll::Pending => {}
-                }
-            }
-        }
-
-        const VTABLE: std::task::RawWakerVTable = std::task::RawWakerVTable::new(
-            |_| std::task::RawWaker::new(std::ptr::null(), &VTABLE),
-            |_| {},
-            |_| {},
-            |_| {},
-        );
-
-        // Send the command and get response using the new unified API
-        block_on(self.transport.send_command(command))
+#[cfg(feature = "async-client")]
+impl std::fmt::Debug for MockAsyncTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MockAsyncTransport")
+            .field("fail_send", &self.fail_send)
+            .field("fail_receive", &self.fail_receive)
+            .field("delay_ms", &self.delay_ms)
+            .finish()
     }
 }
 
-// Re-export async mock types when async-client feature is enabled
-// Temporarily disabled due to transport redesign
-// #[cfg(feature = "async-client")]
-// #[allow(unused_imports)] // Used by async tests when feature is enabled
-// pub use async_mock::MockAsyncTransport;
-
-// Temporarily disabled due to transport redesign
-// #[cfg(feature = "async-client")]
-#[cfg(feature = "disabled-async-client")]
-mod async_mock {
-    use super::*;
-    use grafton_visca::{Command, Error};
-    use std::time::Duration;
-    use tokio::time::sleep;
-
-    /// An async mock transport for testing async functionality.
-    pub struct MockAsyncTransport {
-        pub sent_commands: Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,
-        pub responses: Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,
-        pub delay_ms: u64,
-        pub fail_after: Option<usize>,
-    }
-
-    #[allow(dead_code)] // Complete testing API - not all methods used in every test
-    impl MockAsyncTransport {
-        pub fn new() -> Self {
-            Self {
-                sent_commands: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-                responses: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-                delay_ms: 10,
-                fail_after: None,
+#[cfg(feature = "async-client")]
+impl RawTransport for MockAsyncTransport {
+    fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
+        Box::pin(async move {
+            // Check if we should fail after N commands
+            let mut counter = self.command_counter.lock().await;
+            *counter += 1;
+            if let Some(fail_after) = self.fail_after {
+                if *counter > fail_after {
+                    return Err(Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionAborted,
+                        "Mock transport configured to fail",
+                    )));
+                }
             }
-        }
+            drop(counter);
 
-        pub const fn with_delay(mut self, delay_ms: u64) -> Self {
-            self.delay_ms = delay_ms;
-            self
-        }
-
-        pub const fn fail_after_n_commands(mut self, n: usize) -> Self {
-            self.fail_after = Some(n);
-            self
-        }
-
-        pub async fn add_response(&self, response: Vec<u8>) {
-            let mut responses = self.responses.lock().await;
-            responses.push(response);
-        }
-
-        pub async fn add_ack_completion(&self, socket: u8) {
-            self.add_response(vec![0x90, 0x40 | socket, 0xFF]).await;
-            self.add_response(vec![0x90, 0x50 | socket, 0xFF]).await;
-        }
-
-        pub async fn command_count(&self) -> usize {
-            self.sent_commands.lock().await.len()
-        }
+            if self.fail_send {
+                return Err(Error::Io(std::io::Error::other("Mock send error")));
+            }
+            
+            self.sent_commands.lock().await.push(data.to_vec());
+            
+            if let Some(delay) = self.delay_ms {
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+            }
+            
+            Ok(())
+        })
     }
 
-    impl AsyncTransport for MockAsyncTransport {
-        fn send_command<'a>(
-            &'a mut self,
-            command: &'a dyn Command,
-        ) -> TransportFuture<'a, grafton_visca::Response> {
-            Box::pin(async move {
-                let count = self.sent_commands.lock().await.len();
+    fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
+        Box::pin(async move {
+            if self.fail_receive {
+                return Err(Error::Io(std::io::Error::other("Mock receive error")));
+            }
 
-                if let Some(fail_after) = self.fail_after {
-                    if count >= fail_after {
-                        return Err(Error::Io(std::io::Error::new(
-                            std::io::ErrorKind::ConnectionAborted,
-                            "Simulated connection failure",
-                        )));
-                    }
-                }
+            if let Some(delay) = self.delay_ms {
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+            }
 
-                let bytes = command.to_bytes()?;
-                self.sent_commands.lock().await.push(bytes);
+            self.responses
+                .lock()
+                .await
+                .pop_front()
+                .ok_or_else(|| {
+                    Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "Mock timeout - no response queued",
+                    ))
+                })
+        })
+    }
 
-                sleep(Duration::from_millis(self.delay_ms)).await;
+    fn is_connected(&self) -> bool {
+        true
+    }
 
-                // Simulate receiving responses
-                let mut responses = self.responses.lock().await;
+    fn description(&self) -> &str {
+        "Mock async transport for testing"
+    }
+}
 
-                // If this is an inquiry command, return the first response directly
-                if let Some(resp_type) = command.response_type() {
-                    if !responses.is_empty() {
-                        let response_bytes = responses.remove(0);
-                        // Parse the response based on type
-                        use grafton_visca::command::parse_response;
-                        return parse_response(&response_bytes, &resp_type);
-                    }
-                    return Err(Error::Timeout);
-                }
-
-                // For control commands, simulate ACK then completion/error
-                if !responses.is_empty() {
-                    let first_response = responses[0].clone();
-
-                    // Check if it's an error response
-                    if first_response.len() >= 4
-                        && first_response[0] == 0x90
-                        && first_response[1] == 0x60
-                    {
-                        let error_code = first_response[2];
-                        responses.remove(0);
-                        return Ok(grafton_visca::Response::Error(Error::from_code(error_code)));
-                    }
-
-                    // For testing, if we get an ACK, look for completion
-                    if first_response.len() == 3
-                        && first_response[0] == 0x90
-                        && (first_response[1] & 0xF0) == 0x40
-                    {
-                        // Remove ACK
-                        responses.remove(0);
-
-                        // Simulate delay between ACK and completion
-                        sleep(Duration::from_millis(self.delay_ms)).await;
-
-                        // Now get completion
-                        if !responses.is_empty() {
-                            let second_response = responses[0].clone();
-                            if second_response.len() >= 4
-                                && second_response[0] == 0x90
-                                && second_response[1] == 0x60
-                            {
-                                let error_code = second_response[2];
-                                responses.remove(0);
-                                return Ok(grafton_visca::Response::Error(Error::from_code(
-                                    error_code,
-                                )));
-                            }
-                            if second_response.len() == 3
-                                && second_response[0] == 0x90
-                                && (second_response[1] & 0xF0) == 0x50
-                            {
-                                responses.remove(0);
-                                return Ok(grafton_visca::Response::Completion);
-                            }
-                        }
-                    }
-
-                    // Direct completion response
-                    if first_response.len() == 3
-                        && first_response[0] == 0x90
-                        && (first_response[1] & 0xF0) == 0x50
-                    {
-                        responses.remove(0);
-                        return Ok(grafton_visca::Response::Completion);
-                    }
-                }
-
-                Err(Error::Timeout)
-            })
-        }
+// Helper to create an async ViscaTransport wrapper
+#[cfg(feature = "async-client")]
+impl MockAsyncTransport {
+    /// Convert into a ViscaTransport for use in tests.
+    pub fn into_visca_transport(self) -> AsyncViscaTransport<Self> {
+        AsyncViscaTransport::new(self)
     }
 }

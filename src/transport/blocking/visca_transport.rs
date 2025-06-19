@@ -65,11 +65,8 @@ impl<T: Transport> ViscaTransport<T> {
         // Get command bytes
         let mut cmd_bytes = command.to_bytes()?;
 
-        // Add sequence number to header if not already present
-        if !cmd_bytes.is_empty() && (cmd_bytes[0] & 0x0F) == 0x01 {
-            let seq = self.next_sequence();
-            cmd_bytes[0] = 0x80 | (seq << 4) | 0x01;
-        }
+        // For VISCA over IP, we don't modify the camera address
+        // The camera address should already be in the command bytes from to_bytes()
 
         // Ensure command ends with terminator
         if cmd_bytes.last() != Some(&VISCA_TERMINATOR) {
@@ -107,7 +104,13 @@ impl<T: Transport> ViscaTransport<T> {
 
     /// Wait for ACK response.
     fn wait_for_ack(&mut self, timeout: Duration) -> Result<Response, Error> {
-        let data = self.transport.receive(timeout)?;
+        let data = match self.transport.receive(timeout) {
+            Ok(data) => data,
+            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::TimedOut => {
+                return Err(Error::Timeout);
+            }
+            Err(e) => return Err(e),
+        };
 
         if data.is_empty() {
             return Err(Error::InvalidResponseLength);
@@ -121,9 +124,12 @@ impl<T: Transport> ViscaTransport<T> {
                 0x40..=0x4F => Ok(Response::Ack),
                 0x50..=0x5F => Ok(Response::Completion),
                 0x60..=0x6F => {
-                    // Error response
-                    let error_code = data[1] & 0x0F;
-                    Err(Error::from_code(error_code))
+                    // Error response - error code is in data[2]
+                    if data.len() >= 4 {
+                        Err(Error::from_code(data[2]))
+                    } else {
+                        Err(Error::InvalidResponseLength)
+                    }
                 }
                 _ => Ok(Response::Unknown(data)),
             }
@@ -146,7 +152,13 @@ impl<T: Transport> ViscaTransport<T> {
         timeout: Duration,
         response_type: &ResponseType,
     ) -> Result<Response, Error> {
-        let data = self.transport.receive(timeout)?;
+        let data = match self.transport.receive(timeout) {
+            Ok(data) => data,
+            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::TimedOut => {
+                return Err(Error::Timeout);
+            }
+            Err(e) => return Err(e),
+        };
 
         if data.is_empty() {
             return Err(Error::InvalidResponseLength);

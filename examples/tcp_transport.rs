@@ -5,6 +5,8 @@
 
 #[cfg(feature = "async-client")]
 use grafton_visca::{command::zoom::ZoomCommand, transport::create};
+#[cfg(feature = "async-client")]
+use std::time::Duration;
 
 #[cfg(not(feature = "async-client"))]
 fn main() {
