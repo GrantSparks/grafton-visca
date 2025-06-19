@@ -15,7 +15,7 @@ use std::net::UdpSocket;
 use tokio::net::UdpSocket as TokioUdpSocket;
 
 #[cfg(feature = "async-client")]
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 
 #[cfg(feature = "async-client")]
 use tokio::sync::Mutex;
@@ -27,27 +27,8 @@ use grafton_visca::{
     Command, Error,
 };
 
-#[cfg(feature = "async-client")]
-use grafton_visca::ConnectionStats;
-
 #[cfg(feature = "blocking-client")]
 use grafton_visca::transport::BlockingTransport;
-
-// Simple ConnectionStats for blocking implementation since it's not exported for blocking-client
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-#[derive(Debug, Default)]
-struct ConnectionStats {
-    // Basic stats tracking - you can extend this as needed
-    commands_sent: usize,
-    responses_received: usize,
-}
-
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-impl ConnectionStats {
-    fn new() -> Self {
-        Self::default()
-    }
-}
 
 #[cfg(feature = "async-client")]
 use grafton_visca::transport::{Transport, TransportFuture};
@@ -66,7 +47,6 @@ struct PendingCommand {
 pub struct UdpTransport {
     socket: UdpSocket,
     address: String,
-    stats: ConnectionStats,
     // Use fixed array instead of HashMap for the 2 VISCA sockets
     pending_commands: [Option<PendingCommand>; 2],
 }
@@ -90,7 +70,6 @@ impl UdpTransport {
         Ok(Self {
             socket,
             address: address.to_string(),
-            stats: ConnectionStats::new(),
             pending_commands: [None; 2],
         })
     }
@@ -106,15 +85,8 @@ impl UdpTransport {
         Ok(Self {
             socket,
             address: address.to_string(),
-            stats: ConnectionStats::new(),
             pending_commands: [None; 2],
         })
-    }
-
-    /// Returns the connection statistics.
-    #[must_use]
-    pub const fn stats(&self) -> &ConnectionStats {
-        &self.stats
     }
 
     /// Assigns an available socket for a new command.
@@ -259,7 +231,6 @@ impl UdpTransport {
         self.socket
             .send_to(&bytes, &self.address)
             .map_err(Error::Io)?;
-        self.stats.record_sent(bytes.len());
         Ok(())
     }
 
@@ -271,20 +242,13 @@ impl UdpTransport {
             Ok((size, _)) => {
                 let data = buffer[..size].to_vec();
                 log::debug!("Received data: {data:02X?}");
-                self.stats.record_received(data.len());
                 Ok(data)
             }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                self.stats.record_error();
-                Err(Error::CommandTimeout {
-                    duration: Duration::from_secs(10),
-                    command: "receive_response".to_string(),
-                })
-            }
-            Err(e) => {
-                self.stats.record_error();
-                Err(Error::Io(e))
-            }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(Error::CommandTimeout {
+                duration: Duration::from_secs(10),
+                command: "receive_response".to_string(),
+            }),
+            Err(e) => Err(Error::Io(e)),
         }
     }
 }
@@ -354,7 +318,6 @@ impl BlockingTransport for UdpTransport {
 pub struct AsyncUdpTransport {
     socket: Arc<Mutex<TokioUdpSocket>>,
     address: String,
-    stats: Arc<StdMutex<ConnectionStats>>,
     // Use Arc<Mutex> for async shared state
     pending_commands: Arc<Mutex<[Option<PendingCommand>; 2]>>,
 }
@@ -370,15 +333,8 @@ impl AsyncUdpTransport {
         Ok(Self {
             socket: Arc::new(Mutex::new(socket)),
             address: address.to_string(),
-            stats: Arc::new(StdMutex::new(ConnectionStats::new())),
             pending_commands: Arc::new(Mutex::new([None; 2])),
         })
-    }
-
-    /// Returns a clone of the connection statistics.
-    #[must_use]
-    pub fn stats(&self) -> ConnectionStats {
-        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Assigns an available socket for a new command.
@@ -534,9 +490,6 @@ impl AsyncUdpTransport {
             .await
             .map_err(Error::Io)?;
 
-        if let Ok(stats_guard) = self.stats.lock() {
-            stats_guard.record_sent(bytes.len());
-        }
         Ok(())
     }
 
@@ -552,26 +505,13 @@ impl AsyncUdpTransport {
                 let data = buffer[..size].to_vec();
                 log::debug!("Received data: {data:02X?}");
 
-                if let Ok(stats_guard) = self.stats.lock() {
-                    stats_guard.record_received(data.len());
-                }
                 Ok(data)
             }
-            Ok(Err(e)) => {
-                if let Ok(stats_guard) = self.stats.lock() {
-                    stats_guard.record_error();
-                }
-                Err(Error::Io(e))
-            }
-            Err(_) => {
-                if let Ok(stats_guard) = self.stats.lock() {
-                    stats_guard.record_error();
-                }
-                Err(Error::CommandTimeout {
-                    duration: Duration::from_secs(10),
-                    command: "receive_response".to_string(),
-                })
-            }
+            Ok(Err(e)) => Err(Error::Io(e)),
+            Err(_) => Err(Error::CommandTimeout {
+                duration: Duration::from_secs(10),
+                command: "receive_response".to_string(),
+            }),
         }
     }
 }
