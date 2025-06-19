@@ -1,3 +1,9 @@
+//! VISCA session management for tracking command-response state.
+//!
+//! The Session module provides stateful tracking of VISCA commands and their responses.
+//! VISCA cameras support up to 2 concurrent commands through separate "sockets" (command slots),
+//! and this module manages the allocation and tracking of these resources.
+
 use std::collections::HashMap;
 
 use log::{debug, error};
@@ -8,19 +14,49 @@ use crate::{
     types::SocketId,
 };
 
-/// Represents a command that is currently being processed by the camera
+/// Represents a command that is currently being processed by the camera.
+///
+/// VISCA commands follow a two-phase response pattern:
+/// 1. ACK - Acknowledges receipt of the command
+/// 2. Completion - Indicates command execution finished (with optional data for inquiries)
 #[derive(Debug, Clone, Copy)]
 pub struct PendingCommand {
-    /// The expected response type for inquiry commands
+    /// The expected response type for inquiry commands.
+    /// This is `None` for control commands and `Some(ResponseType)` for inquiry commands.
     pub response_type: Option<ResponseType>,
-    /// Whether we've received an ACK for this command
+    /// Whether we've received an ACK for this command.
+    /// Used to track the two-phase response pattern.
     pub acknowledged: bool,
 }
 
-/// Manages the state of VISCA commands and their responses
+/// Manages the state of VISCA commands and their responses.
+///
+/// The Session tracks which commands are pending on which sockets and matches
+/// incoming responses to their corresponding commands. It does not handle any
+/// network communication - that responsibility belongs to the Transport layer.
+///
+/// # Example Flow
+/// ```ignore
+/// // 1. Assign a socket for a new command
+/// let socket_id = session.assign_socket(None)?;
+///
+/// // 2. Send command via transport (handled externally)
+/// 
+/// // 3. Process responses as they arrive
+/// match session.process_response(&response_bytes)? {
+///     Some((socket, Response::Ack)) => { /* Command acknowledged */ }
+///     Some((socket, Response::Completion)) => { /* Command completed */ }
+///     Some((socket, Response::Error(e))) => { /* Command failed */ }
+///     None => { /* Response for unknown command */ }
+/// }
+///
+/// // 4. Release the socket when done
+/// session.release_socket(socket_id);
+/// ```
 #[derive(Debug)]
 pub struct Session {
-    /// Maps socket IDs to pending commands
+    /// Maps socket IDs to pending commands.
+    /// VISCA supports exactly 2 concurrent commands (sockets 0 and 1).
     pending_commands: HashMap<SocketId, PendingCommand>,
 }
 
@@ -31,6 +67,28 @@ impl Session {
         Self {
             pending_commands: HashMap::new(),
         }
+    }
+
+    /// Returns the number of currently pending commands.
+    ///
+    /// This will be between 0 and 2, as VISCA supports a maximum of 2 concurrent commands.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.pending_commands.len()
+    }
+
+    /// Checks if a specific socket has a pending command.
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn has_pending(&self, socket_id: SocketId) -> bool {
+        self.pending_commands.contains_key(&socket_id)
+    }
+
+    /// Checks if all sockets are currently in use.
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn is_full(&self) -> bool {
+        self.pending_commands.len() >= 2
     }
 }
 
@@ -43,7 +101,15 @@ impl Default for Session {
 impl Session {
     /// Assigns a socket to a new command.
     ///
-    /// Returns the socket ID if successful.
+    /// This method finds an available socket (0 or 1) and reserves it for a new command.
+    /// For inquiry commands, the expected response type should be provided to enable
+    /// proper response parsing.
+    ///
+    /// # Arguments
+    /// * `response_type` - The expected response type for inquiry commands, or `None` for control commands
+    ///
+    /// # Returns
+    /// The assigned socket ID if successful.
     ///
     /// # Errors
     /// Returns `Error::CommandBufferFull` if both sockets are already in use.
@@ -69,100 +135,65 @@ impl Session {
         Err(Error::CommandBufferFull)
     }
 
-    /// Releases a socket after command completion
+    /// Releases a socket after command completion.
+    ///
+    /// This should be called when a command has completed (successfully or with error)
+    /// to free up the socket for future commands.
+    ///
+    /// # Arguments
+    /// * `socket_id` - The socket to release
     pub fn release_socket(&mut self, socket_id: SocketId) {
         if self.pending_commands.remove(&socket_id).is_some() {
             debug!("Released {socket_id}");
         }
     }
 
-    /// Processes a response frame and returns the parsed result
+    /// Processes a VISCA response frame and returns the parsed result.
+    ///
+    /// This method handles all types of VISCA responses:
+    /// - ACK (0x4X) - Command acknowledgment
+    /// - Completion (0x5X) - Command completion with optional data
+    /// - Error (0x6X) - Command error with error code
+    ///
+    /// The response is matched to pending commands based on the socket ID encoded
+    /// in the response. For inquiry commands with data, the response is parsed
+    /// according to the expected response type.
+    ///
+    /// # Arguments
+    /// * `response` - The raw response bytes from the camera
+    ///
+    /// # Returns
+    /// - `Ok(Some((socket_id, response)))` - Successfully processed response
+    /// - `Ok(None)` - Response for unknown command (already completed/released)
+    /// - `Err(_)` - Invalid response format or parsing error
     ///
     /// # Errors
-    /// Returns `Error::InvalidResponseFormat` if the response frame format is invalid.
-    /// Returns `Error::UnexpectedResponseType` if response data is received for a non-inquiry command.
-    /// Returns parsing errors if the response payload cannot be parsed.
+    /// - `Error::InvalidResponseFormat` - Response frame format is invalid
+    /// - `Error::UnexpectedResponseType` - Data received for non-inquiry command
+    /// - `Error::InvalidSocketId` - Socket ID in response is invalid
+    /// - Parsing errors from response data parsing
     pub fn process_response(
         &mut self,
         response: &[u8],
     ) -> Result<Option<(SocketId, Response)>, Error> {
+        // Validate basic response format: [0x90, TYPE|SOCKET, ...data..., 0xFF]
         if response.len() < 3 || response[0] != 0x90 || response[response.len() - 1] != 0xFF {
             return Err(Error::InvalidResponseFormat);
         }
 
-        match response[1] {
-            // ACK response
-            0x40..=0x4F => {
-                let socket_raw = response[1] & 0x0F;
-                let socket_id = SocketId::new(socket_raw)?;
+        let response_type = response[1] & 0xF0;
+        let socket_raw = response[1] & 0x0F;
+        let socket_id = SocketId::new(socket_raw)?;
 
-                if let Some(pending) = self.pending_commands.get_mut(&socket_id) {
-                    pending.acknowledged = true;
-                    debug!("ACK received for {socket_id}");
-                    Ok(Some((socket_id, Response::Ack)))
-                } else {
-                    error!("Received ACK for unknown {socket_id}");
-                    Ok(None)
-                }
-            }
+        match response_type {
+            // ACK response (0x40)
+            0x40 => self.handle_ack(socket_id),
 
-            // Completion or inquiry response
-            0x50..=0x5F => {
-                let socket_raw = response[1] & 0x0F;
-                let socket_id = SocketId::new(socket_raw)?;
+            // Completion response (0x50)
+            0x50 => self.handle_completion(socket_id, response),
 
-                self.pending_commands.get(&socket_id).map_or_else(
-                    || {
-                        error!("Received completion for unknown {socket_id}");
-                        Ok(None)
-                    },
-                    |pending| {
-                        if response.len() == 3 {
-                            // Simple completion with no data
-                            debug!("Completion received for {socket_id}");
-                            Ok(Some((socket_id, Response::Completion)))
-                        } else {
-                            // Completion with data payload (inquiry response)
-                            pending.response_type.map_or_else(
-                                || {
-                                    // Unexpected data response for non-inquiry command
-                                    error!(
-                                        "Received data response for non-inquiry command on {socket_id}"
-                                    );
-                                    Err(Error::UnexpectedResponseType)
-                                },
-                                |response_type| match parse_response_typed(response, &response_type) {
-                                    Ok(parsed) => {
-                                        debug!(
-                                            "Inquiry response received for {socket_id}: {parsed:?}"
-                                        );
-                                        Ok(Some((socket_id, parsed)))
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to parse inquiry response: {e}");
-                                        Err(e)
-                                    }
-                                },
-                            )
-                        }
-                    },
-                )
-            }
-
-            // Error response
-            0x60..=0x6F => {
-                let socket_raw = response[1] & 0x0F;
-                let socket_id = SocketId::new(socket_raw)?;
-
-                if response.len() >= 4 {
-                    let error_code = response[2];
-                    let error = Error::from_code(error_code);
-                    error!("Error response for {socket_id}: {error}");
-                    Ok(Some((socket_id, Response::Error(error))))
-                } else {
-                    Err(Error::InvalidResponseFormat)
-                }
-            }
+            // Error response (0x60)
+            0x60 => self.handle_error(socket_id, response),
 
             _ => {
                 error!("Unknown response type: {:#02X}", response[1]);
@@ -171,12 +202,71 @@ impl Session {
         }
     }
 
-    // Test helper methods
-    #[cfg(test)]
-    fn pending_count(&self) -> usize {
-        self.pending_commands.len()
+    /// Handles ACK response processing
+    fn handle_ack(&mut self, socket_id: SocketId) -> Result<Option<(SocketId, Response)>, Error> {
+        if let Some(pending) = self.pending_commands.get_mut(&socket_id) {
+            pending.acknowledged = true;
+            debug!("ACK received for {socket_id}");
+            Ok(Some((socket_id, Response::Ack)))
+        } else {
+            error!("Received ACK for unknown {socket_id}");
+            Ok(None)
+        }
     }
 
+    /// Handles completion response processing
+    fn handle_completion(
+        &self,
+        socket_id: SocketId,
+        response: &[u8],
+    ) -> Result<Option<(SocketId, Response)>, Error> {
+        let Some(pending) = self.pending_commands.get(&socket_id) else {
+            error!("Received completion for unknown {socket_id}");
+            return Ok(None);
+        };
+
+        if response.len() == 3 {
+            // Simple completion with no data
+            debug!("Completion received for {socket_id}");
+            Ok(Some((socket_id, Response::Completion)))
+        } else {
+            // Completion with data payload (inquiry response)
+            match pending.response_type {
+                None => {
+                    error!("Received data response for non-inquiry command on {socket_id}");
+                    Err(Error::UnexpectedResponseType)
+                }
+                Some(response_type) => match parse_response_typed(response, &response_type) {
+                    Ok(parsed) => {
+                        debug!("Inquiry response received for {socket_id}: {parsed:?}");
+                        Ok(Some((socket_id, parsed)))
+                    }
+                    Err(e) => {
+                        error!("Failed to parse inquiry response: {e}");
+                        Err(e)
+                    }
+                },
+            }
+        }
+    }
+
+    /// Handles error response processing
+    fn handle_error(
+        &self,
+        socket_id: SocketId,
+        response: &[u8],
+    ) -> Result<Option<(SocketId, Response)>, Error> {
+        if response.len() >= 4 {
+            let error_code = response[2];
+            let error = Error::from_code(error_code);
+            error!("Error response for {socket_id}: {error}");
+            Ok(Some((socket_id, Response::Error(error))))
+        } else {
+            Err(Error::InvalidResponseFormat)
+        }
+    }
+
+    // Test helper methods
     #[cfg(test)]
     fn get_pending_command(&self, socket: SocketId) -> Option<&PendingCommand> {
         self.pending_commands.get(&socket)
