@@ -17,6 +17,8 @@ pub mod common;
 pub mod resilient;
 mod tcp;
 mod tcp_unified;
+/// Core transport traits and types
+pub mod traits;
 mod udp;
 pub mod unified;
 
