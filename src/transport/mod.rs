@@ -13,6 +13,9 @@ use std::{future::Future, pin::Pin};
 use crate::{error::Error, Command};
 
 // Submodules
+/// Channel-based transport for thread-safe sharing
+#[cfg(feature = "async-client")]
+pub mod channel;
 pub mod common;
 pub mod resilient;
 mod tcp;
@@ -32,6 +35,12 @@ pub use self::{tcp::AsyncTcpTransport, udp::AsyncUdpTransport};
 // Unified transport re-exports
 pub use self::tcp_unified::UnifiedTcpTransport;
 pub use self::unified::UnifiedTransport;
+
+// Channel transport re-exports
+#[cfg(feature = "async-client")]
+pub use self::channel::{
+    ChannelTransport, ChannelTransportBuilder, ChannelTransportConfig, Priority,
+};
 
 /// Type alias for the future returned by async transport methods.
 pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
