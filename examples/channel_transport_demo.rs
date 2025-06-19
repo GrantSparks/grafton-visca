@@ -7,9 +7,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use grafton_visca::transport::{
-    AsyncTcpTransport, ChannelTransport, ChannelTransportBuilder, Priority, Transport,
+    AsyncTcpTransport, ChannelTransport, ChannelTransportBuilder, Transport,
 };
-use grafton_visca::{camera::profiles::PTZOpticsG2, Camera, Command, Error};
+use grafton_visca::{camera::profiles::PTZOpticsG2, Camera, Command};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,9 +21,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wrap it in a ChannelTransport with custom configuration
     let channel_transport = ChannelTransportBuilder::new(tcp_transport)
         .queue_size(200)
-        .operation_timeout(Duration::from_secs(10))
-        .auto_socket_management(true)
-        .max_concurrent_commands(2)
         .build();
 
     // Create a camera using the channel transport
@@ -54,32 +51,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     handles.push(tokio::spawn(async move {
         println!("Task 2: Starting zoom operations");
         for i in 0..3 {
-            println!("Task 2: Zoom {}", i + 1);
+            println!("Task 2: Zoom operation {}", i + 1);
+            // In a real implementation, you would use camera methods here
             tokio::time::sleep(Duration::from_millis(400)).await;
         }
         println!("Task 2: Completed");
     }));
 
-    // Task 3: Focus control with high priority
+    // Task 3: Inquiry commands
     let _camera3 = camera_arc.clone();
     handles.push(tokio::spawn(async move {
-        println!("Task 3: Starting high-priority focus operations");
-        for i in 0..2 {
-            println!("Task 3: Focus {} (HIGH PRIORITY)", i + 1);
-            // In a real implementation with priority support:
-            // camera.transport().with_priority(Priority::High).send_command(...)
+        println!("Task 3: Starting status inquiries");
+        for i in 0..3 {
+            println!("Task 3: Inquiry {}", i + 1);
+            // In a real implementation, you would use camera methods here
             tokio::time::sleep(Duration::from_millis(300)).await;
         }
         println!("Task 3: Completed");
     }));
 
-    // Task 4: Status inquiries
+    // Task 4: Preset operations
     let _camera4 = camera_arc.clone();
     handles.push(tokio::spawn(async move {
-        println!("Task 4: Starting status inquiries");
-        for i in 0..5 {
-            println!("Task 4: Status check {}", i + 1);
-            tokio::time::sleep(Duration::from_millis(200)).await;
+        println!("Task 4: Starting preset operations");
+        for i in 0..3 {
+            println!("Task 4: Preset operation {}", i + 1);
+            // In a real implementation, you would use camera methods here
+            tokio::time::sleep(Duration::from_millis(600)).await;
         }
         println!("Task 4: Completed");
     }));
@@ -98,53 +96,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Example of using priority with a custom transport wrapper
-#[allow(dead_code)]
-async fn send_priority_command<T: Command>(
-    transport: &ChannelTransport,
-    command: T,
-    priority: Priority,
-) -> Result<(), Error> {
-    // Create a priority transport for this specific command
-    let mut priority_transport = transport.with_priority(priority);
-
-    // Send the command with the specified priority
-    priority_transport
-        .send_command(&command, grafton_visca::types::SocketId::SOCKET_0)
-        .await?;
-
-    // Receive the response
-    let (_socket_id, _response) = priority_transport.receive_response().await?;
-
-    Ok(())
-}
-
 // Example showing how to use Arc<ChannelTransport> directly
 #[allow(dead_code)]
 async fn demo_arc_transport() -> Result<(), Box<dyn std::error::Error>> {
     let tcp_transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
 
-    let channel_transport = Arc::new(ChannelTransport::with_default_config(tcp_transport));
+    let channel_transport = Arc::new(ChannelTransport::new(tcp_transport, Default::default()));
 
     // Multiple threads can clone this Arc and use it directly
-    let transport1 = channel_transport.clone();
-    let transport2 = channel_transport.clone();
-
-    // Spawn concurrent tasks using the Arc<ChannelTransport>
+    let t1 = channel_transport.clone();
     let task1 = tokio::spawn(async move {
-        let _transport = transport1;
-        // Use transport.send_command() and transport.receive_response()
-        println!("Task using Arc<ChannelTransport> 1");
+        let transport = t1;
+        // Use transport for commands
+        let _ = transport; // Suppress unused warning
     });
 
+    let t2 = channel_transport.clone();
     let task2 = tokio::spawn(async move {
-        let _transport = transport2;
-        // Use transport.send_command() and transport.receive_response()
-        println!("Task using Arc<ChannelTransport> 2");
+        let transport = t2;
+        // Use transport for commands
+        let _ = transport; // Suppress unused warning
     });
 
     task1.await?;
     task2.await?;
 
     Ok(())
+}
+
+// Mock transport for demonstration
+#[allow(dead_code)]
+struct MockTransport;
+
+impl Transport for MockTransport {
+    fn send_command<'a>(
+        &'a mut self,
+        _command: &'a dyn Command,
+    ) -> grafton_visca::transport::TransportFuture<'a, grafton_visca::Response> {
+        Box::pin(async { Ok(grafton_visca::Response::Completion) })
+    }
 }
