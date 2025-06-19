@@ -1,3 +1,7 @@
+//! Connection statistics tracking for VISCA transports.
+
+#![cfg(any(feature = "blocking-client", feature = "async-client"))]
+
 // Standard library imports
 use std::{
     sync::{
