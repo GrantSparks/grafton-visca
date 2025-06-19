@@ -36,6 +36,7 @@ use tokio::{
 use super::{Transport, TransportFuture};
 
 /// Tracks pending commands for each socket
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 #[derive(Debug, Clone, Copy)]
 struct PendingCommand {
     response_type: Option<ResponseType>,
