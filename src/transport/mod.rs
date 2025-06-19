@@ -17,7 +17,6 @@ use crate::{error::Error, Command};
 #[cfg(feature = "async-client")]
 pub mod channel;
 pub mod common;
-pub mod resilient;
 mod tcp;
 mod tcp_unified;
 /// Core transport traits and types

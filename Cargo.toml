@@ -47,10 +47,6 @@ name = "async_health_check"
 required-features = ["async-client"]
 
 [[example]]
-name = "async_reconnecting"
-required-features = ["async-client"]
-
-[[example]]
 name = "async_inquiry_demo"
 required-features = ["async-client"]
 
@@ -102,14 +98,6 @@ required-features = ["blocking-client"]
 [[example]]
 name = "blocking_no_runtime"
 required-features = ["blocking-client"]
-
-[[example]]
-name = "reconnecting_transport"
-required-features = ["async-client", "blocking-client"]
-
-[[example]]
-name = "reconnecting_transport_demo"
-required-features = ["async-client", "blocking-client"]
 
 [[example]]
 name = "declarative_macro_test"
@@ -183,17 +171,13 @@ name = "new_features_demo"
 required-features = ["async-client", "blocking-client"]
 
 [[example]]
-name = "resilient_camera_demo"
-required-features = ["async-client", "blocking-client"]
-
-[[example]]
 name = "user_friendly_api_demo"
 required-features = ["async-client", "blocking-client"]
 
 [[example]]
-name = "resilient_transport_demo"
-required-features = ["async-client", "blocking-client"]
+name = "channel_transport_demo"
+required-features = ["async-client"]
 
 [[example]]
-name = "channel_transport_demo"
+name = "custom_retry_logic"
 required-features = ["async-client"]

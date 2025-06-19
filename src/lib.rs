@@ -163,13 +163,8 @@ pub mod types;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub mod camera_pool;
 
-// Reconnecting transport for automatic connection recovery
-#[cfg(feature = "async-client")]
-pub mod reconnecting_transport;
 #[cfg(feature = "async-client")]
 pub use connection::ConnectionStats;
-#[cfg(feature = "async-client")]
-pub use reconnecting_transport::{ConnectionEvent, ReconnectingTransport, ReconnectionConfig};
 
 #[cfg(feature = "async-client")]
 mod transport_future;

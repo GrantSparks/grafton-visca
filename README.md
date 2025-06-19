@@ -60,34 +60,38 @@ client.pan_to_degrees(45.0)?;                    // 45 degrees right
 client.set_pan_tilt_percentage(0.5, -0.25)?;     // Center-right, slightly down
 ```
 
-### 🔄 Built-in Resilience
-Built-in connection pooling and automatic reconnection are now standard:
+### 🔄 Built-in Connection Pooling
+Built-in connection pooling is now standard for managing multiple cameras:
 
 ```rust
-// Automatic reconnection on network failures with the new Camera<P> API
+// Use CameraPool for managing multiple cameras
 use grafton_visca::{
-    Camera, ReconnectingTransport, ReconnectionConfig,
+    camera_pool::{CameraPool, CameraInfo, PoolConfig},
     camera::profiles::PTZOpticsG2,
     transport::AsyncTcpTransport,
 };
 
-let config = ReconnectionConfig {
-    max_retries: 5,
-    initial_delay: Duration::from_millis(500),
-    max_delay: Duration::from_secs(10),
-    backoff_factor: 2.0,
-    health_check_interval: Some(Duration::from_secs(30)),
+let config = PoolConfig {
+    health_check_interval: Duration::from_secs(60),
+    auto_remove_unhealthy: true,
+    max_idle_time: Some(Duration::from_secs(300)),
+    max_cameras: Some(10),
 };
 
-let transport = ReconnectingTransport::new(
-    || async { AsyncTcpTransport::new("192.168.1.100:5678").await.map_err(|e| Error::Io(e)) },
-    config
-).await?;
+let pool = CameraPool::<PTZOpticsG2>::new(config);
 
-let mut camera = Camera::<PTZOpticsG2>::new(transport);
+// Add cameras to the pool
+let info = CameraInfo::new("camera1")
+    .with_name("Studio Camera 1")
+    .with_location("Main Stage");
 
-// Now all operations automatically retry on connection failures
-camera.home().await?;  // Will automatically reconnect if needed
+let transport = Box::new(AsyncTcpTransport::new("192.168.1.100:5678").await?);
+pool.add_camera_async(info, transport).await?;
+
+// Use cameras from the pool
+pool.with_camera_async("camera1", |camera| async move {
+    camera.home().await
+}).await?;
 ```
 
 ### 🚦 Enhanced Error Handling
@@ -212,7 +216,7 @@ grafton-visca = { version = "0.4", default-features = false, features = ["async-
 grafton-visca = { version = "0.4", features = ["blocking-client", "async-client"] }
 ```
 
-Connection pooling and automatic reconnection are now built-in - no feature flags needed!
+Connection pooling is now built-in for managing multiple cameras!
 
 ## Usage Examples
 
@@ -437,12 +441,8 @@ if let Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) = respo
 use grafton_visca::prelude::*;
 use std::time::Duration;
 
-// Automatic reconnection on network failures
-let client = Client::with_reconnect("192.168.1.100:52381", 
-    ReconnectConfig::default()
-        .with_max_retries(5)
-        .with_exponential_backoff()
-)?;
+// Create a standard client
+let client = Client::new("192.168.1.100:52381")?;
 
 // Connection pooling for multiple cameras
 let pool = ConnectionPool::builder()
@@ -515,82 +515,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The client automatically manages VISCA's two-socket limitation, queuing commands as needed.
 
-### Automatic Connection Recovery
+### Thread-Safe Camera Control
 
-For production environments, use `ReconnectingTransport` to automatically handle network interruptions:
+For concurrent camera control from multiple threads, use the `ChannelTransport`:
 
 ```rust
 use grafton_visca::{
-    Camera, ReconnectingTransport, ReconnectionConfig, ConnectionEvent,
+    Camera,
     camera::profiles::PTZOpticsG2,
-    transport::{AsyncTcpTransport, AsyncUdpTransport},
+    transport::{ChannelTransport, ChannelTransportBuilder, Priority, AsyncTcpTransport},
 };
-use std::sync::Arc;
 use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Configure reconnection behavior
-    let config = ReconnectionConfig {
-        max_retries: 10,
-        initial_delay: Duration::from_secs(1),
-        max_delay: Duration::from_secs(30),
-        backoff_factor: 2.0,  // Exponential backoff
-        health_check_interval: Some(Duration::from_secs(60)),
-    };
-
-    // Create transport with automatic reconnection
-    let mut transport = ReconnectingTransport::new(
-        || async { 
-            AsyncTcpTransport::new("192.168.1.100:5678").await
-                .map_err(|e| Error::Io(e))
-        },
-        config
-    ).await?;
-
-    // Optional: Monitor connection events
-    transport.set_event_callback(Arc::new(|event| {
-        match event {
-            ConnectionEvent::Connected => println!("✅ Connected to camera"),
-            ConnectionEvent::Disconnected { reason } => println!("❌ Lost connection: {}", reason),
-            ConnectionEvent::ReconnectingStarted { attempt, max_attempts } => {
-                println!("🔄 Reconnecting... attempt {}/{}", attempt, max_attempts);
-            }
-            ConnectionEvent::ReconnectingFailed { attempt, error } => {
-                println!("⚠️ Reconnect attempt {} failed: {}", attempt, error);
-            }
-            ConnectionEvent::ReconnectionExhausted => {
-                println!("❌ All reconnection attempts failed");
-            }
-        }
-    }));
-
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
-
-    // All operations now automatically retry on connection failures
-    loop {
-        match camera.get_position().await {
-            Ok((pan, tilt)) => {
-                println!("Position: pan={:.1}°, tilt={:.1}°", pan.0, tilt.0);
-            }
-            Err(e) => {
-                println!("Operation failed: {}", e);
-                // Transport will automatically reconnect in the background
-            }
-        }
-        
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
+    // Create base transport
+    let base_transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    
+    // Wrap with ChannelTransport for thread-safe access
+    let transport = ChannelTransportBuilder::new(base_transport)
+        .with_max_concurrent_commands(2)  // VISCA's 2-socket limit
+        .with_queue_size(100)
+        .with_operation_timeout(Duration::from_secs(5))
+        .build()?;
+    
+    let camera = Camera::<PTZOpticsG2>::new(transport.clone());
+    
+    // Clone the camera for use in multiple tasks
+    let cam1 = camera.clone();
+    let cam2 = camera.clone();
+    
+    // Use from multiple async tasks concurrently
+    let task1 = tokio::spawn(async move {
+        cam1.home().await
+    });
+    
+    let task2 = tokio::spawn(async move {
+        cam2.zoom_to_magnification(5.0).await
+    });
+    
+    // Commands are automatically queued and managed
+    let (r1, r2) = tokio::try_join!(task1, task2)?;
+    
+    Ok(())
 }
 ```
 
-The `ReconnectingTransport` wrapper:
-- Automatically reconnects on network failures
-- Uses exponential backoff to avoid overwhelming the network
-- Maintains connection statistics
-- Provides event callbacks for monitoring
-- Works with both TCP and UDP transports
-- Transparently retries failed operations
+The `ChannelTransport` provides:
+- Thread-safe access without explicit locking
+- Automatic socket management for VISCA's 2-socket limitation
+- Priority-based command queuing
+- Configurable queue sizes and timeouts
+- Works with any underlying transport (TCP or UDP)
 
 ## Migrating from v0.3.0
 
@@ -617,7 +593,7 @@ camera.zoom_to_magnification(5.0)?;
 
 Key changes:
 - Single `Client` replaces separate sync/async clients
-- Connection pooling and reconnection are now built-in
+- Connection pooling is now built-in
 - High-level extension trait methods for common operations
 - PTZ builder for complex camera movements
 - Detailed error types with retry helpers
