@@ -2,7 +2,10 @@
 
 mod common;
 
+#[cfg(feature = "async-client")]
 use std::sync::Arc;
+
+#[cfg(feature = "async-client")]
 use std::time::Duration;
 
 #[cfg(feature = "async-client")]
@@ -15,7 +18,6 @@ use grafton_visca::{
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use grafton_visca::{
     camera::{Camera, GenericVisca},
-    command::inquiry::InquiryCommand,
     transport::BlockingAdapter,
     Result,
 };

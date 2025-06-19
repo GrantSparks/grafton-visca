@@ -2,18 +2,25 @@
 //!
 //! This example shows how to use the `is_ready()` and `pending_commands()` methods
 //! to check if the camera can accept new commands without blocking.
+//!
+//! Run with: cargo run --example camera_readiness_demo --features async-client
 
-use std::time::Duration;
+#[cfg(not(feature = "async-client"))]
+fn main() {
+    eprintln!("This example requires the 'async-client' feature.");
+    eprintln!("Run with: cargo run --example camera_readiness_demo --features async-client");
+}
 
-use grafton_visca::{
-    camera::{Camera, GenericVisca},
-    command::inquiry::InquiryCommand,
-    transport::AsyncUdpTransport,
-    Result,
-};
-
+#[cfg(feature = "async-client")]
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use std::time::Duration;
+    
+    use grafton_visca::{
+        camera::{Camera, GenericVisca},
+        command::inquiry::InquiryCommand,
+        transport::AsyncUdpTransport,
+    };
     env_logger::init();
 
     // Create camera with async UDP transport
