@@ -14,6 +14,7 @@ use crate::{error::Error, Command};
 
 // Submodules
 /// Channel-based transport for thread-safe sharing
+#[cfg(feature = "async-client")]
 pub mod channel;
 pub mod common;
 pub mod resilient;
@@ -36,6 +37,7 @@ pub use self::tcp_unified::UnifiedTcpTransport;
 pub use self::unified::UnifiedTransport;
 
 // Channel transport re-exports
+#[cfg(feature = "async-client")]
 pub use self::channel::{
     ChannelTransport, ChannelTransportBuilder, ChannelTransportConfig, Priority,
 };

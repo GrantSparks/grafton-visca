@@ -517,7 +517,7 @@ impl<T: Transport + 'static> ChannelTransportBuilder<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "async-client"))]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
