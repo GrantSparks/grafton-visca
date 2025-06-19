@@ -3,31 +3,19 @@
 //! This example shows how the strongly-typed Camera API with profiles prevents
 //! runtime errors and provides compile-time guarantees.
 
-mod common;
-use common::blocking::UdpTransport;
-
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera, CameraProfile},
-    transport::BlockingAdapter,
+    transport::blocking::create,
 };
 use std::thread;
 use std::time::Duration;
-
-// Use a minimal tokio runtime for blocking execution
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(fut)
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Connect to camera using the new Camera API
-    let transport = common::blocking::udp_transport("192.168.1.100:5678")?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let transport = create::udp("192.168.1.100:5678")?;
+    let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("=== Type-Safe Camera API Demo ===\n");
 
@@ -46,17 +34,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::camera::units::{Degrees, Normalized, ViscaUnits};
 
     // Move using degrees
-    block_on(camera.set_position(Degrees(45.0), Degrees(15.0)))?;
+    camera.set_position(Degrees(45.0), Degrees(15.0))?;
     println!("   ✓ Moved to 45° pan, 15° tilt");
     thread::sleep(Duration::from_secs(2));
 
     // Move using VISCA units
-    block_on(camera.set_position_units(ViscaUnits(1000), ViscaUnits(500)))?;
+    camera.set_position_units(ViscaUnits(1000), ViscaUnits(500))?;
     println!("   ✓ Moved using VISCA units");
     thread::sleep(Duration::from_secs(2));
 
     // Move using normalized coordinates
-    block_on(camera.set_position_normalized(Normalized(0.5), Normalized(-0.25)))?;
+    camera.set_position_normalized(Normalized(0.5), Normalized(-0.25))?;
     println!("   ✓ Moved using normalized coordinates");
     thread::sleep(Duration::from_secs(2));
 
@@ -66,14 +54,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // PTZOpticsG2 has specific preset constraints (0-89)
     let preset = G2PresetId::new(5)?;
-    block_on(camera.set_preset(preset))?;
+    camera.set_preset(preset)?;
     println!("   ✓ Saved position to preset");
 
     thread::sleep(Duration::from_secs(1));
-    block_on(camera.home())?;
+    camera.home()?;
     thread::sleep(Duration::from_secs(2));
 
-    block_on(camera.recall_preset(preset))?;
+    camera.recall_preset(preset)?;
     println!("   ✓ Recalled preset");
 
     // 4. Profile-specific gain values
@@ -81,10 +69,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::camera::profiles::G2Gain;
 
     // PTZOpticsG2 has specific gain values
-    block_on(camera.set_gain(G2Gain::Gain12dB))?;
+    camera.set_gain(G2Gain::Gain12dB)?;
     println!("   ✓ Set gain to 12dB (profile-specific value)");
 
-    block_on(camera.set_gain_limit(6))?; // 18dB = value 6
+    camera.set_gain_limit(6)?; // 18dB = value 6
     println!("   ✓ Set gain limit to 18dB");
 
     // 5. All commands are validated at compile time

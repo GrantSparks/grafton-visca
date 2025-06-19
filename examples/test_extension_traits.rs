@@ -3,150 +3,151 @@
 //! This example shows how the Camera API provides all control methods
 //! directly without needing extension traits.
 
-mod common;
-use common::blocking::UdpTransport;
-
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{
         exposure::ExposureMode, image::ImageFlipMode, pan_tilt::PanTiltDirection,
         white_balance::WhiteBalanceMode,
     },
-    transport::BlockingAdapter,
+    transport::create,
     Error,
 };
-use std::thread;
 use std::time::Duration;
+use tokio::time;
 
-// Helper for blocking execution
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(fut)
-}
-
-fn main() -> Result<(), Error> {
+#[tokio::main]
+async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a camera with the new API
-    let transport = common::blocking::udp_transport("192.168.1.100:5678")?;
+    let transport = create::udp("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("=== Testing Comprehensive Camera API ===\n");
 
     // Power control
     println!("Testing power control...");
-    block_on(camera.power_on())?;
-    thread::sleep(Duration::from_secs(2));
+    camera.power_on().await?;
+    time::sleep(Duration::from_secs(2)).await;
 
     // Movement control
     println!("\nTesting movement control...");
-    block_on(camera.home())?;
-    thread::sleep(Duration::from_secs(2));
+    camera.home().await?;
+    time::sleep(Duration::from_secs(2)).await;
 
-    block_on(camera.move_continuous(PanTiltDirection::Right, 10, 0))?;
-    thread::sleep(Duration::from_millis(500));
-    block_on(camera.stop())?;
+    camera
+        .move_continuous(PanTiltDirection::Right, 10, 0)
+        .await?;
+    time::sleep(Duration::from_millis(500)).await;
+    camera.stop().await?;
 
     // Zoom control
     println!("\nTesting zoom control...");
-    block_on(camera.set_zoom(0x2000))?;
-    thread::sleep(Duration::from_secs(1));
+    camera.set_zoom(0x2000).await?;
+    time::sleep(Duration::from_secs(1)).await;
 
-    block_on(camera.zoom_in())?;
-    thread::sleep(Duration::from_millis(500));
-    block_on(camera.zoom_stop())?;
+    camera.zoom_in().await?;
+    time::sleep(Duration::from_millis(500)).await;
+    camera.zoom_stop().await?;
 
     // Preset management
     println!("\nTesting preset management...");
     use grafton_visca::camera::profiles::G2PresetId;
-    let preset = G2PresetId::new(1)?;
-    block_on(camera.set_preset(preset))?;
-    thread::sleep(Duration::from_millis(500));
+    let preset = G2PresetId::new(1).await?;
+    camera.set_preset(preset).await?;
+    time::sleep(Duration::from_millis(500)).await;
 
-    block_on(camera.home())?;
-    thread::sleep(Duration::from_secs(2));
+    camera.home().await?;
+    time::sleep(Duration::from_secs(2)).await;
 
-    block_on(camera.recall_preset(preset))?;
-    thread::sleep(Duration::from_secs(2));
+    camera.recall_preset(preset).await?;
+    time::sleep(Duration::from_secs(2)).await;
 
     // Focus control
     println!("\nTesting focus control...");
-    block_on(camera.focus_auto())?;
-    thread::sleep(Duration::from_millis(500));
+    camera.focus_auto().await?;
+    time::sleep(Duration::from_millis(500)).await;
 
-    block_on(camera.focus_manual())?;
-    block_on(camera.set_focus(0x5000))?;
-    thread::sleep(Duration::from_millis(500));
+    camera.focus_manual().await?;
+    camera.set_focus(0x5000).await?;
+    time::sleep(Duration::from_millis(500)).await;
 
-    block_on(camera.focus_auto())?;
+    camera.focus_auto().await?;
 
     // Exposure control
     println!("\nTesting exposure control...");
-    block_on(camera.set_exposure_mode(ExposureMode::Auto))?;
-    block_on(camera.set_iris(10))?;
-    block_on(camera.set_shutter(15))?;
-    block_on(camera.backlight_on())?;
-    thread::sleep(Duration::from_millis(500));
-    block_on(camera.backlight_off())?;
+    camera.set_exposure_mode(ExposureMode::Auto).await?;
+    camera.set_iris(10).await?;
+    camera.set_shutter(15).await?;
+    camera.backlight_on().await?;
+    time::sleep(Duration::from_millis(500)).await;
+    camera.backlight_off().await?;
 
     // Image quality control
     println!("\nTesting image quality control...");
-    block_on(camera.set_brightness(8))?;
-    block_on(camera.set_contrast(8))?;
-    block_on(camera.set_sharpness(8))?;
-    block_on(camera.set_saturation(8))?;
-    block_on(camera.set_hue(7))?;
+    camera.set_brightness(8).await?;
+    camera.set_contrast(8).await?;
+    camera.set_sharpness(8).await?;
+    camera.set_saturation(8).await?;
+    camera.set_hue(7).await?;
 
     // White balance control
     println!("\nTesting white balance control...");
-    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Auto))?;
-    thread::sleep(Duration::from_millis(500));
+    camera
+        .set_white_balance_mode(WhiteBalanceMode::Auto)
+        .await?;
+    time::sleep(Duration::from_millis(500)).await;
 
-    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Indoor))?;
-    thread::sleep(Duration::from_millis(500));
+    camera
+        .set_white_balance_mode(WhiteBalanceMode::Indoor)
+        .await?;
+    time::sleep(Duration::from_millis(500)).await;
 
-    block_on(camera.set_white_balance_mode(WhiteBalanceMode::Outdoor))?;
-    thread::sleep(Duration::from_millis(500));
+    camera
+        .set_white_balance_mode(WhiteBalanceMode::Outdoor)
+        .await?;
+    time::sleep(Duration::from_millis(500)).await;
 
-    block_on(camera.one_push_white_balance())?;
+    camera.one_push_white_balance().await?;
 
     // Advanced image features
     println!("\nTesting advanced image features...");
-    block_on(camera.set_noise_reduction_2d(3))?;
-    block_on(camera.set_noise_reduction_3d(2))?;
-    block_on(camera.set_image_flip(ImageFlipMode::Off))?;
-    block_on(camera.black_white_off())?;
+    camera.set_noise_reduction_2d(3).await?;
+    camera.set_noise_reduction_3d(2).await?;
+    camera.set_image_flip(ImageFlipMode::Off).await?;
+    camera.black_white_off().await?;
 
     // Position control with different unit types
     println!("\nTesting position control with different units...");
     use grafton_visca::camera::units::{Degrees, Normalized, ViscaUnits};
 
     // Using degrees
-    block_on(camera.set_position(Degrees(45.0), Degrees(15.0)))?;
-    thread::sleep(Duration::from_secs(2));
+    camera.set_position(Degrees(45.0), Degrees(15.0)).await?;
+    time::sleep(Duration::from_secs(2)).await;
 
     // Using VISCA units
-    block_on(camera.set_position_units(ViscaUnits(1000), ViscaUnits(500)))?;
-    thread::sleep(Duration::from_secs(2));
+    camera
+        .set_position_units(ViscaUnits(1000), ViscaUnits(500))
+        .await?;
+    time::sleep(Duration::from_secs(2)).await;
 
     // Using normalized coordinates
-    block_on(camera.set_position_normalized(Normalized(0.0), Normalized(0.0)))?;
-    thread::sleep(Duration::from_secs(2));
+    camera
+        .set_position_normalized(Normalized(0.0), Normalized(0.0))
+        .await?;
+    time::sleep(Duration::from_secs(2)).await;
 
     // Gain control with profile-specific values
     println!("\nTesting gain control...");
     use grafton_visca::camera::profiles::G2Gain;
-    block_on(camera.set_gain(G2Gain::Gain0dB))?;
-    block_on(camera.set_gain(G2Gain::Gain12dB))?;
-    block_on(camera.set_gain_limit(4))?; // 12dB limit
+    camera.set_gain(G2Gain::Gain0dB).await?;
+    camera.set_gain(G2Gain::Gain12dB).await?;
+    camera.set_gain_limit(4).await?; // 12dB limit
 
     // Dynamic range and color temperature
     println!("\nTesting dynamic range and color temperature...");
-    block_on(camera.set_dynamic_range(5))?;
-    block_on(camera.set_color_temperature(0x20))?;
+    camera.set_dynamic_range(5).await?;
+    camera.set_color_temperature(0x20).await?;
 
     println!("\n=== All Camera API Methods Tested Successfully! ===");
     println!("\nKey advantages over extension traits:");

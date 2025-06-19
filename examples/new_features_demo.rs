@@ -2,8 +2,11 @@
 //! - CommandBuilder for fluent command sequences
 //! - Extension traits for custom functionality
 
+#[cfg(feature = "async-client")]
 mod common;
+#[cfg(feature = "async-client")]
 use common::r#async::udp_transport;
+#[cfg(feature = "async-client")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -11,8 +14,10 @@ use grafton_visca::{
     },
     Error,
 };
+#[cfg(feature = "async-client")]
 use std::time::Duration;
 
+#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -30,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Demonstrates CommandBuilder for fluent command sequences
+#[cfg(feature = "async-client")]
 async fn command_builder_demo() -> Result<(), Error> {
     println!("Using CommandBuilder for complex sequences...");
 
@@ -110,6 +116,7 @@ async fn command_builder_demo() -> Result<(), Error> {
 }
 
 /// Demonstrates extension traits for custom functionality
+#[cfg(feature = "async-client")]
 async fn extension_traits_demo() -> Result<(), Error> {
     println!("Using extension traits for custom functionality...");
 
@@ -181,6 +188,7 @@ async fn extension_traits_demo() -> Result<(), Error> {
 }
 
 // Example: Define a custom extension trait manually
+#[cfg(feature = "async-client")]
 #[allow(dead_code)]
 trait BroadcastExt<P: grafton_visca::camera::CameraProfile>: CameraExtension<P> {
     /// Set up camera for broadcast (custom preset).
@@ -200,4 +208,11 @@ trait BroadcastExt<P: grafton_visca::camera::CameraProfile>: CameraExtension<P> 
 }
 
 // Implement the extension for all Camera<P> types
+#[cfg(feature = "async-client")]
 impl<P: grafton_visca::camera::CameraProfile> BroadcastExt<P> for Camera<P> {}
+
+#[cfg(not(feature = "async-client"))]
+fn main() {
+    eprintln!("This example requires the 'async-client' feature to be enabled.");
+    eprintln!("Run with: cargo run --example new_features_demo --features async-client");
+}

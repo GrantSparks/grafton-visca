@@ -2,31 +2,20 @@
 
 //! Example demonstrating image quality and gain control features.
 
-mod common;
-use common::blocking::UdpTransport;
-
 use grafton_visca::{
     camera::{
         profiles::{G2Gain, PTZOpticsG2},
         Camera,
     },
     command::AntiFlickerMode,
-    transport::BlockingAdapter,
+    transport::create,
     Error,
 };
-use std::thread;
 use std::time::Duration;
+use tokio::time;
 
-// Use a minimal tokio runtime for blocking execution
-fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(fut)
-}
-
-fn main() -> Result<(), Error> {
+#[tokio::main]
+async fn main() -> Result<(), Error> {
     // Initialize logger for debugging
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Debug)

@@ -3,12 +3,14 @@
 //! This example shows the simplified, cleaned-up transport API without
 //! any legacy compatibility layers.
 
-
 #[cfg(feature = "async-client")]
 use grafton_visca::{
     command::zoom::ZoomCommand,
-    transport::{create, ChannelConfig, RawTransport, ViscaTransport},
+    transport::{create, RawTransport, ViscaTransport},
 };
+
+#[cfg(feature = "async-client")]
+use std::time::Duration;
 
 #[cfg(not(feature = "async-client"))]
 fn main() {
