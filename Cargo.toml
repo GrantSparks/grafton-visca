@@ -193,3 +193,7 @@ required-features = ["async-client", "blocking-client"]
 [[example]]
 name = "resilient_transport_demo"
 required-features = ["async-client", "blocking-client"]
+
+[[example]]
+name = "channel_transport_demo"
+required-features = ["async-client"]
