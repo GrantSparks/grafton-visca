@@ -1,6 +1,5 @@
 //! Demonstration of new Camera<P> API features:
 //! - CameraPool for multi-camera management
-//! - ResilientTransport for automatic reconnection
 //! - CommandBuilder for fluent command sequences
 //! - Extension traits for custom functionality
 
@@ -10,7 +9,7 @@ use grafton_visca::{
         Camera, CameraExtension, CommandBuilderExt, DiagnosticsExt,
     },
     camera_pool::{CameraInfo, CameraPool, PoolConfig},
-    transport::{resilient::ResilienceConfig, AsyncUdpTransport},
+    transport::AsyncUdpTransport,
     Error,
 };
 use std::time::Duration;
@@ -22,70 +21,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate all new features
     println!("=== VISCA Camera New Features Demo ===\n");
 
-    // 1. Resilient Transport Demo
-    println!("1. Resilient Transport with automatic reconnection:");
-    resilient_transport_demo().await?;
-
-    println!("\n2. Camera Pool for multi-camera management:");
+    println!("1. Camera Pool for multi-camera management:");
     camera_pool_demo().await?;
 
-    println!("\n3. Command Builder for fluent sequences:");
+    println!("\n2. Command Builder for fluent sequences:");
     command_builder_demo().await?;
 
-    println!("\n4. Extension traits for custom functionality:");
+    println!("\n3. Extension traits for custom functionality:");
     extension_traits_demo().await?;
-
-    Ok(())
-}
-
-/// Demonstrates ResilientTransport with automatic retry and reconnection
-async fn resilient_transport_demo() -> Result<(), Error> {
-    println!("Creating resilient transport with automatic retry...");
-
-    // Configure resilience
-    let config = ResilienceConfig {
-        max_retries: 3,
-        initial_retry_delay: Duration::from_millis(100),
-        max_retry_delay: Duration::from_secs(5),
-        backoff_factor: 2.0,
-        max_reconnect_attempts: 5,
-        reconnect_delay: Duration::from_secs(1),
-        health_check_interval: Some(Duration::from_secs(30)),
-        operation_timeout: Duration::from_secs(5),
-    };
-
-    // TODO: ResilientTransport currently expects a synchronous factory function,
-    // but AsyncUdpTransport requires async construction. This needs to be addressed
-    // in the library design.
-
-    // Note: ResilientTransport requires Clone trait which AsyncTcpTransport doesn't implement
-    // This is a known limitation in the current design
-    // For demonstration, we'll show the configuration and concept
-
-    println!("  Resilience configuration:");
-    println!("    - Max retries: {}", config.max_retries);
-    println!(
-        "    - Initial retry delay: {:?}",
-        config.initial_retry_delay
-    );
-    println!("    - Max retry delay: {:?}", config.max_retry_delay);
-    println!("    - Backoff factor: {}", config.backoff_factor);
-    println!(
-        "    - Max reconnect attempts: {}",
-        config.max_reconnect_attempts
-    );
-
-    // In a real application, you would use ResilientTransport with a transport that implements Clone
-    // For now, let's demonstrate with a regular transport
-    let transport = AsyncUdpTransport::new("192.168.1.100:52381").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
-
-    // Simulate operations
-    println!("\nPerforming operations (without resilience wrapper):");
-    match camera.get_power_state().await {
-        Ok(power) => println!("  Power state: {}", if power { "ON" } else { "OFF" }),
-        Err(e) => println!("  Failed: {}", e),
-    }
 
     Ok(())
 }
