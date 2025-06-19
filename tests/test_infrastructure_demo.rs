@@ -14,14 +14,11 @@ use common::builders::*;
 use common::helpers::*;
 
 // Import needed types
-use grafton_visca::{profiles::GenericVisca, Command, Error, Response};
+use grafton_visca::{camera::GenericVisca, Command, Error, Response};
 
 #[cfg(feature = "blocking-client")]
 #[test]
 fn test_with_helpers() {
-    // Use helper functions instead of unwrap()
-    let _camera = create_test_udp_camera::<GenericVisca>("127.0.0.1:1234");
-
     // Use test speeds helper
     let (_pan_speed, _tilt_speed) = test_speeds();
 

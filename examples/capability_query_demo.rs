@@ -1,7 +1,13 @@
 //! Example demonstrating camera capability querying.
 
+mod common;
+use common::blocking::UdpTransport;
 use grafton_visca::camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, SonyEVID70};
-use grafton_visca::transport::{BlockingAdapter, UdpTransport};
+use grafton_visca::transport::BlockingAdapter;
+
+// Include the transport implementation from the example file
+#[path = "udp_transport.rs"]
+mod udp_transport;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using blocking transport

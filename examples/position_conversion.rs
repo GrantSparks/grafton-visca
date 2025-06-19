@@ -14,12 +14,13 @@
 //! Default camera IP is 192.168.0.110:1259 if not specified.
 
 #[cfg(feature = "async-client")]
+mod common;
+use common::r#async::AsyncTcpTransport;
 use grafton_visca::{
     camera::{
         units::{Degrees, Normalized, ViscaUnits},
         Camera, CameraProfile, PTZOpticsG2,
     },
-    transport::AsyncTcpTransport,
 };
 #[cfg(feature = "async-client")]
 use log::info;

@@ -3,6 +3,11 @@
 //! This shows how to create complex command sequences fluently,
 //! replacing manual command-by-command execution.
 
+#[path = "udp_transport.rs"]
+mod udp_transport;
+mod common;
+use common::r#async::AsyncUdpTransport;
+
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -15,7 +20,6 @@ use grafton_visca::{
         white_balance::WhiteBalanceMode,
         zoom::ZoomSpeed,
     },
-    transport::AsyncUdpTransport,
 };
 
 #[tokio::main]

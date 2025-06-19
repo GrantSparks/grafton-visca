@@ -2,6 +2,10 @@
 //!
 //! This module provides the core transport abstractions for the v0.4.0 API,
 //! featuring an async-first design with optional blocking adapters.
+//!
+//! The transport layer only defines traits - concrete implementations
+//! (TCP, UDP, serial, etc.) should be implemented by users or provided
+//! in example code.
 
 // Standard library imports
 use std::{future::Future, pin::Pin};
@@ -17,17 +21,8 @@ use crate::{error::Error, Command, Response};
 #[cfg(feature = "async-client")]
 pub mod channel;
 pub mod common;
-mod tcp;
 /// Core transport traits and types
 pub mod traits;
-mod udp;
-
-// Public re-exports
-#[cfg(feature = "blocking-client")]
-pub use self::{tcp::TcpTransport, udp::UdpTransport};
-
-#[cfg(feature = "async-client")]
-pub use self::{tcp::AsyncTcpTransport, udp::AsyncUdpTransport};
 
 // Channel transport re-exports
 #[cfg(feature = "async-client")]

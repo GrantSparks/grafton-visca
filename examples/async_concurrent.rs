@@ -7,9 +7,14 @@
 //! - Process responses asynchronously
 //! - Maximize throughput with concurrent operations
 
+#[path = "udp_transport.rs"]
+mod udp_transport;
+mod common;
+use common::r#async::AsyncUdpTransport;
+
 use grafton_visca::{
     camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection,
-    transport::AsyncUdpTransport, Camera, Error,
+    Camera, Error,
 };
 use std::sync::Arc;
 use std::time::Instant;

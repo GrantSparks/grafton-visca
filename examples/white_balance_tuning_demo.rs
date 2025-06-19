@@ -2,9 +2,14 @@
 
 //! Demonstrates white balance fine-tuning commands.
 
+#[path = "udp_transport.rs"]
+mod udp_transport;
+mod common;
+use common::blocking::UdpTransport;
+
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
 };
 
 // Use a minimal tokio runtime for blocking execution

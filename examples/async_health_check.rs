@@ -8,9 +8,17 @@
 //! - Monitor connection status over time
 //! - Handle connection failures gracefully
 
+#[path = "tcp_transport.rs"]
+mod tcp_transport;
+mod common;
+use common::r#async::AsyncTcpTransport;
+use common::r#async::AsyncUdpTransport;
+
+#[path = "udp_transport.rs"]
+mod udp_transport;
+
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
-    transport::{AsyncTcpTransport, AsyncUdpTransport},
     Error,
 };
 use std::env;

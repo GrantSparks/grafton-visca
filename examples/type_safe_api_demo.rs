@@ -3,9 +3,12 @@
 //! This example shows how the strongly-typed Camera API with profiles prevents
 //! runtime errors and provides compile-time guarantees.
 
+mod common;
+use common::blocking::UdpTransport;
+
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera, CameraProfile},
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
 };
 use std::thread;
 use std::time::Duration;

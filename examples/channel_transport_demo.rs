@@ -3,11 +3,16 @@
 //! This example shows how to use the ChannelTransport wrapper to safely share
 //! a transport across multiple threads without explicit locking.
 
+mod common;
+use common::r#async::AsyncTcpTransport;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[path = "tcp_transport.rs"]
+mod tcp_transport;
+
 use grafton_visca::transport::{
-    AsyncTcpTransport, ChannelTransport, ChannelTransportBuilder, Transport,
+    ChannelTransport, ChannelTransportBuilder, Transport,
 };
 use grafton_visca::{camera::profiles::PTZOpticsG2, Camera, Command};
 

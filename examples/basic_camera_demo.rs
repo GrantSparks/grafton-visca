@@ -1,12 +1,17 @@
 //! Basic camera control demonstration using the new Camera API
 
+#[path = "udp_transport.rs"]
+mod udp_transport;
+mod common;
+use common::blocking::UdpTransport;
+
 use grafton_visca::{
     camera::profiles::{G2PresetId, PTZOpticsG2},
     command::{
         exposure::ExposureMode, gain::AntiFlickerMode, image::ImageFlipMode,
         pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
     },
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
     Camera,
 };
 use std::thread;

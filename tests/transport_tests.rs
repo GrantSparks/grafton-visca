@@ -5,12 +5,8 @@
 mod tests {
     #[cfg(not(feature = "blocking-client"))]
     use grafton_visca::transport::Transport;
-    #[cfg(feature = "async-client")]
-    use grafton_visca::transport::{AsyncTcpTransport, AsyncUdpTransport};
     #[cfg(feature = "blocking-client")]
-    use grafton_visca::transport::{
-        BlockingAdapter, BlockingTransport, TcpTransport, Transport, UdpTransport,
-    };
+    use grafton_visca::transport::{BlockingAdapter, BlockingTransport, Transport};
     use grafton_visca::{Command, Error};
 
     // Mock command for testing
@@ -65,37 +61,8 @@ mod tests {
         accepts_transport(&adapter);
     }
 
-    #[cfg(feature = "blocking-client")]
-    #[test]
-    fn test_udp_transport_creation() {
-        // Test that UdpTransport can be created
-        let result = UdpTransport::new("127.0.0.1:1234");
-        assert!(result.is_ok(), "Failed to create UDP transport");
-    }
-
-    #[cfg(feature = "blocking-client")]
-    #[test]
-    fn test_tcp_transport_creation() {
-        // Test that TcpTransport can be created (will fail to connect but that's OK)
-        let result = TcpTransport::new("127.0.0.1:1234");
-        // We expect this to fail since there's no server
-        assert!(result.is_err(), "Expected connection to fail");
-    }
-
-    #[cfg(feature = "async-client")]
-    #[tokio::test]
-    async fn test_async_udp_transport_creation() {
-        // Test that AsyncUdpTransport can be created
-        let result = AsyncUdpTransport::new("127.0.0.1:1234").await;
-        assert!(result.is_ok(), "Failed to create async UDP transport");
-    }
-
-    #[cfg(feature = "async-client")]
-    #[tokio::test]
-    async fn test_async_tcp_transport_creation() {
-        // Test that AsyncTcpTransport can be created (will fail to connect but that's OK)
-        let result = AsyncTcpTransport::new("127.0.0.1:1234").await;
-        // We expect this to fail since there's no server
-        assert!(result.is_err(), "Expected async TCP connection to fail");
-    }
+    // Note: TCP and UDP transport tests have been removed since concrete
+    // transport implementations are now provided as examples rather than
+    // being part of the core library. Users should implement their own
+    // transports based on the Transport trait.
 }
