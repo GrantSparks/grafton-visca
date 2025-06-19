@@ -1,4 +1,7 @@
 //! TCP transport implementation for VISCA over IP with integrated session management.
+//!
+//! This example shows how to implement the Transport trait for TCP connections.
+//! The implementation handles VISCA socket management and response correlation.
 
 // Standard library imports
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -8,13 +11,10 @@ use std::{io, time::Duration};
 use std::sync::Arc;
 
 // Crate imports
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::{
+use grafton_visca::{
     command::response::{parse_response as parse_response_typed, Response, ResponseType},
-    connection::ConnectionStats,
-    error::Error,
     types::SocketId,
-    Command,
+    Command, Error,
 };
 
 #[cfg(feature = "blocking-client")]
@@ -23,8 +23,27 @@ use std::{
     net::TcpStream,
 };
 
+#[cfg(feature = "async-client")]
+use grafton_visca::ConnectionStats;
+
 #[cfg(feature = "blocking-client")]
-use super::BlockingTransport;
+use grafton_visca::transport::BlockingTransport;
+
+// Simple ConnectionStats for blocking implementation since it's not exported for blocking-client
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[derive(Debug, Default)]
+struct ConnectionStats {
+    // Basic stats tracking - you can extend this as needed
+    commands_sent: usize,
+    responses_received: usize,
+}
+
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+impl ConnectionStats {
+    fn new() -> Self {
+        Self::default()
+    }
+}
 
 #[cfg(feature = "async-client")]
 use tokio::{
@@ -33,7 +52,7 @@ use tokio::{
 };
 
 #[cfg(feature = "async-client")]
-use super::{Transport, TransportFuture};
+use grafton_visca::transport::{Transport, TransportFuture};
 
 /// Tracks pending commands for each socket
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
@@ -673,4 +692,48 @@ impl Transport for AsyncTcpTransport {
             })
         })
     }
+}
+
+#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+fn main() {
+    eprintln!("This example requires either the 'blocking-client' or 'async-client' feature to be enabled.");
+    eprintln!("Run with: cargo run --example tcp_transport --features blocking-client");
+    eprintln!("Or:       cargo run --example tcp_transport --features async-client");
+}
+
+#[cfg(feature = "blocking-client")]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+    
+    use grafton_visca::command::zoom::ZoomCommand;
+    
+    // Create transport
+    let mut transport = TcpTransport::new("192.168.1.100:5678")?;
+    
+    // Send a command
+    let command = ZoomCommand::Stop;
+    let response = transport.send_command_blocking(&command)?;
+    
+    println!("Response: {response:?}");
+    
+    Ok(())
+}
+
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+    
+    use grafton_visca::command::zoom::ZoomCommand;
+    
+    // Create transport
+    let mut transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+    
+    // Send a command
+    let command = ZoomCommand::Stop;
+    let response = transport.send_command(&command).await?;
+    
+    println!("Response: {response:?}");
+    
+    Ok(())
 }

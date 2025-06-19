@@ -8,9 +8,12 @@
 //! - Handle connection failures
 //! - Use both UDP and TCP transports
 
+mod common;
+use common::blocking::{TcpTransport, UdpTransport};
+
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
-    transport::{BlockingAdapter, TcpTransport, UdpTransport},
+    transport::BlockingAdapter,
     Error,
 };
 use std::thread;

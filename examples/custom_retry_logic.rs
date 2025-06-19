@@ -3,9 +3,10 @@
 //!
 //! This shows various patterns for handling retries at the application level.
 
+mod common;
+use common::r#async::AsyncTcpTransport;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
-    transport::AsyncTcpTransport,
     Error,
 };
 use std::time::Duration;

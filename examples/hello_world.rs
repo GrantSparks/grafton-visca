@@ -1,13 +1,18 @@
 //! Example program demonstrating the new Camera API
 
+mod common;
+use common::blocking::TcpTransport;
+use common::blocking::UdpTransport;
 use grafton_visca::{
     camera::profiles::PTZOpticsG2,
     command::pan_tilt::PanTiltDirection,
-    transport::{BlockingAdapter, TcpTransport, UdpTransport},
+    transport::BlockingAdapter,
     Camera, Error,
 };
 use log::{debug, info};
 use std::{env, time::Duration};
+
+// Transport implementations are already available via the common module
 
 fn parse_args() -> (String, String) {
     let default_protocol = "udp";

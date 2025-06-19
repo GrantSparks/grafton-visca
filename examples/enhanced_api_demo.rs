@@ -3,6 +3,9 @@
 //! This example showcases the enhanced Camera API with high-level control methods
 //! and demonstrates migration from the old Client API.
 
+mod common;
+use common::blocking::UdpTransport;
+
 use grafton_visca::{
     camera::{
         profiles::PTZOpticsG2,
@@ -10,7 +13,7 @@ use grafton_visca::{
         Camera,
     },
     command::{exposure::ExposureMode, white_balance::WhiteBalanceMode},
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
     Error,
 };
 use std::thread;

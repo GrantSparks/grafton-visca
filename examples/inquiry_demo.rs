@@ -4,8 +4,13 @@
 //!
 //! This example now uses the new `Camera<P>` API with full inquiry support!
 
+#[path = "tcp_transport.rs"]
+mod tcp_transport;
+mod common;
+use common::blocking::TcpTransport;
+
 use grafton_visca::camera::{Camera, PTZOpticsG2};
-use grafton_visca::transport::{BlockingAdapter, TcpTransport};
+use grafton_visca::transport::BlockingAdapter;
 use grafton_visca::Error;
 use std::env;
 

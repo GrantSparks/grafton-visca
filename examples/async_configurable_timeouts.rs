@@ -9,14 +9,20 @@
 //! Note: The Camera API doesn't have built-in per-command timeout configuration.
 //! Timeouts are handled at the transport level or using tokio::time::timeout.
 
+mod common;
+use common::r#async::AsyncTcpTransport;
+use common::r#async::AsyncUdpTransport;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     command::pan_tilt::PanTiltDirection,
-    transport::AsyncUdpTransport,
     Error,
 };
 use std::time::Duration;
 use tokio::time::timeout;
+
+// Include the transport implementations from the example files
+#[path = "udp_transport.rs"]
+mod udp_transport;
 
 #[cfg(not(feature = "async-client"))]
 fn main() {
@@ -215,7 +221,7 @@ async fn demonstrate_timeout_recovery(camera: &mut Camera<PTZOpticsG2>) -> Resul
 
     #[cfg(feature = "async-client")]
     {
-        use grafton_visca::transport::AsyncTcpTransport;
+        // TCP transport is already available via common module
 
         // AsyncTcpTransport has a fixed 10s timeout
         match AsyncTcpTransport::new("192.168.1.100:5678").await {

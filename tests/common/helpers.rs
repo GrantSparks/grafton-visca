@@ -7,41 +7,12 @@
 
 use std::fmt::Debug;
 
-#[cfg(feature = "blocking-client")]
-use grafton_visca::{
-    camera::{Camera, CameraProfile},
-    transport::{BlockingAdapter, TcpTransport, UdpTransport},
-};
-
-/// Creates a test UDP camera with descriptive error message.
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::tests::common::helpers::create_test_udp_camera;
-/// # use grafton_visca::profiles::GenericVisca;
-/// let camera = create_test_udp_camera::<GenericVisca>("127.0.0.1:1234");
-/// ```
-#[cfg(feature = "blocking-client")]
-pub fn create_test_udp_camera<P: CameraProfile>(addr: &str) -> Camera<P> {
-    let transport = UdpTransport::new(addr)
-        .unwrap_or_else(|e| panic!("Failed to create UDP transport at {}: {:?}", addr, e));
-    Camera::new(BlockingAdapter(transport))
-}
-
-/// Creates a test TCP camera with descriptive error message.
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::tests::common::helpers::create_test_tcp_camera;
-/// # use grafton_visca::profiles::GenericVisca;
-/// let camera = create_test_tcp_camera::<GenericVisca>("127.0.0.1:5678");
-/// ```
-#[cfg(feature = "blocking-client")]
-pub fn create_test_tcp_camera<P: CameraProfile>(addr: &str) -> Camera<P> {
-    let transport = TcpTransport::new(addr)
-        .unwrap_or_else(|e| panic!("Failed to create TCP transport at {}: {:?}", addr, e));
-    Camera::new(BlockingAdapter(transport))
-}
+// Note: Transport creation helpers have been removed since concrete
+// transport implementations (TCP/UDP) are now provided as examples
+// rather than being part of the core library. Tests should either:
+// 1. Use mock transports for unit testing
+// 2. Include transport implementations from the examples directory
+// 3. Implement their own test transports
 
 /// Standard test speeds to avoid repetitive magic numbers.
 ///

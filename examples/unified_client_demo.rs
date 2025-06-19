@@ -3,16 +3,25 @@
 //! This example shows how the new Camera API works seamlessly with
 //! different transport adapters for blocking and async usage.
 
+mod common;
+use common::blocking::UdpTransport;
+use common::r#async::AsyncTcpTransport;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
-    transport::{BlockingAdapter, UdpTransport},
+    transport::BlockingAdapter,
     Error,
 };
+use std::time::Duration;
+
+// Include the transport implementations from the example files
+#[path = "udp_transport.rs"]
+mod udp_transport;
 
 #[cfg(feature = "async-client")]
-use grafton_visca::transport::AsyncTcpTransport;
-use std::time::Duration;
+#[path = "tcp_transport.rs"]
+mod tcp_transport;
+#[cfg(feature = "async-client")]
 
 // Helper for using async code in sync context
 fn block_on<F: std::future::Future>(fut: F) -> F::Output {
