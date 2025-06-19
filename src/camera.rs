@@ -7,8 +7,6 @@ use std::sync::Arc;
 
 use crate::error::Error as ViscaError;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::session::Session;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::sync_primitives::{Mutex, Semaphore};
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::transport::Transport;
@@ -77,8 +75,6 @@ pub struct Camera<P: CameraProfile> {
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     transport: Arc<Mutex<Box<dyn Transport>>>,
     #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-    session: Arc<Mutex<Session>>,
-    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
     semaphore: Arc<Semaphore>,
 }
 
@@ -97,7 +93,6 @@ impl<P: CameraProfile + Clone> Clone for Camera<P> {
         Self {
             profile: self.profile.clone(),
             transport: self.transport.clone(),
-            session: self.session.clone(),
             semaphore: self.semaphore.clone(),
         }
     }
@@ -550,7 +545,6 @@ impl<P: CameraProfile> Camera<P> {
         Self {
             profile: P::default(),
             transport: Arc::new(Mutex::new(Box::new(transport))),
-            session: Arc::new(Mutex::new(Session::new())),
             semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
         }
     }
@@ -569,7 +563,6 @@ impl<P: CameraProfile> Camera<P> {
         Self {
             profile,
             transport: Arc::new(Mutex::new(Box::new(transport))),
-            session: Arc::new(Mutex::new(Session::new())),
             semaphore: Arc::new(Semaphore::new(2)), // VISCA supports 2 concurrent commands
         }
     }
@@ -631,8 +624,8 @@ impl<P: CameraProfile> Camera<P> {
         match self.send_raw_async(command).await? {
             Response::Completion => Ok(()),
             Response::Ack => {
-                // Wait for completion after ACK
-                // This is handled internally by send_raw_async
+                // ACK should not be returned as final response with new API
+                // Transport handles waiting for completion
                 Ok(())
             }
             response => Err(ViscaError::InvalidResponse {
@@ -648,8 +641,8 @@ impl<P: CameraProfile> Camera<P> {
         match self.send_raw(command)? {
             Response::Completion => Ok(()),
             Response::Ack => {
-                // Wait for completion after ACK
-                // This is handled internally by send_raw
+                // ACK should not be returned as final response with new API
+                // Transport handles waiting for completion
                 Ok(())
             }
             response => Err(ViscaError::InvalidResponse {
@@ -668,47 +661,12 @@ impl<P: CameraProfile> Camera<P> {
         // Acquire semaphore permit for concurrency control
         let _permit = self.semaphore.acquire_permit();
 
-        // Get socket assignment from session
-        let socket_id = {
-            let mut session = self.session.lock();
-            session.assign_socket(command.response_type())?
-        };
+        // Send command and wait for response using the transport
+        let mut transport = self.transport.lock();
+        let result = block_on_ready(transport.send_command(command))
+            .map_err(|e| ViscaError::InvalidState(e.to_string()))?;
 
-        // Send command with socket ID using the minimal executor
-        {
-            let mut transport = self.transport.lock();
-            let send_result = block_on_ready(transport.send_command(command, socket_id))
-                .map_err(|e| ViscaError::InvalidState(e.to_string()))?;
-            if let Err(e) = send_result {
-                // Release socket on error
-                let mut session = self.session.lock();
-                session.release_socket(socket_id);
-                return Err(e);
-            }
-        }
-
-        // Wait for response
-        loop {
-            let (_resp_socket_id, response_data) = {
-                let mut transport = self.transport.lock();
-                let receive_result = block_on_ready(transport.receive_response())
-                    .map_err(|e| ViscaError::InvalidState(e.to_string()))?;
-                receive_result?
-            };
-
-            let mut session = self.session.lock();
-            match session.process_response(&response_data) {
-                Ok(Some((socket, response))) if socket == socket_id => {
-                    session.release_socket(socket_id);
-                    return Ok(response);
-                }
-                Ok(_) => continue, // Response for different socket, keep waiting
-                Err(e) => {
-                    session.release_socket(socket_id);
-                    return Err(e);
-                }
-            }
-        }
+        result
     }
 
     /// Send a raw command to the camera (async).
@@ -719,44 +677,9 @@ impl<P: CameraProfile> Camera<P> {
         // Acquire semaphore permit for concurrency control
         let _permit = self.semaphore.acquire_permit().await?;
 
-        // Get socket assignment from session
-        let socket_id = {
-            let mut session = self.session.lock().await;
-            session.assign_socket(command.response_type())?
-        };
-
-        // Send command with socket ID
-        {
-            let mut transport = self.transport.lock().await;
-            if let Err(e) = transport.send_command(command, socket_id).await {
-                // Release socket on error
-                let mut session = self.session.lock().await;
-                session.release_socket(socket_id);
-                return Err(e);
-            }
-        }
-
-        // Wait for response
-        loop {
-            let (_resp_socket_id, response_data) = {
-                let mut transport = self.transport.lock().await;
-                transport.receive_response().await?
-            };
-
-            let mut session = self.session.lock().await;
-
-            match session.process_response(&response_data) {
-                Ok(Some((socket, response))) if socket == socket_id => {
-                    session.release_socket(socket_id);
-                    return Ok(response);
-                }
-                Ok(_) => continue, // Response for different socket, keep waiting
-                Err(e) => {
-                    session.release_socket(socket_id);
-                    return Err(e);
-                }
-            }
-        }
+        // Send command and wait for response using the transport
+        let mut transport = self.transport.lock().await;
+        transport.send_command(command).await
     }
 }
 

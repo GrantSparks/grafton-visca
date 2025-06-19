@@ -1,32 +1,29 @@
-//! Example program
-
 //! Demonstrates the unified transport API that works for both async and blocking contexts.
 
-use std::future::Future;
-use std::pin::Pin;
-
 use grafton_visca::command::{power::Power, PowerCommand};
-use grafton_visca::transport::{UnifiedTcpTransport, UnifiedTransport};
+use grafton_visca::transport::Transport;
 use grafton_visca::Error;
 
 #[cfg(feature = "blocking-client")]
 fn blocking_example() -> Result<(), Error> {
-    use grafton_visca::transport::unified::BlockingTransportAdapter;
+    use grafton_visca::transport::{BlockingAdapter, TcpTransport};
 
     println!("=== Blocking Transport Example ===");
 
     // Create a blocking TCP transport
-    let tcp = UnifiedTcpTransport::new_blocking("192.168.1.100:5678").map_err(Error::Io)?;
+    let tcp = TcpTransport::new("192.168.1.100:5678").map_err(Error::Io)?;
 
-    // Wrap it in the adapter to use the unified interface
-    let mut transport = BlockingTransportAdapter::new(tcp);
+    // Wrap it in the adapter to use the Transport trait
+    let mut transport = BlockingAdapter(tcp);
 
-    // Use the unified interface - same API as async!
+    // Use the transport interface
     let power_cmd = PowerCommand { power: Power::On };
 
     // This blocks immediately in blocking context
-    // Since we're using the unified interface which returns futures,
+    // Since we're using the Transport interface which returns futures,
     // we need to use a minimal executor to poll them
+    use std::future::Future;
+    use std::pin::Pin;
     use std::sync::Arc;
     use std::task::{Context, Poll, Wake};
 
@@ -40,88 +37,82 @@ fn blocking_example() -> Result<(), Error> {
 
     let mut send_fut = transport.send_command(&power_cmd);
     match Pin::new(&mut send_fut).poll(&mut cx) {
-        Poll::Ready(result) => result?,
-        Poll::Pending => return Err(Error::Timeout),
-    }
-
-    let mut recv_fut = transport.receive_response();
-    match Pin::new(&mut recv_fut).poll(&mut cx) {
         Poll::Ready(result) => {
-            let _ = result?;
+            let response = result?;
+            println!("Command response: {:?}", response);
         }
         Poll::Pending => return Err(Error::Timeout),
     }
 
-    println!("✅ Blocking transport works with unified API");
+    println!("Power on command sent successfully!");
 
     Ok(())
 }
 
 #[cfg(feature = "async-client")]
 async fn async_example() -> Result<(), Error> {
+    use grafton_visca::transport::AsyncTcpTransport;
+
     println!("=== Async Transport Example ===");
 
     // Create an async TCP transport
-    let mut transport = UnifiedTcpTransport::new_async("192.168.1.100:5678")
+    let mut transport = AsyncTcpTransport::new("192.168.1.100:5678")
         .await
         .map_err(Error::Io)?;
 
-    // Use the unified interface - same API as blocking!
+    // Use the transport interface - same API!
     let power_cmd = PowerCommand { power: Power::On };
 
-    // This is truly async
-    transport.send_command(&power_cmd).await?;
-    let responses = transport.receive_response().await?;
+    // This returns a future that we await
+    let response = transport.send_command(&power_cmd).await?;
+    println!("Command response: {:?}", response);
 
-    println!("✅ Async transport works with unified API");
-    println!("   Received {} responses", responses.len());
-
-    // Can also be done in two steps
-    transport.send_command(&power_cmd).await?;
-    let responses2 = transport.receive_response().await?;
-    println!("✅ Two-step approach works too");
-    println!("   Received {} responses", responses2.len());
+    println!("Power on command sent successfully!");
 
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    println!("🚀 Unified Transport API Demo");
-    println!("=============================\n");
+    println!("Unified Transport Demo");
+    println!("This example shows how to use transports in both async and blocking contexts.\n");
 
-    // The beauty of the unified API: same interface for both async and blocking
-
+    // Run blocking example if feature is enabled
     #[cfg(feature = "blocking-client")]
     {
         if let Err(e) = blocking_example() {
-            println!("❌ Blocking example failed: {}", e);
+            eprintln!("Blocking example error: {}", e);
         }
         println!();
     }
 
+    // Run async example if feature is enabled
     #[cfg(feature = "async-client")]
     {
-        let rt = tokio::runtime::Runtime::new()?;
-        if let Err(e) = rt.block_on(async_example()) {
-            println!("❌ Async example failed: {}", e);
+        if let Err(e) = async_example().await {
+            eprintln!("Async example error: {}", e);
         }
     }
 
     #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
     {
-        println!("⚠️  No transport features enabled!");
-        println!("   Enable with:");
-        println!("   cargo run --example unified_transport_demo --features blocking-client");
-        println!("   cargo run --example unified_transport_demo --features async-client");
+        println!(
+            "Please enable either 'blocking-client' or 'async-client' feature to run this example."
+        );
     }
 
-    println!("\n✨ Key benefits of unified transport API:");
-    println!("   1. Single trait for both async and blocking");
-    println!("   2. No code duplication between implementations");
-    println!("   3. Shared utilities (buffer management, frame parsing)");
-    println!("   4. Easier to maintain and extend");
-
     Ok(())
+}
+
+// Example showing how to write transport-agnostic code
+#[allow(dead_code)]
+fn transport_agnostic_function<T: Transport>(
+    transport: &mut T,
+    command: &dyn grafton_visca::Command,
+) {
+    // This function works with any transport implementation
+    let _future = transport.send_command(command);
+    // In real code, you would await or poll this future
 }
