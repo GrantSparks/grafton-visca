@@ -185,7 +185,6 @@ pub use error::{Error, Result};
 pub mod transport;
 
 // Internal modules - not part of public API
-mod connection;
 mod constants;
 mod macros;
 /// Type definitions and abstractions
@@ -194,12 +193,6 @@ pub mod types;
 // Multi-camera support
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub mod camera_pool;
-
-#[cfg(feature = "async-client")]
-pub use connection::ConnectionStats;
-
-#[cfg(feature = "async-client")]
-mod transport_future;
 
 pub mod timeout; // Public for use in macros
 
