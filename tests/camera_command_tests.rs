@@ -191,7 +191,7 @@ mod blocking_tests {
 mod async_tests {
     use super::common::MockAsyncTransport;
     use grafton_visca::{
-        camera::{Camera, PTZOpticsG2, profiles::G2PresetId},
+        camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
         Error,
     };
 
