@@ -13,7 +13,6 @@ use grafton_visca::{
 #[cfg(not(feature = "async"))]
 use std::env;
 
-
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
     // Initialize logging

@@ -271,4 +271,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Run blocking version when only blocking is enabled
     blocking_impl::run_blocking()
 }
-
