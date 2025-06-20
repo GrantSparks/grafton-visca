@@ -10,6 +10,11 @@ use grafton_visca::{
         white_balance::WhiteBalanceMode,
     },
     transport::create,
+    types::{
+        BrightnessLevel, ContrastLevel, FocusPosition, HueLevel, IrisLevel,
+        NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
+        ShutterSpeed, ZoomPosition,
+    },
     Error,
 };
 use std::time::Duration;
@@ -43,7 +48,7 @@ async fn main() -> Result<(), Error> {
 
     // Zoom control
     println!("\nTesting zoom control...");
-    camera.set_zoom(0x2000).await?;
+    camera.set_zoom(ZoomPosition::new(0x2000)?).await?;
     time::sleep(Duration::from_secs(1)).await;
 
     camera.zoom_in().await?;
@@ -53,7 +58,7 @@ async fn main() -> Result<(), Error> {
     // Preset management
     println!("\nTesting preset management...");
     use grafton_visca::camera::profiles::G2PresetId;
-    let preset = G2PresetId::new(1).await?;
+    let preset = G2PresetId::new(1)?;
     camera.set_preset(preset).await?;
     time::sleep(Duration::from_millis(500)).await;
 
@@ -69,7 +74,7 @@ async fn main() -> Result<(), Error> {
     time::sleep(Duration::from_millis(500)).await;
 
     camera.focus_manual().await?;
-    camera.set_focus(0x5000).await?;
+    camera.set_focus(FocusPosition::new(0x5000)?).await?;
     time::sleep(Duration::from_millis(500)).await;
 
     camera.focus_auto().await?;
@@ -77,19 +82,19 @@ async fn main() -> Result<(), Error> {
     // Exposure control
     println!("\nTesting exposure control...");
     camera.set_exposure_mode(ExposureMode::Auto).await?;
-    camera.set_iris(10).await?;
-    camera.set_shutter(15).await?;
+    camera.set_iris(IrisLevel::new(10)?).await?;
+    camera.set_shutter(ShutterSpeed::new(15)?).await?;
     camera.backlight_on().await?;
     time::sleep(Duration::from_millis(500)).await;
     camera.backlight_off().await?;
 
     // Image quality control
     println!("\nTesting image quality control...");
-    camera.set_brightness(8).await?;
-    camera.set_contrast(8).await?;
-    camera.set_sharpness(8).await?;
-    camera.set_saturation(8).await?;
-    camera.set_hue(7).await?;
+    camera.set_brightness(BrightnessLevel::new(8)?).await?;
+    camera.set_contrast(ContrastLevel::new(8)?).await?;
+    camera.set_sharpness(SharpnessLevel::new(8)?).await?;
+    camera.set_saturation(SaturationLevel::new(8)?).await?;
+    camera.set_hue(HueLevel::new(7)?).await?;
 
     // White balance control
     println!("\nTesting white balance control...");
@@ -112,8 +117,8 @@ async fn main() -> Result<(), Error> {
 
     // Advanced image features
     println!("\nTesting advanced image features...");
-    camera.set_noise_reduction_2d(3).await?;
-    camera.set_noise_reduction_3d(2).await?;
+    camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?).await?;
+    camera.set_noise_reduction_3d(NoiseReduction3DLevel::new(2)?).await?;
     camera.set_image_flip(ImageFlipMode::Off).await?;
     camera.black_white_off().await?;
 

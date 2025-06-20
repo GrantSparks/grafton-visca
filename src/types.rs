@@ -932,3 +932,461 @@ mod speed_tests {
         assert_eq!(NoiseReductionStrength::Maximum.to_3d_level().unwrap(), 8);
     }
 }
+
+/// Zoom position value for direct zoom control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ZoomPosition(u16);
+
+impl ZoomPosition {
+    /// Minimum zoom position (wide).
+    pub const MIN: Self = Self(0x0000);
+
+    /// Maximum optical zoom position.
+    /// Note: Actual maximum depends on camera model.
+    pub const MAX_OPTICAL: Self = Self(0x4000);
+
+    /// Maximum digital zoom position.
+    /// Note: Only available if camera supports digital zoom.
+    pub const MAX_DIGITAL: Self = Self(0x7000);
+
+    /// Create a new zoom position.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value exceeds 0x7000.
+    pub fn new(value: u16) -> Result<Self, Error> {
+        if value <= 0x7000 {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "zoom".to_string(),
+                value: i32::from(value),
+                min: 0x0000,
+                max: 0x7000,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+impl TryFrom<u16> for ZoomPosition {
+    type Error = Error;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl fmt::Display for ZoomPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Zoom {:#04X}", self.0)
+    }
+}
+
+/// Focus position value for direct focus control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FocusPosition(u16);
+
+impl FocusPosition {
+    /// Minimum focus position (infinity).
+    pub const MIN: Self = Self(0x1000);
+
+    /// Maximum focus position (near).
+    /// Note: Actual maximum depends on camera model.
+    pub const MAX: Self = Self(0xF000);
+
+    /// Create a new focus position.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside valid range.
+    pub fn new(value: u16) -> Result<Self, Error> {
+        // Focus position typically uses range 0x1000-0xF000
+        if (0x1000..=0xF000).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "focus".to_string(),
+                value: i32::from(value),
+                min: 0x1000,
+                max: 0xF000,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+impl TryFrom<u16> for FocusPosition {
+    type Error = Error;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl fmt::Display for FocusPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Focus {:#04X}", self.0)
+    }
+}
+
+/// Color temperature value for white balance control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColorTemperature(u16);
+
+impl ColorTemperature {
+    /// Minimum color temperature (2500K).
+    pub const MIN: Self = Self(0x00);
+
+    /// Maximum color temperature (8000K).
+    pub const MAX: Self = Self(0x37);
+
+    /// Create a new color temperature.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x37.
+    pub fn new(value: u16) -> Result<Self, Error> {
+        if value <= 0x37 {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "color_temperature".to_string(),
+                value: i32::from(value),
+                min: 0x00,
+                max: 0x37,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+
+    /// Convert to temperature in Kelvin.
+    #[must_use]
+    pub fn to_kelvin(self) -> u16 {
+        // Linear mapping from 0x00-0x37 to 2500K-8000K
+        2500 + (self.0 * 100)
+    }
+
+    /// Create from temperature in Kelvin.
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidParameter` if the temperature is outside 2500K-8000K range.
+    pub fn from_kelvin(kelvin: u16) -> Result<Self, Error> {
+        if (2500..=8000).contains(&kelvin) {
+            let value = (kelvin - 2500) / 100;
+            Self::new(value)
+        } else {
+            Err(Error::InvalidParameter(
+                "Color temperature must be between 2500K and 8000K".to_string(),
+            ))
+        }
+    }
+}
+
+impl TryFrom<u16> for ColorTemperature {
+    type Error = Error;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl fmt::Display for ColorTemperature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}K", self.to_kelvin())
+    }
+}
+
+/// Red gain value for white balance adjustment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RedGain(u8);
+
+impl RedGain {
+    /// Minimum red gain.
+    pub const MIN: Self = Self(0x00);
+
+    /// Maximum red gain.
+    pub const MAX: Self = Self(0xFF);
+
+    /// Create a new red gain value.
+    ///
+    /// # Errors
+    /// Never returns an error as all u8 values are valid.
+    pub fn new(value: u8) -> Result<Self, Error> {
+        Ok(Self(value))
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for RedGain {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl fmt::Display for RedGain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Red Gain {:#02X}", self.0)
+    }
+}
+
+/// Blue gain value for white balance adjustment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlueGain(u8);
+
+impl BlueGain {
+    /// Minimum blue gain.
+    pub const MIN: Self = Self(0x00);
+
+    /// Maximum blue gain.
+    pub const MAX: Self = Self(0xFF);
+
+    /// Create a new blue gain value.
+    ///
+    /// # Errors
+    /// Never returns an error as all u8 values are valid.
+    pub fn new(value: u8) -> Result<Self, Error> {
+        Ok(Self(value))
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for BlueGain {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl fmt::Display for BlueGain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Blue Gain {:#02X}", self.0)
+    }
+}
+
+/// Saturation level for color adjustment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SaturationLevel(u8);
+
+impl SaturationLevel {
+    /// Minimum saturation (60%).
+    pub const MIN: Self = Self(0x00);
+
+    /// Maximum saturation (200%).
+    pub const MAX: Self = Self(0x0E);
+
+    /// Create a new saturation level.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x0E.
+    pub fn new(value: u8) -> Result<Self, Error> {
+        if value <= 0x0E {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "saturation".to_string(),
+                value: i32::from(value),
+                min: 0x00,
+                max: 0x0E,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+
+    /// Convert to percentage (60% to 200%).
+    #[must_use]
+    pub fn to_percentage(self) -> u8 {
+        60 + (self.0 * 10)
+    }
+}
+
+impl TryFrom<u8> for SaturationLevel {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl fmt::Display for SaturationLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Saturation {}%", self.to_percentage())
+    }
+}
+
+/// Hue level for color adjustment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HueLevel(u8);
+
+impl HueLevel {
+    /// Minimum hue level.
+    pub const MIN: Self = Self(0x00);
+
+    /// Maximum hue level.
+    pub const MAX: Self = Self(0x0E);
+
+    /// Create a new hue level.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x0E.
+    pub fn new(value: u8) -> Result<Self, Error> {
+        if value <= 0x0E {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "hue".to_string(),
+                value: i32::from(value),
+                min: 0x00,
+                max: 0x0E,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for HueLevel {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl fmt::Display for HueLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Hue {}", self.0)
+    }
+}
+
+/// Red tuning value for fine white balance adjustment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RedTuning(i8);
+
+impl RedTuning {
+    /// Minimum red tuning.
+    pub const MIN: Self = Self(-10);
+
+    /// Maximum red tuning.
+    pub const MAX: Self = Self(10);
+
+    /// Create a new red tuning value.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside -10 to +10.
+    pub fn new(value: i8) -> Result<Self, Error> {
+        if (-10..=10).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "red_tuning".to_string(),
+                value: i32::from(value),
+                min: -10,
+                max: 10,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> i8 {
+        self.0
+    }
+}
+
+impl TryFrom<i8> for RedTuning {
+    type Error = Error;
+
+    fn try_from(value: i8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl fmt::Display for RedTuning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Red Tuning {:+}", self.0)
+    }
+}
+
+/// Blue tuning value for fine white balance adjustment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlueTuning(i8);
+
+impl BlueTuning {
+    /// Minimum blue tuning.
+    pub const MIN: Self = Self(-10);
+
+    /// Maximum blue tuning.
+    pub const MAX: Self = Self(10);
+
+    /// Create a new blue tuning value.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside -10 to +10.
+    pub fn new(value: i8) -> Result<Self, Error> {
+        if (-10..=10).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "blue_tuning".to_string(),
+                value: i32::from(value),
+                min: -10,
+                max: 10,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> i8 {
+        self.0
+    }
+}
+
+impl TryFrom<i8> for BlueTuning {
+    type Error = Error;
+
+    fn try_from(value: i8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl fmt::Display for BlueTuning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Blue Tuning {:+}", self.0)
+    }
+}

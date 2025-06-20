@@ -31,7 +31,9 @@ use crate::{
     define_camera_methods,
     types::{
         BrightnessLevel, ContrastLevel, GainLimit, IrisLevel, LuminanceLevel,
-        NoiseReduction2DLevel, NoiseReduction3DLevel, ShutterSpeed,
+        NoiseReduction2DLevel, NoiseReduction3DLevel, ShutterSpeed, ZoomPosition, FocusPosition,
+        ColorTemperature, RedGain, BlueGain, SaturationLevel, HueLevel, RedTuning, BlueTuning,
+        SharpnessLevel,
     },
 };
 
@@ -293,13 +295,13 @@ define_camera_methods! {
     }
 
     /// Set zoom to direct position.
-    pub fn set_zoom(&self, position: u16) -> Result<(), Error> {
-        self.send_and_wait(&ZoomCommand::direct::<P>(position)?)
+    pub fn set_zoom(&self, position: ZoomPosition) -> Result<(), Error> {
+        self.send_and_wait(&ZoomCommand::direct::<P>(position.value())?)
     }
 
     /// Set focus to direct position (manual mode).
-    pub fn set_focus(&self, position: u16) -> Result<(), Error> {
-        self.send_and_wait(&FocusCommand::direct::<P>(position)?)
+    pub fn set_focus(&self, position: FocusPosition) -> Result<(), Error> {
+        self.send_and_wait(&FocusCommand::direct::<P>(position.value())?)
     }
 
     /// Set gain value.
@@ -322,55 +324,55 @@ define_camera_methods! {
         self.send_and_wait(&PresetCommand::new::<P>(PresetAction::Reset, preset)?)
     }
 
-    /// Set exposure compensation level directly (-7 to +7).
-    pub fn set_exposure_compensation(&self, level: i8) -> Result<(), Error> {
-        self.send_and_wait(&ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(level)?))
+    /// Set exposure compensation level directly.
+    pub fn set_exposure_compensation(&self, level: ExposureCompensationLevel) -> Result<(), Error> {
+        self.send_and_wait(&ExposureCompensationCommand::Direct(level))
     }
 
-    /// Set dynamic range level (0-8).
-    pub fn set_dynamic_range(&self, level: u8) -> Result<(), Error> {
-        self.send_and_wait(&DynamicRangeCommand::Direct(DynamicRangeLevel::new(level)?))
+    /// Set dynamic range level.
+    pub fn set_dynamic_range(&self, level: DynamicRangeLevel) -> Result<(), Error> {
+        self.send_and_wait(&DynamicRangeCommand::Direct(level))
     }
 
     /// Set iris level directly.
-    pub fn set_iris(&self, level: u8) -> Result<(), Error> {
-        self.send_and_wait(&IrisCommand::Direct(IrisLevel::new(level)?))
+    pub fn set_iris(&self, level: IrisLevel) -> Result<(), Error> {
+        self.send_and_wait(&IrisCommand::Direct(level))
     }
 
     /// Set shutter speed directly.
-    pub fn set_shutter(&self, speed: u16) -> Result<(), Error> {
-        self.send_and_wait(&ShutterCommand::Direct(ShutterSpeed::new(speed)?))
+    pub fn set_shutter(&self, speed: ShutterSpeed) -> Result<(), Error> {
+        self.send_and_wait(&ShutterCommand::Direct(speed))
     }
 
     /// Set brightness level directly.
-    pub fn set_brightness(&self, level: u16) -> Result<(), Error> {
-        self.send_and_wait(&BrightCommand::Direct(BrightnessLevel::new(level)?))
+    pub fn set_brightness(&self, level: BrightnessLevel) -> Result<(), Error> {
+        self.send_and_wait(&BrightCommand::Direct(level))
     }
 
     /// Set gain limit.
-    pub fn set_gain_limit(&self, limit: u8) -> Result<(), Error> {
-        self.send_and_wait(&GainLimitCommand { limit: GainLimit::new(limit)? })
+    pub fn set_gain_limit(&self, limit: GainLimit) -> Result<(), Error> {
+        self.send_and_wait(&GainLimitCommand { limit })
     }
 
 
-    /// Set 2D noise reduction level (1-5).
-    pub fn set_noise_reduction_2d(&self, level: u8) -> Result<(), Error> {
-        self.send_and_wait(&NoiseReduction2DCommand::Level(NoiseReduction2DLevel::new(level)?))
+    /// Set 2D noise reduction level.
+    pub fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> Result<(), Error> {
+        self.send_and_wait(&NoiseReduction2DCommand::Level(level))
     }
 
-    /// Set 3D noise reduction level (1-5).
-    pub fn set_noise_reduction_3d(&self, level: u8) -> Result<(), Error> {
-        self.send_and_wait(&NoiseReduction3DCommand::Level(NoiseReduction3DLevel::new(level)?))
+    /// Set 3D noise reduction level.
+    pub fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> Result<(), Error> {
+        self.send_and_wait(&NoiseReduction3DCommand::Level(level))
     }
 
     /// Set luminance level.
-    pub fn set_luminance(&self, level: u8) -> Result<(), Error> {
-        self.send_and_wait(&LuminanceCommand { value: LuminanceLevel::new(level)? })
+    pub fn set_luminance(&self, level: LuminanceLevel) -> Result<(), Error> {
+        self.send_and_wait(&LuminanceCommand { value: level })
     }
 
     /// Set contrast level.
-    pub fn set_contrast(&self, level: u8) -> Result<(), Error> {
-        self.send_and_wait(&ContrastCommand { value: ContrastLevel::new(level)? })
+    pub fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error> {
+        self.send_and_wait(&ContrastCommand { value: level })
     }
 
     /// Set exposure mode.
@@ -393,39 +395,39 @@ define_camera_methods! {
         self.send_and_wait(&ImageFlipCombinedCommand { mode })
     }
 
-    /// Set red tuning level (-10 to +10).
-    pub fn set_red_tuning(&self, level: i8) -> Result<(), Error> {
-        self.send_and_wait(&RedTuningCommand { level })
+    /// Set red tuning level.
+    pub fn set_red_tuning(&self, level: RedTuning) -> Result<(), Error> {
+        self.send_and_wait(&RedTuningCommand { level: level.value() })
     }
 
-    /// Set blue tuning level (-10 to +10).
-    pub fn set_blue_tuning(&self, level: i8) -> Result<(), Error> {
-        self.send_and_wait(&BlueTuningCommand { level })
+    /// Set blue tuning level.
+    pub fn set_blue_tuning(&self, level: BlueTuning) -> Result<(), Error> {
+        self.send_and_wait(&BlueTuningCommand { level: level.value() })
     }
 
-    /// Set saturation level (0x0 = 60%, 0xE = 200%).
-    pub fn set_saturation(&self, level: u8) -> Result<(), Error> {
-        self.send_and_wait(&SaturationCommand { level })
+    /// Set saturation level.
+    pub fn set_saturation(&self, level: SaturationLevel) -> Result<(), Error> {
+        self.send_and_wait(&SaturationCommand { level: level.value() })
     }
 
-    /// Set hue level (0x0 to 0xE).
-    pub fn set_hue(&self, level: u8) -> Result<(), Error> {
-        self.send_and_wait(&HueCommand { level })
+    /// Set hue level.
+    pub fn set_hue(&self, level: HueLevel) -> Result<(), Error> {
+        self.send_and_wait(&HueCommand { level: level.value() })
     }
 
-    /// Set color temperature directly (0x00 = 2500K to 0x37 = 8000K).
-    pub fn set_color_temperature(&self, temp: u16) -> Result<(), Error> {
-        self.send_and_wait(&ColorTemperatureCommand::Direct(temp))
+    /// Set color temperature directly.
+    pub fn set_color_temperature(&self, temp: ColorTemperature) -> Result<(), Error> {
+        self.send_and_wait(&ColorTemperatureCommand::Direct(temp.value()))
     }
 
     /// Set red gain directly.
-    pub fn set_red_gain(&self, value: u8) -> Result<(), Error> {
-        self.send_and_wait(&RedGainCommand::Direct(value))
+    pub fn set_red_gain(&self, value: RedGain) -> Result<(), Error> {
+        self.send_and_wait(&RedGainCommand::Direct(value.value()))
     }
 
     /// Set blue gain directly.
-    pub fn set_blue_gain(&self, value: u8) -> Result<(), Error> {
-        self.send_and_wait(&BlueGainCommand::Direct(value))
+    pub fn set_blue_gain(&self, value: BlueGain) -> Result<(), Error> {
+        self.send_and_wait(&BlueGainCommand::Direct(value.value()))
     }
 
     /// Set sharpness mode.
@@ -433,9 +435,9 @@ define_camera_methods! {
         self.send_and_wait(&SharpnessCommand::Mode(mode))
     }
 
-    /// Set sharpness directly (0-11).
-    pub fn set_sharpness(&self, value: u8) -> Result<(), Error> {
-        self.send_and_wait(&SharpnessCommand::Direct { value })
+    /// Set sharpness directly.
+    pub fn set_sharpness(&self, value: SharpnessLevel) -> Result<(), Error> {
+        self.send_and_wait(&SharpnessCommand::Direct { value: value.value() })
     }
 
     /// Set the camera to an absolute pan/tilt position in degrees.

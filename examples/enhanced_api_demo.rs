@@ -11,6 +11,10 @@ use grafton_visca::{
     },
     command::{exposure::ExposureMode, white_balance::WhiteBalanceMode},
     transport::create,
+    types::{
+        BrightnessLevel, ContrastLevel, NoiseReduction2DLevel, SaturationLevel, SharpnessLevel,
+        ZoomPosition,
+    },
     Error,
 };
 use std::time::Duration;
@@ -40,7 +44,7 @@ async fn main() -> Result<(), Error> {
     camera.backlight_on().await?;
     println!("Enabled backlight compensation");
 
-    camera.set_brightness(0x08).await?;
+    camera.set_brightness(BrightnessLevel::new(0x08)?).await?;
     println!("Set brightness to default level");
 
     // Demonstrate white balance control
@@ -60,12 +64,12 @@ async fn main() -> Result<(), Error> {
     // Demonstrate image settings
     println!("\n--- Image Settings ---");
     // The new API doesn't have image presets, so we'll set individual parameters
-    camera.set_saturation(10).await?; // Higher saturation for "vivid"
-    camera.set_contrast(9).await?; // Higher contrast
+    camera.set_saturation(SaturationLevel::new(10)?).await?; // Higher saturation for "vivid"
+    camera.set_contrast(ContrastLevel::new(9)?).await?; // Higher contrast
     println!("Applied vivid image settings");
     time::sleep(Duration::from_secs(1)).await;
 
-    camera.set_noise_reduction_2d(3).await?;
+    camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?).await?;
     println!("Set 2D noise reduction to level 3");
 
     camera
@@ -75,18 +79,18 @@ async fn main() -> Result<(), Error> {
 
     // Demonstrate zoom control
     println!("\n--- Zoom Control ---");
-    camera.set_zoom(0x0000).await?; // Minimum zoom
+    camera.set_zoom(ZoomPosition::new(0x0000)?).await?; // Minimum zoom
     println!("Set zoom to minimum (1x)");
     time::sleep(Duration::from_secs(2)).await;
 
     // For PTZOpticsG2, zoom range is 0x0000-0x4000 for 12x zoom
     // 5x would be approximately 0x1555
-    camera.set_zoom(0x1555).await?;
+    camera.set_zoom(ZoomPosition::new(0x1555)?).await?;
     println!("Set zoom to approximately 5x");
     time::sleep(Duration::from_secs(2)).await;
 
     // 25% of max zoom
-    camera.set_zoom(0x1000).await?;
+    camera.set_zoom(ZoomPosition::new(0x1000)?).await?;
     println!("Set zoom to 25% of maximum");
     time::sleep(Duration::from_secs(2)).await;
 
@@ -129,12 +133,12 @@ async fn main() -> Result<(), Error> {
         .set_white_balance_mode(WhiteBalanceMode::Auto)
         .await?;
     // Reset image settings to defaults
-    camera.set_saturation(7).await?; // Default values
-    camera.set_contrast(8).await?;
-    camera.set_sharpness(8).await?;
-    camera.set_brightness(8).await?;
+    camera.set_saturation(SaturationLevel::new(7)?).await?; // Default values
+    camera.set_contrast(ContrastLevel::new(8)?).await?;
+    camera.set_sharpness(SharpnessLevel::new(8)?).await?;
+    camera.set_brightness(BrightnessLevel::new(8)?).await?;
     camera.home().await?;
-    camera.set_zoom(0x0000).await?; // Minimum zoom
+    camera.set_zoom(ZoomPosition::new(0x0000)?).await?; // Minimum zoom
     println!("Returned camera to default settings");
 
     println!("\n=== Demo Complete ===");
