@@ -13,17 +13,17 @@
 //! - `ViscaTransport<T>`: Async protocol handling
 //! - `ChannelTransport`: Thread-safe wrapper
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::{fmt::Debug, future::Future, pin::Pin};
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use crate::error::Error;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 /// Type alias for async futures.
 pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 /// Raw transport trait - implement this to create new transport types.
 ///
 /// Only handles basic I/O. All VISCA protocol logic is in ViscaTransport.
@@ -54,20 +54,20 @@ pub use blocking::{
 pub use blocking::Transport;
 
 // Async transport modules (optional)
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 mod channel;
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 mod implementations;
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 mod session;
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 pub use channel::{ChannelConfig, ChannelTransport};
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 pub use implementations::{SerialTransport, TcpTransport, UdpTransport};
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 pub use session::ViscaTransport;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 /// Simple transport creation functions.
 pub mod create {
     use super::*;

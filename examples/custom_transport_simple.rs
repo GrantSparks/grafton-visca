@@ -4,10 +4,10 @@
 //! to implement the basic send/receive operations. All VISCA protocol logic
 //! is handled by the library.
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::sync::Mutex;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::{
     command::zoom::ZoomCommand,
     transport::{core::RawTransport, TransportSession},
@@ -16,7 +16,7 @@ use grafton_visca::{
 
 /// A mock transport that simulates network communication with predefined responses.
 /// This demonstrates how simple it is to implement a custom transport.
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[derive(Debug, Clone)]
 pub struct MockRawTransport {
     /// Simulated response queue
@@ -27,7 +27,7 @@ pub struct MockRawTransport {
     sent_commands: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl MockRawTransport {
     /// Create a new mock transport with predefined responses.
     pub fn new() -> Self {
@@ -57,7 +57,7 @@ impl MockRawTransport {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl RawTransport for MockRawTransport {
     fn send<'a>(
         &'a mut self,
@@ -103,13 +103,13 @@ impl RawTransport for MockRawTransport {
     }
 }
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires the 'async-client' feature to be enabled.");
-    eprintln!("Run with: cargo run --example custom_transport_simple --features async-client");
+    eprintln!("This example requires the 'async' feature to be enabled.");
+    eprintln!("Run with: cargo run --example custom_transport_simple --features async");
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Custom Transport Implementation Demo ===\n");

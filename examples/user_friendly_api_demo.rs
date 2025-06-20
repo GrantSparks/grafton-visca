@@ -3,18 +3,18 @@
 //! This example shows how to use SpeedLevel, FStop, and NoiseReductionStrength
 //! enums for more intuitive camera control.
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::create;
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{exposure::ExposureMode, pan_tilt::PanTiltDirection},
     types::{FStop, NoiseReductionStrength, SpeedLevel},
 };
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use std::time::Duration;
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
@@ -102,8 +102,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "blocking-client"))]
+#[cfg(not(not(feature = "async")))]
 fn main() {
-    eprintln!("This example requires the 'blocking-client' feature to be enabled.");
+    eprintln!("This example requires the blocking mode (default) feature to be enabled.");
     eprintln!("Run with: cargo run --example user_friendly_api_demo --no-default-features --features blocking-client");
 }

@@ -3,19 +3,19 @@
 //! This example shows how to use the ChannelTransport wrapper to safely share
 //! a transport across multiple threads without explicit locking.
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::transport::create;
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::sync::Arc;
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::time::Duration;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::transport::{ChannelTransport, ChannelTransportBuilder};
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::{camera::profiles::PTZOpticsG2, camera::CameraTransport, Camera, Command};
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -130,12 +130,12 @@ async fn demo_arc_transport() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // Mock transport for demonstration
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[allow(dead_code)]
 #[derive(Debug)]
 struct MockTransport;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl CameraTransport for MockTransport {
     fn send_command<'a>(
         &'a mut self,
@@ -145,8 +145,8 @@ impl CameraTransport for MockTransport {
     }
 }
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires the 'async-client' feature to be enabled.");
-    eprintln!("Run with: cargo run --example channel_transport_demo --features async-client");
+    eprintln!("This example requires the 'async' feature to be enabled.");
+    eprintln!("Run with: cargo run --example channel_transport_demo --features async");
 }

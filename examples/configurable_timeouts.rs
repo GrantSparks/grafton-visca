@@ -15,7 +15,7 @@ use grafton_visca::{
 };
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::create;
 
 fn main() -> Result<(), Error> {

@@ -17,13 +17,13 @@ use std::fmt::Debug;
 /// Standard test speeds to avoid repetitive magic numbers.
 ///
 /// Returns commonly used pan and tilt speeds for tests.
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 pub fn test_speeds() -> (u8, u8) {
     (10, 10)
 }
 
 /// Test speeds with custom values.
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 pub fn test_speeds_with(pan: u8, tilt: u8) -> (u8, u8) {
     // In the new API, speeds are just u8 values
     // Camera profiles handle validation
@@ -103,7 +103,7 @@ pub fn create_ack_completion_sequence(socket: u8) -> Vec<Vec<u8>> {
     ]
 }
 
-#[cfg(all(test, feature = "blocking-client"))]
+#[cfg(all(test, not(feature = "async")))]
 mod tests {
     use super::*;
 

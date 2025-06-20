@@ -3,18 +3,18 @@
 //! This example shows how simple TCP transport creation is with the new API.
 //! All VISCA protocol logic is handled by the library.
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::{command::zoom::ZoomCommand, transport::create};
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::time::Duration;
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires the 'async-client' feature to be enabled.");
-    eprintln!("Run with: cargo run --example tcp_transport --features async-client");
+    eprintln!("This example requires the 'async' feature to be enabled.");
+    eprintln!("Run with: cargo run --example tcp_transport --features async");
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();

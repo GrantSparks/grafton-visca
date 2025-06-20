@@ -12,10 +12,10 @@ pub mod builders;
 pub mod helpers;
 pub mod macros;
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::Error;
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::{Transport as BlockingTransport, ViscaTransport};
 
 use std::collections::VecDeque;
@@ -38,7 +38,7 @@ pub struct MockTransport {
 }
 
 #[allow(dead_code)] // Complete testing API - not all methods used in every test
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 impl MockTransport {
     /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
@@ -123,7 +123,7 @@ impl MockTransport {
     }
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 impl BlockingTransport for MockTransport {
     fn send(&mut self, data: &[u8]) -> Result<(), Error> {
         if self.fail_send {
@@ -155,7 +155,7 @@ impl BlockingTransport for MockTransport {
 }
 
 // Helper to create a ViscaTransport for testing
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 impl MockTransport {
     pub fn into_visca_transport(self) -> ViscaTransport<Self> {
         ViscaTransport::new(self)
@@ -163,17 +163,17 @@ impl MockTransport {
 }
 
 // Async version of MockTransport for feature parity
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::transport::{
     RawTransport, TransportFuture, ViscaTransport as AsyncViscaTransport,
 };
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::time::Duration;
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use tokio::sync::Mutex as AsyncMutex;
 
 /// Async mock transport for testing - feature parity with MockTransport
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[derive(Clone)]
 pub struct MockAsyncTransport {
     /// Queue of responses to return
@@ -192,7 +192,7 @@ pub struct MockAsyncTransport {
     pub delay_ms: Option<u64>,
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl MockAsyncTransport {
     /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
@@ -236,7 +236,7 @@ impl MockAsyncTransport {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl std::fmt::Debug for MockAsyncTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MockAsyncTransport")
@@ -247,7 +247,7 @@ impl std::fmt::Debug for MockAsyncTransport {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl RawTransport for MockAsyncTransport {
     fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
         Box::pin(async move {
@@ -307,7 +307,7 @@ impl RawTransport for MockAsyncTransport {
 }
 
 // Helper to create an async ViscaTransport wrapper
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl MockAsyncTransport {
     /// Convert into a ViscaTransport for use in tests.
     pub fn into_visca_transport(self) -> AsyncViscaTransport<Self> {

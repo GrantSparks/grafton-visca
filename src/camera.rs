@@ -2,23 +2,21 @@
 
 use std::fmt::Display;
 use std::ops::RangeInclusive;
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::sync::Arc;
 
 use crate::error::Error as ViscaError;
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use crate::sync_primitives::{Mutex, Semaphore};
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use crate::transport::blocking::{
     Transport as BlockingTransport, ViscaTransport as BlockingViscaTransport,
 };
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use crate::transport::{ChannelTransport, RawTransport, ViscaTransport};
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 use crate::{Command, Response};
 
 pub mod builder;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub mod command_builder;
 pub mod commands;
 pub mod extensions;
@@ -27,84 +25,30 @@ pub mod profiles;
 
 // Re-export commonly used types
 pub use builder::{CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder};
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use command_builder::CommandBuilderExt;
 pub use extensions::CameraExtension;
 pub use inquiry::{CameraState, Exposure, ImageSettings, Optics, Position, WhiteBalance};
 pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 
-// Removed: blocking-only minimal_executor - new transport API is async-first
-// This was used for the blocking API when no async runtime is available.
-/*
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-mod minimal_executor {
-    use std::future::Future;
-    use std::sync::Arc;
-    use std::task::{Context, Poll};
-
-    /// A no-op waker that does nothing when woken.
-    /// This is safe for Ready futures since they are already complete.
-    struct NoopWaker;
-
-    impl std::task::Wake for NoopWaker {
-        fn wake(self: Arc<Self>) {}
-        fn wake_by_ref(self: &Arc<Self>) {}
-    }
-
-    /// Block on a future by polling it once.
-    ///
-    /// This only works for futures that are immediately ready (like std::future::Ready).
-    /// Returns a Result to handle the case where the future is not ready.
-    #[allow(dead_code)]
-    pub fn block_on_ready<F: Future>(fut: F) -> Result<F::Output, &'static str>
-    where
-        F::Output: std::fmt::Debug,
-    {
-        let waker = Arc::new(NoopWaker).into();
-        let mut cx = Context::from_waker(&waker);
-        let mut fut = Box::pin(fut);
-
-        match fut.as_mut().poll(&mut cx) {
-            Poll::Ready(output) => Ok(output),
-            Poll::Pending => {
-                // This should never happen with the futures we use (which are immediately ready)
-                // Return an error instead of panicking
-                Err("Future not ready - this executor only supports immediately-ready futures")
-            }
-        }
-    }
-}
-*/
-
 /// Core camera abstraction with compile-time profile information.
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 pub struct Camera<P: CameraProfile> {
     profile: P,
-    transport: Box<dyn BlockingCameraTransport>,
-}
-
-/// Core camera abstraction with compile-time profile information.
-#[cfg(feature = "async-client")]
-pub struct Camera<P: CameraProfile> {
-    profile: P,
+    #[cfg(feature = "async")]
     transport: Arc<Mutex<Box<dyn CameraTransport>>>,
+    #[cfg(not(feature = "async"))]
+    transport: Box<dyn BlockingCameraTransport>,
+    #[cfg(feature = "async")]
     semaphore: Arc<Semaphore>,
 }
 
-/// Core camera abstraction with compile-time profile information.
-#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
-pub struct Camera<P: CameraProfile> {
-    profile: P,
-}
-
 /// Trait for blocking transports that can send VISCA commands.
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 pub trait BlockingCameraTransport: Send + Sync {
     /// Send a VISCA command and wait for response.
     fn send_command(&mut self, command: &dyn Command) -> Result<Response, ViscaError>;
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 impl<T: BlockingTransport> BlockingCameraTransport for BlockingViscaTransport<T> {
     fn send_command(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
         self.send_command(command)
@@ -120,7 +64,7 @@ impl<P: CameraProfile> std::fmt::Debug for Camera<P> {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl<P: CameraProfile + Clone> Clone for Camera<P> {
     fn clone(&self) -> Self {
         Self {
@@ -563,16 +507,10 @@ pub struct CameraCapabilities {
     pub max_tilt_speed: u8,
 }
 
-// Default implementation for Camera when no features are enabled
-#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
-impl<P: CameraProfile> Default for Camera<P> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// Note: Default implementation removed as Camera now requires a transport
 
 /// Trait for async transports that can send VISCA commands.
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 pub trait CameraTransport: Send + Sync + std::fmt::Debug {
     /// Send a VISCA command and wait for response.
     fn send_command<'a>(
@@ -581,7 +519,7 @@ pub trait CameraTransport: Send + Sync + std::fmt::Debug {
     ) -> crate::transport::TransportFuture<'a, Response>;
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl<T: RawTransport> CameraTransport for ViscaTransport<T> {
     fn send_command<'a>(
         &'a mut self,
@@ -591,7 +529,7 @@ impl<T: RawTransport> CameraTransport for ViscaTransport<T> {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl CameraTransport for ChannelTransport {
     fn send_command<'a>(
         &'a mut self,
@@ -602,8 +540,8 @@ impl CameraTransport for ChannelTransport {
 }
 
 impl<P: CameraProfile> Camera<P> {
-    /// Create a new camera with blocking transport.
-    #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+    /// Create a new camera with the appropriate transport.
+    #[cfg(not(feature = "async"))]
     pub fn new(transport: impl BlockingCameraTransport + 'static) -> Self {
         Self {
             profile: P::default(),
@@ -612,7 +550,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Create a new camera with async transport.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub fn new(transport: impl CameraTransport + 'static) -> Self {
         Self {
             profile: P::default(),
@@ -621,16 +559,8 @@ impl<P: CameraProfile> Camera<P> {
         }
     }
 
-    /// Create a new camera without transport (profile only).
-    #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
-    pub fn new() -> Self {
-        Self {
-            profile: P::default(),
-        }
-    }
-
     /// Create a camera with a custom profile instance.
-    #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+    #[cfg(not(feature = "async"))]
     pub fn with_profile(transport: impl BlockingCameraTransport + 'static, profile: P) -> Self {
         Self {
             profile,
@@ -639,7 +569,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Create a camera with a custom profile instance.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub fn with_profile(transport: impl CameraTransport + 'static, profile: P) -> Self {
         Self {
             profile,
@@ -648,10 +578,9 @@ impl<P: CameraProfile> Camera<P> {
         }
     }
 
-    /// Create a camera with a custom profile instance (no transport).
-    #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
-    pub fn with_profile(profile: P) -> Self {
-        Self { profile }
+    /// Get the camera profile.
+    pub fn profile(&self) -> &P {
+        &self.profile
     }
 
     /// Get the camera's capabilities.
@@ -677,16 +606,11 @@ impl<P: CameraProfile> Camera<P> {
     // Note: transport() and transport_mut() methods have been removed because
     // the transport is now behind a Mutex. Use send_raw methods instead for sending commands.
 
-    /// Get the camera profile.
-    pub fn profile(&self) -> &P {
-        &self.profile
-    }
-
     /// Check if the camera can accept a new command without blocking.
     ///
     /// Returns `true` if at least one command slot is available,
     /// `false` if all slots are in use and the next command will block.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub fn is_ready(&self) -> bool {
         self.semaphore.available_permits() > 0
     }
@@ -694,13 +618,13 @@ impl<P: CameraProfile> Camera<P> {
     /// Get the number of currently pending commands.
     ///
     /// Returns a value between 0 and 2, as VISCA supports up to 2 concurrent commands.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub fn pending_commands(&self) -> usize {
         2 - self.semaphore.available_permits()
     }
 
     /// Send a command and wait for completion.
-    #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+    #[cfg(not(feature = "async"))]
     fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
         match self.send_raw(command)? {
             Response::Completion => Ok(()),
@@ -717,7 +641,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Send a command and wait for completion.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     async fn send_and_wait(&self, command: &dyn Command) -> Result<(), ViscaError> {
         match self.send_raw(command).await? {
             Response::Completion => Ok(()),
@@ -734,13 +658,13 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Send a raw command to the camera.
-    #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+    #[cfg(not(feature = "async"))]
     pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
         self.transport.send_command(command)
     }
 
     /// Send a raw command to the camera.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn send_raw(&self, command: &dyn Command) -> Result<Response, ViscaError> {
         use crate::sync_primitives::SemaphoreExt;
 

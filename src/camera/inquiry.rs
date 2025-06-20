@@ -1,31 +1,19 @@
 //! Inquiry methods for `Camera<P>`.
 
-use crate::command::{exposure::ExposureMode, white_balance::WhiteBalanceMode};
-
-#[cfg(any(
-    feature = "async-client",
-    all(feature = "blocking-client", not(feature = "async-client"))
-))]
 use crate::{
+    camera::units::Degrees,
     command::{
+        exposure::ExposureMode,
         focus::{AutoFocusSensitivity, FocusZone},
         gain::AntiFlickerMode,
         inquiry::InquiryCommand,
         luminance_contrast_sharpness::SharpnessMode,
-        response::Response,
-        InquiryResponse,
+        white_balance::WhiteBalanceMode,
     },
-    error::Error,
-    Command,
+    Command, Error, InquiryResponse, Response, ViscaUnits,
 };
 
 use super::{Camera, CameraProfile};
-
-#[cfg(any(
-    feature = "async-client",
-    all(feature = "blocking-client", not(feature = "async-client"))
-))]
-use super::units::{Degrees, ViscaUnits};
 
 /// Camera state information retrieved from inquiries.
 #[derive(Debug, Clone, Copy)]
@@ -113,7 +101,7 @@ impl<P: CameraProfile> Camera<P> {
     /// Send a command and wait for the response.
     ///
     /// This method is used internally for inquiry commands that need to receive data back.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     async fn send_and_receive(&self, command: &dyn Command) -> Result<Response, Error> {
         self.send_raw(command).await
     }
@@ -121,7 +109,7 @@ impl<P: CameraProfile> Camera<P> {
     // Power inquiries
 
     /// Get the current power state of the camera.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_power_state(&self) -> Result<bool, Error> {
         match self.send_and_receive(&InquiryCommand::Power).await? {
             Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
@@ -133,7 +121,7 @@ impl<P: CameraProfile> Camera<P> {
     // Position inquiries
 
     /// Get the current pan/tilt position in degrees.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_position(&self) -> Result<(Degrees<f32>, Degrees<f32>), Error> {
         match self
             .send_and_receive(&InquiryCommand::PanTiltPosition)
@@ -150,7 +138,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current pan/tilt position in VISCA units.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_position_units(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error> {
         match self
             .send_and_receive(&InquiryCommand::PanTiltPosition)
@@ -167,7 +155,7 @@ impl<P: CameraProfile> Camera<P> {
     // Zoom and focus inquiries
 
     /// Get the current zoom position.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_zoom_position(&self) -> Result<u16, Error> {
         match self.send_and_receive(&InquiryCommand::ZoomPosition).await? {
             Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
@@ -177,7 +165,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current focus position.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_focus_position(&self) -> Result<u16, Error> {
         match self
             .send_and_receive(&InquiryCommand::FocusPosition)
@@ -192,7 +180,7 @@ impl<P: CameraProfile> Camera<P> {
     // Exposure inquiries
 
     /// Get the current exposure mode.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {
         match self.send_and_receive(&InquiryCommand::ExposureMode).await? {
             Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
@@ -202,7 +190,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current exposure compensation value.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_exposure_compensation(&self) -> Result<i8, Error> {
         match self
             .send_and_receive(&InquiryCommand::ExposureCompensation)
@@ -215,7 +203,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Check if exposure compensation is enabled.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
         match self
             .send_and_receive(&InquiryCommand::ExposureCompensationMode)
@@ -228,7 +216,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current iris setting.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_iris(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Iris).await? {
             Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
@@ -238,7 +226,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current shutter speed.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_shutter_speed(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Shutter).await? {
             Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position as u8),
@@ -248,7 +236,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current brightness level.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_brightness(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Bright).await? {
             Response::InquiryResponse(InquiryResponse::Bright { position }) => Ok(position as u8),
@@ -258,7 +246,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current gain.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_gain(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Gain).await? {
             Response::InquiryResponse(InquiryResponse::Gain { gain }) => Ok(gain),
@@ -268,7 +256,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current gain limit.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_gain_limit(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::GainLimit).await? {
             Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
@@ -278,7 +266,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current iris position.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_iris_position(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Iris).await? {
             Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
@@ -290,7 +278,7 @@ impl<P: CameraProfile> Camera<P> {
     // White balance inquiries
 
     /// Get the current white balance mode.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error> {
         match self
             .send_and_receive(&InquiryCommand::WhiteBalanceMode)
@@ -303,7 +291,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current red gain tuning value.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_red_gain(&self) -> Result<i8, Error> {
         match self.send_and_receive(&InquiryCommand::RedGain).await? {
             Response::InquiryResponse(InquiryResponse::RedGain { gain }) => Ok(gain),
@@ -313,7 +301,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current blue gain tuning value.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_blue_gain(&self) -> Result<i8, Error> {
         match self.send_and_receive(&InquiryCommand::BlueGain).await? {
             Response::InquiryResponse(InquiryResponse::BlueGain { gain }) => Ok(gain),
@@ -323,7 +311,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current color temperature.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_color_temperature(&self) -> Result<u16, Error> {
         match self
             .send_and_receive(&InquiryCommand::ColorTemperature)
@@ -340,7 +328,7 @@ impl<P: CameraProfile> Camera<P> {
     // Image quality inquiries
 
     /// Get the current luminance level.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_luminance(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Luminance).await? {
             Response::InquiryResponse(InquiryResponse::Luminance(level)) => Ok(level),
@@ -350,7 +338,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current contrast level.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_contrast(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Contrast).await? {
             Response::InquiryResponse(InquiryResponse::Contrast(level)) => Ok(level),
@@ -360,7 +348,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current sharpness level.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_sharpness(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Sharpness).await? {
             Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
@@ -370,7 +358,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current sharpness mode.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error> {
         match self
             .send_and_receive(&InquiryCommand::SharpnessMode)
@@ -383,7 +371,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current saturation level.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_saturation(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Saturation).await? {
             Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
@@ -393,7 +381,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current hue level.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_hue(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Hue).await? {
             Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
@@ -405,7 +393,7 @@ impl<P: CameraProfile> Camera<P> {
     // Image processing inquiries
 
     /// Check if backlight compensation is enabled.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_backlight_status(&self) -> Result<bool, Error> {
         match self.send_and_receive(&InquiryCommand::Backlight).await? {
             Response::InquiryResponse(InquiryResponse::Backlight { status }) => Ok(status),
@@ -415,7 +403,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the current image flip state.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_image_flip(&self) -> Result<(bool, bool), Error> {
         match self.send_and_receive(&InquiryCommand::ImageFlip).await? {
             Response::InquiryResponse(InquiryResponse::ImageFlip {
@@ -428,7 +416,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Check if black and white mode is enabled.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_black_white_mode(&self) -> Result<bool, Error> {
         match self.send_and_receive(&InquiryCommand::BlackWhite).await? {
             Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => Ok(on),
@@ -438,7 +426,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the anti-flicker mode.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
         match self.send_and_receive(&InquiryCommand::AntiFlicker).await? {
             Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
@@ -448,7 +436,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the 2D noise reduction level.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_noise_reduction_2d(&self) -> Result<u8, Error> {
         match self
             .send_and_receive(&InquiryCommand::NoiseReduction2D)
@@ -461,7 +449,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the 3D noise reduction level.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_noise_reduction_3d(&self) -> Result<u8, Error> {
         match self
             .send_and_receive(&InquiryCommand::NoiseReduction3D)
@@ -474,7 +462,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the dynamic range level.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_dynamic_range(&self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::DynamicRange).await? {
             Response::InquiryResponse(InquiryResponse::DynamicRange { level }) => Ok(level),
@@ -486,7 +474,7 @@ impl<P: CameraProfile> Camera<P> {
     // Focus control inquiries
 
     /// Get the focus zone setting.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_focus_zone(&self) -> Result<FocusZone, Error> {
         match self.send_and_receive(&InquiryCommand::FocusZone).await? {
             Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
@@ -496,7 +484,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the auto-focus sensitivity.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
         match self
             .send_and_receive(&InquiryCommand::AutoFocusSensitivity)
@@ -511,7 +499,7 @@ impl<P: CameraProfile> Camera<P> {
     }
 
     /// Get the focus near limit.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_focus_near_limit(&self) -> Result<u16, Error> {
         match self
             .send_and_receive(&InquiryCommand::FocusNearLimit)
@@ -529,7 +517,7 @@ impl<P: CameraProfile> Camera<P> {
     ///
     /// This method queries multiple camera parameters and returns a comprehensive
     /// state object. Note that this performs multiple inquiries and may take some time.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn get_camera_state(&self) -> Result<CameraState, Error> {
         // Get power state
         let power = self.get_power_state().await?;
@@ -614,7 +602,7 @@ impl<P: CameraProfile> Camera<P> {
 }
 
 // Blocking implementations
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 impl<P: CameraProfile> Camera<P> {
     /// Send a command and wait for the response.
     ///

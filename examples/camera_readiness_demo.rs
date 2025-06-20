@@ -3,15 +3,15 @@
 //! This example shows how to use the `is_ready()` and `pending_commands()` methods
 //! to check if the camera can accept new commands without blocking.
 //!
-//! Run with: cargo run --example camera_readiness_demo --features async-client
+//! Run with: cargo run --example camera_readiness_demo --features async
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires the 'async-client' feature.");
-    eprintln!("Run with: cargo run --example camera_readiness_demo --features async-client");
+    eprintln!("This example requires the 'async' feature.");
+    eprintln!("Run with: cargo run --example camera_readiness_demo --features async");
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Duration;

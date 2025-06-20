@@ -11,10 +11,10 @@
 //! in the new API, this example shows how to achieve similar functionality
 //! using the `Camera<P>` API with helper functions and sequential operations.
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::create;
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -24,12 +24,12 @@ use grafton_visca::{
     command::pan_tilt::PanTiltDirection,
 };
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 use std::thread;
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 use std::time::Duration;
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
@@ -135,7 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // Helper function demonstrating sequential command patterns
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn perform_scan_sequence(
     camera: &mut Camera<PTZOpticsG2>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -161,7 +161,7 @@ fn perform_scan_sequence(
     Ok(())
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -172,10 +172,10 @@ use grafton_visca::{
     transport::create,
 };
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::time::Duration;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -259,7 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // Async helper function for scan sequence
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 async fn perform_async_scan_sequence(
     camera: &mut Camera<PTZOpticsG2>,
 ) -> Result<(), Box<dyn std::error::Error>> {

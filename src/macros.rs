@@ -575,6 +575,81 @@ macro_rules! impl_simple_command {
     };
 }
 
+/// Generate both blocking and async implementations for camera methods.
+///
+/// This macro creates both synchronous and asynchronous versions of camera methods
+/// based on the enabled features. When the `async` feature is enabled, it generates
+/// async methods. Otherwise, it generates blocking methods.
+///
+/// The macro automatically handles the conversion between sync and async by:
+/// - For blocking: uses `&mut self` and direct method calls
+/// - For async: uses `&self` and adds `.await` to async method calls
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::define_camera_methods;
+///
+/// define_camera_methods! {
+///     impl<P: CameraProfile> Camera<P> {
+///         /// Power on the camera.
+///         pub fn power_on() -> Result<(), Error> {
+///             let command = PowerCommand { power: Power::On };
+///             self.send_and_wait(&command)
+///         }
+///         
+///         /// Stop all camera movement.
+///         pub fn stop() -> Result<(), Error> {
+///             let command = PanTiltCommand::Move {
+///                 direction: PanTiltDirection::Stop,
+///                 pan_speed: PanSpeed::new(0)?,
+///                 tilt_speed: TiltSpeed::new(0)?,
+///             };
+///             self.send_and_wait(&command)
+///         }
+///     }
+/// }
+/// ```
+#[macro_export]
+/// Generate unified camera methods that work for both blocking and async modes.
+///
+/// This macro takes method definitions and generates two implementations:
+/// - Blocking: uses `&mut self` and calls `send_and_wait` without `.await`
+/// - Async: uses `&self` and calls `send_and_wait` with `.await`
+///
+/// The method body should be a single expression calling `self.send_and_wait(...)`.
+macro_rules! define_camera_methods {
+    (
+        $(
+            $(#[$doc:meta])*
+            pub fn $name:ident(&self $(, $param:ident : $ptype:ty)*) -> Result<$ret:ty, Error> {
+                self.send_and_wait($cmd:expr)
+            }
+        )*
+    ) => {
+        // Generate blocking implementation
+        #[cfg(not(feature = "async"))]
+        impl<P: CameraProfile> Camera<P> {
+            $(
+                $(#[$doc])*
+                pub fn $name(&mut self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error> {
+                    self.send_and_wait($cmd)
+                }
+            )*
+        }
+
+        // Generate async implementation
+        #[cfg(feature = "async")]
+        impl<P: CameraProfile> Camera<P> {
+            $(
+                $(#[$doc])*
+                pub async fn $name(&self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error> {
+                    self.send_and_wait($cmd).await
+                }
+            )*
+        }
+    };
+}
+
 /// Create VISCA commands with boolean on/off parameters.
 ///
 /// This macro generates commands that have a simple boolean parameter

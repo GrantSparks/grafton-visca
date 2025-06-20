@@ -3,7 +3,7 @@
 //! This shows how to create complex command sequences fluently,
 //! replacing manual command-by-command execution.
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -19,7 +19,7 @@ use grafton_visca::{
     transport::create,
 };
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -225,8 +225,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires the 'async-client' feature to be enabled.");
-    eprintln!("Run with: cargo run --example command_sequences_demo --features async-client");
+    eprintln!("This example requires the 'async' feature to be enabled.");
+    eprintln!("Run with: cargo run --example command_sequences_demo --features async");
 }

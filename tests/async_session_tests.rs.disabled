@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-#![cfg(feature = "async-client")]
+#![cfg(feature = "async")]
 
 use grafton_visca::{Error, InquiryResponse, Response, Session, SocketId};
 use std::sync::Arc;

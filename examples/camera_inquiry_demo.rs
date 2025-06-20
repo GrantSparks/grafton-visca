@@ -14,13 +14,13 @@ use grafton_visca::{
 
 // Include the transport implementation from the example file
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires the 'async-client' feature.");
-    eprintln!("Run with: cargo run --example camera_inquiry_demo --features async-client");
+    eprintln!("This example requires the 'async' feature.");
+    eprintln!("Run with: cargo run --example camera_inquiry_demo --features async");
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();

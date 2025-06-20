@@ -33,7 +33,7 @@ async fn udp_example() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 async fn async_tcp_example() -> Result<(), Error> {
     println!("\n=== Async TCP Example ===");
 
@@ -72,7 +72,7 @@ async fn transport_flexibility_example() -> Result<(), Error> {
     }
 
     // Example 2: TCP async
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     {
         let tcp = create::tcp("192.168.1.100:5678").await?;
         let camera = Camera::<PTZOpticsG2>::new(tcp);

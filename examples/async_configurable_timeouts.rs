@@ -20,13 +20,13 @@ use tokio::time::timeout;
 
 // Include the transport implementations from the example files
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires the 'async-client' feature.");
-    eprintln!("Run with: cargo run --example async_configurable_timeouts --features async-client");
+    eprintln!("This example requires the 'async' feature.");
+    eprintln!("Run with: cargo run --example async_configurable_timeouts --features async");
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 async fn demonstrate_quick_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
     println!("1. Quick Commands with Short Timeout:");
     println!("   Using 1 second timeout for status checks\n");
@@ -89,7 +89,7 @@ async fn demonstrate_quick_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<(
     Ok(())
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 async fn demonstrate_movement_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
     println!("2. Movement Commands with Medium Timeout:");
     println!("   Using 5 second timeout for movement commands\n");
@@ -131,7 +131,7 @@ async fn demonstrate_movement_timeout(camera: &mut Camera<PTZOpticsG2>) -> Resul
     Ok(())
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 async fn demonstrate_preset_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
     println!("3. Preset Commands with Long Timeout:");
     println!("   Using 30 second timeout for preset operations\n");
@@ -161,7 +161,7 @@ async fn demonstrate_preset_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<
     Ok(())
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 async fn demonstrate_timeout_recovery(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
     println!("4. Timeout Recovery Strategies:");
     println!("   Demonstrating retry logic with exponential backoff\n");
@@ -215,7 +215,7 @@ async fn demonstrate_timeout_recovery(camera: &mut Camera<PTZOpticsG2>) -> Resul
     println!("   AsyncTcpTransport uses a hardcoded 10-second timeout");
     println!("   For custom timeouts, wrap operations with tokio::time::timeout");
 
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     {
         // TCP transport is already available via common module
 

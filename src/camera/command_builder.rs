@@ -443,7 +443,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     ///
     /// # Errors
     /// Returns an error if any command fails. Execution stops at the first error.
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn execute_sequential_async(self) -> Result<Vec<Response>, ViscaError> {
         let mut responses = Vec::with_capacity(self.commands.len());
 
@@ -486,7 +486,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     ///     }
     /// }
     /// ```
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     pub async fn execute_concurrent(self) -> Result<Vec<Result<Response, ViscaError>>, ViscaError> {
         use futures_util::future::join_all;
         use std::sync::Arc;

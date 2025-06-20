@@ -4,7 +4,7 @@
 //! This test file demonstrates how to use the improved test helpers
 //! and patterns to write tests without needing #[allow(...)] directives.
 
-#![cfg(feature = "blocking-client")]
+#![cfg(not(feature = "async"))]
 
 #[path = "common/mod.rs"]
 mod common;
@@ -16,7 +16,7 @@ use common::helpers::*;
 // Import needed types
 use grafton_visca::{Command, Error};
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_with_helpers() {
     // Use test speeds helper
@@ -47,7 +47,7 @@ fn test_with_helpers() {
     );
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_with_mock_transport() {
     use common::MockTransport;
@@ -68,7 +68,7 @@ fn test_with_mock_transport() {
     assert_eq!(commands[0], vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_error_handling() {
     use grafton_visca::command::zoom::ZoomSpeed;
@@ -86,7 +86,7 @@ fn test_error_handling() {
     }
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_preset_commands() {
     // Use builders for complex test data
@@ -112,7 +112,7 @@ fn test_response_helpers() {
 mod integration_style_tests {
     use super::*;
 
-    #[cfg(feature = "blocking-client")]
+    #[cfg(not(feature = "async"))]
     #[test]
     fn test_command_sequence() {
         use common::MockTransport;

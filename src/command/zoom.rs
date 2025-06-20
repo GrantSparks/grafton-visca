@@ -8,7 +8,7 @@
 //!
 //! # Example
 //! ```ignore
-//! # #[cfg(feature = "blocking-client")]
+//! # #[cfg(not(feature = "async"))]
 //! # {
 //! # use grafton_visca::command::{ZoomCommand, zoom::ZoomSpeed};
 //! # use grafton_visca::Client;
@@ -69,6 +69,21 @@ pub enum ZoomCommand {
     ZoomOutVariable(ZoomSpeed),
     /// Set zoom to direct position (0x0000 to 0xFFFF).
     Direct(u16),
+}
+
+impl ZoomCommand {
+    /// Create a direct zoom command with range validation.
+    pub fn direct<P: crate::camera::CameraProfile>(position: u16) -> Result<Self, Error> {
+        if !P::ZOOM_RANGE.contains(&position) {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "zoom".to_string(),
+                value: position as i32,
+                min: *P::ZOOM_RANGE.start() as i32,
+                max: *P::ZOOM_RANGE.end() as i32,
+            });
+        }
+        Ok(Self::Direct(position))
+    }
 }
 
 impl Command for ZoomCommand {

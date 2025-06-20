@@ -99,7 +99,7 @@ This release represents a major evolution of the library from a low-level VISCA 
 - **Feature Flag Simplification**:
   - Removed complex feature matrix
   - Default is blocking client
-  - Single `async-client` feature for async runtime
+  - Single `async` feature for async runtime
   - Connection pooling and reconnection are now standard
 
 ### Removed
@@ -136,7 +136,7 @@ grafton-visca = { version = "0.3", features = ["async", "sync", "reconnect", "po
 grafton-visca = "0.4"
 
 # OR for async
-grafton-visca = { version = "0.4", default-features = false, features = ["async-client"] }
+grafton-visca = { version = "0.4", default-features = false, features = ["async"] }
 ```
 
 ### Step 2: Update Imports

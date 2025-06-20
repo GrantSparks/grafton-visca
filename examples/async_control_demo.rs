@@ -20,13 +20,13 @@ use grafton_visca::{
 use std::env;
 use tokio::time::{sleep, Duration};
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires the 'async-client' feature.");
-    eprintln!("Run with: cargo run --example async_control_demo --features async-client");
+    eprintln!("This example requires the 'async' feature.");
+    eprintln!("Run with: cargo run --example async_control_demo --features async");
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging
