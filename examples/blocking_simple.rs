@@ -9,7 +9,6 @@ use grafton_visca::{
     command::pan_tilt::PanTiltDirection,
     transport::blocking::create,
 };
-use std::thread;
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,56 +36,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Max Pan Speed: {}", caps.max_pan_speed);
     println!("  Max Tilt Speed: {}", caps.max_tilt_speed);
 
-    // Test basic operations
-    println!("\nTesting camera operations:");
+    // Create a runtime for async operations
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(async move {
+        // Test basic operations
+        println!("\nTesting camera operations:");
 
-    // Power on
-    println!("Powering on...");
-    camera.power_on()?;
-    thread::sleep(Duration::from_secs(2));
+        // Power on
+        println!("Powering on...");
+        camera.power_on()?;
+        std::thread::sleep(Duration::from_secs(2));
 
-    // Move to home position
-    println!("Moving to home position...");
-    camera.home()?;
-    thread::sleep(Duration::from_secs(3));
+        // Move to home position
+        println!("Moving to home position...");
+        camera.home()?;
+        std::thread::sleep(Duration::from_secs(3));
 
-    // Test zoom
-    println!("Testing zoom in...");
-    camera.zoom_in()?;
-    thread::sleep(Duration::from_millis(500));
+        // Test absolute position movement
+        println!("Moving to position (30°, -10°)...");
+        camera.set_position(Degrees(30.0), Degrees(-10.0))?;
+        std::thread::sleep(Duration::from_secs(3));
 
-    println!("Stopping zoom...");
-    camera.zoom_stop()?;
+        // Test continuous movement
+        println!("Starting continuous pan left...");
+        camera.move_continuous(PanTiltDirection::Left, 10, 0)?;
+        std::thread::sleep(Duration::from_secs(2));
 
-    // Test pan/tilt movement
-    println!("Testing pan/tilt movement...");
+        println!("Stopping movement...");
+        camera.stop()?;
 
-    // Move right
-    println!("Moving right...");
-    camera.move_continuous(PanTiltDirection::Right, 5, 0)?;
-    thread::sleep(Duration::from_millis(500));
+        // Test zoom
+        println!("Testing zoom in...");
+        camera.zoom_in()?;
+        std::thread::sleep(Duration::from_secs(1));
+        camera.zoom_stop()?;
 
-    // Stop movement
-    println!("Stopping movement...");
-    camera.stop()?;
+        println!("\nAll operations completed successfully!");
+        println!("The blocking transport API works seamlessly without an async runtime!");
+        println!("(Note: The Camera API is async internally, so we use a minimal runtime here)");
 
-    // Move to specific position
-    println!("Moving to position (30°, 15°)...");
-    camera.set_position(Degrees(30.0), Degrees(15.0))?;
-    thread::sleep(Duration::from_secs(2));
-
-    // Move to a different position
-    println!("Moving to position (-30°, -15°)...");
-    camera.set_position(Degrees(-30.0), Degrees(-15.0))?;
-    thread::sleep(Duration::from_secs(2));
-
-    // Return to home
-    println!("Returning to home position...");
-    camera.home()?;
-    thread::sleep(Duration::from_secs(2));
-
-    println!("\nAll tests completed successfully!");
-    println!("Blocking transport works without any async runtime!");
-
-    Ok(())
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })
 }

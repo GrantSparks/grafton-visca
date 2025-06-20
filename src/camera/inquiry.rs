@@ -2,7 +2,10 @@
 
 use crate::command::{exposure::ExposureMode, white_balance::WhiteBalanceMode};
 
-#[cfg(feature = "async-client")]
+#[cfg(any(
+    feature = "async-client",
+    all(feature = "blocking-client", not(feature = "async-client"))
+))]
 use crate::{
     command::{
         focus::{AutoFocusSensitivity, FocusZone},
@@ -18,7 +21,10 @@ use crate::{
 
 use super::{Camera, CameraProfile};
 
-#[cfg(feature = "async-client")]
+#[cfg(any(
+    feature = "async-client",
+    all(feature = "blocking-client", not(feature = "async-client"))
+))]
 use super::units::{Degrees, ViscaUnits};
 
 /// Camera state information retrieved from inquiries.
@@ -587,6 +593,397 @@ impl<P: CameraProfile> Camera<P> {
         let sharpness = self.get_sharpness().await.unwrap_or(5);
         let saturation = self.get_saturation().await.unwrap_or(7);
         let hue = self.get_hue().await.unwrap_or(7);
+
+        let image = ImageSettings {
+            luminance,
+            contrast,
+            sharpness,
+            saturation,
+            hue,
+        };
+
+        Ok(CameraState {
+            power,
+            position,
+            optics,
+            exposure,
+            white_balance,
+            image,
+        })
+    }
+}
+
+// Blocking implementations
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+impl<P: CameraProfile> Camera<P> {
+    /// Send a command and wait for the response.
+    ///
+    /// This method is used internally for inquiry commands that need to receive data back.
+    fn send_and_receive(&mut self, command: &dyn Command) -> Result<Response, Error> {
+        self.send_raw(command)
+    }
+
+    // Power inquiries
+
+    /// Get the current power state of the camera.
+    pub fn get_power_state(&mut self) -> Result<bool, Error> {
+        match self.send_and_receive(&InquiryCommand::Power)? {
+            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Position inquiries
+
+    /// Get the current pan/tilt position in degrees.
+    pub fn get_position(&mut self) -> Result<(Degrees<f32>, Degrees<f32>), Error> {
+        match self.send_and_receive(&InquiryCommand::PanTiltPosition)? {
+            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+                let pan_deg = self.profile.pan_units_to_degrees(pan);
+                let tilt_deg = self.profile.tilt_units_to_degrees(tilt);
+                Ok((Degrees(pan_deg), Degrees(tilt_deg)))
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current pan/tilt position in VISCA units.
+    pub fn get_position_units(&mut self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error> {
+        match self.send_and_receive(&InquiryCommand::PanTiltPosition)? {
+            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+                Ok((ViscaUnits(pan), ViscaUnits(tilt)))
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Zoom and focus inquiries
+
+    /// Get the current zoom position.
+    pub fn get_zoom_position(&mut self) -> Result<u16, Error> {
+        match self.send_and_receive(&InquiryCommand::ZoomPosition)? {
+            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current focus position.
+    pub fn get_focus_position(&mut self) -> Result<u16, Error> {
+        match self.send_and_receive(&InquiryCommand::FocusPosition)? {
+            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Exposure inquiries
+
+    /// Get the current exposure mode.
+    pub fn get_exposure_mode(&mut self) -> Result<ExposureMode, Error> {
+        match self.send_and_receive(&InquiryCommand::ExposureMode)? {
+            Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current exposure compensation value.
+    pub fn get_exposure_compensation(&mut self) -> Result<i8, Error> {
+        match self.send_and_receive(&InquiryCommand::ExposureCompensation)? {
+            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Check if exposure compensation is enabled.
+    pub fn get_exposure_compensation_enabled(&mut self) -> Result<bool, Error> {
+        match self.send_and_receive(&InquiryCommand::ExposureCompensationMode)? {
+            Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current iris setting.
+    pub fn get_iris(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Iris)? {
+            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current shutter speed.
+    pub fn get_shutter_speed(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Shutter)? {
+            Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position as u8),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current brightness level.
+    pub fn get_brightness(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Bright)? {
+            Response::InquiryResponse(InquiryResponse::Bright { position }) => Ok(position as u8),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current gain.
+    pub fn get_gain(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Gain)? {
+            Response::InquiryResponse(InquiryResponse::Gain { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current gain limit.
+    pub fn get_gain_limit(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::GainLimit)? {
+            Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current iris position.
+    pub fn get_iris_position(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Iris)? {
+            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // White balance inquiries
+
+    /// Get the current white balance mode.
+    pub fn get_white_balance_mode(&mut self) -> Result<WhiteBalanceMode, Error> {
+        match self.send_and_receive(&InquiryCommand::WhiteBalanceMode)? {
+            Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current red gain tuning value.
+    pub fn get_red_gain(&mut self) -> Result<i8, Error> {
+        match self.send_and_receive(&InquiryCommand::RedGain)? {
+            Response::InquiryResponse(InquiryResponse::RedGain { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current blue gain tuning value.
+    pub fn get_blue_gain(&mut self) -> Result<i8, Error> {
+        match self.send_and_receive(&InquiryCommand::BlueGain)? {
+            Response::InquiryResponse(InquiryResponse::BlueGain { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Image quality inquiries
+
+    /// Get the current luminance (brightness) level.
+    pub fn get_luminance(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Luminance)? {
+            Response::InquiryResponse(InquiryResponse::Luminance(level)) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current contrast level.
+    pub fn get_contrast(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Contrast)? {
+            Response::InquiryResponse(InquiryResponse::Contrast(level)) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current sharpness level.
+    pub fn get_sharpness(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Sharpness)? {
+            Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current saturation level.
+    pub fn get_saturation(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Saturation)? {
+            Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current hue level.
+    pub fn get_hue(&mut self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Hue)? {
+            Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current image flip status.
+    pub fn get_image_flip(&mut self) -> Result<(bool, bool), Error> {
+        match self.send_and_receive(&InquiryCommand::ImageFlip)? {
+            Response::InquiryResponse(InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            }) => Ok((vertical, horizontal)),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current backlight compensation status.
+    pub fn get_backlight_status(&mut self) -> Result<bool, Error> {
+        match self.send_and_receive(&InquiryCommand::Backlight)? {
+            Response::InquiryResponse(InquiryResponse::Backlight { status }) => Ok(status),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current black and white mode status.
+    pub fn get_black_white_mode(&mut self) -> Result<bool, Error> {
+        match self.send_and_receive(&InquiryCommand::BlackWhite)? {
+            Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current anti-flicker mode.
+    pub fn get_anti_flicker_mode(&mut self) -> Result<AntiFlickerMode, Error> {
+        match self.send_and_receive(&InquiryCommand::AntiFlicker)? {
+            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current sharpness mode.
+    pub fn get_sharpness_mode(&mut self) -> Result<SharpnessMode, Error> {
+        match self.send_and_receive(&InquiryCommand::SharpnessMode)? {
+            Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current focus zone.
+    pub fn get_focus_zone(&mut self) -> Result<FocusZone, Error> {
+        match self.send_and_receive(&InquiryCommand::FocusZone)? {
+            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current auto focus sensitivity.
+    pub fn get_auto_focus_sensitivity(&mut self) -> Result<AutoFocusSensitivity, Error> {
+        match self.send_and_receive(&InquiryCommand::AutoFocusSensitivity)? {
+            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
+                Ok(sensitivity)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the focus near limit.
+    pub fn get_focus_near_limit(&mut self) -> Result<u16, Error> {
+        match self.send_and_receive(&InquiryCommand::FocusNearLimit)? {
+            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Composite queries
+
+    /// Get a complete snapshot of the camera state.
+    ///
+    /// This method queries multiple camera parameters and returns a comprehensive
+    /// state object. Note that this performs multiple inquiries and may take some time.
+    pub fn get_camera_state(&mut self) -> Result<CameraState, Error> {
+        // Get power state
+        let power = self.get_power_state()?;
+
+        // Get position
+        let (pan, tilt) = match self.get_position_units() {
+            Ok((p, t)) => (p.0, t.0),
+            Err(_) => (0, 0), // Default if position query fails
+        };
+
+        let pan_degrees = self.profile.pan_units_to_degrees(pan);
+        let tilt_degrees = self.profile.tilt_units_to_degrees(tilt);
+
+        let position = Position {
+            pan,
+            tilt,
+            pan_degrees,
+            tilt_degrees,
+        };
+
+        // Get optics
+        let zoom = self.get_zoom_position().unwrap_or(0);
+        let focus = self.get_focus_position().unwrap_or(0);
+
+        let optics = Optics { zoom, focus };
+
+        // Get exposure settings
+        let exposure_mode = self.get_exposure_mode().unwrap_or(ExposureMode::Auto);
+        let compensation = self.get_exposure_compensation().ok();
+        let iris = self.get_iris().ok();
+        let shutter = self.get_shutter_speed().ok();
+        let bright = self.get_brightness().ok();
+        let gain = self.get_gain().ok();
+
+        let exposure = Exposure {
+            mode: exposure_mode,
+            compensation,
+            iris,
+            shutter,
+            bright,
+            gain,
+        };
+
+        // Get white balance
+        let wb_mode = self
+            .get_white_balance_mode()
+            .unwrap_or(WhiteBalanceMode::Auto);
+        let red_gain = self.get_red_gain().ok();
+        let blue_gain = self.get_blue_gain().ok();
+
+        let white_balance = WhiteBalance {
+            mode: wb_mode,
+            red_gain,
+            blue_gain,
+        };
+
+        // Get image settings
+        let luminance = self.get_luminance().unwrap_or(7);
+        let contrast = self.get_contrast().unwrap_or(7);
+        let sharpness = self.get_sharpness().unwrap_or(5);
+        let saturation = self.get_saturation().unwrap_or(7);
+        let hue = self.get_hue().unwrap_or(7);
 
         let image = ImageSettings {
             luminance,

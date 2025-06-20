@@ -7,9 +7,6 @@
 //! - Perform smooth camera movements
 //! - Control focus with async operations
 
-mod common;
-use common::r#async::udp_transport;
-
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -17,6 +14,7 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    transport::create,
     Error,
 };
 use std::env;
@@ -45,7 +43,7 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = udp_transport(camera_addr).await?;
+    let transport = create::udp(camera_addr).await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("\n=== Async Camera Control Demo ===\n");

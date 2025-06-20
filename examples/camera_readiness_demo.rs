@@ -12,12 +12,6 @@ fn main() {
 }
 
 #[cfg(feature = "async-client")]
-mod common;
-
-#[cfg(feature = "async-client")]
-use common::r#async::udp_transport;
-
-#[cfg(feature = "async-client")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Duration;
@@ -25,11 +19,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::{Camera, GenericVisca},
         command::inquiry::InquiryCommand,
+        transport::create,
     };
     env_logger::init();
 
     // Create camera with async UDP transport
-    let transport = udp_transport("192.168.1.100:52381").await?;
+    let transport = create::udp("192.168.1.100:52381").await?;
     let camera = Camera::<GenericVisca>::new(transport);
 
     println!("Camera Readiness Demo");

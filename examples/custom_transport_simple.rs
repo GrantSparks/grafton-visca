@@ -4,6 +4,7 @@
 //! to implement the basic send/receive operations. All VISCA protocol logic
 //! is handled by the library.
 
+#[cfg(feature = "async-client")]
 use std::sync::Mutex;
 
 #[cfg(feature = "async-client")]

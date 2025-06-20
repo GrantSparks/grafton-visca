@@ -4,11 +4,6 @@
 //! replacing manual command-by-command execution.
 
 #[cfg(feature = "async-client")]
-mod common;
-#[cfg(feature = "async-client")]
-use common::r#async::udp_transport;
-
-#[cfg(feature = "async-client")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -21,6 +16,7 @@ use grafton_visca::{
         white_balance::WhiteBalanceMode,
         zoom::ZoomSpeed,
     },
+    transport::create,
 };
 
 #[cfg(feature = "async-client")]
@@ -31,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Command Sequence Builder Demo ===");
     println!("Building complex camera operations fluently\n");
 
-    let transport = udp_transport("192.168.1.100:52381").await?;
+    let transport = create::udp("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Example 1: Camera initialization sequence

@@ -4,11 +4,11 @@
 //!
 //! This example now uses the new `Camera<P>` API with full inquiry support!
 
-mod common;
-
-use grafton_visca::camera::{Camera, PTZOpticsG2};
-
-use grafton_visca::Error;
+use grafton_visca::{
+    camera::{Camera, PTZOpticsG2},
+    transport::blocking::create,
+    Error,
+};
 use std::env;
 
 #[cfg(not(feature = "blocking-client"))]
@@ -33,23 +33,22 @@ fn main() -> Result<(), Error> {
     // Connect to camera using blocking transport
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
-    let transport = common::blocking::tcp_transport(camera_addr)?;
+    let transport = create::tcp(camera_addr)?;
     let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
-    // We need to use tokio runtime for async methods
-    let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async { run_inquiries(&mut camera).await })?;
+    // Run inquiries using blocking methods
+    run_inquiries(&mut camera)?;
 
     Ok(())
 }
 
 #[cfg(feature = "blocking-client")]
-async fn run_inquiries(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+fn run_inquiries(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
     // Query individual camera settings
     println!("\n=== Individual Camera Queries ===");
 
     // Power state
-    let power = camera.get_power_state().await?;
+    let power = camera.get_power_state()?;
     println!("Power: {}", if power { "ON" } else { "OFF" });
 
     if !power {
@@ -57,77 +56,77 @@ async fn run_inquiries(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
     }
 
     // Position in degrees
-    let (pan_deg, tilt_deg) = camera.get_position().await?;
+    let (pan_deg, tilt_deg) = camera.get_position()?;
     println!(
         "Position (degrees): pan={:.1}°, tilt={:.1}°",
         pan_deg.0, tilt_deg.0
     );
 
     // Position in VISCA units
-    let (pan_units, tilt_units) = camera.get_position_units().await?;
+    let (pan_units, tilt_units) = camera.get_position_units()?;
     println!(
         "Position (units): pan={}, tilt={}",
         pan_units.0, tilt_units.0
     );
 
     // Zoom
-    let zoom = camera.get_zoom_position().await?;
+    let zoom = camera.get_zoom_position()?;
     println!("Zoom Position: 0x{zoom:04X}");
 
     // Focus
-    let focus = camera.get_focus_position().await?;
+    let focus = camera.get_focus_position()?;
     println!("Focus Position: 0x{focus:04X}");
 
     // Exposure
-    let exposure_mode = camera.get_exposure_mode().await?;
+    let exposure_mode = camera.get_exposure_mode()?;
     println!("Exposure Mode: {exposure_mode:?}");
 
-    if camera.get_exposure_compensation_enabled().await? {
-        let compensation = camera.get_exposure_compensation().await?;
+    if camera.get_exposure_compensation_enabled()? {
+        let compensation = camera.get_exposure_compensation()?;
         println!("Exposure Compensation: {compensation:+} EV");
     } else {
         println!("Exposure Compensation: Disabled");
     }
 
     // White Balance
-    let wb_mode = camera.get_white_balance_mode().await?;
+    let wb_mode = camera.get_white_balance_mode()?;
     println!("White Balance Mode: {wb_mode:?}");
 
     // Image Settings
     println!("\n=== Image Settings ===");
-    let luminance = camera.get_luminance().await?;
+    let luminance = camera.get_luminance()?;
     println!("Luminance: {luminance}");
 
-    let contrast = camera.get_contrast().await?;
+    let contrast = camera.get_contrast()?;
     println!("Contrast: {contrast}");
 
-    let sharpness = camera.get_sharpness().await?;
+    let sharpness = camera.get_sharpness()?;
     println!("Sharpness: {sharpness}");
 
-    let saturation = camera.get_saturation().await?;
+    let saturation = camera.get_saturation()?;
     println!("Saturation: {saturation}");
 
-    let hue = camera.get_hue().await?;
+    let hue = camera.get_hue()?;
     println!("Hue: {hue}");
 
     // Advanced Settings
     println!("\n=== Advanced Settings ===");
-    let (vertical_flip, horizontal_flip) = camera.get_image_flip().await?;
+    let (vertical_flip, horizontal_flip) = camera.get_image_flip()?;
     println!("Image Flip: Vertical={vertical_flip}, Horizontal={horizontal_flip}");
 
-    let backlight = camera.get_backlight_status().await?;
+    let backlight = camera.get_backlight_status()?;
     println!(
         "Backlight Compensation: {}",
         if backlight { "ON" } else { "OFF" }
     );
 
-    let bw_mode = camera.get_black_white_mode().await?;
+    let bw_mode = camera.get_black_white_mode()?;
     println!("Black & White Mode: {}", if bw_mode { "ON" } else { "OFF" });
 
     // Get complete camera state
     println!("\n=== Complete Camera State ===");
     println!("Querying all camera settings...");
-    let state = camera.get_camera_state().await?;
+    let state = camera.get_camera_state()?;
 
     println!("\nCamera State Summary:");
     println!("  Power: {}", if state.power { "ON" } else { "OFF" });

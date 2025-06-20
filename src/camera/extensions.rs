@@ -6,7 +6,8 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use grafton_visca::{Camera, CameraProfile, CameraExtension, Error};
+//! use grafton_visca::{Camera, CameraProfile, Error};
+//! use grafton_visca::camera::CameraExtension;
 //!
 //! // Define your own extension trait
 //! trait MyCustomExt<P: CameraProfile>: CameraExtension<P> {

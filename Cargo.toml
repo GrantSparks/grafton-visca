@@ -167,6 +167,7 @@ name = "command_sequences_demo"
 
 [[example]]
 name = "new_features_demo"
+required-features = ["async-client"]
 
 
 [[example]]

@@ -12,9 +12,7 @@
 //! using the `Camera<P>` API with helper functions and sequential operations.
 
 #[cfg(not(feature = "async-client"))]
-mod common;
-#[cfg(not(feature = "async-client"))]
-use common::blocking::udp_transport;
+use grafton_visca::transport::blocking::create;
 
 #[cfg(not(feature = "async-client"))]
 use grafton_visca::{
@@ -39,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a type-safe camera instance with PTZOpticsG2 profile
     let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
-    let transport = udp_transport(&camera_ip)?;
+    let transport = create::udp(&camera_ip)?;
     let mut camera = Camera::<PTZOpticsG2>::new(transport);
     println!("Connected to PTZOptics G2 camera");
 
@@ -164,11 +162,6 @@ fn perform_scan_sequence(
 }
 
 #[cfg(feature = "async-client")]
-mod common;
-#[cfg(feature = "async-client")]
-use common::r#async::udp_transport;
-
-#[cfg(feature = "async-client")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -176,6 +169,7 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    transport::create,
 };
 
 #[cfg(feature = "async-client")]
@@ -189,7 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Async PTZ Pattern Demo with Camera<P> API ===");
 
     // Create async camera with type-safe profile
-    let transport = udp_transport("192.168.1.100:52381").await?;
+    let transport = create::udp("192.168.1.100:52381").await?;
     let mut camera = Camera::<PTZOpticsG2>::new(transport);
     println!("Connected to PTZOptics G2 camera (async)");
 

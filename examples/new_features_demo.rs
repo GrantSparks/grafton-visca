@@ -3,15 +3,12 @@
 //! - Extension traits for custom functionality
 
 #[cfg(feature = "async-client")]
-mod common;
-#[cfg(feature = "async-client")]
-use common::r#async::udp_transport;
-#[cfg(feature = "async-client")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
         Camera, CommandBuilderExt,
     },
+    transport::create,
     Error,
 };
 
@@ -34,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn command_builder_demo() -> Result<(), Error> {
     println!("Using CommandBuilder for complex sequences...");
 
-    let transport = udp_transport("192.168.1.100:52381").await?;
+    let transport = create::udp("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Build and execute a complex sequence
@@ -43,21 +40,21 @@ async fn command_builder_demo() -> Result<(), Error> {
         .commands()
         .power_on()
         .pan_tilt_home()
-        .delay(std::time::Duration::from_secs(2))
         .zoom_in(grafton_visca::command::zoom::ZoomSpeed::new(5).unwrap())
-        .delay(std::time::Duration::from_millis(500))
         .zoom_stop()
         .execute_sequential_async()
         .await?;
 
-    println!("  ✓ Initialization sequence completed ({} commands)", results.len());
+    println!(
+        "  ✓ Initialization sequence completed ({} commands)",
+        results.len()
+    );
 
     // Build a more complex movement sequence
     println!("\nExecuting movement sequence:");
     let movement_results = camera
         .commands()
         .pan_tilt_home()
-        .delay(std::time::Duration::from_secs(2))
         .pan_tilt_to_degrees(
             45.0,
             0.0,
