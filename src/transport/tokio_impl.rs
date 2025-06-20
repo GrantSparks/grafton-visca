@@ -1,38 +1,31 @@
-//! Built-in transport implementations.
+//! Tokio-specific transport implementations.
 //!
-//! These implementations demonstrate how minimal transport-specific code can be
-//! when all VISCA protocol logic is handled by ViscaTransport.
+//! These implementations are only available when the `tokio` feature is enabled.
 
-#[cfg(feature = "async")]
 use std::{io, time::Duration};
 
-#[cfg(feature = "async")]
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UdpSocket},
 };
 
-#[cfg(feature = "async")]
 use super::{RawTransport, TransportFuture};
-#[cfg(feature = "async")]
 use crate::error::Error;
 
-#[cfg(feature = "async")]
-/// TCP transport implementation.
+/// TCP transport implementation using tokio.
 #[derive(Debug)]
-pub struct TcpTransport {
+pub struct TokioTcpTransport {
     stream: TcpStream,
     description: String,
 }
 
-#[cfg(feature = "async")]
-impl TcpTransport {
+impl TokioTcpTransport {
     /// Create a new TCP transport.
     pub async fn connect(address: &str) -> io::Result<Self> {
         let stream = TcpStream::connect(address).await?;
         Ok(Self {
             stream,
-            description: format!("TCP connection to {}", address),
+            description: format!("Tokio TCP connection to {}", address),
         })
     }
 
@@ -43,13 +36,15 @@ impl TcpTransport {
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Connection timeout"))??;
         Ok(Self {
             stream,
-            description: format!("TCP connection to {} (timeout: {:?})", address, timeout),
+            description: format!(
+                "Tokio TCP connection to {} (timeout: {:?})",
+                address, timeout
+            ),
         })
     }
 }
 
-#[cfg(feature = "async")]
-impl RawTransport for TcpTransport {
+impl RawTransport for TokioTcpTransport {
     fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             self.stream.write_all(data).await.map_err(Error::Io)?;
@@ -102,8 +97,7 @@ impl RawTransport for TcpTransport {
     }
 
     fn is_connected(&self) -> bool {
-        // For TCP, we'd need to check the stream state
-        // This is a simplified implementation
+        // We can't easily check if a TcpStream is connected without trying to use it
         true
     }
 
@@ -112,36 +106,29 @@ impl RawTransport for TcpTransport {
     }
 }
 
-#[cfg(feature = "async")]
-/// UDP transport implementation.
+/// UDP transport implementation using tokio.
 #[derive(Debug)]
-pub struct UdpTransport {
+pub struct TokioUdpTransport {
     socket: UdpSocket,
-    address: String,
     description: String,
 }
 
-#[cfg(feature = "async")]
-impl UdpTransport {
+impl TokioUdpTransport {
     /// Create a new UDP transport.
     pub async fn connect(address: &str) -> io::Result<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0").await?;
+        socket.connect(address).await?;
         Ok(Self {
             socket,
-            address: address.to_string(),
-            description: format!("UDP connection to {}", address),
+            description: format!("Tokio UDP connection to {}", address),
         })
     }
 }
 
-#[cfg(feature = "async")]
-impl RawTransport for UdpTransport {
+impl RawTransport for TokioUdpTransport {
     fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
         Box::pin(async move {
-            self.socket
-                .send_to(data, &self.address)
-                .await
-                .map_err(Error::Io)?;
+            self.socket.send(data).await.map_err(Error::Io)?;
             Ok(())
         })
     }
@@ -149,26 +136,42 @@ impl RawTransport for UdpTransport {
     fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
         Box::pin(async move {
             let mut buffer = [0u8; 1024];
+            let mut current_response = Vec::new();
 
-            match tokio::time::timeout(Duration::from_secs(10), self.socket.recv_from(&mut buffer))
-                .await
-            {
-                Ok(Ok((size, _))) => {
-                    let data = buffer[..size].to_vec();
-                    log::debug!("Received data: {data:02X?}");
-                    Ok(data)
+            loop {
+                match tokio::time::timeout(Duration::from_secs(10), self.socket.recv(&mut buffer))
+                    .await
+                {
+                    Ok(Ok(size)) => {
+                        for &byte in &buffer[..size] {
+                            current_response.push(byte);
+
+                            // Check for end of VISCA frame
+                            if byte == 0xFF
+                                && current_response.len() >= 3
+                                && current_response[0] == 0x90
+                            {
+                                log::debug!("Received UDP response: {current_response:02X?}");
+                                return Ok(current_response);
+                            }
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        return Err(Error::Io(e));
+                    }
+                    Err(_) => {
+                        return Err(Error::CommandTimeout {
+                            duration: Duration::from_secs(10),
+                            command: "receive_response".to_string(),
+                        });
+                    }
                 }
-                Ok(Err(e)) => Err(Error::Io(e)),
-                Err(_) => Err(Error::CommandTimeout {
-                    duration: Duration::from_secs(10),
-                    command: "receive_response".to_string(),
-                }),
             }
         })
     }
 
     fn is_connected(&self) -> bool {
-        // UDP is connectionless, so always "connected"
+        // UDP is connectionless
         true
     }
 

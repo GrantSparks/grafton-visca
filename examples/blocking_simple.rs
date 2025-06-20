@@ -1,12 +1,12 @@
-//! Simple blocking example demonstrating the new blocking-first transport API.
+//! Simple blocking example demonstrating the blocking transport API.
 //!
 //! This example shows how to use the library without any async runtime,
-//! using only the blocking transport and API.
+//! using only the blocking transport and API when the async feature is disabled.
 
 #[cfg(feature = "async")]
 fn main() {
     eprintln!("This example demonstrates the blocking API. Run without async features:");
-    eprintln!("cargo run --example blocking_simple");
+    eprintln!("cargo run --example blocking_simple --no-default-features");
 }
 
 #[cfg(not(feature = "async"))]
@@ -37,6 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("Camera created successfully with blocking transport!");
+    println!("Running without any async runtime - pure blocking I/O!");
 
     // Display camera capabilities
     let caps = camera.capabilities();
@@ -47,45 +48,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Max Pan Speed: {}", caps.max_pan_speed);
     println!("  Max Tilt Speed: {}", caps.max_tilt_speed);
 
-    // Create a runtime for async operations
-    let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async move {
-        // Test basic operations
-        println!("\nTesting camera operations:");
+    // Test basic operations - all blocking, no async runtime
+    println!("\nTesting camera operations:");
 
-        // Power on
-        println!("Powering on...");
-        camera.power_on()?;
-        std::thread::sleep(Duration::from_secs(2));
+    // Power on
+    println!("Powering on...");
+    camera.power_on()?;
+    std::thread::sleep(Duration::from_secs(2));
 
-        // Move to home position
-        println!("Moving to home position...");
-        camera.home()?;
-        std::thread::sleep(Duration::from_secs(3));
+    // Move to home position
+    println!("Moving to home position...");
+    camera.home()?;
+    std::thread::sleep(Duration::from_secs(3));
 
-        // Test absolute position movement
-        println!("Moving to position (30°, -10°)...");
-        camera.set_position(Degrees(30.0), Degrees(-10.0))?;
-        std::thread::sleep(Duration::from_secs(3));
+    // Test absolute position movement
+    println!("Moving to position (30°, -10°)...");
+    camera.set_position(Degrees(30.0), Degrees(-10.0))?;
+    std::thread::sleep(Duration::from_secs(3));
 
-        // Test continuous movement
-        println!("Starting continuous pan left...");
-        camera.move_continuous(PanTiltDirection::Left, 10, 0)?;
-        std::thread::sleep(Duration::from_secs(2));
+    // Test continuous movement
+    println!("Starting continuous pan left...");
+    camera.move_continuous(PanTiltDirection::Left, 10, 0)?;
+    std::thread::sleep(Duration::from_secs(2));
 
-        println!("Stopping movement...");
-        camera.stop()?;
+    println!("Stopping movement...");
+    camera.stop()?;
 
-        // Test zoom
-        println!("Testing zoom in...");
-        camera.zoom_in()?;
-        std::thread::sleep(Duration::from_secs(1));
-        camera.zoom_stop()?;
+    // Test zoom
+    println!("Testing zoom in...");
+    camera.zoom_in()?;
+    std::thread::sleep(Duration::from_secs(1));
+    camera.zoom_stop()?;
 
-        println!("\nAll operations completed successfully!");
-        println!("The blocking transport API works seamlessly without an async runtime!");
-        println!("(Note: The Camera API is async internally, so we use a minimal runtime here)");
+    // Test inquiry operations
+    println!("\nTesting inquiry operations:");
 
-        Ok::<_, Box<dyn std::error::Error>>(())
-    })
+    // Get power status
+    if let Ok(power_status) = camera.get_power_state() {
+        println!("Power status: {:?}", power_status);
+    }
+
+    // Get current position
+    if let Ok((pan, tilt)) = camera.get_position() {
+        println!("Current position: Pan={:?}, Tilt={:?}", pan, tilt);
+    }
+
+    // Get zoom position
+    if let Ok(zoom_pos) = camera.get_zoom_position() {
+        println!("Zoom position: {:?}", zoom_pos);
+    }
+
+    println!("\nAll operations completed successfully!");
+    println!("Pure blocking I/O works perfectly without any async runtime!");
+
+    Ok(())
 }
