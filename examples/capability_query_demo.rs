@@ -1,20 +1,17 @@
 //! Example demonstrating camera capability querying.
 
-mod common;
 use grafton_visca::camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, SonyEVID70};
+use grafton_visca::transport::blocking::create;
 
 // Include the transport implementation from the example file
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using blocking transport
-    let g2_camera =
-        Camera::<PTZOpticsG2>::new(common::blocking::udp_transport("192.168.1.100:1259")?);
+    let g2_camera = Camera::<PTZOpticsG2>::new(create::udp("192.168.1.100:1259")?);
 
-    let sony_camera =
-        Camera::<SonyEVID70>::new(common::blocking::udp_transport("192.168.1.101:1259")?);
+    let sony_camera = Camera::<SonyEVID70>::new(create::udp("192.168.1.101:1259")?);
 
-    let generic_camera =
-        Camera::<GenericVisca>::new(common::blocking::udp_transport("192.168.1.102:1259")?);
+    let generic_camera = Camera::<GenericVisca>::new(create::udp("192.168.1.102:1259")?);
 
     println!("=== Camera Capability Comparison ===\n");
 

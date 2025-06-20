@@ -7,11 +7,9 @@
 //! - Process responses asynchronously
 //! - Maximize throughput with concurrent operations
 
-mod common;
-use common::r#async::udp_transport;
-
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, Camera, Error,
+    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, transport::create, Camera,
+    Error,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -36,7 +34,7 @@ async fn main() -> Result<(), Error> {
         .unwrap_or_else(|| "192.168.0.100:5678".to_string());
 
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = udp_transport(&camera_addr).await?;
+    let transport = create::udp(&camera_addr).await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Example 1: Sequential commands with timing

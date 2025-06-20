@@ -3,10 +3,9 @@
 //!
 //! This shows various patterns for handling retries at the application level.
 
-mod common;
-use common::r#async::tcp_transport;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
+    transport::create,
     Error,
 };
 use std::time::Duration;
@@ -37,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn simple_retry_example() -> Result<(), Error> {
     println!("1. Simple retry with fixed delay:");
 
-    let transport = tcp_transport("192.168.1.100:5678").await?;
+    let transport = create::tcp("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Simple retry loop with fixed delay

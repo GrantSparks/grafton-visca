@@ -9,11 +9,9 @@
 //! The Camera API now supports full inquiry functionality through the
 //! send_and_receive() method, making it a complete replacement for the Client API.
 
-mod common;
-use common::r#async::udp_transport;
-
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
+    transport::create,
     Error,
 };
 use std::env;
@@ -44,7 +42,7 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to camera at {}...", camera_addr);
 
     // Create camera with async transport
-    let transport = udp_transport(camera_addr).await?;
+    let transport = create::udp(camera_addr).await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("\n=== Camera API Inquiry Commands Demo ===\n");

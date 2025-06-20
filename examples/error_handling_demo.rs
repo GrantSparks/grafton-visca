@@ -3,9 +3,7 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
-mod common;
-use common::blocking::udp_transport;
-
+use grafton_visca::transport::blocking::create;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
@@ -105,7 +103,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match udp_transport(camera_addr) {
+    let transport = match create::udp(camera_addr) {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t

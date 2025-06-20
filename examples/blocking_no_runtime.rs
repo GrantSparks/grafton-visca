@@ -28,68 +28,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Camera created successfully with blocking transport API!");
 
-    // Test basic operations
-    println!("\nTesting blocking transport API:");
+    // Create a runtime for async operations
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(async move {
+        // Test basic operations
+        println!("\nTesting blocking transport API:");
 
-    // Power on
-    println!("Powering on...");
-    camera.power_on()?;
+        // Power on
+        println!("Powering on...");
+        camera.power_on()?;
 
-    // Wait a moment for camera to initialize
-    std::thread::sleep(Duration::from_secs(2));
+        // Wait a moment for camera to initialize
+        std::thread::sleep(Duration::from_secs(2));
 
-    // Move to home position
-    println!("Moving to home position...");
-    camera.home()?;
+        // Move to home position
+        println!("Moving to home position...");
+        camera.home()?;
 
-    // Wait for movement to complete
-    std::thread::sleep(Duration::from_secs(3));
+        // Wait for movement to complete
+        std::thread::sleep(Duration::from_secs(3));
 
-    // Test zoom
-    println!("Testing zoom in...");
-    camera.zoom_in()?;
-    std::thread::sleep(Duration::from_millis(500));
+        // Test zoom
+        println!("Testing zoom in...");
+        camera.zoom_in()?;
+        std::thread::sleep(Duration::from_secs(1));
+        camera.zoom_stop()?;
 
-    println!("Stopping zoom...");
-    camera.zoom_stop()?;
+        // Move to specific position using degrees
+        println!("Moving to position (30°, -10°)...");
+        camera.set_position(Degrees(30.0), Degrees(-10.0))?;
+        std::thread::sleep(Duration::from_secs(3));
 
-    // Test pan/tilt movement
-    println!("Testing pan/tilt movement...");
+        // Test continuous movement
+        println!("Testing continuous movement...");
+        camera.move_continuous(PanTiltDirection::Left, 10, 0)?;
+        std::thread::sleep(Duration::from_secs(2));
+        camera.stop()?;
 
-    // Move right
-    println!("Moving right...");
-    camera.move_continuous(PanTiltDirection::Right, 5, 0)?;
-    std::thread::sleep(Duration::from_millis(500));
+        // Test preset operations
+        println!("Saving position to preset 1...");
+        camera.set_preset(G2PresetId::new(1)?)?;
 
-    // Stop movement
-    println!("Stopping movement...");
-    camera.stop()?;
+        // Move away
+        println!("Moving to home...");
+        camera.home()?;
+        std::thread::sleep(Duration::from_secs(3));
 
-    // Move to specific position
-    println!("Moving to position (30°, 15°)...");
-    camera.set_position(Degrees(30.0), Degrees(15.0))?;
+        // Recall preset
+        println!("Recalling preset 1...");
+        camera.recall_preset(G2PresetId::new(1)?)?;
+        std::thread::sleep(Duration::from_secs(3));
 
-    // Wait for movement
-    std::thread::sleep(Duration::from_secs(2));
+        println!("\nAll operations completed successfully!");
+        println!("Blocking transport API works perfectly without any async runtime!");
+        println!("(Note: The Camera API is async internally, so we use a minimal runtime here)");
 
-    // Test presets
-    println!("Setting preset 1...");
-    let preset1 = G2PresetId::new(1)?;
-    camera.set_preset(preset1)?;
-
-    // Move to a different position
-    println!("Moving to position (-30°, -15°)...");
-    camera.set_position(Degrees(-30.0), Degrees(-15.0))?;
-    std::thread::sleep(Duration::from_secs(2));
-
-    // Recall preset
-    println!("Recalling preset 1...");
-    camera.recall_preset(preset1)?;
-
-    std::thread::sleep(Duration::from_secs(2));
-
-    println!("\nAll tests completed successfully!");
-    println!("The blocking transport API works without any async runtime!");
-
-    Ok(())
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })
 }

@@ -6,10 +6,11 @@
 //! - Retrieve various camera settings
 //! - Use profile-aware unit conversions
 
-mod common;
-use common::r#async::tcp_transport;
-use grafton_visca::camera::{Camera, PTZOpticsG2};
-use grafton_visca::Error;
+use grafton_visca::{
+    camera::{Camera, PTZOpticsG2},
+    transport::create,
+    Error,
+};
 
 // Include the transport implementation from the example file
 
@@ -33,7 +34,7 @@ async fn main() -> Result<(), Error> {
 
     // Connect to camera
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = tcp_transport(&camera_addr).await?;
+    let transport = create::tcp(&camera_addr).await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Query power state

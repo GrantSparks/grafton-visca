@@ -6,7 +6,7 @@
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
-    transport::{create, TcpTransport, UdpTransport, ViscaTransport},
+    transport::create,
     Error,
 };
 use std::time::Duration;
@@ -74,7 +74,7 @@ async fn transport_flexibility_example() -> Result<(), Error> {
     // Example 2: TCP async
     #[cfg(feature = "async-client")]
     {
-        let tcp = tcp_transport("192.168.1.100:5678").await?;
+        let tcp = create::tcp("192.168.1.100:5678").await?;
         let camera = Camera::<PTZOpticsG2>::new(tcp);
 
         println!("TCP camera - moving down...");
@@ -92,7 +92,7 @@ async fn profile_switching_example() -> Result<(), Error> {
     println!("\n=== Profile Switching Example ===");
 
     // You can use different profiles for different camera models
-    let transport = common::blocking::udp_transport("192.168.1.100:5678")?;
+    let transport = create::udp("192.168.1.100:5678").await?;
 
     // PTZOptics G2 camera
     {

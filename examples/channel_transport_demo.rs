@@ -4,18 +4,16 @@
 //! a transport across multiple threads without explicit locking.
 
 #[cfg(feature = "async-client")]
-mod common;
-#[cfg(feature = "async-client")]
-use common::r#async::tcp_transport;
+use grafton_visca::transport::create;
 #[cfg(feature = "async-client")]
 use std::sync::Arc;
 #[cfg(feature = "async-client")]
 use std::time::Duration;
 
 #[cfg(feature = "async-client")]
-use grafton_visca::transport::{ChannelTransport, ChannelTransportBuilder, Transport};
+use grafton_visca::transport::{ChannelTransport, ChannelTransportBuilder};
 #[cfg(feature = "async-client")]
-use grafton_visca::{camera::profiles::PTZOpticsG2, Camera, Command};
+use grafton_visca::{camera::profiles::PTZOpticsG2, camera::CameraTransport, Camera, Command};
 
 #[cfg(feature = "async-client")]
 #[tokio::main]
@@ -23,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Create the underlying transport
-    let tcp_transport = tcp_transport("192.168.1.100:5678").await?;
+    let tcp_transport = create::tcp("192.168.1.100:5678").await?;
 
     // Wrap it in a ChannelTransport with custom configuration
     let channel_transport = ChannelTransportBuilder::new(tcp_transport)
@@ -106,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Example showing how to use Arc<ChannelTransport> directly
 #[allow(dead_code)]
 async fn demo_arc_transport() -> Result<(), Box<dyn std::error::Error>> {
-    let tcp_transport = tcp_transport("192.168.1.100:5678").await?;
+    let tcp_transport = create::tcp("192.168.1.100:5678").await?;
 
     let channel_transport = Arc::new(ChannelTransport::new(tcp_transport, Default::default()));
 
@@ -134,10 +132,11 @@ async fn demo_arc_transport() -> Result<(), Box<dyn std::error::Error>> {
 // Mock transport for demonstration
 #[cfg(feature = "async-client")]
 #[allow(dead_code)]
+#[derive(Debug)]
 struct MockTransport;
 
 #[cfg(feature = "async-client")]
-impl Transport for MockTransport {
+impl CameraTransport for MockTransport {
     fn send_command<'a>(
         &'a mut self,
         _command: &'a dyn Command,

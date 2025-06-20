@@ -7,8 +7,7 @@
 //! Default camera address: 192.168.1.100:5678
 
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-mod common;
-
+use grafton_visca::transport::blocking::create;
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use grafton_visca::{
     camera::{Camera, CameraProfile, PTZOpticsG2},
@@ -36,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at {}...", camera_addr);
 
     // Create UDP transport and Camera with PTZOpticsG2 profile
-    let transport = common::blocking::udp_transport(camera_addr)?;
+    let transport = create::udp(camera_addr)?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Wrap the camera in Arc<Mutex> for thread-safe access

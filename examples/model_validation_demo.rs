@@ -12,19 +12,20 @@ use grafton_visca::{
             SonyEVID70,
         },
         units::{Degrees, ViscaUnits},
-        CameraProfile,
+        CameraProfile, CameraTransport,
     },
-    transport::{Transport, TransportFuture},
+    transport::TransportFuture,
     Camera, Command, Error,
 };
 
 #[cfg(feature = "async-client")]
 /// Mock transport for demonstration purposes.
 /// In real usage, you would use UdpTransport or TcpTransport.
+#[derive(Debug)]
 struct MockTransport;
 
 #[cfg(feature = "async-client")]
-impl Transport for MockTransport {
+impl CameraTransport for MockTransport {
     fn send_command<'a>(
         &'a mut self,
         _command: &'a dyn Command,

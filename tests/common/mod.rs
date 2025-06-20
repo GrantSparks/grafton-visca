@@ -164,9 +164,8 @@ impl MockTransport {
 
 // Async version of MockTransport for feature parity
 #[cfg(feature = "async-client")]
-use grafton_visca::{
-    transport::{RawTransport, TransportFuture, ViscaTransport as AsyncViscaTransport},
-    Error,
+use grafton_visca::transport::{
+    RawTransport, TransportFuture, ViscaTransport as AsyncViscaTransport,
 };
 #[cfg(feature = "async-client")]
 use std::time::Duration;

@@ -1,17 +1,16 @@
 //! Demonstrates the unified transport API that works for both async and blocking contexts.
 
-mod common;
 use grafton_visca::command::{power::Power, PowerCommand};
 use grafton_visca::Error;
 
 #[cfg(feature = "blocking-client")]
 fn blocking_example() -> Result<(), Error> {
-    use common::blocking;
+    use grafton_visca::transport::blocking::create;
 
     println!("=== Blocking Transport Example ===");
 
     // Create a blocking TCP transport with VISCA protocol handling
-    let mut transport = blocking::tcp_transport("192.168.1.100:5678")?;
+    let mut transport = create::tcp("192.168.1.100:5678")?;
 
     // Use the transport directly - no adapter needed!
     let power_cmd = PowerCommand { power: Power::On };
@@ -27,12 +26,12 @@ fn blocking_example() -> Result<(), Error> {
 
 #[cfg(feature = "async-client")]
 async fn async_example() -> Result<(), Error> {
-    use common::r#async;
+    use grafton_visca::transport::create;
 
     println!("=== Async Transport Example ===");
 
     // Create an async TCP transport with VISCA protocol handling
-    let mut transport = r#async::tcp_transport("192.168.1.100:5678").await?;
+    let mut transport = create::tcp("192.168.1.100:5678").await?;
 
     // Use the transport interface - similar API to blocking!
     let power_cmd = PowerCommand { power: Power::On };

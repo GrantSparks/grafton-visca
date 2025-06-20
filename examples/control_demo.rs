@@ -12,7 +12,7 @@ use grafton_visca::{
     transport::blocking::create,
     Error,
 };
-use std::{env, thread, time::Duration};
+use std::{env, time::Duration};
 
 fn main() -> Result<(), Error> {
     // Initialize logging
@@ -34,97 +34,99 @@ fn main() -> Result<(), Error> {
 
     println!("\n=== Camera Control Demo ===\n");
 
-    // Pan/Tilt Control Examples
-    println!("1. Pan/Tilt Control");
-    println!("   - Moving to home position...");
-    camera.home()?;
-    thread::sleep(Duration::from_secs(3));
+    {
+        // Pan/Tilt Control Examples
+        println!("1. Pan/Tilt Control");
+        println!("   - Moving to home position...");
+        camera.home()?;
+        std::thread::sleep(Duration::from_secs(3));
 
-    println!("   - Moving to position (1000, -500) at default speed...");
-    camera.set_position(Degrees(20.0), Degrees(-10.0))?;
-    thread::sleep(Duration::from_secs(2));
+        println!("   - Moving to position (1000, -500) at default speed...");
+        camera.set_position(Degrees(20.0), Degrees(-10.0))?;
+        std::thread::sleep(Duration::from_secs(2));
 
-    println!("   - Moving to another position (500, -250)...");
-    // Note: Custom speed control is not directly available in the new API
-    // Using the default speed
-    camera.set_position(Degrees(10.0), Degrees(-5.0))?;
-    thread::sleep(Duration::from_secs(2));
+        println!("   - Moving to another position (500, -250)...");
+        // Note: Custom speed control is not directly available in the new API
+        // Using the default speed
+        camera.set_position(Degrees(10.0), Degrees(-5.0))?;
+        std::thread::sleep(Duration::from_secs(2));
 
-    println!("   - Starting continuous movement (up-right)...");
-    camera.move_continuous(PanTiltDirection::UpRight, 10, 10)?;
-    thread::sleep(Duration::from_millis(1500));
+        println!("   - Starting continuous movement (up-right)...");
+        camera.move_continuous(PanTiltDirection::UpRight, 10, 10)?;
+        std::thread::sleep(Duration::from_millis(1500));
 
-    println!("   - Stopping movement...");
-    camera.stop()?;
-    thread::sleep(Duration::from_millis(500));
+        println!("   - Stopping movement...");
+        camera.stop()?;
+        std::thread::sleep(Duration::from_millis(500));
 
-    // Zoom Control Examples
-    println!("\n2. Zoom Control");
-    println!("   - Zooming to minimum (0x0000)...");
-    camera.set_zoom(0x0000)?;
-    thread::sleep(Duration::from_secs(2));
+        // Zoom Control Examples
+        println!("\n2. Zoom Control");
+        println!("   - Zooming to minimum (0x0000)...");
+        camera.set_zoom(0x0000)?;
+        std::thread::sleep(Duration::from_secs(2));
 
-    println!("   - Zooming in at default speed...");
-    camera.zoom_in()?;
-    thread::sleep(Duration::from_secs(1));
-    camera.zoom_stop()?;
+        println!("   - Zooming in at default speed...");
+        camera.zoom_in()?;
+        std::thread::sleep(Duration::from_secs(1));
+        camera.zoom_stop()?;
 
-    println!("   - Zooming to mid-range (0x2000)...");
-    camera.set_zoom(0x2000)?;
-    thread::sleep(Duration::from_secs(2));
+        println!("   - Zooming to mid-range (0x2000)...");
+        camera.set_zoom(0x2000)?;
+        std::thread::sleep(Duration::from_secs(2));
 
-    println!("   - Zooming out at slow speed (2)...");
-    // Note: zoom speed control requires using extension traits with older API
-    // For now, using standard speed zoom
-    camera.zoom_out()?;
-    thread::sleep(Duration::from_millis(1500));
-    camera.zoom_stop()?;
+        println!("   - Zooming out at slow speed (2)...");
+        // Note: zoom speed control requires using extension traits with older API
+        // For now, using standard speed zoom
+        camera.zoom_out()?;
+        std::thread::sleep(Duration::from_millis(1500));
+        camera.zoom_stop()?;
 
-    // Focus Control Examples
-    println!("\n3. Focus Control");
-    println!("   - Enabling auto-focus...");
-    camera.focus_auto()?;
-    thread::sleep(Duration::from_secs(1));
+        // Focus Control Examples
+        println!("\n3. Focus Control");
+        println!("   - Enabling auto-focus...");
+        camera.focus_auto()?;
+        std::thread::sleep(Duration::from_secs(1));
 
-    println!("   - Switching to manual focus...");
-    camera.focus_manual()?;
+        println!("   - Switching to manual focus...");
+        camera.focus_manual()?;
 
-    println!("   - Focusing near at default speed...");
-    // Note: focus_near, stop_focus, focus_to, and one_push_focus require extension traits
-    // These are not directly available in the new Camera API yet
-    println!("   [Focus control methods like focus_near, focus_to, and one_push_focus");
-    println!("    are not yet available in the new Camera API]");
-    thread::sleep(Duration::from_secs(2));
+        println!("   - Focusing near at default speed...");
+        // Note: focus_near, stop_focus, focus_to, and one_push_focus require extension traits
+        // These are not directly available in the new Camera API yet
+        println!("   [Focus control methods like focus_near, focus_to, and one_push_focus");
+        println!("    are not yet available in the new Camera API]");
+        std::thread::sleep(Duration::from_secs(2));
 
-    // Preset Management Examples
-    println!("\n4. Preset Management");
-    println!("   - Saving current position to preset 1...");
-    camera.set_preset(G2PresetId::new(1).unwrap())?;
-    thread::sleep(Duration::from_millis(500));
+        // Preset Management Examples
+        println!("\n4. Preset Management");
+        println!("   - Saving current position to preset 1...");
+        camera.set_preset(G2PresetId::new(1).unwrap())?;
+        std::thread::sleep(Duration::from_millis(500));
 
-    println!("   - Moving camera to a different position...");
-    camera.set_position(Degrees(-20.0), Degrees(6.0))?;
-    camera.set_zoom(0x3000)?;
-    thread::sleep(Duration::from_secs(3));
+        println!("   - Moving camera to a different position...");
+        camera.set_position(Degrees(-20.0), Degrees(6.0))?;
+        camera.set_zoom(0x3000)?;
+        std::thread::sleep(Duration::from_secs(3));
 
-    println!("   - Saving this position to preset 2...");
-    camera.set_preset(G2PresetId::new(2).unwrap())?;
-    thread::sleep(Duration::from_millis(500));
+        println!("   - Saving this position to preset 2...");
+        camera.set_preset(G2PresetId::new(2).unwrap())?;
+        std::thread::sleep(Duration::from_millis(500));
 
-    println!("   - Returning to home...");
-    camera.home()?;
-    thread::sleep(Duration::from_secs(2));
+        println!("   - Returning to home...");
+        camera.home()?;
+        std::thread::sleep(Duration::from_secs(2));
 
-    println!("   - Recalling preset 1...");
-    camera.recall_preset(G2PresetId::new(1).unwrap())?;
-    thread::sleep(Duration::from_secs(3));
+        println!("   - Recalling preset 1...");
+        camera.recall_preset(G2PresetId::new(1).unwrap())?;
+        std::thread::sleep(Duration::from_secs(3));
 
-    println!("   - Recalling preset 2...");
-    camera.recall_preset(G2PresetId::new(2).unwrap())?;
-    thread::sleep(Duration::from_secs(3));
+        println!("   - Recalling preset 2...");
+        camera.recall_preset(G2PresetId::new(2).unwrap())?;
+        std::thread::sleep(Duration::from_secs(3));
 
-    println!("\n=== Demo Complete ===");
-    println!("All control operations executed successfully!");
+        println!("\n=== Demo Complete ===");
+        println!("All control operations executed successfully!");
 
-    Ok(())
+        Ok::<_, Error>(())
+    }
 }

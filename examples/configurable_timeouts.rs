@@ -8,15 +8,15 @@
 //! Note: The Camera API doesn't have built-in timeout support.
 //! This example shows patterns for timing operations.
 
-mod common;
-use common::blocking::udp_transport;
-
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     command::pan_tilt::PanTiltDirection,
     Error,
 };
 use std::time::{Duration, Instant};
+
+#[cfg(feature = "blocking-client")]
+use grafton_visca::transport::blocking::create;
 
 fn main() -> Result<(), Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -41,7 +41,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     use grafton_visca::camera::profiles::G2PresetId;
 
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = udp_transport(camera_addr)?;
+    let transport = create::udp(camera_addr)?;
     let mut camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("Note: The Camera API doesn't have built-in timeout support.");
