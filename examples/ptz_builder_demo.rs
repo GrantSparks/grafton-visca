@@ -22,7 +22,6 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
-    types::{FocusPosition, ZoomPosition},
 };
 
 #[cfg(not(feature = "async"))]
@@ -67,13 +66,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✓ Executed: Home → Move UpRight → Stop");
 
     // Zoom operations
-    camera.set_zoom(ZoomPosition::new(0x4000)?)?;
+    camera.set_zoom(0x4000)?;
     println!("   ✓ Set zoom to 0x4000");
     thread::sleep(Duration::from_secs(1));
 
     // Focus control
     camera.focus_manual()?;
-    camera.set_focus(FocusPosition::new(0x8000)?)?;
+    camera.set_focus(0x8000u16)?;
     println!("   ✓ Set manual focus to 0x8000");
 
     // Demonstrate absolute positioning with validation
@@ -97,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Save current position to preset using G2-specific preset ID
     let preset_id = G2PresetId::new(1)?;
-    camera.set_preset(preset_id)?;
+    camera.set_preset(preset_id.into())?;
     println!("   ✓ Saved current position to preset {}", preset_id);
 
     // Move to a different position
@@ -105,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(2));
 
     // Recall the saved preset
-    camera.recall_preset(preset_id)?;
+    camera.recall_preset(preset_id.into())?;
     println!("   ✓ Recalled preset {}", preset_id);
     thread::sleep(Duration::from_secs(2));
 
@@ -171,7 +170,7 @@ use grafton_visca::{
     },
     command::pan_tilt::PanTiltDirection,
     transport::create,
-    types::ZoomPosition,
+    // ZoomPosition no longer needed - set_zoom takes u16 directly
 };
 
 #[cfg(feature = "async")]
@@ -230,20 +229,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Save positions with G2-specific preset IDs
     camera.set_position(Degrees(-80.0), Degrees(0.0)).await?;
     let preset1 = G2PresetId::new(1)?;
-    camera.set_preset(preset1).await?;
+    camera.set_preset(preset1.into()).await?;
 
     camera.set_position(Degrees(0.0), Degrees(45.0)).await?;
     let preset2 = G2PresetId::new(2)?;
-    camera.set_preset(preset2).await?;
+    camera.set_preset(preset2.into()).await?;
 
     camera.set_position(Degrees(80.0), Degrees(0.0)).await?;
     let preset3 = G2PresetId::new(3)?;
-    camera.set_preset(preset3).await?;
+    camera.set_preset(preset3.into()).await?;
 
     // Patrol between presets
     for _ in 0..2 {
         for preset in &[preset1, preset2, preset3] {
-            camera.recall_preset(*preset).await?;
+            camera.recall_preset((*preset).into()).await?;
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
@@ -252,7 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Reset to neutral
     println!("\n5. Reset to neutral position");
     camera.home().await?;
-    camera.set_zoom(ZoomPosition::new(0x0000)?).await?;
+    camera.set_zoom(0x0000).await?;
     camera.focus_auto().await?;
     println!("   ✓ Reset camera to neutral state");
 

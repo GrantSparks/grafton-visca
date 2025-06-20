@@ -105,11 +105,11 @@ mod blocking_tests {
 
         // Set preset 5
         let preset_id = G2PresetId::new(5).unwrap();
-        let result = camera.set_preset(preset_id);
+        let result = camera.set_preset(preset_id.into());
         assert!(result.is_ok(), "Set preset should succeed");
 
         // Recall preset 5
-        let result = camera.recall_preset(preset_id);
+        let result = camera.recall_preset(preset_id.into());
         assert!(result.is_ok(), "Recall preset should succeed");
 
         let commands = commands_sent.lock().unwrap();

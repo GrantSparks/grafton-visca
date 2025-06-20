@@ -13,7 +13,7 @@ fn main() {
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera, CameraProfile},
     transport::blocking::create,
-    types::GainLimit,
+    types::{GainLimit, GainValue},
 };
 #[cfg(not(feature = "async"))]
 use std::thread;
@@ -42,21 +42,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Position control with type-safe units
     println!("\n2. Type-safe position control:");
-    use grafton_visca::camera::units::{Degrees, Normalized, ViscaUnits};
+    use grafton_visca::camera::units::Degrees;
 
     // Move using degrees
     camera.set_position(Degrees(45.0), Degrees(15.0))?;
     println!("   ✓ Moved to 45° pan, 15° tilt");
     thread::sleep(Duration::from_secs(2));
 
-    // Move using VISCA units
-    camera.set_position_units(ViscaUnits(1000), ViscaUnits(500))?;
-    println!("   ✓ Moved using VISCA units");
+    // Move using pan_tilt method with normalized coordinates (0.0 to 1.0)
+    camera.pan_tilt(0.5, -0.25)?;
+    println!("   ✓ Moved using normalized coordinates");
     thread::sleep(Duration::from_secs(2));
 
-    // Move using normalized coordinates
-    camera.set_position_normalized(Normalized(0.5), Normalized(-0.25))?;
-    println!("   ✓ Moved using normalized coordinates");
+    // Move using pan_tilt_degrees method
+    camera.pan_tilt_degrees(90.0, -15.0)?;
+    println!("   ✓ Moved using degrees via pan_tilt_degrees");
     thread::sleep(Duration::from_secs(2));
 
     // 3. Profile-specific preset types
@@ -65,14 +65,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // PTZOpticsG2 has specific preset constraints (0-89)
     let preset = G2PresetId::new(5)?;
-    camera.set_preset(preset)?;
+    camera.set_preset(preset.into())?;
     println!("   ✓ Saved position to preset");
 
     thread::sleep(Duration::from_secs(1));
     camera.home()?;
     thread::sleep(Duration::from_secs(2));
 
-    camera.recall_preset(preset)?;
+    camera.recall_preset(preset.into())?;
     println!("   ✓ Recalled preset");
 
     // 4. Profile-specific gain values
@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::camera::profiles::G2Gain;
 
     // PTZOpticsG2 has specific gain values
-    camera.set_gain(G2Gain::Gain12dB)?;
+    camera.set_gain(GainValue::new(G2Gain::Gain12dB as u8)?)?;
     println!("   ✓ Set gain to 12dB (profile-specific value)");
 
     camera.set_gain_limit(GainLimit::new(6)?)?; // 18dB = value 6

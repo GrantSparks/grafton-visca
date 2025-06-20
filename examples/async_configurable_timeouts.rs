@@ -144,7 +144,7 @@ async fn demonstrate_preset_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<
 
     // Recall preset (which may take time to complete movement)
     let start = std::time::Instant::now();
-    match timeout(preset_timeout, camera.recall_preset(preset)).await {
+    match timeout(preset_timeout, camera.recall_preset(preset.into())).await {
         Ok(Ok(_)) => {
             let elapsed = start.elapsed();
             println!("   ✓ Preset recalled successfully in {:?}", elapsed);

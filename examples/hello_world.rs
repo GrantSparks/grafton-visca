@@ -3,8 +3,7 @@
 //! This example shows how the library supports both blocking-first and async APIs.
 
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, types::ZoomPosition,
-    Camera, Error,
+    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, Camera, Error,
 };
 use log::{debug, info};
 use std::{env, time::Duration};
@@ -100,8 +99,7 @@ mod blocking_impl {
 
         // Set zoom to specific position (50%)
         debug!("Setting zoom to 50%");
-        let zoom_50_percent = ZoomPosition::new(0x3800)?; // Half of max zoom for G2
-        camera.set_zoom(zoom_50_percent)?;
+        camera.set_zoom(0x3800u16)?; // Half of max zoom for G2
         thread::sleep(Duration::from_secs(2));
 
         Ok(())
@@ -134,7 +132,7 @@ mod blocking_impl {
         thread::sleep(Duration::from_secs(2));
 
         debug!("Resetting zoom");
-        camera.set_zoom(ZoomPosition::MIN)?;
+        camera.set_zoom(0x0000u16)?; // Minimum zoom
 
         info!("Demo complete!");
         Ok(())
@@ -214,8 +212,7 @@ mod async_impl {
 
         // Set zoom to specific position (50%)
         debug!("Setting zoom to 50%");
-        let zoom_50_percent = ZoomPosition::new(0x3800)?; // Half of max zoom for G2
-        camera.set_zoom(zoom_50_percent).await?;
+        camera.set_zoom(0x3800).await?; // Half of max zoom for G2
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         Ok(())
@@ -248,7 +245,7 @@ mod async_impl {
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         debug!("Resetting zoom");
-        camera.set_zoom(ZoomPosition::MIN).await?;
+        camera.set_zoom(0x0000).await?; // Minimum zoom
 
         info!("Demo complete!");
         Ok(())

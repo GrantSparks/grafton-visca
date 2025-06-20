@@ -3,7 +3,7 @@
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::{Degrees, Normalized},
+        units::Degrees,
         Camera,
     },
     transport::create,
@@ -47,15 +47,16 @@ async fn main() -> Result<(), Error> {
 
     // Move using normalized coordinates
     println!("Moving to normalized position (0.5, -0.25)...");
-    camera
-        .set_position_normalized(Normalized(0.5), Normalized(-0.25))
-        .await?;
+    // Convert normalized coordinates to degrees
+    let pan_deg = Degrees(0.5 * 180.0); // 90 degrees
+    let tilt_deg = Degrees(-0.25 * 90.0); // -22.5 degrees
+    camera.set_position(pan_deg, tilt_deg).await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Set and recall a preset (G2 supports presets 0-89)
     println!("Setting preset 10...");
     let preset = G2PresetId::new(10)?;
-    camera.set_preset(preset).await?;
+    camera.set_preset(preset.into()).await?;
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Move somewhere else
@@ -65,7 +66,7 @@ async fn main() -> Result<(), Error> {
 
     // Recall the preset
     println!("Recalling preset 10...");
-    camera.recall_preset(preset).await?;
+    camera.recall_preset(preset.into()).await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Zoom operations
@@ -78,8 +79,8 @@ async fn main() -> Result<(), Error> {
 
     // Set specific zoom position
     println!("Setting zoom to 50%...");
-    let zoom_50_percent = ZoomPosition::new(0x7000 / 2)?; // Half of max zoom for G2
-    camera.set_zoom(zoom_50_percent).await?;
+    let _zoom_50_percent = ZoomPosition::new(0x7000 / 2)?; // Half of max zoom for G2
+    camera.set_zoom(0x7000 / 2).await?; // Direct VISCA value
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Focus control
