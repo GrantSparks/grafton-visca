@@ -3,8 +3,8 @@
 //! This example shows how the library supports both blocking-first and async APIs.
 
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, Camera, Error,
-    types::ZoomPosition,
+    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, types::ZoomPosition,
+    Camera, Error,
 };
 use log::{debug, info};
 use std::{env, time::Duration};

@@ -30,10 +30,10 @@ use crate::{
     },
     define_camera_methods,
     types::{
-        BrightnessLevel, ContrastLevel, GainLimit, IrisLevel, LuminanceLevel,
-        NoiseReduction2DLevel, NoiseReduction3DLevel, ShutterSpeed, ZoomPosition, FocusPosition,
-        ColorTemperature, RedGain, BlueGain, SaturationLevel, HueLevel, RedTuning, BlueTuning,
-        SharpnessLevel,
+        BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, ContrastLevel, FocusPosition,
+        GainLimit, HueLevel, IrisLevel, LuminanceLevel, NoiseReduction2DLevel,
+        NoiseReduction3DLevel, RedGain, RedTuning, SaturationLevel, SharpnessLevel, ShutterSpeed,
+        ZoomPosition,
     },
 };
 

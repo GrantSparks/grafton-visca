@@ -12,6 +12,7 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    types::ZoomPosition,
     Error,
 };
 #[cfg(not(feature = "async"))]
@@ -68,7 +69,7 @@ fn main() -> Result<(), Error> {
     camera.zoom_stop()?;
 
     // Set specific zoom position (50% of max)
-    camera.set_zoom(0x3800)?;
+    camera.set_zoom(ZoomPosition::new(0x3800)?)?;
     println!("Set zoom to 50%");
 
     // Move camera continuously
@@ -83,7 +84,7 @@ fn main() -> Result<(), Error> {
     println!("Returned to preset 1");
 
     // Reset zoom
-    camera.set_zoom(0x0000)?;
+    camera.set_zoom(ZoomPosition::new(0x0000)?)?;
     println!("Reset zoom to minimum");
 
     println!("\nDemo completed successfully!");

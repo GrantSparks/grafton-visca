@@ -15,6 +15,7 @@ use grafton_visca::{
     },
     command::pan_tilt::PanTiltDirection,
     transport::create,
+    types::{FocusPosition, ZoomPosition},
     Error,
 };
 use std::env;
@@ -67,7 +68,7 @@ async fn main() -> Result<(), Error> {
     camera
         .set_position_units(ViscaUnits(800), ViscaUnits(-200))
         .await?;
-    camera.set_zoom(0x1800).await?;
+    camera.set_zoom(ZoomPosition::new(0x1800)?).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 10...");
@@ -79,7 +80,7 @@ async fn main() -> Result<(), Error> {
     camera
         .set_position_units(ViscaUnits(-600), ViscaUnits(400))
         .await?;
-    camera.set_zoom(0x3000).await?;
+    camera.set_zoom(ZoomPosition::new(0x3000)?).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 11...");
@@ -115,7 +116,7 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Adjusting focus...");
     // Direct focus position
-    camera.set_focus(0x6000).await?;
+    camera.set_focus(FocusPosition::new(0x6000)?).await?;
     sleep(Duration::from_secs(1)).await;
 
     println!("   - Restoring auto focus...");
