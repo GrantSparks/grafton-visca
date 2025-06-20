@@ -10,14 +10,10 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{
-        profiles::{G2PresetId, PTZOpticsG2},
-        units::Degrees,
-        Camera,
-    },
+    camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     command::pan_tilt::PanTiltDirection,
     transport::blocking::create,
-    types::ZoomPosition,
+    // ZoomPosition no longer needed - set_zoom takes u16 directly
     Error,
 };
 #[cfg(not(feature = "async"))]
@@ -72,7 +68,7 @@ fn main() -> Result<(), Error> {
         // Zoom Control Examples
         println!("\n2. Zoom Control");
         println!("   - Zooming to minimum (0x0000)...");
-        camera.set_zoom(ZoomPosition::new(0x0000)?)?;
+        camera.set_zoom(0x0000)?;
         std::thread::sleep(Duration::from_secs(2));
 
         println!("   - Zooming in at default speed...");
@@ -81,7 +77,7 @@ fn main() -> Result<(), Error> {
         camera.zoom_stop()?;
 
         println!("   - Zooming to mid-range (0x2000)...");
-        camera.set_zoom(ZoomPosition::new(0x2000)?)?;
+        camera.set_zoom(0x2000)?;
         std::thread::sleep(Duration::from_secs(2));
 
         println!("   - Zooming out at slow speed (2)...");
@@ -110,16 +106,16 @@ fn main() -> Result<(), Error> {
         // Preset Management Examples
         println!("\n4. Preset Management");
         println!("   - Saving current position to preset 1...");
-        camera.set_preset(G2PresetId::new(1).unwrap())?;
+        camera.set_preset(1)?;
         std::thread::sleep(Duration::from_millis(500));
 
         println!("   - Moving camera to a different position...");
         camera.set_position(Degrees(-20.0), Degrees(6.0))?;
-        camera.set_zoom(ZoomPosition::new(0x3000)?)?;
+        camera.set_zoom(0x3000)?;
         std::thread::sleep(Duration::from_secs(3));
 
         println!("   - Saving this position to preset 2...");
-        camera.set_preset(G2PresetId::new(2).unwrap())?;
+        camera.set_preset(2)?;
         std::thread::sleep(Duration::from_millis(500));
 
         println!("   - Returning to home...");
@@ -127,11 +123,11 @@ fn main() -> Result<(), Error> {
         std::thread::sleep(Duration::from_secs(2));
 
         println!("   - Recalling preset 1...");
-        camera.recall_preset(G2PresetId::new(1).unwrap())?;
+        camera.recall_preset(1)?;
         std::thread::sleep(Duration::from_secs(3));
 
         println!("   - Recalling preset 2...");
-        camera.recall_preset(G2PresetId::new(2).unwrap())?;
+        camera.recall_preset(2)?;
         std::thread::sleep(Duration::from_secs(3));
 
         println!("\n=== Demo Complete ===");

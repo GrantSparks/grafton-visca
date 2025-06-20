@@ -13,6 +13,8 @@
 //! - `impl_up_down_reset!` - Implement up/down/reset method triplets
 //! - `impl_simple_command!` - Implement simple command methods
 //! - `visca_bounded_param!` - Create validated newtype wrappers for numeric parameters
+//! - `define_camera_methods!` - Generate unified camera methods for both blocking and async
+//! - `define_generic_camera_methods!` - Generate generic camera methods with type conversions
 
 /// Create a simple VISCA command enum with byte sequences.
 ///
@@ -647,6 +649,98 @@ macro_rules! define_camera_methods {
                 }
             )*
         }
+    };
+}
+
+/// Generate camera methods with generic parameter acceptance.
+///
+/// This macro creates methods that accept multiple parameter types through generic bounds,
+/// enabling ergonomic usage with raw values, typed wrappers, and enums.
+///
+/// The macro generates both sync (blocking) and async versions of the methods automatically.
+/// For async methods, it transforms `self.send_and_wait(...)` calls to include `.await`.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::define_generic_camera_methods;
+///
+/// define_generic_camera_methods! {
+///     /// Set zoom position with flexible parameter types.
+///     #[generic_params(Z)]
+///     #[where_clause(Z: TryInto<ZoomPosition>, Z::Error: Into<Error>)]
+///     pub fn set_zoom(&self, position: Z) -> Result<(), Error> {
+///         let position = position.try_into().map_err(Into::into)?;
+///         self.send_and_wait(&ZoomCommand::direct::<P>(position.value())?)
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! define_generic_camera_methods {
+    (
+        $(
+            $(#[$doc:meta])*
+            generic_params = [$($gen:ident),+];
+            where_clause = [$($where_clause:tt)*];
+            pub fn $name:ident(&self $(, $param:ident : $ptype:ty)*) -> Result<$ret:ty, Error> {
+                $($body:tt)*
+            }
+        )*
+    ) => {
+        // Generate blocking implementation
+        #[cfg(not(feature = "async"))]
+        impl<P: CameraProfile> Camera<P> {
+            $(
+                $(#[$doc])*
+                pub fn $name<$($gen),+>(&mut self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error>
+                where
+                    $($where_clause)*
+                {
+                    $($body)*
+                }
+            )*
+        }
+
+        // Generate async implementation
+        #[cfg(feature = "async")]
+        impl<P: CameraProfile> Camera<P> {
+            $(
+                $(#[$doc])*
+                pub async fn $name<$($gen),+>(&self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error>
+                where
+                    $($where_clause)*
+                {
+                    define_generic_camera_methods!(@async_body $($body)*)
+                }
+            )*
+        }
+    };
+
+    // Transform bodies for async
+    (@async_body { $($body:tt)* }) => {
+        {
+            define_generic_camera_methods!(@async_transform $($body)*)
+        }
+    };
+
+    (@async_transform) => {};
+
+    (@async_transform let $var:ident = $init:expr; $($rest:tt)*) => {
+        let $var = $init;
+        define_generic_camera_methods!(@async_transform $($rest)*)
+    };
+
+    (@async_transform self.send_and_wait($expr:expr) $($rest:tt)*) => {
+        self.send_and_wait($expr).await
+        define_generic_camera_methods!(@async_transform $($rest)*)
+    };
+
+    (@async_transform $stmt:stmt) => {
+        $stmt
+    };
+
+    (@async_transform $stmt:stmt; $($rest:tt)*) => {
+        $stmt;
+        define_generic_camera_methods!(@async_transform $($rest)*)
     };
 }
 

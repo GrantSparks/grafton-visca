@@ -325,6 +325,12 @@ impl TryFrom<u8> for IrisLevel {
     }
 }
 
+impl From<FStop> for IrisLevel {
+    fn from(fstop: FStop) -> Self {
+        Self(fstop.to_iris_level())
+    }
+}
+
 impl fmt::Display for IrisLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Iris {:#02X}", self.0)
@@ -889,6 +895,24 @@ impl NoiseReductionStrength {
     }
 }
 
+impl TryFrom<NoiseReductionStrength> for NoiseReduction2DLevel {
+    type Error = Error;
+
+    fn try_from(strength: NoiseReductionStrength) -> Result<Self, Self::Error> {
+        let level = strength.to_2d_level()?;
+        Self::new(level)
+    }
+}
+
+impl TryFrom<NoiseReductionStrength> for NoiseReduction3DLevel {
+    type Error = Error;
+
+    fn try_from(strength: NoiseReductionStrength) -> Result<Self, Self::Error> {
+        let level = strength.to_3d_level()?;
+        Self::new(level)
+    }
+}
+
 #[cfg(test)]
 mod speed_tests {
     use super::*;
@@ -930,6 +954,81 @@ mod speed_tests {
         assert!(NoiseReductionStrength::Off.to_3d_level().is_err());
         assert_eq!(NoiseReductionStrength::Minimal.to_3d_level().unwrap(), 1);
         assert_eq!(NoiseReductionStrength::Maximum.to_3d_level().unwrap(), 8);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_position_types() {
+        // Test pan position
+        assert!(PanPosition::new(-2448).is_ok());
+        assert!(PanPosition::new(2448).is_ok());
+        assert!(PanPosition::new(-2449).is_err());
+        assert!(PanPosition::new(2449).is_err());
+
+        // Test degree conversions for pan
+        let pan_center = PanPosition::CENTER;
+        assert_eq!(pan_center.to_degrees(), 0.0);
+
+        // Test valid degree conversion for pan
+        let pan_from_degrees = PanPosition::from_degrees(45.0).unwrap();
+        assert!((pan_from_degrees.to_degrees() - 45.0).abs() < 1.0);
+
+        // Test tilt position
+        assert!(TiltPosition::new(-432).is_ok());
+        assert!(TiltPosition::new(1296).is_ok());
+        assert!(TiltPosition::new(-433).is_err());
+        assert!(TiltPosition::new(1297).is_err());
+
+        // Test degree conversions for tilt
+        let tilt_center = TiltPosition::CENTER;
+        assert_eq!(tilt_center.to_degrees(), 0.0);
+        let tilt_from_degrees = TiltPosition::from_degrees(45.0).unwrap();
+        assert!((tilt_from_degrees.to_degrees() - 45.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_speed_types() {
+        // Test pan speed
+        assert!(PanSpeed::new(1).is_ok());
+        assert!(PanSpeed::new(24).is_ok());
+        assert!(PanSpeed::new(0).is_err());
+        assert!(PanSpeed::new(25).is_err());
+
+        // Test tilt speed
+        assert!(TiltSpeed::new(1).is_ok());
+        assert!(TiltSpeed::new(20).is_ok());
+        assert!(TiltSpeed::new(0).is_err());
+        assert!(TiltSpeed::new(21).is_err());
+
+        // Test speed level conversions
+        let pan_speed = PanSpeed::from(SpeedLevel::Fast);
+        assert_eq!(pan_speed.value(), 18);
+        let tilt_speed = TiltSpeed::from(SpeedLevel::Fast);
+        assert_eq!(tilt_speed.value(), 15);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)] // OK in tests
+    fn test_ergonomic_conversions() {
+        // Test normalized zoom conversions
+        let zoom_half = ZoomPosition::try_from(0.5f32).unwrap();
+        let normalized: f32 = zoom_half.into();
+        assert!((normalized - 0.5).abs() < 0.01);
+
+        // Test normalized focus conversions
+        let focus_quarter = FocusPosition::try_from(0.25f32).unwrap();
+        let normalized: f32 = focus_quarter.into();
+        assert!((normalized - 0.25).abs() < 0.01);
+
+        // Test F-stop to iris level conversion
+        let iris = IrisLevel::from(FStop::F2_8);
+        assert_eq!(iris.value(), 0x09);
+
+        // Test invalid normalized values
+        assert!(ZoomPosition::try_from(-0.1f32).is_err());
+        assert!(ZoomPosition::try_from(1.1f32).is_err());
+        assert!(FocusPosition::try_from(-0.1f32).is_err());
+        assert!(FocusPosition::try_from(1.1f32).is_err());
     }
 }
 
@@ -981,6 +1080,29 @@ impl TryFrom<u16> for ZoomPosition {
     }
 }
 
+impl TryFrom<f32> for ZoomPosition {
+    type Error = Error;
+
+    /// Create from normalized value (0.0-1.0).
+    /// 0.0 = wide, 1.0 = maximum digital zoom.
+    fn try_from(normalized: f32) -> Result<Self, Self::Error> {
+        if !(0.0..=1.0).contains(&normalized) {
+            return Err(Error::InvalidParameter(
+                "Normalized zoom must be between 0.0 and 1.0".to_string(),
+            ));
+        }
+        let value = (normalized * f32::from(Self::MAX_DIGITAL.value())).round() as u16;
+        Self::new(value)
+    }
+}
+
+impl From<ZoomPosition> for f32 {
+    /// Convert to normalized value (0.0-1.0).
+    fn from(pos: ZoomPosition) -> Self {
+        f32::from(pos.value()) / f32::from(ZoomPosition::MAX_DIGITAL.value())
+    }
+}
+
 impl fmt::Display for ZoomPosition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Zoom {:#04X}", self.0)
@@ -1029,6 +1151,31 @@ impl TryFrom<u16> for FocusPosition {
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         Self::new(value)
+    }
+}
+
+impl TryFrom<f32> for FocusPosition {
+    type Error = Error;
+
+    /// Create from normalized value (0.0-1.0).
+    /// 0.0 = infinity, 1.0 = near focus.
+    fn try_from(normalized: f32) -> Result<Self, Self::Error> {
+        if !(0.0..=1.0).contains(&normalized) {
+            return Err(Error::InvalidParameter(
+                "Normalized focus must be between 0.0 and 1.0".to_string(),
+            ));
+        }
+        let range = Self::MAX.value() - Self::MIN.value();
+        let value = Self::MIN.value() + (normalized * f32::from(range)).round() as u16;
+        Self::new(value)
+    }
+}
+
+impl From<FocusPosition> for f32 {
+    /// Convert to normalized value (0.0-1.0).
+    fn from(pos: FocusPosition) -> Self {
+        let range = FocusPosition::MAX.value() - FocusPosition::MIN.value();
+        f32::from(pos.value() - FocusPosition::MIN.value()) / f32::from(range)
     }
 }
 
@@ -1388,5 +1535,288 @@ impl TryFrom<i8> for BlueTuning {
 impl fmt::Display for BlueTuning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Blue Tuning {:+}", self.0)
+    }
+}
+
+/// Pan position value for horizontal camera positioning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanPosition(i16);
+
+impl PanPosition {
+    /// Minimum pan position (left).
+    pub const MIN: Self = Self(-2448);
+
+    /// Maximum pan position (right).
+    pub const MAX: Self = Self(2448);
+
+    /// Center position.
+    pub const CENTER: Self = Self(0);
+
+    /// Create a new pan position.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside -2448 to +2448.
+    pub fn new(value: i16) -> Result<Self, Error> {
+        if (-2448..=2448).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "pan_position".to_string(),
+                value: i32::from(value),
+                min: -2448,
+                max: 2448,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> i16 {
+        self.0
+    }
+
+    /// Convert to degrees (approximate).
+    /// Based on typical PTZ camera pan range of ±170°.
+    #[must_use]
+    pub fn to_degrees(self) -> f32 {
+        (self.0 as f32) * 170.0 / 2448.0
+    }
+
+    /// Create from degrees (approximate).
+    /// Based on typical PTZ camera pan range of ±170°.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if degrees exceed ±170°.
+    pub fn from_degrees(degrees: f32) -> Result<Self, Error> {
+        if !(-170.0..=170.0).contains(&degrees) {
+            return Err(Error::InvalidParameter(
+                "Pan degrees must be between -170° and +170°".to_string(),
+            ));
+        }
+        let value = (degrees * 2448.0 / 170.0).round() as i16;
+        Self::new(value)
+    }
+}
+
+impl TryFrom<i16> for PanPosition {
+    type Error = Error;
+
+    fn try_from(value: i16) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl TryFrom<f32> for PanPosition {
+    type Error = Error;
+
+    fn try_from(degrees: f32) -> Result<Self, Self::Error> {
+        Self::from_degrees(degrees)
+    }
+}
+
+impl fmt::Display for PanPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Pan {:.1}°", self.to_degrees())
+    }
+}
+
+/// Tilt position value for vertical camera positioning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TiltPosition(i16);
+
+impl TiltPosition {
+    /// Minimum tilt position (down).
+    pub const MIN: Self = Self(-432);
+
+    /// Maximum tilt position (up).
+    pub const MAX: Self = Self(1296);
+
+    /// Center position.
+    pub const CENTER: Self = Self(0);
+
+    /// Create a new tilt position.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside -432 to +1296.
+    pub fn new(value: i16) -> Result<Self, Error> {
+        if (-432..=1296).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "tilt_position".to_string(),
+                value: i32::from(value),
+                min: -432,
+                max: 1296,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> i16 {
+        self.0
+    }
+
+    /// Convert to degrees (approximate).
+    /// Based on typical PTZ camera tilt range: -30° to +90°.
+    #[must_use]
+    pub fn to_degrees(self) -> f32 {
+        // Map -432 to -30°, 0 to 0°, +1296 to +90°
+        if self.0 >= 0 {
+            (self.0 as f32) * 90.0 / 1296.0
+        } else {
+            (self.0 as f32) * 30.0 / 432.0
+        }
+    }
+
+    /// Create from degrees (approximate).
+    /// Based on typical PTZ camera tilt range: -30° to +90°.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if degrees exceed -30° to +90°.
+    pub fn from_degrees(degrees: f32) -> Result<Self, Error> {
+        if !(-30.0..=90.0).contains(&degrees) {
+            return Err(Error::InvalidParameter(
+                "Tilt degrees must be between -30° and +90°".to_string(),
+            ));
+        }
+        let value = if degrees >= 0.0 {
+            (degrees * 1296.0 / 90.0).round() as i16
+        } else {
+            (degrees * 432.0 / 30.0).round() as i16
+        };
+        Self::new(value)
+    }
+}
+
+impl TryFrom<i16> for TiltPosition {
+    type Error = Error;
+
+    fn try_from(value: i16) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl TryFrom<f32> for TiltPosition {
+    type Error = Error;
+
+    fn try_from(degrees: f32) -> Result<Self, Self::Error> {
+        Self::from_degrees(degrees)
+    }
+}
+
+impl fmt::Display for TiltPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Tilt {:.1}°", self.to_degrees())
+    }
+}
+
+/// Pan speed value for horizontal camera movement speed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanSpeed(u8);
+
+impl PanSpeed {
+    /// Minimum pan speed (slowest).
+    pub const MIN: Self = Self(0x01);
+
+    /// Maximum pan speed (fastest).
+    pub const MAX: Self = Self(0x18); // 24 in decimal
+
+    /// Create a new pan speed.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 1-24.
+    pub fn new(value: u8) -> Result<Self, Error> {
+        if (1..=24).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "pan_speed".to_string(),
+                value: i32::from(value),
+                min: 1,
+                max: 24,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for PanSpeed {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<SpeedLevel> for PanSpeed {
+    fn from(level: SpeedLevel) -> Self {
+        Self(level.to_pan_speed())
+    }
+}
+
+impl fmt::Display for PanSpeed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Pan Speed {}", self.0)
+    }
+}
+
+/// Tilt speed value for vertical camera movement speed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TiltSpeed(u8);
+
+impl TiltSpeed {
+    /// Minimum tilt speed (slowest).
+    pub const MIN: Self = Self(0x01);
+
+    /// Maximum tilt speed (fastest).
+    pub const MAX: Self = Self(0x14); // 20 in decimal
+
+    /// Create a new tilt speed.
+    ///
+    /// # Errors
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 1-20.
+    pub fn new(value: u8) -> Result<Self, Error> {
+        if (1..=20).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(Error::ParameterOutOfRange {
+                parameter: "tilt_speed".to_string(),
+                value: i32::from(value),
+                min: 1,
+                max: 20,
+            })
+        }
+    }
+
+    /// Get the raw value.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for TiltSpeed {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<SpeedLevel> for TiltSpeed {
+    fn from(level: SpeedLevel) -> Self {
+        Self(level.to_tilt_speed())
+    }
+}
+
+impl fmt::Display for TiltSpeed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Tilt Speed {}", self.0)
     }
 }

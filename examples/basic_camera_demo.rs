@@ -7,8 +7,9 @@ use grafton_visca::{
     command::{
         exposure::ExposureMode, pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
     },
-    types::ZoomPosition,
-    Camera, Error,
+    // ZoomPosition no longer needed - set_zoom takes u16 directly
+    Camera,
+    Error,
 };
 use std::time::Duration;
 
@@ -87,11 +88,11 @@ mod blocking_demo {
         camera.zoom_stop()?;
 
         println!("Setting zoom to 50%...");
-        camera.set_zoom(ZoomPosition::new(0x3800)?)?; // Mid-range zoom
+        camera.set_zoom(0x3800)?; // Mid-range zoom
         thread::sleep(Duration::from_secs(1));
 
         println!("Resetting zoom...");
-        camera.set_zoom(ZoomPosition::new(0x0000)?)?;
+        camera.set_zoom(0x0000)?;
         Ok(())
     }
 
@@ -225,11 +226,11 @@ mod async_demo {
         camera.zoom_stop().await?;
 
         println!("Setting zoom to 50%...");
-        camera.set_zoom(ZoomPosition::new(0x3800)?).await?; // Mid-range zoom
+        camera.set_zoom(0x3800).await?; // Mid-range zoom
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         println!("Resetting zoom...");
-        camera.set_zoom(ZoomPosition::new(0x0000)?).await?;
+        camera.set_zoom(0x0000).await?;
         Ok(())
     }
 

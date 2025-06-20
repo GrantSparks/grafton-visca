@@ -130,8 +130,7 @@ async fn main() -> Result<(), Error> {
         let camera = Arc::clone(&camera);
         tokio::spawn(async move {
             let cam = camera.lock().await;
-            use grafton_visca::camera::profiles::G2PresetId;
-            cam.set_preset(G2PresetId::new(1).unwrap()).await
+            cam.set_preset(1).await
         })
     };
 

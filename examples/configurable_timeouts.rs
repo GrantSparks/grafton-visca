@@ -113,7 +113,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     // Save preset
     let start = Instant::now();
-    match camera.set_preset(preset_id) {
+    match camera.set_preset(preset_id.into()) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Save preset completed in {:?}", elapsed);
@@ -127,7 +127,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     // Recall preset
     let start = Instant::now();
-    match camera.recall_preset(preset_id) {
+    match camera.recall_preset(preset_id.into()) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Recall preset completed in {:?}", elapsed);

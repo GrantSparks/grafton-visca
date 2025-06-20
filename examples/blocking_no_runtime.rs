@@ -12,7 +12,7 @@ fn main() {
 use grafton_visca::camera::units::Degrees;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
+    camera::{Camera, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
     transport::blocking::create,
 };
@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test preset operations
     println!("Saving position to preset 1...");
-    camera.set_preset(G2PresetId::new(1)?)?;
+    camera.set_preset(1)?;
 
     // Move away
     println!("Moving to home...");
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Recall preset
     println!("Recalling preset 1...");
-    camera.recall_preset(G2PresetId::new(1)?)?;
+    camera.recall_preset(1)?;
     std::thread::sleep(Duration::from_secs(3));
 
     println!("\nAll operations completed successfully!");

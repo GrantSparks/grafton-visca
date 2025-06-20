@@ -7,15 +7,14 @@ use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{
         exposure::{DynamicRangeLevel, ExposureMode},
-        image::ImageFlipMode,
+        // image::ImageFlipMode, // unused import
         pan_tilt::PanTiltDirection,
         white_balance::WhiteBalanceMode,
     },
     transport::create,
     types::{
-        BrightnessLevel, ColorTemperature, ContrastLevel, FocusPosition, GainLimit, HueLevel,
-        IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
-        ShutterSpeed, ZoomPosition,
+        BrightnessLevel, ColorTemperature, ContrastLevel, GainLimit, HueLevel,
+        NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
     },
     Error,
 };
@@ -50,7 +49,7 @@ async fn main() -> Result<(), Error> {
 
     // Zoom control
     println!("\nTesting zoom control...");
-    camera.set_zoom(ZoomPosition::new(0x2000)?).await?;
+    camera.set_zoom(0x2000).await?;
     time::sleep(Duration::from_secs(1)).await;
 
     camera.zoom_in().await?;
@@ -61,13 +60,13 @@ async fn main() -> Result<(), Error> {
     println!("\nTesting preset management...");
     use grafton_visca::camera::profiles::G2PresetId;
     let preset = G2PresetId::new(1)?;
-    camera.set_preset(preset).await?;
+    camera.set_preset(preset.into()).await?;
     time::sleep(Duration::from_millis(500)).await;
 
     camera.home().await?;
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.recall_preset(preset).await?;
+    camera.recall_preset(preset.into()).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Focus control
@@ -76,7 +75,7 @@ async fn main() -> Result<(), Error> {
     time::sleep(Duration::from_millis(500)).await;
 
     camera.focus_manual().await?;
-    camera.set_focus(FocusPosition::new(0x5000)?).await?;
+    camera.set_focus(0x5000).await?;
     time::sleep(Duration::from_millis(500)).await;
 
     camera.focus_auto().await?;
@@ -84,11 +83,12 @@ async fn main() -> Result<(), Error> {
     // Exposure control
     println!("\nTesting exposure control...");
     camera.set_exposure_mode(ExposureMode::Auto).await?;
-    camera.set_iris(IrisLevel::new(10)?).await?;
-    camera.set_shutter(ShutterSpeed::new(15)?).await?;
-    camera.backlight_on().await?;
+    camera.set_iris(10).await?;
+    // Set shutter speed not available directly in current API
+    // camera.set_shutter_speed(ShutterSpeed::new(15)?).await?;
+    camera.set_backlight(true).await?;
     time::sleep(Duration::from_millis(500)).await;
-    camera.backlight_off().await?;
+    camera.set_backlight(false).await?;
 
     // Image quality control
     println!("\nTesting image quality control...");
@@ -115,7 +115,8 @@ async fn main() -> Result<(), Error> {
         .await?;
     time::sleep(Duration::from_millis(500)).await;
 
-    camera.one_push_white_balance().await?;
+    // One-push white balance not available in current API
+    // camera.one_push_white_balance().await?;
 
     // Advanced image features
     println!("\nTesting advanced image features...");
@@ -125,34 +126,37 @@ async fn main() -> Result<(), Error> {
     camera
         .set_noise_reduction_3d(NoiseReduction3DLevel::new(2)?)
         .await?;
-    camera.set_image_flip(ImageFlipMode::Off).await?;
-    camera.black_white_off().await?;
+    // Note: set_image_flip not available in current API
+    // Note: black_white_off not available in current API
 
     // Position control with different unit types
     println!("\nTesting position control with different units...");
-    use grafton_visca::camera::units::{Degrees, Normalized, ViscaUnits};
+    use grafton_visca::camera::units::Degrees;
 
     // Using degrees
     camera.set_position(Degrees(45.0), Degrees(15.0)).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Using VISCA units
-    camera
-        .set_position_units(ViscaUnits(1000), ViscaUnits(500))
-        .await?;
+    // Set position using raw VISCA units (convert to appropriate units)
+    // This would require using ViscaUnits or converting to degrees
+    camera.set_position(Degrees(10.0), Degrees(5.0)).await?;
     time::sleep(Duration::from_secs(2)).await;
 
-    // Using normalized coordinates
-    camera
-        .set_position_normalized(Normalized(0.0), Normalized(0.0))
-        .await?;
+    // Using normalized coordinates - convert to degrees
+    camera.set_position(Degrees(0.0), Degrees(0.0)).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Gain control with profile-specific values
     println!("\nTesting gain control...");
-    use grafton_visca::camera::profiles::G2Gain;
-    camera.set_gain(G2Gain::Gain0dB).await?;
-    camera.set_gain(G2Gain::Gain12dB).await?;
+
+    // Set gain value
+    camera
+        .set_gain(grafton_visca::types::GainValue::new(0)?)
+        .await?; // 0dB gain
+    camera
+        .set_gain(grafton_visca::types::GainValue::new(4)?)
+        .await?; // 12dB gain
     camera.set_gain_limit(GainLimit::new(4)?).await?; // 12dB limit
 
     // Dynamic range and color temperature

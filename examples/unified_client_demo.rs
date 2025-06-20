@@ -102,7 +102,7 @@ async fn profile_switching_example() -> Result<(), Error> {
 
         println!("G2 Camera - saving preset 1...");
         let preset = G2PresetId::new(1)?;
-        g2_camera.set_preset(preset).await?;
+        g2_camera.set_preset(preset.into()).await?;
     }
 
     // Generic VISCA camera (wider compatibility)
@@ -112,7 +112,7 @@ async fn profile_switching_example() -> Result<(), Error> {
 
         println!("Generic Camera - recalling preset 0...");
         let preset = GenericPresetId::new(0);
-        generic_camera.recall_preset(preset).await?;
+        generic_camera.recall_preset(preset.into()).await?;
     }
 
     Ok(())

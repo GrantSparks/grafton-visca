@@ -10,8 +10,7 @@ use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{exposure::ExposureMode, pan_tilt::PanTiltDirection},
     types::{
-        FStop, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength,
-        SpeedLevel,
+        FStop, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength, SpeedLevel,
     },
 };
 #[cfg(not(feature = "async"))]
@@ -49,11 +48,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_exposure_mode(ExposureMode::Manual)?;
 
     // Set specific F-stop values
-    camera.set_iris(IrisLevel::new(FStop::F2_8.to_iris_level())?)?;
+    camera.set_iris(FStop::F2_8.to_iris_level())?;
     println!("Iris set to {}", FStop::F2_8);
     std::thread::sleep(Duration::from_secs(1));
 
-    camera.set_iris(IrisLevel::new(FStop::F5_6.to_iris_level())?)?;
+    camera.set_iris(FStop::F5_6.to_iris_level())?;
     println!("Iris set to {}", FStop::F5_6);
     std::thread::sleep(Duration::from_secs(1));
 

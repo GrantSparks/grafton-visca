@@ -10,12 +10,12 @@
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::ViscaUnits,
+        units::Degrees,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
     transport::create,
-    types::{FocusPosition, ZoomPosition},
+    // FocusPosition no longer needed - set_focus takes u16 directly
     Error,
 };
 use std::env;
@@ -65,27 +65,23 @@ async fn main() -> Result<(), Error> {
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Setting up shot 1...");
-    camera
-        .set_position_units(ViscaUnits(800), ViscaUnits(-200))
-        .await?;
-    camera.set_zoom(ZoomPosition::new(0x1800)?).await?;
+    camera.set_position(Degrees(16.0), Degrees(-4.0)).await?;
+    camera.set_zoom(0x1800).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 10...");
     let preset10 = G2PresetId::new(10)?;
-    camera.set_preset(preset10).await?;
+    camera.set_preset(preset10.into()).await?;
     sleep(Duration::from_millis(500)).await;
 
     println!("   - Setting up shot 2...");
-    camera
-        .set_position_units(ViscaUnits(-600), ViscaUnits(400))
-        .await?;
-    camera.set_zoom(ZoomPosition::new(0x3000)?).await?;
+    camera.set_position(Degrees(-12.0), Degrees(8.0)).await?;
+    camera.set_zoom(0x3000).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 11...");
     let preset11 = G2PresetId::new(11)?;
-    camera.set_preset(preset11).await?;
+    camera.set_preset(preset11.into()).await?;
     sleep(Duration::from_millis(500)).await;
 
     // Smooth Movement Example
@@ -116,7 +112,7 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Adjusting focus...");
     // Direct focus position
-    camera.set_focus(FocusPosition::new(0x6000)?).await?;
+    camera.set_focus(0x6000).await?;
     sleep(Duration::from_secs(1)).await;
 
     println!("   - Restoring auto focus...");
@@ -126,11 +122,11 @@ async fn main() -> Result<(), Error> {
     println!("\n4. Preset Recall Demo");
 
     println!("   - Recalling preset 10...");
-    camera.recall_preset(preset10).await?;
+    camera.recall_preset(preset10.into()).await?;
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Recalling preset 11...");
-    camera.recall_preset(preset11).await?;
+    camera.recall_preset(preset11.into()).await?;
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Returning to home...");
@@ -138,8 +134,8 @@ async fn main() -> Result<(), Error> {
 
     // Clean up presets
     println!("\n5. Cleanup");
-    camera.clear_preset(preset10).await?;
-    camera.clear_preset(preset11).await?;
+    // Note: clear_preset is not available in the current API
+    println!("   - Note: clear_preset functionality not available in current API");
 
     println!("\nDemo completed successfully!");
     Ok(())

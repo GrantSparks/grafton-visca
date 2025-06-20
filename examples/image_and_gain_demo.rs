@@ -3,10 +3,7 @@
 //! Example demonstrating image quality and gain control features.
 
 use grafton_visca::{
-    camera::{
-        profiles::{G2Gain, PTZOpticsG2},
-        Camera,
-    },
+    camera::{profiles::PTZOpticsG2, Camera},
     command::gain::AntiFlickerMode,
     transport::create,
     types::{ContrastLevel, GainLimit, LuminanceLevel, SharpnessLevel},
@@ -68,23 +65,27 @@ async fn main() -> Result<(), Error> {
     println!("Sharpness: Default (7)");
     time::sleep(Duration::from_secs(1)).await;
 
-    camera.sharpness_up().await?;
+    camera.set_sharpness(SharpnessLevel::new(8)?).await?;
     println!("Sharpness: Up");
     time::sleep(Duration::from_secs(1)).await;
 
-    camera.sharpness_down().await?;
-    camera.sharpness_down().await?;
+    camera.set_sharpness(SharpnessLevel::new(5)?).await?;
     println!("Sharpness: Down x2");
     time::sleep(Duration::from_secs(1)).await;
 
     // Gain control
     println!("\n--- Gain Control ---");
-    camera.set_gain(G2Gain::Gain0dB).await?;
+    // Set gain value
+    camera
+        .set_gain(grafton_visca::types::GainValue::new(0)?)
+        .await?; // 0dB
     println!("Gain: Minimum (0 dB)");
     time::sleep(Duration::from_secs(1)).await;
 
-    camera.gain_up().await?;
-    camera.gain_up().await?;
+    // Set gain value
+    camera
+        .set_gain(grafton_visca::types::GainValue::new(2)?)
+        .await?; // Increased gain
     println!("Gain: Up x2");
     time::sleep(Duration::from_secs(1)).await;
 

@@ -8,15 +8,16 @@
 use grafton_visca::{
     camera::{
         profiles::{
-            G2Gain, G2PresetId, GenericPresetId, GenericVisca, PTZOptics30X, PTZOpticsG2,
-            SonyEVID70,
+            G2PresetId, GenericPresetId, GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70,
         },
-        units::{Degrees, ViscaUnits},
+        units::Degrees,
         CameraProfile, CameraTransport,
     },
     transport::TransportFuture,
-    types::ZoomPosition,
-    Camera, Command, Error,
+    // ZoomPosition no longer needed - set_zoom takes u16 directly
+    Camera,
+    Command,
+    Error,
 };
 
 #[cfg(feature = "async")]
@@ -84,18 +85,16 @@ async fn demo_ptzoptics_g2() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. Valid zoom position for G2 (20X optical)
     println!("1. Testing valid zoom position (20X):");
-    match camera.set_zoom(ZoomPosition::new(0x7000)?).await {
+    match camera.set_zoom(0x7000).await {
         Ok(_) => println!("   ✓ Zoom to 20X position would be sent"),
         Err(e) => println!("   ✗ Error: {}", e),
     }
 
     // 2. Invalid zoom position for G2 (beyond 20X)
     println!("2. Testing invalid zoom position (beyond 20X range):");
-    match ZoomPosition::new(0x7AC0) {
-        Ok(pos) => match camera.set_zoom(pos).await {
-            Ok(_) => println!("   ✗ Command sent (shouldn't happen)"),
-            Err(e) => println!("   ✗ Unexpected error: {}", e),
-        },
+    // Note: Since set_zoom now accepts raw u16, validation happens at the command level
+    match camera.set_zoom(0x7AC0).await {
+        Ok(_) => println!("   ✗ Command sent (shouldn't happen)"),
         Err(Error::ParameterOutOfRange { parameter, .. }) => {
             println!("   ✓ Validation prevented invalid command");
             println!("     Parameter '{}' out of valid zoom range", parameter);
@@ -124,7 +123,7 @@ async fn demo_ptzoptics_g2() -> Result<(), Box<dyn std::error::Error>> {
     // 5. G2-specific preset (0-89)
     println!("5. Testing valid G2 preset (89):");
     match G2PresetId::new(89) {
-        Ok(preset) => match camera.recall_preset(preset).await {
+        Ok(preset) => match camera.recall_preset(preset.into()).await {
             Ok(_) => println!("   ✓ Preset 89 recall would be sent"),
             Err(e) => println!("   ✗ Error: {}", e),
         },
@@ -140,10 +139,9 @@ async fn demo_ptzoptics_g2() -> Result<(), Box<dyn std::error::Error>> {
 
     // 7. G2-specific gain values
     println!("7. Testing G2 gain values:");
-    match camera.set_gain(G2Gain::Gain12dB).await {
-        Ok(_) => println!("   ✓ 12dB gain would be set"),
-        Err(e) => println!("   ✗ Error: {}", e),
-    }
+    // Note: G2Gain values cannot be directly converted to GainValue in current API
+    // This would require additional implementation
+    println!("   (Note: G2-specific gain values would be set here)");
 
     println!();
     Ok(())
@@ -160,7 +158,7 @@ async fn demo_ptzoptics_30x() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. 30X can handle higher zoom values than G2
     println!("1. Testing 30X zoom position:");
-    match camera.set_zoom(ZoomPosition::new(0x4000)?).await {
+    match camera.set_zoom(0x4000).await {
         Ok(_) => println!("   ✓ 30X zoom position would be sent"),
         Err(e) => println!("   ✗ Error: {}", e),
     }
@@ -177,7 +175,7 @@ async fn demo_ptzoptics_30x() -> Result<(), Box<dyn std::error::Error>> {
     // Note: The current PresetNumber type is limited to 0-89 (G2 specific)
     // This is a limitation that should be addressed in the future
     let preset = GenericPresetId::new(89);
-    match camera.recall_preset(preset).await {
+    match camera.recall_preset(preset.into()).await {
         Ok(_) => println!("   ✓ Preset 89 would be recalled"),
         Err(e) => println!("   ✗ Error: {}", e),
     }
@@ -231,7 +229,7 @@ async fn demo_sony_evid70() -> Result<(), Box<dyn std::error::Error>> {
     // 3. EVI-D70 only supports presets 0-5
     println!("3. Testing EVI-D70 preset limitations:");
     let preset = GenericPresetId::new(5);
-    match camera.recall_preset(preset).await {
+    match camera.recall_preset(preset.into()).await {
         Ok(_) => println!("   ✓ Preset 5 would be recalled (max for EVI-D70)"),
         Err(e) => println!("   ✗ Error: {}", e),
     }
@@ -274,16 +272,15 @@ async fn demo_generic_visca() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generic VISCA allows wide ranges for compatibility
     println!("1. Generic camera accepts wide ranges:");
-    match camera
-        .set_position_units(ViscaUnits(30000), ViscaUnits(20000))
-        .await
-    {
+    // Note: set_position_units is not available in the current API
+    // Using set_position with degrees instead
+    match camera.set_position(Degrees(180.0), Degrees(90.0)).await {
         Ok(_) => println!("   ✓ Large position values accepted for generic camera"),
         Err(e) => println!("   ✗ Error: {}", e),
     }
 
     println!("2. Generic camera accepts full zoom range:");
-    match camera.set_zoom(ZoomPosition::new(0xFFFF)?).await {
+    match camera.set_zoom(0xFFFF).await {
         Ok(_) => println!("   ✓ Maximum zoom value accepted"),
         Err(e) => println!("   ✗ Error: {}", e),
     }
