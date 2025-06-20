@@ -1,6 +1,6 @@
 //! Tests for `Camera<P>` inquiry methods.
 
-#[cfg(all(test, feature = "async-client"))]
+#[cfg(all(test, feature = "async"))]
 mod tests {
     use grafton_visca::camera::{Camera, PTZOpticsG2};
     use grafton_visca::transport::{Transport, TransportFuture};

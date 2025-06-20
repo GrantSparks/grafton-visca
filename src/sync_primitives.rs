@@ -4,15 +4,14 @@
 //! select the appropriate implementation based on enabled features.
 
 // Re-export the appropriate mutex type based on features
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 pub use tokio::sync::Mutex;
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-#[allow(unused_imports)]
+#[cfg(not(feature = "async"))]
 pub use parking_lot::Mutex;
 
 // Semaphore abstraction that works for both sync and async
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 mod async_semaphore {
     // Standard library imports
     use std::sync::Arc;
@@ -51,8 +50,8 @@ mod async_semaphore {
     }
 }
 
-// Blocking-only implementation removed - use async-first API
-#[cfg(not(feature = "async-client"))]
+// Blocking semaphore implementation when async is disabled
+#[cfg(not(feature = "async"))]
 mod sync_semaphore {
     // Standard library imports
     use std::sync::Arc;
@@ -110,10 +109,11 @@ mod sync_semaphore {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 pub use async_semaphore::{Permit, Semaphore};
 
-// Note: Blocking-only semaphore removed. Use async with runtime for blocking.
+#[cfg(not(feature = "async"))]
+pub use sync_semaphore::{Permit, Semaphore};
 
 // Helper trait to unify acquire behavior
 #[allow(dead_code)]
@@ -122,23 +122,33 @@ pub trait SemaphoreExt {
     where
         Self: 'a;
 
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     async fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::Error>;
 
-    // Note: Blocking acquire_permit removed. Use async version with runtime.
+    #[cfg(not(feature = "async"))]
+    fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::Error>;
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl SemaphoreExt for Semaphore {
     type Permit<'a>
         = Permit<'a>
     where
         Self: 'a;
 
-    #[cfg(feature = "async-client")]
     async fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::Error> {
         self.acquire().await
     }
+}
 
-    // Note: Blocking implementation removed. Use async version with runtime.
+#[cfg(not(feature = "async"))]
+impl SemaphoreExt for Semaphore {
+    type Permit<'a>
+        = Permit<'a>
+    where
+        Self: 'a;
+
+    fn acquire_permit(&self) -> Result<Self::Permit<'_>, crate::Error> {
+        Ok(self.acquire())
+    }
 }

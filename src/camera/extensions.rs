@@ -22,8 +22,8 @@
 //! ```
 //!
 //! The extension traits are only available when transport features are enabled:
-//! - `blocking-client`: Provides blocking command execution
-//! - `async-client`: Provides async command execution
+//! - `async`: Provides async command execution
+//! - Default (no features): Provides blocking command execution
 
 use crate::camera::{Camera, CameraProfile};
 

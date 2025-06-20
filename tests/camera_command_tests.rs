@@ -6,7 +6,7 @@
 #[path = "common/mod.rs"]
 mod common;
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 mod blocking_tests {
     use super::common::MockTransport;
     use grafton_visca::{
@@ -187,7 +187,7 @@ mod blocking_tests {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 mod async_tests {
     use super::common::MockAsyncTransport;
     use grafton_visca::{

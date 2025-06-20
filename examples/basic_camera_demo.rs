@@ -11,7 +11,7 @@ use grafton_visca::{
 };
 use std::time::Duration;
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 mod blocking_demo {
     use super::*;
     use grafton_visca::transport::blocking::create;
@@ -148,7 +148,7 @@ mod blocking_demo {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 mod async_demo {
     use super::*;
     use grafton_visca::transport::create;
@@ -291,21 +291,23 @@ mod async_demo {
 }
 
 // Main function adapts based on features
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     blocking_demo::run()
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     async_demo::run().await
 }
 
-#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires either 'blocking-client' or 'async-client' feature.");
-    eprintln!("Try: cargo run --example basic_camera_demo --features blocking-client");
+    eprintln!(
+        "This example works in blocking mode by default, or with 'async' feature for async mode."
+    );
+    eprintln!("Try: cargo run --example basic_camera_demo");
 }

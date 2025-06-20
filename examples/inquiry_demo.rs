@@ -11,13 +11,13 @@ use grafton_visca::{
 };
 use std::env;
 
-#[cfg(not(feature = "blocking-client"))]
+#[cfg(not(not(feature = "async")))]
 fn main() {
-    eprintln!("This example requires the 'blocking-client' feature.");
+    eprintln!("This example requires the blocking mode (default) feature.");
     eprintln!("Run with: cargo run --example inquiry_demo --features blocking-client");
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -42,7 +42,7 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 fn run_inquiries(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
     // Query individual camera settings
     println!("\n=== Individual Camera Queries ===");

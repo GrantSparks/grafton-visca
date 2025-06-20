@@ -48,6 +48,21 @@ pub struct PresetCommand {
     pub preset_number: PresetNumber,
 }
 
+impl PresetCommand {
+    /// Create a preset command with ID conversion.
+    pub fn new<P: crate::camera::CameraProfile>(
+        action: PresetAction,
+        preset: P::PresetId,
+    ) -> Result<Self, Error> {
+        let id: u8 = preset.into();
+        let preset_number = PresetNumber::new(id)?;
+        Ok(Self {
+            action,
+            preset_number,
+        })
+    }
+}
+
 impl Command for PresetCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![

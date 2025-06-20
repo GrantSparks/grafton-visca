@@ -3,7 +3,7 @@
 use grafton_visca::command::{power::Power, PowerCommand};
 use grafton_visca::Error;
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 fn blocking_example() -> Result<(), Error> {
     use grafton_visca::transport::blocking::create;
 
@@ -24,7 +24,7 @@ fn blocking_example() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 async fn async_example() -> Result<(), Error> {
     use grafton_visca::transport::create;
 
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("This example shows how to use transports in both async and blocking contexts.\n");
 
     // Run blocking example if feature is enabled
-    #[cfg(feature = "blocking-client")]
+    #[cfg(not(feature = "async"))]
     {
         if let Err(e) = blocking_example() {
             eprintln!("Blocking example error: {}", e);
@@ -62,17 +62,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Run async example if feature is enabled
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "async")]
     {
         if let Err(e) = async_example().await {
             eprintln!("Async example error: {}", e);
         }
     }
 
-    #[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+    #[cfg(not(any(not(feature = "async"), feature = "async")))]
     {
         println!(
-            "Please enable either 'blocking-client' or 'async-client' feature to run this example."
+            "Please enable either blocking mode (default) or 'async' feature to run this example."
         );
     }
 

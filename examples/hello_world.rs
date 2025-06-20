@@ -27,7 +27,7 @@ fn parse_args() -> (String, String) {
     (protocol, ip_address)
 }
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 mod blocking_impl {
     use super::*;
     use grafton_visca::transport::blocking::create;
@@ -140,7 +140,7 @@ mod blocking_impl {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 mod async_impl {
     use super::*;
     use grafton_visca::transport::create;
@@ -255,7 +255,7 @@ mod async_impl {
 }
 
 // Main function that works for both blocking and async modes
-#[cfg(all(feature = "async-client", feature = "blocking-client"))]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -264,7 +264,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     async_impl::run_async().await
 }
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
@@ -272,7 +272,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     blocking_impl::run_blocking()
 }
 
-#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -281,10 +281,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     async_impl::run_async().await
 }
 
-#[cfg(not(any(feature = "blocking-client", feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 fn main() {
     eprintln!(
-        "This example requires either 'blocking-client' or 'async-client' feature to be enabled."
+        "This example works in blocking mode by default, or with 'async' feature for async mode."
     );
-    eprintln!("Try running with: cargo run --example hello_world --features blocking-client");
+    eprintln!("Try running with: cargo run --example hello_world");
 }

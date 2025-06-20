@@ -210,10 +210,10 @@ Add the following to `Cargo.toml` under `[dependencies]`:
 grafton-visca = "0.4"
 
 # For async-only client
-grafton-visca = { version = "0.4", default-features = false, features = ["async-client"] }
+grafton-visca = { version = "0.4", default-features = false, features = ["async"] }
 
 # For both blocking and async support
-grafton-visca = { version = "0.4", features = ["blocking-client", "async-client"] }
+grafton-visca = { version = "0.4", features = ["async"] }
 ```
 
 Connection pooling is now built-in for managing multiple cameras!
@@ -621,7 +621,7 @@ Key changes:
 - High-level extension trait methods for common operations
 - PTZ builder for complex camera movements
 - Detailed error types with retry helpers
-- Feature flags simplified to just `blocking-client` and `async-client`
+- Feature flags simplified to just `async` for async runtime support
 
 See the [CHANGELOG](CHANGELOG.md) for complete migration details.
 

@@ -2,9 +2,9 @@
 //!
 //! This example demonstrates basic camera control using the new Camera API.
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::create;
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -14,10 +14,10 @@ use grafton_visca::{
     command::pan_tilt::PanTiltDirection,
     Error,
 };
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use std::time::Duration;
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::init();
@@ -90,8 +90,8 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(not(feature = "blocking-client"))]
+#[cfg(not(not(feature = "async")))]
 fn main() {
-    println!("This example requires the 'blocking-client' feature to be enabled.");
+    println!("This example requires the blocking mode (default) feature to be enabled.");
     println!("Run with: cargo run --example quick_start_demo --features blocking-client");
 }

@@ -5,7 +5,7 @@
 //! avoiding repetitive unwrap() calls.
 #![allow(dead_code)] // These utilities are for future test use
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::command::{
     pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
     preset::{PresetAction, PresetCommand, PresetNumber},
@@ -13,7 +13,7 @@ use grafton_visca::command::{
 };
 
 /// Builder for creating `PanTiltCommand` instances in tests.
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 pub struct TestPanTiltBuilder {
     pan: i16,
     tilt: i16,
@@ -21,7 +21,7 @@ pub struct TestPanTiltBuilder {
     tilt_speed: TiltSpeed,
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 impl TestPanTiltBuilder {
     /// Create a new builder with default values.
     pub fn new() -> Self {
@@ -107,7 +107,7 @@ impl TestPanTiltBuilder {
     }
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 impl Default for TestPanTiltBuilder {
     fn default() -> Self {
         Self::new()
@@ -115,12 +115,12 @@ impl Default for TestPanTiltBuilder {
 }
 
 /// Builder for creating preset commands in tests.
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 pub struct TestPresetBuilder {
     number: PresetNumber,
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 impl TestPresetBuilder {
     /// Create a new preset builder with preset 0.
     pub fn new() -> Self {
@@ -162,13 +162,13 @@ impl TestPresetBuilder {
 }
 
 /// Builder for creating zoom commands in tests.
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 pub struct TestZoomBuilder {
     position: u16,
     speed: Option<ZoomSpeed>,
 }
 
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 impl TestZoomBuilder {
     /// Create a new zoom builder.
     pub fn new() -> Self {
@@ -225,11 +225,11 @@ impl TestZoomBuilder {
 // Note: TestParameters helpers removed since those types are no longer part of the public API
 // Tests that need these types should construct command objects directly
 
-#[cfg(all(test, feature = "blocking-client"))]
+#[cfg(all(test, not(feature = "async")))]
 mod tests {
     use super::*;
 
-    #[cfg(feature = "blocking-client")]
+    #[cfg(not(feature = "async"))]
     #[test]
     fn test_pan_tilt_builder() {
         let cmd = TestPanTiltBuilder::new()
@@ -253,7 +253,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "blocking-client")]
+    #[cfg(not(feature = "async"))]
     #[test]
     fn test_preset_builder() {
         let cmd = TestPresetBuilder::new().with_number(5).build_recall();

@@ -10,20 +10,20 @@ use grafton_visca::{
 
 // Include the transport implementations from the example files
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     run_demo().await
 }
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
-    println!("This example requires the 'async-client' feature to be enabled.");
-    println!("Run with: cargo run --features async-client --example custom_profile_builder_demo");
+    println!("This example requires the 'async' feature to be enabled.");
+    println!("Run with: cargo run --features async --example custom_profile_builder_demo");
     Ok(())
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 async fn run_demo() -> Result<(), Error> {
     env_logger::init();
 

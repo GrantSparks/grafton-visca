@@ -2,21 +2,21 @@
 //!
 //! Shows the fully cleaned transport API without any legacy compatibility.
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::{
     command::zoom::ZoomCommand,
     transport::{create, RawTransport, ViscaTransport},
 };
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::time::Duration;
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
-    eprintln!("This example requires the 'async-client' feature.");
-    eprintln!("Run with: cargo run --example minimal_transport --features async-client");
+    eprintln!("This example requires the 'async' feature.");
+    eprintln!("Run with: cargo run --example minimal_transport --features async");
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Minimal Clean Transport API ===\n");
@@ -119,13 +119,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Simple mock transport for demonstration.
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[derive(Debug)]
 struct MockRaw {
     responses: std::sync::Mutex<std::collections::VecDeque<Vec<u8>>>,
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl MockRaw {
     fn new() -> Self {
         let mut responses = std::collections::VecDeque::new();
@@ -138,7 +138,7 @@ impl MockRaw {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 impl RawTransport for MockRaw {
     fn send<'a>(&'a mut self, data: &'a [u8]) -> grafton_visca::transport::TransportFuture<'a, ()> {
         Box::pin(async move {

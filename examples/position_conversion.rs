@@ -8,18 +8,18 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example position_conversion --features async-client [camera_ip:port]
+//! cargo run --example position_conversion --features async [camera_ip:port]
 //! ```
 //!
 //! Default camera IP is 192.168.0.110:1259 if not specified.
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
     eprintln!("This example requires the async-client feature.");
-    eprintln!("Run with: cargo run --example position_conversion --features async-client");
+    eprintln!("Run with: cargo run --example position_conversion --features async");
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 fn main() {
     eprintln!("Position conversion example currently disabled due to transport dependency issues.");
     eprintln!("This example demonstrates the Camera<P> API position conversion features.");

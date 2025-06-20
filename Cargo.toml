@@ -14,9 +14,9 @@ exclude = ["target/", ".gitignore", ".github/", ".vscode/"]
 readme = "README.md"
 
 [features]
-default = ["blocking-client"]
-blocking-client = ["parking_lot"]
-async-client = ["tokio", "futures", "futures-util"]
+default = []
+async = ["dep:tokio", "futures", "futures-util"]
+tokio = ["async"]
 
 [dependencies]
 log = "0.4.22"
@@ -25,8 +25,8 @@ nom = "7.1.3"
 thiserror = "1.0"
 paste = "1.0"
 
-# Synchronization for blocking mode
-parking_lot = { version = "0.12", optional = true }
+# Synchronization 
+parking_lot = { version = "0.12" }
 
 # Async dependencies (optional)
 tokio = { version = "1.38", features = ["net", "sync", "time", "rt", "rt-multi-thread", "macros", "io-util"], optional = true }
@@ -40,25 +40,25 @@ tokio-test = "0.4"
 
 [[example]]
 name = "async_concurrent"
-required-features = ["async-client"]
+required-features = ["tokio"]
 
 
 [[example]]
 name = "async_inquiry_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 [[example]]
 name = "async_control_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 [[example]]
 name = "async_configurable_timeouts"
-required-features = ["async-client"]
+required-features = ["async"]
 
 
 [[example]]
 name = "thread_safe_client"
-required-features = ["blocking-client"]
+# No features required for blocking mode (default)
 
 [[example]]
 name = "configurable_timeouts"
@@ -69,13 +69,11 @@ name = "control_demo"
 
 [[example]]
 name = "basic_camera_demo"
-required-features = ["blocking-client"]
 
 
 
 [[example]]
 name = "hello_world"
-required-features = ["blocking-client"]
 
 [[example]]
 name = "inquiry_demo"
@@ -83,20 +81,18 @@ name = "inquiry_demo"
 
 [[example]]
 name = "unified_client_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 
 [[example]]
 name = "position_conversion"
-required-features = ["blocking-client"]
+required-features = ["async"]
 
 [[example]]
 name = "blocking_no_runtime"
-required-features = ["blocking-client"]
 
 [[example]]
 name = "blocking_simple"
-required-features = ["blocking-client"]
 
 [[example]]
 name = "declarative_macro_test"
@@ -113,7 +109,7 @@ name = "error_handling_demo"
 
 [[example]]
 name = "enhanced_api_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 
 [[example]]
@@ -122,7 +118,7 @@ name = "quick_start_demo"
 
 [[example]]
 name = "test_extension_traits"
-required-features = ["async-client"]
+required-features = ["async"]
 
 
 [[example]]
@@ -131,33 +127,31 @@ name = "type_safe_api_demo"
 
 [[example]]
 name = "unified_transport_demo"
-required-features = ["blocking-client"]
 
 [[example]]
 name = "image_and_gain_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 
 [[example]]
 name = "white_balance_tuning_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 
 [[example]]
 name = "camera_profile_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 [[example]]
 name = "custom_profile_builder_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 [[example]]
 name = "capability_query_demo"
-required-features = ["blocking-client"]
 
 [[example]]
 name = "camera_inquiry_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 [[example]]
 name = "command_sequences_demo"
@@ -167,7 +161,7 @@ name = "command_sequences_demo"
 
 [[example]]
 name = "new_features_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 
 [[example]]
@@ -176,8 +170,8 @@ name = "user_friendly_api_demo"
 
 [[example]]
 name = "channel_transport_demo"
-required-features = ["async-client"]
+required-features = ["async"]
 
 [[example]]
 name = "custom_retry_logic"
-required-features = ["async-client"]
+required-features = ["async"]

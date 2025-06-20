@@ -4,13 +4,13 @@
 //! that can be used with the grafton-visca library. We'll create a
 //! simple in-memory transport for testing purposes.
 
-#[cfg(not(feature = "async-client"))]
+#[cfg(not(feature = "async"))]
 fn main() {
     eprintln!("This example requires the async-client feature.");
-    eprintln!("Run with: cargo run --example custom_transport_example --features async-client");
+    eprintln!("Run with: cargo run --example custom_transport_example --features async");
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 mod async_example {
     use grafton_visca::{
         camera::{profiles::PTZOpticsG2, Camera},
@@ -272,7 +272,7 @@ mod async_example {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move { async_example::main().await })

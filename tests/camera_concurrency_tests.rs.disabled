@@ -2,33 +2,33 @@
 
 mod common;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::sync::Arc;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use std::time::Duration;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use grafton_visca::{
     camera::{Camera, GenericVisca},
     command::inquiry::InquiryCommand,
     Result,
 };
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{Camera, GenericVisca},
     transport::BlockingAdapter,
     Result,
 };
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 use common::MockAsyncTransport;
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 use common::MockTransport;
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::test]
 async fn test_camera_readiness_check() -> Result<()> {
     // Create a mock transport for testing
@@ -43,7 +43,7 @@ async fn test_camera_readiness_check() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(feature = "async")]
 #[tokio::test]
 async fn test_concurrent_command_limit() -> Result<()> {
     // Create a mock transport for testing
@@ -82,7 +82,7 @@ async fn test_concurrent_command_limit() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_blocking_camera_readiness() -> Result<()> {
     // Create a mock transport for testing

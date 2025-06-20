@@ -6,22 +6,22 @@
 //! Run with: cargo run --example thread_safe_client --no-default-features --features blocking-client [CAMERA_IP:PORT]
 //! Default camera address: 192.168.1.100:5678
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::create;
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{Camera, CameraProfile, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
     Error,
 };
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 use std::sync::{Arc, Mutex};
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 use std::thread;
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 use std::time::Duration;
 
-#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
@@ -178,7 +178,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(all(feature = "blocking-client", not(feature = "async-client"))))]
+#[cfg(not(not(feature = "async")))]
 fn main() {
     eprintln!("This example requires only the blocking-client feature.");
     eprintln!("Run with: cargo run --example thread_safe_client --no-default-features --features blocking-client");

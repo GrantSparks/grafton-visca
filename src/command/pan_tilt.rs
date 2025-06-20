@@ -9,7 +9,7 @@
 //!
 //! # Example
 //! ```ignore
-//! # #[cfg(feature = "blocking-client")]
+//! # #[cfg(not(feature = "async"))]
 //! # {
 //! # use grafton_visca::command::pan_tilt::{PanTiltCommand, PanTiltDirection, PanSpeed, TiltSpeed};
 //! # use grafton_visca::Client;
@@ -36,6 +36,7 @@ use crate::{
     constants::{CameraConstants, CameraModel},
     error::Error,
     timeout::CommandCategory,
+    Normalized,
 };
 
 /// Direction for pan/tilt movement commands.
@@ -132,6 +133,109 @@ pub enum PanTiltCommand {
         /// Tilt movement speed (0x00-0x14).
         tilt_speed: TiltSpeed,
     },
+}
+
+impl PanTiltCommand {
+    /// Create an absolute position command with validation.
+    pub fn absolute_position<P: crate::camera::CameraProfile>(
+        pan: i16,
+        tilt: i16,
+    ) -> Result<Self, Error> {
+        // Range validation
+        if !P::PAN_RANGE.contains(&pan) {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "pan".to_string(),
+                value: pan as i32,
+                min: *P::PAN_RANGE.start() as i32,
+                max: *P::PAN_RANGE.end() as i32,
+            });
+        }
+
+        if !P::TILT_RANGE.contains(&tilt) {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "tilt".to_string(),
+                value: tilt as i32,
+                min: *P::TILT_RANGE.start() as i32,
+                max: *P::TILT_RANGE.end() as i32,
+            });
+        }
+
+        Ok(Self::AbsolutePosition {
+            pan_speed: PanSpeed::new(P::MAX_PAN_SPEED / 2)?,
+            tilt_speed: TiltSpeed::new(P::MAX_TILT_SPEED / 2)?,
+            pan,
+            tilt,
+        })
+    }
+
+    /// Create an absolute position command from normalized coordinates.
+    pub fn absolute_position_normalized<P: crate::camera::CameraProfile>(
+        pan: Normalized<f32>,
+        tilt: Normalized<f32>,
+    ) -> Result<Self, Error> {
+        // Clamp normalized values to -1.0 to 1.0
+        let pan_norm = pan.0.clamp(-1.0, 1.0);
+        let tilt_norm = tilt.0.clamp(-1.0, 1.0);
+
+        // Convert normalized to VISCA units
+        let pan_range = P::PAN_RANGE.end() - P::PAN_RANGE.start();
+        let pan_units = (pan_norm * pan_range as f32 / 2.0) as i16;
+
+        let tilt_range = P::TILT_RANGE.end() - P::TILT_RANGE.start();
+        let tilt_units = (tilt_norm * tilt_range as f32 / 2.0) as i16;
+
+        Ok(Self::AbsolutePosition {
+            pan_speed: PanSpeed::new(P::MAX_PAN_SPEED / 2)?,
+            tilt_speed: TiltSpeed::new(P::MAX_TILT_SPEED / 2)?,
+            pan: pan_units,
+            tilt: tilt_units,
+        })
+    }
+
+    /// Create an absolute position command from degree coordinates.
+    pub fn absolute_position_degrees<P: crate::camera::CameraProfile>(
+        pan: crate::camera::units::Degrees<f32>,
+        tilt: crate::camera::units::Degrees<f32>,
+    ) -> Result<Self, Error> {
+        // Create a default profile instance for conversion
+        let profile = P::default();
+        let pan_units = profile.pan_degrees_to_units(pan.0);
+        let tilt_units = profile.tilt_degrees_to_units(tilt.0);
+
+        Self::absolute_position::<P>(pan_units, tilt_units)
+    }
+
+    /// Create a continuous movement command with speed validation.
+    pub fn continuous_move<P: crate::camera::CameraProfile>(
+        direction: PanTiltDirection,
+        pan_speed: u8,
+        tilt_speed: u8,
+    ) -> Result<Self, Error> {
+        // Ensure speeds are within valid range - 0 is always valid
+        let safe_pan_speed = pan_speed.min(P::MAX_PAN_SPEED);
+        let safe_tilt_speed = tilt_speed.min(P::MAX_TILT_SPEED);
+
+        Ok(Self::Move {
+            direction,
+            pan_speed: PanSpeed::new(safe_pan_speed).map_err(|_| {
+                Error::InvalidParameter(format!("Invalid pan speed: {}", safe_pan_speed))
+            })?,
+            tilt_speed: TiltSpeed::new(safe_tilt_speed).map_err(|_| {
+                Error::InvalidParameter(format!("Invalid tilt speed: {}", safe_tilt_speed))
+            })?,
+        })
+    }
+
+    /// Create a stop command.
+    pub fn stop() -> Result<Self, Error> {
+        Ok(Self::Move {
+            direction: PanTiltDirection::Stop,
+            pan_speed: PanSpeed::new(0)
+                .map_err(|_| Error::InvalidParameter("Invalid pan speed: 0".to_string()))?,
+            tilt_speed: TiltSpeed::new(0)
+                .map_err(|_| Error::InvalidParameter("Invalid tilt speed: 0".to_string()))?,
+        })
+    }
 }
 
 impl Command for PanTiltCommand {

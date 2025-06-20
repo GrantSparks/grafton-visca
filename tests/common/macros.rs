@@ -140,13 +140,13 @@ macro_rules! assert_inquiry_response {
 ///
 /// # Example
 /// ```no_run
-/// # #[cfg(feature = "blocking-client")]
+/// # #[cfg(not(feature = "async"))]
 /// # {
 /// let client = create_test_client!(udp, "127.0.0.1:1234");
 /// let client = create_test_client!(tcp, "127.0.0.1:5678");
 /// # }
 /// ```
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 #[macro_export]
 macro_rules! create_test_client {
     (udp, $addr:expr) => {{
@@ -163,14 +163,14 @@ macro_rules! create_test_client {
 ///
 /// # Example
 /// ```no_run
-/// # #[cfg(feature = "blocking-client")]
+/// # #[cfg(not(feature = "async"))]
 /// # {
 /// # use grafton_visca::{Client, command::PowerCommand, command::power::Power};
 /// # let client = Client::connect_udp("127.0.0.1:1234").unwrap();
 /// assert_send_ok!(client, PowerCommand { power: Power::On });
 /// # }
 /// ```
-#[cfg(feature = "blocking-client")]
+#[cfg(not(feature = "async"))]
 #[macro_export]
 macro_rules! assert_send_ok {
     ($client:expr, $command:expr) => {{

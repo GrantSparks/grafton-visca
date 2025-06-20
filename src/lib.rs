@@ -190,7 +190,7 @@ pub mod types;
 
 pub mod timeout; // Public for use in macros
 
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+#[cfg(feature = "async")]
 mod sync_primitives;
 
 // Core re-exports for Camera<P> API
