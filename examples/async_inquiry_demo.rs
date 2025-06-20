@@ -12,6 +12,7 @@
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     transport::create,
+    types::ZoomPosition,
     Error,
 };
 use std::env;
@@ -214,7 +215,7 @@ async fn main() -> Result<(), Error> {
 
     // Change zoom and verify
     println!("\n   - Setting zoom to position 16384 (mid-range)...");
-    camera.set_zoom(16384).await?;
+    camera.set_zoom(ZoomPosition::new(16384)?).await?;
 
     sleep(Duration::from_secs(2)).await;
 
