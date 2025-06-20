@@ -11,9 +11,8 @@ use grafton_visca::{
     },
     transport::create,
     types::{
-        BrightnessLevel, ContrastLevel, FocusPosition, HueLevel, IrisLevel,
-        NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
-        ShutterSpeed, ZoomPosition,
+        BrightnessLevel, ContrastLevel, FocusPosition, HueLevel, IrisLevel, NoiseReduction2DLevel,
+        NoiseReduction3DLevel, SaturationLevel, SharpnessLevel, ShutterSpeed, ZoomPosition,
     },
     Error,
 };
@@ -117,8 +116,12 @@ async fn main() -> Result<(), Error> {
 
     // Advanced image features
     println!("\nTesting advanced image features...");
-    camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?).await?;
-    camera.set_noise_reduction_3d(NoiseReduction3DLevel::new(2)?).await?;
+    camera
+        .set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?)
+        .await?;
+    camera
+        .set_noise_reduction_3d(NoiseReduction3DLevel::new(2)?)
+        .await?;
     camera.set_image_flip(ImageFlipMode::Off).await?;
     camera.black_white_off().await?;
 

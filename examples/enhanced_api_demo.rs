@@ -69,7 +69,9 @@ async fn main() -> Result<(), Error> {
     println!("Applied vivid image settings");
     time::sleep(Duration::from_secs(1)).await;
 
-    camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?).await?;
+    camera
+        .set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?)
+        .await?;
     println!("Set 2D noise reduction to level 3");
 
     camera

@@ -15,6 +15,7 @@ use grafton_visca::{
         CameraProfile, CameraTransport,
     },
     transport::TransportFuture,
+    types::ZoomPosition,
     Camera, Command, Error,
 };
 
@@ -83,18 +84,21 @@ async fn demo_ptzoptics_g2() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. Valid zoom position for G2 (20X optical)
     println!("1. Testing valid zoom position (20X):");
-    match camera.set_zoom(0x7000).await {
+    match camera.set_zoom(ZoomPosition::new(0x7000)?).await {
         Ok(_) => println!("   ✓ Zoom to 20X position would be sent"),
         Err(e) => println!("   ✗ Error: {}", e),
     }
 
     // 2. Invalid zoom position for G2 (beyond 20X)
     println!("2. Testing invalid zoom position (beyond 20X range):");
-    match camera.set_zoom(0x7AC0).await {
-        Ok(_) => println!("   ✗ Command sent (shouldn't happen)"),
+    match ZoomPosition::new(0x7AC0) {
+        Ok(pos) => match camera.set_zoom(pos).await {
+            Ok(_) => println!("   ✗ Command sent (shouldn't happen)"),
+            Err(e) => println!("   ✗ Unexpected error: {}", e),
+        },
         Err(Error::ParameterOutOfRange { parameter, .. }) => {
             println!("   ✓ Validation prevented invalid command");
-            println!("     Parameter '{}' out of G2's zoom range", parameter);
+            println!("     Parameter '{}' out of valid zoom range", parameter);
         }
         Err(e) => println!("   ✗ Unexpected error: {}", e),
     }

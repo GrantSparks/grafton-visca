@@ -22,6 +22,7 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    types::{FocusPosition, ZoomPosition},
 };
 
 #[cfg(not(feature = "async"))]
@@ -66,13 +67,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✓ Executed: Home → Move UpRight → Stop");
 
     // Zoom operations
-    camera.set_zoom(0x4000)?;
+    camera.set_zoom(ZoomPosition::new(0x4000)?)?;
     println!("   ✓ Set zoom to 0x4000");
     thread::sleep(Duration::from_secs(1));
 
     // Focus control
     camera.focus_manual()?;
-    camera.set_focus(0x8000)?;
+    camera.set_focus(FocusPosition::new(0x8000)?)?;
     println!("   ✓ Set manual focus to 0x8000");
 
     // Demonstrate absolute positioning with validation
@@ -170,6 +171,7 @@ use grafton_visca::{
     },
     command::pan_tilt::PanTiltDirection,
     transport::create,
+    types::{FocusPosition, ZoomPosition},
 };
 
 #[cfg(feature = "async")]

@@ -10,6 +10,7 @@ use grafton_visca::{
     },
     command::pan_tilt::PanTiltDirection,
     transport::blocking::create,
+    types::ZoomPosition,
     Error,
 };
 use std::{env, time::Duration};
@@ -62,7 +63,7 @@ fn main() -> Result<(), Error> {
         // Zoom Control Examples
         println!("\n2. Zoom Control");
         println!("   - Zooming to minimum (0x0000)...");
-        camera.set_zoom(0x0000)?;
+        camera.set_zoom(ZoomPosition::new(0x0000)?)?;
         std::thread::sleep(Duration::from_secs(2));
 
         println!("   - Zooming in at default speed...");
@@ -71,7 +72,7 @@ fn main() -> Result<(), Error> {
         camera.zoom_stop()?;
 
         println!("   - Zooming to mid-range (0x2000)...");
-        camera.set_zoom(0x2000)?;
+        camera.set_zoom(ZoomPosition::new(0x2000)?)?;
         std::thread::sleep(Duration::from_secs(2));
 
         println!("   - Zooming out at slow speed (2)...");
@@ -105,7 +106,7 @@ fn main() -> Result<(), Error> {
 
         println!("   - Moving camera to a different position...");
         camera.set_position(Degrees(-20.0), Degrees(6.0))?;
-        camera.set_zoom(0x3000)?;
+        camera.set_zoom(ZoomPosition::new(0x3000)?)?;
         std::thread::sleep(Duration::from_secs(3));
 
         println!("   - Saving this position to preset 2...");

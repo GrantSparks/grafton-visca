@@ -9,7 +9,10 @@ use grafton_visca::transport::blocking::create;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{exposure::ExposureMode, pan_tilt::PanTiltDirection},
-    types::{FStop, NoiseReductionStrength, SpeedLevel},
+    types::{
+        FStop, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength,
+        SpeedLevel,
+    },
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -46,11 +49,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_exposure_mode(ExposureMode::Manual)?;
 
     // Set specific F-stop values
-    camera.set_iris(FStop::F2_8.to_iris_level())?;
+    camera.set_iris(IrisLevel::new(FStop::F2_8.to_iris_level())?)?;
     println!("Iris set to {}", FStop::F2_8);
     std::thread::sleep(Duration::from_secs(1));
 
-    camera.set_iris(FStop::F5_6.to_iris_level())?;
+    camera.set_iris(IrisLevel::new(FStop::F5_6.to_iris_level())?)?;
     println!("Iris set to {}", FStop::F5_6);
     std::thread::sleep(Duration::from_secs(1));
 
@@ -59,12 +62,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set 2D noise reduction to medium
     let nr_2d_level = NoiseReductionStrength::Medium.to_2d_level()?;
-    camera.set_noise_reduction_2d(nr_2d_level)?;
+    camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(nr_2d_level)?)?;
     println!("2D Noise Reduction set to Medium (level {})", nr_2d_level);
 
     // Set 3D noise reduction to strong
     let nr_3d_level = NoiseReductionStrength::Strong.to_3d_level()?;
-    camera.set_noise_reduction_3d(nr_3d_level)?;
+    camera.set_noise_reduction_3d(NoiseReduction3DLevel::new(nr_3d_level)?)?;
     println!("3D Noise Reduction set to Strong (level {})", nr_3d_level);
 
     // Example 4: Zoom with speed levels
