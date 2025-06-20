@@ -272,19 +272,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     blocking_impl::run_blocking()
 }
 
-#[cfg(feature = "async")]
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-
-    // Run async version when only async is enabled
-    async_impl::run_async().await
-}
-
-#[cfg(not(feature = "async"))]
-fn main() {
-    eprintln!(
-        "This example works in blocking mode by default, or with 'async' feature for async mode."
-    );
-    eprintln!("Try running with: cargo run --example hello_world");
-}

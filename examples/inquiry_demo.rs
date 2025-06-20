@@ -4,18 +4,15 @@
 //!
 //! This example now uses the new `Camera<P>` API with full inquiry support!
 
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{Camera, PTZOpticsG2},
     transport::blocking::create,
     Error,
 };
+#[cfg(not(feature = "async"))]
 use std::env;
 
-#[cfg(not(not(feature = "async")))]
-fn main() {
-    eprintln!("This example requires the blocking mode (default) feature.");
-    eprintln!("Run with: cargo run --example inquiry_demo --features blocking-client");
-}
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
@@ -156,4 +153,10 @@ fn run_inquiries(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
 
     println!("\nInquiry demo completed successfully!");
     Ok(())
+}
+
+#[cfg(feature = "async")]
+fn main() {
+    eprintln!("This example requires the blocking mode (default) feature.");
+    eprintln!("Run with: cargo run --example inquiry_demo --features blocking-client");
 }

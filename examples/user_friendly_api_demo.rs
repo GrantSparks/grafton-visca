@@ -102,8 +102,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(not(feature = "async")))]
+#[cfg(feature = "async")]
 fn main() {
     eprintln!("This example requires the blocking mode (default) feature to be enabled.");
     eprintln!("Run with: cargo run --example user_friendly_api_demo --no-default-features --features blocking-client");
 }
+

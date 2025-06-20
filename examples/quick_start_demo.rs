@@ -90,8 +90,9 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(not(not(feature = "async")))]
+#[cfg(feature = "async")]
 fn main() {
     println!("This example requires the blocking mode (default) feature to be enabled.");
     println!("Run with: cargo run --example quick_start_demo --features blocking-client");
 }
+
