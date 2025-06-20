@@ -45,6 +45,22 @@ async fn async_example() -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(not(feature = "async"))]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
+    println!("Unified Transport Demo");
+    println!("This example shows how to use transports in both async and blocking contexts.\n");
+
+    if let Err(e) = blocking_example() {
+        eprintln!("Blocking example error: {}", e);
+    }
+    println!();
+
+    Ok(())
+}
+
+#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -52,28 +68,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Unified Transport Demo");
     println!("This example shows how to use transports in both async and blocking contexts.\n");
 
-    // Run blocking example if feature is enabled
-    #[cfg(not(feature = "async"))]
-    {
-        if let Err(e) = blocking_example() {
-            eprintln!("Blocking example error: {}", e);
-        }
-        println!();
-    }
-
-    // Run async example if feature is enabled
-    #[cfg(feature = "async")]
-    {
-        if let Err(e) = async_example().await {
-            eprintln!("Async example error: {}", e);
-        }
-    }
-
-    #[cfg(not(any(not(feature = "async"), feature = "async")))]
-    {
-        println!(
-            "Please enable either blocking mode (default) or 'async' feature to run this example."
-        );
+    if let Err(e) = async_example().await {
+        eprintln!("Async example error: {}", e);
     }
 
     Ok(())

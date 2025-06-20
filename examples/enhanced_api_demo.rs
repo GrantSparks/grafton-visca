@@ -104,13 +104,13 @@ async fn main() -> Result<(), Error> {
 
     camera.set_position(Degrees(45.0), Degrees(15.0)).await?;
     println!("Moved to 45° pan, 15° tilt");
-    time::sleep(Duration::from_secs(3));
+    time::sleep(Duration::from_secs(3)).await;
 
     camera
         .set_position_normalized(Normalized(-0.5), Normalized(0.25))
         .await?;
     println!("Moved to normalized position (-50% pan, +25% tilt)");
-    time::sleep(Duration::from_secs(3));
+    time::sleep(Duration::from_secs(3)).await;
 
     // Demonstrate relative movement
     println!("\n--- Relative Movement ---");

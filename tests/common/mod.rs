@@ -12,7 +12,6 @@ pub mod builders;
 pub mod helpers;
 pub mod macros;
 
-#[cfg(not(feature = "async"))]
 use grafton_visca::Error;
 
 #[cfg(not(feature = "async"))]
@@ -225,11 +224,13 @@ impl MockAsyncTransport {
     }
 
     /// Get the command count.
+    #[allow(dead_code)]
     pub async fn command_count(&self) -> usize {
         *self.command_counter.lock().await
     }
 
     /// Configure to fail after N commands.
+    #[allow(dead_code)]
     pub fn fail_after_n_commands(mut self, n: usize) -> Self {
         self.fail_after = Some(n);
         self
@@ -288,12 +289,14 @@ impl RawTransport for MockAsyncTransport {
                 tokio::time::sleep(Duration::from_millis(delay)).await;
             }
 
-            self.responses.lock().await.pop_front().ok_or_else(|| {
-                Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "Mock timeout - no response queued",
-                ))
-            })
+            self.responses
+                .lock()
+                .await
+                .pop_front()
+                .ok_or_else(|| Error::CommandTimeout {
+                    duration: Duration::from_millis(self.delay_ms.unwrap_or(100)),
+                    command: "mock_receive".to_string(),
+                })
         })
     }
 

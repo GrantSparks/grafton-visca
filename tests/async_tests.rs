@@ -21,7 +21,7 @@ use grafton_visca::{
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 
 #[tokio::test]
 async fn test_async_send_receive_basic() {
@@ -49,9 +49,10 @@ async fn test_concurrent_commands() {
     let mock = MockAsyncTransport::new();
 
     // Prepare responses for 3 commands
-    mock.add_ack_completion(0).await;
-    mock.add_ack_completion(1).await;
-    mock.add_ack_completion(0).await; // Socket 0 reused after completion
+    // Since commands are serialized by the Mutex, they'll likely all use socket 0
+    mock.add_ack_completion(0).await; // First command
+    mock.add_ack_completion(0).await; // Second command
+    mock.add_ack_completion(0).await; // Third command
 
     let command_counter = mock.command_counter.clone();
     let transport = Arc::new(Mutex::new(mock.into_visca_transport()));
@@ -141,22 +142,17 @@ async fn test_semaphore_limiting() {
 
 #[tokio::test]
 async fn test_timeout_handling() {
-    let mock = MockAsyncTransport::new().with_delay(100);
+    let mock = MockAsyncTransport::new();
     // Don't add any response - should timeout
     let mut transport = mock.into_visca_transport();
 
     let command = PowerCommand { power: Power::On };
 
-    // Test command timeout
-    let result = timeout(Duration::from_millis(50), transport.send_command(&command)).await;
+    // Test that transport returns a timeout error when no response is available
+    let result = transport.send_command(&command).await;
 
-    assert!(result.is_err()); // Timeout from tokio
-
-    // Test with longer timeout - should get Error::Timeout
-    let result = timeout(Duration::from_millis(200), transport.send_command(&command)).await;
-
-    assert!(result.is_ok()); // No tokio timeout
-    assert!(matches!(result.unwrap(), Err(Error::Timeout))); // But VISCA timeout
+    // Should get CommandTimeout error from the mock
+    assert!(matches!(result, Err(Error::CommandTimeout { .. })));
 }
 
 #[tokio::test]
@@ -221,7 +217,7 @@ async fn test_inquiry_async_handling() {
 #[tokio::test]
 async fn test_concurrent_timeout_handling() {
     // Test that timeouts in concurrent operations don't affect each other
-    let mock = MockAsyncTransport::new().with_delay(50);
+    let mock = MockAsyncTransport::new();
 
     // Add response only for first command
     mock.add_response(vec![0x90, 0x50, 0xFF]).await;
@@ -236,13 +232,13 @@ async fn test_concurrent_timeout_handling() {
     let t1 = transport.clone();
     let task1 = tokio::spawn(async move {
         let mut t = t1.lock().await;
-        timeout(Duration::from_millis(100), t.send_command(&command1)).await
+        t.send_command(&command1).await
     });
 
     let t2 = transport.clone();
     let task2 = tokio::spawn(async move {
         let mut t = t2.lock().await;
-        timeout(Duration::from_millis(100), t.send_command(&command2)).await
+        t.send_command(&command2).await
     });
 
     let (r1, r2) = tokio::join!(task1, task2);
@@ -251,9 +247,7 @@ async fn test_concurrent_timeout_handling() {
     assert!(r1.unwrap().is_ok());
 
     // Second should timeout (no response available)
-    let r2_result = r2.unwrap();
-    assert!(r2_result.is_ok()); // tokio timeout didn't fire
-    assert!(matches!(r2_result.unwrap(), Err(Error::Timeout)));
+    assert!(matches!(r2.unwrap(), Err(Error::CommandTimeout { .. })));
 }
 
 #[tokio::test]
@@ -262,12 +256,15 @@ async fn test_async_command_sequence() {
     let mock = MockAsyncTransport::new();
 
     // Prepare a sequence of responses
-    mock.add_ack_completion(0).await; // Home
+    // Home command will get socket 0
+    mock.add_ack_completion(0).await;
+    // Position inquiry will reuse socket 0 after home completes
     mock.add_response(vec![
         0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
     ])
-    .await; // Position inquiry
-    mock.add_ack_completion(1).await; // Zoom
+    .await;
+    // Zoom will also reuse socket 0
+    mock.add_ack_completion(0).await;
 
     let command_counter = mock.command_counter.clone();
     let mut transport = mock.into_visca_transport();

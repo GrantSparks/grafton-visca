@@ -1,10 +1,14 @@
 //! Example demonstrating camera capability querying.
 
 use grafton_visca::camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, SonyEVID70};
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::create;
+#[cfg(feature = "async")]
+use grafton_visca::transport::create;
 
 // Include the transport implementation from the example file
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using blocking transport
     let g2_camera = Camera::<PTZOpticsG2>::new(create::udp("192.168.1.100:1259")?);
@@ -136,4 +140,115 @@ fn print_capability_summary(summary: &grafton_visca::camera::CapabilitySummary) 
     println!("  Presets:");
     println!("    - Count: {}", summary.presets.count);
     println!("    - Speed Support: {}", summary.presets.speed_support);
+}
+
+#[cfg(feature = "async")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create cameras with different profiles using async transport
+    let g2_camera = Camera::<PTZOpticsG2>::new(create::udp("192.168.1.100:1259").await?);
+
+    let sony_camera = Camera::<SonyEVID70>::new(create::udp("192.168.1.101:1259").await?);
+
+    let generic_camera = Camera::<GenericVisca>::new(create::udp("192.168.1.102:1259").await?);
+
+    println!("=== Camera Capability Comparison ===\n");
+
+    // Compare basic capabilities
+    print_basic_capabilities("PTZOptics G2", &g2_camera);
+    print_basic_capabilities("Sony EVI-D70", &sony_camera);
+    print_basic_capabilities("Generic VISCA", &generic_camera);
+
+    // Get full capability summaries
+    println!("\n=== Detailed Capability Summaries ===\n");
+
+    let g2_summary = g2_camera.capability_summary();
+    println!("PTZOptics G2 Full Capabilities:");
+    print_capability_summary(&g2_summary);
+
+    let sony_summary = sony_camera.capability_summary();
+    println!("\nSony EVI-D70 Full Capabilities:");
+    print_capability_summary(&sony_summary);
+
+    let generic_summary = generic_camera.capability_summary();
+    println!("\nGeneric VISCA Full Capabilities:");
+    print_capability_summary(&generic_summary);
+
+    // Profile-specific features
+    println!("\n=== Profile-Specific Features ===\n");
+
+    let g2_profile = PTZOpticsG2;
+    let sony_profile = SonyEVID70;
+    let generic_profile = GenericVisca;
+
+    println!("PTZOptics G2:");
+    println!(
+        "  - Wide Dynamic Range: {}",
+        g2_profile.supports_wide_dynamic_range()
+    );
+    println!(
+        "  - Image Stabilization: {}",
+        g2_profile.supports_image_stabilization()
+    );
+    println!(
+        "  - Low Light Mode: {}",
+        g2_profile.supports_low_light_mode()
+    );
+    println!(
+        "  - Noise Reduction: {}",
+        g2_profile.supports_noise_reduction()
+    );
+    println!(
+        "  - White Balance Modes: {}",
+        g2_profile.white_balance_mode_count()
+    );
+    println!("  - Gain Range: {:?}", g2_profile.gain_range());
+
+    println!("\nSony EVI-D70:");
+    println!(
+        "  - Wide Dynamic Range: {}",
+        sony_profile.supports_wide_dynamic_range()
+    );
+    println!(
+        "  - Image Stabilization: {}",
+        sony_profile.supports_image_stabilization()
+    );
+    println!(
+        "  - Low Light Mode: {}",
+        sony_profile.supports_low_light_mode()
+    );
+    println!(
+        "  - Noise Reduction: {}",
+        sony_profile.supports_noise_reduction()
+    );
+    println!(
+        "  - White Balance Modes: {}",
+        sony_profile.white_balance_mode_count()
+    );
+    println!("  - Gain Range: {:?}", sony_profile.gain_range());
+
+    println!("\nGeneric VISCA:");
+    println!(
+        "  - Wide Dynamic Range: {}",
+        generic_profile.supports_wide_dynamic_range()
+    );
+    println!(
+        "  - Image Stabilization: {}",
+        generic_profile.supports_image_stabilization()
+    );
+    println!(
+        "  - Low Light Mode: {}",
+        generic_profile.supports_low_light_mode()
+    );
+    println!(
+        "  - Noise Reduction: {}",
+        generic_profile.supports_noise_reduction()
+    );
+    println!(
+        "  - White Balance Modes: {}",
+        generic_profile.white_balance_mode_count()
+    );
+    println!("  - Gain Range: {:?}", generic_profile.gain_range());
+
+    Ok(())
 }

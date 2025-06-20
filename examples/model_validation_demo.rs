@@ -160,7 +160,7 @@ async fn demo_ptzoptics_30x() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. 30X can handle higher zoom values than G2
     println!("1. Testing 30X zoom position:");
-    match camera.set_zoom(0x4000).await {
+    match camera.set_zoom(ZoomPosition::new(0x4000)?).await {
         Ok(_) => println!("   ✓ 30X zoom position would be sent"),
         Err(e) => println!("   ✗ Error: {}", e),
     }
@@ -283,7 +283,7 @@ async fn demo_generic_visca() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("2. Generic camera accepts full zoom range:");
-    match camera.set_zoom(0xFFFF).await {
+    match camera.set_zoom(ZoomPosition::new(0xFFFF)?).await {
         Ok(_) => println!("   ✓ Maximum zoom value accepted"),
         Err(e) => println!("   ✗ Error: {}", e),
     }

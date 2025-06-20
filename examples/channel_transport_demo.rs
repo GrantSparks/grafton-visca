@@ -11,9 +11,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(feature = "async")]
-use grafton_visca::transport::{ChannelTransport, ChannelTransportBuilder};
+use grafton_visca::camera::CameraTransport;
 #[cfg(feature = "async")]
-use grafton_visca::{camera::profiles::PTZOpticsG2, camera::CameraTransport, Camera, Command};
+use grafton_visca::transport::{ChannelConfig, ChannelTransport};
+#[cfg(feature = "async")]
+use grafton_visca::{camera::profiles::PTZOpticsG2, Camera, Command};
 
 #[cfg(feature = "async")]
 #[tokio::main]
@@ -24,9 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tcp_transport = create::tcp("192.168.1.100:5678").await?;
 
     // Wrap it in a ChannelTransport with custom configuration
-    let channel_transport = ChannelTransportBuilder::new(tcp_transport)
-        .queue_size(200)
-        .build();
+    let channel_transport = ChannelTransport::new(tcp_transport, ChannelConfig { queue_size: 200 });
 
     // Create a camera using the channel transport
     let camera: Camera<PTZOpticsG2> = Camera::new(channel_transport);

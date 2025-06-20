@@ -8,16 +8,23 @@
 //! Note: The Camera API doesn't have built-in timeout support.
 //! This example shows patterns for timing operations.
 
+#[cfg(feature = "async")]
+fn main() {
+    eprintln!("This example demonstrates timing patterns with the blocking API.");
+    eprintln!("Run without async features: cargo run --example configurable_timeouts");
+}
+
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     command::pan_tilt::PanTiltDirection,
+    transport::blocking::create,
     Error,
 };
+#[cfg(not(feature = "async"))]
 use std::time::{Duration, Instant};
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::create;
-
 fn main() -> Result<(), Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -37,6 +44,7 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(not(feature = "async"))]
 fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     use grafton_visca::camera::profiles::G2PresetId;
 

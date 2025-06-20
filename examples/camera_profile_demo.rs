@@ -7,6 +7,7 @@ use grafton_visca::{
         Camera,
     },
     transport::create,
+    types::ZoomPosition,
     Error,
 };
 
@@ -77,7 +78,7 @@ async fn main() -> Result<(), Error> {
 
     // Set specific zoom position
     println!("Setting zoom to 50%...");
-    let zoom_50_percent = 0x7000 / 2; // Half of max zoom for G2
+    let zoom_50_percent = ZoomPosition::new(0x7000 / 2)?; // Half of max zoom for G2
     camera.set_zoom(zoom_50_percent).await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 

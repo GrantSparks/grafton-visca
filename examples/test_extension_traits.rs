@@ -6,13 +6,16 @@
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{
-        exposure::ExposureMode, image::ImageFlipMode, pan_tilt::PanTiltDirection,
+        exposure::{DynamicRangeLevel, ExposureMode},
+        image::ImageFlipMode,
+        pan_tilt::PanTiltDirection,
         white_balance::WhiteBalanceMode,
     },
     transport::create,
     types::{
-        BrightnessLevel, ContrastLevel, FocusPosition, HueLevel, IrisLevel, NoiseReduction2DLevel,
-        NoiseReduction3DLevel, SaturationLevel, SharpnessLevel, ShutterSpeed, ZoomPosition,
+        BrightnessLevel, ColorTemperature, ContrastLevel, FocusPosition, GainLimit, HueLevel,
+        IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
+        ShutterSpeed, ZoomPosition,
     },
     Error,
 };
@@ -150,12 +153,14 @@ async fn main() -> Result<(), Error> {
     use grafton_visca::camera::profiles::G2Gain;
     camera.set_gain(G2Gain::Gain0dB).await?;
     camera.set_gain(G2Gain::Gain12dB).await?;
-    camera.set_gain_limit(4).await?; // 12dB limit
+    camera.set_gain_limit(GainLimit::new(4)?).await?; // 12dB limit
 
     // Dynamic range and color temperature
     println!("\nTesting dynamic range and color temperature...");
-    camera.set_dynamic_range(5).await?;
-    camera.set_color_temperature(0x20).await?;
+    camera.set_dynamic_range(DynamicRangeLevel::new(5)?).await?;
+    camera
+        .set_color_temperature(ColorTemperature::new(0x20)?)
+        .await?;
 
     println!("\n=== All Camera API Methods Tested Successfully! ===");
     println!("\nKey advantages over extension traits:");
