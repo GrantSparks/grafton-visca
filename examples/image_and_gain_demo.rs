@@ -7,8 +7,9 @@ use grafton_visca::{
         profiles::{G2Gain, PTZOpticsG2},
         Camera,
     },
-    command::AntiFlickerMode,
+    command::gain::AntiFlickerMode,
     transport::create,
+    types::{ContrastLevel, GainLimit, LuminanceLevel, SharpnessLevel},
     Error,
 };
 use std::time::Duration;
@@ -22,74 +23,74 @@ async fn main() -> Result<(), Error> {
         .init();
 
     // Create camera with PTZOptics G2 profile
-    let udp_transport = UdpTransport::new("192.168.1.100:5678")?;
-    let camera = Camera::<PTZOpticsG2>::new(udp_transport);
+    let transport = create::udp("192.168.1.100:5678").await?;
+    let camera = Camera::<PTZOpticsG2>::new(transport);
 
     println!("Connected to camera. Demonstrating image and gain controls...");
 
     // Anti-flicker control
     println!("\n--- Anti-Flicker Control ---");
-    block_on(camera.set_anti_flicker(AntiFlickerMode::Off))?;
+    camera.set_anti_flicker(AntiFlickerMode::Off).await?;
     println!("Anti-flicker: OFF");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
-    block_on(camera.set_anti_flicker(AntiFlickerMode::Hz60))?;
+    camera.set_anti_flicker(AntiFlickerMode::Hz60).await?;
     println!("Anti-flicker: 60Hz (for US/Canada)");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
     // Luminance control
     println!("\n--- Luminance Control ---");
-    block_on(camera.set_luminance(7))?;
+    camera.set_luminance(LuminanceLevel::new(7)?).await?;
     println!("Luminance: Default (7)");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
-    block_on(camera.set_luminance(10))?;
+    camera.set_luminance(LuminanceLevel::new(10)?).await?;
     println!("Luminance: Bright (10)");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
-    block_on(camera.set_luminance(4))?;
+    camera.set_luminance(LuminanceLevel::new(4)?).await?;
     println!("Luminance: Dark (4)");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
     // Contrast control
     println!("\n--- Contrast Control ---");
-    block_on(camera.set_contrast(7))?;
+    camera.set_contrast(ContrastLevel::new(7)?).await?;
     println!("Contrast: Default (7)");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
-    block_on(camera.set_contrast(12))?;
+    camera.set_contrast(ContrastLevel::new(12)?).await?;
     println!("Contrast: High (12)");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
     // Sharpness control
     println!("\n--- Sharpness Control ---");
-    block_on(camera.set_sharpness(7))?;
+    camera.set_sharpness(SharpnessLevel::new(7)?).await?;
     println!("Sharpness: Default (7)");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
-    block_on(camera.sharpness_up())?;
+    camera.sharpness_up().await?;
     println!("Sharpness: Up");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
-    block_on(camera.sharpness_down())?;
-    block_on(camera.sharpness_down())?;
+    camera.sharpness_down().await?;
+    camera.sharpness_down().await?;
     println!("Sharpness: Down x2");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
     // Gain control
     println!("\n--- Gain Control ---");
-    block_on(camera.set_gain(G2Gain::Gain0dB))?;
+    camera.set_gain(G2Gain::Gain0dB).await?;
     println!("Gain: Minimum (0 dB)");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
-    block_on(camera.gain_up())?;
-    block_on(camera.gain_up())?;
+    camera.gain_up().await?;
+    camera.gain_up().await?;
     println!("Gain: Up x2");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
-    block_on(camera.set_gain_limit(0x08))?; // 0x08 corresponds to 24dB limit
+    camera.set_gain_limit(GainLimit::new(0x08)?).await?; // 0x08 corresponds to 24dB limit
     println!("Gain Limit: Set to 24 dB");
-    thread::sleep(Duration::from_secs(1));
+    time::sleep(Duration::from_secs(1)).await;
 
     println!("\nDemo complete! All image and gain controls have been demonstrated.");
 

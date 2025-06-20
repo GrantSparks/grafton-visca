@@ -4,6 +4,7 @@
 
 use grafton_visca::{
     camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, Camera, Error,
+    types::ZoomPosition,
 };
 use log::{debug, info};
 use std::{env, time::Duration};
@@ -99,7 +100,7 @@ mod blocking_impl {
 
         // Set zoom to specific position (50%)
         debug!("Setting zoom to 50%");
-        let zoom_50_percent = 0x3800; // Half of max zoom for G2
+        let zoom_50_percent = ZoomPosition::new(0x3800)?; // Half of max zoom for G2
         camera.set_zoom(zoom_50_percent)?;
         thread::sleep(Duration::from_secs(2));
 
@@ -133,7 +134,7 @@ mod blocking_impl {
         thread::sleep(Duration::from_secs(2));
 
         debug!("Resetting zoom");
-        camera.set_zoom(0x0000)?;
+        camera.set_zoom(ZoomPosition::MIN)?;
 
         info!("Demo complete!");
         Ok(())
@@ -213,7 +214,7 @@ mod async_impl {
 
         // Set zoom to specific position (50%)
         debug!("Setting zoom to 50%");
-        let zoom_50_percent = 0x3800; // Half of max zoom for G2
+        let zoom_50_percent = ZoomPosition::new(0x3800)?; // Half of max zoom for G2
         camera.set_zoom(zoom_50_percent).await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -247,7 +248,7 @@ mod async_impl {
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         debug!("Resetting zoom");
-        camera.set_zoom(0x0000).await?;
+        camera.set_zoom(ZoomPosition::MIN).await?;
 
         info!("Demo complete!");
         Ok(())
