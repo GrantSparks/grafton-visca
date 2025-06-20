@@ -156,7 +156,7 @@ impl RawTransport for MockTransport {
         })
     }
 
-    fn receive<'a>(&'a mut self) -> grafton_visca::transport::TransportFuture<'a, Vec<u8>> {
+    fn receive(&mut self) -> grafton_visca::transport::TransportFuture<'_, Vec<u8>> {
         Box::pin(async move {
             if let Ok(mut responses) = self.responses.lock() {
                 if let Some(response) = responses.pop_front() {

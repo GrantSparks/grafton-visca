@@ -5,12 +5,14 @@
 //! is handled by the library.
 
 #[cfg(feature = "async")]
-use std::sync::Mutex;
+use std::collections::VecDeque;
+#[cfg(feature = "async")]
+use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "async")]
 use grafton_visca::{
     command::zoom::ZoomCommand,
-    transport::{core::RawTransport, TransportSession},
+    transport::{RawTransport, TransportFuture, ViscaTransport},
     Error,
 };
 
@@ -58,11 +60,15 @@ impl MockRawTransport {
 }
 
 #[cfg(feature = "async")]
+impl Default for MockRawTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "async")]
 impl RawTransport for MockRawTransport {
-    fn send<'a>(
-        &'a mut self,
-        data: &'a [u8],
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>> {
+    fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
         Box::pin(async move {
             // Store the sent command
             if let Ok(mut commands) = self.sent_commands.lock() {
@@ -74,9 +80,7 @@ impl RawTransport for MockRawTransport {
         })
     }
 
-    fn receive<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, Error>> + Send + 'a>> {
+    fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
         Box::pin(async move {
             // Get next response from queue
             if let Ok(mut responses) = self.responses.lock() {
@@ -117,8 +121,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a mock transport
     let mock_raw = MockRawTransport::new();
 
-    // Wrap it in a transport session (this handles all VISCA protocol logic)
-    let mut transport = TransportSession::new(mock_raw.clone());
+    // Wrap it in a ViscaTransport (this handles all VISCA protocol logic)
+    let mut transport = ViscaTransport::new(mock_raw.clone());
 
     println!("Created custom mock transport: {}", transport.description());
     println!("Transport connected: {}", transport.is_connected());

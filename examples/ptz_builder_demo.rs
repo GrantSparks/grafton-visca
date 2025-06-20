@@ -171,7 +171,7 @@ use grafton_visca::{
     },
     command::pan_tilt::PanTiltDirection,
     transport::create,
-    types::{FocusPosition, ZoomPosition},
+    types::ZoomPosition,
 };
 
 #[cfg(feature = "async")]
@@ -252,7 +252,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Reset to neutral
     println!("\n5. Reset to neutral position");
     camera.home().await?;
-    camera.set_zoom(0x0000).await?;
+    camera.set_zoom(ZoomPosition::new(0x0000)?).await?;
     camera.focus_auto().await?;
     println!("   ✓ Reset camera to neutral state");
 

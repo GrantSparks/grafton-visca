@@ -3,14 +3,25 @@
 //! This example shows how to use the library without any async runtime,
 //! using only the blocking transport and API.
 
+#[cfg(feature = "async")]
+fn main() {
+    eprintln!("This example demonstrates the blocking API. Run without async features:");
+    eprintln!("cargo run --example blocking_simple");
+}
+
+#[cfg(not(feature = "async"))]
 use grafton_visca::camera::units::Degrees;
+#[cfg(not(feature = "async"))]
+use grafton_visca::transport::blocking::create;
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
-    transport::blocking::create,
 };
+#[cfg(not(feature = "async"))]
 use std::time::Duration;
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();

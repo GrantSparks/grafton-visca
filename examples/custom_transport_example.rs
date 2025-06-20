@@ -74,7 +74,7 @@ mod async_example {
             })
         }
 
-        fn receive<'a>(&'a mut self) -> TransportFuture<'a, Vec<u8>> {
+        fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
             Box::pin(async move {
                 let response_bytes = self
                     .response_queue
@@ -126,7 +126,7 @@ mod async_example {
         }
 
         fn command_count(&self) -> usize {
-            self.command_count.lock().unwrap().clone()
+            *self.command_count.lock().unwrap()
         }
     }
 
@@ -150,7 +150,7 @@ mod async_example {
             })
         }
 
-        fn receive<'a>(&'a mut self) -> TransportFuture<'a, Vec<u8>> {
+        fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
             Box::pin(async move { self.inner.receive().await })
         }
 
@@ -191,7 +191,7 @@ mod async_example {
             })
         }
 
-        fn receive<'a>(&'a mut self) -> TransportFuture<'a, Vec<u8>> {
+        fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
             Box::pin(async move {
                 let data = self.inner.receive().await?;
                 println!("{}: Received data: {:02X?}", self.log_prefix, data);

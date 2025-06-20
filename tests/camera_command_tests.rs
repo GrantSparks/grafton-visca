@@ -191,7 +191,7 @@ mod blocking_tests {
 mod async_tests {
     use super::common::MockAsyncTransport;
     use grafton_visca::{
-        camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
+        camera::{Camera, PTZOpticsG2},
         Error,
     };
 
@@ -203,7 +203,7 @@ mod async_tests {
 
         let sent_commands = mock.sent_commands.clone();
         let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let camera = Camera::<PTZOpticsG2>::new(transport);
 
         // Send power on command
         let result = camera.power_on().await;
@@ -226,7 +226,7 @@ mod async_tests {
 
         let sent_commands = mock.sent_commands.clone();
         let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let camera = Camera::<PTZOpticsG2>::new(transport);
 
         // Send home command
         let result = camera.home().await;
@@ -249,16 +249,16 @@ mod async_tests {
         // Don't add any responses
 
         let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let camera = Camera::<PTZOpticsG2>::new(transport);
 
         let result = camera.home().await;
         assert!(result.is_err(), "Should timeout");
 
         match result {
-            Err(Error::Timeout) => {
+            Err(Error::CommandTimeout { .. }) => {
                 // Expected timeout
             }
-            _ => panic!("Expected Timeout error, got {:?}", result),
+            _ => panic!("Expected CommandTimeout error, got {:?}", result),
         }
     }
 
@@ -269,8 +269,9 @@ mod async_tests {
 
         let mock = MockAsyncTransport::new();
         // Add responses for concurrent commands
+        // Since commands are serialized by the Mutex, they'll both use socket 0
         mock.add_ack_completion(0).await;
-        mock.add_ack_completion(1).await;
+        mock.add_ack_completion(0).await;
 
         let command_counter = mock.command_counter.clone();
         let transport = mock.into_visca_transport();
@@ -279,13 +280,13 @@ mod async_tests {
         // Send two commands concurrently
         let cam1 = camera.clone();
         let task1 = tokio::spawn(async move {
-            let mut cam = cam1.lock().await;
+            let cam = cam1.lock().await;
             cam.home().await
         });
 
         let cam2 = camera.clone();
         let task2 = tokio::spawn(async move {
-            let mut cam = cam2.lock().await;
+            let cam = cam2.lock().await;
             cam.zoom_stop().await
         });
 

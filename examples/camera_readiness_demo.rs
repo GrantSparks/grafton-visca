@@ -43,14 +43,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let handle1 = tokio::spawn(async move {
         println!("  Task 1: Querying pan/tilt position");
-        let result = cam1.send_raw_async(&InquiryCommand::PanTiltPosition).await;
+        let result = cam1.send_raw(&InquiryCommand::PanTiltPosition).await;
         println!("  Task 1: Complete - {:?}", result.is_ok());
         result
     });
 
     let handle2 = tokio::spawn(async move {
         println!("  Task 2: Querying zoom position");
-        let result = cam2.send_raw_async(&InquiryCommand::ZoomPosition).await;
+        let result = cam2.send_raw(&InquiryCommand::ZoomPosition).await;
         println!("  Task 2: Complete - {:?}", result.is_ok());
         result
     });
@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let start = tokio::time::Instant::now();
-        let result = cam3.send_raw_async(&InquiryCommand::PanTiltPosition).await;
+        let result = cam3.send_raw(&InquiryCommand::PanTiltPosition).await;
         let elapsed = start.elapsed();
 
         println!(

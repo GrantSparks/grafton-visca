@@ -67,7 +67,7 @@ async fn simple_retry_example() -> Result<(), Error> {
 async fn exponential_backoff_example() -> Result<(), Error> {
     println!("\n2. Exponential backoff retry:");
 
-    let transport = tcp_transport("192.168.1.100:5678").await?;
+    let transport = create::tcp("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Exponential backoff configuration
@@ -112,7 +112,7 @@ async fn custom_wrapper_example() -> Result<(), Error> {
     println!("\n3. Custom retry wrapper:");
 
     // Create a camera with our retry wrapper
-    let transport = tcp_transport("192.168.1.100:5678").await?;
+    let transport = create::tcp("192.168.1.100:5678").await?;
     let camera = RetryingCamera::new(
         Camera::<PTZOpticsG2>::new(transport),
         RetryConfig {
@@ -295,7 +295,7 @@ where
 async fn advanced_retry_example() -> Result<(), Error> {
     println!("\n4. Advanced retry with error classification:");
 
-    let transport = tcp_transport("192.168.1.100:5678").await?;
+    let transport = create::tcp("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2>::new(transport);
 
     // Use the retry function with error classification

@@ -7,7 +7,7 @@
 #[cfg(feature = "async")]
 use grafton_visca::{
     command::zoom::ZoomCommand,
-    transport::{create, ChannelTransport, RawTransport, ViscaTransport},
+    transport::{create, ChannelConfig, ChannelTransport},
 };
 #[cfg(feature = "async")]
 use std::time::Duration;
@@ -79,9 +79,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("4. Creating channel-wrapped TCP transport for thread safety...");
     match create::tcp("192.168.1.100:5678").await {
         Ok(tcp_transport) => {
-            let channel_transport = ChannelTransportBuilder::new(tcp_transport)
-                .queue_size(50)
-                .build();
+            let channel_transport =
+                ChannelTransport::new(tcp_transport, ChannelConfig { queue_size: 50 });
 
             println!("   ✓ Channel transport created");
 

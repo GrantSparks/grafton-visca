@@ -2,16 +2,24 @@
 //!
 //! This shows the primary blocking-first API that requires no async dependencies.
 
+#[cfg(feature = "async")]
+fn main() {
+    eprintln!("This example demonstrates the blocking API. Run without async features:");
+    eprintln!("cargo run --example blocking_no_runtime");
+}
+
+#[cfg(not(feature = "async"))]
+use grafton_visca::camera::units::Degrees;
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
     transport::blocking::create,
 };
-
-// Import Degrees from the correct path
-use grafton_visca::camera::units::Degrees;
+#[cfg(not(feature = "async"))]
 use std::time::Duration;
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();

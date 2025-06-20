@@ -3,7 +3,10 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::create;
+#[cfg(feature = "async")]
+use grafton_visca::transport::create;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
@@ -11,6 +14,7 @@ use grafton_visca::{
 };
 use std::time::{Duration, Instant};
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -31,6 +35,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Try to connect and demonstrate error handling
     println!("\n2. Camera Connection and Error Handling:");
     match demonstrate_camera_errors(&camera_addr) {
+        Ok(_) => println!("   ✓ Camera demonstration completed"),
+        Err(e) => println!("   ✗ Camera demonstration failed: {}", e),
+    }
+
+    println!("\n✅ Error handling demonstration completed!");
+    Ok(())
+}
+
+#[cfg(feature = "async")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    println!("=== VISCA Error Handling Demo ===\n");
+    println!("This example demonstrates:");
+    println!("- Error handling patterns with the Camera API");
+    println!("- Implementing retry logic");
+    println!("- Classifying different error types\n");
+
+    // Get camera address
+    let camera_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
+
+    // Demonstrate error classification first (no camera needed)
+    demonstrate_error_classification();
+
+    // Try to connect and demonstrate error handling
+    println!("\n2. Camera Connection and Error Handling:");
+    match demonstrate_camera_errors(&camera_addr).await {
         Ok(_) => println!("   ✓ Camera demonstration completed"),
         Err(e) => println!("   ✗ Camera demonstration failed: {}", e),
     }
@@ -99,6 +133,7 @@ fn demonstrate_error_classification() {
     }
 }
 
+#[cfg(not(feature = "async"))]
 fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
@@ -218,6 +253,145 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
         Ok(preset_id) => match camera.recall_preset(preset_id) {
+            Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
+            Err(Error::PresetNotFound { id }) => {
+                println!("   ⚠️  Preset {} not found (expected)", id);
+                println!("   💡 Save preset first or use a different ID");
+            }
+            Err(e) => println!("   ✗ Unexpected error: {}", e),
+        },
+        Err(_) => {
+            println!("   ⚠️  Preset ID 99 is out of range for this camera");
+            println!("   💡 PTZOptics G2 supports presets 0-99");
+        }
+    }
+
+    // Scenario 3: Feature not supported
+    println!("\n   c) Handling unsupported features:");
+    println!("   💡 Some cameras don't support all VISCA features");
+    println!("   💡 Use capability queries to check support");
+
+    // Get camera capabilities (profile-based, not from camera)
+    let caps = camera.capabilities();
+    println!("   ✓ Camera capabilities (from profile):");
+    println!("     Model: {}", caps.model_name);
+    println!("     Pan range: {:?} degrees", caps.pan_range_degrees);
+    println!("     Tilt range: {:?} degrees", caps.tilt_range_degrees);
+    println!("     Preset count: {}", caps.preset_count);
+    println!("   💡 These are based on the camera profile, not runtime queries");
+
+    Ok(())
+}
+
+#[cfg(feature = "async")]
+async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
+    println!("   Attempting to connect to camera at {}...", camera_addr);
+
+    // Try to create transport
+    let transport = match create::udp(camera_addr).await {
+        Ok(t) => {
+            println!("   ✓ Transport created successfully");
+            t
+        }
+        Err(e) => {
+            println!("   ✗ Failed to create transport: {}", e);
+            println!("   💡 This is expected if the address is invalid");
+            return Err(Error::Io(e));
+        }
+    };
+
+    let camera = Camera::<PTZOpticsG2>::new(transport);
+
+    // Demonstrate retry pattern
+    println!("\n3. Retry Pattern Implementation:");
+    println!("   Implementing exponential backoff for camera operations\n");
+
+    // Example: Retry power on with exponential backoff
+    let max_attempts = 3;
+    let mut attempt = 0;
+    let mut backoff = Duration::from_millis(100);
+
+    let result = loop {
+        attempt += 1;
+        println!("   Attempt {}/{}: Power on", attempt, max_attempts);
+
+        let start = Instant::now();
+        match camera.power_on().await {
+            Ok(_) => {
+                let elapsed = start.elapsed();
+                println!("   ✓ Power on succeeded in {:?}", elapsed);
+                break Ok(());
+            }
+            Err(e) => {
+                let elapsed = start.elapsed();
+                println!("   ✗ Power on failed after {:?}: {}", elapsed, e);
+
+                // Check if error is retryable
+                let is_retryable = matches!(
+                    e,
+                    Error::CameraBusy
+                        | Error::CommandTimeout { .. }
+                        | Error::CommandBufferFull
+                        | Error::Timeout
+                );
+
+                if !is_retryable || attempt >= max_attempts {
+                    println!("   ✗ Error is not retryable or max attempts reached");
+                    break Err(e);
+                }
+
+                println!("   ⏳ Waiting {:?} before retry...", backoff);
+                tokio::time::sleep(backoff).await;
+                backoff *= 2; // Exponential backoff
+            }
+        }
+    };
+
+    match result {
+        Ok(_) => println!("   ✓ Power on successful after {} attempt(s)", attempt),
+        Err(e) => println!("   ✗ Power on failed after {} attempts: {}", attempt, e),
+    }
+
+    // Scenario 1: Camera busy handling
+    println!("\n4. Common Error Scenarios:");
+    println!("   a) Camera busy while moving:");
+
+    // Start a movement
+    match camera.move_continuous(PanTiltDirection::Right, 10, 0).await {
+        Ok(_) => {
+            println!("   ✓ Started continuous movement");
+
+            // Immediately try another command
+            match camera.zoom_in().await {
+                Ok(_) => println!("   ✓ Zoom command accepted"),
+                Err(Error::CameraBusy) => {
+                    println!("   ⚠️  Camera busy (expected)");
+                    println!("   💡 Solution: Stop movement first or wait");
+
+                    // Stop movement and retry
+                    camera.stop().await?;
+                    println!("   ✓ Movement stopped");
+
+                    // Retry zoom
+                    match camera.zoom_in().await {
+                        Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
+                        Err(e) => println!("   ✗ Zoom still failed: {}", e),
+                    }
+                }
+                Err(e) => println!("   ✗ Unexpected error: {}", e),
+            }
+        }
+        Err(e) => println!("   ✗ Failed to start movement: {}", e),
+    }
+
+    // Scenario 2: Invalid preset
+    println!("\n   b) Handling invalid preset:");
+
+    use grafton_visca::camera::profiles::G2PresetId;
+
+    // Try to recall a preset that might not exist
+    match G2PresetId::new(99) {
+        Ok(preset_id) => match camera.recall_preset(preset_id).await {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
                 println!("   ⚠️  Preset {} not found (expected)", id);

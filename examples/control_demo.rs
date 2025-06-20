@@ -2,6 +2,13 @@
 
 //! Example demonstrating the high-level control API for camera operations.
 
+#[cfg(feature = "async")]
+fn main() {
+    eprintln!("This example demonstrates the blocking control API.");
+    eprintln!("Run without async features: cargo run --example control_demo");
+}
+
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -13,8 +20,10 @@ use grafton_visca::{
     types::ZoomPosition,
     Error,
 };
+#[cfg(not(feature = "async"))]
 use std::{env, time::Duration};
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();

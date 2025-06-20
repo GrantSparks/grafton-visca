@@ -3,14 +3,24 @@
 //! This example shows how the strongly-typed Camera API with profiles prevents
 //! runtime errors and provides compile-time guarantees.
 
+#[cfg(feature = "async")]
+fn main() {
+    eprintln!("This example demonstrates the blocking API. Run without async features:");
+    eprintln!("cargo run --example type_safe_api_demo");
+}
+
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera, CameraProfile},
     transport::blocking::create,
     types::GainLimit,
 };
+#[cfg(not(feature = "async"))]
 use std::thread;
+#[cfg(not(feature = "async"))]
 use std::time::Duration;
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 

@@ -93,6 +93,7 @@ fn main() -> Result<(), Error> {
 
 #[cfg(feature = "async")]
 fn main() {
-    println!("This example requires the blocking mode (default) feature to be enabled.");
-    println!("Run with: cargo run --example quick_start_demo --features blocking-client");
+    eprintln!("This example is designed for blocking mode only.");
+    eprintln!("To run in blocking mode, disable async features:");
+    eprintln!("  cargo run --example quick_start_demo --no-default-features");
 }
