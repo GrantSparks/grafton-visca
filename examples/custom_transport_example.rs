@@ -79,12 +79,7 @@ mod async_example {
                 let response_bytes = self
                     .response_queue
                     .lock()
-                    .map_err(|_| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "Failed to lock response queue",
-                        )
-                    })?
+                    .map_err(|_| std::io::Error::other("Failed to lock response queue"))?
                     .pop_front()
                     .ok_or_else(|| {
                         std::io::Error::new(
