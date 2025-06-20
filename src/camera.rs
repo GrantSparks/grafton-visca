@@ -5,7 +5,7 @@ use std::ops::RangeInclusive;
 #[cfg(feature = "async")]
 use std::sync::Arc;
 
-use crate::error::Error as ViscaError;
+use crate::error::Error;
 #[cfg(feature = "async")]
 use crate::sync_primitives::{Mutex, Semaphore};
 #[cfg(not(feature = "async"))]
@@ -45,12 +45,12 @@ pub struct Camera<P: CameraProfile> {
 #[cfg(not(feature = "async"))]
 pub trait BlockingCameraTransport: Send + Sync {
     /// Send a VISCA command and wait for response.
-    fn send_command(&mut self, command: &dyn Command) -> Result<Response, ViscaError>;
+    fn send_command(&mut self, command: &dyn Command) -> Result<Response, Error>;
 }
 
 #[cfg(not(feature = "async"))]
 impl<T: BlockingTransport> BlockingCameraTransport for BlockingViscaTransport<T> {
-    fn send_command(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+    fn send_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         self.send_command(command)
     }
 }
@@ -168,10 +168,10 @@ pub trait CameraProfile: Default + Send + Sync + std::fmt::Debug {
     }
 
     /// Associated type for camera-specific preset IDs.
-    type PresetId: Into<u8> + TryFrom<u8, Error = ViscaError> + Copy + Display;
+    type PresetId: Into<u8> + TryFrom<u8, Error = Error> + Copy + Display;
 
     /// Associated type for camera-specific gain values.
-    type GainValue: Into<u8> + TryFrom<u8, Error = ViscaError> + Copy + Display;
+    type GainValue: Into<u8> + TryFrom<u8, Error = Error> + Copy + Display;
 
     /// Get the maximum preset ID for this camera.
     fn max_preset_id() -> u8;
@@ -625,7 +625,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Send a command and wait for completion.
     #[cfg(not(feature = "async"))]
-    fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), ViscaError> {
+    fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), Error> {
         match self.send_raw(command)? {
             Response::Completion => Ok(()),
             Response::Ack => {
@@ -633,7 +633,7 @@ impl<P: CameraProfile> Camera<P> {
                 // Transport handles waiting for completion
                 Ok(())
             }
-            response => Err(ViscaError::InvalidResponse {
+            response => Err(Error::InvalidResponse {
                 expected: "Completion".to_string(),
                 actual: format!("{:?}", response).into_bytes(),
             }),
@@ -642,7 +642,7 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Send a command and wait for completion.
     #[cfg(feature = "async")]
-    async fn send_and_wait(&self, command: &dyn Command) -> Result<(), ViscaError> {
+    async fn send_and_wait(&self, command: &dyn Command) -> Result<(), Error> {
         match self.send_raw(command).await? {
             Response::Completion => Ok(()),
             Response::Ack => {
@@ -650,7 +650,7 @@ impl<P: CameraProfile> Camera<P> {
                 // Transport handles waiting for completion
                 Ok(())
             }
-            response => Err(ViscaError::InvalidResponse {
+            response => Err(Error::InvalidResponse {
                 expected: "Completion".to_string(),
                 actual: format!("{:?}", response).into_bytes(),
             }),
@@ -659,13 +659,13 @@ impl<P: CameraProfile> Camera<P> {
 
     /// Send a raw command to the camera.
     #[cfg(not(feature = "async"))]
-    pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, ViscaError> {
+    pub fn send_raw(&mut self, command: &dyn Command) -> Result<Response, Error> {
         self.transport.send_command(command)
     }
 
     /// Send a raw command to the camera.
     #[cfg(feature = "async")]
-    pub async fn send_raw(&self, command: &dyn Command) -> Result<Response, ViscaError> {
+    pub async fn send_raw(&self, command: &dyn Command) -> Result<Response, Error> {
         use crate::sync_primitives::SemaphoreExt;
 
         // Acquire semaphore permit for concurrency control

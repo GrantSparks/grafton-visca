@@ -4,7 +4,7 @@ use std::fmt;
 use std::ops::RangeInclusive;
 
 use super::CameraProfile;
-use crate::error::Error as ViscaError;
+use crate::error::Error;
 
 /// PTZOptics G2 camera profile.
 #[derive(Debug, Default, Clone, Copy)]
@@ -28,11 +28,11 @@ pub struct G2PresetId(u8);
 
 impl G2PresetId {
     /// Create a new preset ID with validation.
-    pub fn new(id: u8) -> Result<Self, ViscaError> {
+    pub fn new(id: u8) -> Result<Self, Error> {
         if id <= 89 {
             Ok(Self(id))
         } else {
-            Err(ViscaError::InvalidPreset {
+            Err(Error::InvalidPreset {
                 preset: id,
                 max: 89,
             })
@@ -53,7 +53,7 @@ impl From<G2PresetId> for u8 {
 }
 
 impl TryFrom<u8> for G2PresetId {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)
@@ -107,7 +107,7 @@ impl From<G2Gain> for u8 {
 }
 
 impl TryFrom<u8> for G2Gain {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -120,7 +120,7 @@ impl TryFrom<u8> for G2Gain {
             6 => Ok(G2Gain::Gain18dB),
             7 => Ok(G2Gain::Gain21dB),
             8 => Ok(G2Gain::Gain24dB),
-            _ => Err(ViscaError::InvalidParameter(format!(
+            _ => Err(Error::InvalidParameter(format!(
                 "Invalid gain value: {}",
                 value
             ))),
@@ -216,7 +216,7 @@ impl From<GenericPresetId> for u8 {
 }
 
 impl TryFrom<u8> for GenericPresetId {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Ok(Self::new(value))
@@ -229,11 +229,11 @@ pub struct GenericGain(u8);
 
 impl GenericGain {
     /// Create a new gain value with validation.
-    pub fn new(value: u8) -> Result<Self, ViscaError> {
+    pub fn new(value: u8) -> Result<Self, Error> {
         if value <= 15 {
             Ok(Self(value))
         } else {
-            Err(ViscaError::InvalidParameter(format!(
+            Err(Error::InvalidParameter(format!(
                 "Invalid gain value: {}",
                 value
             )))
@@ -254,7 +254,7 @@ impl From<GenericGain> for u8 {
 }
 
 impl TryFrom<u8> for GenericGain {
-    type Error = ViscaError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value)

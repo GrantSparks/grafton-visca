@@ -17,7 +17,7 @@ use crate::{
         zoom::{ZoomCommand, ZoomSpeed},
     },
     types::{GainLimit, IrisLevel, ShutterSpeed},
-    Command, Error as ViscaError, Response,
+    Command, Error, Response,
 };
 
 /// A command that has been prepared for execution.
@@ -131,14 +131,14 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
         tilt_deg: f32,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-    ) -> Result<Self, ViscaError> {
+    ) -> Result<Self, Error> {
         let pan = self.camera.profile().pan_degrees_to_units(pan_deg);
         let tilt = self.camera.profile().tilt_degrees_to_units(tilt_deg);
 
         // Validate ranges
         let pan_range = self.camera.profile().pan_range();
         if !pan_range.contains(&pan) {
-            return Err(ViscaError::InvalidParameter(format!(
+            return Err(Error::InvalidParameter(format!(
                 "Pan position {} degrees ({} units) outside range [{}, {}]",
                 pan_deg,
                 pan,
@@ -149,7 +149,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
 
         let tilt_range = self.camera.profile().tilt_range();
         if !tilt_range.contains(&tilt) {
-            return Err(ViscaError::InvalidParameter(format!(
+            return Err(Error::InvalidParameter(format!(
                 "Tilt position {} degrees ({} units) outside range [{}, {}]",
                 tilt_deg,
                 tilt,
@@ -428,10 +428,10 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// # Errors
     /// Returns an error if any command fails. Execution stops at the first error.
     #[cfg(not(feature = "tokio"))]
-    pub fn execute_sequential(self) -> Result<Vec<Response>, ViscaError> {
+    pub fn execute_sequential(self) -> Result<Vec<Response>, Error> {
         // The new transport API is async-first
         // Use execute_sequential_async with a runtime for blocking usage
-        Err(ViscaError::InvalidState(
+        Err(Error::InvalidState(
             "execute_sequential requires async runtime - use execute_sequential_async".to_string(),
         ))
     }
@@ -444,7 +444,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// # Errors
     /// Returns an error if any command fails. Execution stops at the first error.
     #[cfg(feature = "async")]
-    pub async fn execute_sequential_async(self) -> Result<Vec<Response>, ViscaError> {
+    pub async fn execute_sequential_async(self) -> Result<Vec<Response>, Error> {
         let mut responses = Vec::with_capacity(self.commands.len());
 
         for (i, prepared) in self.commands.into_iter().enumerate() {
@@ -487,7 +487,7 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// }
     /// ```
     #[cfg(feature = "async")]
-    pub async fn execute_concurrent(self) -> Result<Vec<Result<Response, ViscaError>>, ViscaError> {
+    pub async fn execute_concurrent(self) -> Result<Vec<Result<Response, Error>>, Error> {
         use futures_util::future::join_all;
         use std::sync::Arc;
 
