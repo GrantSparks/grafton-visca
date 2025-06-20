@@ -6,7 +6,6 @@
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera, CameraProfile},
     transport::blocking::create,
-    types::GainLimit,
 };
 use std::thread;
 use std::time::Duration;
