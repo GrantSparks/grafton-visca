@@ -74,11 +74,8 @@ jobs:
         run: cargo test --all-features --verbose
       
       # Test individual features
-      - name: Test blocking-client feature only
-        run: cargo test --no-default-features --features blocking-client --verbose
-      
-      - name: Test async-client feature only
-        run: cargo test --no-default-features --features async-client --verbose
+      - name: Test async feature only
+        run: cargo test --no-default-features --features async --verbose
       
       # Build examples (only on stable)
       - name: Build examples with default features
@@ -89,13 +86,9 @@ jobs:
         if: matrix.rust == 'stable'
         run: cargo build --examples --all-features
       
-      - name: Build examples with blocking-client only
+      - name: Build examples with async only
         if: matrix.rust == 'stable'
-        run: cargo build --examples --no-default-features --features blocking-client
-      
-      - name: Build examples with async-client only
-        if: matrix.rust == 'stable'
-        run: cargo build --examples --no-default-features --features async-client
+        run: cargo build --examples --no-default-features --features async
 
   # Combined lint and doc check
   lint-and-docs:

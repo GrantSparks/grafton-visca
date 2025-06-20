@@ -304,10 +304,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     async_demo::run().await
 }
 
-#[cfg(not(feature = "async"))]
-fn main() {
-    eprintln!(
-        "This example works in blocking mode by default, or with 'async' feature for async mode."
-    );
-    eprintln!("Try: cargo run --example basic_camera_demo");
-}

@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_gain(G2Gain::Gain12dB)?;
     println!("   ✓ Set gain to 12dB (profile-specific value)");
 
-    camera.set_gain_limit(GainLimit::new(6)?)?; // 18dB = value 6
+    camera.set_gain_limit(6)?; // 18dB = value 6
     println!("   ✓ Set gain limit to 18dB");
 
     // 5. All commands are validated at compile time
