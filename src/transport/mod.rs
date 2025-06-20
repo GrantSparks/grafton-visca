@@ -57,29 +57,48 @@ pub use blocking::Transport;
 #[cfg(feature = "async")]
 mod channel;
 #[cfg(feature = "async")]
-mod implementations;
+mod runtime_agnostic;
 #[cfg(feature = "async")]
 mod session;
+
+// Async implementations
 #[cfg(feature = "async")]
-pub use channel::{ChannelConfig, ChannelTransport};
+mod implementations;
 #[cfg(feature = "async")]
-pub use implementations::{SerialTransport, TcpTransport, UdpTransport};
+mod tokio_impl;
+
+// Re-exports for async support
+#[cfg(feature = "async")]
+pub use runtime_agnostic::{CustomTransport, SerialTransport};
 #[cfg(feature = "async")]
 pub use session::ViscaTransport;
 
+// Re-export channel transport
+#[cfg(feature = "async")]
+pub use channel::{ChannelConfig, ChannelTransport};
+
+// Re-export tokio implementations
+#[cfg(feature = "async")]
+pub use tokio_impl::{TokioTcpTransport, TokioUdpTransport};
+
+// Backward compatibility - keep old names
+#[cfg(feature = "async")]
+pub use implementations::{TcpTransport, UdpTransport};
+
+// Convenience functions for creating transports
 #[cfg(feature = "async")]
 /// Simple transport creation functions.
 pub mod create {
     use super::*;
     use std::time::Duration;
 
-    /// Create TCP transport.
+    /// Create TCP transport using tokio.
     pub async fn tcp(address: &str) -> std::io::Result<ViscaTransport<TcpTransport>> {
         let raw = TcpTransport::connect(address).await?;
         Ok(ViscaTransport::new(raw))
     }
 
-    /// Create TCP transport with timeout.
+    /// Create TCP transport with timeout using tokio.
     pub async fn tcp_timeout(
         address: &str,
         timeout: Duration,
@@ -88,13 +107,13 @@ pub mod create {
         Ok(ViscaTransport::new(raw))
     }
 
-    /// Create UDP transport.
+    /// Create UDP transport using tokio.
     pub async fn udp(address: &str) -> std::io::Result<ViscaTransport<UdpTransport>> {
         let raw = UdpTransport::connect(address).await?;
         Ok(ViscaTransport::new(raw))
     }
 
-    /// Create serial transport.
+    /// Create serial transport (runtime-agnostic).
     pub fn serial(camera_address: u8) -> ViscaTransport<SerialTransport> {
         let raw = SerialTransport::new(camera_address);
         ViscaTransport::new(raw)

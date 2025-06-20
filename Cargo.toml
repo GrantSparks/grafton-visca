@@ -15,7 +15,7 @@ readme = "README.md"
 
 [features]
 default = []
-async = ["dep:tokio", "futures", "futures-util"]
+async = ["futures", "futures-util", "dep:tokio"]
 tokio = ["async"]
 
 [dependencies]
@@ -170,4 +170,8 @@ required-features = ["async"]
 
 [[example]]
 name = "custom_retry_logic"
+required-features = ["async"]
+
+[[example]]
+name = "custom_transport_example"
 required-features = ["async"]

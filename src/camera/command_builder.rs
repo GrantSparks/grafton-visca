@@ -488,12 +488,13 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     /// ```
     #[cfg(feature = "async")]
     pub async fn execute_concurrent(self) -> Result<Vec<Result<Response, Error>>, Error> {
+        use crate::sync_primitives::Mutex;
         use futures_util::future::join_all;
         use std::sync::Arc;
 
         // We need to share the camera between concurrent tasks
         // This is safe because we have the semaphore limiting concurrent access
-        let camera_arc = Arc::new(tokio::sync::Mutex::new(self.camera));
+        let camera_arc = Arc::new(Mutex::new(self.camera));
         let commands = self.commands;
 
         // Create futures for all commands
