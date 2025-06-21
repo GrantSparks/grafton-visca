@@ -35,6 +35,7 @@
 //! - **Comprehensive Inquiry**: Query camera state for all supported features
 //! - **Transport Abstraction**: Implement your own transport (TCP, UDP, serial, etc.)
 //! - **Builder Patterns**: Create custom camera profiles for any VISCA camera
+//! - **Runtime-Agnostic Async**: Optional async support works with ANY runtime (tokio, async-std, smol, etc.)
 //!
 //! ## Quick Start
 //!
@@ -121,6 +122,43 @@
 //! - `udp_transport.rs` - UDP/IP transport
 //! - `serial_transport.rs` - Serial port transport example
 //! - `custom_transport_example.rs` - Mock and wrapper transports
+//!
+//! ## Async Support (Runtime-Agnostic)
+//!
+//! The library provides optional async support that works with ANY async runtime, not just tokio:
+//!
+//! ```ignore
+//! // Enable async feature in Cargo.toml:
+//! // grafton-visca = { version = "0.4", features = ["async"] }
+//!
+//! use grafton_visca::transport::{AsyncTransport, AsyncTransportAdapter};
+//! use std::future::Future;
+//! use std::pin::Pin;
+//!
+//! // Implement AsyncTransport for your runtime's transport type
+//! struct MyAsyncTransport { /* ... */ }
+//!
+//! impl AsyncTransport for MyAsyncTransport {
+//!     type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
+//!     type ReceiveFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
+//!
+//!     fn send<'a>(&'a mut self, data: &'a [u8]) -> Self::SendFuture<'a> {
+//!         Box::pin(async move {
+//!             // Your async send implementation
+//!             Ok(())
+//!         })
+//!     }
+//!
+//!     fn receive(&mut self) -> Self::ReceiveFuture<'_> {
+//!         Box::pin(async move {
+//!             // Your async receive implementation
+//!             Ok(vec![])
+//!         })
+//!     }
+//! }
+//! ```
+//!
+//! See the examples directory for complete implementations with async-std, smol, and other runtimes.
 //!
 //! ## Supported Commands
 //!

@@ -4,14 +4,18 @@
 //! select the appropriate implementation based on enabled features.
 
 // Re-export the appropriate mutex type based on features
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 pub use tokio::sync::Mutex;
 
 #[cfg(not(feature = "async"))]
 pub use parking_lot::Mutex;
 
+// When async is enabled but tokio is not, we need a different approach
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+pub use futures::lock::Mutex;
+
 // Semaphore abstraction that works for both sync and async
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 mod async_semaphore {
     // Standard library imports
     use std::sync::Arc;
@@ -46,6 +50,60 @@ mod async_semaphore {
 
         pub fn available_permits(&self) -> usize {
             self.inner.available_permits()
+        }
+    }
+}
+
+// Runtime-agnostic semaphore implementation when async is enabled but tokio is not
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+mod async_semaphore {
+    use parking_lot::{Condvar, Mutex};
+    use std::sync::Arc;
+
+    #[derive(Debug)]
+    pub struct Semaphore {
+        state: Arc<(Mutex<usize>, Condvar)>,
+    }
+
+    pub struct Permit<'a> {
+        semaphore: &'a Semaphore,
+    }
+
+    impl Semaphore {
+        pub fn new(permits: usize) -> Self {
+            Self {
+                state: Arc::new((Mutex::new(permits), Condvar::new())),
+            }
+        }
+
+        pub async fn acquire(&self) -> Result<Permit<'_>, crate::Error> {
+            // For now, use blocking implementation wrapped in async
+            // This is not ideal but works for runtime-agnostic case
+            let (lock, cvar) = &*self.state;
+            let mut count = lock.lock();
+
+            while *count == 0 {
+                cvar.wait(&mut count);
+            }
+
+            *count -= 1;
+            drop(count);
+            Ok(Permit { semaphore: self })
+        }
+
+        pub fn available_permits(&self) -> usize {
+            let (lock, _) = &*self.state;
+            *lock.lock()
+        }
+    }
+
+    impl Drop for Permit<'_> {
+        fn drop(&mut self) {
+            let (lock, cvar) = &*self.semaphore.state;
+            let mut count = lock.lock();
+            *count += 1;
+            drop(count);
+            let _ = cvar.notify_one();
         }
     }
 }

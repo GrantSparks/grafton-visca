@@ -8,10 +8,33 @@
 //! - `blocking::ViscaTransport<T>`: Handles VISCA protocol logic
 //! - Built-in implementations: TCP, UDP
 //!
-//! ## Async Transport (Optional)
-//! - `RawTransport` trait: Asynchronous I/O interface
+//! ## Async Transport (Optional, Runtime-Agnostic)
+//! The async transport layer is designed to work with ANY async runtime (tokio, async-std, smol, etc.)
+//! without forcing a specific runtime dependency.
+//!
+//! ### Core Traits:
+//! - `AsyncTransport`: Simple trait for implementing async transports with any runtime
+//! - `AsyncTransportAdapter`: Adapter to use AsyncTransport implementations
+//! - `RawTransport`: Low-level async I/O interface (used internally)
 //! - `ViscaTransport<T>`: Async protocol handling
-//! - `ChannelTransport`: Thread-safe wrapper
+//!
+//! ### Using with Different Runtimes:
+//! ```rust,ignore
+//! // Example with async-std
+//! use async_std::net::TcpStream;
+//! use grafton_visca::transport::{AsyncTransport, AsyncTransportAdapter};
+//!
+//! struct AsyncStdTransport { stream: TcpStream }
+//!
+//! impl AsyncTransport for AsyncStdTransport {
+//!     // ... implement send() and receive() using async-std's APIs
+//! }
+//!
+//! // Then use with AsyncTransportAdapter
+//! let adapter = AsyncTransportAdapter::new(transport, "async-std".into());
+//! ```
+//!
+//! See the examples directory for complete implementations with different runtimes.
 
 #[cfg(feature = "async")]
 use std::{fmt::Debug, future::Future, pin::Pin};
@@ -54,17 +77,23 @@ pub use blocking::{
 pub use blocking::Transport;
 
 // Async transport modules (optional)
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 mod channel;
 #[cfg(feature = "async")]
 mod runtime_agnostic;
 #[cfg(feature = "async")]
 mod session;
 
+// New simplified async transport approach
+#[cfg(feature = "async")]
+mod async_transport;
+#[cfg(all(feature = "async", feature = "tokio"))]
+mod tokio_simple;
+
 // Async implementations
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 mod implementations;
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 mod tokio_impl;
 
 // Re-exports for async support
@@ -73,16 +102,24 @@ pub use runtime_agnostic::{CustomTransport, SerialTransport};
 #[cfg(feature = "async")]
 pub use session::ViscaTransport;
 
-// Re-export channel transport
+// Export the new simplified async transport trait
 #[cfg(feature = "async")]
+pub use async_transport::{AsyncTransport, AsyncTransportAdapter};
+
+// Export simplified tokio transports when tokio is enabled
+#[cfg(all(feature = "async", feature = "tokio"))]
+pub use tokio_simple::{SimpleTokioTcpTransport, SimpleTokioUdpTransport};
+
+// Re-export channel transport based on features
+#[cfg(all(feature = "async", feature = "tokio"))]
 pub use channel::{ChannelConfig, ChannelTransport};
 
-// Re-export tokio implementations
-#[cfg(feature = "async")]
+// Re-export tokio implementations when tokio is enabled
+#[cfg(all(feature = "async", feature = "tokio"))]
 pub use tokio_impl::{TokioTcpTransport, TokioUdpTransport};
 
-// Backward compatibility - keep old names
-#[cfg(feature = "async")]
+// Backward compatibility - keep old names when tokio is enabled
+#[cfg(all(feature = "async", feature = "tokio"))]
 pub use implementations::{TcpTransport, UdpTransport};
 
 // Convenience functions for creating transports
@@ -92,12 +129,15 @@ pub mod create {
     use super::*;
     use std::time::Duration;
 
+    // When tokio feature is enabled, use tokio-specific transports for backwards compatibility
+    #[cfg(feature = "tokio")]
     /// Create TCP transport using tokio.
     pub async fn tcp(address: &str) -> std::io::Result<ViscaTransport<TcpTransport>> {
         let raw = TcpTransport::connect(address).await?;
         Ok(ViscaTransport::new(raw))
     }
 
+    #[cfg(feature = "tokio")]
     /// Create TCP transport with timeout using tokio.
     pub async fn tcp_timeout(
         address: &str,
@@ -107,6 +147,7 @@ pub mod create {
         Ok(ViscaTransport::new(raw))
     }
 
+    #[cfg(feature = "tokio")]
     /// Create UDP transport using tokio.
     pub async fn udp(address: &str) -> std::io::Result<ViscaTransport<UdpTransport>> {
         let raw = UdpTransport::connect(address).await?;
@@ -120,7 +161,37 @@ pub mod create {
     }
 
     /// Wrap in channel for thread safety.
+    #[cfg(feature = "tokio")]
     pub fn channel<T: RawTransport + 'static>(transport: ViscaTransport<T>) -> ChannelTransport {
         ChannelTransport::new(transport, ChannelConfig::default())
+    }
+
+    /// Simplified async transport creation.
+    #[cfg(feature = "tokio")]
+    pub mod simple {
+        use super::*;
+        use crate::transport::{
+            AsyncTransportAdapter, SimpleTokioTcpTransport, SimpleTokioUdpTransport,
+        };
+
+        /// Create a simple TCP transport without Arc<Mutex<>> overhead.
+        pub async fn tcp(
+            address: &str,
+        ) -> Result<ViscaTransport<AsyncTransportAdapter<SimpleTokioTcpTransport>>, Error> {
+            let tcp = SimpleTokioTcpTransport::connect(address).await?;
+            let adapter = AsyncTransportAdapter::new(tcp, format!("TCP {}", address));
+            Ok(ViscaTransport::new(adapter))
+        }
+
+        /// Create a simple UDP transport without Arc<Mutex<>> overhead.
+        pub async fn udp(
+            local_addr: &str,
+            remote_addr: &str,
+        ) -> Result<ViscaTransport<AsyncTransportAdapter<SimpleTokioUdpTransport>>, Error> {
+            let udp = SimpleTokioUdpTransport::new(local_addr, remote_addr).await?;
+            let adapter =
+                AsyncTransportAdapter::new(udp, format!("UDP {} -> {}", local_addr, remote_addr));
+            Ok(ViscaTransport::new(adapter))
+        }
     }
 }

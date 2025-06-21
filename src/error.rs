@@ -193,6 +193,10 @@ pub enum Error {
     /// No response received from camera.
     #[error("No response received from camera")]
     NoResponse,
+
+    /// Channel has been closed.
+    #[error("Channel closed")]
+    ChannelClosed,
 }
 
 impl Error {

@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     println!("This example demonstrates custom transport implementation.");
-    
+
     // Create our custom transport
     let raw_transport =
         RuntimeAgnosticTransport::new("Custom transport with tokio runtime".to_string());
@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("- Testing without real hardware");
     println!("- Implementing new protocols");
     println!("- Adding logging/debugging layers");
-    
+
     // Test the transport
     camera.power_on().await?;
     println!("Power on command sent through custom transport");

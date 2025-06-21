@@ -42,6 +42,11 @@ impl<T: RawTransport> ViscaTransport<T> {
         }
     }
 
+    /// Get the inner raw transport.
+    pub fn into_inner(self) -> T {
+        self.raw
+    }
+
     /// Send a VISCA command and wait for the complete response.
     ///
     /// Handles the full command lifecycle:

@@ -179,4 +179,3 @@ impl RawTransport for TokioUdpTransport {
         &self.description
     }
 }
-
