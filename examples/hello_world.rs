@@ -6,11 +6,12 @@ use grafton_visca::{
     camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, Camera, Error,
 };
 use log::{debug, info};
-use std::{env, time::Duration};
+use std::env;
 
 #[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use std::time::Duration;
     use tokio::time::sleep;
 
     env_logger::Builder::from_default_env()
@@ -139,6 +140,7 @@ fn create_camera(
 async fn perform_pan_tilt_movements<T: grafton_visca::transport::AsyncTransport>(
     camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Error> {
+    use std::time::Duration;
     use tokio::time::sleep;
 
     let complex_movements = [

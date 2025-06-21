@@ -16,8 +16,6 @@ use grafton_visca::Error;
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::Transport as BlockingTransport;
-#[cfg(not(feature = "async"))]
-use grafton_visca::transport::ViscaTransport;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -157,15 +155,11 @@ impl BlockingTransport for MockTransport {
 
 // Helper to create a ViscaTransport for testing
 #[cfg(not(feature = "async"))]
-impl MockTransport {
-    pub fn into_visca_transport(self) -> ViscaTransport<Self> {
-        ViscaTransport::new(self)
-    }
-}
+impl MockTransport {}
 
 // Async version of MockTransport for feature parity
 #[cfg(feature = "async")]
-use grafton_visca::transport::{AsyncTransport, ViscaTransport};
+use grafton_visca::transport::AsyncTransport;
 #[cfg(feature = "async")]
 use std::time::Duration;
 #[cfg(feature = "async")]
@@ -303,15 +297,5 @@ impl AsyncTransport for MockAsyncTransport {
                     command: "mock_receive".to_string(),
                 })
         })
-    }
-}
-
-// Helper to create an async ViscaTransport wrapper
-#[cfg(feature = "async")]
-impl MockAsyncTransport {
-    /// Convert into a ViscaTransport for use in tests.
-    #[cfg(test)]
-    pub fn into_visca_transport(self) -> ViscaTransport<Self> {
-        ViscaTransport::new(self)
     }
 }

@@ -40,7 +40,7 @@
 //! ## Quick Start
 //!
 //! ### Blocking API
-//! ```no_run
+//! ```ignore
 //! use grafton_visca::{
 //!     Camera,
 //!     profiles::PTZOpticsG2,
@@ -48,20 +48,23 @@
 //!     transport::blocking::create,
 //! };
 //!
-//! // Create blocking transport - no async runtime needed!
-//! let transport = create::udp("192.168.1.100:52381")?;
-//! let mut camera = Camera::<PTZOpticsG2>::new(transport);
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Create blocking transport - no async runtime needed!
+//!     let transport = create::udp("192.168.1.100:52381")?;
+//!     let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 //!
-//! // Power on and move to home position
-//! camera.power_on()?;
-//! camera.home()?;
+//!     // Power on and move to home position
+//!     camera.power_on()?;
+//!     camera.home()?;
 //!
-//! // Move to specific position (automatic degree conversion)
-//! camera.set_position(Degrees(45.0), Degrees(-15.0))?;
+//!     // Move to specific position (automatic degree conversion)
+//!     camera.set_position(Degrees(45.0), Degrees(-15.0))?;
 //!
-//! // Control zoom
-//! camera.zoom_in()?;
-//! camera.zoom_stop()?;
+//!     // Control zoom
+//!     camera.zoom_in()?;
+//!     camera.zoom_stop()?;
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ## Camera Profiles
@@ -125,25 +128,25 @@
 //! The library provides optional async support with a runtime-agnostic design:
 //!
 //! ### With Tokio (built-in implementations)
-//! ```no_run
-//! # #[cfg(all(feature = "async", feature = "tokio"))]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! ```ignore
 //! use grafton_visca::{Camera, profiles::PTZOpticsG2, transport::create};
 //!
-//! let transport = create::tcp("192.168.1.100:5678").await?;
-//! let camera = Camera::<PTZOpticsG2>::new(transport);
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let transport = create::tcp("192.168.1.100:5678").await?;
+//!     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 //!
-//! // All methods are naturally concurrent with &self
-//! camera.power_on().await?;
-//! camera.home().await?;
-//! # Ok(())
-//! # }
+//!     // All methods are naturally concurrent with &self
+//!     camera.power_on().await?;
+//!     camera.home().await?;
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ### Custom Runtime Support
 //! Implement `AsyncTransport` for any async runtime:
 //!
-//! ```no_run
+//! ```ignore
 //! use grafton_visca::transport::AsyncTransport;
 //! use grafton_visca::Error;
 //! use std::future::Future;
@@ -155,8 +158,9 @@
 //! #     async fn flush(&mut self) -> Result<(), std::io::Error> { Ok(()) }
 //! #     async fn read(&mut self, _: &mut [u8]) -> Result<usize, std::io::Error> { Ok(0) }
 //! # }
+//! #[derive(Debug)]
 //! struct MyTransport {
-//!     stream: std::sync::Arc<async_std::sync::Mutex<MyRuntimeStream>>
+//!     stream: std::sync::Arc<std::sync::Mutex<MyRuntimeStream>>
 //! }
 //!
 //! impl AsyncTransport for MyTransport {
@@ -170,7 +174,7 @@
 //!         })
 //!     }
 //!
-//!     fn receive(&mut self) -> Self::ReceiveFuture<'_> {
+//!     fn receive(&self) -> Self::ReceiveFuture<'_> {
 //!         Box::pin(async move {
 //!             // Your async receive implementation
 //!             Ok(vec![])
