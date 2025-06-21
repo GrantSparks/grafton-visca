@@ -15,8 +15,8 @@ readme = "README.md"
 
 [features]
 default = []
-async = ["futures", "futures-util", "dep:tokio"]
-tokio = ["async"]
+async = ["futures", "futures-util"]
+tokio = ["async", "dep:tokio"]
 
 [dependencies]
 log = "0.4.22"
@@ -175,3 +175,7 @@ required-features = ["async"]
 [[example]]
 name = "custom_transport_example"
 required-features = ["async"]
+
+[[example]]
+name = "simplified_async_demo"
+required-features = ["tokio"]

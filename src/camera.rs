@@ -12,8 +12,10 @@ use crate::sync_primitives::{Mutex, Semaphore};
 use crate::transport::blocking::{
     Transport as BlockingTransport, ViscaTransport as BlockingViscaTransport,
 };
+#[cfg(all(feature = "async", feature = "tokio"))]
+use crate::transport::ChannelTransport;
 #[cfg(feature = "async")]
-use crate::transport::{ChannelTransport, RawTransport, ViscaTransport};
+use crate::transport::{RawTransport, ViscaTransport};
 use crate::{Command, Response};
 
 pub mod builder;
@@ -529,7 +531,7 @@ impl<T: RawTransport> CameraTransport for ViscaTransport<T> {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 impl CameraTransport for ChannelTransport {
     fn send_command<'a>(
         &'a mut self,
