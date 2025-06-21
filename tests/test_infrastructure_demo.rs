@@ -56,8 +56,8 @@ fn test_with_mock_transport() {
     // Create a mock that returns specific responses
     let mock = MockTransport::with_ack_completion();
     let commands_sent = mock.commands_sent.clone();
-    let transport = mock.into_visca_transport();
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let transport = mock; // Use raw mock transport, Camera::new will wrap it
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Send command and verify response
     assert_ok(camera.power_on(), "Power on command should succeed");
@@ -124,8 +124,8 @@ mod integration_style_tests {
         mock.add_ack_completion(1); // Zoom stop
 
         let commands_sent = mock.commands_sent.clone();
-        let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Test multiple commands
         assert_ok(camera.home(), "Home command should succeed");

@@ -50,7 +50,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     println!("Connecting to camera at {}...", camera_addr);
     let transport = create::udp(camera_addr)?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Note: The Camera API doesn't have built-in timeout support.");
     println!("These examples show execution timing patterns.\n");

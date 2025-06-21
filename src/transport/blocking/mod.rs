@@ -47,12 +47,10 @@ impl Transport for Box<dyn Transport> {
 // Submodules
 mod tcp;
 mod udp;
-mod visca_transport;
 
 // Re-exports
 pub use tcp::TcpTransport;
 pub use udp::UdpTransport;
-pub use visca_transport::ViscaTransport;
 
 /// Convenience functions for creating transports.
 pub mod create {
@@ -60,23 +58,20 @@ pub mod create {
     use std::net::ToSocketAddrs;
 
     /// Create a TCP transport connected to the given address.
-    pub fn tcp<A: ToSocketAddrs>(address: A) -> std::io::Result<ViscaTransport<TcpTransport>> {
-        let transport = TcpTransport::connect(address)?;
-        Ok(ViscaTransport::new(transport))
+    pub fn tcp<A: ToSocketAddrs>(address: A) -> std::io::Result<TcpTransport> {
+        TcpTransport::connect(address)
     }
 
     /// Create a TCP transport with custom timeout.
     pub fn tcp_timeout<A: ToSocketAddrs>(
         address: A,
         timeout: Duration,
-    ) -> std::io::Result<ViscaTransport<TcpTransport>> {
-        let transport = TcpTransport::connect_timeout(address, timeout)?;
-        Ok(ViscaTransport::new(transport))
+    ) -> std::io::Result<TcpTransport> {
+        TcpTransport::connect_timeout(address, timeout)
     }
 
     /// Create a UDP transport connected to the given address.
-    pub fn udp<A: ToSocketAddrs>(address: A) -> std::io::Result<ViscaTransport<UdpTransport>> {
-        let transport = UdpTransport::connect(address)?;
-        Ok(ViscaTransport::new(transport))
+    pub fn udp<A: ToSocketAddrs>(address: A) -> std::io::Result<UdpTransport> {
+        UdpTransport::connect(address)
     }
 }

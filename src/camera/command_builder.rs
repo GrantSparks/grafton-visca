@@ -28,8 +28,16 @@ struct PreparedCommand {
 }
 
 /// Builder for creating command sequences on a Camera.
+#[cfg(not(feature = "async"))]
 pub struct CommandBuilder<'a, P: CameraProfile, T> {
     camera: &'a mut Camera<P, T>,
+    commands: Vec<PreparedCommand>,
+}
+
+/// Builder for creating command sequences on a Camera (async version with interior mutability).
+#[cfg(feature = "async")]
+pub struct CommandBuilder<'a, P: CameraProfile, T> {
+    camera: &'a Camera<P, T>,
     commands: Vec<PreparedCommand>,
 }
 
@@ -41,15 +49,32 @@ impl<P: CameraProfile, T> std::fmt::Debug for CommandBuilder<'_, P, T> {
     }
 }
 
-impl<'a, P: CameraProfile, T> CommandBuilder<'a, P, T> {
+// Blocking implementation
+#[cfg(not(feature = "async"))]
+impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
     /// Creates a new command builder for the given camera.
-    pub(crate) fn new(camera: &'a mut Camera<P, T>) -> Self {
-        Self {
+    pub(crate) fn new(camera: &mut Camera<P, T>) -> CommandBuilder<'_, P, T> {
+        CommandBuilder {
             camera,
             commands: Vec::new(),
         }
     }
+}
 
+// Async implementation
+#[cfg(feature = "async")]
+impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
+    /// Creates a new command builder for the given camera.
+    pub(crate) fn new(camera: &Camera<P, T>) -> CommandBuilder<'_, P, T> {
+        CommandBuilder {
+            camera,
+            commands: Vec::new(),
+        }
+    }
+}
+
+// Shared implementation for both blocking and async
+impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
     /// Adds a command to the sequence.
     fn add_command(
         mut self,
@@ -427,13 +452,26 @@ impl<'a, P: CameraProfile, T> CommandBuilder<'a, P, T> {
     ///
     /// # Errors
     /// Returns an error if any command fails. Execution stops at the first error.
-    #[cfg(not(feature = "tokio"))]
-    pub fn execute_sequential(self) -> Result<Vec<Response>, Error> {
-        // The new transport API is async-first
-        // Use execute_sequential_async with a runtime for blocking usage
-        Err(Error::InvalidState(
-            "execute_sequential requires async runtime - use execute_sequential_async".to_string(),
-        ))
+    #[cfg(not(feature = "async"))]
+    pub fn execute_sequential(self) -> Result<Vec<Response>, Error>
+    where
+        T: crate::transport::blocking::Transport,
+    {
+        let mut responses = Vec::with_capacity(self.commands.len());
+
+        for (i, prepared) in self.commands.into_iter().enumerate() {
+            log::debug!("Executing command {}: {}", i + 1, prepared.description);
+
+            match self.camera.send_command(prepared.command.as_ref()) {
+                Ok(response) => responses.push(response),
+                Err(e) => {
+                    log::error!("Command {} failed: {}", prepared.description, e);
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(responses)
     }
 
     /// Executes all commands sequentially (async).
@@ -483,14 +521,30 @@ impl<'a, P: CameraProfile, T> CommandBuilder<'a, P, T> {
     }
 }
 
-/// Extension trait to add command builder support to Camera.
+/// Extension trait to add command builder support to Camera (blocking).
+#[cfg(not(feature = "async"))]
 pub trait CommandBuilderExt<P: CameraProfile, T> {
     /// Creates a new command builder for this camera.
     fn commands(&mut self) -> CommandBuilder<'_, P, T>;
 }
 
+#[cfg(not(feature = "async"))]
 impl<P: CameraProfile, T> CommandBuilderExt<P, T> for Camera<P, T> {
     fn commands(&mut self) -> CommandBuilder<'_, P, T> {
+        CommandBuilder::new(self)
+    }
+}
+
+/// Extension trait to add command builder support to Camera (async).
+#[cfg(feature = "async")]
+pub trait CommandBuilderExt<P: CameraProfile, T> {
+    /// Creates a new command builder for this camera.
+    fn commands(&self) -> CommandBuilder<'_, P, T>;
+}
+
+#[cfg(feature = "async")]
+impl<P: CameraProfile, T> CommandBuilderExt<P, T> for Camera<P, T> {
+    fn commands(&self) -> CommandBuilder<'_, P, T> {
         CommandBuilder::new(self)
     }
 }

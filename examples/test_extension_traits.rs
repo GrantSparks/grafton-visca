@@ -11,7 +11,7 @@ use grafton_visca::{
         pan_tilt::PanTiltDirection,
         white_balance::WhiteBalanceMode,
     },
-    transport::create,
+    transport::tokio::UdpTransport,
     types::{
         BrightnessLevel, ColorTemperature, ContrastLevel, GainLimit, HueLevel,
         NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
@@ -26,8 +26,8 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a camera with the new API
-    let transport = create::udp("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let transport = UdpTransport::connect("192.168.1.100:5678").await?;
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Testing Comprehensive Camera API ===\n");
 

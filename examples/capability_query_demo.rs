@@ -2,20 +2,21 @@
 
 use grafton_visca::camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, SonyEVID70};
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::create;
-#[cfg(feature = "async")]
-use grafton_visca::transport::create;
+use grafton_visca::transport::blocking::{Transport as BlockingTransport, UdpTransport};
+#[cfg(feature = "tokio")]
+use grafton_visca::transport::{tokio::UdpTransport, AsyncTransport};
 
 // Include the transport implementation from the example file
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using blocking transport
-    let g2_camera = Camera::<PTZOpticsG2>::new(create::udp("192.168.1.100:1259")?);
+    let g2_camera = Camera::<PTZOpticsG2, _>::new(UdpTransport::connect("192.168.1.100:1259")?);
 
-    let sony_camera = Camera::<SonyEVID70>::new(create::udp("192.168.1.101:1259")?);
+    let sony_camera = Camera::<SonyEVID70, _>::new(UdpTransport::connect("192.168.1.101:1259")?);
 
-    let generic_camera = Camera::<GenericVisca>::new(create::udp("192.168.1.102:1259")?);
+    let generic_camera =
+        Camera::<GenericVisca, _>::new(UdpTransport::connect("192.168.1.102:1259")?);
 
     println!("=== Camera Capability Comparison ===\n");
 
@@ -84,9 +85,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn print_basic_capabilities<P: grafton_visca::camera::CameraProfile>(
+#[cfg(not(feature = "async"))]
+fn print_basic_capabilities<P: grafton_visca::camera::CameraProfile, T: BlockingTransport>(
     name: &str,
-    camera: &Camera<P>,
+    camera: &Camera<P, T>,
+) {
+    let caps = camera.capabilities();
+    println!("{} Basic Capabilities:", name);
+    println!("  Model: {}", caps.model_name);
+    println!("  Pan Range: {:?}°", caps.pan_range_degrees);
+    println!("  Tilt Range: {:?}°", caps.tilt_range_degrees);
+    println!("  Zoom Steps: {}", caps.zoom_steps);
+    println!("  Focus Steps: {}", caps.focus_steps);
+    println!("  Presets: {}", caps.preset_count);
+    println!("  Digital Zoom: {}", caps.supports_digital_zoom);
+    println!("  Max Pan Speed: {}", caps.max_pan_speed);
+    println!("  Max Tilt Speed: {}", caps.max_tilt_speed);
+    println!();
+}
+
+#[cfg(feature = "tokio")]
+fn print_basic_capabilities<P: grafton_visca::camera::CameraProfile, T: AsyncTransport>(
+    name: &str,
+    camera: &Camera<P, T>,
 ) {
     let caps = camera.capabilities();
     println!("{} Basic Capabilities:", name);
@@ -142,15 +163,18 @@ fn print_capability_summary(summary: &grafton_visca::camera::CapabilitySummary) 
     println!("    - Speed Support: {}", summary.presets.speed_support);
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using async transport
-    let g2_camera = Camera::<PTZOpticsG2>::new(create::udp("192.168.1.100:1259").await?);
+    let g2_camera =
+        Camera::<PTZOpticsG2, _>::new(UdpTransport::connect("192.168.1.100:1259").await?);
 
-    let sony_camera = Camera::<SonyEVID70>::new(create::udp("192.168.1.101:1259").await?);
+    let sony_camera =
+        Camera::<SonyEVID70, _>::new(UdpTransport::connect("192.168.1.101:1259").await?);
 
-    let generic_camera = Camera::<GenericVisca>::new(create::udp("192.168.1.102:1259").await?);
+    let generic_camera =
+        Camera::<GenericVisca, _>::new(UdpTransport::connect("192.168.1.102:1259").await?);
 
     println!("=== Camera Capability Comparison ===\n");
 

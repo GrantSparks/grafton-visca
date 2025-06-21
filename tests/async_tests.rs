@@ -290,8 +290,8 @@ async fn test_mock_transport_utilities() {
     let result = transport.send_command(&command).await;
 
     match result {
-        Ok(Response::Error(_)) => {}
-        _ => panic!("Expected error response, got {:?}", result),
+        Err(Error::SyntaxError) => {}
+        _ => panic!("Expected SyntaxError, got {:?}", result),
     }
 
     // Verify command count

@@ -33,6 +33,7 @@ mod async_semaphore {
     }
 
     impl Semaphore {
+        #[allow(dead_code)]
         pub fn new(permits: usize) -> Self {
             Self {
                 inner: Arc::new(TokioSemaphore::new(permits)),
@@ -48,6 +49,7 @@ mod async_semaphore {
             Ok(Permit { _permit: permit })
         }
 
+        #[allow(dead_code)]
         pub fn available_permits(&self) -> usize {
             self.inner.available_permits()
         }
@@ -70,6 +72,7 @@ mod async_semaphore {
     }
 
     impl Semaphore {
+        #[allow(dead_code)]
         pub fn new(permits: usize) -> Self {
             Self {
                 state: Arc::new((Mutex::new(permits), Condvar::new())),
@@ -91,6 +94,7 @@ mod async_semaphore {
             Ok(Permit { semaphore: self })
         }
 
+        #[allow(dead_code)]
         pub fn available_permits(&self) -> usize {
             let (lock, _) = &*self.state;
             *lock.lock()

@@ -52,7 +52,7 @@ mod tests {
         }
     }
 
-    impl<P: CameraProfile> TestExt<P> for Camera<P> {}
+    impl<P: CameraProfile, T> TestExt<P> for Camera<P, T> {}
 
     #[test]
     fn test_extension_trait_pattern() {

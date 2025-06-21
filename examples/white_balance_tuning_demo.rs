@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create camera with PTZOptics G2 profile
     let transport = create::udp("192.168.1.100:52381").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate fine-tuning commands
     println!("Demonstrating white balance fine-tuning...");

@@ -35,7 +35,7 @@ async fn main() -> Result<(), Error> {
 
     println!("Connecting to camera at {}...", camera_addr);
     let transport = create::udp(&camera_addr).await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Example 1: Sequential commands with timing
     println!("\n=== Sequential Command Execution ===");

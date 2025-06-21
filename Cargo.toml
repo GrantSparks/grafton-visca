@@ -65,6 +65,7 @@ name = "control_demo"
 
 [[example]]
 name = "basic_camera_demo"
+required-features = ["tokio"]
 
 
 
@@ -101,6 +102,7 @@ name = "ptz_builder_demo"
 
 [[example]]
 name = "model_validation_demo"
+required-features = ["tokio"]
 
 
 [[example]]
@@ -168,13 +170,7 @@ name = "user_friendly_api_demo"
 
 
 
-[[example]]
-name = "custom_retry_logic"
-required-features = ["async"]
 
-[[example]]
-name = "custom_transport_example"
-required-features = ["async"]
 
 [[example]]
 name = "simplified_async_demo"

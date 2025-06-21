@@ -41,19 +41,21 @@ async fn main() -> Result<(), Error> {
     // Create camera with async transport
     println!("Connecting to camera at {}...", camera_addr);
     let transport = create::udp(&camera_addr).await?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate different timeout scenarios
-    demonstrate_quick_timeout(&mut camera).await?;
-    demonstrate_movement_timeout(&mut camera).await?;
-    demonstrate_preset_timeout(&mut camera).await?;
-    demonstrate_timeout_recovery(&mut camera).await?;
+    demonstrate_quick_timeout(&camera).await?;
+    demonstrate_movement_timeout(&camera).await?;
+    demonstrate_preset_timeout(&camera).await?;
+    demonstrate_timeout_recovery(&camera).await?;
 
     Ok(())
 }
 
 #[cfg(feature = "async")]
-async fn demonstrate_quick_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+async fn demonstrate_quick_timeout<T: grafton_visca::transport::AsyncTransport>(
+    camera: &Camera<PTZOpticsG2, T>,
+) -> Result<(), Error> {
     println!("1. Quick Commands with Short Timeout:");
     println!("   Using 1 second timeout for status checks\n");
 
@@ -90,7 +92,9 @@ async fn demonstrate_quick_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<(
 }
 
 #[cfg(feature = "async")]
-async fn demonstrate_movement_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+async fn demonstrate_movement_timeout<T: grafton_visca::transport::AsyncTransport>(
+    camera: &Camera<PTZOpticsG2, T>,
+) -> Result<(), Error> {
     println!("2. Movement Commands with Medium Timeout:");
     println!("   Using 5 second timeout for movement commands\n");
 
@@ -132,7 +136,9 @@ async fn demonstrate_movement_timeout(camera: &mut Camera<PTZOpticsG2>) -> Resul
 }
 
 #[cfg(feature = "async")]
-async fn demonstrate_preset_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+async fn demonstrate_preset_timeout<T: grafton_visca::transport::AsyncTransport>(
+    camera: &Camera<PTZOpticsG2, T>,
+) -> Result<(), Error> {
     println!("3. Preset Commands with Long Timeout:");
     println!("   Using 30 second timeout for preset operations\n");
 
@@ -162,7 +168,9 @@ async fn demonstrate_preset_timeout(camera: &mut Camera<PTZOpticsG2>) -> Result<
 }
 
 #[cfg(feature = "async")]
-async fn demonstrate_timeout_recovery(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+async fn demonstrate_timeout_recovery<T: grafton_visca::transport::AsyncTransport>(
+    camera: &Camera<PTZOpticsG2, T>,
+) -> Result<(), Error> {
     println!("4. Timeout Recovery Strategies:");
     println!("   Demonstrating retry logic with exponential backoff\n");
 
@@ -223,7 +231,7 @@ async fn demonstrate_timeout_recovery(camera: &mut Camera<PTZOpticsG2>) -> Resul
         match create::tcp("192.168.1.100:5678").await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");
-                let tcp_camera = Camera::<PTZOpticsG2>::new(transport);
+                let tcp_camera = Camera::<PTZOpticsG2, _>::new(transport);
 
                 // For custom timeout, wrap the operation
                 let custom_timeout = Duration::from_secs(30);

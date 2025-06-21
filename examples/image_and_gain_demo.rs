@@ -21,7 +21,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera with PTZOptics G2 profile
     let transport = create::udp("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Connected to camera. Demonstrating image and gain controls...");
 

@@ -1,33 +1,40 @@
-//! UDP transport using the new clean API.
+//! UDP transport example showing low-level transport usage.
 //!
-//! This example shows how simple UDP transport creation is with the new API.
-//! All VISCA protocol logic is handled by the library.
+//! This example demonstrates using the UDP transport directly.
+//! For most use cases, prefer using the Camera API instead.
 
-#[cfg(feature = "async")]
-use grafton_visca::{command::zoom::ZoomCommand, transport::create};
+#[cfg(feature = "tokio")]
+use grafton_visca::{
+    camera::{profiles::GenericVisca, Camera},
+    command::zoom::ZoomCommand,
+    transport::tokio::UdpTransport,
+};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
-    eprintln!("This example requires the 'async' feature to be enabled.");
-    eprintln!("Run with: cargo run --example udp_transport --features async");
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example udp_transport --features tokio");
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     println!("=== UDP Transport Example ===");
 
-    // Create UDP transport - one simple function call
-    match create::udp("192.168.1.100:52381").await {
-        Ok(mut transport) => {
-            println!("✓ UDP transport created: {}", transport.description());
-            println!("✓ Connected: {}", transport.is_connected());
+    // Create UDP transport directly
+    let addr = "192.168.1.100:52381";
+    match UdpTransport::connect(addr).await {
+        Ok(transport) => {
+            println!("✓ UDP transport created for {}", addr);
 
-            // Send a VISCA command - all protocol logic handled automatically
+            // Create a camera using the transport
+            let camera = Camera::<GenericVisca, _>::new(transport);
+
+            // Send a VISCA command
             let command = ZoomCommand::Stop;
-            match transport.send_command(&command).await {
+            match camera.send_command(&command).await {
                 Ok(response) => {
                     println!("✓ Command sent successfully!");
                     println!("  Response: {:?}", response);
@@ -39,16 +46,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(e) => {
             println!("✗ Failed to create UDP transport: {}", e);
-            println!("Note: Make sure a VISCA camera is available at the specified address.");
+            println!("Note: Make sure a VISCA camera is available at {}.", addr);
         }
     }
 
-    println!("\n=== UDP Transport Benefits ===");
-    println!("• One-line creation: create::udp(addr)");
-    println!("• All VISCA socket management handled automatically");
-    println!("• All response parsing handled automatically");
-    println!("• Simple send_command() interface");
-    println!("• No manual socket correlation needed");
+    println!("\n=== UDP Transport Features ===");
+    println!("• Interior mutability - use &self instead of &mut self");
+    println!("• Automatic VISCA protocol handling");
+    println!("• Simple bind and connect");
+    println!("• Works with the Camera API for high-level control");
+    println!("• Lower latency than TCP for real-time control");
 
     Ok(())
 }
