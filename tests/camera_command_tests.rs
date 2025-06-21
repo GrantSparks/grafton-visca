@@ -19,8 +19,8 @@ mod blocking_tests {
         // Create a mock that returns ACK and completion
         let mock = MockTransport::with_ack_completion();
         let commands_sent = mock.commands_sent.clone();
-        let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Send power on command
         let result = camera.power_on();
@@ -42,8 +42,8 @@ mod blocking_tests {
         mock.add_ack_completion(0);
 
         let commands_sent = mock.commands_sent.clone();
-        let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Send home command
         let result = camera.home();
@@ -69,8 +69,8 @@ mod blocking_tests {
         mock.add_ack_completion(0); // Out
 
         let commands_sent = mock.commands_sent.clone();
-        let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Test zoom stop
         assert!(camera.zoom_stop().is_ok());
@@ -100,8 +100,8 @@ mod blocking_tests {
         mock.add_ack_completion(1); // Recall
 
         let commands_sent = mock.commands_sent.clone();
-        let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Set preset 5
         let preset_id = G2PresetId::new(5).unwrap();
@@ -127,8 +127,8 @@ mod blocking_tests {
         // Add syntax error response
         mock.add_response(vec![0x90, 0x60, 0x02, 0xFF]);
 
-        let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Send a command that will get an error response
         let result = camera.power_on();
@@ -146,8 +146,8 @@ mod blocking_tests {
     fn test_camera_timeout() {
         // Create a mock that returns no responses (simulates timeout)
         let mock = MockTransport::with_timeout();
-        let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         let result = camera.home();
         assert!(result.is_err(), "Should timeout");
@@ -170,8 +170,8 @@ mod blocking_tests {
         mock.add_ack_completion(0); // Power off
 
         let commands_sent = mock.commands_sent.clone();
-        let transport = mock.into_visca_transport();
-        let mut camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Execute a sequence of commands
         assert!(camera.home().is_ok());
@@ -202,8 +202,8 @@ mod async_tests {
         mock.add_ack_completion(0).await;
 
         let sent_commands = mock.sent_commands.clone();
-        let transport = mock.into_visca_transport();
-        let camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use the raw mock transport, Camera::new will wrap it
+        let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Send power on command
         let result = camera.power_on().await;
@@ -225,8 +225,8 @@ mod async_tests {
         mock.add_ack_completion(0).await;
 
         let sent_commands = mock.sent_commands.clone();
-        let transport = mock.into_visca_transport();
-        let camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Send home command
         let result = camera.home().await;
@@ -248,8 +248,8 @@ mod async_tests {
         let mock = MockAsyncTransport::new().with_delay(200);
         // Don't add any responses
 
-        let transport = mock.into_visca_transport();
-        let camera = Camera::<PTZOpticsG2>::new(transport);
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         let result = camera.home().await;
         assert!(result.is_err(), "Should timeout");
@@ -274,8 +274,8 @@ mod async_tests {
         mock.add_ack_completion(0).await;
 
         let command_counter = mock.command_counter.clone();
-        let transport = mock.into_visca_transport();
-        let camera = Arc::new(Mutex::new(Camera::<PTZOpticsG2>::new(transport)));
+        let transport = mock; // Use raw mock transport, Camera::new will wrap it
+        let camera = Arc::new(Mutex::new(Camera::<PTZOpticsG2, _>::new(transport)));
 
         // Send two commands concurrently
         let cam1 = camera.clone();

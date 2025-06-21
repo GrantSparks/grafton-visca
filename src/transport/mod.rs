@@ -54,14 +54,11 @@ pub mod blocking;
 // Re-export blocking types for easier access
 pub use blocking::{
     TcpTransport as BlockingTcpTransport, Transport as BlockingTransport,
-    UdpTransport as BlockingUdpTransport, ViscaTransport as BlockingViscaTransport,
+    UdpTransport as BlockingUdpTransport,
 };
 
-// For backward compatibility
-pub use blocking::Transport;
-
-// Session management (single ViscaTransport for both blocking and async)
-mod session;
+// Unified VISCA transport implementation
+mod visca_transport;
 
 // Async transport modules (optional)
 #[cfg(feature = "async")]
@@ -77,41 +74,36 @@ pub mod tokio;
 
 // Re-exports for async support
 #[cfg(feature = "async")]
-pub use runtime_agnostic::{CustomTransport, SerialTransport};
-// Export the single ViscaTransport
-pub use session::ViscaTransport;
+pub use runtime_agnostic::CustomTransport;
 
 // Export the new simplified async transport trait
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
 
+// Export the unified ViscaTransport
+pub use visca_transport::ViscaTransport;
+
 /// Convenience functions for creating async transports.
 #[cfg(all(feature = "async", feature = "tokio"))]
 pub mod create {
-    use super::{
-        tokio::{TcpTransport, UdpTransport},
-        ViscaTransport,
-    };
+    use super::tokio::{TcpTransport, UdpTransport};
     use crate::Error;
 
     /// Create an async TCP transport connected to the given address.
-    pub async fn tcp(address: &str) -> Result<ViscaTransport<TcpTransport>, Error> {
-        let transport = TcpTransport::connect(address).await?;
-        Ok(ViscaTransport::new(transport))
+    pub async fn tcp(address: &str) -> Result<TcpTransport, Error> {
+        TcpTransport::connect(address).await
     }
 
     /// Create an async TCP transport with custom timeout.
     pub async fn tcp_timeout(
         address: &str,
         timeout: std::time::Duration,
-    ) -> Result<ViscaTransport<TcpTransport>, Error> {
-        let transport = TcpTransport::connect_timeout(address, timeout).await?;
-        Ok(ViscaTransport::new(transport))
+    ) -> Result<TcpTransport, Error> {
+        TcpTransport::connect_timeout(address, timeout).await
     }
 
     /// Create an async UDP transport connected to the given address.
-    pub async fn udp(address: &str) -> Result<ViscaTransport<UdpTransport>, Error> {
-        let transport = UdpTransport::connect(address).await?;
-        Ok(ViscaTransport::new(transport))
+    pub async fn udp(address: &str) -> Result<UdpTransport, Error> {
+        UdpTransport::connect(address).await
     }
 }

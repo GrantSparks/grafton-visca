@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = create::tcp(&camera_ip)?;
 
     // Create camera with PTZOpticsG2 profile
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Camera created successfully with blocking transport!");
     println!("Running without any async runtime - pure blocking I/O!");

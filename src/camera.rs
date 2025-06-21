@@ -5,9 +5,7 @@ use std::ops::RangeInclusive;
 
 use crate::error::Error;
 #[cfg(not(feature = "async"))]
-use crate::transport::blocking::{
-    Transport as BlockingTransport, ViscaTransport as BlockingViscaTransport,
-};
+use crate::transport::blocking::Transport as BlockingTransport;
 #[cfg(feature = "async")]
 use crate::transport::AsyncTransport;
 use crate::transport::ViscaTransport;
@@ -30,7 +28,7 @@ pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 /// Core camera abstraction with compile-time profile information.
 /// Camera control interface with type-safe profile support.
 #[derive(Debug)]
-pub struct Camera<P: CameraProfile, T = ()> {
+pub struct Camera<P: CameraProfile, T> {
     profile: P,
     transport: ViscaTransport<T>,
 }
@@ -43,7 +41,7 @@ pub trait BlockingCameraTransport: Send + Sync {
 }
 
 #[cfg(not(feature = "async"))]
-impl<T: BlockingTransport> BlockingCameraTransport for BlockingViscaTransport<T> {
+impl<T: BlockingTransport> BlockingCameraTransport for ViscaTransport<T> {
     fn send_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
         self.send_command(command)
     }
@@ -539,7 +537,17 @@ impl<T: AsyncTransport> CameraTransport for ViscaTransport<T> {
     }
 }
 
+// Generic implementation for all Camera instances
 impl<P: CameraProfile, T> Camera<P, T> {
+    /// Get the camera profile.
+    pub fn profile(&self) -> &P {
+        &self.profile
+    }
+}
+
+// Blocking implementation
+#[cfg(not(feature = "async"))]
+impl<P: CameraProfile, T: BlockingTransport> Camera<P, T> {
     /// Create a new camera with a transport.
     pub fn new(transport: T) -> Self {
         Self {
@@ -556,9 +564,54 @@ impl<P: CameraProfile, T> Camera<P, T> {
         }
     }
 
-    /// Get the camera profile.
-    pub fn profile(&self) -> &P {
-        &self.profile
+    /// Get the camera's capabilities.
+    pub fn capabilities(&self) -> CameraCapabilities {
+        CameraCapabilities {
+            model_name: self.profile.model_name().to_string(),
+            pan_range_degrees: self.profile.pan_degree_range(),
+            tilt_range_degrees: self.profile.tilt_degree_range(),
+            zoom_steps: self.profile.zoom_range().count(),
+            focus_steps: self.profile.focus_range().count(),
+            preset_count: P::max_preset_id(),
+            supports_digital_zoom: self.profile.digital_zoom_supported(),
+            max_pan_speed: self.profile.max_pan_speed(),
+            max_tilt_speed: self.profile.max_tilt_speed(),
+        }
+    }
+
+    /// Get the full capability summary for this camera.
+    pub fn capability_summary(&self) -> CapabilitySummary {
+        self.profile.capability_summary()
+    }
+
+    /// Get the underlying transport.
+    pub fn transport(&self) -> &ViscaTransport<T> {
+        &self.transport
+    }
+
+    /// Get a mutable reference to the underlying transport.
+    pub fn transport_mut(&mut self) -> &mut ViscaTransport<T> {
+        &mut self.transport
+    }
+}
+
+// Async implementation
+#[cfg(feature = "async")]
+impl<P: CameraProfile, T: AsyncTransport> Camera<P, T> {
+    /// Create a new camera with a transport.
+    pub fn new(transport: T) -> Self {
+        Self {
+            profile: P::default(),
+            transport: ViscaTransport::new(transport),
+        }
+    }
+
+    /// Create a camera with a custom profile instance.
+    pub fn with_profile(transport: T, profile: P) -> Self {
+        Self {
+            profile,
+            transport: ViscaTransport::new(transport),
+        }
     }
 
     /// Get the camera's capabilities.
@@ -658,9 +711,13 @@ where
     }
 }
 
-impl<P: CameraProfile, T> Camera<P, T> {
+// Utility methods
+#[cfg(not(feature = "async"))]
+impl<P: CameraProfile, T> Camera<P, T>
+where
+    T: crate::transport::blocking::Transport,
+{
     /// Send a command and wait for completion.
-    #[cfg(not(feature = "async"))]
     fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), Error> {
         match self.send_command(command)? {
             Response::Completion => Ok(()),

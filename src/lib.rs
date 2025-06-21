@@ -118,7 +118,6 @@
 //! Example transport implementations are provided in the `examples/` directory:
 //! - `tcp_transport.rs` - TCP/IP transport with session management
 //! - `udp_transport.rs` - UDP/IP transport
-//! - `serial_transport.rs` - Serial port transport example
 //! - `custom_transport_example.rs` - Mock and wrapper transports
 //!
 //! ## Async Support

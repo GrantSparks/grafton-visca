@@ -657,7 +657,7 @@ macro_rules! define_camera_methods {
         {
             $(
                 $(#[$doc])*
-                pub async fn $name(&mut self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error> {
+                pub async fn $name(&self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error> {
                     match self.send_command($cmd).await? {
                         $crate::Response::Completion => Ok(()),
                         $crate::Response::Ack => Ok(()),
@@ -731,7 +731,7 @@ macro_rules! define_generic_camera_methods {
         {
             $(
                 $(#[$doc])*
-                pub async fn $name<$($gen),+>(&mut self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error>
+                pub async fn $name<$($gen),+>(&self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error>
                 where
                     $($where_clause)*
                 {

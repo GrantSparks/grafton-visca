@@ -21,7 +21,7 @@ async fn main() -> Result<(), Error> {
 
     // Connect to camera using new Camera API with UDP transport
     let transport = create::udp("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Enhanced Camera API Demo ===\n");
 

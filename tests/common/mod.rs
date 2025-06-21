@@ -15,13 +15,15 @@ pub mod macros;
 use grafton_visca::Error;
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::{Transport as BlockingTransport, ViscaTransport};
+use grafton_visca::transport::blocking::Transport as BlockingTransport;
+#[cfg(not(feature = "async"))]
+use grafton_visca::transport::ViscaTransport;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// A flexible mock transport for testing various scenarios.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[allow(dead_code)] // Complete testing API - not all methods used in every test
 pub struct MockTransport {
     /// Queue of responses to return
@@ -308,6 +310,7 @@ impl AsyncTransport for MockAsyncTransport {
 #[cfg(feature = "async")]
 impl MockAsyncTransport {
     /// Convert into a ViscaTransport for use in tests.
+    #[cfg(test)]
     pub fn into_visca_transport(self) -> ViscaTransport<Self> {
         ViscaTransport::new(self)
     }

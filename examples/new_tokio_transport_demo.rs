@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connected via TCP");
 
     // Create camera using the transport
-    let camera = Camera::<PTZOpticsG2>::new(visca);
+    let camera = Camera::<PTZOpticsG2, _>::new(visca);
 
     // Stop any ongoing movement
     println!("Stopping camera movement...");
@@ -36,6 +36,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Moving to home position...");
     camera.home().await?;
 
+    // Demo using custom transport implementation
+    println!("\n=== Custom Transport Demo ===");
+    let custom_transport = CustomTransport::new("Demo transport".to_string());
+    let custom_camera = Camera::<PTZOpticsG2, _>::new(custom_transport);
+    
+    println!("Testing custom transport...");
+    // This will use the custom transport's send/receive methods
+    custom_camera.stop().await?;
+    
     println!("Demo completed successfully!");
 
     Ok(())
@@ -62,7 +71,8 @@ impl AsyncTransport for CustomTransport {
     fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFuture<'a> {
         Box::pin(async move {
             println!(
-                "Custom transport sending {} bytes: {:02X?}",
+                "{}: Custom transport sending {} bytes: {:02X?}",
+                self.description,
                 data.len(),
                 data
             );

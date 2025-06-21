@@ -97,6 +97,7 @@ pub struct ImageSettings {
     pub hue: u8,
 }
 
+#[cfg(feature = "async")]
 impl<P: CameraProfile, T> Camera<P, T>
 where
     T: crate::transport::AsyncTransport,
@@ -606,7 +607,10 @@ where
 
 // Blocking implementations
 #[cfg(not(feature = "async"))]
-impl<P: CameraProfile> Camera<P> {
+impl<P: CameraProfile, T> Camera<P, T>
+where
+    T: crate::transport::blocking::Transport,
+{
     /// Send a command and wait for the response.
     ///
     /// This method is used internally for inquiry commands that need to receive data back.

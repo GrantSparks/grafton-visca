@@ -6,10 +6,11 @@ use grafton_visca::{
         units::Degrees,
         Camera,
     },
-    transport::create,
+    transport::tokio::TcpTransport,
     types::ZoomPosition,
     Error,
 };
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -17,8 +18,9 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a G2 camera with TCP transport
-    let transport = create::tcp("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let transport =
+        TcpTransport::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Display camera capabilities
     let caps = camera.capabilities();

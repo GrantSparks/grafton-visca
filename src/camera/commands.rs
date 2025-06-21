@@ -560,9 +560,10 @@ where
 }
 
 #[cfg(not(feature = "async"))]
-impl<P> Camera<P>
+impl<P, T> Camera<P, T>
 where
     P: CameraProfile,
+    T: crate::transport::blocking::Transport,
 {
     /// Move the camera continuously in a direction with flexible speed parameters.
     ///

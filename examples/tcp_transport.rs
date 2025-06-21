@@ -1,35 +1,42 @@
-//! TCP transport using the new clean API.
+//! TCP transport example showing low-level transport usage.
 //!
-//! This example shows how simple TCP transport creation is with the new API.
-//! All VISCA protocol logic is handled by the library.
+//! This example demonstrates using the TCP transport directly.
+//! For most use cases, prefer using the Camera API instead.
 
-#[cfg(feature = "async")]
-use grafton_visca::{command::zoom::ZoomCommand, transport::create};
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
+use grafton_visca::{
+    camera::{profiles::GenericVisca, Camera},
+    command::zoom::ZoomCommand,
+    transport::tokio::TcpTransport,
+};
+#[cfg(feature = "tokio")]
 use std::time::Duration;
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
-    eprintln!("This example requires the 'async' feature to be enabled.");
-    eprintln!("Run with: cargo run --example tcp_transport --features async");
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example tcp_transport --features tokio");
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     println!("=== TCP Transport Example ===");
 
-    // Create TCP transport - one simple function call
-    match create::tcp_timeout("192.168.1.100:5678", Duration::from_secs(5)).await {
-        Ok(mut transport) => {
-            println!("✓ TCP transport created: {}", transport.description());
-            println!("✓ Connected: {}", transport.is_connected());
+    // Create TCP transport directly
+    let addr = "192.168.1.100:5678";
+    match TcpTransport::connect_timeout(addr, Duration::from_secs(5)).await {
+        Ok(transport) => {
+            println!("✓ TCP transport created for {}", addr);
 
-            // Send a VISCA command - all protocol logic handled automatically
+            // Create a camera using the transport
+            let camera = Camera::<GenericVisca, _>::new(transport);
+
+            // Send a VISCA command
             let command = ZoomCommand::Stop;
-            match transport.send_command(&command).await {
+            match camera.send_command(&command).await {
                 Ok(response) => {
                     println!("✓ Command sent successfully!");
                     println!("  Response: {:?}", response);
@@ -41,16 +48,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(e) => {
             println!("✗ Failed to create TCP transport: {}", e);
-            println!("Note: Make sure a VISCA camera is available at the specified address.");
+            println!("Note: Make sure a VISCA camera is available at {}.", addr);
         }
     }
 
-    println!("\n=== TCP Transport Benefits ===");
-    println!("• One-line creation: create::tcp_timeout(addr, timeout)");
-    println!("• All VISCA socket management handled automatically");
-    println!("• All response parsing handled automatically");
-    println!("• Simple send_command() interface");
-    println!("• No manual socket correlation needed");
+    println!("\n=== TCP Transport Features ===");
+    println!("• Interior mutability - use &self instead of &mut self");
+    println!("• Automatic VISCA protocol handling");
+    println!("• Built-in connection management");
+    println!("• Configurable timeouts");
+    println!("• Works with the Camera API for high-level control");
 
     Ok(())
 }

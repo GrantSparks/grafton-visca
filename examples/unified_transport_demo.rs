@@ -5,18 +5,22 @@ use grafton_visca::Error;
 
 #[cfg(not(feature = "async"))]
 fn blocking_example() -> Result<(), Error> {
-    use grafton_visca::transport::blocking::create;
+    use grafton_visca::{
+        camera::{Camera, GenericVisca},
+        transport::blocking::TcpTransport,
+    };
 
     println!("=== Blocking Transport Example ===");
 
     // Create a blocking TCP transport with VISCA protocol handling
-    let mut transport = create::tcp("192.168.1.100:5678")?;
+    let transport = TcpTransport::connect("192.168.1.100:5678")?;
+    let mut camera = Camera::<GenericVisca, _>::new(transport);
 
-    // Use the transport directly - no adapter needed!
+    // Use the camera API
     let power_cmd = PowerCommand { power: Power::On };
 
     // This blocks and returns immediately with the response
-    let response = transport.send_command(&power_cmd)?;
+    let response = camera.send_command(&power_cmd)?;
     println!("Command response: {:?}", response);
 
     println!("Power on command sent successfully!");
@@ -24,20 +28,26 @@ fn blocking_example() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn async_example() -> Result<(), Error> {
-    use grafton_visca::transport::create;
+    use grafton_visca::{
+        camera::{Camera, GenericVisca},
+        transport::tokio::TcpTransport,
+    };
+    use std::time::Duration;
 
     println!("=== Async Transport Example ===");
 
     // Create an async TCP transport with VISCA protocol handling
-    let mut transport = create::tcp("192.168.1.100:5678").await?;
+    let transport =
+        TcpTransport::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
+    let camera = Camera::<GenericVisca, _>::new(transport);
 
-    // Use the transport interface - similar API to blocking!
+    // Use the camera interface - similar API to blocking!
     let power_cmd = PowerCommand { power: Power::On };
 
     // This returns a future that we await
-    let response = transport.send_command(&power_cmd).await?;
+    let response = camera.send_command(&power_cmd).await?;
     println!("Command response: {:?}", response);
 
     println!("Power on command sent successfully!");
@@ -60,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
