@@ -202,7 +202,6 @@ mod blocking_impl {
             }
         }
 
-
         /// Check if the transport is connected.
         pub fn is_connected(&self) -> bool {
             self.transport.is_connected()
