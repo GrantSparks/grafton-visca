@@ -39,14 +39,12 @@
 //!
 //! ## Quick Start
 //!
-//! Transport implementations are provided as examples. You can either:
-//! 1. Copy the transport implementations from the examples directory
-//! 2. Implement your own transport based on the Transport trait
-//!
-//! ```ignore
+//! ### Blocking API
+//! ```no_run
 //! use grafton_visca::{
 //!     Camera,
-//!     camera::{profiles::PTZOpticsG2, units::Degrees},
+//!     profiles::PTZOpticsG2,
+//!     camera::units::Degrees,
 //!     transport::blocking::create,
 //! };
 //!
@@ -123,26 +121,50 @@
 //! - `serial_transport.rs` - Serial port transport example
 //! - `custom_transport_example.rs` - Mock and wrapper transports
 //!
-//! ## Async Support (Runtime-Agnostic)
+//! ## Async Support
 //!
-//! The library provides optional async support that works with ANY async runtime, not just tokio:
+//! The library provides optional async support with a runtime-agnostic design:
 //!
-//! ```ignore
-//! // Enable async feature in Cargo.toml:
-//! // grafton-visca = { version = "0.4", features = ["async"] }
+//! ### With Tokio (built-in implementations)
+//! ```no_run
+//! # #[cfg(all(feature = "async", feature = "tokio"))]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! use grafton_visca::{Camera, profiles::PTZOpticsG2, transport::create};
 //!
-//! use grafton_visca::transport::{AsyncTransport, AsyncTransportAdapter};
+//! let transport = create::tcp("192.168.1.100:5678").await?;
+//! let camera = Camera::<PTZOpticsG2>::new(transport);
+//!
+//! // All methods are naturally concurrent with &self
+//! camera.power_on().await?;
+//! camera.home().await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Custom Runtime Support
+//! Implement `AsyncTransport` for any async runtime:
+//!
+//! ```no_run
+//! use grafton_visca::transport::AsyncTransport;
+//! use grafton_visca::Error;
 //! use std::future::Future;
 //! use std::pin::Pin;
 //!
-//! // Implement AsyncTransport for your runtime's transport type
-//! struct MyAsyncTransport { /* ... */ }
+//! # struct MyRuntimeStream;
+//! # impl MyRuntimeStream {
+//! #     async fn write_all(&mut self, _: &[u8]) -> Result<(), std::io::Error> { Ok(()) }
+//! #     async fn flush(&mut self) -> Result<(), std::io::Error> { Ok(()) }
+//! #     async fn read(&mut self, _: &mut [u8]) -> Result<usize, std::io::Error> { Ok(0) }
+//! # }
+//! struct MyTransport {
+//!     stream: std::sync::Arc<async_std::sync::Mutex<MyRuntimeStream>>
+//! }
 //!
-//! impl AsyncTransport for MyAsyncTransport {
+//! impl AsyncTransport for MyTransport {
 //!     type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
 //!     type ReceiveFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
 //!
-//!     fn send<'a>(&'a mut self, data: &'a [u8]) -> Self::SendFuture<'a> {
+//!     fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFuture<'a> {
 //!         Box::pin(async move {
 //!             // Your async send implementation
 //!             Ok(())

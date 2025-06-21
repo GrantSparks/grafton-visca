@@ -163,9 +163,7 @@ impl MockTransport {
 
 // Async version of MockTransport for feature parity
 #[cfg(feature = "async")]
-use grafton_visca::transport::{
-    RawTransport, TransportFuture, ViscaTransport as AsyncViscaTransport,
-};
+use grafton_visca::transport::{AsyncTransport, ViscaTransport};
 #[cfg(feature = "async")]
 use std::time::Duration;
 #[cfg(feature = "async")]
@@ -249,8 +247,13 @@ impl std::fmt::Debug for MockAsyncTransport {
 }
 
 #[cfg(feature = "async")]
-impl RawTransport for MockAsyncTransport {
-    fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
+impl AsyncTransport for MockAsyncTransport {
+    type SendFuture<'a> =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>;
+    type ReceiveFuture<'a> =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
+
+    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFuture<'a> {
         Box::pin(async move {
             // Check if we should fail after N commands
             let mut counter = self.command_counter.lock().await;
@@ -279,7 +282,7 @@ impl RawTransport for MockAsyncTransport {
         })
     }
 
-    fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
+    fn receive(&self) -> Self::ReceiveFuture<'_> {
         Box::pin(async move {
             if self.fail_receive {
                 return Err(Error::Io(std::io::Error::other("Mock receive error")));
@@ -299,21 +302,13 @@ impl RawTransport for MockAsyncTransport {
                 })
         })
     }
-
-    fn is_connected(&self) -> bool {
-        true
-    }
-
-    fn description(&self) -> &str {
-        "Mock async transport for testing"
-    }
 }
 
 // Helper to create an async ViscaTransport wrapper
 #[cfg(feature = "async")]
 impl MockAsyncTransport {
     /// Convert into a ViscaTransport for use in tests.
-    pub fn into_visca_transport(self) -> AsyncViscaTransport<Self> {
-        AsyncViscaTransport::new(self)
+    pub fn into_visca_transport(self) -> ViscaTransport<Self> {
+        ViscaTransport::new(self)
     }
 }
