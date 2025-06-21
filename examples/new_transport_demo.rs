@@ -5,10 +5,7 @@
 //! Transport implementations now only need to handle the actual I/O.
 
 #[cfg(feature = "async")]
-use grafton_visca::{
-    command::zoom::ZoomCommand,
-    transport::{create, ChannelConfig, ChannelTransport},
-};
+use grafton_visca::{command::zoom::ZoomCommand, transport::create};
 #[cfg(feature = "async")]
 use std::time::Duration;
 
@@ -74,39 +71,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!();
-
-    // Example 4: Channel-wrapped transport for thread safety
-    println!("4. Creating channel-wrapped TCP transport for thread safety...");
-    match create::tcp("192.168.1.100:5678").await {
-        Ok(tcp_transport) => {
-            let channel_transport =
-                ChannelTransport::new(tcp_transport, ChannelConfig { queue_size: 50 });
-
-            println!("   ✓ Channel transport created");
-
-            // Clone the transport for sharing across tasks
-            let mut transport_clone = channel_transport.clone();
-
-            // Use in a separate task
-            let handle = tokio::spawn(async move {
-                let command = ZoomCommand::Stop;
-                transport_clone.send_command(&command).await
-            });
-
-            match handle.await? {
-                Ok(response) => println!("   ✓ Response from task: {response:?}"),
-                Err(e) => println!("   ✗ Error from task: {e}"),
-            }
-        }
-        Err(e) => println!("   ✗ Failed to create TCP transport: {e}"),
-    }
-
-    println!();
     println!("=== Key Benefits of New API ===");
     println!("• Transport implementations are 10x smaller (50-100 lines vs 500+ lines)");
     println!("• All VISCA protocol logic (socket management, response parsing) is in the library");
     println!("• Easy to add new transport types by implementing RawTransport trait");
-    println!("• Channel transport provides thread-safe sharing without explicit locking");
+    println!("• Async transports with interior mutability enable natural concurrent usage");
     println!("• Consistent API across all transport types");
     println!("• Transport-specific code focuses only on actual I/O differences");
 

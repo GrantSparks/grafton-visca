@@ -18,7 +18,7 @@
 //! }
 //!
 //! // Implement it for all cameras
-//! impl<P: CameraProfile> MyCustomExt<P> for Camera<P> {}
+//! impl<P: CameraProfile, T> MyCustomExt<P> for Camera<P, T> {}
 //! ```
 //!
 //! The extension traits are only available when transport features are enabled:
@@ -36,7 +36,7 @@ use crate::camera::{Camera, CameraProfile};
 /// custom methods on `Camera<P>` instances without modifying the core library.
 pub trait CameraExtension<P: CameraProfile>: Sized {}
 
-impl<P: CameraProfile> CameraExtension<P> for Camera<P> {}
+impl<P: CameraProfile, T> CameraExtension<P> for Camera<P, T> {}
 
 #[cfg(test)]
 mod tests {

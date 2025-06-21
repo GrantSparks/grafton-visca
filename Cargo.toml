@@ -77,7 +77,10 @@ name = "inquiry_demo"
 
 [[example]]
 name = "unified_client_demo"
-required-features = ["async"]
+
+[[example]]
+name = "new_tokio_transport_demo"
+required-features = ["async", "tokio"]
 
 
 [[example]]
@@ -164,9 +167,6 @@ required-features = ["async"]
 name = "user_friendly_api_demo"
 
 
-[[example]]
-name = "channel_transport_demo"
-required-features = ["async"]
 
 [[example]]
 name = "custom_retry_logic"

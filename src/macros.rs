@@ -630,22 +630,42 @@ macro_rules! define_camera_methods {
     ) => {
         // Generate blocking implementation
         #[cfg(not(feature = "async"))]
-        impl<P: CameraProfile> Camera<P> {
+        impl<P: CameraProfile, T> Camera<P, T>
+        where
+            T: $crate::transport::blocking::Transport,
+        {
             $(
                 $(#[$doc])*
                 pub fn $name(&mut self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error> {
-                    self.send_and_wait($cmd)
+                    match self.send_command($cmd)? {
+                        $crate::Response::Completion => Ok(()),
+                        $crate::Response::Ack => Ok(()),
+                        response => Err($crate::error::Error::InvalidResponse {
+                            expected: "Completion".to_string(),
+                            actual: format!("{:?}", response).into_bytes(),
+                        }),
+                    }
                 }
             )*
         }
 
         // Generate async implementation
         #[cfg(feature = "async")]
-        impl<P: CameraProfile> Camera<P> {
+        impl<P: CameraProfile, T> Camera<P, T>
+        where
+            T: $crate::transport::AsyncTransport,
+        {
             $(
                 $(#[$doc])*
-                pub async fn $name(&self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error> {
-                    self.send_and_wait($cmd).await
+                pub async fn $name(&mut self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error> {
+                    match self.send_command($cmd).await? {
+                        $crate::Response::Completion => Ok(()),
+                        $crate::Response::Ack => Ok(()),
+                        response => Err($crate::error::Error::InvalidResponse {
+                            expected: "Completion".to_string(),
+                            actual: format!("{:?}", response).into_bytes(),
+                        }),
+                    }
                 }
             )*
         }
@@ -688,7 +708,10 @@ macro_rules! define_generic_camera_methods {
     ) => {
         // Generate blocking implementation
         #[cfg(not(feature = "async"))]
-        impl<P: CameraProfile> Camera<P> {
+        impl<P: CameraProfile, T> Camera<P, T>
+        where
+            T: $crate::transport::blocking::Transport,
+        {
             $(
                 $(#[$doc])*
                 pub fn $name<$($gen),+>(&mut self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error>
@@ -702,10 +725,13 @@ macro_rules! define_generic_camera_methods {
 
         // Generate async implementation
         #[cfg(feature = "async")]
-        impl<P: CameraProfile> Camera<P> {
+        impl<P: CameraProfile, T> Camera<P, T>
+        where
+            T: $crate::transport::AsyncTransport,
+        {
             $(
                 $(#[$doc])*
-                pub async fn $name<$($gen),+>(&self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error>
+                pub async fn $name<$($gen),+>(&mut self $(, $param : $ptype)*) -> Result<$ret, $crate::error::Error>
                 where
                     $($where_clause)*
                 {

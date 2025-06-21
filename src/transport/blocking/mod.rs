@@ -11,7 +11,7 @@ use crate::error::Error;
 ///
 /// Implement this trait to create new transport types for VISCA communication.
 /// This trait handles raw I/O operations; protocol logic is handled by ViscaTransport.
-pub trait Transport: Send + Sync {
+pub trait Transport: Send + Sync + std::fmt::Debug {
     /// Send raw bytes to the device.
     fn send(&mut self, data: &[u8]) -> Result<(), Error>;
 
@@ -23,6 +23,25 @@ pub trait Transport: Send + Sync {
 
     /// Get a description of this transport.
     fn description(&self) -> &str;
+}
+
+// Implement Transport for Box<dyn Transport> to allow dynamic dispatch
+impl Transport for Box<dyn Transport> {
+    fn send(&mut self, data: &[u8]) -> Result<(), Error> {
+        (**self).send(data)
+    }
+
+    fn receive(&mut self, timeout: Duration) -> Result<Vec<u8>, Error> {
+        (**self).receive(timeout)
+    }
+
+    fn is_connected(&self) -> bool {
+        (**self).is_connected()
+    }
+
+    fn description(&self) -> &str {
+        (**self).description()
+    }
 }
 
 // Submodules

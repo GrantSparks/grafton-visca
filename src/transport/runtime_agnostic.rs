@@ -1,9 +1,12 @@
 //! Runtime-agnostic transport implementations.
 //!
 //! These are example implementations that don't depend on any specific async runtime.
-//! Users can implement the RawTransport trait with their preferred runtime.
+//! Users can implement the AsyncTransport trait with their preferred runtime.
 
-use super::{RawTransport, TransportFuture};
+use super::AsyncTransport;
+use crate::error::Error;
+use std::future::Future;
+use std::pin::Pin;
 
 /// Serial transport implementation (runtime-agnostic).
 /// This is a mock implementation for demonstration purposes.
@@ -24,8 +27,11 @@ impl SerialTransport {
     }
 }
 
-impl RawTransport for SerialTransport {
-    fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
+impl AsyncTransport for SerialTransport {
+    type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
+    type ReceiveFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
+
+    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFuture<'a> {
         Box::pin(async move {
             // In a real implementation, this would use a serial port library
             log::debug!(
@@ -37,7 +43,7 @@ impl RawTransport for SerialTransport {
         })
     }
 
-    fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
+    fn receive(&self) -> Self::ReceiveFuture<'_> {
         Box::pin(async move {
             // Mock response for demonstration
             let response = vec![0x90, 0x40, 0xFF]; // ACK
@@ -48,15 +54,6 @@ impl RawTransport for SerialTransport {
             );
             Ok(response)
         })
-    }
-
-    fn is_connected(&self) -> bool {
-        // In a real implementation, this would check the serial port state
-        true
-    }
-
-    fn description(&self) -> &str {
-        &self.description
     }
 }
 
@@ -78,8 +75,11 @@ impl CustomTransport {
     }
 }
 
-impl RawTransport for CustomTransport {
-    fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
+impl AsyncTransport for CustomTransport {
+    type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
+    type ReceiveFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
+
+    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFuture<'a> {
         let data_copy = data.to_vec();
         Box::pin(async move {
             log::debug!("Custom transport sending: {:02X?}", data_copy);
@@ -88,19 +88,11 @@ impl RawTransport for CustomTransport {
         })
     }
 
-    fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
+    fn receive(&self) -> Self::ReceiveFuture<'_> {
         Box::pin(async move {
             // Users would implement actual I/O here using their runtime of choice
             // For now, return a mock ACK response
             Ok(vec![0x90, 0x40, 0xFF])
         })
-    }
-
-    fn is_connected(&self) -> bool {
-        true
-    }
-
-    fn description(&self) -> &str {
-        &self.description
     }
 }

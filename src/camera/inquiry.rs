@@ -97,13 +97,16 @@ pub struct ImageSettings {
     pub hue: u8,
 }
 
-impl<P: CameraProfile> Camera<P> {
+impl<P: CameraProfile, T> Camera<P, T>
+where
+    T: crate::transport::AsyncTransport,
+{
     /// Send a command and wait for the response.
     ///
     /// This method is used internally for inquiry commands that need to receive data back.
     #[cfg(feature = "async")]
     async fn send_and_receive(&self, command: &dyn Command) -> Result<Response, Error> {
-        self.send_raw(command).await
+        self.send_command(command).await
     }
 
     // Power inquiries
@@ -608,7 +611,7 @@ impl<P: CameraProfile> Camera<P> {
     ///
     /// This method is used internally for inquiry commands that need to receive data back.
     fn send_and_receive(&mut self, command: &dyn Command) -> Result<Response, Error> {
-        self.send_raw(command)
+        self.send_command(command)
     }
 
     // Power inquiries

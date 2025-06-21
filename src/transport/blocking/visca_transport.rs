@@ -169,13 +169,13 @@ impl<T: Transport> ViscaTransport<T> {
         }
     }
 
-    /// Send raw bytes (for testing or custom commands).
-    pub fn send_raw(&mut self, data: &[u8]) -> Result<(), Error> {
+    /// Send raw bytes (for internal testing).
+    pub(crate) fn send_raw(&mut self, data: &[u8]) -> Result<(), Error> {
         self.transport.send(data)
     }
 
-    /// Receive raw bytes (for testing or custom commands).
-    pub fn receive_raw(&mut self, timeout: Duration) -> Result<Vec<u8>, Error> {
+    /// Receive raw bytes (for internal testing).
+    pub(crate) fn receive_raw(&mut self, timeout: Duration) -> Result<Vec<u8>, Error> {
         self.transport.receive(timeout)
     }
 
