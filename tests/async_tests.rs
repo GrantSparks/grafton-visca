@@ -16,6 +16,7 @@ use grafton_visca::{
         zoom::ZoomCommand,
         InquiryCommand,
     },
+    transport::ViscaTransport,
     Error, Response,
 };
 use std::sync::Arc;
@@ -29,7 +30,7 @@ async fn test_async_send_receive_basic() {
     mock.add_response(vec![0x90, 0x50, 0xFF]).await;
 
     let sent_commands = mock.sent_commands.clone();
-    let transport = mock.into_visca_transport();
+    let transport = ViscaTransport::new(mock);
 
     let command = PowerCommand { power: Power::On };
     let response = transport.send_command(&command).await.unwrap();
@@ -55,7 +56,7 @@ async fn test_concurrent_commands() {
     mock.add_ack_completion(0).await; // Third command
 
     let command_counter = mock.command_counter.clone();
-    let transport = mock.into_visca_transport();
+    let transport = ViscaTransport::new(mock);
 
     // Spawn 3 concurrent command tasks
     let t1 = transport.clone();
@@ -98,7 +99,7 @@ async fn test_semaphore_limiting() {
             // Create a new ViscaTransport for this task
             let mock = MockAsyncTransport::new().with_delay(50);
             mock.add_response(vec![0x90, 0x50, 0xFF]).await;
-            let visca_transport = mock.into_visca_transport();
+            let visca_transport = ViscaTransport::new(mock);
 
             let _response = visca_transport
                 .send_command(&PowerCommand { power: Power::On })
@@ -136,7 +137,7 @@ async fn test_semaphore_limiting() {
 async fn test_timeout_handling() {
     let mock = MockAsyncTransport::new();
     // Don't add any response - should timeout
-    let transport = mock.into_visca_transport();
+    let transport = ViscaTransport::new(mock);
 
     let command = PowerCommand { power: Power::On };
 
@@ -156,7 +157,7 @@ async fn test_error_propagation() {
     mock.add_response(vec![0x90, 0x50, 0xFF]).await;
     mock.add_response(vec![0x90, 0x50, 0xFF]).await;
 
-    let transport = mock.into_visca_transport();
+    let transport = ViscaTransport::new(mock);
 
     // First two commands should succeed
     transport
@@ -190,7 +191,7 @@ async fn test_inquiry_async_handling() {
     ])
     .await;
 
-    let transport = mock.into_visca_transport();
+    let transport = ViscaTransport::new(mock);
 
     let response = transport
         .send_command(&InquiryCommand::PanTiltPosition)
@@ -214,7 +215,7 @@ async fn test_concurrent_timeout_handling() {
     // Add response only for first command
     mock.add_response(vec![0x90, 0x50, 0xFF]).await;
 
-    let transport = mock.into_visca_transport();
+    let transport = ViscaTransport::new(mock);
 
     let command1 = PowerCommand { power: Power::On };
     let command2 = PowerCommand {
@@ -253,7 +254,7 @@ async fn test_async_command_sequence() {
     mock.add_ack_completion(0).await;
 
     let command_counter = mock.command_counter.clone();
-    let transport = mock.into_visca_transport();
+    let transport = ViscaTransport::new(mock);
 
     // Execute command sequence
     let home_response = transport.send_command(&PanTiltCommand::Home).await.unwrap();
@@ -283,7 +284,7 @@ async fn test_mock_transport_utilities() {
     mock.add_response(vec![0x90, 0x60, 0x02, 0xFF]).await; // Syntax error
 
     let command_counter = mock.command_counter.clone();
-    let transport = mock.into_visca_transport();
+    let transport = ViscaTransport::new(mock);
 
     // Send a command and verify we get the error
     let command = PowerCommand { power: Power::On };
@@ -306,7 +307,7 @@ async fn test_mock_transport_ack_completion_helper() {
     // Use the helper to add both ACK and completion
     mock.add_ack_completion(0).await;
 
-    let transport = mock.into_visca_transport();
+    let transport = ViscaTransport::new(mock);
 
     let command = ZoomCommand::Stop;
     let response = transport.send_command(&command).await.unwrap();

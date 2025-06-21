@@ -40,11 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Custom Transport Demo ===");
     let custom_transport = CustomTransport::new("Demo transport".to_string());
     let custom_camera = Camera::<PTZOpticsG2, _>::new(custom_transport);
-    
+
     println!("Testing custom transport...");
     // This will use the custom transport's send/receive methods
     custom_camera.stop().await?;
-    
+
     println!("Demo completed successfully!");
 
     Ok(())

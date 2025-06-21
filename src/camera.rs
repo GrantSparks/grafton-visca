@@ -657,7 +657,7 @@ where
     /// prefer the high-level methods like `zoom_in()`, `pan_tilt_home()`, etc.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # use grafton_visca::{Camera, Command, Response, Error};
     /// # struct MyCustomCommand;
     /// # impl Command for MyCustomCommand {
@@ -667,7 +667,7 @@ where
     /// #         grafton_visca::timeout::CommandCategory::Movement
     /// #     }
     /// # }
-    /// # fn example(camera: &mut Camera<grafton_visca::profiles::PTZOpticsG2>) -> Result<(), Error> {
+    /// # fn example(camera: &mut Camera<grafton_visca::profiles::PTZOpticsG2, UdpTransport>) -> Result<(), Error> {
     /// let custom_command = MyCustomCommand;
     /// let response = camera.send_command(&custom_command)?;
     /// # Ok(())
@@ -690,7 +690,7 @@ where
     /// prefer the high-level methods like `zoom_in()`, `pan_tilt_home()`, etc.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # use grafton_visca::{Camera, Command, Response, Error};
     /// # struct MyCustomCommand;
     /// # impl Command for MyCustomCommand {

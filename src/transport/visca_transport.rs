@@ -30,7 +30,7 @@ const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 ///
 /// The storage model adapts based on features:
 /// - For blocking: stores T directly, methods take &mut self
-/// - For async: stores Arc<Mutex<T>>, methods take &self
+/// - For async: stores `Arc<Mutex<T>>`, methods take &self
 #[derive(Debug)]
 pub struct ViscaTransport<T> {
     #[cfg(not(feature = "async"))]
@@ -52,7 +52,7 @@ impl<T> ViscaTransport<T> {
         }
     }
 
-    /// Create a transport for async usage (stores Arc<Mutex<T>>)
+    /// Create a transport for async usage (stores `Arc<Mutex<T>>`)
     #[cfg(feature = "async")]
     pub(crate) fn new_async(transport: T) -> Self {
         Self {
@@ -202,15 +202,6 @@ mod blocking_impl {
             }
         }
 
-        /// Send raw bytes (for internal testing).
-        pub(crate) fn send_raw(&mut self, data: &[u8]) -> Result<(), Error> {
-            self.transport.send(data)
-        }
-
-        /// Receive raw bytes (for internal testing).
-        pub(crate) fn receive_raw(&mut self, timeout: Duration) -> Result<Vec<u8>, Error> {
-            self.transport.receive(timeout)
-        }
 
         /// Check if the transport is connected.
         pub fn is_connected(&self) -> bool {
