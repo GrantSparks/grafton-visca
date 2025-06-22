@@ -187,7 +187,7 @@ mod blocking_tests {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 mod async_tests {
     use super::common::MockAsyncTransport;
     use grafton_visca::{
