@@ -9,6 +9,7 @@
 //! Note: The Camera API doesn't have built-in per-command timeout configuration.
 //! Timeouts are handled at the transport level or using tokio::time::timeout.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     command::pan_tilt::PanTiltDirection,
@@ -16,17 +17,18 @@ use grafton_visca::{
     Error,
 };
 use std::time::Duration;
+#[cfg(feature = "tokio")]
 use tokio::time::timeout;
 
 // Include the transport implementations from the example files
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
     eprintln!("This example requires the 'async' feature.");
     eprintln!("Run with: cargo run --example async_configurable_timeouts --features async");
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -52,7 +54,7 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn demonstrate_quick_timeout<T: grafton_visca::transport::AsyncTransport>(
     camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Error> {
@@ -91,7 +93,7 @@ async fn demonstrate_quick_timeout<T: grafton_visca::transport::AsyncTransport>(
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn demonstrate_movement_timeout<T: grafton_visca::transport::AsyncTransport>(
     camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Error> {
@@ -135,7 +137,7 @@ async fn demonstrate_movement_timeout<T: grafton_visca::transport::AsyncTranspor
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn demonstrate_preset_timeout<T: grafton_visca::transport::AsyncTransport>(
     camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Error> {
@@ -167,7 +169,7 @@ async fn demonstrate_preset_timeout<T: grafton_visca::transport::AsyncTransport>
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn demonstrate_timeout_recovery<T: grafton_visca::transport::AsyncTransport>(
     camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Error> {
@@ -223,7 +225,7 @@ async fn demonstrate_timeout_recovery<T: grafton_visca::transport::AsyncTranspor
     println!("   AsyncTcpTransport uses a hardcoded 10-second timeout");
     println!("   For custom timeouts, wrap operations with tokio::time::timeout");
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "tokio")]
     {
         // TCP transport is already available via common module
 

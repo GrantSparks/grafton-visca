@@ -9,6 +9,7 @@
 //! The Camera API now supports full inquiry functionality through the
 //! send_and_receive() method, making it a complete replacement for the Client API.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     transport::create,
@@ -16,15 +17,16 @@ use grafton_visca::{
     Error,
 };
 use std::env;
+#[cfg(feature = "tokio")]
 use tokio::time::{sleep, Duration};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
     eprintln!("This example requires the 'async' feature.");
     eprintln!("Run with: cargo run --example async_inquiry_demo --features async");
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging

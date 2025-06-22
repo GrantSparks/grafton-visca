@@ -29,7 +29,7 @@ use std::thread;
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
@@ -161,7 +161,7 @@ fn perform_scan_sequence<T: BlockingTransport>(
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -173,10 +173,10 @@ use grafton_visca::{
     // ZoomPosition no longer needed - set_zoom takes u16 directly
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 use std::time::Duration;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -260,7 +260,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // Async helper function for scan sequence
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn perform_async_scan_sequence<T: grafton_visca::transport::AsyncTransport>(
     camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {

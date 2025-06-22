@@ -55,7 +55,7 @@ async fn async_example() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 

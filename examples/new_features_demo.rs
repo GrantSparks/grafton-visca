@@ -2,7 +2,7 @@
 //! - CommandBuilder for fluent command sequences
 //! - Extension traits for custom functionality
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -12,7 +12,7 @@ use grafton_visca::{
     Error,
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Demonstrates CommandBuilder for fluent command sequences
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn command_builder_demo() -> Result<(), Error> {
     println!("Using CommandBuilder for complex sequences...");
 
@@ -108,7 +108,7 @@ async fn command_builder_demo() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
     eprintln!("This example requires the 'async' feature. Run with:");
     eprintln!("  cargo run --example new_features async");

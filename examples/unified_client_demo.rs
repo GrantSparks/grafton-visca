@@ -151,7 +151,7 @@ async fn async_movement_example() -> Result<(), Error> {
 
 // ==================== MAIN FUNCTIONS ====================
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Error> {
     env_logger::init();
 

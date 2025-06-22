@@ -1,5 +1,6 @@
 //! Example demonstrating the custom camera profile builder pattern.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         Camera, CameraProfile, CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder,
@@ -10,20 +11,20 @@ use grafton_visca::{
 
 // Include the transport implementations from the example files
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     run_demo().await
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Error> {
     println!("This example requires the 'async' feature to be enabled.");
     println!("Run with: cargo run --features async --example custom_profile_builder_demo");
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn run_demo() -> Result<(), Error> {
     env_logger::init();
 
