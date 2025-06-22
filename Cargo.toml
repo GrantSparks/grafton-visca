@@ -41,15 +41,15 @@ required-features = ["tokio"]
 
 [[example]]
 name = "async_inquiry_demo"
-required-features = ["async"]
+required-features = ["tokio"]
 
 [[example]]
 name = "async_control_demo"
-required-features = ["async"]
+required-features = ["tokio"]
 
 [[example]]
 name = "async_configurable_timeouts"
-required-features = ["async"]
+required-features = ["tokio"]
 
 
 [[example]]
@@ -81,12 +81,12 @@ name = "unified_client_demo"
 
 [[example]]
 name = "new_tokio_transport_demo"
-required-features = ["async", "tokio"]
+required-features = ["tokio"]
 
 
 [[example]]
 name = "position_conversion"
-required-features = ["async"]
+required-features = ["tokio"]
 
 [[example]]
 name = "blocking_no_runtime"
@@ -110,7 +110,7 @@ name = "error_handling_demo"
 
 [[example]]
 name = "enhanced_api_demo"
-required-features = ["async"]
+required-features = ["tokio"]
 
 
 [[example]]
@@ -119,7 +119,7 @@ name = "quick_start_demo"
 
 [[example]]
 name = "test_extension_traits"
-required-features = ["async"]
+required-features = ["tokio"]
 
 
 [[example]]
@@ -131,28 +131,28 @@ name = "unified_transport_demo"
 
 [[example]]
 name = "image_and_gain_demo"
-required-features = ["async"]
+required-features = ["tokio"]
 
 
 [[example]]
 name = "white_balance_tuning_demo"
-required-features = ["async"]
+required-features = ["tokio"]
 
 
 [[example]]
 name = "camera_profile_demo"
-required-features = ["async"]
+required-features = ["tokio"]
 
 [[example]]
 name = "custom_profile_builder_demo"
-required-features = ["async"]
+required-features = ["tokio"]
 
 [[example]]
 name = "capability_query_demo"
 
 [[example]]
 name = "camera_inquiry_demo"
-required-features = ["async"]
+required-features = ["tokio"]
 
 [[example]]
 name = "command_sequences_demo"
@@ -162,7 +162,7 @@ name = "command_sequences_demo"
 
 [[example]]
 name = "new_features_demo"
-required-features = ["async"]
+required-features = ["tokio"]
 
 
 [[example]]
