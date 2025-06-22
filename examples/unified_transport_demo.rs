@@ -55,7 +55,13 @@ async fn async_example() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+fn main() {
+    eprintln!("This example requires either no features (blocking) or tokio feature (async).");
+    eprintln!("Run with: cargo run --example unified_transport_demo --features tokio");
+}
+
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 

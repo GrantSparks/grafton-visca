@@ -3,25 +3,26 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
-#[cfg(all(not(feature = "async"), not(feature = "tokio")))]
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::TcpTransport;
 #[cfg(feature = "tokio")]
 use grafton_visca::transport::tokio::TcpTransport;
-#[cfg(feature = "tokio")]
+
+use grafton_visca::Error;
+#[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
-    Error,
-};
-#[cfg(not(feature = "tokio"))]
-use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
-    command::pan_tilt::PanTiltDirection,
-    Error,
 };
 use std::time::{Duration, Instant};
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+fn main() {
+    eprintln!("This example requires either no features (blocking) or tokio feature (async).");
+    eprintln!("Run with: cargo run --example error_handling_demo --features tokio");
+}
+
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
