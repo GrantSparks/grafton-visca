@@ -14,12 +14,20 @@ use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(any(not(feature = "async"), feature = "tokio"))]
+use std::time::Instant;
 
 #[cfg(all(feature = "async", not(feature = "tokio")))]
 fn main() {
-    eprintln!("This example requires either no features (blocking) or tokio feature (async).");
-    eprintln!("Run with: cargo run --example error_handling_demo --features tokio");
+    println!("=== VISCA Error Handling Demo ===\n");
+    println!("This example demonstrates error handling patterns.\n");
+    
+    // Still demonstrate error classification even without a transport
+    demonstrate_error_classification();
+    
+    println!("\nFor full demo with camera connection:");
+    println!("Run with: cargo run --example error_handling_demo --features tokio");
 }
 
 #[cfg(not(feature = "async"))]

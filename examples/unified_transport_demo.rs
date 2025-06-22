@@ -1,13 +1,12 @@
 //! Demonstrates the unified transport API that works for both async and blocking contexts.
 
-use grafton_visca::command::{power::Power, PowerCommand};
-use grafton_visca::Error;
-
 #[cfg(not(feature = "async"))]
-fn blocking_example() -> Result<(), Error> {
+fn blocking_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
         camera::{Camera, GenericVisca},
+        command::{power::Power, PowerCommand},
         transport::blocking::TcpTransport,
+        Error,
     };
 
     println!("=== Blocking Transport Example ===");
@@ -29,10 +28,12 @@ fn blocking_example() -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn async_example() -> Result<(), Error> {
+async fn async_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
         camera::{Camera, GenericVisca},
+        command::{power::Power, PowerCommand},
         transport::tokio::TcpTransport,
+        Error,
     };
     use std::time::Duration;
 
