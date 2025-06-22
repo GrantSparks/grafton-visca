@@ -3,11 +3,13 @@
 //! This example shows how the Camera API works seamlessly with
 //! different transport adapters for blocking and async usage.
 
+#[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     command::pan_tilt::PanTiltDirection,
     Error,
 };
+#[cfg(any(not(feature = "async"), feature = "tokio"))]
 use std::time::Duration;
 
 #[cfg(not(feature = "async"))]
