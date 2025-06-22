@@ -5,12 +5,13 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
+    camera::{profiles::PTZOpticsG2, Camera},
     command::{exposure::ExposureMode, white_balance::WhiteBalanceMode},
     transport::create,
     types::{
         BrightnessLevel, ContrastLevel, NoiseReduction2DLevel, SaturationLevel, SharpnessLevel,
     },
+    units::Degrees,
     Error,
 };
 #[cfg(feature = "tokio")]

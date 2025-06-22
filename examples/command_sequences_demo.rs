@@ -10,10 +10,7 @@ use grafton_visca::{
         Camera, CommandBuilderExt,
     },
     command::{
-        exposure::ExposureMode,
-        focus::FocusSpeed,
-        white_balance::WhiteBalanceMode,
-        zoom::ZoomSpeed,
+        exposure::ExposureMode, focus::FocusSpeed, white_balance::WhiteBalanceMode, zoom::ZoomSpeed,
     },
     transport::create,
     types::{PanSpeed, TiltSpeed},

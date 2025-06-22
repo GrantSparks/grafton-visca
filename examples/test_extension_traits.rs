@@ -135,7 +135,7 @@ async fn main() -> Result<(), Error> {
 
     // Position control with different unit types
     println!("\nTesting position control with different units...");
-    use grafton_visca::camera::units::Degrees;
+    use grafton_visca::units::Degrees;
 
     // Using degrees
     camera.set_position(Degrees(45.0), Degrees(15.0)).await?;

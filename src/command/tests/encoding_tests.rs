@@ -1,7 +1,11 @@
 #![allow(missing_docs)]
 #![allow(clippy::unwrap_used)] // Tests can use unwrap
 use crate::command::*;
-use crate::types::{BrightnessLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed, PanPosition, TiltPosition, RedTuning, BlueTuning, SaturationLevel, HueLevel, ZoomPosition, ColorTemperature, RedGain, BlueGain, FocusPosition};
+use crate::types::{
+    BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, FocusPosition, GainLimit, GainValue,
+    HueLevel, IrisLevel, PanPosition, RedGain, RedTuning, SaturationLevel, ShutterSpeed,
+    TiltPosition, ZoomPosition,
+};
 use crate::Command;
 
 #[cfg(test)]
@@ -534,7 +538,9 @@ mod golden_vector_tests {
         );
 
         // Red Tuning -10
-        let red_neg10 = RedTuningCommand { level: RedTuning::new(-10).unwrap() };
+        let red_neg10 = RedTuningCommand {
+            level: RedTuning::new(-10).unwrap(),
+        };
         assert_eq!(
             red_neg10.to_bytes().unwrap(),
             vec![0x81, 0x0A, 0x01, 0x12, 0x00, 0xFF],
@@ -542,7 +548,9 @@ mod golden_vector_tests {
         );
 
         // Red Tuning +10
-        let red_pos10 = RedTuningCommand { level: RedTuning::new(10).unwrap() };
+        let red_pos10 = RedTuningCommand {
+            level: RedTuning::new(10).unwrap(),
+        };
         assert_eq!(
             red_pos10.to_bytes().unwrap(),
             vec![0x81, 0x0A, 0x01, 0x12, 0x14, 0xFF],
@@ -550,7 +558,9 @@ mod golden_vector_tests {
         );
 
         // Blue Tuning 0
-        let blue_0 = BlueTuningCommand { level: BlueTuning::new(0).unwrap() };
+        let blue_0 = BlueTuningCommand {
+            level: BlueTuning::new(0).unwrap(),
+        };
         assert_eq!(
             blue_0.to_bytes().unwrap(),
             vec![0x81, 0x0A, 0x01, 0x13, 0x0A, 0xFF],
@@ -558,7 +568,9 @@ mod golden_vector_tests {
         );
 
         // Saturation 200%
-        let sat_200 = SaturationCommand { level: SaturationLevel::new(0x0E).unwrap() };
+        let sat_200 = SaturationCommand {
+            level: SaturationLevel::new(0x0E).unwrap(),
+        };
         assert_eq!(
             sat_200.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00, 0x0E, 0xFF],
@@ -566,7 +578,9 @@ mod golden_vector_tests {
         );
 
         // Hue 14
-        let hue_14 = HueCommand { level: HueLevel::new(0x0E).unwrap() };
+        let hue_14 = HueCommand {
+            level: HueLevel::new(0x0E).unwrap(),
+        };
         assert_eq!(
             hue_14.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00, 0x0E, 0xFF],
@@ -586,7 +600,7 @@ mod golden_vector_tests {
 
         // Absolute Position (using valid ranges)
         let abs_pos = PanTiltCommand::AbsolutePosition {
-            pan: PanPosition::new(0x0500).unwrap(),  // 1280, within -2448 to 2448
+            pan: PanPosition::new(0x0500).unwrap(), // 1280, within -2448 to 2448
             tilt: TiltPosition::new(0x0300).unwrap(), // 768, within -432 to 1296
             pan_speed: PanSpeed::new(0x10).unwrap(),
             tilt_speed: TiltSpeed::new(0x10).unwrap(),
@@ -641,7 +655,7 @@ mod golden_vector_tests {
         // Limit Set (using valid ranges)
         let limit_set = PanTiltLimitCommand::Set {
             corner: LimitCorner::DownLeft,
-            pan: PanPosition::new(0x0400).unwrap(),  // 1024, within -2448 to 2448
+            pan: PanPosition::new(0x0400).unwrap(), // 1024, within -2448 to 2448
             tilt: TiltPosition::new(0x0200).unwrap(), // 512, within -432 to 1296
         };
         assert_eq!(
@@ -907,7 +921,9 @@ mod golden_vector_tests {
         );
 
         // Focus Near Limit
-        let fnl = FocusNearLimitCommand { position: FocusPosition::new(0x1234).unwrap() };
+        let fnl = FocusNearLimitCommand {
+            position: FocusPosition::new(0x1234).unwrap(),
+        };
         assert_eq!(
             fnl.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x02, 0x03, 0x04, 0xFF],

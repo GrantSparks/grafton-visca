@@ -10,9 +10,9 @@ fn main() {
 }
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::camera::units::Degrees;
-#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::create;
+#[cfg(not(feature = "async"))]
+use grafton_visca::units::Degrees;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},

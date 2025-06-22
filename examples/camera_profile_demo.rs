@@ -4,11 +4,11 @@
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::Degrees,
         Camera,
     },
     transport::tokio::TcpTransport,
     types::ZoomPosition,
+    units::Degrees,
     Error,
 };
 #[cfg(feature = "tokio")]

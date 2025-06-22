@@ -18,10 +18,10 @@ use grafton_visca::transport::blocking::{create, Transport as BlockingTransport}
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::Degrees,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    units::Degrees,
 };
 
 #[cfg(not(feature = "async"))]
@@ -145,7 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn perform_scan_sequence<T: BlockingTransport>(
     camera: &mut Camera<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::camera::units::Degrees;
+    use grafton_visca::units::Degrees;
 
     // Return to home
     camera.home()?;
@@ -171,12 +171,12 @@ fn perform_scan_sequence<T: BlockingTransport>(
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::Degrees,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
     transport::create,
     // ZoomPosition no longer needed - set_zoom takes u16 directly
+    units::Degrees,
 };
 
 #[cfg(feature = "tokio")]
@@ -270,7 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn perform_async_scan_sequence<T: grafton_visca::transport::AsyncTransport>(
     camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::camera::units::Degrees;
+    use grafton_visca::units::Degrees;
 
     // Return to home
     camera.home().await?;

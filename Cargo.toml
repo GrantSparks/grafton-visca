@@ -168,6 +168,10 @@ required-features = ["tokio"]
 [[example]]
 name = "user_friendly_api_demo"
 
+[[example]]
+name = "semantic_api_demo"
+required-features = ["tokio"]
+
 
 
 

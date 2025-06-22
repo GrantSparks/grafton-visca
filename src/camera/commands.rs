@@ -37,10 +37,8 @@ use crate::{
     },
 };
 
-use super::{
-    units::{Degrees, Normalized},
-    Camera, CameraProfile,
-};
+use super::{Camera, CameraProfile};
+use crate::units::{Degrees, Normalized};
 
 // Phase 1: Simple methods replaced with unified macro
 define_camera_methods! {
@@ -677,5 +675,427 @@ where
     {
         let level = level.try_into().map_err(Into::into)?;
         self.send_and_wait(&IrisCommand::Direct(level))
+    }
+}
+
+// Additional semantic API methods for enhanced ergonomics
+#[cfg(feature = "async")]
+impl<P, T> Camera<P, T>
+where
+    P: CameraProfile,
+    T: crate::transport::AsyncTransport,
+{
+    /// Set white balance using color temperature in Kelvin.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Kelvin;
+    ///
+    /// // Set to daylight (5600K)
+    /// camera.set_white_balance_kelvin(Kelvin(5600)).await?;
+    ///
+    /// // Set to tungsten (3200K)
+    /// camera.set_white_balance_kelvin(Kelvin(3200)).await?;
+    /// ```
+    pub async fn set_white_balance_kelvin(
+        &self,
+        kelvin: crate::units::Kelvin,
+    ) -> Result<(), crate::Error> {
+        let temperature = ColorTemperature::try_from(kelvin)?;
+        match self
+            .send_command(&ColorTemperatureCommand::Direct(temperature))
+            .await?
+        {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
+    /// Set shutter speed using fraction notation.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Fraction;
+    ///
+    /// // Set to 1/60s
+    /// camera.set_shutter_fraction(Fraction::new(1, 60)).await?;
+    ///
+    /// // Set to 1/1000s
+    /// camera.set_shutter_fraction(Fraction::new(1, 1000)).await?;
+    /// ```
+    pub async fn set_shutter_fraction(
+        &self,
+        fraction: crate::units::Fraction,
+    ) -> Result<(), crate::Error> {
+        let speed = ShutterSpeed::try_from(fraction)?;
+        match self.send_command(&ShutterCommand::Direct(speed)).await? {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
+    /// Set zoom using percentage.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Percentage;
+    ///
+    /// // Set to 50% zoom
+    /// camera.set_zoom_percentage(Percentage(50.0)).await?;
+    ///
+    /// // Set to full zoom
+    /// camera.set_zoom_percentage(Percentage(100.0)).await?;
+    /// ```
+    pub async fn set_zoom_percentage(
+        &self,
+        percentage: crate::units::Percentage<f32>,
+    ) -> Result<(), crate::Error> {
+        let position = ZoomPosition::try_from(percentage)?;
+        match self.send_command(&ZoomCommand::Direct(position)).await? {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
+    /// Set zoom using magnification factor.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Magnification;
+    ///
+    /// // Set to 10x magnification
+    /// camera.set_zoom_magnification(Magnification(10.0)).await?;
+    ///
+    /// // Set to 1x (no zoom)
+    /// camera.set_zoom_magnification(Magnification(1.0)).await?;
+    /// ```
+    pub async fn set_zoom_magnification(
+        &self,
+        magnification: crate::units::Magnification<f32>,
+    ) -> Result<(), crate::Error> {
+        let position = ZoomPosition::try_from(magnification)?;
+        match self.send_command(&ZoomCommand::Direct(position)).await? {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
+    /// Set focus using percentage (0% = infinity, 100% = near).
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Percentage;
+    ///
+    /// // Set to infinity focus
+    /// camera.set_focus_percentage(Percentage(0.0)).await?;
+    ///
+    /// // Set to mid-range focus
+    /// camera.set_focus_percentage(Percentage(50.0)).await?;
+    /// ```
+    pub async fn set_focus_percentage(
+        &self,
+        percentage: crate::units::Percentage<f32>,
+    ) -> Result<(), crate::Error> {
+        let position = FocusPosition::try_from(percentage)?;
+        match self.send_command(&FocusCommand::Direct(position)).await? {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
+    /// Set pan/tilt position using radians.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Radians;
+    /// use std::f32::consts::PI;
+    ///
+    /// // Turn 90 degrees right and 45 degrees up
+    /// camera.set_position_radians(Radians(PI / 2.0), Radians(PI / 4.0)).await?;
+    /// ```
+    pub async fn set_position_radians(
+        &self,
+        pan: crate::units::Radians<f32>,
+        tilt: crate::units::Radians<f32>,
+    ) -> Result<(), crate::Error> {
+        let pan_degrees: Degrees<f32> = pan.into();
+        let tilt_degrees: Degrees<f32> = tilt.into();
+        match self
+            .send_command(&PanTiltCommand::absolute_position_degrees::<P>(
+                pan_degrees,
+                tilt_degrees,
+            )?)
+            .await?
+        {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
+    /// Set iris using percentage (0% = closed, 100% = fully open).
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Percentage;
+    ///
+    /// // Set to 50% open
+    /// camera.set_iris_percentage(Percentage(50.0)).await?;
+    ///
+    /// // Fully open iris
+    /// camera.set_iris_percentage(Percentage(100.0)).await?;
+    /// ```
+    pub async fn set_iris_percentage(
+        &self,
+        percentage: crate::units::Percentage<f32>,
+    ) -> Result<(), crate::Error> {
+        let level = IrisLevel::try_from(percentage)?;
+        match self.send_command(&IrisCommand::Direct(level)).await? {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+
+    /// Move camera at percentage of maximum speed.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Percentage;
+    /// use grafton_visca::command::pan_tilt::PanTiltDirection;
+    ///
+    /// // Move right at 50% speed
+    /// camera.move_percentage(PanTiltDirection::Right, Percentage(50.0), Percentage(0.0)).await?;
+    ///
+    /// // Move diagonally at 75% speed
+    /// camera.move_percentage(PanTiltDirection::UpRight, Percentage(75.0), Percentage(75.0)).await?;
+    /// ```
+    pub async fn move_percentage(
+        &self,
+        direction: PanTiltDirection,
+        pan_speed: crate::units::Percentage<f32>,
+        tilt_speed: crate::units::Percentage<f32>,
+    ) -> Result<(), crate::Error> {
+        let pan = crate::types::PanSpeed::try_from(pan_speed)?;
+        let tilt = crate::types::TiltSpeed::try_from(tilt_speed)?;
+        match self
+            .send_command(&PanTiltCommand::Move {
+                direction,
+                pan_speed: pan,
+                tilt_speed: tilt,
+            })
+            .await?
+        {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
+}
+
+#[cfg(not(feature = "async"))]
+impl<P, T> Camera<P, T>
+where
+    P: CameraProfile,
+    T: crate::transport::blocking::Transport,
+{
+    /// Set white balance using color temperature in Kelvin.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Kelvin;
+    ///
+    /// // Set to daylight (5600K)
+    /// camera.set_white_balance_kelvin(Kelvin(5600))?;
+    ///
+    /// // Set to tungsten (3200K)
+    /// camera.set_white_balance_kelvin(Kelvin(3200))?;
+    /// ```
+    pub fn set_white_balance_kelvin(
+        &mut self,
+        kelvin: crate::units::Kelvin,
+    ) -> Result<(), crate::Error> {
+        let temperature = ColorTemperature::try_from(kelvin)?;
+        self.send_and_wait(&ColorTemperatureCommand::Direct(temperature))
+    }
+
+    /// Set shutter speed using fraction notation.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Fraction;
+    ///
+    /// // Set to 1/60s
+    /// camera.set_shutter_fraction(Fraction::new(1, 60))?;
+    ///
+    /// // Set to 1/1000s
+    /// camera.set_shutter_fraction(Fraction::new(1, 1000))?;
+    /// ```
+    pub fn set_shutter_fraction(
+        &mut self,
+        fraction: crate::units::Fraction,
+    ) -> Result<(), crate::Error> {
+        let speed = ShutterSpeed::try_from(fraction)?;
+        self.send_and_wait(&ShutterCommand::Direct(speed))
+    }
+
+    /// Set zoom using percentage.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Percentage;
+    ///
+    /// // Set to 50% zoom
+    /// camera.set_zoom_percentage(Percentage(50.0))?;
+    ///
+    /// // Set to full zoom
+    /// camera.set_zoom_percentage(Percentage(100.0))?;
+    /// ```
+    pub fn set_zoom_percentage(
+        &mut self,
+        percentage: crate::units::Percentage<f32>,
+    ) -> Result<(), crate::Error> {
+        let position = ZoomPosition::try_from(percentage)?;
+        self.send_and_wait(&ZoomCommand::Direct(position))
+    }
+
+    /// Set zoom using magnification factor.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Magnification;
+    ///
+    /// // Set to 10x magnification
+    /// camera.set_zoom_magnification(Magnification(10.0))?;
+    ///
+    /// // Set to 1x (no zoom)
+    /// camera.set_zoom_magnification(Magnification(1.0))?;
+    /// ```
+    pub fn set_zoom_magnification(
+        &mut self,
+        magnification: crate::units::Magnification<f32>,
+    ) -> Result<(), crate::Error> {
+        let position = ZoomPosition::try_from(magnification)?;
+        self.send_and_wait(&ZoomCommand::Direct(position))
+    }
+
+    /// Set focus using percentage (0% = infinity, 100% = near).
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Percentage;
+    ///
+    /// // Set to infinity focus
+    /// camera.set_focus_percentage(Percentage(0.0))?;
+    ///
+    /// // Set to mid-range focus
+    /// camera.set_focus_percentage(Percentage(50.0))?;
+    /// ```
+    pub fn set_focus_percentage(
+        &mut self,
+        percentage: crate::units::Percentage<f32>,
+    ) -> Result<(), crate::Error> {
+        let position = FocusPosition::try_from(percentage)?;
+        self.send_and_wait(&FocusCommand::Direct(position))
+    }
+
+    /// Set pan/tilt position using radians.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Radians;
+    /// use std::f32::consts::PI;
+    ///
+    /// // Turn 90 degrees right and 45 degrees up
+    /// camera.set_position_radians(Radians(PI / 2.0), Radians(PI / 4.0))?;
+    /// ```
+    pub fn set_position_radians(
+        &mut self,
+        pan: crate::units::Radians<f32>,
+        tilt: crate::units::Radians<f32>,
+    ) -> Result<(), crate::Error> {
+        let pan_degrees: Degrees<f32> = pan.into();
+        let tilt_degrees: Degrees<f32> = tilt.into();
+        self.send_and_wait(&PanTiltCommand::absolute_position_degrees::<P>(
+            pan_degrees,
+            tilt_degrees,
+        )?)
+    }
+
+    /// Set iris using percentage (0% = closed, 100% = fully open).
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Percentage;
+    ///
+    /// // Set to 50% open
+    /// camera.set_iris_percentage(Percentage(50.0))?;
+    ///
+    /// // Fully open iris
+    /// camera.set_iris_percentage(Percentage(100.0))?;
+    /// ```
+    pub fn set_iris_percentage(
+        &mut self,
+        percentage: crate::units::Percentage<f32>,
+    ) -> Result<(), crate::Error> {
+        let level = IrisLevel::try_from(percentage)?;
+        self.send_and_wait(&IrisCommand::Direct(level))
+    }
+
+    /// Move camera at percentage of maximum speed.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Percentage;
+    /// use grafton_visca::command::pan_tilt::PanTiltDirection;
+    ///
+    /// // Move right at 50% speed
+    /// camera.move_percentage(PanTiltDirection::Right, Percentage(50.0), Percentage(0.0))?;
+    ///
+    /// // Move diagonally at 75% speed
+    /// camera.move_percentage(PanTiltDirection::UpRight, Percentage(75.0), Percentage(75.0))?;
+    /// ```
+    pub fn move_percentage(
+        &mut self,
+        direction: PanTiltDirection,
+        pan_speed: crate::units::Percentage<f32>,
+        tilt_speed: crate::units::Percentage<f32>,
+    ) -> Result<(), crate::Error> {
+        let pan = crate::types::PanSpeed::try_from(pan_speed)?;
+        let tilt = crate::types::TiltSpeed::try_from(tilt_speed)?;
+        self.send_and_wait(&PanTiltCommand::Move {
+            direction,
+            pan_speed: pan,
+            tilt_speed: tilt,
+        })
     }
 }

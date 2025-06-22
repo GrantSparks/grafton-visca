@@ -836,7 +836,7 @@ mod validation_tests {
     #[test]
     fn test_tuning_commands_reject_out_of_range() {
         use crate::types::{BlueTuning, RedTuning};
-        
+
         // Red/Blue tuning should reject values outside -10 to +10
         // These will fail at type creation
         assert!(RedTuning::new(-11).is_err());
@@ -848,7 +848,7 @@ mod validation_tests {
     #[test]
     fn test_saturation_hue_reject_out_of_range() {
         use crate::types::{HueLevel, SaturationLevel};
-        
+
         // Saturation and Hue should reject values > 0xE
         // These will fail at type creation
         assert!(SaturationLevel::new(0xF).is_err());

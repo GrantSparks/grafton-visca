@@ -3,11 +3,12 @@
 //! This example demonstrates common camera operations using the async API.
 
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::Degrees},
+    camera::profiles::PTZOpticsG2,
     command::{
         exposure::ExposureMode, pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
     },
     transport::tokio::TcpTransport,
+    units::Degrees,
     Camera, Error,
 };
 use std::time::Duration;
