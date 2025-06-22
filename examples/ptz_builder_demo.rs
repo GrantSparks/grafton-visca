@@ -12,7 +12,7 @@
 //! using the `Camera<P>` API with helper functions and sequential operations.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::create;
+use grafton_visca::transport::blocking::{create, Transport as BlockingTransport};
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
@@ -29,6 +29,12 @@ use std::thread;
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
 
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example ptz_builder_demo --features tokio");
+}
+
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -38,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a type-safe camera instance with PTZOpticsG2 profile
     let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
     let transport = create::udp(&camera_ip)?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
     println!("Connected to PTZOptics G2 camera");
 
     // Demonstrate sequential command execution with type-safe units
@@ -136,8 +142,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Helper function demonstrating sequential command patterns
 #[cfg(not(feature = "async"))]
-fn perform_scan_sequence(
-    camera: &mut Camera<PTZOpticsG2>,
+fn perform_scan_sequence<T: BlockingTransport>(
+    camera: &mut Camera<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::camera::units::Degrees;
 
@@ -161,7 +167,7 @@ fn perform_scan_sequence(
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -173,10 +179,10 @@ use grafton_visca::{
     // ZoomPosition no longer needed - set_zoom takes u16 directly
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 use std::time::Duration;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -185,7 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create async camera with type-safe profile
     let transport = create::udp("192.168.1.100:52381").await?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
     println!("Connected to PTZOptics G2 camera (async)");
 
     // Demonstrate async operations with type-safe units
@@ -201,7 +207,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate async sequential operations
     println!("\n2. Async sequential operations");
-    perform_async_scan_sequence(&mut camera).await?;
+    perform_async_scan_sequence(&camera).await?;
     println!("   ✓ Completed async scan sequence");
 
     // Demonstrate complex sequential operations
@@ -260,9 +266,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // Async helper function for scan sequence
-#[cfg(feature = "async")]
-async fn perform_async_scan_sequence(
-    camera: &mut Camera<PTZOpticsG2>,
+#[cfg(feature = "tokio")]
+async fn perform_async_scan_sequence<T: grafton_visca::transport::AsyncTransport>(
+    camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::camera::units::Degrees;
 

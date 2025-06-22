@@ -2,6 +2,7 @@
 
 //! Example demonstrating image quality and gain control features.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::gain::AntiFlickerMode,
@@ -9,9 +10,12 @@ use grafton_visca::{
     types::{ContrastLevel, GainLimit, LuminanceLevel, SharpnessLevel},
     Error,
 };
+#[cfg(feature = "tokio")]
 use std::time::Duration;
+#[cfg(feature = "tokio")]
 use tokio::time;
 
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logger for debugging
@@ -21,7 +25,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera with PTZOptics G2 profile
     let transport = create::udp("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Connected to camera. Demonstrating image and gain controls...");
 
@@ -96,4 +100,10 @@ async fn main() -> Result<(), Error> {
     println!("\nDemo complete! All image and gain controls have been demonstrated.");
 
     Ok(())
+}
+
+#[cfg(not(feature = "tokio"))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example image_and_gain_demo --features tokio");
 }

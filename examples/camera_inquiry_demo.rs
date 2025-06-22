@@ -6,6 +6,7 @@
 //! - Retrieve various camera settings
 //! - Use profile-aware unit conversions
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{Camera, PTZOpticsG2},
     transport::create,
@@ -14,13 +15,13 @@ use grafton_visca::{
 
 // Include the transport implementation from the example file
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
     eprintln!("This example requires the 'async' feature.");
     eprintln!("Run with: cargo run --example camera_inquiry_demo --features async");
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -35,7 +36,7 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     println!("Connecting to camera at {}...", camera_addr);
     let transport = create::tcp(&camera_addr).await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Query power state
     println!("\n--- Power State ---");

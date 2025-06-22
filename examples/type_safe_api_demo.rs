@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to camera using the new Camera API
     let transport = create::udp("192.168.1.100:5678")?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Type-Safe Camera API Demo ===\n");
 

@@ -3,7 +3,7 @@
 //! This shows how to create complex command sequences fluently,
 //! replacing manual command-by-command execution.
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -19,7 +19,7 @@ use grafton_visca::{
     transport::create,
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Building complex camera operations fluently\n");
 
     let transport = create::udp("192.168.1.100:52381").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Example 1: Camera initialization sequence
     println!("Example 1: Camera Initialization Sequence");
@@ -139,15 +139,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .custom(InquiryCommand::ExposureMode, "Exposure Mode")
         .custom(InquiryCommand::WhiteBalanceMode, "White Balance Mode")
         .custom(InquiryCommand::PanTiltPosition, "Pan/Tilt Position")
-        .execute_concurrent()
+        .execute_sequential_async()
         .await?;
 
     println!("  Query results:");
-    for (i, result) in query_results.iter().enumerate() {
-        match result {
-            Ok(response) => println!("    Query {}: {:?}", i + 1, response),
-            Err(e) => println!("    Query {} failed: {}", i + 1, e),
-        }
+    for (i, response) in query_results.iter().enumerate() {
+        println!("    Query {}: {:?}", i + 1, response);
     }
 
     // Example 5: Dynamic sequence building
@@ -225,7 +222,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
     eprintln!("This example requires the 'async' feature to be enabled.");
     eprintln!("Run with: cargo run --example command_sequences_demo --features async");

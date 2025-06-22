@@ -2,7 +2,7 @@
 //! - CommandBuilder for fluent command sequences
 //! - Extension traits for custom functionality
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -12,7 +12,7 @@ use grafton_visca::{
     Error,
 };
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -27,12 +27,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Demonstrates CommandBuilder for fluent command sequences
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn command_builder_demo() -> Result<(), Error> {
     println!("Using CommandBuilder for complex sequences...");
 
     let transport = create::udp("192.168.1.100:52381").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Build and execute a complex sequence
     println!("Building camera initialization sequence:");
@@ -95,10 +95,10 @@ async fn command_builder_demo() -> Result<(), Error> {
             grafton_visca::command::inquiry::InquiryCommand::FocusPosition,
             "Query Focus Mode",
         )
-        .execute_concurrent()
+        .execute_sequential_async()
         .await?;
 
-    let successful = concurrent_results.iter().filter(|r| r.is_ok()).count();
+    let successful = concurrent_results.len();
     println!(
         "  ✓ {} of {} concurrent queries succeeded",
         successful,
@@ -108,7 +108,7 @@ async fn command_builder_demo() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
     eprintln!("This example requires the 'async' feature. Run with:");
     eprintln!("  cargo run --example new_features async");

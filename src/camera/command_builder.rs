@@ -1,7 +1,7 @@
 //! Fluent command builder for `Camera<P>` API.
 //!
 //! This module provides a builder interface for creating complex command sequences
-//! with support for both concurrent and sequential execution modes.
+//! with sequential execution.
 
 use crate::{
     camera::{Camera, CameraProfile},
@@ -28,12 +28,20 @@ struct PreparedCommand {
 }
 
 /// Builder for creating command sequences on a Camera.
-pub struct CommandBuilder<'a, P: CameraProfile> {
-    camera: &'a Camera<P>,
+#[cfg(not(feature = "async"))]
+pub struct CommandBuilder<'a, P: CameraProfile, T> {
+    camera: &'a mut Camera<P, T>,
     commands: Vec<PreparedCommand>,
 }
 
-impl<P: CameraProfile> std::fmt::Debug for CommandBuilder<'_, P> {
+/// Builder for creating command sequences on a Camera (async version with interior mutability).
+#[cfg(feature = "async")]
+pub struct CommandBuilder<'a, P: CameraProfile, T> {
+    camera: &'a Camera<P, T>,
+    commands: Vec<PreparedCommand>,
+}
+
+impl<P: CameraProfile, T> std::fmt::Debug for CommandBuilder<'_, P, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CommandBuilder")
             .field("commands", &self.commands.len())
@@ -41,15 +49,32 @@ impl<P: CameraProfile> std::fmt::Debug for CommandBuilder<'_, P> {
     }
 }
 
-impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
+// Blocking implementation
+#[cfg(not(feature = "async"))]
+impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
     /// Creates a new command builder for the given camera.
-    pub(crate) fn new(camera: &'a Camera<P>) -> Self {
-        Self {
+    pub(crate) fn new(camera: &mut Camera<P, T>) -> CommandBuilder<'_, P, T> {
+        CommandBuilder {
             camera,
             commands: Vec::new(),
         }
     }
+}
 
+// Async implementation
+#[cfg(feature = "async")]
+impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
+    /// Creates a new command builder for the given camera.
+    pub(crate) fn new(camera: &Camera<P, T>) -> CommandBuilder<'_, P, T> {
+        CommandBuilder {
+            camera,
+            commands: Vec::new(),
+        }
+    }
+}
+
+// Shared implementation for both blocking and async
+impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
     /// Adds a command to the sequence.
     fn add_command(
         mut self,
@@ -427,30 +452,17 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     ///
     /// # Errors
     /// Returns an error if any command fails. Execution stops at the first error.
-    #[cfg(not(feature = "tokio"))]
-    pub fn execute_sequential(self) -> Result<Vec<Response>, Error> {
-        // The new transport API is async-first
-        // Use execute_sequential_async with a runtime for blocking usage
-        Err(Error::InvalidState(
-            "execute_sequential requires async runtime - use execute_sequential_async".to_string(),
-        ))
-    }
-
-    /// Executes all commands sequentially (async).
-    ///
-    /// Commands are executed one after another, waiting for each to complete
-    /// before starting the next. Returns results for all commands.
-    ///
-    /// # Errors
-    /// Returns an error if any command fails. Execution stops at the first error.
-    #[cfg(feature = "async")]
-    pub async fn execute_sequential_async(self) -> Result<Vec<Response>, Error> {
+    #[cfg(not(feature = "async"))]
+    pub fn execute_sequential(self) -> Result<Vec<Response>, Error>
+    where
+        T: crate::transport::blocking::Transport,
+    {
         let mut responses = Vec::with_capacity(self.commands.len());
 
         for (i, prepared) in self.commands.into_iter().enumerate() {
             log::debug!("Executing command {}: {}", i + 1, prepared.description);
 
-            match self.camera.send_raw(prepared.command.as_ref()).await {
+            match self.camera.send_command(prepared.command.as_ref()) {
                 Ok(response) => responses.push(response),
                 Err(e) => {
                     log::error!("Command {} failed: {}", prepared.description, e);
@@ -462,72 +474,33 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
         Ok(responses)
     }
 
-    /// Executes commands concurrently (async only).
+    /// Executes all commands sequentially (async).
     ///
-    /// Commands are executed concurrently up to the limit supported by the camera
-    /// (typically 2 for VISCA cameras). This can significantly improve performance
-    /// when executing multiple independent commands.
+    /// Commands are executed one after another, waiting for each to complete
+    /// before starting the next. Returns results for all commands.
     ///
-    /// # Returns
-    /// A vector of results, one for each command in the order they were added.
-    /// Each result contains either a Response or an Error.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let results = camera.commands()
-    ///     .zoom_in()
-    ///     .pan_tilt_home()
-    ///     .execute_concurrent().await?;
-    ///
-    /// for (i, result) in results.iter().enumerate() {
-    ///     match result {
-    ///         Ok(response) => println!("Command {} succeeded: {:?}", i + 1, response),
-    ///         Err(e) => println!("Command {} failed: {}", i + 1, e),
-    ///     }
-    /// }
-    /// ```
+    /// # Errors
+    /// Returns an error if any command fails. Execution stops at the first error.
     #[cfg(feature = "async")]
-    pub async fn execute_concurrent(self) -> Result<Vec<Result<Response, Error>>, Error> {
-        use crate::sync_primitives::Mutex;
-        use futures_util::future::join_all;
-        use std::sync::Arc;
+    pub async fn execute_sequential_async(self) -> Result<Vec<Response>, Error>
+    where
+        T: crate::transport::AsyncTransport,
+    {
+        let mut responses = Vec::with_capacity(self.commands.len());
 
-        // We need to share the camera between concurrent tasks
-        // This is safe because we have the semaphore limiting concurrent access
-        let camera_arc = Arc::new(Mutex::new(self.camera));
-        let commands = self.commands;
+        for (i, prepared) in self.commands.into_iter().enumerate() {
+            log::debug!("Executing command {}: {}", i + 1, prepared.description);
 
-        // Create futures for all commands
-        let futures: Vec<_> = commands
-            .into_iter()
-            .enumerate()
-            .map(|(i, prepared)| {
-                let camera = camera_arc.clone();
-                async move {
-                    log::debug!(
-                        "Starting concurrent command {}: {}",
-                        i + 1,
-                        prepared.description
-                    );
-
-                    let camera_guard = camera.lock().await;
-                    let result = camera_guard.send_raw(prepared.command.as_ref()).await;
-                    drop(camera_guard); // Release lock as soon as possible
-
-                    match &result {
-                        Ok(_) => {
-                            log::debug!("Command {} completed successfully", prepared.description)
-                        }
-                        Err(e) => log::error!("Command {} failed: {}", prepared.description, e),
-                    }
-
-                    result
+            match self.camera.send_command(prepared.command.as_ref()).await {
+                Ok(response) => responses.push(response),
+                Err(e) => {
+                    log::error!("Command {} failed: {}", prepared.description, e);
+                    return Err(e);
                 }
-            })
-            .collect();
+            }
+        }
 
-        // Execute all commands concurrently
-        Ok(join_all(futures).await)
+        Ok(responses)
     }
 
     /// Returns the number of commands in the sequence.
@@ -548,14 +521,30 @@ impl<'a, P: CameraProfile> CommandBuilder<'a, P> {
     }
 }
 
-/// Extension trait to add command builder support to Camera.
-pub trait CommandBuilderExt<P: CameraProfile> {
+/// Extension trait to add command builder support to Camera (blocking).
+#[cfg(not(feature = "async"))]
+pub trait CommandBuilderExt<P: CameraProfile, T> {
     /// Creates a new command builder for this camera.
-    fn commands(&self) -> CommandBuilder<'_, P>;
+    fn commands(&mut self) -> CommandBuilder<'_, P, T>;
 }
 
-impl<P: CameraProfile> CommandBuilderExt<P> for Camera<P> {
-    fn commands(&self) -> CommandBuilder<'_, P> {
+#[cfg(not(feature = "async"))]
+impl<P: CameraProfile, T> CommandBuilderExt<P, T> for Camera<P, T> {
+    fn commands(&mut self) -> CommandBuilder<'_, P, T> {
+        CommandBuilder::new(self)
+    }
+}
+
+/// Extension trait to add command builder support to Camera (async).
+#[cfg(feature = "async")]
+pub trait CommandBuilderExt<P: CameraProfile, T> {
+    /// Creates a new command builder for this camera.
+    fn commands(&self) -> CommandBuilder<'_, P, T>;
+}
+
+#[cfg(feature = "async")]
+impl<P: CameraProfile, T> CommandBuilderExt<P, T> for Camera<P, T> {
+    fn commands(&self) -> CommandBuilder<'_, P, T> {
         CommandBuilder::new(self)
     }
 }

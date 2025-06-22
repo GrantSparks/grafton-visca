@@ -7,7 +7,7 @@
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{Camera, PTZOpticsG2},
-    transport::blocking::create,
+    transport::blocking::{create, Transport as BlockingTransport},
     Error,
 };
 #[cfg(not(feature = "async"))]
@@ -30,7 +30,7 @@ fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
     let transport = create::tcp(camera_addr)?;
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Run inquiries using blocking methods
     run_inquiries(&mut camera)?;
@@ -39,7 +39,7 @@ fn main() -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "async"))]
-fn run_inquiries(camera: &mut Camera<PTZOpticsG2>) -> Result<(), Error> {
+fn run_inquiries<T: BlockingTransport>(camera: &mut Camera<PTZOpticsG2, T>) -> Result<(), Error> {
     // Query individual camera settings
     println!("\n=== Individual Camera Queries ===");
 

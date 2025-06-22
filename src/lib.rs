@@ -39,31 +39,32 @@
 //!
 //! ## Quick Start
 //!
-//! Transport implementations are provided as examples. You can either:
-//! 1. Copy the transport implementations from the examples directory
-//! 2. Implement your own transport based on the Transport trait
-//!
+//! ### Blocking API
 //! ```ignore
 //! use grafton_visca::{
 //!     Camera,
-//!     camera::{profiles::PTZOpticsG2, units::Degrees},
+//!     profiles::PTZOpticsG2,
+//!     camera::units::Degrees,
 //!     transport::blocking::create,
 //! };
 //!
-//! // Create blocking transport - no async runtime needed!
-//! let transport = create::udp("192.168.1.100:52381")?;
-//! let mut camera = Camera::<PTZOpticsG2>::new(transport);
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Create blocking transport - no async runtime needed!
+//!     let transport = create::udp("192.168.1.100:52381")?;
+//!     let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 //!
-//! // Power on and move to home position
-//! camera.power_on()?;
-//! camera.home()?;
+//!     // Power on and move to home position
+//!     camera.power_on()?;
+//!     camera.home()?;
 //!
-//! // Move to specific position (automatic degree conversion)
-//! camera.set_position(Degrees(45.0), Degrees(-15.0))?;
+//!     // Move to specific position (automatic degree conversion)
+//!     camera.set_position(Degrees(45.0), Degrees(-15.0))?;
 //!
-//! // Control zoom
-//! camera.zoom_in()?;
-//! camera.zoom_stop()?;
+//!     // Control zoom
+//!     camera.zoom_in()?;
+//!     camera.zoom_stop()?;
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ## Camera Profiles
@@ -120,36 +121,60 @@
 //! Example transport implementations are provided in the `examples/` directory:
 //! - `tcp_transport.rs` - TCP/IP transport with session management
 //! - `udp_transport.rs` - UDP/IP transport
-//! - `serial_transport.rs` - Serial port transport example
 //! - `custom_transport_example.rs` - Mock and wrapper transports
 //!
-//! ## Async Support (Runtime-Agnostic)
+//! ## Async Support
 //!
-//! The library provides optional async support that works with ANY async runtime, not just tokio:
+//! The library provides optional async support with a runtime-agnostic design:
+//!
+//! ### With Tokio (built-in implementations)
+//! ```ignore
+//! use grafton_visca::{Camera, profiles::PTZOpticsG2, transport::create};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let transport = create::tcp("192.168.1.100:5678").await?;
+//!     let camera = Camera::<PTZOpticsG2, _>::new(transport);
+//!
+//!     // All methods are naturally concurrent with &self
+//!     camera.power_on().await?;
+//!     camera.home().await?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ### Custom Runtime Support
+//! Implement `AsyncTransport` for any async runtime:
 //!
 //! ```ignore
-//! // Enable async feature in Cargo.toml:
-//! // grafton-visca = { version = "0.4", features = ["async"] }
-//!
-//! use grafton_visca::transport::{AsyncTransport, AsyncTransportAdapter};
+//! use grafton_visca::transport::AsyncTransport;
+//! use grafton_visca::Error;
 //! use std::future::Future;
 //! use std::pin::Pin;
 //!
-//! // Implement AsyncTransport for your runtime's transport type
-//! struct MyAsyncTransport { /* ... */ }
+//! # struct MyRuntimeStream;
+//! # impl MyRuntimeStream {
+//! #     async fn write_all(&mut self, _: &[u8]) -> Result<(), std::io::Error> { Ok(()) }
+//! #     async fn flush(&mut self) -> Result<(), std::io::Error> { Ok(()) }
+//! #     async fn read(&mut self, _: &mut [u8]) -> Result<usize, std::io::Error> { Ok(0) }
+//! # }
+//! #[derive(Debug)]
+//! struct MyTransport {
+//!     stream: std::sync::Arc<std::sync::Mutex<MyRuntimeStream>>
+//! }
 //!
-//! impl AsyncTransport for MyAsyncTransport {
+//! impl AsyncTransport for MyTransport {
 //!     type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
 //!     type ReceiveFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
 //!
-//!     fn send<'a>(&'a mut self, data: &'a [u8]) -> Self::SendFuture<'a> {
+//!     fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFuture<'a> {
 //!         Box::pin(async move {
 //!             // Your async send implementation
 //!             Ok(())
 //!         })
 //!     }
 //!
-//!     fn receive(&mut self) -> Self::ReceiveFuture<'_> {
+//!     fn receive(&self) -> Self::ReceiveFuture<'_> {
 //!         Box::pin(async move {
 //!             // Your async receive implementation
 //!             Ok(vec![])

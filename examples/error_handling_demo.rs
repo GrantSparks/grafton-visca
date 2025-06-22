@@ -4,15 +4,31 @@
 //! including retry logic and error classification.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::create;
-#[cfg(feature = "async")]
-use grafton_visca::transport::create;
+use grafton_visca::transport::blocking::TcpTransport;
+#[cfg(feature = "tokio")]
+use grafton_visca::transport::tokio::TcpTransport;
+
+use grafton_visca::Error;
+#[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
-    Error,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(any(not(feature = "async"), feature = "tokio"))]
+use std::time::Instant;
+
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+fn main() {
+    println!("=== VISCA Error Handling Demo ===\n");
+    println!("This example demonstrates error handling patterns.\n");
+
+    // Still demonstrate error classification even without a transport
+    demonstrate_error_classification();
+
+    println!("\nFor full demo with camera connection:");
+    println!("Run with: cargo run --example error_handling_demo --features tokio");
+}
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -138,7 +154,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match create::udp(camera_addr) {
+    let transport = match TcpTransport::connect(camera_addr) {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -146,11 +162,14 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Err(e) => {
             println!("   ✗ Failed to create transport: {}", e);
             println!("   💡 This is expected if the address is invalid");
-            return Err(Error::Io(e));
+            return Err(Error::ConnectionFailed {
+                addr: camera_addr.to_string(),
+                source: e,
+            });
         }
     };
 
-    let mut camera = Camera::<PTZOpticsG2>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -283,12 +302,13 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
+    use std::time::Duration;
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match create::udp(camera_addr).await {
+    let transport = match TcpTransport::connect_timeout(camera_addr, Duration::from_secs(5)).await {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -296,11 +316,11 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Err(e) => {
             println!("   ✗ Failed to create transport: {}", e);
             println!("   💡 This is expected if the address is invalid");
-            return Err(Error::Io(e));
+            return Err(e);
         }
     };
 
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

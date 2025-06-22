@@ -396,9 +396,10 @@ define_camera_methods! {
 // Generic parameter methods for enhanced API ergonomics
 // These need manual implementation due to multi-statement bodies
 #[cfg(feature = "async")]
-impl<P> Camera<P>
+impl<P, T> Camera<P, T>
 where
     P: CameraProfile,
+    T: crate::transport::AsyncTransport,
 {
     /// Move the camera continuously in a direction with flexible speed parameters.
     ///
@@ -432,12 +433,21 @@ where
     {
         let pan_speed = pan_speed.try_into().map_err(Into::into)?;
         let tilt_speed = tilt_speed.try_into().map_err(Into::into)?;
-        self.send_and_wait(&PanTiltCommand::Move {
-            direction,
-            pan_speed,
-            tilt_speed,
-        })
-        .await
+        match self
+            .send_command(&PanTiltCommand::Move {
+                direction,
+                pan_speed,
+                tilt_speed,
+            })
+            .await?
+        {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
     }
 
     /// Set zoom to direct position with flexible parameter types.
@@ -464,8 +474,17 @@ where
         Z::Error: Into<crate::Error>,
     {
         let position = position.try_into().map_err(Into::into)?;
-        self.send_and_wait(&ZoomCommand::Direct(position.value()))
-            .await
+        match self
+            .send_command(&ZoomCommand::Direct(position.value()))
+            .await?
+        {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
     }
 
     /// Set focus to direct position (manual mode) with flexible parameter types.
@@ -492,8 +511,17 @@ where
         F::Error: Into<crate::Error>,
     {
         let position = position.try_into().map_err(Into::into)?;
-        self.send_and_wait(&FocusCommand::Direct(position.value()))
-            .await
+        match self
+            .send_command(&FocusCommand::Direct(position.value()))
+            .await?
+        {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
     }
 
     /// Set iris level directly with flexible parameter types.
@@ -520,14 +548,22 @@ where
         I::Error: Into<crate::Error>,
     {
         let level = level.try_into().map_err(Into::into)?;
-        self.send_and_wait(&IrisCommand::Direct(level)).await
+        match self.send_command(&IrisCommand::Direct(level)).await? {
+            crate::Response::Completion => Ok(()),
+            crate::Response::Ack => Ok(()),
+            response => Err(crate::Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
     }
 }
 
 #[cfg(not(feature = "async"))]
-impl<P> Camera<P>
+impl<P, T> Camera<P, T>
 where
     P: CameraProfile,
+    T: crate::transport::blocking::Transport,
 {
     /// Move the camera continuously in a direction with flexible speed parameters.
     ///

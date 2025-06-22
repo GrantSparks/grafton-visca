@@ -3,6 +3,7 @@
 //! This example shows how the Camera API provides all control methods
 //! directly without needing extension traits.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{
@@ -11,23 +12,26 @@ use grafton_visca::{
         pan_tilt::PanTiltDirection,
         white_balance::WhiteBalanceMode,
     },
-    transport::create,
+    transport::tokio::UdpTransport,
     types::{
         BrightnessLevel, ColorTemperature, ContrastLevel, GainLimit, HueLevel,
         NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
     },
     Error,
 };
+#[cfg(feature = "tokio")]
 use std::time::Duration;
+#[cfg(feature = "tokio")]
 use tokio::time;
 
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a camera with the new API
-    let transport = create::udp("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let transport = UdpTransport::connect("192.168.1.100:5678").await?;
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Testing Comprehensive Camera API ===\n");
 
@@ -175,4 +179,10 @@ async fn main() -> Result<(), Error> {
     println!("• Profile-specific types for presets and gain");
 
     Ok(())
+}
+
+#[cfg(not(feature = "tokio"))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example test_extension_traits --features tokio");
 }

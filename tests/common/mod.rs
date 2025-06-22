@@ -12,16 +12,17 @@ pub mod builders;
 pub mod helpers;
 pub mod macros;
 
-use grafton_visca::Error;
-
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::{Transport as BlockingTransport, ViscaTransport};
+use grafton_visca::transport::blocking::Transport as BlockingTransport;
+
+#[cfg(any(not(feature = "async"), all(feature = "async", feature = "tokio")))]
+use grafton_visca::Error;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// A flexible mock transport for testing various scenarios.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[allow(dead_code)] // Complete testing API - not all methods used in every test
 pub struct MockTransport {
     /// Queue of responses to return
@@ -155,24 +156,18 @@ impl BlockingTransport for MockTransport {
 
 // Helper to create a ViscaTransport for testing
 #[cfg(not(feature = "async"))]
-impl MockTransport {
-    pub fn into_visca_transport(self) -> ViscaTransport<Self> {
-        ViscaTransport::new(self)
-    }
-}
+impl MockTransport {}
 
 // Async version of MockTransport for feature parity
-#[cfg(feature = "async")]
-use grafton_visca::transport::{
-    RawTransport, TransportFuture, ViscaTransport as AsyncViscaTransport,
-};
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
+use grafton_visca::transport::AsyncTransport;
+#[cfg(all(feature = "async", feature = "tokio"))]
 use std::time::Duration;
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 use tokio::sync::Mutex as AsyncMutex;
 
 /// Async mock transport for testing - feature parity with MockTransport
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 #[derive(Clone)]
 pub struct MockAsyncTransport {
     /// Queue of responses to return
@@ -191,7 +186,7 @@ pub struct MockAsyncTransport {
     pub delay_ms: Option<u64>,
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 impl MockAsyncTransport {
     /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
@@ -237,7 +232,7 @@ impl MockAsyncTransport {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 impl std::fmt::Debug for MockAsyncTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MockAsyncTransport")
@@ -248,9 +243,14 @@ impl std::fmt::Debug for MockAsyncTransport {
     }
 }
 
-#[cfg(feature = "async")]
-impl RawTransport for MockAsyncTransport {
-    fn send<'a>(&'a mut self, data: &'a [u8]) -> TransportFuture<'a, ()> {
+#[cfg(all(feature = "async", feature = "tokio"))]
+impl AsyncTransport for MockAsyncTransport {
+    type SendFuture<'a> =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>;
+    type ReceiveFuture<'a> =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
+
+    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFuture<'a> {
         Box::pin(async move {
             // Check if we should fail after N commands
             let mut counter = self.command_counter.lock().await;
@@ -279,7 +279,7 @@ impl RawTransport for MockAsyncTransport {
         })
     }
 
-    fn receive(&mut self) -> TransportFuture<'_, Vec<u8>> {
+    fn receive(&self) -> Self::ReceiveFuture<'_> {
         Box::pin(async move {
             if self.fail_receive {
                 return Err(Error::Io(std::io::Error::other("Mock receive error")));
@@ -298,22 +298,5 @@ impl RawTransport for MockAsyncTransport {
                     command: "mock_receive".to_string(),
                 })
         })
-    }
-
-    fn is_connected(&self) -> bool {
-        true
-    }
-
-    fn description(&self) -> &str {
-        "Mock async transport for testing"
-    }
-}
-
-// Helper to create an async ViscaTransport wrapper
-#[cfg(feature = "async")]
-impl MockAsyncTransport {
-    /// Convert into a ViscaTransport for use in tests.
-    pub fn into_visca_transport(self) -> AsyncViscaTransport<Self> {
-        AsyncViscaTransport::new(self)
     }
 }
