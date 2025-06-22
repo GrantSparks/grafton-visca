@@ -158,15 +158,15 @@ impl BlockingTransport for MockTransport {
 impl MockTransport {}
 
 // Async version of MockTransport for feature parity
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 use grafton_visca::transport::AsyncTransport;
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 use std::time::Duration;
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 use tokio::sync::Mutex as AsyncMutex;
 
 /// Async mock transport for testing - feature parity with MockTransport
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 #[derive(Clone)]
 pub struct MockAsyncTransport {
     /// Queue of responses to return
@@ -185,7 +185,7 @@ pub struct MockAsyncTransport {
     pub delay_ms: Option<u64>,
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 impl MockAsyncTransport {
     /// Create a new mock transport with no responses queued.
     pub fn new() -> Self {
@@ -231,7 +231,7 @@ impl MockAsyncTransport {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 impl std::fmt::Debug for MockAsyncTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MockAsyncTransport")
@@ -242,7 +242,7 @@ impl std::fmt::Debug for MockAsyncTransport {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 impl AsyncTransport for MockAsyncTransport {
     type SendFuture<'a> =
         std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>;
