@@ -17,7 +17,13 @@ async fn main() -> Result<(), Error> {
     run_demo().await
 }
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example custom_profile_builder_demo --features tokio");
+}
+
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
     println!("This example requires the 'async' feature to be enabled.");
     println!("Run with: cargo run --features async --example custom_profile_builder_demo");

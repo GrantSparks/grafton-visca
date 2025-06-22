@@ -8,7 +8,13 @@ use grafton_visca::transport::{tokio::UdpTransport, AsyncTransport};
 
 // Include the transport implementation from the example file
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+fn main() {
+    eprintln!("This example requires either no features (blocking) or tokio feature (async).");
+    eprintln!("Run with: cargo run --example capability_query_demo --features tokio");
+}
+
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using blocking transport
     let g2_camera = Camera::<PTZOpticsG2, _>::new(UdpTransport::connect("192.168.1.100:1259")?);

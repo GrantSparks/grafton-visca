@@ -151,7 +151,13 @@ async fn async_movement_example() -> Result<(), Error> {
 
 // ==================== MAIN FUNCTIONS ====================
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+fn main() {
+    eprintln!("This example requires either no features (blocking) or tokio feature (async).");
+    eprintln!("Run with: cargo run --example unified_client_demo --features tokio");
+}
+
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
     env_logger::init();
 

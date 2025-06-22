@@ -29,7 +29,13 @@ use std::thread;
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example ptz_builder_demo --features tokio");
+}
+
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
