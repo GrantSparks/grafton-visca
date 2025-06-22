@@ -44,7 +44,7 @@
 //! use grafton_visca::{
 //!     Camera,
 //!     profiles::PTZOpticsG2,
-//!     camera::units::Degrees,
+//!     units::Degrees,
 //!     transport::blocking::create,
 //! };
 //!
@@ -251,6 +251,9 @@ mod macros;
 /// Type definitions and abstractions
 pub mod types;
 
+/// Semantic unit types for intuitive API usage
+pub mod units;
+
 pub mod timeout; // Public for use in macros
 
 #[cfg(feature = "async")]
@@ -262,8 +265,12 @@ pub use camera::{
 };
 pub use command::{Command, InquiryResponse, Response};
 
-// Re-export unit types from camera module
-pub use camera::units::{Degrees, Normalized, ViscaUnits};
+// Re-export unit types for convenience
+pub use units::{
+    Degrees, Fraction, Kelvin, Magnification, Normalized, Percentage, Radians, Raw, ViscaUnits,
+};
+// Re-export FStop from types
+pub use types::FStop;
 
 /// Camera profiles for common models
 pub mod profiles {

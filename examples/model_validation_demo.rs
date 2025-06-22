@@ -9,9 +9,9 @@ use grafton_visca::transport::AsyncTransport;
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70},
-        units::Degrees,
         CameraProfile,
     },
+    units::Degrees,
     Camera, Error,
 };
 use std::future::Future;

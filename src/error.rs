@@ -1,4 +1,4 @@
-use std::{fmt, io, time::Duration};
+use std::{convert::Infallible, fmt, io, time::Duration};
 
 use thiserror::Error;
 
@@ -243,6 +243,13 @@ impl Error {
 impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
     fn from(err: nom::Err<nom::error::Error<&[u8]>>) -> Self {
         Self::ParseError(err.to_string())
+    }
+}
+
+impl From<Infallible> for Error {
+    fn from(_: Infallible) -> Self {
+        // This can never actually happen since Infallible can never be constructed
+        unreachable!("Infallible error should never occur")
     }
 }
 

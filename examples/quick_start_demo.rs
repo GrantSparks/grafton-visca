@@ -8,10 +8,10 @@ use grafton_visca::transport::blocking::create;
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::Degrees,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    units::Degrees,
     Error,
 };
 #[cfg(not(feature = "async"))]

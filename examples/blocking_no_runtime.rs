@@ -9,7 +9,7 @@ fn main() {
 }
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::camera::units::Degrees;
+use grafton_visca::units::Degrees;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{Camera, PTZOpticsG2},

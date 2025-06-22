@@ -180,10 +180,7 @@ mod tests {
         }
 
         // Invalid speed
-        assert!(matches!(
-            ZoomSpeed::new(8),
-            Err(Error::InvalidParameter(_))
-        ));
+        assert!(matches!(ZoomSpeed::new(8), Err(Error::InvalidParameter(_))));
         assert!(matches!(
             ZoomSpeed::new(255),
             Err(Error::InvalidParameter(_))

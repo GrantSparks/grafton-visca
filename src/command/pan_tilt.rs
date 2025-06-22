@@ -37,7 +37,7 @@ use crate::{
     error::Error,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
-    Normalized,
+    units::Normalized,
 };
 
 /// Direction for pan/tilt movement commands.
@@ -195,8 +195,8 @@ impl PanTiltCommand {
 
     /// Create an absolute position command from degree coordinates.
     pub fn absolute_position_degrees<P: crate::camera::CameraProfile>(
-        pan: crate::camera::units::Degrees<f32>,
-        tilt: crate::camera::units::Degrees<f32>,
+        pan: crate::units::Degrees<f32>,
+        tilt: crate::units::Degrees<f32>,
     ) -> Result<Self, Error> {
         // Create a default profile instance for conversion
         let profile = P::default();
@@ -479,7 +479,8 @@ mod tests {
         // Test AbsolutePosition command
         let abs_pos = PanTiltCommand::AbsolutePosition {
             pan: PanPosition::new(0x0500).unwrap_or_else(|e| panic!("Valid pan position: {e:?}")),
-            tilt: TiltPosition::new(0x0300).unwrap_or_else(|e| panic!("Valid tilt position: {e:?}")),
+            tilt: TiltPosition::new(0x0300)
+                .unwrap_or_else(|e| panic!("Valid tilt position: {e:?}")),
             pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
             tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };

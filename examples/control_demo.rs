@@ -10,9 +10,10 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
+    camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
     transport::blocking::create,
+    units::Degrees,
     // ZoomPosition no longer needed - set_zoom takes u16 directly
     Error,
 };

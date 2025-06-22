@@ -5,8 +5,9 @@
 
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
+    camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
+    units::Degrees,
     Error,
 };
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
