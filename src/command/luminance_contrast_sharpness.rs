@@ -199,6 +199,7 @@ impl Command for ContrastCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::types::SharpnessLevel;
 
     #[test]
     fn test_sharpness_mode() {
@@ -268,8 +269,8 @@ mod tests {
         }
 
         // Test invalid value
-        let cmd = SharpnessCommand::Direct { value: 12 };
-        assert!(cmd.to_bytes().is_err());
+        // SharpnessLevel enforces valid range, so we can't create an invalid value
+        // The validation is done at the type level
     }
 
     #[test]
@@ -281,9 +282,10 @@ mod tests {
         }
 
         // Test invalid G2 value
-        let cmd = SharpnessCommand::Direct { value: 12 };
-        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
-        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+        // SharpnessLevel enforces valid range 0-11, so we can't create value 12
+        // The validation is done at the type level
+        let result = SharpnessLevel::new(12);
+        assert!(result.is_err());
 
         // Test that non-Direct commands pass validation
         let cmd = SharpnessCommand::Reset;

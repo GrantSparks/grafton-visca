@@ -61,8 +61,8 @@ define_camera_methods! {
     pub fn stop(&self) -> Result<(), Error> {
         self.send_and_wait(&PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: crate::command::pan_tilt::PanSpeed::new(0)?,
-            tilt_speed: crate::command::pan_tilt::TiltSpeed::new(0)?,
+            pan_speed: crate::types::PanSpeed::new(0)?,
+            tilt_speed: crate::types::TiltSpeed::new(0)?,
         })
     }
 
@@ -112,7 +112,7 @@ define_camera_methods! {
 
     /// Set zoom to direct position.
     pub fn zoom_direct(&self, position: ZoomPosition) -> Result<(), Error> {
-        self.send_and_wait(&ZoomCommand::Direct(position.value()))
+        self.send_and_wait(&ZoomCommand::Direct(position))
     }
 
     // Digital zoom functionality not yet implemented in ZoomCommand enum
@@ -134,7 +134,7 @@ define_camera_methods! {
 
     /// Set focus to direct position (manual mode).
     pub fn focus_direct(&self, position: FocusPosition) -> Result<(), Error> {
-        self.send_and_wait(&FocusCommand::Direct(position.value()))
+        self.send_and_wait(&FocusCommand::Direct(position))
     }
 
     /// Set focus to auto mode.
@@ -245,27 +245,27 @@ define_camera_methods! {
 
     /// Set color saturation level.
     pub fn set_saturation(&self, level: SaturationLevel) -> Result<(), Error> {
-        self.send_and_wait(&SaturationCommand { level: level.value() })
+        self.send_and_wait(&SaturationCommand { level })
     }
 
     /// Reset saturation to default.
     pub fn saturation_reset(&self) -> Result<(), Error> {
-        self.send_and_wait(&SaturationCommand { level: 0x07 })
+        self.send_and_wait(&SaturationCommand { level: SaturationLevel::new(0x07)? })
     }
 
     /// Set hue level.
     pub fn set_hue(&self, level: HueLevel) -> Result<(), Error> {
-        self.send_and_wait(&HueCommand { level: level.value() })
+        self.send_and_wait(&HueCommand { level })
     }
 
     /// Reset hue to default.
     pub fn hue_reset(&self) -> Result<(), Error> {
-        self.send_and_wait(&HueCommand { level: 0x07 })
+        self.send_and_wait(&HueCommand { level: HueLevel::new(0x07)? })
     }
 
     /// Set color temperature.
     pub fn set_color_temperature(&self, temperature: ColorTemperature) -> Result<(), Error> {
-        self.send_and_wait(&ColorTemperatureCommand::Direct(temperature.value()))
+        self.send_and_wait(&ColorTemperatureCommand::Direct(temperature))
     }
 
     /// Reset color temperature to default.
@@ -275,7 +275,7 @@ define_camera_methods! {
 
     /// Set red gain.
     pub fn set_red_gain(&self, gain: RedGain) -> Result<(), Error> {
-        self.send_and_wait(&RedGainCommand::Direct(gain.value()))
+        self.send_and_wait(&RedGainCommand::Direct(gain))
     }
 
     /// Reset red gain to default.
@@ -285,7 +285,7 @@ define_camera_methods! {
 
     /// Set blue gain.
     pub fn set_blue_gain(&self, gain: BlueGain) -> Result<(), Error> {
-        self.send_and_wait(&BlueGainCommand::Direct(gain.value()))
+        self.send_and_wait(&BlueGainCommand::Direct(gain))
     }
 
     /// Reset blue gain to default.
@@ -295,12 +295,12 @@ define_camera_methods! {
 
     /// Set red tuning level.
     pub fn set_red_tuning(&self, tuning: RedTuning) -> Result<(), Error> {
-        self.send_and_wait(&RedTuningCommand { level: tuning.value() })
+        self.send_and_wait(&RedTuningCommand { level: tuning })
     }
 
     /// Set blue tuning level.
     pub fn set_blue_tuning(&self, tuning: BlueTuning) -> Result<(), Error> {
-        self.send_and_wait(&BlueTuningCommand { level: tuning.value() })
+        self.send_and_wait(&BlueTuningCommand { level: tuning })
     }
 
     /// Set image flip mode.
@@ -426,9 +426,9 @@ where
         tilt_speed: TS,
     ) -> Result<(), crate::Error>
     where
-        PS: TryInto<crate::command::pan_tilt::PanSpeed>,
+        PS: TryInto<crate::types::PanSpeed>,
         PS::Error: Into<crate::Error>,
-        TS: TryInto<crate::command::pan_tilt::TiltSpeed>,
+        TS: TryInto<crate::types::TiltSpeed>,
         TS::Error: Into<crate::Error>,
     {
         let pan_speed = pan_speed.try_into().map_err(Into::into)?;
@@ -474,10 +474,7 @@ where
         Z::Error: Into<crate::Error>,
     {
         let position = position.try_into().map_err(Into::into)?;
-        match self
-            .send_command(&ZoomCommand::Direct(position.value()))
-            .await?
-        {
+        match self.send_command(&ZoomCommand::Direct(position)).await? {
             crate::Response::Completion => Ok(()),
             crate::Response::Ack => Ok(()),
             response => Err(crate::Error::InvalidResponse {
@@ -511,10 +508,7 @@ where
         F::Error: Into<crate::Error>,
     {
         let position = position.try_into().map_err(Into::into)?;
-        match self
-            .send_command(&FocusCommand::Direct(position.value()))
-            .await?
-        {
+        match self.send_command(&FocusCommand::Direct(position)).await? {
             crate::Response::Completion => Ok(()),
             crate::Response::Ack => Ok(()),
             response => Err(crate::Error::InvalidResponse {
@@ -590,9 +584,9 @@ where
         tilt_speed: TS,
     ) -> Result<(), crate::Error>
     where
-        PS: TryInto<crate::command::pan_tilt::PanSpeed>,
+        PS: TryInto<crate::types::PanSpeed>,
         PS::Error: Into<crate::Error>,
-        TS: TryInto<crate::command::pan_tilt::TiltSpeed>,
+        TS: TryInto<crate::types::TiltSpeed>,
         TS::Error: Into<crate::Error>,
     {
         let pan_speed = pan_speed.try_into().map_err(Into::into)?;
@@ -628,7 +622,7 @@ where
         Z::Error: Into<crate::Error>,
     {
         let position = position.try_into().map_err(Into::into)?;
-        self.send_and_wait(&ZoomCommand::Direct(position.value()))
+        self.send_and_wait(&ZoomCommand::Direct(position))
     }
 
     /// Set focus to direct position (manual mode) with flexible parameter types.
@@ -655,7 +649,7 @@ where
         F::Error: Into<crate::Error>,
     {
         let position = position.try_into().map_err(Into::into)?;
-        self.send_and_wait(&FocusCommand::Direct(position.value()))
+        self.send_and_wait(&FocusCommand::Direct(position))
     }
 
     /// Set iris level directly with flexible parameter types.

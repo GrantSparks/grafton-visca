@@ -10,13 +10,16 @@ use crate::{
         exposure::{ExposureCommand, ExposureMode, IrisCommand, ShutterCommand},
         focus::{FocusCommand, FocusSpeed},
         image::{BacklightCommand, NoiseReduction2DCommand, NoiseReduction3DCommand},
-        pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
+        pan_tilt::{PanTiltCommand, PanTiltDirection},
         power::{Power, PowerCommand},
         preset::{PresetAction, PresetCommand},
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
         zoom::{ZoomCommand, ZoomSpeed},
     },
-    types::{GainLimit, IrisLevel, ShutterSpeed},
+    types::{
+        GainLimit, IrisLevel, PanPosition, PanSpeed, ShutterSpeed, TiltPosition, TiltSpeed,
+        ZoomPosition,
+    },
     Command, Error, Response,
 };
 
@@ -185,8 +188,8 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
 
         Ok(self.add_command(
             PanTiltCommand::AbsolutePosition {
-                pan,
-                tilt,
+                pan: PanPosition::new(pan)?,
+                tilt: TiltPosition::new(tilt)?,
                 pan_speed,
                 tilt_speed,
             },
@@ -208,8 +211,8 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
 
         self.add_command(
             PanTiltCommand::RelativePosition {
-                pan,
-                tilt,
+                pan: PanPosition::new(pan).unwrap_or(PanPosition::CENTER),
+                tilt: TiltPosition::new(tilt).unwrap_or(TiltPosition::CENTER),
                 pan_speed,
                 tilt_speed,
             },
@@ -247,7 +250,7 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
     #[must_use]
     pub fn zoom_to(self, position: u16) -> Self {
         self.add_command(
-            ZoomCommand::Direct(position),
+            ZoomCommand::Direct(ZoomPosition::new(position).unwrap_or(ZoomPosition::MIN)),
             format!("Zoom to position {}", position),
         )
     }
@@ -294,7 +297,10 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
     #[must_use]
     pub fn focus_to(self, position: u16) -> Self {
         self.add_command(
-            FocusCommand::Direct(position),
+            FocusCommand::Direct(
+                crate::types::FocusPosition::new(position)
+                    .unwrap_or(crate::types::FocusPosition::MIN),
+            ),
             format!("Focus to position {}", position),
         )
     }

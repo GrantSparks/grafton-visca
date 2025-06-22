@@ -7,34 +7,13 @@
 //! PTZOptics G2 documentation, testing both valid (positive) and invalid
 //! (negative) cases for each command.
 
-use crate::{constants::CameraModel, Command, Error};
+use crate::{constants::CameraModel, Command};
 
 /// Helper function to test that a command is valid for G2
 fn assert_valid_for_g2<C: Command>(command: &C) {
     match command.validate_for_model(CameraModel::PTZOpticsG2) {
         Ok(()) => {} // Expected
         Err(e) => panic!("Command should be valid for G2 but got error: {:?}", e),
-    }
-}
-
-/// Helper function to test that a command is invalid for G2
-fn assert_invalid_for_g2<C: Command>(command: &C, expected_reason: &str) {
-    match command.validate_for_model(CameraModel::PTZOpticsG2) {
-        Err(Error::ModelValidation {
-            model,
-            command: _,
-            reason,
-        }) => {
-            assert_eq!(model, CameraModel::PTZOpticsG2);
-            assert!(
-                reason.contains(expected_reason),
-                "Expected reason to contain '{}', but got: '{}'",
-                expected_reason,
-                reason
-            );
-        }
-        Ok(()) => panic!("Command should be invalid for G2 but validation passed"),
-        Err(e) => panic!("Expected ModelValidation error but got: {:?}", e),
     }
 }
 
@@ -81,16 +60,19 @@ mod zoom_commands {
     fn test_zoom_direct_positions() {
         // G2 has 20X optical zoom, max position is 0x7000
 
-        // Valid positions
-        assert_valid_for_g2(&ZoomCommand::Direct(0x0000)); // Wide end
-        assert_valid_for_g2(&ZoomCommand::Direct(0x3000)); // Mid position
-        assert_valid_for_g2(&ZoomCommand::Direct(0x7000)); // 20X optical limit
+        use crate::types::ZoomPosition;
 
-        // Invalid positions (beyond 20X)
-        assert_invalid_for_g2(&ZoomCommand::Direct(0x7001), "0x7000");
-        assert_invalid_for_g2(&ZoomCommand::Direct(0x7AC0), "0x7000"); // 30X position
-        assert_invalid_for_g2(&ZoomCommand::Direct(0x7FFF), "0x7000"); // Digital zoom max
-        assert_invalid_for_g2(&ZoomCommand::Direct(0xFFFF), "0x7000"); // Max possible value
+        // Valid positions
+        assert_valid_for_g2(&ZoomCommand::Direct(ZoomPosition::new(0x0000).unwrap())); // Wide end
+        assert_valid_for_g2(&ZoomCommand::Direct(ZoomPosition::new(0x3000).unwrap())); // Mid position
+        assert_valid_for_g2(&ZoomCommand::Direct(ZoomPosition::new(0x7000).unwrap())); // 20X optical limit
+
+        // Invalid positions (beyond 20X) - These will fail at ZoomPosition creation
+        // since ZoomPosition enforces the max limit of 0x7000
+        assert!(ZoomPosition::new(0x7001).is_err());
+        assert!(ZoomPosition::new(0x7AC0).is_err());
+        assert!(ZoomPosition::new(0x7FFF).is_err());
+        assert!(ZoomPosition::new(0xFFFF).is_err());
     }
 }
 
@@ -124,16 +106,18 @@ mod focus_commands {
 
     #[test]
     fn test_focus_direct_positions() {
-        // Focus range: 0x1000 to 0xF000
-        assert_valid_for_g2(&FocusCommand::Direct(0x1000)); // Infinity
-        assert_valid_for_g2(&FocusCommand::Direct(0x8000)); // Mid position
-        assert_valid_for_g2(&FocusCommand::Direct(0xF000)); // Near limit
+        use crate::types::FocusPosition;
 
-        // Invalid positions (out of range)
-        assert_invalid_for_g2(&FocusCommand::Direct(0x0FFF), "0x1000");
-        assert_invalid_for_g2(&FocusCommand::Direct(0xF001), "0xF000");
-        assert_invalid_for_g2(&FocusCommand::Direct(0x0000), "0x1000");
-        assert_invalid_for_g2(&FocusCommand::Direct(0xFFFF), "0xF000");
+        // Focus range: 0x1000 to 0xF000
+        assert_valid_for_g2(&FocusCommand::Direct(FocusPosition::new(0x1000).unwrap())); // Infinity
+        assert_valid_for_g2(&FocusCommand::Direct(FocusPosition::new(0x8000).unwrap())); // Mid position
+        assert_valid_for_g2(&FocusCommand::Direct(FocusPosition::new(0xF000).unwrap())); // Near limit
+
+        // Invalid positions (out of range) - These will fail at FocusPosition creation
+        assert!(FocusPosition::new(0x0FFF).is_err());
+        assert!(FocusPosition::new(0xF001).is_err());
+        assert!(FocusPosition::new(0x0000).is_err());
+        assert!(FocusPosition::new(0xFFFF).is_err());
     }
 
     #[test]
@@ -177,23 +161,32 @@ mod focus_commands {
 
     #[test]
     fn test_focus_near_limit() {
-        // Valid positions within focus range
-        assert_valid_for_g2(&FocusNearLimitCommand { position: 0x1000 });
-        assert_valid_for_g2(&FocusNearLimitCommand { position: 0x8000 });
-        assert_valid_for_g2(&FocusNearLimitCommand { position: 0xF000 });
+        use crate::types::FocusPosition;
 
-        // Invalid positions (outside 0x1000-0xF000 range)
-        assert_invalid_for_g2(&FocusNearLimitCommand { position: 0x0FFF }, "0x1000-0xF000");
-        assert_invalid_for_g2(&FocusNearLimitCommand { position: 0xF001 }, "0x1000-0xF000");
-        assert_invalid_for_g2(&FocusNearLimitCommand { position: 0xFFFF }, "0x1000-0xF000");
+        // Valid positions within focus range
+        assert_valid_for_g2(&FocusNearLimitCommand {
+            position: FocusPosition::new(0x1000).unwrap(),
+        });
+        assert_valid_for_g2(&FocusNearLimitCommand {
+            position: FocusPosition::new(0x8000).unwrap(),
+        });
+        assert_valid_for_g2(&FocusNearLimitCommand {
+            position: FocusPosition::new(0xF000).unwrap(),
+        });
+
+        // Invalid positions (outside 0x1000-0xF000 range) - These will fail at FocusPosition creation
+        assert!(FocusPosition::new(0x0FFF).is_err());
+        assert!(FocusPosition::new(0xF001).is_err());
+        assert!(FocusPosition::new(0xFFFF).is_err());
     }
 }
 
 mod pan_tilt_commands {
     use super::*;
     use crate::command::pan_tilt::{
-        LimitCorner, PanSpeed, PanTiltCommand, PanTiltDirection, PanTiltLimitCommand, TiltSpeed,
+        LimitCorner, PanTiltCommand, PanTiltDirection, PanTiltLimitCommand,
     };
+    use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
 
     #[test]
     fn test_pan_tilt_home() {
@@ -263,66 +256,31 @@ mod pan_tilt_commands {
         // Valid positions within G2 range
         // Pan: -2448 to 2448, Tilt: -432 to 1296
         assert_valid_for_g2(&PanTiltCommand::AbsolutePosition {
-            pan: 0,
-            tilt: 0,
+            pan: PanPosition::new(0).unwrap(),
+            tilt: TiltPosition::new(0).unwrap(),
             pan_speed,
             tilt_speed,
         });
 
         assert_valid_for_g2(&PanTiltCommand::AbsolutePosition {
-            pan: 2448,
-            tilt: 1296,
+            pan: PanPosition::new(2448).unwrap(),
+            tilt: TiltPosition::new(1296).unwrap(),
             pan_speed,
             tilt_speed,
         });
 
         assert_valid_for_g2(&PanTiltCommand::AbsolutePosition {
-            pan: -2448,
-            tilt: -432,
+            pan: PanPosition::new(-2448).unwrap(),
+            tilt: TiltPosition::new(-432).unwrap(),
             pan_speed,
             tilt_speed,
         });
 
-        // Invalid positions (out of range)
-        assert_invalid_for_g2(
-            &PanTiltCommand::AbsolutePosition {
-                pan: 2449,
-                tilt: 0,
-                pan_speed,
-                tilt_speed,
-            },
-            "2448",
-        );
-
-        assert_invalid_for_g2(
-            &PanTiltCommand::AbsolutePosition {
-                pan: -2449,
-                tilt: 0,
-                pan_speed,
-                tilt_speed,
-            },
-            "-2448",
-        );
-
-        assert_invalid_for_g2(
-            &PanTiltCommand::AbsolutePosition {
-                pan: 0,
-                tilt: 1297,
-                pan_speed,
-                tilt_speed,
-            },
-            "1296",
-        );
-
-        assert_invalid_for_g2(
-            &PanTiltCommand::AbsolutePosition {
-                pan: 0,
-                tilt: -433,
-                pan_speed,
-                tilt_speed,
-            },
-            "-432",
-        );
+        // Invalid positions (out of range) - These will fail at Position creation
+        assert!(PanPosition::new(2449).is_err());
+        assert!(PanPosition::new(-2449).is_err());
+        assert!(TiltPosition::new(1297).is_err());
+        assert!(TiltPosition::new(-433).is_err());
     }
 
     #[test]
@@ -332,15 +290,15 @@ mod pan_tilt_commands {
 
         // Relative positions don't have validation currently
         assert_valid_for_g2(&PanTiltCommand::RelativePosition {
-            pan: 100,
-            tilt: 100,
+            pan: PanPosition::new(100).unwrap(),
+            tilt: TiltPosition::new(100).unwrap(),
             pan_speed,
             tilt_speed,
         });
 
         assert_valid_for_g2(&PanTiltCommand::RelativePosition {
-            pan: -100,
-            tilt: -100,
+            pan: PanPosition::new(-100).unwrap(),
+            tilt: TiltPosition::new(-100).unwrap(),
             pan_speed,
             tilt_speed,
         });
@@ -351,14 +309,14 @@ mod pan_tilt_commands {
         // Limit set commands
         assert_valid_for_g2(&PanTiltLimitCommand::Set {
             corner: LimitCorner::DownLeft,
-            pan: 0,
-            tilt: 0,
+            pan: PanPosition::new(0).unwrap(),
+            tilt: TiltPosition::new(0).unwrap(),
         });
 
         assert_valid_for_g2(&PanTiltLimitCommand::Set {
             corner: LimitCorner::UpRight,
-            pan: 1000,
-            tilt: 1000,
+            pan: PanPosition::new(1000).unwrap(),
+            tilt: TiltPosition::new(1000).unwrap(),
         });
 
         // Limit clear commands
@@ -580,10 +538,16 @@ mod white_balance_commands {
 
     #[test]
     fn test_color_tuning() {
+        use crate::types::{BlueTuning, RedTuning};
+
         // Valid range: -10 to +10
         for value in -10..=10 {
-            assert_valid_for_g2(&RedTuningCommand { level: value });
-            assert_valid_for_g2(&BlueTuningCommand { level: value });
+            assert_valid_for_g2(&RedTuningCommand {
+                level: RedTuning::new(value).unwrap(),
+            });
+            assert_valid_for_g2(&BlueTuningCommand {
+                level: BlueTuning::new(value).unwrap(),
+            });
         }
     }
 
@@ -597,10 +561,12 @@ mod white_balance_commands {
         assert_valid_for_g2(&BlueGainCommand::Up);
         assert_valid_for_g2(&BlueGainCommand::Down);
 
+        use crate::types::{BlueGain, RedGain};
+
         // Valid range: 0x00 to 0xFF
         for value in [0x00, 0x80, 0xFF] {
-            assert_valid_for_g2(&RedGainCommand::Direct(value));
-            assert_valid_for_g2(&BlueGainCommand::Direct(value));
+            assert_valid_for_g2(&RedGainCommand::Direct(RedGain::new(value).unwrap()));
+            assert_valid_for_g2(&BlueGainCommand::Direct(BlueGain::new(value).unwrap()));
         }
     }
 
@@ -610,9 +576,13 @@ mod white_balance_commands {
         assert_valid_for_g2(&ColorTemperatureCommand::Up);
         assert_valid_for_g2(&ColorTemperatureCommand::Down);
 
+        use crate::types::ColorTemperature;
+
         // Valid range: 0x00 (2500K) to 0x37 (8000K)
         for value in [0x00, 0x10, 0x20, 0x30, 0x37] {
-            assert_valid_for_g2(&ColorTemperatureCommand::Direct(value));
+            assert_valid_for_g2(&ColorTemperatureCommand::Direct(
+                ColorTemperature::new(value).unwrap(),
+            ));
         }
     }
 }
@@ -632,17 +602,25 @@ mod image_adjustment_commands {
 
     #[test]
     fn test_saturation() {
+        use crate::types::SaturationLevel;
+
         // Valid range: 0x0 (60%) to 0xE (200%)
         for value in 0x0..=0xE {
-            assert_valid_for_g2(&SaturationCommand { level: value });
+            assert_valid_for_g2(&SaturationCommand {
+                level: SaturationLevel::new(value).unwrap(),
+            });
         }
     }
 
     #[test]
     fn test_hue() {
+        use crate::types::HueLevel;
+
         // Valid range: 0x0 to 0xE (0-14)
         for value in 0x0..=0xE {
-            assert_valid_for_g2(&HueCommand { level: value });
+            assert_valid_for_g2(&HueCommand {
+                level: HueLevel::new(value).unwrap(),
+            });
         }
     }
 
@@ -822,36 +800,60 @@ mod validation_tests {
         assert_valid_for_g2(&GainLimitCommand {
             limit: GainLimit::new(0xF).unwrap(),
         });
-        assert_valid_for_g2(&RedTuningCommand { level: 10 });
-        assert_valid_for_g2(&RedTuningCommand { level: -10 });
-        assert_valid_for_g2(&BlueTuningCommand { level: 10 });
-        assert_valid_for_g2(&BlueTuningCommand { level: -10 });
-        assert_valid_for_g2(&SaturationCommand { level: 0xE });
-        assert_valid_for_g2(&HueCommand { level: 0xE });
+        use crate::types::{
+            BlueTuning, FocusPosition as FPos, HueLevel, RedTuning, SaturationLevel,
+        };
+
+        assert_valid_for_g2(&RedTuningCommand {
+            level: RedTuning::new(10).unwrap(),
+        });
+        assert_valid_for_g2(&RedTuningCommand {
+            level: RedTuning::new(-10).unwrap(),
+        });
+        assert_valid_for_g2(&BlueTuningCommand {
+            level: BlueTuning::new(10).unwrap(),
+        });
+        assert_valid_for_g2(&BlueTuningCommand {
+            level: BlueTuning::new(-10).unwrap(),
+        });
+        assert_valid_for_g2(&SaturationCommand {
+            level: SaturationLevel::new(0xE).unwrap(),
+        });
+        assert_valid_for_g2(&HueCommand {
+            level: HueLevel::new(0xE).unwrap(),
+        });
         assert_valid_for_g2(&LuminanceCommand {
             value: LuminanceLevel::new(14).unwrap(),
         });
         assert_valid_for_g2(&ContrastCommand {
             value: ContrastLevel::new(14).unwrap(),
         });
-        assert_valid_for_g2(&FocusNearLimitCommand { position: 0xF000 });
+        assert_valid_for_g2(&FocusNearLimitCommand {
+            position: FPos::new(0xF000).unwrap(),
+        });
     }
 
     #[test]
     fn test_tuning_commands_reject_out_of_range() {
+        use crate::types::{BlueTuning, RedTuning};
+        
         // Red/Blue tuning should reject values outside -10 to +10
-        assert_invalid_for_g2(&RedTuningCommand { level: -11 }, "-10 to +10");
-        assert_invalid_for_g2(&RedTuningCommand { level: 11 }, "-10 to +10");
-        assert_invalid_for_g2(&BlueTuningCommand { level: -11 }, "-10 to +10");
-        assert_invalid_for_g2(&BlueTuningCommand { level: 11 }, "-10 to +10");
+        // These will fail at type creation
+        assert!(RedTuning::new(-11).is_err());
+        assert!(RedTuning::new(11).is_err());
+        assert!(BlueTuning::new(-11).is_err());
+        assert!(BlueTuning::new(11).is_err());
     }
 
     #[test]
     fn test_saturation_hue_reject_out_of_range() {
+        use crate::types::{HueLevel, SaturationLevel};
+        
         // Saturation and Hue should reject values > 0xE
-        assert_invalid_for_g2(&SaturationCommand { level: 0xF }, "max is 0x0E");
-        assert_invalid_for_g2(&SaturationCommand { level: 0xFF }, "max is 0x0E");
-        assert_invalid_for_g2(&HueCommand { level: 0xF }, "max is 0x0E");
-        assert_invalid_for_g2(&HueCommand { level: 0xFF }, "max is 0x0E");
+        // These will fail at type creation
+        assert!(SaturationLevel::new(0xF).is_err());
+        assert!(SaturationLevel::new(0xFF).is_err());
+        assert!(HueLevel::new(0xF).is_err());
+        assert!(HueLevel::new(0xFF).is_err());
     }
 }
