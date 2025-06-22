@@ -3,6 +3,7 @@
 //! This example shows how the Camera API provides all control methods
 //! directly without needing extension traits.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{
@@ -18,9 +19,12 @@ use grafton_visca::{
     },
     Error,
 };
+#[cfg(feature = "tokio")]
 use std::time::Duration;
+#[cfg(feature = "tokio")]
 use tokio::time;
 
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::init();
@@ -175,4 +179,10 @@ async fn main() -> Result<(), Error> {
     println!("• Profile-specific types for presets and gain");
 
     Ok(())
+}
+
+#[cfg(not(feature = "tokio"))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example test_extension_traits --features tokio");
 }

@@ -7,6 +7,7 @@
 //! - Perform smooth camera movements
 //! - Control focus with async operations
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -19,15 +20,16 @@ use grafton_visca::{
     Error,
 };
 use std::env;
+#[cfg(feature = "tokio")]
 use tokio::time::{sleep, Duration};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
     eprintln!("This example requires the 'async' feature.");
     eprintln!("Run with: cargo run --example async_control_demo --features async");
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging

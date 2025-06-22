@@ -1,5 +1,6 @@
 //! Example demonstrating the new Camera API with type-safe profiles.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
@@ -10,8 +11,16 @@ use grafton_visca::{
     types::ZoomPosition,
     Error,
 };
+#[cfg(feature = "tokio")]
 use std::time::Duration;
 
+#[cfg(not(feature = "tokio"))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature.");
+    eprintln!("Run with: cargo run --example camera_profile_demo --features tokio");
+}
+
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging

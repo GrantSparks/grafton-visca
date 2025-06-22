@@ -3,10 +3,17 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
-#[cfg(not(feature = "async"))]
+#[cfg(all(not(feature = "async"), not(feature = "tokio")))]
 use grafton_visca::transport::blocking::TcpTransport;
 #[cfg(feature = "tokio")]
 use grafton_visca::transport::tokio::TcpTransport;
+#[cfg(feature = "tokio")]
+use grafton_visca::{
+    camera::{profiles::PTZOpticsG2, Camera},
+    command::pan_tilt::PanTiltDirection,
+    Error,
+};
+#[cfg(not(feature = "tokio"))]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
@@ -14,7 +21,7 @@ use grafton_visca::{
 };
 use std::time::{Duration, Instant};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
