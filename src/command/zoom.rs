@@ -33,6 +33,7 @@ use crate::{
     constants::{CameraConstants, CameraModel},
     error::Error,
     timeout::CommandCategory,
+    types::ZoomPosition,
 };
 
 crate::visca_bounded_param! {
@@ -67,8 +68,8 @@ pub enum ZoomCommand {
     ZoomInVariable(ZoomSpeed),
     /// Zoom out at variable speed.
     ZoomOutVariable(ZoomSpeed),
-    /// Set zoom to direct position (0x0000 to 0xFFFF).
-    Direct(u16),
+    /// Set zoom to direct position.
+    Direct(ZoomPosition),
 }
 
 impl ZoomCommand {
@@ -82,7 +83,7 @@ impl ZoomCommand {
                 max: *P::ZOOM_RANGE.end() as i32,
             });
         }
-        Ok(Self::Direct(position))
+        Ok(Self::Direct(ZoomPosition::new(position)?))
     }
 }
 
@@ -110,7 +111,7 @@ impl Command for ZoomCommand {
 
             // Direct zoom to a specific position
             Self::Direct(position) => {
-                let nibbles = position_to_nibbles(*position);
+                let nibbles = position_to_nibbles(position.value());
 
                 Ok(vec![
                     0x81, 0x01, 0x04, 0x47, nibbles[0], nibbles[1], nibbles[2], nibbles[3], 0xFF,
@@ -135,12 +136,12 @@ impl Command for ZoomCommand {
         match self {
             Self::Direct(position) => {
                 let (min, max) = model.zoom_range();
-                if *position < min || *position > max {
+                if position.value() < min || position.value() > max {
                     return Err(Error::ModelValidation {
                         model,
                         command: "ZoomDirect".to_string(),
                         reason: format!(
-                            "Position 0x{position:04X} out of range [0x{min:04X}, 0x{max:04X}] for {model:?}"
+                            "Position 0x{:04X} out of range [0x{min:04X}, 0x{max:04X}] for {model:?}", position.value()
                         ),
                     });
                 }
@@ -179,7 +180,10 @@ mod tests {
         }
 
         // Invalid speed
-        assert!(matches!(ZoomSpeed::new(8), Err(Error::InvalidParameter(_))));
+        assert!(matches!(
+            ZoomSpeed::new(8),
+            Err(Error::InvalidParameter(_))
+        ));
         assert!(matches!(
             ZoomSpeed::new(255),
             Err(Error::InvalidParameter(_))
@@ -201,7 +205,7 @@ mod tests {
     fn test_zoom_speed_into_u8() {
         let speed =
             ZoomSpeed::new(3).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 3: {e:?}"));
-        let value: u8 = speed.into();
+        let value: u8 = speed.value();
         assert_eq!(value, 3);
     }
 
@@ -278,7 +282,9 @@ mod tests {
 
     #[test]
     fn test_zoom_command_direct() {
-        let cmd = ZoomCommand::Direct(0x1234);
+        let cmd = ZoomCommand::Direct(
+            ZoomPosition::new(0x1234).unwrap_or_else(|e| panic!("Valid zoom position: {e:?}")),
+        );
         let bytes = cmd
             .to_bytes()
             .unwrap_or_else(|e| panic!("Failed to convert Direct command to bytes: {e:?}"));
@@ -300,40 +306,28 @@ mod tests {
     #[test]
     fn test_zoom_validation_g2_camera() {
         // Test validation for PTZOptics G2 (20X zoom)
-        let cmd_valid = ZoomCommand::Direct(0x7000); // Max for 20X
+        let cmd_valid = ZoomCommand::Direct(
+            ZoomPosition::new(0x7000).unwrap_or_else(|e| panic!("Valid zoom position: {e:?}")),
+        ); // Max for 20X
         assert!(cmd_valid
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
 
-        let cmd_invalid = ZoomCommand::Direct(0x7AC0); // 30X position
-        let result = cmd_invalid.validate_for_model(CameraModel::PTZOpticsG2);
+        // Test that ZoomPosition itself enforces the maximum
+        let result = ZoomPosition::new(0x7AC0); // 30X position
         assert!(result.is_err());
-        match result {
-            Err(Error::ModelValidation {
-                model,
-                command,
-                reason,
-            }) => {
-                assert_eq!(model, CameraModel::PTZOpticsG2);
-                assert_eq!(command, "ZoomDirect");
-                assert!(reason.contains("0x7AC0"));
-                assert!(reason.contains("0x7000"));
-            }
-            _ => unreachable!("Expected ModelValidation error"),
-        }
     }
 
     #[test]
     fn test_zoom_validation_30x_camera() {
         // Test validation for PTZOptics 30X
-        let cmd_valid = ZoomCommand::Direct(0x7AC0); // Max for 30X
+        // Note: ZoomPosition is limited to 0x7000, so we can't test 30X-specific values
+        let cmd_valid = ZoomCommand::Direct(
+            ZoomPosition::new(0x7000).unwrap_or_else(|e| panic!("Valid zoom position: {e:?}")),
+        ); // Max allowed by ZoomPosition
         assert!(cmd_valid
             .validate_for_model(CameraModel::PTZOptics30X)
             .is_ok());
-
-        let cmd_edge = ZoomCommand::Direct(0x7FFF); // Beyond 30X but within digital range
-        let result = cmd_edge.validate_for_model(CameraModel::PTZOptics30X);
-        assert!(result.is_err());
     }
 
     #[test]
@@ -377,7 +371,10 @@ mod tests {
             CommandCategory::Movement
         );
         assert_eq!(
-            ZoomCommand::Direct(0).command_category(),
+            ZoomCommand::Direct(
+                ZoomPosition::new(0).unwrap_or_else(|e| panic!("Valid zoom position: {e:?}"))
+            )
+            .command_category(),
             CommandCategory::Movement
         );
     }

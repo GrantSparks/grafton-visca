@@ -989,15 +989,15 @@ mod speed_tests {
     #[test]
     fn test_speed_types() {
         // Test pan speed
+        assert!(PanSpeed::new(0).is_ok());
         assert!(PanSpeed::new(1).is_ok());
         assert!(PanSpeed::new(24).is_ok());
-        assert!(PanSpeed::new(0).is_err());
         assert!(PanSpeed::new(25).is_err());
 
         // Test tilt speed
+        assert!(TiltSpeed::new(0).is_ok());
         assert!(TiltSpeed::new(1).is_ok());
         assert!(TiltSpeed::new(20).is_ok());
-        assert!(TiltSpeed::new(0).is_err());
         assert!(TiltSpeed::new(21).is_err());
 
         // Test speed level conversions
@@ -1716,24 +1716,27 @@ impl fmt::Display for TiltPosition {
 pub struct PanSpeed(u8);
 
 impl PanSpeed {
-    /// Minimum pan speed (slowest).
-    pub const MIN: Self = Self(0x01);
+    /// Minimum pan speed (stop).
+    pub const MIN: Self = Self(0x00);
 
     /// Maximum pan speed (fastest).
     pub const MAX: Self = Self(0x18); // 24 in decimal
 
+    /// Zero speed (stop).
+    pub const ZERO: Self = Self(0x00);
+
     /// Create a new pan speed.
     ///
     /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 1-24.
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-24.
     pub fn new(value: u8) -> Result<Self, Error> {
-        if (1..=24).contains(&value) {
+        if value <= 24 {
             Ok(Self(value))
         } else {
             Err(Error::ParameterOutOfRange {
                 parameter: "pan_speed".to_string(),
                 value: i32::from(value),
-                min: 1,
+                min: 0,
                 max: 24,
             })
         }
@@ -1771,24 +1774,27 @@ impl fmt::Display for PanSpeed {
 pub struct TiltSpeed(u8);
 
 impl TiltSpeed {
-    /// Minimum tilt speed (slowest).
-    pub const MIN: Self = Self(0x01);
+    /// Minimum tilt speed (stop).
+    pub const MIN: Self = Self(0x00);
 
     /// Maximum tilt speed (fastest).
     pub const MAX: Self = Self(0x14); // 20 in decimal
 
+    /// Zero speed (stop).
+    pub const ZERO: Self = Self(0x00);
+
     /// Create a new tilt speed.
     ///
     /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 1-20.
+    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-20.
     pub fn new(value: u8) -> Result<Self, Error> {
-        if (1..=20).contains(&value) {
+        if value <= 20 {
             Ok(Self(value))
         } else {
             Err(Error::ParameterOutOfRange {
                 parameter: "tilt_speed".to_string(),
                 value: i32::from(value),
-                min: 1,
+                min: 0,
                 max: 20,
             })
         }

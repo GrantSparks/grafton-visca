@@ -58,16 +58,16 @@ async fn command_builder_demo() -> Result<(), Error> {
         .pan_tilt_to_degrees(
             45.0,
             0.0,
-            grafton_visca::command::pan_tilt::PanSpeed::new(15).unwrap(),
-            grafton_visca::command::pan_tilt::TiltSpeed::new(15).unwrap(),
+            grafton_visca::types::PanSpeed::new(15).unwrap(),
+            grafton_visca::types::TiltSpeed::new(15).unwrap(),
         )?
         .zoom_in(grafton_visca::command::zoom::ZoomSpeed::new(5).unwrap())
         .preset_set(G2PresetId::new(1).unwrap())
         .pan_tilt_to_degrees(
             -45.0,
             0.0,
-            grafton_visca::command::pan_tilt::PanSpeed::new(15).unwrap(),
-            grafton_visca::command::pan_tilt::TiltSpeed::new(15).unwrap(),
+            grafton_visca::types::PanSpeed::new(15).unwrap(),
+            grafton_visca::types::TiltSpeed::new(15).unwrap(),
         )?
         .zoom_out(grafton_visca::command::zoom::ZoomSpeed::new(5).unwrap())
         .preset_set(G2PresetId::new(2).unwrap())

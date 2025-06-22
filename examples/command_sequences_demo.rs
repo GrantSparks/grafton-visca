@@ -12,11 +12,11 @@ use grafton_visca::{
     command::{
         exposure::ExposureMode,
         focus::FocusSpeed,
-        pan_tilt::{PanSpeed, TiltSpeed},
         white_balance::WhiteBalanceMode,
         zoom::ZoomSpeed,
     },
     transport::create,
+    types::{PanSpeed, TiltSpeed},
 };
 
 #[cfg(feature = "tokio")]
