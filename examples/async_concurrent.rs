@@ -15,13 +15,13 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
     eprintln!("This example requires the 'async' feature.");
     eprintln!("Run with: cargo run --example async_concurrent --features async");
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Error> {
 
     println!("Connecting to camera at {}...", camera_addr);
     let transport = create::udp(&camera_addr).await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Example 1: Sequential commands with timing
     println!("\n=== Sequential Command Execution ===");

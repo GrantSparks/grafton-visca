@@ -3,6 +3,7 @@
 //! This example showcases the enhanced Camera API with high-level control methods
 //! and demonstrates migration from the old Client API.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
     command::{exposure::ExposureMode, white_balance::WhiteBalanceMode},
@@ -12,16 +13,19 @@ use grafton_visca::{
     },
     Error,
 };
+#[cfg(feature = "tokio")]
 use std::time::Duration;
+#[cfg(feature = "tokio")]
 use tokio::time;
 
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Connect to camera using new Camera API with UDP transport
     let transport = create::udp("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Enhanced Camera API Demo ===\n");
 
@@ -138,4 +142,10 @@ async fn main() -> Result<(), Error> {
 
     println!("\n=== Demo Complete ===");
     Ok(())
+}
+
+#[cfg(not(feature = "tokio"))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example enhanced_api_demo --features tokio");
 }

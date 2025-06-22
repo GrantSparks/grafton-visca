@@ -1,24 +1,35 @@
 //! Example demonstrating the new Camera API with type-safe profiles.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
         units::Degrees,
         Camera,
     },
-    transport::create,
+    transport::tokio::TcpTransport,
     types::ZoomPosition,
     Error,
 };
+#[cfg(feature = "tokio")]
+use std::time::Duration;
 
+#[cfg(not(feature = "tokio"))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature.");
+    eprintln!("Run with: cargo run --example camera_profile_demo --features tokio");
+}
+
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging
     env_logger::init();
 
     // Create a G2 camera with TCP transport
-    let transport = create::tcp("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let transport =
+        TcpTransport::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Display camera capabilities
     let caps = camera.capabilities();

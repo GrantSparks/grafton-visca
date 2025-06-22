@@ -2,12 +2,14 @@
 
 //! Demonstrates white balance fine-tuning commands.
 
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     transport::create,
     types::{BlueTuning, RedTuning},
 };
 
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
@@ -15,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create camera with PTZOptics G2 profile
     let transport = create::udp("192.168.1.100:52381").await?;
-    let camera = Camera::<PTZOpticsG2>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate fine-tuning commands
     println!("Demonstrating white balance fine-tuning...");
@@ -36,4 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("White balance tuning demonstration complete!");
 
     Ok(())
+}
+
+#[cfg(not(feature = "tokio"))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example white_balance_tuning_demo --features tokio");
 }
