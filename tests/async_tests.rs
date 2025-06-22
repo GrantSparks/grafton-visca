@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-#![cfg(feature = "async")]
+#![cfg(all(feature = "async", feature = "tokio"))]
 
 //! Tests for async functionality in the unified client.
 //!
