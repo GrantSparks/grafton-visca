@@ -6,7 +6,6 @@ fn blocking_example() -> Result<(), grafton_visca::Error> {
         camera::{Camera, GenericVisca},
         command::{power::Power, PowerCommand},
         transport::blocking::TcpTransport,
-        Error,
     };
 
     println!("=== Blocking Transport Example ===");
@@ -33,7 +32,6 @@ async fn async_example() -> Result<(), grafton_visca::Error> {
         camera::{Camera, GenericVisca},
         command::{power::Power, PowerCommand},
         transport::tokio::TcpTransport,
-        Error,
     };
     use std::time::Duration;
 
