@@ -22,10 +22,10 @@ use std::time::Instant;
 fn main() {
     println!("=== VISCA Error Handling Demo ===\n");
     println!("This example demonstrates error handling patterns.\n");
-    
+
     // Still demonstrate error classification even without a transport
     demonstrate_error_classification();
-    
+
     println!("\nFor full demo with camera connection:");
     println!("Run with: cargo run --example error_handling_demo --features tokio");
 }

@@ -7,7 +7,10 @@ use grafton_visca::camera::{CameraProfile, PTZOpticsG2};
 #[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::{Transport as BlockingTransport, UdpTransport};
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::{tokio::UdpTransport, AsyncTransport};
+use grafton_visca::{
+    camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, SonyEVID70},
+    transport::{tokio::UdpTransport, AsyncTransport},
+};
 
 // Include the transport implementation from the example file
 
@@ -15,13 +18,13 @@ use grafton_visca::transport::{tokio::UdpTransport, AsyncTransport};
 fn main() {
     println!("=== Camera Capability Query Demo ===\n");
     println!("This example demonstrates querying camera capabilities.\n");
-    
+
     // Show profile capabilities without needing a transport
     println!("PTZOpticsG2 Profile Capabilities:");
     let profile = PTZOpticsG2;
     let summary = profile.capability_summary();
     print_capability_summary(&summary);
-    
+
     println!("\nFor full demo with camera connection:");
     println!("Run with: cargo run --example capability_query_demo --features tokio");
 }
