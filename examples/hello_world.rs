@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Power on the camera
     println!("Powering on camera...");
     camera.power_on()?;
-    
+
     // Wait for camera to initialize
     std::thread::sleep(std::time::Duration::from_secs(2));
 
@@ -44,6 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.home()?;
 
     println!("Hello from VISCA camera!");
-    
+
     Ok(())
 }
+
