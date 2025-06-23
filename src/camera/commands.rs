@@ -555,7 +555,7 @@ where
     /// Accepts iris level as:
     /// - Raw u8 values (0x00-0x0C)
     /// - IrisLevel type for type safety
-    /// - Percentage<f32> values (0.0-100.0)
+    /// - `Percentage<f32>` values (0.0-100.0)
     ///
     /// # Examples
     /// ```ignore

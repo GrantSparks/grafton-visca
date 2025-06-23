@@ -18,7 +18,10 @@ use grafton_visca::transport::blocking::BlockingTransport;
 #[cfg(any(not(feature = "async"), all(feature = "async", feature = "tokio")))]
 use grafton_visca::Error;
 
+#[cfg(any(not(feature = "async"), all(feature = "async", feature = "tokio")))]
 use std::collections::VecDeque;
+
+#[cfg(any(not(feature = "async"), all(feature = "async", feature = "tokio")))]
 use std::sync::Arc;
 
 #[cfg(not(feature = "async"))]
