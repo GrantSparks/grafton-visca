@@ -19,7 +19,10 @@ use grafton_visca::transport::blocking::BlockingTransport;
 use grafton_visca::Error;
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+#[cfg(not(feature = "async"))]
+use std::sync::Mutex;
 
 /// A flexible mock transport for testing various scenarios.
 #[cfg(not(feature = "async"))]
