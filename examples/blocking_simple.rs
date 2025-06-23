@@ -17,6 +17,7 @@ use grafton_visca::units::Degrees;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
+    types::{PanSpeed, TiltSpeed},
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -68,7 +69,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test continuous movement
     println!("Starting continuous pan left...");
-    camera.move_continuous(PanTiltDirection::Left, 10, 0)?;
+    camera.move_continuous(
+        PanTiltDirection::Left,
+        PanSpeed::new(10)?,
+        TiltSpeed::new(0)?,
+    )?;
     std::thread::sleep(Duration::from_secs(2));
 
     println!("Stopping movement...");

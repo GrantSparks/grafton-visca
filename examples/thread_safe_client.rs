@@ -12,6 +12,7 @@ use grafton_visca::transport::blocking::create;
 use grafton_visca::{
     camera::{Camera, CameraProfile, PTZOpticsG2},
     command::pan_tilt::PanTiltDirection,
+    types::{PanSpeed, TiltSpeed},
     Error,
 };
 #[cfg(not(feature = "async"))]
@@ -59,7 +60,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Move up-right
         {
             let mut cam = camera1.lock().unwrap();
-            cam.move_continuous(PanTiltDirection::UpRight, 16, 16)?;
+            cam.move_continuous(
+                PanTiltDirection::UpRight,
+                PanSpeed::new(16)?,
+                TiltSpeed::new(16)?,
+            )?;
         }
         thread::sleep(Duration::from_secs(2));
 
@@ -73,7 +78,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Move down-left
         {
             let mut cam = camera1.lock().unwrap();
-            cam.move_continuous(PanTiltDirection::DownLeft, 16, 16)?;
+            cam.move_continuous(
+                PanTiltDirection::DownLeft,
+                PanSpeed::new(16)?,
+                TiltSpeed::new(16)?,
+            )?;
         }
         thread::sleep(Duration::from_secs(2));
 

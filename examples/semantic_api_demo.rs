@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::{Camera, PTZOpticsG2},
         transport::blocking::UdpTransport,
-        units::{Degrees, Fraction, Kelvin, Magnification, Percentage, Radians, Raw},
+        units::{Degrees, Fraction, Kelvin, Magnification, Percentage, Radians},
         FStop,
     };
     use std::f32::consts::PI;
@@ -22,21 +22,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Zoom Control - Multiple Ways
     println!("1. Zoom Control");
     println!("   Setting zoom to 50% using percentage...");
-    camera.set_zoom(Percentage(50.0))?;
+    camera.set_zoom_percentage(Percentage(50.0))?;
 
     println!("   Setting zoom to 10x magnification...");
-    camera.set_zoom(Magnification(10.0))?;
+    camera.set_zoom_magnification(Magnification(10.0))?;
 
     println!("   Setting zoom using raw VISCA value...");
-    camera.set_zoom(Raw(0x3000u16))?;
+    camera.set_zoom_raw(0x3000u16)?;
 
     // Focus Control
     println!("\n2. Focus Control");
     println!("   Setting focus to 75% (near)...");
-    camera.set_focus(Percentage(75.0))?;
+    camera.set_focus_percentage(Percentage(75.0))?;
 
     println!("   Setting focus using raw value...");
-    camera.set_focus(Raw(0x8000u16))?;
+    camera.set_focus_raw(0x8000u16)?;
 
     // Pan/Tilt Control
     println!("\n3. Pan/Tilt Control");
@@ -65,10 +65,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Iris Control
     println!("\n6. Iris Control");
     println!("   Setting iris to F2.8...");
-    camera.set_iris(FStop::F2_8)?;
+    camera.set_iris_fstop(FStop::F2_8)?;
 
     println!("   Setting iris to 50% open...");
-    camera.set_iris(Percentage(50.0))?;
+    camera.set_iris_percentage(Percentage(50.0))?;
 
     // Movement with Percentage Speeds
     println!("\n7. Movement Control");
@@ -106,33 +106,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Image Quality Controls
     println!("\n9. Image Quality Controls");
     println!("   Setting gain to 50% (~10.5dB)...");
-    camera.set_gain(Percentage(50.0))?;
+    camera.set_gain_percentage(Percentage(50.0))?;
 
     println!("   Setting sharpness to 70%...");
-    camera.set_sharpness(Percentage(70.0))?;
+    camera.set_sharpness_percentage(Percentage(70.0))?;
 
     println!("   Setting brightness to 50%...");
-    camera.set_brightness(Percentage(50.0))?;
+    camera.set_brightness_percentage(Percentage(50.0))?;
 
     println!("   Setting contrast to 60%...");
-    camera.set_contrast(Percentage(60.0))?;
+    camera.set_contrast_percentage(Percentage(60.0))?;
 
     println!("   Setting saturation to 75%...");
-    camera.set_saturation(Percentage(75.0))?;
+    camera.set_saturation_percentage(Percentage(75.0))?;
 
     println!("   Setting hue to 50%...");
-    camera.set_hue(Percentage(50.0))?;
+    camera.set_hue_percentage(Percentage(50.0))?;
 
     // Using Raw Values
     println!("\n10. Using Raw Values for Fine Control");
     println!("   Setting gain to raw value 0x04 (12dB)...");
-    camera.set_gain(Raw(0x04u8))?;
+    camera.set_gain_raw(0x04u8)?;
 
     println!("   Setting sharpness to raw value 5...");
-    camera.set_sharpness(Raw(5u8))?;
+    camera.set_sharpness_raw(5u8)?;
 
     println!("   Setting brightness to raw value 0x0C...");
-    camera.set_brightness(Raw(0x0Cu16))?;
+    camera.set_brightness_raw(0x0Cu16)?;
 
     // Direct Type Usage
     println!("\n11. Direct Type Usage");
@@ -158,7 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::{Camera, PTZOpticsG2},
         transport::tokio::UdpTransport,
-        units::{Degrees, Fraction, Kelvin, Magnification, Percentage, Radians, Raw},
+        units::{Degrees, Fraction, Kelvin, Magnification, Percentage, Radians},
         FStop,
     };
     use std::f32::consts::PI;
@@ -172,21 +172,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Zoom Control - Multiple Ways
     println!("1. Zoom Control");
     println!("   Setting zoom to 50% using percentage...");
-    camera.set_zoom(Percentage(50.0)).await?;
+    camera.set_zoom_percentage(Percentage(50.0)).await?;
 
     println!("   Setting zoom to 10x magnification...");
-    camera.set_zoom(Magnification(10.0)).await?;
+    camera.set_zoom_magnification(Magnification(10.0)).await?;
 
     println!("   Setting zoom using raw VISCA value...");
-    camera.set_zoom(Raw(0x3000u16)).await?;
+    camera.set_zoom_raw(0x3000u16).await?;
 
     // Focus Control
     println!("\n2. Focus Control");
     println!("   Setting focus to 75% (near)...");
-    camera.set_focus(Percentage(75.0)).await?;
+    camera.set_focus_percentage(Percentage(75.0)).await?;
 
     println!("   Setting focus using raw value...");
-    camera.set_focus(Raw(0x8000u16)).await?;
+    camera.set_focus_raw(0x8000u16).await?;
 
     // Pan/Tilt Control
     println!("\n3. Pan/Tilt Control");
@@ -217,10 +217,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Iris Control
     println!("\n6. Iris Control");
     println!("   Setting iris to F2.8...");
-    camera.set_iris(FStop::F2_8).await?;
+    camera.set_iris_fstop(FStop::F2_8).await?;
 
     println!("   Setting iris to 50% open...");
-    camera.set_iris(Percentage(50.0)).await?;
+    camera.set_iris_percentage(Percentage(50.0)).await?;
 
     // Movement with Percentage Speeds
     println!("\n7. Movement Control");
@@ -262,33 +262,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Image Quality Controls
     println!("\n9. Image Quality Controls");
     println!("   Setting gain to 50% (~10.5dB)...");
-    camera.set_gain(Percentage(50.0)).await?;
+    camera.set_gain_percentage(Percentage(50.0)).await?;
 
     println!("   Setting sharpness to 70%...");
-    camera.set_sharpness(Percentage(70.0)).await?;
+    camera.set_sharpness_percentage(Percentage(70.0)).await?;
 
     println!("   Setting brightness to 50%...");
-    camera.set_brightness(Percentage(50.0)).await?;
+    camera.set_brightness_percentage(Percentage(50.0)).await?;
 
     println!("   Setting contrast to 60%...");
-    camera.set_contrast(Percentage(60.0)).await?;
+    camera.set_contrast_percentage(Percentage(60.0)).await?;
 
     println!("   Setting saturation to 75%...");
-    camera.set_saturation(Percentage(75.0)).await?;
+    camera.set_saturation_percentage(Percentage(75.0)).await?;
 
     println!("   Setting hue to 50%...");
-    camera.set_hue(Percentage(50.0)).await?;
+    camera.set_hue_percentage(Percentage(50.0)).await?;
 
     // Using Raw Values
     println!("\n10. Using Raw Values for Fine Control");
     println!("   Setting gain to raw value 0x04 (12dB)...");
-    camera.set_gain(Raw(0x04u8)).await?;
+    camera.set_gain_raw(0x04u8).await?;
 
     println!("   Setting sharpness to raw value 5...");
-    camera.set_sharpness(Raw(5u8)).await?;
+    camera.set_sharpness_raw(5u8).await?;
 
     println!("   Setting brightness to raw value 0x0C...");
-    camera.set_brightness(Raw(0x0Cu16)).await?;
+    camera.set_brightness_raw(0x0Cu16).await?;
 
     // Direct Type Usage
     println!("\n11. Direct Type Usage");

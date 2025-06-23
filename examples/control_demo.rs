@@ -13,8 +13,8 @@ use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
     transport::blocking::create,
+    types::{PanSpeed, TiltSpeed, ZoomPosition},
     units::Degrees,
-    // ZoomPosition no longer needed - set_zoom takes u16 directly
     Error,
 };
 #[cfg(not(feature = "async"))]
@@ -59,7 +59,11 @@ fn main() -> Result<(), Error> {
         std::thread::sleep(Duration::from_secs(2));
 
         println!("   - Starting continuous movement (up-right)...");
-        camera.move_continuous(PanTiltDirection::UpRight, 10, 10)?;
+        camera.move_continuous(
+            PanTiltDirection::UpRight,
+            PanSpeed::new(10)?,
+            TiltSpeed::new(10)?,
+        )?;
         std::thread::sleep(Duration::from_millis(1500));
 
         println!("   - Stopping movement...");
@@ -69,7 +73,7 @@ fn main() -> Result<(), Error> {
         // Zoom Control Examples
         println!("\n2. Zoom Control");
         println!("   - Zooming to minimum (0x0000)...");
-        camera.set_zoom(0x0000)?;
+        camera.set_zoom(ZoomPosition::MIN)?;
         std::thread::sleep(Duration::from_secs(2));
 
         println!("   - Zooming in at default speed...");
@@ -78,7 +82,7 @@ fn main() -> Result<(), Error> {
         camera.zoom_stop()?;
 
         println!("   - Zooming to mid-range (0x2000)...");
-        camera.set_zoom(0x2000)?;
+        camera.set_zoom(ZoomPosition::try_from(0x2000)?)?;
         std::thread::sleep(Duration::from_secs(2));
 
         println!("   - Zooming out at slow speed (2)...");
@@ -112,7 +116,7 @@ fn main() -> Result<(), Error> {
 
         println!("   - Moving camera to a different position...");
         camera.set_position(Degrees(-20.0), Degrees(6.0))?;
-        camera.set_zoom(0x3000)?;
+        camera.set_zoom(ZoomPosition::try_from(0x3000)?)?;
         std::thread::sleep(Duration::from_secs(3));
 
         println!("   - Saving this position to preset 2...");

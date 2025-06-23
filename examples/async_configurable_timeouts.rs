@@ -14,6 +14,7 @@ use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
     transport::create,
+    types::{PanSpeed, TiltSpeed},
     units::Degrees,
     Error,
 };
@@ -106,7 +107,11 @@ async fn demonstrate_movement_timeout<T: grafton_visca::transport::AsyncTranspor
     // Start pan/tilt movement
     match timeout(
         movement_timeout,
-        camera.move_continuous(PanTiltDirection::Right, 10, 0),
+        camera.move_continuous(
+            PanTiltDirection::Right,
+            PanSpeed::new(10)?,
+            TiltSpeed::new(0)?,
+        ),
     )
     .await
     {

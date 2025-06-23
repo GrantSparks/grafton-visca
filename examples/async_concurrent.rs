@@ -8,8 +8,11 @@
 //! - Maximize throughput with concurrent operations
 
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2, command::pan_tilt::PanTiltDirection, transport::create, Camera,
-    Error,
+    camera::profiles::PTZOpticsG2,
+    command::pan_tilt::PanTiltDirection,
+    transport::create,
+    types::{PanSpeed, TiltSpeed},
+    Camera, Error,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -43,7 +46,11 @@ async fn main() -> Result<(), Error> {
 
     // Start moving the camera
     camera
-        .move_continuous(PanTiltDirection::UpRight, 0x10, 0x10)
+        .move_continuous(
+            PanTiltDirection::UpRight,
+            PanSpeed::new(0x10)?,
+            TiltSpeed::new(0x10)?,
+        )
         .await?;
     let move_time = start.elapsed();
 
@@ -75,7 +82,12 @@ async fn main() -> Result<(), Error> {
     let camera1 = Arc::clone(&camera);
     let move_task = tokio::spawn(async move {
         let cam = camera1.lock().await;
-        cam.move_continuous(PanTiltDirection::Right, 0x08, 0).await
+        cam.move_continuous(
+            PanTiltDirection::Right,
+            PanSpeed::new(0x08).unwrap(),
+            TiltSpeed::new(0).unwrap(),
+        )
+        .await
     });
 
     let camera2 = Arc::clone(&camera);
@@ -243,7 +255,12 @@ async fn main() -> Result<(), Error> {
         let camera = Arc::clone(&camera);
         tokio::spawn(async move {
             let cam = camera.lock().await;
-            cam.move_continuous(PanTiltDirection::Right, 0x08, 0).await
+            cam.move_continuous(
+                PanTiltDirection::Right,
+                PanSpeed::new(0x08).unwrap(),
+                TiltSpeed::new(0).unwrap(),
+            )
+            .await
         })
     };
 
