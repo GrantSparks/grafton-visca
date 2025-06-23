@@ -409,6 +409,156 @@ impl TryFrom<Percentage<f32>> for TiltSpeed {
     }
 }
 
+// Conversion implementations for GainValue
+impl TryFrom<Percentage<f32>> for crate::types::GainValue {
+    type Error = Error;
+
+    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
+        if percentage.0 < 0.0 || percentage.0 > 100.0 {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "gain percentage".to_string(),
+                value: percentage.0 as i32,
+                min: 0,
+                max: 100,
+            });
+        }
+        // Map percentage to gain levels (0-7)
+        let value = (percentage.0 / 100.0 * 7.0).round() as u8;
+        crate::types::GainValue::new(value)
+    }
+}
+
+impl From<Raw<u8>> for crate::types::GainValue {
+    fn from(raw: Raw<u8>) -> Self {
+        crate::types::GainValue::new(raw.0).unwrap_or(crate::types::GainValue::MIN)
+    }
+}
+
+// Conversion implementations for SharpnessLevel
+impl TryFrom<Percentage<f32>> for crate::types::SharpnessLevel {
+    type Error = Error;
+
+    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
+        if percentage.0 < 0.0 || percentage.0 > 100.0 {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "sharpness percentage".to_string(),
+                value: percentage.0 as i32,
+                min: 0,
+                max: 100,
+            });
+        }
+        // Map percentage to sharpness levels (0-7)
+        let value = (percentage.0 / 100.0 * 7.0).round() as u8;
+        crate::types::SharpnessLevel::new(value)
+    }
+}
+
+impl From<Raw<u8>> for crate::types::SharpnessLevel {
+    fn from(raw: Raw<u8>) -> Self {
+        crate::types::SharpnessLevel::new(raw.0).unwrap_or(crate::types::SharpnessLevel::MIN)
+    }
+}
+
+// Conversion implementations for BrightnessLevel
+impl TryFrom<Percentage<f32>> for crate::types::BrightnessLevel {
+    type Error = Error;
+
+    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
+        if percentage.0 < 0.0 || percentage.0 > 100.0 {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "brightness percentage".to_string(),
+                value: percentage.0 as i32,
+                min: 0,
+                max: 100,
+            });
+        }
+        // Map percentage to brightness levels (0x00-0x11)
+        let value = (percentage.0 / 100.0 * 0x11 as f32).round() as u16;
+        crate::types::BrightnessLevel::new(value)
+    }
+}
+
+impl From<Raw<u16>> for crate::types::BrightnessLevel {
+    fn from(raw: Raw<u16>) -> Self {
+        crate::types::BrightnessLevel::new(raw.0).unwrap_or(crate::types::BrightnessLevel::MIN)
+    }
+}
+
+// Conversion implementations for ContrastLevel
+impl TryFrom<Percentage<f32>> for crate::types::ContrastLevel {
+    type Error = Error;
+
+    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
+        if percentage.0 < 0.0 || percentage.0 > 100.0 {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "contrast percentage".to_string(),
+                value: percentage.0 as i32,
+                min: 0,
+                max: 100,
+            });
+        }
+        // Map percentage to contrast levels (0-14)
+        let value = (percentage.0 / 100.0 * 14.0).round() as u8;
+        crate::types::ContrastLevel::new(value)
+    }
+}
+
+impl From<Raw<u8>> for crate::types::ContrastLevel {
+    fn from(raw: Raw<u8>) -> Self {
+        crate::types::ContrastLevel::new(raw.0).unwrap_or(crate::types::ContrastLevel::MIN)
+    }
+}
+
+// Conversion implementations for SaturationLevel
+impl TryFrom<Percentage<f32>> for crate::types::SaturationLevel {
+    type Error = Error;
+
+    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
+        if percentage.0 < 0.0 || percentage.0 > 100.0 {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "saturation percentage".to_string(),
+                value: percentage.0 as i32,
+                min: 0,
+                max: 100,
+            });
+        }
+        // Map percentage to saturation levels (0x00-0x0E)
+        let value = (percentage.0 / 100.0 * 0x0E as f32).round() as u8;
+        crate::types::SaturationLevel::new(value)
+    }
+}
+
+impl From<Raw<u8>> for crate::types::SaturationLevel {
+    fn from(raw: Raw<u8>) -> Self {
+        crate::types::SaturationLevel::new(raw.0).unwrap_or(crate::types::SaturationLevel::MIN)
+    }
+}
+
+// Conversion implementations for HueLevel
+impl TryFrom<Percentage<f32>> for crate::types::HueLevel {
+    type Error = Error;
+
+    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
+        if percentage.0 < 0.0 || percentage.0 > 100.0 {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "hue percentage".to_string(),
+                value: percentage.0 as i32,
+                min: 0,
+                max: 100,
+            });
+        }
+        // Map percentage to hue levels (0x00-0x0E)
+        let value = (percentage.0 / 100.0 * 0x0E as f32).round() as u8;
+        crate::types::HueLevel::new(value)
+    }
+}
+
+impl From<Raw<u8>> for crate::types::HueLevel {
+    fn from(raw: Raw<u8>) -> Self {
+        crate::types::HueLevel::new(raw.0).unwrap_or(crate::types::HueLevel::MIN)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
