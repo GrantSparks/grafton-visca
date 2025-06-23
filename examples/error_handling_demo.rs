@@ -4,9 +4,9 @@
 //! including retry logic and error classification.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::TcpTransport;
+use grafton_visca::transport::blocking::Tcp;
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::TcpTransport;
+use grafton_visca::transport::tokio::Tcp;
 
 use grafton_visca::Error;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
@@ -155,7 +155,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match TcpTransport::connect(camera_addr) {
+    let transport = match Tcp::connect(camera_addr) {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -313,7 +313,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match TcpTransport::connect_timeout(camera_addr, Duration::from_secs(5)).await {
+    let transport = match Tcp::connect_timeout(camera_addr, Duration::from_secs(5)).await {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t

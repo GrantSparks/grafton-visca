@@ -5,11 +5,11 @@ use grafton_visca::camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, So
 #[cfg(all(feature = "async", not(feature = "tokio")))]
 use grafton_visca::camera::{CameraProfile, PTZOpticsG2};
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::{Transport as BlockingTransport, UdpTransport};
+use grafton_visca::transport::blocking::{BlockingTransport, Udp};
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, SonyEVID70},
-    transport::{tokio::UdpTransport, AsyncTransport},
+    transport::{tokio::Udp, AsyncTransport},
 };
 
 // Include the transport implementation from the example file
@@ -32,12 +32,11 @@ fn main() {
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using blocking transport
-    let g2_camera = Camera::<PTZOpticsG2, _>::new(UdpTransport::connect("192.168.1.100:1259")?);
+    let g2_camera = Camera::<PTZOpticsG2, _>::new(Udp::connect("192.168.1.100:1259")?);
 
-    let sony_camera = Camera::<SonyEVID70, _>::new(UdpTransport::connect("192.168.1.101:1259")?);
+    let sony_camera = Camera::<SonyEVID70, _>::new(Udp::connect("192.168.1.101:1259")?);
 
-    let generic_camera =
-        Camera::<GenericVisca, _>::new(UdpTransport::connect("192.168.1.102:1259")?);
+    let generic_camera = Camera::<GenericVisca, _>::new(Udp::connect("192.168.1.102:1259")?);
 
     println!("=== Camera Capability Comparison ===\n");
 
@@ -188,14 +187,11 @@ fn print_capability_summary(summary: &grafton_visca::camera::CapabilitySummary) 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using async transport
-    let g2_camera =
-        Camera::<PTZOpticsG2, _>::new(UdpTransport::connect("192.168.1.100:1259").await?);
+    let g2_camera = Camera::<PTZOpticsG2, _>::new(Udp::connect("192.168.1.100:1259").await?);
 
-    let sony_camera =
-        Camera::<SonyEVID70, _>::new(UdpTransport::connect("192.168.1.101:1259").await?);
+    let sony_camera = Camera::<SonyEVID70, _>::new(Udp::connect("192.168.1.101:1259").await?);
 
-    let generic_camera =
-        Camera::<GenericVisca, _>::new(UdpTransport::connect("192.168.1.102:1259").await?);
+    let generic_camera = Camera::<GenericVisca, _>::new(Udp::connect("192.168.1.102:1259").await?);
 
     println!("=== Camera Capability Comparison ===\n");
 

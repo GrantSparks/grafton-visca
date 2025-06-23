@@ -1,6 +1,6 @@
 //! Unified VISCA transport wrapper that works with both blocking and async transports.
 //!
-//! This module provides a single ViscaTransport implementation that adapts to the
+//! This module provides a single Transport implementation that adapts to the
 //! transport type it wraps, handling all VISCA protocol specifics.
 
 use std::time::Duration;
@@ -14,13 +14,16 @@ use crate::{
     Command,
 };
 
+#[cfg(feature = "async")]
+use super::internal::sync_primitives;
+
 /// VISCA protocol constants.
 const VISCA_TERMINATOR: u8 = 0xFF;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const ACK_TIMEOUT: Duration = Duration::from_millis(500);
 const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// VISCA transport wrapper that handles protocol-specific logic.
+/// VISCA protocol handler that manages protocol-specific logic.
 ///
 /// This wraps any transport (blocking or async) and adds VISCA protocol handling:
 /// - Command formatting and termination
@@ -32,15 +35,15 @@ const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 /// - For blocking: stores T directly, methods take &mut self
 /// - For async: stores `Arc<Mutex<T>>`, methods take &self
 #[derive(Debug)]
-pub struct ViscaTransport<T> {
+pub struct ViscaProtocol<T> {
     #[cfg(not(feature = "async"))]
     transport: T,
     #[cfg(feature = "async")]
-    transport: std::sync::Arc<crate::sync_primitives::Mutex<T>>,
+    transport: std::sync::Arc<sync_primitives::Mutex<T>>,
 }
 
 // Common implementation
-impl<T> ViscaTransport<T> {
+impl<T> ViscaProtocol<T> {
     /// Create a transport for blocking usage (stores T directly)
     #[allow(dead_code)]
     pub(crate) fn new_blocking(transport: T) -> Self {
@@ -48,7 +51,7 @@ impl<T> ViscaTransport<T> {
             #[cfg(not(feature = "async"))]
             transport,
             #[cfg(feature = "async")]
-            transport: std::sync::Arc::new(crate::sync_primitives::Mutex::new(transport)),
+            transport: std::sync::Arc::new(sync_primitives::Mutex::new(transport)),
         }
     }
 
@@ -56,7 +59,7 @@ impl<T> ViscaTransport<T> {
     #[cfg(feature = "async")]
     pub(crate) fn new_async(transport: T) -> Self {
         Self {
-            transport: std::sync::Arc::new(crate::sync_primitives::Mutex::new(transport)),
+            transport: std::sync::Arc::new(sync_primitives::Mutex::new(transport)),
         }
     }
 }
@@ -65,9 +68,9 @@ impl<T> ViscaTransport<T> {
 #[cfg(not(feature = "async"))]
 mod blocking_impl {
     use super::*;
-    use crate::transport::blocking::Transport;
+    use crate::transport::blocking::BlockingTransport;
 
-    impl<T: Transport> ViscaTransport<T> {
+    impl<T: BlockingTransport> ViscaProtocol<T> {
         /// Create a new VISCA transport wrapping a raw transport.
         pub fn new(transport: T) -> Self {
             Self::new_blocking(transport)
@@ -220,7 +223,7 @@ mod async_impl {
     use super::*;
     use crate::transport::AsyncTransport;
 
-    impl<T: AsyncTransport> ViscaTransport<T> {
+    impl<T: AsyncTransport> ViscaProtocol<T> {
         /// Create a new VISCA transport wrapping an async transport.
         pub fn new(transport: T) -> Self {
             Self::new_async(transport)
@@ -408,7 +411,7 @@ mod async_impl {
     }
 
     // Clone implementation for async version
-    impl<T: AsyncTransport> Clone for ViscaTransport<T> {
+    impl<T: AsyncTransport> Clone for ViscaProtocol<T> {
         fn clone(&self) -> Self {
             Self {
                 transport: self.transport.clone(),

@@ -14,10 +14,10 @@
 //! # use grafton_visca::Client;
 //! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
-//! client.send(&ZoomCommand::ZoomInStandard).unwrap();
+//! client.send(&ZoomCommand::In).unwrap();
 //!
 //! // Zoom out at variable speed
-//! client.send(&ZoomCommand::ZoomOutVariable(ZoomSpeed::new(5).unwrap())).unwrap();
+//! client.send(&ZoomCommand::OutWithSpeed(ZoomSpeed::new(5).unwrap())).unwrap();
 //! # }
 //! ```
 
@@ -57,25 +57,25 @@ impl From<SpeedLevel> for ZoomSpeed {
 ///
 /// Provides various ways to control camera zoom:
 /// - `Stop` - Stop zoom movement
-/// - `ZoomInStandard` - Zoom in at standard speed
-/// - `ZoomOutStandard` - Zoom out at standard speed
-/// - `ZoomInVariable` - Zoom in at specified speed (0-7)
-/// - `ZoomOutVariable` - Zoom out at specified speed (0-7)
-/// - `Direct` - Set zoom to specific position
+/// - `In` - Zoom in at standard speed
+/// - `Out` - Zoom out at standard speed
+/// - `InWithSpeed` - Zoom in at specified speed (0-7)
+/// - `OutWithSpeed` - Zoom out at specified speed (0-7)
+/// - `Position` - Set zoom to specific position
 #[derive(Debug, Copy, Clone)]
 pub enum ZoomCommand {
     /// Stop zoom movement.
     Stop,
     /// Zoom in at standard speed.
-    ZoomInStandard,
+    In,
     /// Zoom out at standard speed.
-    ZoomOutStandard,
+    Out,
     /// Zoom in at variable speed.
-    ZoomInVariable(ZoomSpeed),
+    InWithSpeed(ZoomSpeed),
     /// Zoom out at variable speed.
-    ZoomOutVariable(ZoomSpeed),
-    /// Set zoom to direct position.
-    Direct(ZoomPosition),
+    OutWithSpeed(ZoomSpeed),
+    /// Set zoom to specific position.
+    Position(ZoomPosition),
 }
 
 impl ZoomCommand {
@@ -89,7 +89,7 @@ impl ZoomCommand {
                 max: *P::ZOOM_RANGE.end() as i32,
             });
         }
-        Ok(Self::Direct(ZoomPosition::new(position)?))
+        Ok(Self::Position(ZoomPosition::new(position)?))
     }
 }
 
@@ -100,23 +100,23 @@ impl Command for ZoomCommand {
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]),
 
             // Zoom in standard
-            Self::ZoomInStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
+            Self::In => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
 
             // Zoom out standard
-            Self::ZoomOutStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
+            Self::Out => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
 
             // Zoom in variable
-            Self::ZoomInVariable(speed) => {
+            Self::InWithSpeed(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x20 | speed.value(), 0xFF])
             }
 
             // Zoom out variable
-            Self::ZoomOutVariable(speed) => {
+            Self::OutWithSpeed(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x30 | speed.value(), 0xFF])
             }
 
             // Direct zoom to a specific position
-            Self::Direct(position) => {
+            Self::Position(position) => {
                 let nibbles = position_to_nibbles(position.value());
 
                 Ok(vec![
@@ -128,8 +128,8 @@ impl Command for ZoomCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::ZoomInStandard => Some(ResponseType::ZoomInStandard),
-            Self::ZoomOutStandard => Some(ResponseType::ZoomOutStandard),
+            Self::In => Some(ResponseType::ZoomIn),
+            Self::Out => Some(ResponseType::ZoomOut),
             _ => None,
         }
     }
@@ -140,12 +140,12 @@ impl Command for ZoomCommand {
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
-            Self::Direct(position) => {
+            Self::Position(position) => {
                 let (min, max) = model.zoom_range();
                 if position.value() < min || position.value() > max {
                     return Err(Error::ModelValidation {
                         model,
-                        command: "ZoomDirect".to_string(),
+                        command: "ZoomPosition".to_string(),
                         reason: format!(
                             "Position 0x{:04X} out of range [0x{min:04X}, 0x{max:04X}] for {model:?}", position.value()
                         ),
@@ -227,44 +227,44 @@ mod tests {
 
     #[test]
     fn test_zoom_command_zoom_in_standard() {
-        let cmd = ZoomCommand::ZoomInStandard;
+        let cmd = ZoomCommand::In;
         let bytes = cmd
             .to_bytes()
-            .unwrap_or_else(|e| panic!("Failed to convert ZoomInStandard command to bytes: {e:?}"));
+            .unwrap_or_else(|e| panic!("Failed to convert In command to bytes: {e:?}"));
         assert_eq!(
             bytes,
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF],
-            "ZoomInStandard command bytes mismatch"
+            "In command bytes mismatch"
         );
-        assert_eq!(cmd.response_type(), Some(ResponseType::ZoomInStandard));
+        assert_eq!(cmd.response_type(), Some(ResponseType::ZoomIn));
     }
 
     #[test]
     fn test_zoom_command_zoom_out_standard() {
-        let cmd = ZoomCommand::ZoomOutStandard;
-        let bytes = cmd.to_bytes().unwrap_or_else(|e| {
-            panic!("Failed to convert ZoomOutStandard command to bytes: {e:?}")
-        });
+        let cmd = ZoomCommand::Out;
+        let bytes = cmd
+            .to_bytes()
+            .unwrap_or_else(|e| panic!("Failed to convert Out command to bytes: {e:?}"));
         assert_eq!(
             bytes,
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF],
-            "ZoomOutStandard command bytes mismatch"
+            "Out command bytes mismatch"
         );
-        assert_eq!(cmd.response_type(), Some(ResponseType::ZoomOutStandard));
+        assert_eq!(cmd.response_type(), Some(ResponseType::ZoomOut));
     }
 
     #[test]
     fn test_zoom_command_zoom_in_variable() {
         let speed =
             ZoomSpeed::new(5).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 5: {e:?}"));
-        let cmd = ZoomCommand::ZoomInVariable(speed);
+        let cmd = ZoomCommand::InWithSpeed(speed);
         let bytes = cmd
             .to_bytes()
-            .unwrap_or_else(|e| panic!("Failed to convert ZoomInVariable command to bytes: {e:?}"));
+            .unwrap_or_else(|e| panic!("Failed to convert InWithSpeed command to bytes: {e:?}"));
         assert_eq!(
             bytes,
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF],
-            "ZoomInVariable command bytes mismatch"
+            "InWithSpeed command bytes mismatch"
         );
     }
 
@@ -272,29 +272,29 @@ mod tests {
     fn test_zoom_command_zoom_out_variable() {
         let speed =
             ZoomSpeed::new(7).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 7: {e:?}"));
-        let cmd = ZoomCommand::ZoomOutVariable(speed);
-        let bytes = cmd.to_bytes().unwrap_or_else(|e| {
-            panic!("Failed to convert ZoomOutVariable command to bytes: {e:?}")
-        });
+        let cmd = ZoomCommand::OutWithSpeed(speed);
+        let bytes = cmd
+            .to_bytes()
+            .unwrap_or_else(|e| panic!("Failed to convert OutWithSpeed command to bytes: {e:?}"));
         assert_eq!(
             bytes,
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF],
-            "ZoomOutVariable command bytes mismatch"
+            "OutWithSpeed command bytes mismatch"
         );
     }
 
     #[test]
-    fn test_zoom_command_direct() {
-        let cmd = ZoomCommand::Direct(
+    fn test_zoom_command_position() {
+        let cmd = ZoomCommand::Position(
             ZoomPosition::new(0x1234).unwrap_or_else(|e| panic!("Valid zoom position: {e:?}")),
         );
         let bytes = cmd
             .to_bytes()
-            .unwrap_or_else(|e| panic!("Failed to convert Direct command to bytes: {e:?}"));
+            .unwrap_or_else(|e| panic!("Failed to convert Position command to bytes: {e:?}"));
         assert_eq!(
             bytes,
             vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF],
-            "Direct command bytes mismatch"
+            "Position command bytes mismatch"
         );
     }
 
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn test_zoom_validation_g2_camera() {
         // Test validation for PTZOptics G2 (20X zoom)
-        let cmd_valid = ZoomCommand::Direct(
+        let cmd_valid = ZoomCommand::Position(
             ZoomPosition::new(0x7000).unwrap_or_else(|e| panic!("Valid zoom position: {e:?}")),
         ); // Max for 20X
         assert!(cmd_valid
@@ -325,7 +325,7 @@ mod tests {
     fn test_zoom_validation_30x_camera() {
         // Test validation for PTZOptics 30X
         // Note: ZoomPosition is limited to 0x7000, so we can't test 30X-specific values
-        let cmd_valid = ZoomCommand::Direct(
+        let cmd_valid = ZoomCommand::Position(
             ZoomPosition::new(0x7000).unwrap_or_else(|e| panic!("Valid zoom position: {e:?}")),
         ); // Max allowed by ZoomPosition
         assert!(cmd_valid
@@ -337,25 +337,17 @@ mod tests {
     fn test_zoom_validation_other_commands() {
         // Test that other zoom commands pass validation
         assert!(Command::validate_for_model(&ZoomCommand::Stop, CameraModel::PTZOpticsG2).is_ok());
+        assert!(Command::validate_for_model(&ZoomCommand::In, CameraModel::PTZOpticsG2).is_ok());
+        assert!(Command::validate_for_model(&ZoomCommand::Out, CameraModel::PTZOpticsG2).is_ok());
         assert!(Command::validate_for_model(
-            &ZoomCommand::ZoomInStandard,
-            CameraModel::PTZOpticsG2
-        )
-        .is_ok());
-        assert!(Command::validate_for_model(
-            &ZoomCommand::ZoomOutStandard,
-            CameraModel::PTZOpticsG2
-        )
-        .is_ok());
-        assert!(Command::validate_for_model(
-            &ZoomCommand::ZoomInVariable(
+            &ZoomCommand::InWithSpeed(
                 ZoomSpeed::new(5).unwrap_or_else(|e| panic!("Valid ZoomSpeed 5: {e:?}"))
             ),
             CameraModel::PTZOpticsG2
         )
         .is_ok());
         assert!(Command::validate_for_model(
-            &ZoomCommand::ZoomOutVariable(
+            &ZoomCommand::OutWithSpeed(
                 ZoomSpeed::new(3).unwrap_or_else(|e| panic!("Valid ZoomSpeed 3: {e:?}"))
             ),
             CameraModel::PTZOpticsG2
@@ -370,11 +362,11 @@ mod tests {
             CommandCategory::Movement
         );
         assert_eq!(
-            ZoomCommand::ZoomInStandard.command_category(),
+            ZoomCommand::In.command_category(),
             CommandCategory::Movement
         );
         assert_eq!(
-            ZoomCommand::Direct(
+            ZoomCommand::Position(
                 ZoomPosition::new(0).unwrap_or_else(|e| panic!("Valid zoom position: {e:?}"))
             )
             .command_category(),

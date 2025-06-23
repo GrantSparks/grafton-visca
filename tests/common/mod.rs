@@ -13,7 +13,7 @@ pub mod helpers;
 pub mod macros;
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::Transport as BlockingTransport;
+use grafton_visca::transport::blocking::BlockingTransport;
 
 #[cfg(any(not(feature = "async"), all(feature = "async", feature = "tokio")))]
 use grafton_visca::Error;

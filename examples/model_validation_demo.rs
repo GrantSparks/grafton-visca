@@ -20,7 +20,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 /// Mock transport for demonstration purposes.
-/// In real usage, you would use UdpTransport or TcpTransport.
+/// In real usage, you would use Udp or Tcp.
 #[cfg(feature = "async")]
 #[derive(Debug)]
 struct MockTransport;

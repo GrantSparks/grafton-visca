@@ -7,7 +7,7 @@
 
 use std::fmt::Debug;
 
-// Note: Transport creation helpers have been removed since concrete
+// Note: ViscaProtocol creation helpers have been removed since concrete
 // transport implementations (TCP/UDP) are now provided as examples
 // rather than being part of the core library. Tests should either:
 // 1. Use mock transports for unit testing

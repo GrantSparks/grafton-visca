@@ -60,7 +60,7 @@ pub fn visca_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #(#attrs)*
         #vis fn #fn_name #generics(&mut self #(, #params)*) -> Result<(), crate::Error>
         where
-            T: crate::transport::blocking::Transport,
+            T: crate::transport::blocking::BlockingTransport,
         {
             let command = #block;
             self.send_and_wait(&command)
@@ -112,7 +112,7 @@ pub fn visca_method_custom(_attr: TokenStream, item: TokenStream) -> TokenStream
         #(#attrs)*
         #vis fn #fn_name #generics(&mut self #(, #params)*) -> Result<(), crate::Error>
         where
-            T: crate::transport::blocking::Transport,
+            T: crate::transport::blocking::BlockingTransport,
         {
             let command = #block;
             self.send_and_wait(&command)
@@ -203,7 +203,7 @@ pub fn visca_camera_method(attr: TokenStream, item: TokenStream) -> TokenStream 
             #(#attrs)*
             #vis fn #fn_name #impl_generics(&mut self #(, #params)*) -> Result<(), crate::Error>
             where
-                T: crate::transport::blocking::Transport,
+                T: crate::transport::blocking::BlockingTransport,
                 #where_clause
             {
                 #command_execution
@@ -347,7 +347,7 @@ pub fn visca_method_generic(_attr: TokenStream, item: TokenStream) -> TokenStrea
         #(#attrs)*
         #vis fn #fn_name #generics(#blocking_params) #output
         where
-            T: crate::transport::blocking::Transport,
+            T: crate::transport::blocking::BlockingTransport,
         {
             // For blocking version, we need to transform async calls
             // This is a simplified version - in practice you might need more sophisticated transformation

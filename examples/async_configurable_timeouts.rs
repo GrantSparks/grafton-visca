@@ -226,16 +226,16 @@ async fn demonstrate_timeout_recovery<T: grafton_visca::transport::AsyncTranspor
 
     println!("   ✗ All retry attempts exhausted");
 
-    // Demonstrate alternative: AsyncTcpTransport has hardcoded 10s timeout
+    // Demonstrate alternative: Async Tcp has hardcoded 10s timeout
     println!("\n5. Transport-Level Timeout Notes:");
-    println!("   AsyncTcpTransport uses a hardcoded 10-second timeout");
+    println!("   Async Tcp transport uses a hardcoded 10-second timeout");
     println!("   For custom timeouts, wrap operations with tokio::time::timeout");
 
     #[cfg(feature = "tokio")]
     {
         // TCP transport is already available via common module
 
-        // AsyncTcpTransport has a fixed 10s timeout
+        // Async Tcp has a fixed 10s timeout
         match create::tcp("192.168.1.100:5678").await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");

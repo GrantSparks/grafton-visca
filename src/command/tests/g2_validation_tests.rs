@@ -42,8 +42,8 @@ mod zoom_commands {
 
     #[test]
     fn test_zoom_standard_speeds() {
-        assert_valid_for_g2(&ZoomCommand::ZoomInStandard);
-        assert_valid_for_g2(&ZoomCommand::ZoomOutStandard);
+        assert_valid_for_g2(&ZoomCommand::In);
+        assert_valid_for_g2(&ZoomCommand::Out);
     }
 
     #[test]
@@ -51,21 +51,21 @@ mod zoom_commands {
         // Valid speeds: 0-7
         for speed in 0..=7 {
             let zoom_speed = ZoomSpeed::new(speed).unwrap();
-            assert_valid_for_g2(&ZoomCommand::ZoomInVariable(zoom_speed));
-            assert_valid_for_g2(&ZoomCommand::ZoomOutVariable(zoom_speed));
+            assert_valid_for_g2(&ZoomCommand::InWithSpeed(zoom_speed));
+            assert_valid_for_g2(&ZoomCommand::OutWithSpeed(zoom_speed));
         }
     }
 
     #[test]
-    fn test_zoom_direct_positions() {
+    fn test_zoom_position_values() {
         // G2 has 20X optical zoom, max position is 0x7000
 
         use crate::types::ZoomPosition;
 
         // Valid positions
-        assert_valid_for_g2(&ZoomCommand::Direct(ZoomPosition::new(0x0000).unwrap())); // Wide end
-        assert_valid_for_g2(&ZoomCommand::Direct(ZoomPosition::new(0x3000).unwrap())); // Mid position
-        assert_valid_for_g2(&ZoomCommand::Direct(ZoomPosition::new(0x7000).unwrap())); // 20X optical limit
+        assert_valid_for_g2(&ZoomCommand::Position(ZoomPosition::new(0x0000).unwrap())); // Wide end
+        assert_valid_for_g2(&ZoomCommand::Position(ZoomPosition::new(0x3000).unwrap())); // Mid position
+        assert_valid_for_g2(&ZoomCommand::Position(ZoomPosition::new(0x7000).unwrap())); // 20X optical limit
 
         // Invalid positions (beyond 20X) - These will fail at ZoomPosition creation
         // since ZoomPosition enforces the max limit of 0x7000
@@ -90,8 +90,8 @@ mod focus_commands {
 
     #[test]
     fn test_focus_standard_speeds() {
-        assert_valid_for_g2(&FocusCommand::FocusFarStandard);
-        assert_valid_for_g2(&FocusCommand::FocusNearStandard);
+        assert_valid_for_g2(&FocusCommand::Far);
+        assert_valid_for_g2(&FocusCommand::Near);
     }
 
     #[test]
@@ -99,19 +99,19 @@ mod focus_commands {
         // Valid speeds: 0-7
         for speed in 0..=7 {
             let focus_speed = FocusSpeed::new(speed).unwrap();
-            assert_valid_for_g2(&FocusCommand::FarVariable(focus_speed));
-            assert_valid_for_g2(&FocusCommand::NearVariable(focus_speed));
+            assert_valid_for_g2(&FocusCommand::FarWithSpeed(focus_speed));
+            assert_valid_for_g2(&FocusCommand::NearWithSpeed(focus_speed));
         }
     }
 
     #[test]
-    fn test_focus_direct_positions() {
+    fn test_focus_position_values() {
         use crate::types::FocusPosition;
 
         // Focus range: 0x1000 to 0xF000
-        assert_valid_for_g2(&FocusCommand::Direct(FocusPosition::new(0x1000).unwrap())); // Infinity
-        assert_valid_for_g2(&FocusCommand::Direct(FocusPosition::new(0x8000).unwrap())); // Mid position
-        assert_valid_for_g2(&FocusCommand::Direct(FocusPosition::new(0xF000).unwrap())); // Near limit
+        assert_valid_for_g2(&FocusCommand::Position(FocusPosition::new(0x1000).unwrap())); // Infinity
+        assert_valid_for_g2(&FocusCommand::Position(FocusPosition::new(0x8000).unwrap())); // Mid position
+        assert_valid_for_g2(&FocusCommand::Position(FocusPosition::new(0xF000).unwrap())); // Near limit
 
         // Invalid positions (out of range) - These will fail at FocusPosition creation
         assert!(FocusPosition::new(0x0FFF).is_err());
@@ -402,7 +402,7 @@ mod exposure_commands {
 
         // Valid range: -7 to +7
         for value in -7..=7 {
-            assert_valid_for_g2(&ExposureCompensationCommand::Direct(
+            assert_valid_for_g2(&ExposureCompensationCommand::SetLevel(
                 ExposureCompensationLevel::new(value).unwrap(),
             ));
         }
@@ -422,7 +422,7 @@ mod exposure_commands {
 
         // Valid range: 0x00 (Close) to 0x0C (F1.8)
         for value in 0x00..=0x0C {
-            assert_valid_for_g2(&IrisCommand::Direct(IrisLevel::new(value).unwrap()));
+            assert_valid_for_g2(&IrisCommand::SetAperture(IrisLevel::new(value).unwrap()));
         }
     }
 
@@ -434,7 +434,7 @@ mod exposure_commands {
 
         // Valid range: 0x01 (1/30) to 0x11 (1/10000)
         for value in 0x01..=0x11 {
-            assert_valid_for_g2(&ShutterCommand::Direct(ShutterSpeed::new(value).unwrap()));
+            assert_valid_for_g2(&ShutterCommand::SetSpeed(ShutterSpeed::new(value).unwrap()));
         }
     }
 
@@ -446,7 +446,9 @@ mod exposure_commands {
 
         // Valid range: 0x00 to 0x11 (0-17)
         for value in 0x00..=0x11 {
-            assert_valid_for_g2(&BrightCommand::Direct(BrightnessLevel::new(value).unwrap()));
+            assert_valid_for_g2(&BrightCommand::SetLevel(
+                BrightnessLevel::new(value).unwrap(),
+            ));
         }
 
         // BrightnessLevel::new() already prevents values > 0x11, so we can't test invalid direct values
@@ -461,7 +463,7 @@ mod exposure_commands {
 
         // Valid range: 0x00 to 0x07 (0-7)
         for value in 0x00..=0x07 {
-            assert_valid_for_g2(&GainCommand::Direct(GainValue::new(value).unwrap()));
+            assert_valid_for_g2(&GainCommand::SetValue(GainValue::new(value).unwrap()));
         }
     }
 
@@ -479,7 +481,7 @@ mod exposure_commands {
     fn test_dynamic_range() {
         // Valid range: 0 to 8
         for value in 0..=8 {
-            assert_valid_for_g2(&DynamicRangeCommand::Direct(
+            assert_valid_for_g2(&DynamicRangeCommand::SetLevel(
                 DynamicRangeLevel::new(value).unwrap(),
             ));
         }
@@ -565,8 +567,8 @@ mod white_balance_commands {
 
         // Valid range: 0x00 to 0xFF
         for value in [0x00, 0x80, 0xFF] {
-            assert_valid_for_g2(&RedGainCommand::Direct(RedGain::new(value).unwrap()));
-            assert_valid_for_g2(&BlueGainCommand::Direct(BlueGain::new(value).unwrap()));
+            assert_valid_for_g2(&RedGainCommand::SetValue(RedGain::new(value).unwrap()));
+            assert_valid_for_g2(&BlueGainCommand::SetValue(BlueGain::new(value).unwrap()));
         }
     }
 
@@ -580,7 +582,7 @@ mod white_balance_commands {
 
         // Valid range: 0x00 (2500K) to 0x37 (8000K)
         for value in [0x00, 0x10, 0x20, 0x30, 0x37] {
-            assert_valid_for_g2(&ColorTemperatureCommand::Direct(
+            assert_valid_for_g2(&ColorTemperatureCommand::SetTemperature(
                 ColorTemperature::new(value).unwrap(),
             ));
         }
@@ -593,7 +595,7 @@ mod image_adjustment_commands {
         command::{
             color::{HueCommand, SaturationCommand},
             image::{BlackWhiteCommand, NoiseReduction2DCommand, NoiseReduction3DCommand},
-            luminance_contrast_sharpness::{
+            image_adjustment::{
                 ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode,
             },
         },
@@ -654,7 +656,7 @@ mod image_adjustment_commands {
 
         // Valid range: 0 to 11
         for value in 0..=11 {
-            assert_valid_for_g2(&SharpnessCommand::Direct { value });
+            assert_valid_for_g2(&SharpnessCommand::SetLevel { value });
         }
     }
 
@@ -779,7 +781,7 @@ mod validation_tests {
             },
             focus::FocusNearLimitCommand,
             gain::GainLimitCommand,
-            luminance_contrast_sharpness::{ContrastCommand, LuminanceCommand},
+            image_adjustment::{ContrastCommand, LuminanceCommand},
         },
         types::{BrightnessLevel, ContrastLevel, GainLimit, LuminanceLevel},
     };
@@ -787,14 +789,16 @@ mod validation_tests {
     #[test]
     fn test_newly_validated_commands_accept_valid_values() {
         // These should all pass validation for G2
-        assert_valid_for_g2(&BrightCommand::Direct(BrightnessLevel::new(0x11).unwrap()));
-        assert_valid_for_g2(&DynamicRangeCommand::Direct(
+        assert_valid_for_g2(&BrightCommand::SetLevel(
+            BrightnessLevel::new(0x11).unwrap(),
+        ));
+        assert_valid_for_g2(&DynamicRangeCommand::SetLevel(
             DynamicRangeLevel::new(8).unwrap(),
         ));
-        assert_valid_for_g2(&ExposureCompensationCommand::Direct(
+        assert_valid_for_g2(&ExposureCompensationCommand::SetLevel(
             ExposureCompensationLevel::new(7).unwrap(),
         ));
-        assert_valid_for_g2(&ExposureCompensationCommand::Direct(
+        assert_valid_for_g2(&ExposureCompensationCommand::SetLevel(
             ExposureCompensationLevel::new(-7).unwrap(),
         ));
         assert_valid_for_g2(&GainLimitCommand {

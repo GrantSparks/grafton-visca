@@ -16,8 +16,8 @@ pub mod flip;
 pub mod focus;
 pub mod gain;
 pub mod image;
+pub mod image_adjustment;
 pub mod inquiry;
-pub mod luminance_contrast_sharpness;
 pub mod pan_tilt;
 pub mod power;
 pub mod preset;
@@ -33,8 +33,8 @@ pub use self::{
     focus::*,
     gain::*,
     image::*,
+    image_adjustment::*,
     inquiry::*,
-    luminance_contrast_sharpness::*,
     pan_tilt::*,
     power::*,
     preset::*,

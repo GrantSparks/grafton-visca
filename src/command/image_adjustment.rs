@@ -1,7 +1,7 @@
-//! Luminance, contrast, and sharpness control commands for VISCA cameras.
+//! Image adjustment commands for VISCA cameras.
 //!
 //! This module provides commands for adjusting image quality parameters such as
-//! luminance (brightness), contrast levels, and sharpness settings.
+//! sharpness, brightness (luminance), and contrast levels.
 
 // Crate imports
 use crate::{
@@ -36,7 +36,7 @@ pub enum SharpnessCommand {
     /// Decrease sharpness by one step.
     Down,
     /// Set sharpness to specific value (0-11).
-    Direct {
+    SetLevel {
         /// Sharpness value (0 = minimum, 11 = maximum).
         value: u8,
     },
@@ -55,7 +55,7 @@ impl Command for SharpnessCommand {
             Self::Reset => vec![0x81, 0x01, 0x04, 0x02, 0x00, 0xFF],
             Self::Up => vec![0x81, 0x01, 0x04, 0x02, 0x02, 0xFF],
             Self::Down => vec![0x81, 0x01, 0x04, 0x02, 0x03, 0xFF],
-            Self::Direct { value } => {
+            Self::SetLevel { value } => {
                 if *value > 11 {
                     return Err(Error::InvalidParameter(
                         "Sharpness value must be in the range 0..=11".into(),
@@ -80,13 +80,13 @@ impl Command for SharpnessCommand {
         use crate::types::SharpnessLevel;
 
         match self {
-            Self::Direct { value } => {
+            Self::SetLevel { value } => {
                 if matches!(model, CameraModel::PTZOpticsG2)
                     && !SharpnessLevel::G2_VALID_VALUES.contains(value)
                 {
                     return Err(Error::ModelValidation {
                         model,
-                        command: "SharpnessDirect".to_string(),
+                        command: "SharpnessSetLevel".to_string(),
                         reason: format!(
                             "Sharpness value {value} is not valid for G2. Valid values: 0-11"
                         ),
@@ -99,7 +99,7 @@ impl Command for SharpnessCommand {
     }
 }
 
-/// Command to set the luminance level.
+/// Command to set the luminance (brightness) level.
 #[derive(Debug, Clone, Copy)]
 pub struct LuminanceCommand {
     /// The luminance level.
@@ -254,10 +254,10 @@ mod tests {
     }
 
     #[test]
-    fn test_sharpness_direct() {
+    fn test_sharpness_set_level() {
         // Test valid values 0-11
         for value in 0..=11 {
-            let cmd = SharpnessCommand::Direct { value };
+            let cmd = SharpnessCommand::SetLevel { value };
             let bytes = cmd
                 .to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -277,7 +277,7 @@ mod tests {
     fn test_sharpness_g2_validation() {
         // Test valid G2 values
         for value in 0..=11 {
-            let cmd = SharpnessCommand::Direct { value };
+            let cmd = SharpnessCommand::SetLevel { value };
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -287,7 +287,7 @@ mod tests {
         let result = SharpnessLevel::new(12);
         assert!(result.is_err());
 
-        // Test that non-Direct commands pass validation
+        // Test that non-SetLevel commands pass validation
         let cmd = SharpnessCommand::Reset;
         assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
 
@@ -374,7 +374,7 @@ mod tests {
         let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
             Box::new(SharpnessCommand::Reset),
             Box::new(SharpnessCommand::Mode(SharpnessMode::Auto)),
-            Box::new(SharpnessCommand::Direct { value: 5 }),
+            Box::new(SharpnessCommand::SetLevel { value: 5 }),
             Box::new(LuminanceCommand {
                 value: LuminanceLevel::new(7)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -390,10 +390,13 @@ mod tests {
         }
 
         // Test Clone
-        let sharp_cmd1 = SharpnessCommand::Direct { value: 5 };
+        let sharp_cmd1 = SharpnessCommand::SetLevel { value: 5 };
         let sharp_cmd2 = sharp_cmd1;
         match (sharp_cmd1, sharp_cmd2) {
-            (SharpnessCommand::Direct { value: v1 }, SharpnessCommand::Direct { value: v2 }) => {
+            (
+                SharpnessCommand::SetLevel { value: v1 },
+                SharpnessCommand::SetLevel { value: v2 },
+            ) => {
                 assert_eq!(v1, v2);
             }
             _ => panic!("Clone didn't preserve variant"),
@@ -403,10 +406,10 @@ mod tests {
     #[test]
     fn test_edge_cases() {
         // Test boundary values for sharpness
-        let cmd = SharpnessCommand::Direct { value: 0 };
+        let cmd = SharpnessCommand::SetLevel { value: 0 };
         assert!(cmd.to_bytes().is_ok());
 
-        let cmd = SharpnessCommand::Direct { value: 11 };
+        let cmd = SharpnessCommand::SetLevel { value: 11 };
         assert!(cmd.to_bytes().is_ok());
 
         // Test boundary values for luminance
@@ -434,15 +437,15 @@ mod tests {
 
     #[test]
     fn test_nibble_encoding_sharpness() {
-        // Test that Direct command properly encodes value as nibbles
-        let cmd = SharpnessCommand::Direct { value: 0x0B };
+        // Test that SetLevel command properly encodes value as nibbles
+        let cmd = SharpnessCommand::SetLevel { value: 0x0B };
         let bytes = cmd
             .to_bytes()
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x0B); // Low nibble
 
-        let cmd = SharpnessCommand::Direct { value: 0x05 };
+        let cmd = SharpnessCommand::SetLevel { value: 0x05 };
         let bytes = cmd
             .to_bytes()
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -458,7 +461,7 @@ mod tests {
             Box::new(SharpnessCommand::Mode(SharpnessMode::Auto)),
             Box::new(SharpnessCommand::Up),
             Box::new(SharpnessCommand::Down),
-            Box::new(SharpnessCommand::Direct { value: 5 }),
+            Box::new(SharpnessCommand::SetLevel { value: 5 }),
             Box::new(LuminanceCommand {
                 value: LuminanceLevel::new(7)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -482,7 +485,7 @@ mod tests {
             SharpnessCommand::Mode(SharpnessMode::Auto),
             SharpnessCommand::Up,
             SharpnessCommand::Down,
-            SharpnessCommand::Direct { value: 5 },
+            SharpnessCommand::SetLevel { value: 5 },
         ];
 
         for cmd in sharpness_cmds {

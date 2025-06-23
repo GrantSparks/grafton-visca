@@ -133,7 +133,7 @@ impl TryFrom<i8> for ExposureCompensationLevel {
 /// let enable = ExposureCompensationCommand::On;
 ///
 /// // Set exposure compensation to +3
-/// let set_value = ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(3).unwrap());
+/// let set_value = ExposureCompensationCommand::SetLevel(ExposureCompensationLevel::new(3).unwrap());
 /// ```
 #[derive(Debug, Copy, Clone)]
 pub enum ExposureCompensationCommand {
@@ -147,8 +147,8 @@ pub enum ExposureCompensationCommand {
     Up,
     /// Decrease exposure compensation by one step
     Down,
-    /// Set exposure compensation directly (-7 to +7)
-    Direct(ExposureCompensationLevel),
+    /// Set exposure compensation to a specific level (-7 to +7)
+    SetLevel(ExposureCompensationLevel),
 }
 
 impl Command for ExposureCompensationCommand {
@@ -159,7 +159,7 @@ impl Command for ExposureCompensationCommand {
             Self::Reset => vec![0x81, 0x01, 0x04, 0x0E, 0x00, 0xFF],
             Self::Up => vec![0x81, 0x01, 0x04, 0x0E, 0x02, 0xFF],
             Self::Down => vec![0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF],
-            Self::Direct(level) => {
+            Self::SetLevel(level) => {
                 let value = level.to_protocol_value();
                 vec![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, value, 0xFF]
             }
@@ -176,7 +176,7 @@ impl Command for ExposureCompensationCommand {
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match (self, model) {
-            (Self::Direct(level), CameraModel::PTZOpticsG2) => {
+            (Self::SetLevel(level), CameraModel::PTZOpticsG2) => {
                 // G2 supports values -7 to +7 (protocol values 0x0 to 0xE)
                 let value = level.value();
                 if !(-7..=7).contains(&value) {
@@ -215,13 +215,13 @@ crate::visca_bounded_param! {
 #[derive(Debug, Copy, Clone)]
 pub enum DynamicRangeCommand {
     /// Set dynamic range to a specific level (0-8).
-    Direct(DynamicRangeLevel),
+    SetLevel(DynamicRangeLevel),
 }
 
 impl Command for DynamicRangeCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
-            Self::Direct(level) => Ok(vec![
+            Self::SetLevel(level) => Ok(vec![
                 0x81,
                 0x01,
                 0x04,
@@ -245,7 +245,7 @@ impl Command for DynamicRangeCommand {
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match (self, model) {
-            (Self::Direct(level), CameraModel::PTZOpticsG2) => {
+            (Self::SetLevel(level), CameraModel::PTZOpticsG2) => {
                 // G2 supports values 0-8
                 let value = level.value();
                 if value > 8 {
@@ -276,8 +276,8 @@ pub enum IrisCommand {
     Up,
     /// Decrease value by one step.
     Down,
-    /// Set to specific value.
-    Direct(IrisLevel),
+    /// Set iris to specific aperture value.
+    SetAperture(IrisLevel),
 }
 
 // Manual implementation to add model validation
@@ -287,7 +287,7 @@ impl Command for IrisCommand {
             Self::Reset => vec![0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF],
             Self::Up => vec![0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF],
             Self::Down => vec![0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF],
-            Self::Direct(level) => {
+            Self::SetAperture(level) => {
                 let val = level.value();
                 let high = (val >> 4) & 0x0F;
                 let low = val & 0x0F;
@@ -306,7 +306,7 @@ impl Command for IrisCommand {
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
-            Self::Direct(level) => {
+            Self::SetAperture(level) => {
                 if matches!(model, CameraModel::PTZOpticsG2)
                     && !IrisLevel::G2_VALID_VALUES.contains(&level.value())
                 {
@@ -340,8 +340,8 @@ pub enum ShutterCommand {
     Up,
     /// Decrease value by one step.
     Down,
-    /// Set to specific value.
-    Direct(ShutterSpeed),
+    /// Set shutter to specific speed value.
+    SetSpeed(ShutterSpeed),
 }
 
 // Manual implementation to add model validation
@@ -351,7 +351,7 @@ impl Command for ShutterCommand {
             Self::Reset => vec![0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF],
             Self::Up => vec![0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF],
             Self::Down => vec![0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF],
-            Self::Direct(value) => {
+            Self::SetSpeed(value) => {
                 let val = value.value();
                 #[allow(clippy::cast_possible_truncation)]
                 let byte_val = val as u8;
@@ -372,7 +372,7 @@ impl Command for ShutterCommand {
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
-            Self::Direct(speed) => {
+            Self::SetSpeed(speed) => {
                 if matches!(model, CameraModel::PTZOpticsG2)
                     && !ShutterSpeed::G2_VALID_VALUES.contains(&speed.value())
                 {
@@ -402,7 +402,7 @@ pub enum BrightCommand {
     /// Decrease brightness.
     Down,
     /// Set brightness to specific level.
-    Direct(BrightnessLevel),
+    SetLevel(BrightnessLevel),
 }
 
 impl Command for BrightCommand {
@@ -411,7 +411,7 @@ impl Command for BrightCommand {
             Self::Reset => vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF],
             Self::Up => vec![0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF],
             Self::Down => vec![0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF],
-            Self::Direct(level) => {
+            Self::SetLevel(level) => {
                 let value = level.value();
                 let high = ((value >> 4) & 0x0F) as u8;
                 let low = (value & 0x0F) as u8;
@@ -430,7 +430,7 @@ impl Command for BrightCommand {
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match (self, model) {
-            (Self::Direct(level), CameraModel::PTZOpticsG2) => {
+            (Self::SetLevel(level), CameraModel::PTZOpticsG2) => {
                 let value = level.value();
                 if !BrightnessLevel::G2_VALID_VALUES.contains(&value) {
                     return Err(Error::ModelValidation {
@@ -592,7 +592,7 @@ mod tests {
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ExposureCompensationCommand::Direct(level);
+            let cmd = ExposureCompensationCommand::SetLevel(level);
             let expected = vec![
                 0x81,
                 0x01,
@@ -618,7 +618,7 @@ mod tests {
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ExposureCompensationCommand::Direct(level);
+            let cmd = ExposureCompensationCommand::SetLevel(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -650,7 +650,7 @@ mod tests {
         for value in 0..=8 {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = DynamicRangeCommand::Direct(level);
+            let cmd = DynamicRangeCommand::SetLevel(level);
             assert_eq!(
                 cmd.to_bytes()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -665,7 +665,7 @@ mod tests {
         for value in 0..=8 {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = DynamicRangeCommand::Direct(level);
+            let cmd = DynamicRangeCommand::SetLevel(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
     }
@@ -701,7 +701,7 @@ mod tests {
         for value in test_values {
             let level =
                 IrisLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = IrisCommand::Direct(level);
+            let cmd = IrisCommand::SetAperture(level);
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
@@ -718,7 +718,7 @@ mod tests {
         for value in 0x00..=0x0C {
             let level =
                 IrisLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = IrisCommand::Direct(level);
+            let cmd = IrisCommand::SetAperture(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -762,7 +762,7 @@ mod tests {
         for value in test_values {
             let speed =
                 ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ShutterCommand::Direct(speed);
+            let cmd = ShutterCommand::SetSpeed(speed);
             let high = ((value >> 4) & 0x0F) as u8;
             let low = (value & 0x0F) as u8;
             assert_eq!(
@@ -779,7 +779,7 @@ mod tests {
         for value in 0x01..=0x11 {
             let speed =
                 ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ShutterCommand::Direct(speed);
+            let cmd = ShutterCommand::SetSpeed(speed);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -823,7 +823,7 @@ mod tests {
         for value in test_values {
             let level = BrightnessLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = BrightCommand::Direct(level);
+            let cmd = BrightCommand::SetLevel(level);
             let high = ((value >> 4) & 0x0F) as u8;
             let low = (value & 0x0F) as u8;
             assert_eq!(
@@ -840,7 +840,7 @@ mod tests {
         for value in 0x00..=0x11 {
             let level = BrightnessLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = BrightCommand::Direct(level);
+            let cmd = BrightCommand::SetLevel(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -868,7 +868,7 @@ mod tests {
             CommandCategory::Quick
         );
         assert_eq!(
-            DynamicRangeCommand::Direct(
+            DynamicRangeCommand::SetLevel(
                 DynamicRangeLevel::new(5)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
@@ -898,7 +898,7 @@ mod tests {
         .response_type()
         .is_none());
         assert!(ExposureCompensationCommand::On.response_type().is_none());
-        assert!(DynamicRangeCommand::Direct(
+        assert!(DynamicRangeCommand::SetLevel(
             DynamicRangeLevel::new(5).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
         .response_type()

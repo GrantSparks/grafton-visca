@@ -21,20 +21,19 @@ use crate::{
             BacklightCommand, BlackWhiteCommand, ImageFlipCombinedCommand, ImageFlipMode,
             NoiseReduction2DCommand, NoiseReduction3DCommand,
         },
-        luminance_contrast_sharpness::{
-            ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode,
-        },
+        image_adjustment::{ContrastCommand, LuminanceCommand, SharpnessCommand, SharpnessMode},
         pan_tilt::{PanTiltCommand, PanTiltDirection},
         power::{Power, PowerCommand},
         preset::{PresetAction, PresetCommand},
         white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
         zoom::ZoomCommand,
     },
+    types::IntoIrisLevel,
     types::{
-        BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, ContrastLevel, FStop,
-        FocusPosition, GainLimit, GainValue, HueLevel, IrisLevel, LuminanceLevel,
-        NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, RedGain, RedTuning,
-        SaturationLevel, SharpnessLevel, ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition,
+        BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, ContrastLevel, FocusPosition,
+        GainLimit, GainValue, HueLevel, IrisLevel, LuminanceLevel, NoiseReduction2DLevel,
+        NoiseReduction3DLevel, PanSpeed, RedGain, RedTuning, SaturationLevel, SharpnessLevel,
+        ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition,
     },
     visca_camera_method, visca_method, visca_method_custom,
 };
@@ -110,13 +109,13 @@ where
     /// Start zooming in (telephoto direction).
     #[visca_method]
     pub fn zoom_in(&self) {
-        ZoomCommand::ZoomInStandard
+        ZoomCommand::In
     }
 
     /// Start zooming out (wide direction).
     #[visca_method]
     pub fn zoom_out(&self) {
-        ZoomCommand::ZoomOutStandard
+        ZoomCommand::Out
     }
 
     /// Stop zoom movement.
@@ -125,10 +124,10 @@ where
         ZoomCommand::Stop
     }
 
-    /// Set zoom to direct position.
+    /// Set zoom to specific position.
     #[visca_method]
-    pub fn zoom_direct(&self, position: ZoomPosition) {
-        ZoomCommand::Direct(position)
+    pub fn set_zoom_position(&self, position: ZoomPosition) {
+        ZoomCommand::Position(position)
     }
 
     // Digital zoom functionality not yet implemented in ZoomCommand enum
@@ -136,13 +135,13 @@ where
     /// Focus on a near object.
     #[visca_method]
     pub fn focus_near(&self) {
-        FocusCommand::FocusNearStandard
+        FocusCommand::Near
     }
 
     /// Focus on a far object.
     #[visca_method]
     pub fn focus_far(&self) {
-        FocusCommand::FocusFarStandard
+        FocusCommand::Far
     }
 
     /// Stop focus adjustment.
@@ -151,10 +150,10 @@ where
         FocusCommand::Stop
     }
 
-    /// Set focus to direct position (manual mode).
+    /// Set focus to specific position (manual mode).
     #[visca_method]
-    pub fn focus_direct(&self, position: FocusPosition) {
-        FocusCommand::Direct(position)
+    pub fn set_focus_position(&self, position: FocusPosition) {
+        FocusCommand::Position(position)
     }
 
     /// Set focus to auto mode.
@@ -201,8 +200,8 @@ where
 
     /// Set iris level directly.
     #[visca_method]
-    pub fn iris_direct(&self, level: IrisLevel) {
-        IrisCommand::Direct(level)
+    pub fn set_iris_level(&self, level: IrisLevel) {
+        IrisCommand::SetAperture(level)
     }
 
     /// Reset iris to default position.
@@ -213,8 +212,8 @@ where
 
     /// Set shutter speed directly.
     #[visca_method]
-    pub fn shutter_direct(&self, speed: ShutterSpeed) {
-        ShutterCommand::Direct(speed)
+    pub fn set_shutter_speed(&self, speed: ShutterSpeed) {
+        ShutterCommand::SetSpeed(speed)
     }
 
     /// Reset shutter to default speed.
@@ -238,7 +237,7 @@ where
     /// Set dynamic range (HDR).
     #[visca_method]
     pub fn set_dynamic_range(&self, level: DynamicRangeLevel) {
-        DynamicRangeCommand::Direct(level)
+        DynamicRangeCommand::SetLevel(level)
     }
 
     /// Set luminance level.
@@ -292,7 +291,7 @@ where
     /// Set color temperature.
     #[visca_method]
     pub fn set_color_temperature(&self, temperature: ColorTemperature) {
-        ColorTemperatureCommand::Direct(temperature)
+        ColorTemperatureCommand::SetTemperature(temperature)
     }
 
     /// Reset color temperature to default.
@@ -304,7 +303,7 @@ where
     /// Set red gain.
     #[visca_method]
     pub fn set_red_gain(&self, gain: RedGain) {
-        RedGainCommand::Direct(gain)
+        RedGainCommand::SetValue(gain)
     }
 
     /// Reset red gain to default.
@@ -316,7 +315,7 @@ where
     /// Set blue gain.
     #[visca_method]
     pub fn set_blue_gain(&self, gain: BlueGain) {
-        BlueGainCommand::Direct(gain)
+        BlueGainCommand::SetValue(gain)
     }
 
     /// Reset blue gain to default.
@@ -366,7 +365,7 @@ where
     /// Set exposure compensation.
     #[visca_method]
     pub fn set_exposure_compensation(&self, level: ExposureCompensationLevel) {
-        ExposureCompensationCommand::Direct(level)
+        ExposureCompensationCommand::SetLevel(level)
     }
 
     /// Reset exposure compensation.
@@ -504,21 +503,21 @@ where
     /// ```
     #[visca_camera_method]
     pub fn set_zoom(&self, position: ZoomPosition) {
-        ZoomCommand::Direct(position)
+        ZoomCommand::Position(position)
     }
 
     /// Set zoom position from percentage (0-100%).
     #[visca_camera_method]
     pub fn set_zoom_percentage(&self, percentage: Percentage<f32>) {
         let position = ZoomPosition::try_from(percentage)?;
-        ZoomCommand::Direct(position)
+        ZoomCommand::Position(position)
     }
 
     /// Set zoom position from magnification factor.
     #[visca_camera_method]
     pub fn set_zoom_magnification(&self, magnification: Magnification<f32>) {
         let position = ZoomPosition::try_from(magnification)?;
-        ZoomCommand::Direct(position)
+        ZoomCommand::Position(position)
     }
 
     /// Set focus to direct position (manual mode) with flexible parameter types.
@@ -541,50 +540,37 @@ where
     /// ```
     #[visca_camera_method]
     pub fn set_focus(&self, position: FocusPosition) {
-        FocusCommand::Direct(position)
+        FocusCommand::Position(position)
     }
 
     /// Set focus position from percentage (0-100%).
     #[visca_camera_method]
     pub fn set_focus_percentage(&self, percentage: Percentage<f32>) {
         let position = FocusPosition::try_from(percentage)?;
-        FocusCommand::Direct(position)
+        FocusCommand::Position(position)
     }
 
-    /// Set iris level directly with flexible parameter types.
+    /// Set iris level with flexible parameter types.
     ///
     /// Accepts iris level as:
     /// - Raw u8 values (0x00-0x0C)
     /// - IrisLevel type for type safety
-    /// - FStop enum for intuitive F-stop values
+    /// - Percentage<f32> values (0.0-100.0)
     ///
     /// # Examples
     /// ```ignore
     /// // Using raw value
     /// camera.set_iris(0x09u8).await?;
     ///
-    /// // Using F-stop enum
-    /// camera.set_iris(FStop::F2_8).await?;
-    ///
     /// // Using typed level
     /// camera.set_iris(IrisLevel::new(0x0B)?).await?;
+    ///
+    /// // Using percentage
+    /// camera.set_iris(Percentage(75.0)).await?;
     /// ```
     #[visca_camera_method]
-    pub fn set_iris(&self, level: IrisLevel) {
-        IrisCommand::Direct(level)
-    }
-
-    /// Set iris from F-stop value.
-    #[visca_camera_method]
-    pub fn set_iris_fstop(&self, fstop: FStop) {
-        IrisCommand::Direct(IrisLevel::from(fstop))
-    }
-
-    /// Set iris level from percentage (0-100%).
-    #[visca_camera_method]
-    pub fn set_iris_percentage(&self, percentage: Percentage<f32>) {
-        let level = IrisLevel::try_from(percentage)?;
-        IrisCommand::Direct(level)
+    pub fn set_iris(&self, level: impl IntoIrisLevel) {
+        IrisCommand::SetAperture(level.into_iris_level()?)
     }
 }
 
@@ -608,7 +594,7 @@ where
     #[visca_method_custom]
     pub fn set_white_balance_kelvin(&self, kelvin: crate::units::Kelvin) {
         let temperature = ColorTemperature::try_from(kelvin)?;
-        ColorTemperatureCommand::Direct(temperature)
+        ColorTemperatureCommand::SetTemperature(temperature)
     }
 
     /// Set shutter speed using fraction notation.
@@ -626,7 +612,7 @@ where
     #[visca_method_custom]
     pub fn set_shutter_fraction(&self, fraction: crate::units::Fraction) {
         let speed = ShutterSpeed::try_from(fraction)?;
-        ShutterCommand::Direct(speed)
+        ShutterCommand::SetSpeed(speed)
     }
 
     /// Set pan/tilt position using radians.
@@ -699,14 +685,14 @@ where
     /// ```
     #[visca_camera_method]
     pub fn set_gain(&self, gain: GainValue) {
-        GainCommand::Direct(gain)
+        GainCommand::SetValue(gain)
     }
 
     /// Set gain from percentage (0-100%).
     #[visca_camera_method]
     pub fn set_gain_percentage(&self, percentage: Percentage<f32>) {
         let gain = GainValue::try_from(percentage)?;
-        GainCommand::Direct(gain)
+        GainCommand::SetValue(gain)
     }
 
     /// Set sharpness with flexible parameter types.
@@ -729,7 +715,7 @@ where
     /// ```
     #[visca_camera_method]
     pub fn set_sharpness(&self, level: SharpnessLevel) {
-        SharpnessCommand::Direct {
+        SharpnessCommand::SetLevel {
             value: level.value(),
         }
     }
@@ -738,7 +724,7 @@ where
     #[visca_camera_method]
     pub fn set_sharpness_percentage(&self, percentage: Percentage<f32>) {
         let level = SharpnessLevel::try_from(percentage)?;
-        SharpnessCommand::Direct {
+        SharpnessCommand::SetLevel {
             value: level.value(),
         }
     }
@@ -763,14 +749,14 @@ where
     /// ```
     #[visca_camera_method]
     pub fn set_brightness(&self, level: BrightnessLevel) {
-        BrightCommand::Direct(level)
+        BrightCommand::SetLevel(level)
     }
 
     /// Set brightness from percentage (0-100%).
     #[visca_camera_method]
     pub fn set_brightness_percentage(&self, percentage: Percentage<f32>) {
         let level = BrightnessLevel::try_from(percentage)?;
-        BrightCommand::Direct(level)
+        BrightCommand::SetLevel(level)
     }
 
     /// Set contrast with flexible parameter types.

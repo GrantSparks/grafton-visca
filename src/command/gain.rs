@@ -26,8 +26,8 @@ pub enum GainCommand {
     Up,
     /// Decrease value by one step.
     Down,
-    /// Set to specific value.
-    Direct(GainValue),
+    /// Set gain to specific value.
+    SetValue(GainValue),
 }
 
 impl GainCommand {
@@ -35,7 +35,7 @@ impl GainCommand {
     pub fn direct<P: crate::camera::CameraProfile>(gain: P::GainValue) -> Result<Self, Error> {
         let value: u8 = gain.into();
         let gain_value = GainValue::new(value)?;
-        Ok(Self::Direct(gain_value))
+        Ok(Self::SetValue(gain_value))
     }
 }
 
@@ -46,7 +46,7 @@ impl Command for GainCommand {
             Self::Reset => vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF],
             Self::Up => vec![0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF],
             Self::Down => vec![0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF],
-            Self::Direct(value) => {
+            Self::SetValue(value) => {
                 let val = value.value();
                 let high = (val >> 4) & 0x0F;
                 let low = val & 0x0F;
@@ -65,7 +65,7 @@ impl Command for GainCommand {
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
-            Self::Direct(gain) => {
+            Self::SetValue(gain) => {
                 if matches!(model, CameraModel::PTZOpticsG2)
                     && !GainValue::G2_VALID_VALUES.contains(&gain.value())
                 {
@@ -194,13 +194,13 @@ mod tests {
     }
 
     #[test]
-    fn test_gain_command_direct() {
+    fn test_gain_command_set_value() {
         // Test various gain values
         let test_values = vec![0x00, 0x01, 0x03, 0x05, 0x07];
         for value in test_values {
             let gain =
                 GainValue::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = GainCommand::Direct(gain);
+            let cmd = GainCommand::SetValue(gain);
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
@@ -217,7 +217,7 @@ mod tests {
         for value in 0x00..=0x07 {
             let gain =
                 GainValue::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = GainCommand::Direct(gain);
+            let cmd = GainCommand::SetValue(gain);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(GainCommand::Up.command_category(), CommandCategory::Quick);
         assert_eq!(GainCommand::Down.command_category(), CommandCategory::Quick);
         assert_eq!(
-            GainCommand::Direct(
+            GainCommand::SetValue(
                 GainValue::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
             .command_category(),
@@ -351,7 +351,7 @@ mod tests {
         assert!(GainCommand::Reset.response_type().is_none());
         assert!(GainCommand::Up.response_type().is_none());
         assert!(GainCommand::Down.response_type().is_none());
-        assert!(GainCommand::Direct(
+        assert!(GainCommand::SetValue(
             GainValue::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
         .response_type()
@@ -375,11 +375,11 @@ mod tests {
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("Reset"));
 
-        let cmd = GainCommand::Direct(
+        let cmd = GainCommand::SetValue(
             GainValue::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
         );
         let debug_str = format!("{cmd:?}");
-        assert!(debug_str.contains("Direct"));
+        assert!(debug_str.contains("SetValue"));
     }
 
     #[test]

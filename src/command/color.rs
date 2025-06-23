@@ -228,7 +228,7 @@ pub enum ColorTemperatureCommand {
     ///
     /// Lower values produce warmer (more orange/red) colors,
     /// higher values produce cooler (more blue) colors.
-    Direct(crate::types::ColorTemperature),
+    SetTemperature(crate::types::ColorTemperature),
 }
 
 impl Command for ColorTemperatureCommand {
@@ -237,7 +237,7 @@ impl Command for ColorTemperatureCommand {
             Self::Reset => vec![0x81, 0x01, 0x04, 0x20, 0x00, 0xFF],
             Self::Up => vec![0x81, 0x01, 0x04, 0x20, 0x02, 0xFF],
             Self::Down => vec![0x81, 0x01, 0x04, 0x20, 0x03, 0xFF],
-            Self::Direct(temp) => {
+            Self::SetTemperature(temp) => {
                 let value = temp.value();
                 let high = ((value >> 4) & 0x0F) as u8;
                 let low = (value & 0x0F) as u8;
@@ -270,7 +270,7 @@ pub enum RedGainCommand {
     /// Set red gain to a specific value.
     ///
     /// Higher values increase the intensity of red in the image.
-    Direct(crate::types::RedGain),
+    SetValue(crate::types::RedGain),
 }
 
 impl Command for RedGainCommand {
@@ -279,7 +279,7 @@ impl Command for RedGainCommand {
             Self::Reset => vec![0x81, 0x01, 0x04, 0x03, 0x00, 0xFF],
             Self::Up => vec![0x81, 0x01, 0x04, 0x03, 0x02, 0xFF],
             Self::Down => vec![0x81, 0x01, 0x04, 0x03, 0x03, 0xFF],
-            Self::Direct(gain) => {
+            Self::SetValue(gain) => {
                 let value = gain.value();
                 let high = (value >> 4) & 0x0F;
                 let low = value & 0x0F;
@@ -312,7 +312,7 @@ pub enum BlueGainCommand {
     /// Set blue gain to a specific value.
     ///
     /// Higher values increase the intensity of blue in the image.
-    Direct(crate::types::BlueGain),
+    SetValue(crate::types::BlueGain),
 }
 
 impl Command for BlueGainCommand {
@@ -321,7 +321,7 @@ impl Command for BlueGainCommand {
             Self::Reset => vec![0x81, 0x01, 0x04, 0x04, 0x00, 0xFF],
             Self::Up => vec![0x81, 0x01, 0x04, 0x04, 0x02, 0xFF],
             Self::Down => vec![0x81, 0x01, 0x04, 0x04, 0x03, 0xFF],
-            Self::Direct(gain) => {
+            Self::SetValue(gain) => {
                 let value = gain.value();
                 let high = (value >> 4) & 0x0F;
                 let low = value & 0x0F;
@@ -512,7 +512,7 @@ mod tests {
         let test_values = vec![0x00, 0x10, 0x20, 0x37];
         for temp in test_values {
             let color_temp = crate::types::ColorTemperature::new(temp).unwrap();
-            let cmd = ColorTemperatureCommand::Direct(color_temp);
+            let cmd = ColorTemperatureCommand::SetTemperature(color_temp);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x20, 0x00]);
@@ -553,7 +553,7 @@ mod tests {
         let test_values = vec![0x00, 0x55, 0xAA, 0xFF];
         for gain in test_values {
             let red_gain = crate::types::RedGain::new(gain).unwrap();
-            let cmd = RedGainCommand::Direct(red_gain);
+            let cmd = RedGainCommand::SetValue(red_gain);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x43, 0x00]);
@@ -591,7 +591,7 @@ mod tests {
         let test_values = vec![0x00, 0x55, 0xAA, 0xFF];
         for gain in test_values {
             let blue_gain = crate::types::BlueGain::new(gain).unwrap();
-            let cmd = BlueGainCommand::Direct(blue_gain);
+            let cmd = BlueGainCommand::SetValue(blue_gain);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x44, 0x00]);
@@ -685,30 +685,33 @@ mod tests {
         assert!(hue_max.to_bytes().is_ok());
 
         // Test boundary value for color temperature
-        let temp_min =
-            ColorTemperatureCommand::Direct(crate::types::ColorTemperature::new(0x00).unwrap());
+        let temp_min = ColorTemperatureCommand::SetTemperature(
+            crate::types::ColorTemperature::new(0x00).unwrap(),
+        );
         assert!(temp_min.to_bytes().is_ok());
 
-        let temp_max =
-            ColorTemperatureCommand::Direct(crate::types::ColorTemperature::new(0x37).unwrap());
+        let temp_max = ColorTemperatureCommand::SetTemperature(
+            crate::types::ColorTemperature::new(0x37).unwrap(),
+        );
         assert!(temp_max.to_bytes().is_ok());
     }
 
     #[test]
     fn test_nibble_encoding() {
         // Test that Direct commands properly encode values as nibbles
-        let cmd =
-            ColorTemperatureCommand::Direct(crate::types::ColorTemperature::new(0x25).unwrap());
+        let cmd = ColorTemperatureCommand::SetTemperature(
+            crate::types::ColorTemperature::new(0x25).unwrap(),
+        );
         let bytes = cmd.to_bytes().unwrap();
         assert_eq!(bytes[6], 0x02); // High nibble
         assert_eq!(bytes[7], 0x05); // Low nibble
 
-        let cmd = RedGainCommand::Direct(crate::types::RedGain::new(0xAB).unwrap());
+        let cmd = RedGainCommand::SetValue(crate::types::RedGain::new(0xAB).unwrap());
         let bytes = cmd.to_bytes().unwrap();
         assert_eq!(bytes[6], 0x0A); // High nibble
         assert_eq!(bytes[7], 0x0B); // Low nibble
 
-        let cmd = BlueGainCommand::Direct(crate::types::BlueGain::new(0xF0).unwrap());
+        let cmd = BlueGainCommand::SetValue(crate::types::BlueGain::new(0xF0).unwrap());
         let bytes = cmd.to_bytes().unwrap();
         assert_eq!(bytes[6], 0x0F); // High nibble
         assert_eq!(bytes[7], 0x00); // Low nibble

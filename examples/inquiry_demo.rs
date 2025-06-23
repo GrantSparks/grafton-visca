@@ -7,7 +7,7 @@
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{Camera, PTZOpticsG2},
-    transport::blocking::{create, Transport as BlockingTransport},
+    transport::blocking::{create, BlockingTransport},
     Error,
 };
 #[cfg(not(feature = "async"))]

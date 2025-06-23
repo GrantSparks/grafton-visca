@@ -12,7 +12,7 @@
 //! using the `Camera<P>` API with helper functions and sequential operations.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::{create, Transport as BlockingTransport};
+use grafton_visca::transport::blocking::{create, BlockingTransport};
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{

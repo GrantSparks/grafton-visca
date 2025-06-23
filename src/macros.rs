@@ -632,7 +632,7 @@ macro_rules! define_camera_methods {
         #[cfg(not(feature = "async"))]
         impl<P: CameraProfile, T> Camera<P, T>
         where
-            T: $crate::transport::blocking::Transport,
+            T: $crate::transport::blocking::BlockingTransport,
         {
             $(
                 $(#[$doc])*
@@ -710,7 +710,7 @@ macro_rules! define_generic_camera_methods {
         #[cfg(not(feature = "async"))]
         impl<P: CameraProfile, T> Camera<P, T>
         where
-            T: $crate::transport::blocking::Transport,
+            T: $crate::transport::blocking::BlockingTransport,
         {
             $(
                 $(#[$doc])*
