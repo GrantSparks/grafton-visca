@@ -34,7 +34,7 @@ use crate::{
         NoiseReduction3DLevel, RedGain, RedTuning, SaturationLevel, SharpnessLevel, ShutterSpeed,
         ZoomPosition,
     },
-    visca_method, visca_method_custom,
+    visca_method, visca_method_generic as visca_method_custom,
 };
 
 use super::{Camera, CameraProfile};
