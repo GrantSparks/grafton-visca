@@ -474,18 +474,6 @@ where
         }
     }
 
-    /// Move camera continuously with speed values (0-24 for pan, 0-20 for tilt).
-    #[visca_camera_method]
-    pub fn move_continuous_raw(&self, direction: PanTiltDirection, pan_speed: u8, tilt_speed: u8) {
-        let pan_speed = PanSpeed::new(pan_speed)?;
-        let tilt_speed = TiltSpeed::new(tilt_speed)?;
-        PanTiltCommand::Move {
-            direction,
-            pan_speed,
-            tilt_speed,
-        }
-    }
-
     /// Move camera continuously with speed level.
     #[visca_camera_method]
     pub fn move_continuous_level(&self, direction: PanTiltDirection, speed: SpeedLevel) {
@@ -516,13 +504,6 @@ where
     /// ```
     #[visca_camera_method]
     pub fn set_zoom(&self, position: ZoomPosition) {
-        ZoomCommand::Direct(position)
-    }
-
-    /// Set zoom position from raw value (0x0000-0x7000).
-    #[visca_camera_method]
-    pub fn set_zoom_raw(&self, position: u16) {
-        let position = ZoomPosition::new(position)?;
         ZoomCommand::Direct(position)
     }
 
@@ -563,13 +544,6 @@ where
         FocusCommand::Direct(position)
     }
 
-    /// Set focus position from raw value (0x1000-0xF000).
-    #[visca_camera_method]
-    pub fn set_focus_raw(&self, position: u16) {
-        let position = FocusPosition::new(position)?;
-        FocusCommand::Direct(position)
-    }
-
     /// Set focus position from percentage (0-100%).
     #[visca_camera_method]
     pub fn set_focus_percentage(&self, percentage: Percentage<f32>) {
@@ -597,13 +571,6 @@ where
     /// ```
     #[visca_camera_method]
     pub fn set_iris(&self, level: IrisLevel) {
-        IrisCommand::Direct(level)
-    }
-
-    /// Set iris level from raw value (0x00-0x0C).
-    #[visca_camera_method]
-    pub fn set_iris_raw(&self, level: u8) {
-        let level = IrisLevel::new(level)?;
         IrisCommand::Direct(level)
     }
 
@@ -735,13 +702,6 @@ where
         GainCommand::Direct(gain)
     }
 
-    /// Set gain from raw value (0x00-0x07).
-    #[visca_camera_method]
-    pub fn set_gain_raw(&self, gain: u8) {
-        let gain = GainValue::new(gain)?;
-        GainCommand::Direct(gain)
-    }
-
     /// Set gain from percentage (0-100%).
     #[visca_camera_method]
     pub fn set_gain_percentage(&self, percentage: Percentage<f32>) {
@@ -769,15 +729,6 @@ where
     /// ```
     #[visca_camera_method]
     pub fn set_sharpness(&self, level: SharpnessLevel) {
-        SharpnessCommand::Direct {
-            value: level.value(),
-        }
-    }
-
-    /// Set sharpness from raw value (0x00-0x0B).
-    #[visca_camera_method]
-    pub fn set_sharpness_raw(&self, level: u8) {
-        let level = SharpnessLevel::new(level)?;
         SharpnessCommand::Direct {
             value: level.value(),
         }
@@ -815,13 +766,6 @@ where
         BrightCommand::Direct(level)
     }
 
-    /// Set brightness from raw value (0x00-0x11).
-    #[visca_camera_method]
-    pub fn set_brightness_raw(&self, level: u16) {
-        let level = BrightnessLevel::new(level)?;
-        BrightCommand::Direct(level)
-    }
-
     /// Set brightness from percentage (0-100%).
     #[visca_camera_method]
     pub fn set_brightness_percentage(&self, percentage: Percentage<f32>) {
@@ -850,13 +794,6 @@ where
     #[visca_camera_method]
     pub fn set_contrast(&self, level: ContrastLevel) {
         ContrastCommand { value: level }
-    }
-
-    /// Set contrast from raw value (0x00-0x0E).
-    #[visca_camera_method]
-    pub fn set_contrast_raw(&self, level: u8) {
-        let value = ContrastLevel::new(level)?;
-        ContrastCommand { value }
     }
 
     /// Set contrast from percentage (0-100%).
@@ -889,13 +826,6 @@ where
         SaturationCommand { level }
     }
 
-    /// Set saturation from raw value (0x00-0x0E).
-    #[visca_camera_method]
-    pub fn set_saturation_raw(&self, level: u8) {
-        let level = SaturationLevel::new(level)?;
-        SaturationCommand { level }
-    }
-
     /// Set saturation from percentage (0-100%).
     #[visca_camera_method]
     pub fn set_saturation_percentage(&self, percentage: Percentage<f32>) {
@@ -923,13 +853,6 @@ where
     /// ```
     #[visca_camera_method]
     pub fn set_hue(&self, level: HueLevel) {
-        HueCommand { level }
-    }
-
-    /// Set hue from raw value (0x00-0x0E).
-    #[visca_camera_method]
-    pub fn set_hue_raw(&self, level: u8) {
-        let level = HueLevel::new(level)?;
         HueCommand { level }
     }
 

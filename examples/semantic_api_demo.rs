@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_zoom_magnification(Magnification(10.0))?;
 
     println!("   Setting zoom using raw VISCA value...");
-    camera.set_zoom_raw(0x3000u16)?;
+    camera.set_zoom(ZoomPosition::new(0x3000)?)?;
 
     // Focus Control
     println!("\n2. Focus Control");
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_focus_percentage(Percentage(75.0))?;
 
     println!("   Setting focus using raw value...");
-    camera.set_focus_raw(0x8000u16)?;
+    camera.set_focus(FocusPosition::new(0x8000)?)?;
 
     // Pan/Tilt Control
     println!("\n3. Pan/Tilt Control");
@@ -126,17 +126,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Using Raw Values
     println!("\n10. Using Raw Values for Fine Control");
     println!("   Setting gain to raw value 0x04 (12dB)...");
-    camera.set_gain_raw(0x04u8)?;
+    camera.set_gain(GainValue::new(0x04)?)?;
 
     println!("   Setting sharpness to raw value 5...");
-    camera.set_sharpness_raw(5u8)?;
+    camera.set_sharpness(SharpnessLevel::new(5)?)?;
 
     println!("   Setting brightness to raw value 0x0C...");
-    camera.set_brightness_raw(0x0Cu16)?;
+    camera.set_brightness(BrightnessLevel::new(0x0C)?)?;
 
     // Direct Type Usage
     println!("\n11. Direct Type Usage");
-    use grafton_visca::types::{BrightnessLevel, GainValue, SharpnessLevel};
 
     println!("   Setting gain with typed value...");
     camera.set_gain(GainValue::new(0x05)?)?; // 15dB
@@ -158,6 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::{Camera, PTZOpticsG2},
         transport::tokio::UdpTransport,
+        types::{BrightnessLevel, FocusPosition, GainValue, SharpnessLevel, ZoomPosition},
         units::{Degrees, Fraction, Kelvin, Magnification, Percentage, Radians},
         FStop,
     };
@@ -178,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_zoom_magnification(Magnification(10.0)).await?;
 
     println!("   Setting zoom using raw VISCA value...");
-    camera.set_zoom_raw(0x3000u16).await?;
+    camera.set_zoom(ZoomPosition::new(0x3000)?).await?;
 
     // Focus Control
     println!("\n2. Focus Control");
@@ -186,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_focus_percentage(Percentage(75.0)).await?;
 
     println!("   Setting focus using raw value...");
-    camera.set_focus_raw(0x8000u16).await?;
+    camera.set_focus(FocusPosition::new(0x8000)?).await?;
 
     // Pan/Tilt Control
     println!("\n3. Pan/Tilt Control");
@@ -282,17 +282,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Using Raw Values
     println!("\n10. Using Raw Values for Fine Control");
     println!("   Setting gain to raw value 0x04 (12dB)...");
-    camera.set_gain_raw(0x04u8).await?;
+    camera.set_gain(GainValue::new(0x04)?).await?;
 
     println!("   Setting sharpness to raw value 5...");
-    camera.set_sharpness_raw(5u8).await?;
+    camera.set_sharpness(SharpnessLevel::new(5)?).await?;
 
     println!("   Setting brightness to raw value 0x0C...");
-    camera.set_brightness_raw(0x0Cu16).await?;
+    camera.set_brightness(BrightnessLevel::new(0x0C)?).await?;
 
     // Direct Type Usage
     println!("\n11. Direct Type Usage");
-    use grafton_visca::types::{BrightnessLevel, GainValue, SharpnessLevel};
 
     println!("   Setting gain with typed value...");
     camera.set_gain(GainValue::new(0x05)?).await?; // 15dB
