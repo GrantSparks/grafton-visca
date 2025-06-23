@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "grafton-visca-macros"]
+
 [package]
 name = "grafton-visca"
 version = "0.4.0"
@@ -19,6 +22,7 @@ async = ["futures", "futures-util"]
 tokio = ["async", "dep:tokio"]
 
 [dependencies]
+grafton-visca-macros = { version = "0.4.0", path = "grafton-visca-macros" }
 log = "0.4.22"
 env_logger = "0.11.5"
 nom = "7.1.3"
