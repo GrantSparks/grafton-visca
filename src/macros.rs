@@ -619,6 +619,10 @@ macro_rules! impl_simple_command {
 /// - Async: uses `&self` and calls `send_and_wait` with `.await`
 ///
 /// The method body should be a single expression calling `self.send_and_wait(...)`.
+///
+/// DEPRECATED: Use the #[visca_api] procedural macro instead.
+#[doc(hidden)]
+#[deprecated(since = "0.2.0", note = "Use the #[visca_api] procedural macro instead")]
 macro_rules! define_camera_methods {
     (
         $(

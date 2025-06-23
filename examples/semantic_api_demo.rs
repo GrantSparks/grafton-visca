@@ -103,6 +103,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Setting iris to 75% open...");
     camera.set_iris_percentage(Percentage(75.0))?;
 
+    // Image Quality Controls
+    println!("\n9. Image Quality Controls");
+    println!("   Setting gain to 50% (~10.5dB)...");
+    camera.set_gain(Percentage(50.0))?;
+
+    println!("   Setting sharpness to 70%...");
+    camera.set_sharpness(Percentage(70.0))?;
+
+    println!("   Setting brightness to 50%...");
+    camera.set_brightness(Percentage(50.0))?;
+
+    println!("   Setting contrast to 60%...");
+    camera.set_contrast(Percentage(60.0))?;
+
+    println!("   Setting saturation to 75%...");
+    camera.set_saturation(Percentage(75.0))?;
+
+    println!("   Setting hue to 50%...");
+    camera.set_hue(Percentage(50.0))?;
+
+    // Using Raw Values
+    println!("\n10. Using Raw Values for Fine Control");
+    println!("   Setting gain to raw value 0x04 (12dB)...");
+    camera.set_gain(Raw(0x04u8))?;
+
+    println!("   Setting sharpness to raw value 5...");
+    camera.set_sharpness(Raw(5u8))?;
+
+    println!("   Setting brightness to raw value 0x0C...");
+    camera.set_brightness(Raw(0x0Cu16))?;
+
+    // Direct Type Usage
+    println!("\n11. Direct Type Usage");
+    use grafton_visca::types::{BrightnessLevel, GainValue, SharpnessLevel};
+
+    println!("   Setting gain with typed value...");
+    camera.set_gain(GainValue::new(0x05)?)?; // 15dB
+
+    println!("   Setting sharpness with typed level...");
+    camera.set_sharpness(SharpnessLevel::new(4)?)?;
+
+    println!("   Setting brightness with typed level...");
+    camera.set_brightness(BrightnessLevel::new(0x08)?)?;
+
     println!("\n✅ All semantic API operations completed successfully!");
 
     Ok(())
@@ -214,6 +258,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("   Setting iris to 75% open...");
     camera.set_iris_percentage(Percentage(75.0)).await?;
+
+    // Image Quality Controls
+    println!("\n9. Image Quality Controls");
+    println!("   Setting gain to 50% (~10.5dB)...");
+    camera.set_gain(Percentage(50.0)).await?;
+
+    println!("   Setting sharpness to 70%...");
+    camera.set_sharpness(Percentage(70.0)).await?;
+
+    println!("   Setting brightness to 50%...");
+    camera.set_brightness(Percentage(50.0)).await?;
+
+    println!("   Setting contrast to 60%...");
+    camera.set_contrast(Percentage(60.0)).await?;
+
+    println!("   Setting saturation to 75%...");
+    camera.set_saturation(Percentage(75.0)).await?;
+
+    println!("   Setting hue to 50%...");
+    camera.set_hue(Percentage(50.0)).await?;
+
+    // Using Raw Values
+    println!("\n10. Using Raw Values for Fine Control");
+    println!("   Setting gain to raw value 0x04 (12dB)...");
+    camera.set_gain(Raw(0x04u8)).await?;
+
+    println!("   Setting sharpness to raw value 5...");
+    camera.set_sharpness(Raw(5u8)).await?;
+
+    println!("   Setting brightness to raw value 0x0C...");
+    camera.set_brightness(Raw(0x0Cu16)).await?;
+
+    // Direct Type Usage
+    println!("\n11. Direct Type Usage");
+    use grafton_visca::types::{BrightnessLevel, GainValue, SharpnessLevel};
+
+    println!("   Setting gain with typed value...");
+    camera.set_gain(GainValue::new(0x05)?).await?; // 15dB
+
+    println!("   Setting sharpness with typed level...");
+    camera.set_sharpness(SharpnessLevel::new(4)?).await?;
+
+    println!("   Setting brightness with typed level...");
+    camera.set_brightness(BrightnessLevel::new(0x08)?).await?;
 
     println!("\n✅ All semantic API operations completed successfully!");
 
