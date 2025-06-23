@@ -439,6 +439,7 @@ where
 impl<P, T> Camera<P, T>
 where
     P: CameraProfile,
+    T: crate::transport::AsyncTransport,
 {
     /// Move the camera continuously in a direction with flexible speed parameters.
     ///
@@ -569,6 +570,7 @@ where
 impl<P, T> Camera<P, T>
 where
     P: CameraProfile,
+    T: crate::transport::blocking::Transport,
 {
     /// Set white balance using color temperature in Kelvin.
     ///

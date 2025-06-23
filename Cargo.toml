@@ -179,7 +179,6 @@ required-features = ["tokio"]
 
 
 
-
 [[example]]
 name = "simplified_async_demo"
 required-features = ["tokio"]
