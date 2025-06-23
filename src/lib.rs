@@ -273,7 +273,7 @@ pub use units::{
 pub use types::FStop;
 
 // Re-export procedural macros
-pub use grafton_visca_macros::{visca_method, visca_method_custom, visca_method_generic};
+pub use grafton_visca_macros::{visca_method, visca_method_generic};
 
 /// Camera profiles for common models
 pub mod profiles {
