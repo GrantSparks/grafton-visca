@@ -18,10 +18,11 @@ use grafton_visca::transport::blocking::{create, Transport as BlockingTransport}
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::Degrees,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    types::{FocusPosition, PanSpeed, TiltSpeed, ZoomPosition},
+    units::Degrees,
 };
 
 #[cfg(not(feature = "async"))]
@@ -66,19 +67,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(1));
 
     // Continuous movement
-    camera.move_continuous(PanTiltDirection::UpRight, 12, 10)?;
+    camera.move_continuous(
+        PanTiltDirection::UpRight,
+        PanSpeed::new(12)?,
+        TiltSpeed::new(10)?,
+    )?;
     thread::sleep(Duration::from_millis(500));
     camera.stop()?;
     println!("   ✓ Executed: Home → Move UpRight → Stop");
 
     // Zoom operations
-    camera.set_zoom(0x4000)?;
+    camera.set_zoom(ZoomPosition::try_from(0x4000)?)?;
     println!("   ✓ Set zoom to 0x4000");
     thread::sleep(Duration::from_secs(1));
 
     // Focus control
     camera.focus_manual()?;
-    camera.set_focus(0x8000u16)?;
+    camera.set_focus(FocusPosition::try_from(0x8000u16)?)?;
     println!("   ✓ Set manual focus to 0x8000");
 
     // Demonstrate absolute positioning with validation
@@ -145,19 +150,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn perform_scan_sequence<T: BlockingTransport>(
     camera: &mut Camera<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::camera::units::Degrees;
+    use grafton_visca::units::Degrees;
 
     // Return to home
     camera.home()?;
     thread::sleep(Duration::from_secs(1));
 
     // Scan left
-    camera.move_continuous(PanTiltDirection::Left, 8, 0)?;
+    camera.move_continuous(
+        PanTiltDirection::Left,
+        PanSpeed::new(8)?,
+        TiltSpeed::new(0)?,
+    )?;
     thread::sleep(Duration::from_secs(2));
     camera.stop()?;
 
     // Scan right
-    camera.move_continuous(PanTiltDirection::Right, 8, 0)?;
+    camera.move_continuous(
+        PanTiltDirection::Right,
+        PanSpeed::new(8)?,
+        TiltSpeed::new(0)?,
+    )?;
     thread::sleep(Duration::from_secs(4));
     camera.stop()?;
 
@@ -171,12 +184,12 @@ fn perform_scan_sequence<T: BlockingTransport>(
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::Degrees,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
     transport::create,
-    // ZoomPosition no longer needed - set_zoom takes u16 directly
+    types::{PanSpeed, TiltSpeed, ZoomPosition},
+    units::Degrees,
 };
 
 #[cfg(feature = "tokio")]
@@ -216,7 +229,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sequential operations that would typically be concurrent
     // Start moving and zooming (simulating concurrent behavior)
     camera
-        .move_continuous(PanTiltDirection::Right, 8, 0)
+        .move_continuous(
+            PanTiltDirection::Right,
+            PanSpeed::new(8)?,
+            TiltSpeed::new(0)?,
+        )
         .await?;
     camera.zoom_in().await?;
     println!("   → Started movement and zoom");
@@ -257,7 +274,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Reset to neutral
     println!("\n5. Reset to neutral position");
     camera.home().await?;
-    camera.set_zoom(0x0000).await?;
+    camera.set_zoom(ZoomPosition::MIN).await?;
     camera.focus_auto().await?;
     println!("   ✓ Reset camera to neutral state");
 
@@ -270,7 +287,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn perform_async_scan_sequence<T: grafton_visca::transport::AsyncTransport>(
     camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::camera::units::Degrees;
+    use grafton_visca::units::Degrees;
 
     // Return to home
     camera.home().await?;

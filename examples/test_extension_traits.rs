@@ -14,9 +14,10 @@ use grafton_visca::{
     },
     transport::tokio::UdpTransport,
     types::{
-        BrightnessLevel, ColorTemperature, ContrastLevel, GainLimit, HueLevel,
-        NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
+        BrightnessLevel, ColorTemperature, ContrastLevel, FocusPosition, GainLimit, HueLevel,
+        IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
     },
+    units::Raw,
     Error,
 };
 #[cfg(feature = "tokio")]
@@ -46,14 +47,14 @@ async fn main() -> Result<(), Error> {
     time::sleep(Duration::from_secs(2)).await;
 
     camera
-        .move_continuous(PanTiltDirection::Right, 10, 0)
+        .move_continuous_raw(PanTiltDirection::Right, 10, 0)
         .await?;
     time::sleep(Duration::from_millis(500)).await;
     camera.stop().await?;
 
     // Zoom control
     println!("\nTesting zoom control...");
-    camera.set_zoom(0x2000).await?;
+    camera.set_zoom(Raw(0x2000u16).into()).await?;
     time::sleep(Duration::from_secs(1)).await;
 
     camera.zoom_in().await?;
@@ -79,7 +80,7 @@ async fn main() -> Result<(), Error> {
     time::sleep(Duration::from_millis(500)).await;
 
     camera.focus_manual().await?;
-    camera.set_focus(0x5000).await?;
+    camera.set_focus(FocusPosition::try_from(0x5000)?).await?;
     time::sleep(Duration::from_millis(500)).await;
 
     camera.focus_auto().await?;
@@ -87,7 +88,7 @@ async fn main() -> Result<(), Error> {
     // Exposure control
     println!("\nTesting exposure control...");
     camera.set_exposure_mode(ExposureMode::Auto).await?;
-    camera.set_iris(10).await?;
+    camera.set_iris(IrisLevel::new(10)?).await?;
     // Set shutter speed not available directly in current API
     // camera.set_shutter_speed(ShutterSpeed::new(15)?).await?;
     camera.set_backlight(true).await?;
@@ -135,7 +136,7 @@ async fn main() -> Result<(), Error> {
 
     // Position control with different unit types
     println!("\nTesting position control with different units...");
-    use grafton_visca::camera::units::Degrees;
+    use grafton_visca::units::Degrees;
 
     // Using degrees
     camera.set_position(Degrees(45.0), Degrees(15.0)).await?;

@@ -11,12 +11,12 @@
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::Degrees,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
     transport::create,
-    // FocusPosition no longer needed - set_focus takes u16 directly
+    types::{FocusPosition, PanSpeed, TiltSpeed, ZoomPosition},
+    units::Degrees,
     Error,
 };
 use std::env;
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Setting up shot 1...");
     camera.set_position(Degrees(16.0), Degrees(-4.0)).await?;
-    camera.set_zoom(0x1800).await?;
+    camera.set_zoom(ZoomPosition::try_from(0x1800)?).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 10...");
@@ -78,7 +78,7 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Setting up shot 2...");
     camera.set_position(Degrees(-12.0), Degrees(8.0)).await?;
-    camera.set_zoom(0x3000).await?;
+    camera.set_zoom(ZoomPosition::try_from(0x3000)?).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 11...");
@@ -91,14 +91,22 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Starting smooth pan...");
     camera
-        .move_continuous(PanTiltDirection::Right, 8, 0)
+        .move_continuous(
+            PanTiltDirection::Right,
+            PanSpeed::new(8)?,
+            TiltSpeed::new(0)?,
+        )
         .await?;
 
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Starting diagonal movement...");
     camera
-        .move_continuous(PanTiltDirection::UpRight, 8, 5)
+        .move_continuous(
+            PanTiltDirection::UpRight,
+            PanSpeed::new(8)?,
+            TiltSpeed::new(5)?,
+        )
         .await?;
 
     sleep(Duration::from_secs(2)).await;
@@ -114,7 +122,7 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Adjusting focus...");
     // Direct focus position
-    camera.set_focus(0x6000).await?;
+    camera.set_focus(FocusPosition::try_from(0x6000)?).await?;
     sleep(Duration::from_secs(1)).await;
 
     println!("   - Restoring auto focus...");

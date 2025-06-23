@@ -4,11 +4,12 @@
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        units::Degrees,
         Camera,
     },
     transport::tokio::TcpTransport,
     types::ZoomPosition,
+    units::Degrees,
+    units::Raw,
     Error,
 };
 #[cfg(feature = "tokio")]
@@ -91,7 +92,7 @@ async fn main() -> Result<(), Error> {
     // Set specific zoom position
     println!("Setting zoom to 50%...");
     let _zoom_50_percent = ZoomPosition::new(0x7000 / 2)?; // Half of max zoom for G2
-    camera.set_zoom(0x7000 / 2).await?; // Direct VISCA value
+    camera.set_zoom(Raw(0x7000u16 / 2).into()).await?; // Direct VISCA value
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Focus control

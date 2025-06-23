@@ -13,6 +13,7 @@ use grafton_visca::Error;
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
+    types::{PanSpeed, TiltSpeed},
 };
 use std::time::Duration;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
@@ -237,7 +238,11 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("\n   a) Handling CameraBusy during movement:");
 
     // Start a movement
-    match camera.move_continuous(PanTiltDirection::Right, 10, 0) {
+    match camera.move_continuous(
+        PanTiltDirection::Right,
+        PanSpeed::new(10)?,
+        TiltSpeed::new(0)?,
+    ) {
         Ok(_) => {
             println!("   ✓ Started movement");
 
@@ -377,7 +382,14 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   a) Camera busy while moving:");
 
     // Start a movement
-    match camera.move_continuous(PanTiltDirection::Right, 10, 0).await {
+    match camera
+        .move_continuous(
+            PanTiltDirection::Right,
+            PanSpeed::new(10)?,
+            TiltSpeed::new(0)?,
+        )
+        .await
+    {
         Ok(_) => {
             println!("   ✓ Started continuous movement");
 

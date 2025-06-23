@@ -154,6 +154,8 @@ jobs:
   package-check:
     name: Package Check
     runs-on: ubuntu-latest
+    # Skip package check on PRs until macro crate is ready for publishing
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
       

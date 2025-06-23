@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Position control with type-safe units
     println!("\n2. Type-safe position control:");
-    use grafton_visca::camera::units::Degrees;
+    use grafton_visca::units::Degrees;
 
     // Move using degrees
     camera.set_position(Degrees(45.0), Degrees(15.0))?;
