@@ -9,6 +9,19 @@
 mod common;
 
 use common::MockAsyncTransport;
+
+// Extension trait for test-specific methods
+trait MockAsyncTransportExt {
+    fn fail_after_n_commands(self, n: usize) -> Self;
+}
+
+impl MockAsyncTransportExt for MockAsyncTransport {
+    fn fail_after_n_commands(mut self, n: usize) -> Self {
+        self.fail_after = Some(n);
+        self
+    }
+}
+
 use grafton_visca::{
     command::{
         pan_tilt::PanTiltCommand,

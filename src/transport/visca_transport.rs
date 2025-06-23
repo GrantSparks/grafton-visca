@@ -42,27 +42,7 @@ pub struct ViscaProtocol<T> {
     transport: std::sync::Arc<sync_primitives::Mutex<T>>,
 }
 
-// Common implementation
-impl<T> ViscaProtocol<T> {
-    /// Create a transport for blocking usage (stores T directly)
-    #[allow(dead_code)]
-    pub(crate) fn new_blocking(transport: T) -> Self {
-        Self {
-            #[cfg(not(feature = "async"))]
-            transport,
-            #[cfg(feature = "async")]
-            transport: std::sync::Arc::new(sync_primitives::Mutex::new(transport)),
-        }
-    }
-
-    /// Create a transport for async usage (stores `Arc<Mutex<T>>`)
-    #[cfg(feature = "async")]
-    pub(crate) fn new_async(transport: T) -> Self {
-        Self {
-            transport: std::sync::Arc::new(sync_primitives::Mutex::new(transport)),
-        }
-    }
-}
+// No common implementation needed - each mode has its own constructor
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
@@ -73,7 +53,7 @@ mod blocking_impl {
     impl<T: BlockingTransport> ViscaProtocol<T> {
         /// Create a new VISCA transport wrapping a raw transport.
         pub fn new(transport: T) -> Self {
-            Self::new_blocking(transport)
+            Self { transport }
         }
 
         /// Get a reference to the underlying transport.
@@ -226,7 +206,9 @@ mod async_impl {
     impl<T: AsyncTransport> ViscaProtocol<T> {
         /// Create a new VISCA transport wrapping an async transport.
         pub fn new(transport: T) -> Self {
-            Self::new_async(transport)
+            Self {
+                transport: std::sync::Arc::new(sync_primitives::Mutex::new(transport)),
+            }
         }
 
         /// Get access to the inner transport through a closure.

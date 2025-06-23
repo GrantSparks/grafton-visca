@@ -22,8 +22,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// A flexible mock transport for testing various scenarios.
+#[cfg(not(feature = "async"))]
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // Complete testing API - not all methods used in every test
 pub struct MockTransport {
     /// Queue of responses to return
     pub responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
@@ -37,7 +37,6 @@ pub struct MockTransport {
     pub fail_after: Option<usize>,
 }
 
-#[allow(dead_code)] // Complete testing API - not all methods used in every test
 #[cfg(not(feature = "async"))]
 impl MockTransport {
     /// Create a new mock transport with no responses queued.
@@ -67,59 +66,6 @@ impl MockTransport {
     pub fn add_ack_completion(&self, socket: u8) {
         self.add_response(vec![0x90, 0x40 | socket, 0xFF]); // ACK
         self.add_response(vec![0x90, 0x50 | socket, 0xFF]); // Completion
-    }
-
-    /// Add an inquiry response.
-    pub fn add_inquiry_response(&self, response: Vec<u8>) {
-        self.add_response(response);
-    }
-
-    /// Get the commands that were sent.
-    pub fn commands_sent(&self) -> Vec<Vec<u8>> {
-        self.commands_sent.lock().unwrap().clone()
-    }
-
-    /// Get the last command that was sent.
-    pub fn last_command(&self) -> Option<Vec<u8>> {
-        self.commands_sent.lock().unwrap().last().cloned()
-    }
-
-    /// Clear all sent commands.
-    pub fn clear_commands(&self) {
-        self.commands_sent.lock().unwrap().clear();
-    }
-
-    /// Create a mock that expects a specific command and returns a response.
-    pub fn expecting(command: &[u8], response: &[u8]) -> Self {
-        let mut mock = Self::new();
-        mock.expect_command(command, response);
-        mock
-    }
-
-    /// Add an expectation for a command and its response.
-    pub fn expect_command(&mut self, _expected_command: &[u8], response: &[u8]) {
-        // For now, we just add the response. In the future, we could verify
-        // that the expected command matches what was sent.
-        self.add_response(response.to_vec());
-    }
-
-    /// Verify that all expected commands were sent.
-    /// This is a placeholder for future enhancement where we track expectations.
-    pub fn verify(&self) {
-        // Currently, this is a no-op. In the future, we could track
-        // expected vs actual commands and panic if they don't match.
-    }
-
-    /// Create a mock that returns an error response.
-    pub fn with_error(error_code: u8) -> Self {
-        let mock = Self::new();
-        mock.add_response(vec![0x90, 0x60, error_code, 0xFF]);
-        mock
-    }
-
-    /// Create a mock that times out (returns no response).
-    pub fn with_timeout() -> Self {
-        Self::new() // No responses queued means timeout
     }
 }
 
@@ -153,10 +99,6 @@ impl BlockingTransport for MockTransport {
         "Mock transport for testing"
     }
 }
-
-// Helper to create a ViscaTransport for testing
-#[cfg(not(feature = "async"))]
-impl MockTransport {}
 
 // Async version of MockTransport for feature parity
 #[cfg(all(feature = "async", feature = "tokio"))]
@@ -216,19 +158,6 @@ impl MockAsyncTransport {
     pub async fn add_ack_completion(&self, socket: u8) {
         self.add_response(vec![0x90, 0x40 | socket, 0xFF]).await; // ACK
         self.add_response(vec![0x90, 0x50 | socket, 0xFF]).await; // Completion
-    }
-
-    /// Get the command count.
-    #[allow(dead_code)]
-    pub async fn command_count(&self) -> usize {
-        *self.command_counter.lock().await
-    }
-
-    /// Configure to fail after N commands.
-    #[allow(dead_code)]
-    pub fn fail_after_n_commands(mut self, n: usize) -> Self {
-        self.fail_after = Some(n);
-        self
     }
 }
 
