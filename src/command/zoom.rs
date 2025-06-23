@@ -33,7 +33,7 @@ use crate::{
     constants::{CameraConstants, CameraModel},
     error::Error,
     timeout::CommandCategory,
-    types::ZoomPosition,
+    types::{SpeedLevel, ZoomPosition},
 };
 
 crate::visca_bounded_param! {
@@ -44,6 +44,12 @@ crate::visca_bounded_param! {
         min: 0,
         max: 7,
         error_msg: "Zoom speed must be in the range 0..=7"
+    }
+}
+
+impl From<SpeedLevel> for ZoomSpeed {
+    fn from(level: SpeedLevel) -> Self {
+        Self(level.to_zoom_speed())
     }
 }
 
