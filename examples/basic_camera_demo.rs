@@ -8,6 +8,7 @@ use grafton_visca::{
         exposure::ExposureMode, pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
     },
     transport::tokio::TcpTransport,
+    types::{PanSpeed, TiltSpeed},
     units::Degrees,
     units::Raw,
     Camera, Error,
@@ -81,7 +82,11 @@ async fn demo_pan_tilt_movement<T: grafton_visca::transport::AsyncTransport>(
 
     println!("Moving camera up-right...");
     camera
-        .move_continuous_raw(PanTiltDirection::UpRight, 16, 16)
+        .move_continuous(
+            PanTiltDirection::UpRight,
+            PanSpeed::new(16)?,
+            TiltSpeed::new(16)?,
+        )
         .await?;
     sleep(Duration::from_secs(1)).await;
 

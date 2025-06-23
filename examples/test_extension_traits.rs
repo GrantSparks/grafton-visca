@@ -15,7 +15,8 @@ use grafton_visca::{
     transport::tokio::UdpTransport,
     types::{
         BrightnessLevel, ColorTemperature, ContrastLevel, FocusPosition, GainLimit, HueLevel,
-        IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
+        IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, SaturationLevel,
+        SharpnessLevel, TiltSpeed,
     },
     units::Raw,
     Error,
@@ -47,7 +48,11 @@ async fn main() -> Result<(), Error> {
     time::sleep(Duration::from_secs(2)).await;
 
     camera
-        .move_continuous_raw(PanTiltDirection::Right, 10, 0)
+        .move_continuous(
+            PanTiltDirection::Right,
+            PanSpeed::new(10)?,
+            TiltSpeed::new(0)?,
+        )
         .await?;
     time::sleep(Duration::from_millis(500)).await;
     camera.stop().await?;
