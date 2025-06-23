@@ -96,24 +96,24 @@
 //!
 //! ## Transport Implementation
 //!
-//! The library provides a `Transport` trait that you can implement for any communication method:
+//! The library provides a `ViscaProtocol` struct that you can implement for any communication method:
 //!
 //! ```ignore
-//! use grafton_visca::{Transport, TransportFuture, Command, Response, Error};
+//! use grafton_visca::{Command, Response, Error};
 //!
 //! struct MyTransport {
 //!     // Your transport state
 //! }
 //!
-//! impl Transport for MyTransport {
-//!     fn send_command<'a>(&'a mut self, command: &'a dyn Command) -> TransportFuture<'a, Response> {
-//!         Box::pin(async move {
-//!             // Send command bytes
-//!             let bytes = command.to_bytes()?;
-//!             // ... send bytes ...
-//!             // ... receive response ...
-//!             Ok(Response::Completion)
-//!         })
+//! impl BlockingTransport for MyTransport {
+//!     fn send(&mut self, data: &[u8]) -> Result<(), Error> {
+//!         // Send data over your transport
+//!         Ok(())
+//!     }
+//!     
+//!     fn receive(&mut self) -> Result<Vec<u8>, Error> {
+//!         // Receive response from your transport
+//!         Ok(vec![])
 //!     }
 //! }
 //! ```
@@ -256,9 +256,6 @@ pub mod units;
 
 pub mod timeout; // Public for use in macros
 
-#[cfg(feature = "async")]
-mod sync_primitives;
-
 // Core re-exports for Camera<P> API
 pub use camera::{
     Camera, CameraProfile, CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder,
@@ -270,7 +267,7 @@ pub use units::{
     Degrees, Fraction, Kelvin, Magnification, Normalized, Percentage, Radians, Raw, ViscaUnits,
 };
 // Re-export FStop from types
-pub use types::FStop;
+pub use types::{FStop, IntoIrisLevel};
 
 // Re-export procedural macros
 pub use grafton_visca_macros::{

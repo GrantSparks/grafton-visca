@@ -11,7 +11,7 @@ use crate::error::Error;
 ///
 /// Implement this trait to create new transport types for VISCA communication.
 /// This trait handles raw I/O operations; protocol logic is handled by ViscaTransport.
-pub trait Transport: Send + Sync + std::fmt::Debug {
+pub trait BlockingTransport: Send + Sync + std::fmt::Debug {
     /// Send raw bytes to the device.
     fn send(&mut self, data: &[u8]) -> Result<(), Error>;
 
@@ -25,8 +25,8 @@ pub trait Transport: Send + Sync + std::fmt::Debug {
     fn description(&self) -> &str;
 }
 
-// Implement Transport for Box<dyn Transport> to allow dynamic dispatch
-impl Transport for Box<dyn Transport> {
+// Implement BlockingTransport for Box<dyn BlockingTransport> to allow dynamic dispatch
+impl BlockingTransport for Box<dyn BlockingTransport> {
     fn send(&mut self, data: &[u8]) -> Result<(), Error> {
         (**self).send(data)
     }
@@ -49,8 +49,8 @@ mod tcp;
 mod udp;
 
 // Re-exports
-pub use tcp::TcpTransport;
-pub use udp::UdpTransport;
+pub use tcp::Tcp;
+pub use udp::Udp;
 
 /// Convenience functions for creating transports.
 pub mod create {
@@ -58,20 +58,17 @@ pub mod create {
     use std::net::ToSocketAddrs;
 
     /// Create a TCP transport connected to the given address.
-    pub fn tcp<A: ToSocketAddrs>(address: A) -> std::io::Result<TcpTransport> {
-        TcpTransport::connect(address)
+    pub fn tcp<A: ToSocketAddrs>(address: A) -> std::io::Result<Tcp> {
+        Tcp::connect(address)
     }
 
     /// Create a TCP transport with custom timeout.
-    pub fn tcp_timeout<A: ToSocketAddrs>(
-        address: A,
-        timeout: Duration,
-    ) -> std::io::Result<TcpTransport> {
-        TcpTransport::connect_timeout(address, timeout)
+    pub fn tcp_timeout<A: ToSocketAddrs>(address: A, timeout: Duration) -> std::io::Result<Tcp> {
+        Tcp::connect_timeout(address, timeout)
     }
 
     /// Create a UDP transport connected to the given address.
-    pub fn udp<A: ToSocketAddrs>(address: A) -> std::io::Result<UdpTransport> {
-        UdpTransport::connect(address)
+    pub fn udp<A: ToSocketAddrs>(address: A) -> std::io::Result<Udp> {
+        Udp::connect(address)
     }
 }

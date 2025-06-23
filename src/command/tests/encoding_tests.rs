@@ -115,36 +115,36 @@ mod golden_vector_tests {
             "Zoom Stop should produce correct byte sequence"
         );
 
-        // Zoom In Standard
-        let zoom_in = ZoomCommand::ZoomInStandard;
+        // Zoom In
+        let zoom_in = ZoomCommand::In;
         assert_eq!(
             zoom_in.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF],
-            "Zoom In Standard should produce correct byte sequence"
+            "Zoom In should produce correct byte sequence"
         );
 
-        // Zoom Out Standard
-        let zoom_out = ZoomCommand::ZoomOutStandard;
+        // Zoom Out
+        let zoom_out = ZoomCommand::Out;
         assert_eq!(
             zoom_out.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF],
-            "Zoom Out Standard should produce correct byte sequence"
+            "Zoom Out should produce correct byte sequence"
         );
 
-        // Zoom In Variable with speed
-        let zoom_in_var = ZoomCommand::ZoomInVariable(ZoomSpeed::new(5).unwrap());
+        // Zoom In WithSpeed with speed
+        let zoom_in_var = ZoomCommand::InWithSpeed(ZoomSpeed::new(5).unwrap());
         assert_eq!(
             zoom_in_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF], // 0x20 | 5 = 0x25
-            "Zoom In Variable with speed 5 should produce correct byte sequence"
+            "Zoom In WithSpeed with speed 5 should produce correct byte sequence"
         );
 
-        // Zoom Out Variable with max speed
-        let zoom_out_var = ZoomCommand::ZoomOutVariable(ZoomSpeed::new(7).unwrap());
+        // Zoom Out WithSpeed with max speed
+        let zoom_out_var = ZoomCommand::OutWithSpeed(ZoomSpeed::new(7).unwrap());
         assert_eq!(
             zoom_out_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF], // 0x30 | 7 = 0x37
-            "Zoom Out Variable with max speed should produce correct byte sequence"
+            "Zoom Out WithSpeed with max speed should produce correct byte sequence"
         );
     }
 
@@ -159,21 +159,21 @@ mod golden_vector_tests {
     }
 
     #[test]
-    fn test_zoom_direct_position() {
+    fn test_zoom_position_encoding() {
         // Test a specific zoom position
-        let zoom_direct = ZoomCommand::Direct(ZoomPosition::new(0x1234).unwrap());
+        let zoom_position = ZoomCommand::Position(ZoomPosition::new(0x1234).unwrap());
         assert_eq!(
-            zoom_direct.to_bytes().unwrap(),
+            zoom_position.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF],
-            "Zoom Direct position 0x1234 should be split into nibbles correctly"
+            "Zoom Position position 0x1234 should be split into nibbles correctly"
         );
 
         // Test maximum zoom position (0x7000 for 20X optical)
-        let zoom_max = ZoomCommand::Direct(ZoomPosition::new(0x7000).unwrap());
+        let zoom_max = ZoomCommand::Position(ZoomPosition::new(0x7000).unwrap());
         assert_eq!(
             zoom_max.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x47, 0x07, 0x00, 0x00, 0x00, 0xFF],
-            "Zoom Direct max position should be split into nibbles correctly"
+            "Zoom Position max position should be split into nibbles correctly"
         );
     }
 
@@ -233,21 +233,21 @@ mod golden_vector_tests {
             "Focus Stop should produce correct byte sequence"
         );
 
-        // Focus Far Standard
-        let focus_far = FocusCommand::FocusFarStandard;
+        // Focus Far
+        let focus_far = FocusCommand::Far;
         assert_eq!(
             focus_far.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF],
-            "Focus Far Standard should produce correct byte sequence"
+            "Focus Far should produce correct byte sequence"
         );
 
-        // Focus Near Variable
+        // Focus Near WithSpeed
         let focus_speed = FocusSpeed::new(3).unwrap();
-        let focus_near_var = FocusCommand::NearVariable(focus_speed);
+        let focus_near_var = FocusCommand::NearWithSpeed(focus_speed);
         assert_eq!(
             focus_near_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x08, 0x33, 0xFF], // 0x30 | 3 = 0x33
-            "Focus Near Variable with speed 3 should produce correct byte sequence"
+            "Focus Near WithSpeed with speed 3 should produce correct byte sequence"
         );
 
         // Focus Auto
@@ -372,7 +372,7 @@ mod golden_vector_tests {
 
         // Exposure Compensation Direct -7
         let exp_comp_neg7 =
-            ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(-7).unwrap());
+            ExposureCompensationCommand::SetLevel(ExposureCompensationLevel::new(-7).unwrap());
         assert_eq!(
             exp_comp_neg7.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x00, 0xFF],
@@ -381,7 +381,7 @@ mod golden_vector_tests {
 
         // Exposure Compensation Direct +7
         let exp_comp_pos7 =
-            ExposureCompensationCommand::Direct(ExposureCompensationLevel::new(7).unwrap());
+            ExposureCompensationCommand::SetLevel(ExposureCompensationLevel::new(7).unwrap());
         assert_eq!(
             exp_comp_pos7.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x0E, 0xFF],
@@ -392,7 +392,7 @@ mod golden_vector_tests {
     #[test]
     fn test_dynamic_range_command() {
         // Dynamic Range level 0
-        let dr_0 = DynamicRangeCommand::Direct(DynamicRangeLevel::new(0).unwrap());
+        let dr_0 = DynamicRangeCommand::SetLevel(DynamicRangeLevel::new(0).unwrap());
         assert_eq!(
             dr_0.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0xFF],
@@ -400,7 +400,7 @@ mod golden_vector_tests {
         );
 
         // Dynamic Range level 8
-        let dr_8 = DynamicRangeCommand::Direct(DynamicRangeLevel::new(8).unwrap());
+        let dr_8 = DynamicRangeCommand::SetLevel(DynamicRangeLevel::new(8).unwrap());
         assert_eq!(
             dr_8.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x08, 0xFF],
@@ -434,7 +434,7 @@ mod golden_vector_tests {
         );
 
         // Iris Direct F1.8
-        let iris_f18 = IrisCommand::Direct(IrisLevel::new(0x0C).unwrap());
+        let iris_f18 = IrisCommand::SetAperture(IrisLevel::new(0x0C).unwrap());
         assert_eq!(
             iris_f18.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0C, 0xFF],
@@ -453,7 +453,7 @@ mod golden_vector_tests {
         );
 
         // Shutter Direct 1/30
-        let shutter_30 = ShutterCommand::Direct(ShutterSpeed::new(0x01).unwrap());
+        let shutter_30 = ShutterCommand::SetSpeed(ShutterSpeed::new(0x01).unwrap());
         assert_eq!(
             shutter_30.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x01, 0xFF],
@@ -461,7 +461,7 @@ mod golden_vector_tests {
         );
 
         // Shutter Direct 1/10000
-        let shutter_10000 = ShutterCommand::Direct(ShutterSpeed::new(0x11).unwrap());
+        let shutter_10000 = ShutterCommand::SetSpeed(ShutterSpeed::new(0x11).unwrap());
         assert_eq!(
             shutter_10000.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x01, 0xFF],
@@ -480,7 +480,7 @@ mod golden_vector_tests {
         );
 
         // Bright Direct 17
-        let bright_17 = BrightCommand::Direct(BrightnessLevel::new(0x11).unwrap());
+        let bright_17 = BrightCommand::SetLevel(BrightnessLevel::new(0x11).unwrap());
         assert_eq!(
             bright_17.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF],
@@ -499,7 +499,7 @@ mod golden_vector_tests {
         );
 
         // Gain Direct 7
-        let gain_7 = GainCommand::Direct(GainValue::new(0x07).unwrap());
+        let gain_7 = GainCommand::SetValue(GainValue::new(0x07).unwrap());
         assert_eq!(
             gain_7.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, 0x00, 0x07, 0xFF],
@@ -759,11 +759,11 @@ mod golden_vector_tests {
         );
 
         // Sharpness Direct 11
-        let sharp_11 = SharpnessCommand::Direct { value: 11 };
+        let sharp_11 = SharpnessCommand::SetLevel { value: 11 };
         assert_eq!(
             sharp_11.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x0B, 0xFF],
-            "Sharpness Direct 11 should produce correct byte sequence"
+            "Sharpness SetLevel 11 should produce correct byte sequence"
         );
     }
 
@@ -786,7 +786,8 @@ mod golden_vector_tests {
         );
 
         // Color Temperature Direct 8000K (0x37)
-        let ct_8000k = ColorTemperatureCommand::Direct(ColorTemperature::new(0x37).unwrap());
+        let ct_8000k =
+            ColorTemperatureCommand::SetTemperature(ColorTemperature::new(0x37).unwrap());
         assert_eq!(
             ct_8000k.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x00, 0x00, 0x03, 0x07, 0xFF],
@@ -805,7 +806,7 @@ mod golden_vector_tests {
         );
 
         // Red Gain Direct 0xFF
-        let red_ff = RedGainCommand::Direct(RedGain::new(0xFF).unwrap());
+        let red_ff = RedGainCommand::SetValue(RedGain::new(0xFF).unwrap());
         assert_eq!(
             red_ff.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x43, 0x00, 0x00, 0x0F, 0x0F, 0xFF],
@@ -821,7 +822,7 @@ mod golden_vector_tests {
         );
 
         // Blue Gain Direct 0x80
-        let blue_80 = BlueGainCommand::Direct(BlueGain::new(0x80).unwrap());
+        let blue_80 = BlueGainCommand::SetValue(BlueGain::new(0x80).unwrap());
         assert_eq!(
             blue_80.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x44, 0x00, 0x00, 0x08, 0x00, 0xFF],

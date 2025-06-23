@@ -12,8 +12,8 @@ use log::error;
 // Workspace / local-crate imports
 use crate::{
     command::{
-        gain::AntiFlickerMode, luminance_contrast_sharpness::SharpnessMode, AutoFocusSensitivity,
-        ExposureMode, FocusZone, InquiryResponse, WhiteBalanceMode,
+        gain::AntiFlickerMode, image_adjustment::SharpnessMode, AutoFocusSensitivity, ExposureMode,
+        FocusZone, InquiryResponse, WhiteBalanceMode,
     },
     error::Error,
 };
@@ -137,10 +137,10 @@ pub enum ResponseType {
     BlockPowerImageEffect,
     /// Block image control inquiry response.
     BlockImage,
-    /// Zoom out standard operation inquiry response.
-    ZoomOutStandard,
-    /// Zoom in standard operation inquiry response.
-    ZoomInStandard,
+    /// Zoom out operation inquiry response.
+    ZoomOut,
+    /// Zoom in operation inquiry response.
+    ZoomIn,
     /// 2D noise reduction setting inquiry response.
     NoiseReduction2D,
     /// 3D noise reduction setting inquiry response.
@@ -1484,8 +1484,8 @@ mod tests {
             ResponseType::BlockColorExposure,
             ResponseType::BlockPowerImageEffect,
             ResponseType::BlockImage,
-            ResponseType::ZoomOutStandard,
-            ResponseType::ZoomInStandard,
+            ResponseType::ZoomOut,
+            ResponseType::ZoomIn,
         ];
 
         for response_type in unhandled_types {

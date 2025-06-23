@@ -7,7 +7,7 @@
 use grafton_visca::{
     camera::{profiles::GenericVisca, Camera},
     command::zoom::ZoomCommand,
-    transport::tokio::{TcpTransport, UdpTransport},
+    transport::tokio::{Tcp, Udp},
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: TCP transport with Camera API
     println!("1. Creating TCP transport session...");
-    match TcpTransport::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await {
+    match Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await {
         Ok(transport) => {
             println!("   ✓ TCP transport created");
 
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 2: UDP transport with Camera API
     println!("2. Creating UDP transport session...");
-    match UdpTransport::connect("192.168.1.100:52381").await {
+    match Udp::connect("192.168.1.100:52381").await {
         Ok(transport) => {
             println!("   ✓ UDP transport created");
 

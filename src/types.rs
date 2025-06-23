@@ -6,6 +6,7 @@
 use std::fmt;
 
 use crate::error::Error;
+use crate::units::Percentage;
 
 /// Socket ID for VISCA commands.
 ///
@@ -264,6 +265,18 @@ impl fmt::Display for NoiseReduction3DLevel {
     }
 }
 
+/// Trait for types that can be converted into an IrisLevel.
+///
+/// This trait allows the `set_iris` method to accept multiple types
+/// that can be converted to an IrisLevel, providing a flexible API.
+pub trait IntoIrisLevel {
+    /// Convert this type into an IrisLevel.
+    ///
+    /// # Errors
+    /// Returns an error if the conversion fails (e.g., value out of range).
+    fn into_iris_level(self) -> Result<IrisLevel, Error>;
+}
+
 /// Iris level for direct iris control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IrisLevel(u8);
@@ -334,6 +347,35 @@ impl From<FStop> for IrisLevel {
 impl fmt::Display for IrisLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Iris {:#02X}", self.0)
+    }
+}
+
+// Implement IntoIrisLevel for IrisLevel itself (identity conversion)
+impl IntoIrisLevel for IrisLevel {
+    fn into_iris_level(self) -> Result<IrisLevel, Error> {
+        Ok(self)
+    }
+}
+
+// Implement IntoIrisLevel for u8
+impl IntoIrisLevel for u8 {
+    fn into_iris_level(self) -> Result<IrisLevel, Error> {
+        IrisLevel::new(self)
+    }
+}
+
+// Implement IntoIrisLevel for FStop
+impl IntoIrisLevel for FStop {
+    fn into_iris_level(self) -> Result<IrisLevel, Error> {
+        Ok(IrisLevel::from(self))
+    }
+}
+
+// Implement IntoIrisLevel for Percentage<f32>
+impl IntoIrisLevel for Percentage<f32> {
+    fn into_iris_level(self) -> Result<IrisLevel, Error> {
+        use std::convert::TryFrom;
+        IrisLevel::try_from(self)
     }
 }
 

@@ -28,11 +28,11 @@ use std::future::Future;
 /// use std::sync::Arc;
 /// use tokio::sync::Mutex;
 ///
-/// pub struct TokioTcpTransport {
+/// pub struct TokioTcp {
 ///     stream: Arc<Mutex<TcpStream>>,
 /// }
 ///
-/// impl AsyncTransport for TokioTcpTransport {
+/// impl AsyncTransport for TokioTcp {
 ///     type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
 ///     type ReceiveFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
 ///
@@ -68,11 +68,11 @@ use std::future::Future;
 /// use std::sync::Arc;
 /// use async_std::sync::Mutex;
 ///
-/// pub struct AsyncStdTcpTransport {
+/// pub struct AsyncStdTcp {
 ///     stream: Arc<Mutex<TcpStream>>,
 /// }
 ///
-/// impl AsyncTransport for AsyncStdTcpTransport {
+/// impl AsyncTransport for AsyncStdTcp {
 ///     type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
 ///     type ReceiveFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
 ///

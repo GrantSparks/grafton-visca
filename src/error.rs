@@ -1,6 +1,6 @@
 use std::{convert::Infallible, fmt, io, time::Duration};
 
-use thiserror::Error;
+use thiserror::Error as ThisError;
 
 /// Custom result type for VISCA operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -10,7 +10,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Provides comprehensive error handling for all VISCA operations.
 /// The VISCA protocol has a well-defined set of error conditions
 /// that map directly to camera responses and communication failures.
-#[derive(thiserror::Error, Debug)]
+#[derive(ThisError, Debug)]
 pub enum Error {
     /// Failed to establish connection to the camera.
     #[error("Connection failed to {addr}: {source}")]
@@ -253,19 +253,6 @@ impl From<Infallible> for Error {
     }
 }
 
-/// Application-level error type for examples and user code.
-#[doc(hidden)]
-#[derive(Error, Debug)]
-pub enum AppError {
-    /// IO error from file or network operations.
-    #[error("IO error: {0}")]
-    Io(#[from] io::Error),
-
-    /// VISCA protocol or camera communication error.
-    #[error("VISCA error: {0}")]
-    Visca(#[from] Error),
-}
-
 /// Error context information for debugging.
 #[derive(Debug, Clone)]
 pub struct ErrorContext {
@@ -336,20 +323,6 @@ mod tests {
         let nom_err = nom::Err::Error(NomError::new(&b"test"[..], ErrorKind::Tag));
         let visca_err = Error::from(nom_err);
         assert!(matches!(visca_err, Error::ParseError(_)));
-    }
-
-    #[test]
-    fn test_app_error_from_io() {
-        let io_err = io::Error::other("file not found");
-        let app_err = AppError::from(io_err);
-        assert!(matches!(app_err, AppError::Io(_)));
-    }
-
-    #[test]
-    fn test_app_error_from_visca() {
-        let visca_err = Error::SyntaxError;
-        let app_err = AppError::from(visca_err);
-        assert!(matches!(app_err, AppError::Visca(Error::SyntaxError)));
     }
 
     #[test]

@@ -6,7 +6,7 @@ use grafton_visca::{
         profiles::{G2PresetId, PTZOpticsG2},
         Camera,
     },
-    transport::tokio::TcpTransport,
+    transport::tokio::Tcp,
     types::ZoomPosition,
     units::Degrees,
     units::Raw,
@@ -28,8 +28,7 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a G2 camera with TCP transport
-    let transport =
-        TcpTransport::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
+    let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Display camera capabilities

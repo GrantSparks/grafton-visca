@@ -7,14 +7,14 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::{Camera, PTZOpticsG2},
-        transport::blocking::UdpTransport,
+        transport::blocking::Udp,
         units::{Degrees, Fraction, Kelvin, Magnification, Percentage, Radians},
         FStop,
     };
     use std::f32::consts::PI;
 
     // Connect to camera
-    let transport = UdpTransport::connect("192.168.1.100:52381")?;
+    let transport = Udp::connect("192.168.1.100:52381")?;
     let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Semantic API Demo ===\n");
@@ -65,10 +65,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Iris Control
     println!("\n6. Iris Control");
     println!("   Setting iris to F2.8...");
-    camera.set_iris_fstop(FStop::F2_8)?;
+    camera.set_iris(FStop::F2_8)?;
 
     println!("   Setting iris to 50% open...");
-    camera.set_iris_percentage(Percentage(50.0))?;
+    camera.set_iris(Percentage(50.0))?;
 
     // Movement with Percentage Speeds
     println!("\n7. Movement Control");
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_focus_percentage(Percentage(0.0))?;
 
     println!("   Setting iris to 75% open...");
-    camera.set_iris_percentage(Percentage(75.0))?;
+    camera.set_iris(Percentage(75.0))?;
 
     // Image Quality Controls
     println!("\n9. Image Quality Controls");
@@ -156,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::{Camera, PTZOpticsG2},
-        transport::tokio::UdpTransport,
+        transport::tokio::Udp,
         types::{BrightnessLevel, FocusPosition, GainValue, SharpnessLevel, ZoomPosition},
         units::{Degrees, Fraction, Kelvin, Magnification, Percentage, Radians},
         FStop,
@@ -164,7 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::f32::consts::PI;
 
     // Connect to camera
-    let transport = UdpTransport::new("0.0.0.0:0", "192.168.1.100:52381").await?;
+    let transport = Udp::new("0.0.0.0:0", "192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Semantic API Demo (Async) ===\n");
@@ -217,10 +217,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Iris Control
     println!("\n6. Iris Control");
     println!("   Setting iris to F2.8...");
-    camera.set_iris_fstop(FStop::F2_8).await?;
+    camera.set_iris(FStop::F2_8).await?;
 
     println!("   Setting iris to 50% open...");
-    camera.set_iris_percentage(Percentage(50.0)).await?;
+    camera.set_iris(Percentage(50.0)).await?;
 
     // Movement with Percentage Speeds
     println!("\n7. Movement Control");
@@ -257,7 +257,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_focus_percentage(Percentage(0.0)).await?;
 
     println!("   Setting iris to 75% open...");
-    camera.set_iris_percentage(Percentage(75.0)).await?;
+    camera.set_iris(Percentage(75.0)).await?;
 
     // Image Quality Controls
     println!("\n9. Image Quality Controls");

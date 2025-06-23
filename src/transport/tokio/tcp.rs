@@ -11,12 +11,12 @@ use tokio::net::TcpStream;
 /// This is a clean implementation that works directly with AsyncTransport
 /// without requiring adapters or complex trait hierarchies.
 #[derive(Debug)]
-pub struct TcpTransport {
+pub struct Tcp {
     stream: std::sync::Arc<tokio::sync::Mutex<TcpStream>>,
     description: String,
 }
 
-impl TcpTransport {
+impl Tcp {
     /// Create a new TCP transport by connecting to the given address.
     pub async fn connect(addr: &str) -> Result<Self, Error> {
         let stream = TcpStream::connect(addr).await?;
@@ -55,7 +55,7 @@ impl TcpTransport {
     }
 }
 
-impl AsyncTransport for TcpTransport {
+impl AsyncTransport for Tcp {
     type SendFuture<'a> =
         std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>;
     type ReceiveFuture<'a> =

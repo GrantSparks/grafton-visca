@@ -43,15 +43,15 @@ pub enum FocusCommand {
     /// Stop any focus movement.
     Stop,
     /// Move focus far at standard speed.
-    FocusFarStandard,
+    Far,
     /// Move focus near at standard speed.
-    FocusNearStandard,
+    Near,
     /// Move focus far at variable speed.
-    FarVariable(FocusSpeed),
+    FarWithSpeed(FocusSpeed),
     /// Move focus near at variable speed.
-    NearVariable(FocusSpeed),
+    NearWithSpeed(FocusSpeed),
     /// Set focus to specific position.
-    Direct(FocusPosition),
+    Position(FocusPosition),
     /// Enable auto focus mode.
     Auto,
     /// Enable manual focus mode.
@@ -73,7 +73,7 @@ impl FocusCommand {
                 max: *P::FOCUS_RANGE.end() as i32,
             });
         }
-        Ok(Self::Direct(FocusPosition::new(position)?))
+        Ok(Self::Position(FocusPosition::new(position)?))
     }
 }
 
@@ -81,15 +81,15 @@ impl Command for FocusCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]),
-            Self::FocusFarStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]),
-            Self::FocusNearStandard => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]),
-            Self::FarVariable(speed) => {
+            Self::Far => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]),
+            Self::Near => Ok(vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]),
+            Self::FarWithSpeed(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed.value(), 0xFF])
             }
-            Self::NearVariable(speed) => {
+            Self::NearWithSpeed(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed.value(), 0xFF])
             }
-            Self::Direct(position) => {
+            Self::Position(position) => {
                 let pos_val = position.value();
                 let p = ((pos_val >> 12) & 0x0F) as u8;
                 let q = ((pos_val >> 8) & 0x0F) as u8;
@@ -114,12 +114,12 @@ impl Command for FocusCommand {
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
-            Self::Direct(position) => {
+            Self::Position(position) => {
                 let (min, max) = model.focus_range();
                 if position.value() < min || position.value() > max {
                     return Err(Error::ModelValidation {
                         model,
-                        command: "FocusDirect".to_string(),
+                        command: "FocusPosition".to_string(),
                         reason: format!(
                             "Position 0x{:04X} out of range [0x{min:04X}, 0x{max:04X}] for {model:?}", position.value()
                         ),
@@ -243,7 +243,7 @@ impl Command for FocusNearLimitCommand {
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match model {
             CameraModel::PTZOpticsG2 => {
-                // G2 uses same range as Focus Direct: 0x1000-0xF000
+                // G2 uses same range as Focus Position: 0x1000-0xF000
                 if self.position.value() < 0x1000 || self.position.value() > 0xF000 {
                     return Err(Error::ModelValidation {
                         model,
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_focus_command_far_standard() {
-        let cmd = FocusCommand::FocusFarStandard;
+        let cmd = FocusCommand::Far;
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_focus_command_near_standard() {
-        let cmd = FocusCommand::FocusNearStandard;
+        let cmd = FocusCommand::Near;
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -302,7 +302,7 @@ mod tests {
         for speed_val in 0..=7 {
             let speed = FocusSpeed::new(speed_val)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = FocusCommand::FarVariable(speed);
+            let cmd = FocusCommand::FarWithSpeed(speed);
             assert_eq!(
                 cmd.to_bytes()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -317,7 +317,7 @@ mod tests {
         for speed_val in 0..=7 {
             let speed = FocusSpeed::new(speed_val)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = FocusCommand::NearVariable(speed);
+            let cmd = FocusCommand::NearWithSpeed(speed);
             assert_eq!(
                 cmd.to_bytes()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -340,8 +340,8 @@ mod tests {
     }
 
     #[test]
-    fn test_focus_command_direct() {
-        let cmd = FocusCommand::Direct(
+    fn test_focus_command_position() {
+        let cmd = FocusCommand::Position(
             FocusPosition::new(0x1234).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         );
         assert_eq!(
@@ -350,7 +350,7 @@ mod tests {
             vec![0x81, 0x01, 0x04, 0x48, 0x01, 0x02, 0x03, 0x04, 0xFF]
         );
 
-        let cmd = FocusCommand::Direct(
+        let cmd = FocusCommand::Position(
             FocusPosition::new(0xF000).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         );
         assert_eq!(

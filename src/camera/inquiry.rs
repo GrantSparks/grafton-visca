@@ -5,8 +5,8 @@ use crate::{
         exposure::ExposureMode,
         focus::{AutoFocusSensitivity, FocusZone},
         gain::AntiFlickerMode,
+        image_adjustment::SharpnessMode,
         inquiry::InquiryCommand,
-        luminance_contrast_sharpness::SharpnessMode,
         white_balance::WhiteBalanceMode,
     },
     units::Degrees,
@@ -609,7 +609,7 @@ where
 #[cfg(not(feature = "async"))]
 impl<P: CameraProfile, T> Camera<P, T>
 where
-    T: crate::transport::blocking::Transport,
+    T: crate::transport::blocking::BlockingTransport,
 {
     /// Send a command and wait for the response.
     ///

@@ -6,16 +6,16 @@ use std::time::Duration;
 
 use crate::error::Error;
 
-use super::Transport;
+use super::BlockingTransport;
 
 /// UDP transport for VISCA over IP communication.
 #[derive(Debug)]
-pub struct UdpTransport {
+pub struct Udp {
     socket: UdpSocket,
     remote_addr: SocketAddr,
 }
 
-impl UdpTransport {
+impl Udp {
     /// Create a new UDP transport connected to the given address.
     pub fn connect<A: ToSocketAddrs>(address: A) -> io::Result<Self> {
         let remote_addr = address
@@ -71,7 +71,7 @@ impl UdpTransport {
     }
 }
 
-impl Transport for UdpTransport {
+impl BlockingTransport for Udp {
     fn send(&mut self, data: &[u8]) -> Result<(), Error> {
         log::debug!("UDP sending {} bytes to {}", data.len(), self.remote_addr);
         log::trace!("UDP TX: {:02X?}", data);

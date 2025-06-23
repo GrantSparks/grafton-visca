@@ -196,26 +196,26 @@ impl TestZoomBuilder {
         self
     }
 
-    /// Build a direct zoom position command.
-    pub fn build_direct(self) -> ZoomCommand {
-        ZoomCommand::Direct(ZoomPosition::new(self.position).expect("Valid zoom position"))
+    /// Build a zoom position command.
+    pub fn build_position(self) -> ZoomCommand {
+        ZoomCommand::Position(ZoomPosition::new(self.position).expect("Valid zoom position"))
     }
 
     /// Build a zoom in command.
     pub fn build_zoom_in(self) -> ZoomCommand {
         if let Some(speed) = self.speed {
-            ZoomCommand::ZoomInVariable(speed)
+            ZoomCommand::InWithSpeed(speed)
         } else {
-            ZoomCommand::ZoomInStandard
+            ZoomCommand::In
         }
     }
 
     /// Build a zoom out command.
     pub fn build_zoom_out(self) -> ZoomCommand {
         if let Some(speed) = self.speed {
-            ZoomCommand::ZoomOutVariable(speed)
+            ZoomCommand::OutWithSpeed(speed)
         } else {
-            ZoomCommand::ZoomOutStandard
+            ZoomCommand::Out
         }
     }
 

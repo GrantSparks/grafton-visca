@@ -7,7 +7,7 @@
 use grafton_visca::{
     camera::{profiles::GenericVisca, Camera},
     command::zoom::ZoomCommand,
-    transport::tokio::UdpTransport,
+    transport::tokio::Udp,
 };
 
 #[cfg(not(feature = "tokio"))]
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create UDP transport directly
     let addr = "192.168.1.100:52381";
-    match UdpTransport::connect(addr).await {
+    match Udp::connect(addr).await {
         Ok(transport) => {
             println!("✓ UDP transport created for {}", addr);
 

@@ -5,10 +5,10 @@ use std::ops::RangeInclusive;
 
 use crate::error::Error;
 #[cfg(not(feature = "async"))]
-use crate::transport::blocking::Transport as BlockingTransport;
+use crate::transport::blocking::BlockingTransport;
 #[cfg(feature = "async")]
 use crate::transport::AsyncTransport;
-use crate::transport::ViscaTransport;
+use crate::transport::ViscaProtocol;
 use crate::{Command, Response};
 
 pub mod builder;
@@ -28,21 +28,7 @@ pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
 #[derive(Debug)]
 pub struct Camera<P: CameraProfile, T> {
     profile: P,
-    transport: ViscaTransport<T>,
-}
-
-/// Trait for blocking transports that can send VISCA commands.
-#[cfg(not(feature = "async"))]
-pub trait BlockingCameraTransport: Send + Sync {
-    /// Send a VISCA command and wait for response.
-    fn send_command(&mut self, command: &dyn Command) -> Result<Response, Error>;
-}
-
-#[cfg(not(feature = "async"))]
-impl<T: BlockingTransport> BlockingCameraTransport for ViscaTransport<T> {
-    fn send_command(&mut self, command: &dyn Command) -> Result<Response, Error> {
-        self.send_command(command)
-    }
+    transport: ViscaProtocol<T>,
 }
 
 /// Trait defining camera-specific capabilities and conversions.
@@ -479,62 +465,6 @@ pub struct CameraCapabilities {
 
 // Note: Default implementation removed as Camera now requires a transport
 
-/// Trait for async transports that can send VISCA commands.
-#[cfg(feature = "async")]
-pub trait CameraTransport: Send + Sync + std::fmt::Debug {
-    /// Send a VISCA command and wait for response.
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn Command,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Error>> + Send + 'a>>;
-}
-
-#[cfg(feature = "async")]
-impl<T: AsyncTransport> CameraTransport for ViscaTransport<T> {
-    fn send_command<'a>(
-        &'a mut self,
-        command: &'a dyn Command,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Error>> + Send + 'a>>
-    {
-        // We need to extract the command data since we can't borrow it across the async boundary
-        let command_bytes = match command.to_bytes() {
-            Ok(bytes) => bytes,
-            Err(e) => return Box::pin(async move { Err(e) }),
-        };
-        let response_type = command.response_type();
-        let category = command.command_category();
-
-        // Create an owned command that we can send across the async boundary
-        struct OwnedCommand {
-            bytes: Vec<u8>,
-            response_type: Option<crate::command::ResponseType>,
-            category: crate::timeout::CommandCategory,
-        }
-
-        impl Command for OwnedCommand {
-            fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-                Ok(self.bytes.clone())
-            }
-
-            fn response_type(&self) -> Option<crate::command::ResponseType> {
-                self.response_type
-            }
-
-            fn command_category(&self) -> crate::timeout::CommandCategory {
-                self.category
-            }
-        }
-
-        let owned_command = OwnedCommand {
-            bytes: command_bytes,
-            response_type,
-            category,
-        };
-
-        Box::pin(async move { self.send_command(&owned_command).await })
-    }
-}
-
 // Generic implementation for all Camera instances
 impl<P: CameraProfile, T> Camera<P, T> {
     /// Get the camera profile.
@@ -550,7 +480,7 @@ impl<P: CameraProfile, T: BlockingTransport> Camera<P, T> {
     pub fn new(transport: T) -> Self {
         Self {
             profile: P::default(),
-            transport: ViscaTransport::new(transport),
+            transport: ViscaProtocol::new(transport),
         }
     }
 
@@ -558,7 +488,7 @@ impl<P: CameraProfile, T: BlockingTransport> Camera<P, T> {
     pub fn with_profile(transport: T, profile: P) -> Self {
         Self {
             profile,
-            transport: ViscaTransport::new(transport),
+            transport: ViscaProtocol::new(transport),
         }
     }
 
@@ -583,12 +513,12 @@ impl<P: CameraProfile, T: BlockingTransport> Camera<P, T> {
     }
 
     /// Get the underlying transport.
-    pub fn transport(&self) -> &ViscaTransport<T> {
+    pub fn transport(&self) -> &ViscaProtocol<T> {
         &self.transport
     }
 
     /// Get a mutable reference to the underlying transport.
-    pub fn transport_mut(&mut self) -> &mut ViscaTransport<T> {
+    pub fn transport_mut(&mut self) -> &mut ViscaProtocol<T> {
         &mut self.transport
     }
 }
@@ -600,7 +530,7 @@ impl<P: CameraProfile, T: AsyncTransport> Camera<P, T> {
     pub fn new(transport: T) -> Self {
         Self {
             profile: P::default(),
-            transport: ViscaTransport::new(transport),
+            transport: ViscaProtocol::new(transport),
         }
     }
 
@@ -608,7 +538,7 @@ impl<P: CameraProfile, T: AsyncTransport> Camera<P, T> {
     pub fn with_profile(transport: T, profile: P) -> Self {
         Self {
             profile,
-            transport: ViscaTransport::new(transport),
+            transport: ViscaProtocol::new(transport),
         }
     }
 
@@ -633,12 +563,12 @@ impl<P: CameraProfile, T: AsyncTransport> Camera<P, T> {
     }
 
     /// Get the underlying transport.
-    pub fn transport(&self) -> &ViscaTransport<T> {
+    pub fn transport(&self) -> &ViscaProtocol<T> {
         &self.transport
     }
 
     /// Get a mutable reference to the underlying transport.
-    pub fn transport_mut(&mut self) -> &mut ViscaTransport<T> {
+    pub fn transport_mut(&mut self) -> &mut ViscaProtocol<T> {
         &mut self.transport
     }
 }
@@ -647,7 +577,7 @@ impl<P: CameraProfile, T: AsyncTransport> Camera<P, T> {
 #[cfg(not(feature = "async"))]
 impl<P: CameraProfile, T> Camera<P, T>
 where
-    T: crate::transport::blocking::Transport,
+    T: BlockingTransport,
 {
     /// Send a VISCA command and wait for response.
     ///
@@ -665,7 +595,7 @@ where
     /// #         grafton_visca::timeout::CommandCategory::Movement
     /// #     }
     /// # }
-    /// # fn example(camera: &mut Camera<grafton_visca::profiles::PTZOpticsG2, UdpTransport>) -> Result<(), Error> {
+    /// # fn example(camera: &mut Camera<grafton_visca::profiles::PTZOpticsG2, Udp>) -> Result<(), Error> {
     /// let custom_command = MyCustomCommand;
     /// let response = camera.send_command(&custom_command)?;
     /// # Ok(())
@@ -713,7 +643,7 @@ where
 #[cfg(not(feature = "async"))]
 impl<P: CameraProfile, T> Camera<P, T>
 where
-    T: crate::transport::blocking::Transport,
+    T: BlockingTransport,
 {
     /// Send a command and wait for completion.
     fn send_and_wait(&mut self, command: &dyn Command) -> Result<(), Error> {

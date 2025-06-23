@@ -6,16 +6,16 @@ use std::time::Duration;
 
 use crate::error::Error;
 
-use super::Transport;
+use super::BlockingTransport;
 
 /// TCP transport for VISCA over IP communication.
 #[derive(Debug)]
-pub struct TcpTransport {
+pub struct Tcp {
     stream: TcpStream,
     remote_addr: SocketAddr,
 }
 
-impl TcpTransport {
+impl Tcp {
     /// Create a new TCP transport connected to the given address.
     pub fn connect<A: ToSocketAddrs>(address: A) -> io::Result<Self> {
         let addrs: Vec<_> = address.to_socket_addrs()?.collect();
@@ -90,7 +90,7 @@ impl TcpTransport {
     }
 }
 
-impl Transport for TcpTransport {
+impl BlockingTransport for Tcp {
     fn send(&mut self, data: &[u8]) -> Result<(), Error> {
         log::debug!("TCP sending {} bytes to {}", data.len(), self.remote_addr);
         log::trace!("TCP TX: {:02X?}", data);

@@ -10,13 +10,13 @@ use tokio::net::UdpSocket;
 /// This is a clean implementation that works directly with AsyncTransport
 /// without requiring adapters or complex trait hierarchies.
 #[derive(Debug)]
-pub struct UdpTransport {
+pub struct Udp {
     socket: std::sync::Arc<UdpSocket>,
     remote_addr: SocketAddr,
     description: String,
 }
 
-impl UdpTransport {
+impl Udp {
     /// Create a new UDP transport.
     ///
     /// Binds to a local address and sets the remote address for sending.
@@ -65,7 +65,7 @@ impl UdpTransport {
     }
 }
 
-impl AsyncTransport for UdpTransport {
+impl AsyncTransport for Udp {
     type SendFuture<'a> =
         std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>;
     type ReceiveFuture<'a> =
