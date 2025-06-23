@@ -1,5 +1,7 @@
 //! Type-safe command methods for Camera.
 
+use std::convert::TryFrom;
+
 // Common imports for both async and blocking
 use crate::{
     command::{
@@ -29,16 +31,16 @@ use crate::{
         zoom::ZoomCommand,
     },
     types::{
-        BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, ContrastLevel, FocusPosition,
-        GainLimit, GainValue, HueLevel, IrisLevel, LuminanceLevel, NoiseReduction2DLevel,
-        NoiseReduction3DLevel, RedGain, RedTuning, SaturationLevel, SharpnessLevel, ShutterSpeed,
-        ZoomPosition,
+        BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, ContrastLevel, FStop,
+        FocusPosition, GainLimit, GainValue, HueLevel, IrisLevel, LuminanceLevel,
+        NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, RedGain, RedTuning,
+        SaturationLevel, SharpnessLevel, ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition,
     },
-    visca_method, visca_method_generic as visca_method_custom,
+    visca_camera_method, visca_method, visca_method_custom,
 };
 
 use super::{Camera, CameraProfile};
-use crate::units::{Degrees, Normalized};
+use crate::units::{Degrees, Magnification, Normalized, Percentage};
 
 // Phase 1: Simple methods replaced with procedural macro
 impl<P, T> Camera<P, T>
@@ -67,8 +69,8 @@ where
     pub fn stop(&self) -> Result<(), Error> {
         PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: crate::types::PanSpeed::new(0)?,
-            tilt_speed: crate::types::TiltSpeed::new(0)?,
+            pan_speed: PanSpeed::new(0)?,
+            tilt_speed: TiltSpeed::new(0)?,
         }
     }
 
@@ -439,7 +441,6 @@ where
 impl<P, T> Camera<P, T>
 where
     P: CameraProfile,
-    T: crate::transport::AsyncTransport,
 {
     /// Move the camera continuously in a direction with flexible speed parameters.
     ///
@@ -459,25 +460,48 @@ where
     /// // Using typed speeds
     /// camera.move_continuous(PanTiltDirection::DownLeft, PanSpeed::new(15)?, TiltSpeed::new(12)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn move_continuous<PS, TS>(
+    #[visca_camera_method]
+    pub fn move_continuous(
         &self,
         direction: PanTiltDirection,
-        pan_speed: PS,
-        tilt_speed: TS,
-    ) -> Result<(), crate::Error>
-    where
-        PS: TryInto<crate::types::PanSpeed>,
-        PS::Error: Into<crate::Error>,
-        TS: TryInto<crate::types::TiltSpeed>,
-        TS::Error: Into<crate::Error>,
-    {
-        let pan_speed = pan_speed.try_into().map_err(Into::into)?;
-        let tilt_speed = tilt_speed.try_into().map_err(Into::into)?;
+        pan_speed: PanSpeed,
+        tilt_speed: TiltSpeed,
+    ) -> Result<(), Error> {
         PanTiltCommand::Move {
             direction,
             pan_speed,
             tilt_speed,
+        }
+    }
+
+    /// Move camera continuously with speed values (0-24 for pan, 0-20 for tilt).
+    #[visca_camera_method]
+    pub fn move_continuous_raw(
+        &self,
+        direction: PanTiltDirection,
+        pan_speed: u8,
+        tilt_speed: u8,
+    ) -> Result<(), Error> {
+        let pan_speed = PanSpeed::new(pan_speed)?;
+        let tilt_speed = TiltSpeed::new(tilt_speed)?;
+        PanTiltCommand::Move {
+            direction,
+            pan_speed,
+            tilt_speed,
+        }
+    }
+
+    /// Move camera continuously with speed level.
+    #[visca_camera_method]
+    pub fn move_continuous_level(
+        &self,
+        direction: PanTiltDirection,
+        speed: SpeedLevel,
+    ) -> Result<(), Error> {
+        PanTiltCommand::Move {
+            direction,
+            pan_speed: PanSpeed::from(speed),
+            tilt_speed: TiltSpeed::from(speed),
         }
     }
 
@@ -499,13 +523,29 @@ where
     /// // Using typed position
     /// camera.set_zoom(ZoomPosition::new(0x2000)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn set_zoom<Z>(&self, position: Z) -> Result<(), crate::Error>
-    where
-        Z: TryInto<ZoomPosition>,
-        Z::Error: Into<crate::Error>,
-    {
-        let position = position.try_into().map_err(Into::into)?;
+    #[visca_camera_method]
+    pub fn set_zoom(&self, position: ZoomPosition) -> Result<(), Error> {
+        ZoomCommand::Direct(position)
+    }
+
+    /// Set zoom position from raw value (0x0000-0x7000).
+    #[visca_camera_method]
+    pub fn set_zoom_raw(&self, position: u16) -> Result<(), Error> {
+        let position = ZoomPosition::new(position)?;
+        ZoomCommand::Direct(position)
+    }
+
+    /// Set zoom position from percentage (0-100%).
+    #[visca_camera_method]
+    pub fn set_zoom_percentage(&self, percentage: Percentage<f32>) -> Result<(), Error> {
+        let position = ZoomPosition::try_from(percentage)?;
+        ZoomCommand::Direct(position)
+    }
+
+    /// Set zoom position from magnification factor.
+    #[visca_camera_method]
+    pub fn set_zoom_magnification(&self, magnification: Magnification<f32>) -> Result<(), Error> {
+        let position = ZoomPosition::try_from(magnification)?;
         ZoomCommand::Direct(position)
     }
 
@@ -527,13 +567,22 @@ where
     /// // Using typed position
     /// camera.set_focus(FocusPosition::new(0x5000)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn set_focus<F>(&self, position: F) -> Result<(), crate::Error>
-    where
-        F: TryInto<FocusPosition>,
-        F::Error: Into<crate::Error>,
-    {
-        let position = position.try_into().map_err(Into::into)?;
+    #[visca_camera_method]
+    pub fn set_focus(&self, position: FocusPosition) -> Result<(), Error> {
+        FocusCommand::Direct(position)
+    }
+
+    /// Set focus position from raw value (0x1000-0xF000).
+    #[visca_camera_method]
+    pub fn set_focus_raw(&self, position: u16) -> Result<(), Error> {
+        let position = FocusPosition::new(position)?;
+        FocusCommand::Direct(position)
+    }
+
+    /// Set focus position from percentage (0-100%).
+    #[visca_camera_method]
+    pub fn set_focus_percentage(&self, percentage: Percentage<f32>) -> Result<(), Error> {
+        let position = FocusPosition::try_from(percentage)?;
         FocusCommand::Direct(position)
     }
 
@@ -555,13 +604,28 @@ where
     /// // Using typed level
     /// camera.set_iris(IrisLevel::new(0x0B)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn set_iris<I>(&self, level: I) -> Result<(), crate::Error>
-    where
-        I: TryInto<IrisLevel>,
-        I::Error: Into<crate::Error>,
-    {
-        let level = level.try_into().map_err(Into::into)?;
+    #[visca_camera_method]
+    pub fn set_iris(&self, level: IrisLevel) -> Result<(), Error> {
+        IrisCommand::Direct(level)
+    }
+
+    /// Set iris level from raw value (0x00-0x0C).
+    #[visca_camera_method]
+    pub fn set_iris_raw(&self, level: u8) -> Result<(), Error> {
+        let level = IrisLevel::new(level)?;
+        IrisCommand::Direct(level)
+    }
+
+    /// Set iris from F-stop value.
+    #[visca_camera_method]
+    pub fn set_iris_fstop(&self, fstop: FStop) -> Result<(), Error> {
+        IrisCommand::Direct(IrisLevel::from(fstop))
+    }
+
+    /// Set iris level from percentage (0-100%).
+    #[visca_camera_method]
+    pub fn set_iris_percentage(&self, percentage: Percentage<f32>) -> Result<(), Error> {
+        let level = IrisLevel::try_from(percentage)?;
         IrisCommand::Direct(level)
     }
 }
@@ -570,7 +634,6 @@ where
 impl<P, T> Camera<P, T>
 where
     P: CameraProfile,
-    T: crate::transport::blocking::Transport,
 {
     /// Set white balance using color temperature in Kelvin.
     ///
@@ -614,69 +677,6 @@ where
         ShutterCommand::Direct(speed)
     }
 
-    /// Set zoom using percentage.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// use grafton_visca::units::Percentage;
-    ///
-    /// // Set to 50% zoom
-    /// camera.set_zoom_percentage(Percentage(50.0)).await?;
-    ///
-    /// // Set to full zoom
-    /// camera.set_zoom_percentage(Percentage(100.0)).await?;
-    /// ```
-    #[visca_method_custom]
-    pub fn set_zoom_percentage(
-        &self,
-        percentage: crate::units::Percentage<f32>,
-    ) -> Result<(), crate::Error> {
-        let position = ZoomPosition::try_from(percentage)?;
-        ZoomCommand::Direct(position)
-    }
-
-    /// Set zoom using magnification factor.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// use grafton_visca::units::Magnification;
-    ///
-    /// // Set to 10x magnification
-    /// camera.set_zoom_magnification(Magnification(10.0)).await?;
-    ///
-    /// // Set to 1x (no zoom)
-    /// camera.set_zoom_magnification(Magnification(1.0)).await?;
-    /// ```
-    #[visca_method_custom]
-    pub fn set_zoom_magnification(
-        &self,
-        magnification: crate::units::Magnification<f32>,
-    ) -> Result<(), crate::Error> {
-        let position = ZoomPosition::try_from(magnification)?;
-        ZoomCommand::Direct(position)
-    }
-
-    /// Set focus using percentage (0% = infinity, 100% = near).
-    ///
-    /// # Examples
-    /// ```ignore
-    /// use grafton_visca::units::Percentage;
-    ///
-    /// // Set to infinity focus
-    /// camera.set_focus_percentage(Percentage(0.0)).await?;
-    ///
-    /// // Set to mid-range focus
-    /// camera.set_focus_percentage(Percentage(50.0)).await?;
-    /// ```
-    #[visca_method_custom]
-    pub fn set_focus_percentage(
-        &self,
-        percentage: crate::units::Percentage<f32>,
-    ) -> Result<(), crate::Error> {
-        let position = FocusPosition::try_from(percentage)?;
-        FocusCommand::Direct(position)
-    }
-
     /// Set pan/tilt position using radians.
     ///
     /// # Examples
@@ -698,27 +698,6 @@ where
         PanTiltCommand::absolute_position_degrees::<P>(pan_degrees, tilt_degrees)?
     }
 
-    /// Set iris using percentage (0% = closed, 100% = fully open).
-    ///
-    /// # Examples
-    /// ```ignore
-    /// use grafton_visca::units::Percentage;
-    ///
-    /// // Set to 50% open
-    /// camera.set_iris_percentage(Percentage(50.0)).await?;
-    ///
-    /// // Fully open iris
-    /// camera.set_iris_percentage(Percentage(100.0)).await?;
-    /// ```
-    #[visca_method_custom]
-    pub fn set_iris_percentage(
-        &self,
-        percentage: crate::units::Percentage<f32>,
-    ) -> Result<(), crate::Error> {
-        let level = IrisLevel::try_from(percentage)?;
-        IrisCommand::Direct(level)
-    }
-
     /// Move camera at percentage of maximum speed.
     ///
     /// # Examples
@@ -736,11 +715,11 @@ where
     pub fn move_percentage(
         &self,
         direction: PanTiltDirection,
-        pan_speed: crate::units::Percentage<f32>,
-        tilt_speed: crate::units::Percentage<f32>,
+        pan_speed: Percentage<f32>,
+        tilt_speed: Percentage<f32>,
     ) -> Result<(), crate::Error> {
-        let pan = crate::types::PanSpeed::try_from(pan_speed)?;
-        let tilt = crate::types::TiltSpeed::try_from(tilt_speed)?;
+        let pan = PanSpeed::try_from(pan_speed)?;
+        let tilt = TiltSpeed::try_from(tilt_speed)?;
         PanTiltCommand::Move {
             direction,
             pan_speed: pan,
@@ -766,13 +745,22 @@ where
     /// // Using typed value
     /// camera.set_gain(GainValue::new(0x08)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn set_gain<G>(&self, gain: G) -> Result<(), crate::Error>
-    where
-        G: TryInto<GainValue>,
-        G::Error: Into<crate::Error>,
-    {
-        let gain = gain.try_into().map_err(Into::into)?;
+    #[visca_camera_method]
+    pub fn set_gain(&self, gain: GainValue) -> Result<(), Error> {
+        GainCommand::Direct(gain)
+    }
+
+    /// Set gain from raw value (0x00-0x07).
+    #[visca_camera_method]
+    pub fn set_gain_raw(&self, gain: u8) -> Result<(), Error> {
+        let gain = GainValue::new(gain)?;
+        GainCommand::Direct(gain)
+    }
+
+    /// Set gain from percentage (0-100%).
+    #[visca_camera_method]
+    pub fn set_gain_percentage(&self, percentage: Percentage<f32>) -> Result<(), Error> {
+        let gain = GainValue::try_from(percentage)?;
         GainCommand::Direct(gain)
     }
 
@@ -794,13 +782,26 @@ where
     /// // Using typed level
     /// camera.set_sharpness(SharpnessLevel::new(0x0A)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn set_sharpness<S>(&self, level: S) -> Result<(), crate::Error>
-    where
-        S: TryInto<SharpnessLevel>,
-        S::Error: Into<crate::Error>,
-    {
-        let level = level.try_into().map_err(Into::into)?;
+    #[visca_camera_method]
+    pub fn set_sharpness(&self, level: SharpnessLevel) -> Result<(), Error> {
+        SharpnessCommand::Direct {
+            value: level.value(),
+        }
+    }
+
+    /// Set sharpness from raw value (0x00-0x0B).
+    #[visca_camera_method]
+    pub fn set_sharpness_raw(&self, level: u8) -> Result<(), Error> {
+        let level = SharpnessLevel::new(level)?;
+        SharpnessCommand::Direct {
+            value: level.value(),
+        }
+    }
+
+    /// Set sharpness from percentage (0-100%).
+    #[visca_camera_method]
+    pub fn set_sharpness_percentage(&self, percentage: Percentage<f32>) -> Result<(), Error> {
+        let level = SharpnessLevel::try_from(percentage)?;
         SharpnessCommand::Direct {
             value: level.value(),
         }
@@ -824,13 +825,22 @@ where
     /// // Using typed level
     /// camera.set_brightness(BrightnessLevel::new(0x0009)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn set_brightness<B>(&self, level: B) -> Result<(), crate::Error>
-    where
-        B: TryInto<BrightnessLevel>,
-        B::Error: Into<crate::Error>,
-    {
-        let level = level.try_into().map_err(Into::into)?;
+    #[visca_camera_method]
+    pub fn set_brightness(&self, level: BrightnessLevel) -> Result<(), Error> {
+        BrightCommand::Direct(level)
+    }
+
+    /// Set brightness from raw value (0x00-0x11).
+    #[visca_camera_method]
+    pub fn set_brightness_raw(&self, level: u16) -> Result<(), Error> {
+        let level = BrightnessLevel::new(level)?;
+        BrightCommand::Direct(level)
+    }
+
+    /// Set brightness from percentage (0-100%).
+    #[visca_camera_method]
+    pub fn set_brightness_percentage(&self, percentage: Percentage<f32>) -> Result<(), Error> {
+        let level = BrightnessLevel::try_from(percentage)?;
         BrightCommand::Direct(level)
     }
 
@@ -852,14 +862,23 @@ where
     /// // Using typed level
     /// camera.set_contrast(ContrastLevel::new(0x0B)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn set_contrast<C>(&self, level: C) -> Result<(), crate::Error>
-    where
-        C: TryInto<ContrastLevel>,
-        C::Error: Into<crate::Error>,
-    {
-        let level = level.try_into().map_err(Into::into)?;
+    #[visca_camera_method]
+    pub fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error> {
         ContrastCommand { value: level }
+    }
+
+    /// Set contrast from raw value (0x00-0x0E).
+    #[visca_camera_method]
+    pub fn set_contrast_raw(&self, level: u8) -> Result<(), Error> {
+        let value = ContrastLevel::new(level)?;
+        ContrastCommand { value }
+    }
+
+    /// Set contrast from percentage (0-100%).
+    #[visca_camera_method]
+    pub fn set_contrast_percentage(&self, percentage: Percentage<f32>) -> Result<(), Error> {
+        let value = ContrastLevel::try_from(percentage)?;
+        ContrastCommand { value }
     }
 
     /// Set saturation with flexible parameter types.
@@ -880,13 +899,22 @@ where
     /// // Using typed level
     /// camera.set_saturation(SaturationLevel::new(0x0C)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn set_saturation<S>(&self, level: S) -> Result<(), crate::Error>
-    where
-        S: TryInto<SaturationLevel>,
-        S::Error: Into<crate::Error>,
-    {
-        let level = level.try_into().map_err(Into::into)?;
+    #[visca_camera_method]
+    pub fn set_saturation(&self, level: SaturationLevel) -> Result<(), Error> {
+        SaturationCommand { level }
+    }
+
+    /// Set saturation from raw value (0x00-0x0E).
+    #[visca_camera_method]
+    pub fn set_saturation_raw(&self, level: u8) -> Result<(), Error> {
+        let level = SaturationLevel::new(level)?;
+        SaturationCommand { level }
+    }
+
+    /// Set saturation from percentage (0-100%).
+    #[visca_camera_method]
+    pub fn set_saturation_percentage(&self, percentage: Percentage<f32>) -> Result<(), Error> {
+        let level = SaturationLevel::try_from(percentage)?;
         SaturationCommand { level }
     }
 
@@ -908,13 +936,22 @@ where
     /// // Using typed level
     /// camera.set_hue(HueLevel::new(0x07)?).await?;
     /// ```
-    #[visca_method_custom]
-    pub fn set_hue<H>(&self, level: H) -> Result<(), crate::Error>
-    where
-        H: TryInto<HueLevel>,
-        H::Error: Into<crate::Error>,
-    {
-        let level = level.try_into().map_err(Into::into)?;
+    #[visca_camera_method]
+    pub fn set_hue(&self, level: HueLevel) -> Result<(), Error> {
+        HueCommand { level }
+    }
+
+    /// Set hue from raw value (0x00-0x0E).
+    #[visca_camera_method]
+    pub fn set_hue_raw(&self, level: u8) -> Result<(), Error> {
+        let level = HueLevel::new(level)?;
+        HueCommand { level }
+    }
+
+    /// Set hue from percentage (0-100%).
+    #[visca_camera_method]
+    pub fn set_hue_percentage(&self, percentage: Percentage<f32>) -> Result<(), Error> {
+        let level = HueLevel::try_from(percentage)?;
         HueCommand { level }
     }
 }

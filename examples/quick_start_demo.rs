@@ -11,6 +11,7 @@ use grafton_visca::{
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    types::{PanSpeed, TiltSpeed, ZoomPosition},
     units::Degrees,
     Error,
 };
@@ -68,12 +69,16 @@ fn main() -> Result<(), Error> {
     camera.zoom_stop()?;
 
     // Set specific zoom position (50% of max)
-    camera.set_zoom(0x3800u16)?;
+    camera.set_zoom(ZoomPosition::try_from(0.5f32)?)?;
     println!("Set zoom to 50%");
 
     // Move camera continuously
     println!("Starting continuous movement...");
-    camera.move_continuous(PanTiltDirection::Right, 10, 0)?;
+    camera.move_continuous(
+        PanTiltDirection::Right,
+        PanSpeed::new(10)?,
+        TiltSpeed::new(0)?,
+    )?;
     std::thread::sleep(Duration::from_secs(2));
     camera.stop()?;
     println!("Continuous movement demo completed");
@@ -83,7 +88,7 @@ fn main() -> Result<(), Error> {
     println!("Returned to preset 1");
 
     // Reset zoom
-    camera.set_zoom(0x0000u16)?;
+    camera.set_zoom(ZoomPosition::MIN)?;
     println!("Reset zoom to minimum");
 
     println!("\nDemo completed successfully!");

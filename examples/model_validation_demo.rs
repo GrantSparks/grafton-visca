@@ -11,7 +11,9 @@ use grafton_visca::{
         profiles::{G2PresetId, GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70},
         CameraProfile,
     },
+    types::ZoomPosition,
     units::Degrees,
+    units::Raw,
     Camera, Error,
 };
 use std::future::Future;
@@ -78,7 +80,7 @@ async fn demo_ptzoptics_g2() -> Result<(), Error> {
 
     // Zoom within G2 range (0x0000 - 0x7000)
     println!("  - Setting zoom to 0x4000 (within G2 range)");
-    camera.set_zoom(0x4000u16).await?;
+    camera.set_zoom(Raw(0x4000u16).into()).await?;
 
     // Position within G2 range (-170° to +170° pan, -90° to +90° tilt)
     println!("  - Moving to position (100°, 45°)");
@@ -109,7 +111,7 @@ async fn demo_ptzoptics_30x() -> Result<(), Error> {
     // 30X has larger zoom range than G2
     println!("\n✅ Valid operations:");
     println!("  - Setting zoom to 0x9000 (30X extended range)");
-    camera.set_zoom(0x9000u16).await?;
+    camera.set_zoom(ZoomPosition::try_from(0x9000u16)?).await?;
 
     // Wider pan range than G2
     println!("  - Moving to position (175°, 45°)");
@@ -135,7 +137,7 @@ async fn demo_sony_evid70() -> Result<(), Error> {
     // Sony has different ranges
     println!("\n✅ Valid operations:");
     println!("  - Setting zoom to 0x5000");
-    camera.set_zoom(0x5000u16).await?;
+    camera.set_zoom(ZoomPosition::try_from(0x5000u16)?).await?;
 
     // Sony has ±100° pan range
     println!("  - Moving to position (90°, 25°)");
@@ -159,7 +161,7 @@ async fn demo_generic_visca() -> Result<(), Error> {
 
     // Generic operations
     println!("\n✅ Generic operations:");
-    camera.set_zoom(0x4000u16).await?;
+    camera.set_zoom(Raw(0x4000u16).into()).await?;
     camera.set_position(Degrees(45.0), Degrees(30.0)).await?;
 
     // Generic presets

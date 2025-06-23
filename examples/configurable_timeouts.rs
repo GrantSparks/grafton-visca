@@ -19,6 +19,7 @@ use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
     transport::blocking::create,
+    types::{PanSpeed, TiltSpeed},
     units::Degrees,
     Error,
 };
@@ -85,7 +86,11 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     println!("   These commands may take longer to acknowledge\n");
 
     let start = Instant::now();
-    match camera.move_continuous(PanTiltDirection::Left, 15, 0) {
+    match camera.move_continuous(
+        PanTiltDirection::Left,
+        PanSpeed::new(15)?,
+        TiltSpeed::new(0)?,
+    ) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Start movement completed in {:?}", elapsed);

@@ -70,76 +70,34 @@ pub fn visca_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-/// A macro for defining VISCA command methods with custom logic.
-///
-/// This variant allows for more complex method implementations that may
-/// involve multiple steps or custom processing.
-///
-/// # Example
-///
-/// ```rust
-/// #[visca_method_custom]
-/// fn set_position(&self, pan: impl Into<PanPosition>, tilt: impl Into<TiltPosition>) -> Result<()> {
-///     let pan_pos = pan.into();
-///     let tilt_pos = tilt.into();
-///     PanTiltCommand::AbsolutePosition {
-///         pan: pan_pos,
-///         tilt: tilt_pos,
-///         speed: P::Speed::default(),
-///     }
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn visca_method_custom(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    // This macro is for methods that need custom command execution
     let input_fn = parse_macro_input!(item as ItemFn);
 
     let vis = &input_fn.vis;
     let fn_name = &input_fn.sig.ident;
+    let generics = &input_fn.sig.generics;
     let attrs = &input_fn.attrs;
     let block = &input_fn.block;
 
-    // Extract generics from the function signature
-    let generics = &input_fn.sig.generics;
-    let (impl_generics, _ty_generics, where_clause) = generics.split_for_impl();
+    // Extract parameters except self
+    let params: Vec<_> = input_fn
+        .sig
+        .inputs
+        .iter()
+        .skip(1) // Skip self
+        .collect();
 
-    // Build the parameter list for the generated functions
-    let params = input_fn.sig.inputs.iter().skip(1).collect::<Vec<_>>();
-
-    // For custom methods, we expect the block to contain all the logic
-    // except for the final send_and_wait call. The last expression should
-    // be the command to send.
-
-    // Check if there's already a where clause
-    let transport_bounds = if where_clause.is_some() {
-        // If there's a where clause, we need to merge with it
-        quote! {
-            T: crate::transport::AsyncTransport,
-        }
-    } else {
-        // If no where clause, create one
-        quote! {
-            where T: crate::transport::AsyncTransport,
-        }
-    };
-
-    let blocking_transport_bounds = if where_clause.is_some() {
-        quote! {
-            T: crate::transport::blocking::Transport,
-        }
-    } else {
-        quote! {
-            where T: crate::transport::blocking::Transport,
-        }
-    };
-
+    // Generate the actual method implementations
     let expanded = quote! {
         #[cfg(feature = "async")]
         #(#attrs)*
-        #vis async fn #fn_name #impl_generics(&self #(, #params)*) -> Result<(), crate::Error>
-        #where_clause
-            #transport_bounds
+        #vis async fn #fn_name #generics(&self #(, #params)*) -> Result<(), crate::Error>
+        where
+            T: crate::transport::AsyncTransport,
         {
-            let command = { #block };
+            let command = #block;
             match self.send_command(&command).await? {
                 crate::Response::Completion => Ok(()),
                 crate::Response::Ack => Ok(()),
@@ -152,13 +110,179 @@ pub fn visca_method_custom(_attr: TokenStream, item: TokenStream) -> TokenStream
 
         #[cfg(not(feature = "async"))]
         #(#attrs)*
-        #vis fn #fn_name #impl_generics(&mut self #(, #params)*) -> Result<(), crate::Error>
-        #where_clause
-            #blocking_transport_bounds
+        #vis fn #fn_name #generics(&mut self #(, #params)*) -> Result<(), crate::Error>
+        where
+            T: crate::transport::blocking::Transport,
         {
-            let command = { #block };
+            let command = #block;
             self.send_and_wait(&command)
         }
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn visca_camera_method(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+    // Parse attributes as a comma-separated list
+    let attr_str = attr.to_string();
+
+    let vis = &input_fn.vis;
+    let fn_name = &input_fn.sig.ident;
+    let attrs = &input_fn.attrs;
+    let block = &input_fn.block;
+
+    // Extract generics and parameters
+    let generics = &input_fn.sig.generics;
+    let (impl_generics, _ty_generics, where_clause) = generics.split_for_impl();
+
+    // Get all parameters except self
+    let params: Vec<_> = input_fn.sig.inputs.iter().skip(1).collect();
+
+    // Check if the method returns a Result or a command directly
+    let _returns_result = if let ReturnType::Type(_, ty) = &input_fn.sig.output {
+        if let Type::Path(type_path) = &**ty {
+            type_path
+                .path
+                .segments
+                .first()
+                .map(|seg| seg.ident == "Result")
+                .unwrap_or(false)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    // For visca_camera_method, we always expect the body to return a Command
+    // Any errors should be handled with ? within the body
+    let command_execution = quote! {
+        let command = { #block };
+    };
+
+    // Check for blocking_only or async_only attributes
+    let mut blocking_only = false;
+    let mut async_only = false;
+
+    if attr_str.contains("blocking_only") {
+        blocking_only = true;
+    }
+    if attr_str.contains("async_only") {
+        async_only = true;
+    }
+
+    let async_impl = if !blocking_only {
+        quote! {
+            #[cfg(feature = "async")]
+            #(#attrs)*
+            #vis async fn #fn_name #impl_generics(&self #(, #params)*) -> Result<(), crate::Error>
+            where
+                T: crate::transport::AsyncTransport,
+                #where_clause
+            {
+                #command_execution
+                match self.send_command(&command).await? {
+                    crate::Response::Completion => Ok(()),
+                    crate::Response::Ack => Ok(()),
+                    response => Err(crate::Error::InvalidResponse {
+                        expected: "Completion".to_string(),
+                        actual: format!("{:?}", response).into_bytes(),
+                    }),
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let blocking_impl = if !async_only {
+        quote! {
+            #[cfg(not(feature = "async"))]
+            #(#attrs)*
+            #vis fn #fn_name #impl_generics(&mut self #(, #params)*) -> Result<(), crate::Error>
+            where
+                T: crate::transport::blocking::Transport,
+                #where_clause
+            {
+                #command_execution
+                self.send_and_wait(&command)
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let expanded = quote! {
+        #async_impl
+        #blocking_impl
+    };
+
+    TokenStream::from(expanded)
+}
+
+/// Macro for generating multiple method variants for different input types.
+///
+/// This allows creating ergonomic APIs that accept multiple input types without
+/// the complexity of generic trait bounds.
+///
+/// # Example
+///
+/// ```rust
+/// #[visca_command_variants(
+///     set_zoom(position: u16) -> "set_zoom_raw",
+///     set_zoom(position: ZoomPosition) -> "set_zoom",
+///     set_zoom(percentage: Percentage<f32>) -> "set_zoom_percentage",
+///     set_zoom(magnification: Magnification<f32>) -> "set_zoom_magnification"
+/// )]
+/// fn set_zoom_impl(position: ZoomPosition) -> ZoomCommand {
+///     ZoomCommand::Direct(position)
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn visca_command_variants(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+
+    // Parse the attribute to extract variant definitions
+    let attr_str = attr.to_string();
+    let variants: Vec<_> = attr_str
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let mut generated_methods = Vec::new();
+
+    for variant in variants {
+        // Parse each variant definition
+        // Format: method_name(param: Type) -> "generated_name"
+        if let Some((signature, generated_name)) = variant.split_once("->") {
+            let signature = signature.trim();
+            let generated_name = generated_name.trim().trim_matches('"');
+
+            // Parse the method signature
+            if let Some((_method_base, params)) = signature.split_once('(') {
+                let params = params.trim_end_matches(')');
+
+                // Generate a method that converts the input and calls the impl
+                let method_ident = syn::Ident::new(generated_name, proc_macro2::Span::call_site());
+
+                generated_methods.push(quote! {
+                    #[visca_command]
+                    pub fn #method_ident(&self, #params) -> Result<(), crate::Error> {
+                        // Convert input to the expected type and call the impl
+                        todo!("Implement conversion logic")
+                    }
+                });
+            }
+        }
+    }
+
+    let expanded = quote! {
+        #input_fn
+
+        #(#generated_methods)*
     };
 
     TokenStream::from(expanded)
