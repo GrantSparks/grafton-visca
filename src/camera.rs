@@ -12,7 +12,6 @@ use crate::transport::ViscaTransport;
 use crate::{Command, Response};
 
 pub mod builder;
-pub mod command_builder;
 pub mod commands;
 pub mod extensions;
 pub mod inquiry;
@@ -20,7 +19,6 @@ pub mod profiles;
 
 // Re-export commonly used types
 pub use builder::{CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder};
-pub use command_builder::CommandBuilderExt;
 pub use extensions::CameraExtension;
 pub use inquiry::{CameraState, Exposure, ImageSettings, Optics, Position, WhiteBalance};
 pub use profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
