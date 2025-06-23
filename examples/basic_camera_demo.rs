@@ -3,11 +3,13 @@
 //! This example demonstrates common camera operations using the async API.
 
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::Degrees},
+    camera::profiles::PTZOpticsG2,
     command::{
         exposure::ExposureMode, pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
     },
     transport::tokio::TcpTransport,
+    units::Degrees,
+    units::Raw,
     Camera, Error,
 };
 use std::time::Duration;
@@ -79,7 +81,7 @@ async fn demo_pan_tilt_movement<T: grafton_visca::transport::AsyncTransport>(
 
     println!("Moving camera up-right...");
     camera
-        .move_continuous(PanTiltDirection::UpRight, 16, 16)
+        .move_continuous_raw(PanTiltDirection::UpRight, 16, 16)
         .await?;
     sleep(Duration::from_secs(1)).await;
 
@@ -102,11 +104,11 @@ async fn demo_zoom_control<T: grafton_visca::transport::AsyncTransport>(
     camera.zoom_stop().await?;
 
     println!("Setting zoom to 50%...");
-    camera.set_zoom(0x3800u16).await?; // Mid-range zoom
+    camera.set_zoom(Raw(0x3800u16).into()).await?; // Mid-range zoom
     sleep(Duration::from_secs(1)).await;
 
     println!("Resetting zoom...");
-    camera.set_zoom(0x0000u16).await?;
+    camera.set_zoom(Raw(0x0000u16).into()).await?;
     Ok(())
 }
 

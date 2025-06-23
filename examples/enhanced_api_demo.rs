@@ -5,12 +5,14 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
+    camera::{profiles::PTZOpticsG2, Camera},
     command::{exposure::ExposureMode, white_balance::WhiteBalanceMode},
     transport::create,
     types::{
-        BrightnessLevel, ContrastLevel, NoiseReduction2DLevel, SaturationLevel, SharpnessLevel,
+        BrightnessLevel, ContrastLevel, NoiseReduction2DLevel, PanSpeed, SaturationLevel,
+        SharpnessLevel, TiltSpeed, ZoomPosition,
     },
+    units::Degrees,
     Error,
 };
 #[cfg(feature = "tokio")]
@@ -78,18 +80,18 @@ async fn main() -> Result<(), Error> {
 
     // Demonstrate zoom control
     println!("\n--- Zoom Control ---");
-    camera.set_zoom(0x0000).await?; // Minimum zoom
+    camera.set_zoom(ZoomPosition::MIN).await?; // Minimum zoom
     println!("Set zoom to minimum (1x)");
     time::sleep(Duration::from_secs(2)).await;
 
     // For PTZOpticsG2, zoom range is 0x0000-0x4000 for 12x zoom
     // 5x would be approximately 0x1555
-    camera.set_zoom(0x1555).await?;
+    camera.set_zoom(ZoomPosition::try_from(0x1555)?).await?;
     println!("Set zoom to approximately 5x");
     time::sleep(Duration::from_secs(2)).await;
 
     // 25% of max zoom
-    camera.set_zoom(0x1000).await?;
+    camera.set_zoom(ZoomPosition::try_from(0x1000)?).await?;
     println!("Set zoom to 25% of maximum");
     time::sleep(Duration::from_secs(2)).await;
 
@@ -116,8 +118,8 @@ async fn main() -> Result<(), Error> {
     camera
         .move_continuous(
             grafton_visca::command::pan_tilt::PanTiltDirection::UpRight,
-            5,
-            5,
+            PanSpeed::new(5)?,
+            TiltSpeed::new(5)?,
         )
         .await?;
     println!("Moving camera up-right...");
@@ -137,7 +139,7 @@ async fn main() -> Result<(), Error> {
     camera.set_sharpness(SharpnessLevel::new(8)?).await?;
     camera.set_brightness(BrightnessLevel::new(8)?).await?;
     camera.home().await?;
-    camera.set_zoom(0x0000).await?; // Minimum zoom
+    camera.set_zoom(ZoomPosition::MIN).await?; // Minimum zoom
     println!("Returned camera to default settings");
 
     println!("\n=== Demo Complete ===");

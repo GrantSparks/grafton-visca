@@ -1,7 +1,6 @@
 //! Inquiry methods for `Camera<P>`.
 
 use crate::{
-    camera::units::Degrees,
     command::{
         exposure::ExposureMode,
         focus::{AutoFocusSensitivity, FocusZone},
@@ -10,6 +9,7 @@ use crate::{
         luminance_contrast_sharpness::SharpnessMode,
         white_balance::WhiteBalanceMode,
     },
+    units::Degrees,
     Command, Error, InquiryResponse, Response, ViscaUnits,
 };
 

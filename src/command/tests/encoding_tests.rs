@@ -1,7 +1,11 @@
 #![allow(missing_docs)]
 #![allow(clippy::unwrap_used)] // Tests can use unwrap
 use crate::command::*;
-use crate::types::{BrightnessLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed};
+use crate::types::{
+    BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, FocusPosition, GainLimit, GainValue,
+    HueLevel, IrisLevel, PanPosition, RedGain, RedTuning, SaturationLevel, ShutterSpeed,
+    TiltPosition, ZoomPosition,
+};
 use crate::Command;
 
 #[cfg(test)]
@@ -9,11 +13,12 @@ mod golden_vector_tests {
     use super::*;
     use crate::command::exposure::{DynamicRangeLevel, ExposureCompensationLevel};
     use crate::command::focus::FocusSpeed;
-    use crate::command::pan_tilt::{PanSpeed, PanTiltDirection, TiltSpeed};
+    use crate::command::pan_tilt::PanTiltDirection;
     use crate::command::power::Power;
     use crate::command::preset::{PresetAction, PresetNumber};
     use crate::command::zoom::ZoomSpeed;
     use crate::types::{NoiseReduction2DLevel, NoiseReduction3DLevel};
+    use crate::types::{PanSpeed, TiltSpeed};
 
     #[test]
     fn test_power_commands() {
@@ -156,18 +161,18 @@ mod golden_vector_tests {
     #[test]
     fn test_zoom_direct_position() {
         // Test a specific zoom position
-        let zoom_direct = ZoomCommand::Direct(0x1234);
+        let zoom_direct = ZoomCommand::Direct(ZoomPosition::new(0x1234).unwrap());
         assert_eq!(
             zoom_direct.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF],
             "Zoom Direct position 0x1234 should be split into nibbles correctly"
         );
 
-        // Test maximum zoom position
-        let zoom_max = ZoomCommand::Direct(0xFFFF);
+        // Test maximum zoom position (0x7000 for 20X optical)
+        let zoom_max = ZoomCommand::Direct(ZoomPosition::new(0x7000).unwrap());
         assert_eq!(
             zoom_max.to_bytes().unwrap(),
-            vec![0x81, 0x01, 0x04, 0x47, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF],
+            vec![0x81, 0x01, 0x04, 0x47, 0x07, 0x00, 0x00, 0x00, 0xFF],
             "Zoom Direct max position should be split into nibbles correctly"
         );
     }
@@ -533,7 +538,9 @@ mod golden_vector_tests {
         );
 
         // Red Tuning -10
-        let red_neg10 = RedTuningCommand { level: -10 };
+        let red_neg10 = RedTuningCommand {
+            level: RedTuning::new(-10).unwrap(),
+        };
         assert_eq!(
             red_neg10.to_bytes().unwrap(),
             vec![0x81, 0x0A, 0x01, 0x12, 0x00, 0xFF],
@@ -541,7 +548,9 @@ mod golden_vector_tests {
         );
 
         // Red Tuning +10
-        let red_pos10 = RedTuningCommand { level: 10 };
+        let red_pos10 = RedTuningCommand {
+            level: RedTuning::new(10).unwrap(),
+        };
         assert_eq!(
             red_pos10.to_bytes().unwrap(),
             vec![0x81, 0x0A, 0x01, 0x12, 0x14, 0xFF],
@@ -549,7 +558,9 @@ mod golden_vector_tests {
         );
 
         // Blue Tuning 0
-        let blue_0 = BlueTuningCommand { level: 0 };
+        let blue_0 = BlueTuningCommand {
+            level: BlueTuning::new(0).unwrap(),
+        };
         assert_eq!(
             blue_0.to_bytes().unwrap(),
             vec![0x81, 0x0A, 0x01, 0x13, 0x0A, 0xFF],
@@ -557,7 +568,9 @@ mod golden_vector_tests {
         );
 
         // Saturation 200%
-        let sat_200 = SaturationCommand { level: 0x0E };
+        let sat_200 = SaturationCommand {
+            level: SaturationLevel::new(0x0E).unwrap(),
+        };
         assert_eq!(
             sat_200.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00, 0x0E, 0xFF],
@@ -565,7 +578,9 @@ mod golden_vector_tests {
         );
 
         // Hue 14
-        let hue_14 = HueCommand { level: 0x0E };
+        let hue_14 = HueCommand {
+            level: HueLevel::new(0x0E).unwrap(),
+        };
         assert_eq!(
             hue_14.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00, 0x0E, 0xFF],
@@ -583,17 +598,17 @@ mod golden_vector_tests {
             "Pan/Tilt Reset should produce correct byte sequence"
         );
 
-        // Absolute Position
+        // Absolute Position (using valid ranges)
         let abs_pos = PanTiltCommand::AbsolutePosition {
-            pan: 0x1234,
-            tilt: 0x5678,
+            pan: PanPosition::new(0x0500).unwrap(), // 1280, within -2448 to 2448
+            tilt: TiltPosition::new(0x0300).unwrap(), // 768, within -432 to 1296
             pan_speed: PanSpeed::new(0x10).unwrap(),
             tilt_speed: TiltSpeed::new(0x10).unwrap(),
         };
         assert_eq!(
             abs_pos.to_bytes().unwrap(),
             vec![
-                0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x00, 0x05, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
                 0xFF
             ],
             "Absolute Position should produce correct byte sequence"
@@ -601,8 +616,8 @@ mod golden_vector_tests {
 
         // Relative Position
         let rel_pos = PanTiltCommand::RelativePosition {
-            pan: -100,
-            tilt: 200,
+            pan: PanPosition::new(-100).unwrap(),
+            tilt: TiltPosition::new(200).unwrap(),
             pan_speed: PanSpeed::new(0x08).unwrap(),
             tilt_speed: TiltSpeed::new(0x08).unwrap(),
         };
@@ -637,16 +652,16 @@ mod golden_vector_tests {
     fn test_pan_tilt_limit_commands() {
         use crate::command::pan_tilt::LimitCorner;
 
-        // Limit Set
+        // Limit Set (using valid ranges)
         let limit_set = PanTiltLimitCommand::Set {
             corner: LimitCorner::DownLeft,
-            pan: 0x1000,
-            tilt: 0x0800,
+            pan: PanPosition::new(0x0400).unwrap(), // 1024, within -2448 to 2448
+            tilt: TiltPosition::new(0x0200).unwrap(), // 512, within -432 to 1296
         };
         assert_eq!(
             limit_set.to_bytes().unwrap(),
             vec![
-                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00,
+                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
                 0xFF
             ],
             "Pan/Tilt Limit Set should produce correct byte sequence"
@@ -771,7 +786,7 @@ mod golden_vector_tests {
         );
 
         // Color Temperature Direct 8000K (0x37)
-        let ct_8000k = ColorTemperatureCommand::Direct(0x37);
+        let ct_8000k = ColorTemperatureCommand::Direct(ColorTemperature::new(0x37).unwrap());
         assert_eq!(
             ct_8000k.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x00, 0x00, 0x03, 0x07, 0xFF],
@@ -790,7 +805,7 @@ mod golden_vector_tests {
         );
 
         // Red Gain Direct 0xFF
-        let red_ff = RedGainCommand::Direct(0xFF);
+        let red_ff = RedGainCommand::Direct(RedGain::new(0xFF).unwrap());
         assert_eq!(
             red_ff.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x43, 0x00, 0x00, 0x0F, 0x0F, 0xFF],
@@ -806,7 +821,7 @@ mod golden_vector_tests {
         );
 
         // Blue Gain Direct 0x80
-        let blue_80 = BlueGainCommand::Direct(0x80);
+        let blue_80 = BlueGainCommand::Direct(BlueGain::new(0x80).unwrap());
         assert_eq!(
             blue_80.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x44, 0x00, 0x00, 0x08, 0x00, 0xFF],
@@ -906,7 +921,9 @@ mod golden_vector_tests {
         );
 
         // Focus Near Limit
-        let fnl = FocusNearLimitCommand { position: 0x1234 };
+        let fnl = FocusNearLimitCommand {
+            position: FocusPosition::new(0x1234).unwrap(),
+        };
         assert_eq!(
             fnl.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x02, 0x03, 0x04, 0xFF],

@@ -36,7 +36,8 @@ use crate::{
     constants::{CameraConstants, CameraModel},
     error::Error,
     timeout::CommandCategory,
-    Normalized,
+    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
+    units::Normalized,
 };
 
 /// Direction for pan/tilt movement commands.
@@ -112,9 +113,9 @@ pub enum PanTiltCommand {
     /// The pan and tilt values specify exact coordinates to move to.
     AbsolutePosition {
         /// Absolute pan position to move to.
-        pan: i16,
+        pan: PanPosition,
         /// Absolute tilt position to move to.
-        tilt: i16,
+        tilt: TiltPosition,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x14).
@@ -125,9 +126,9 @@ pub enum PanTiltCommand {
     /// The pan and tilt values specify the offset from the current position.
     RelativePosition {
         /// Relative pan movement amount.
-        pan: i16,
+        pan: PanPosition,
         /// Relative tilt movement amount.
-        tilt: i16,
+        tilt: TiltPosition,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x14).
@@ -163,8 +164,8 @@ impl PanTiltCommand {
         Ok(Self::AbsolutePosition {
             pan_speed: PanSpeed::new(P::MAX_PAN_SPEED / 2)?,
             tilt_speed: TiltSpeed::new(P::MAX_TILT_SPEED / 2)?,
-            pan,
-            tilt,
+            pan: PanPosition::new(pan)?,
+            tilt: TiltPosition::new(tilt)?,
         })
     }
 
@@ -187,15 +188,15 @@ impl PanTiltCommand {
         Ok(Self::AbsolutePosition {
             pan_speed: PanSpeed::new(P::MAX_PAN_SPEED / 2)?,
             tilt_speed: TiltSpeed::new(P::MAX_TILT_SPEED / 2)?,
-            pan: pan_units,
-            tilt: tilt_units,
+            pan: PanPosition::new(pan_units)?,
+            tilt: TiltPosition::new(tilt_units)?,
         })
     }
 
     /// Create an absolute position command from degree coordinates.
     pub fn absolute_position_degrees<P: crate::camera::CameraProfile>(
-        pan: crate::camera::units::Degrees<f32>,
-        tilt: crate::camera::units::Degrees<f32>,
+        pan: crate::units::Degrees<f32>,
+        tilt: crate::units::Degrees<f32>,
     ) -> Result<Self, Error> {
         // Create a default profile instance for conversion
         let profile = P::default();
@@ -254,8 +255,8 @@ impl Command for PanTiltCommand {
                     0x01,
                     0x06,
                     0x01,
-                    (*pan_speed).into(),
-                    (*tilt_speed).into(),
+                    pan_speed.value(),
+                    tilt_speed.value(),
                     dir_byte1,
                     dir_byte2,
                     0xFF,
@@ -267,16 +268,16 @@ impl Command for PanTiltCommand {
                 pan_speed,
                 tilt_speed,
             } => {
-                let pan_bytes = position_to_bytes(*pan);
-                let tilt_bytes = position_to_bytes(*tilt);
+                let pan_bytes = position_to_bytes(pan.value());
+                let tilt_bytes = position_to_bytes(tilt.value());
 
                 Ok(vec![
                     0x81,
                     0x01,
                     0x06,
                     0x02,
-                    (*pan_speed).into(),
-                    (*tilt_speed).into(),
+                    pan_speed.value(),
+                    tilt_speed.value(),
                     pan_bytes[0],
                     pan_bytes[1],
                     pan_bytes[2],
@@ -294,16 +295,16 @@ impl Command for PanTiltCommand {
                 pan_speed,
                 tilt_speed,
             } => {
-                let pan_bytes = position_to_bytes(*pan);
-                let tilt_bytes = position_to_bytes(*tilt);
+                let pan_bytes = position_to_bytes(pan.value());
+                let tilt_bytes = position_to_bytes(tilt.value());
 
                 Ok(vec![
                     0x81,
                     0x01,
                     0x06,
                     0x03,
-                    (*pan_speed).into(),
-                    (*tilt_speed).into(),
+                    pan_speed.value(),
+                    tilt_speed.value(),
                     pan_bytes[0],
                     pan_bytes[1],
                     pan_bytes[2],
@@ -332,22 +333,30 @@ impl Command for PanTiltCommand {
                 let (pan_min, pan_max) = model.pan_range();
                 let (tilt_min, tilt_max) = model.tilt_range();
 
-                if *pan < pan_min || *pan > pan_max {
+                if pan.value() < pan_min || pan.value() > pan_max {
                     return Err(Error::ModelValidation {
                         model,
                         command: "PanTiltAbsolutePosition".to_string(),
                         reason: format!(
-                            "Pan position {pan} out of range [{pan_min}, {pan_max}] for {model:?}"
+                            "Pan position {} out of range [{}, {}] for {:?}",
+                            pan.value(),
+                            pan_min,
+                            pan_max,
+                            model
                         ),
                     });
                 }
 
-                if *tilt < tilt_min || *tilt > tilt_max {
+                if tilt.value() < tilt_min || tilt.value() > tilt_max {
                     return Err(Error::ModelValidation {
                         model,
                         command: "PanTiltAbsolutePosition".to_string(),
                         reason: format!(
-                            "Tilt position {tilt} out of range [{tilt_min}, {tilt_max}] for {model:?}"
+                            "Tilt position {} out of range [{}, {}] for {:?}",
+                            tilt.value(),
+                            tilt_min,
+                            tilt_max,
+                            model
                         ),
                     });
                 }
@@ -387,16 +396,16 @@ mod tests {
         // Invalid speed
         assert!(matches!(
             PanSpeed::new(0x19),
-            Err(Error::InvalidParameter(_))
+            Err(Error::ParameterOutOfRange { .. })
         ));
 
         // From trait
         assert!(PanSpeed::try_from(0x10).is_ok());
         assert!(PanSpeed::try_from(0x20).is_err());
 
-        // Into trait
+        // Value method
         let speed = PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}"));
-        let value: u8 = speed.into();
+        let value: u8 = speed.value();
         assert_eq!(value, 0x10);
     }
 
@@ -409,16 +418,16 @@ mod tests {
         // Invalid speed
         assert!(matches!(
             TiltSpeed::new(0x15),
-            Err(Error::InvalidParameter(_))
+            Err(Error::ParameterOutOfRange { .. })
         ));
 
         // From trait
         assert!(TiltSpeed::try_from(0x10).is_ok());
         assert!(TiltSpeed::try_from(0x15).is_err());
 
-        // Into trait
+        // Value method
         let speed = TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}"));
-        let value: u8 = speed.into();
+        let value: u8 = speed.value();
         assert_eq!(value, 0x10);
     }
 
@@ -469,8 +478,9 @@ mod tests {
 
         // Test AbsolutePosition command
         let abs_pos = PanTiltCommand::AbsolutePosition {
-            pan: 0x1234,
-            tilt: 0x5678,
+            pan: PanPosition::new(0x0500).unwrap_or_else(|e| panic!("Valid pan position: {e:?}")),
+            tilt: TiltPosition::new(0x0300)
+                .unwrap_or_else(|e| panic!("Valid tilt position: {e:?}")),
             pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
             tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
@@ -479,15 +489,15 @@ mod tests {
                 .to_bytes()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![
-                0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x00, 0x05, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
                 0xFF
             ]
         );
 
         // Test RelativePosition command
         let rel_pos = PanTiltCommand::RelativePosition {
-            pan: -0x100,
-            tilt: 0x200,
+            pan: PanPosition::new(-0x100).unwrap_or_else(|e| panic!("Valid pan position: {e:?}")),
+            tilt: TiltPosition::new(0x200).unwrap_or_else(|e| panic!("Valid tilt position: {e:?}")),
             pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
             tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
@@ -507,15 +517,16 @@ mod tests {
         // Test Set command
         let set_limit = PanTiltLimitCommand::Set {
             corner: LimitCorner::DownLeft,
-            pan: 0x1000,
-            tilt: 0x2000,
+            pan: PanPosition::new(0x0400).unwrap_or_else(|e| panic!("Valid pan position: {e:?}")),
+            tilt: TiltPosition::new(0x0200)
+                .unwrap_or_else(|e| panic!("Valid tilt position: {e:?}")),
         };
         assert_eq!(
             set_limit
                 .to_bytes()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![
-                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
                 0xFF
             ]
         );
@@ -539,8 +550,8 @@ mod tests {
     fn test_pan_tilt_validation() {
         // Test validation for absolute position command
         let cmd_valid = PanTiltCommand::AbsolutePosition {
-            pan: 1000,
-            tilt: 500,
+            pan: PanPosition::new(1000).unwrap_or_else(|e| panic!("Valid pan position: {e:?}")),
+            tilt: TiltPosition::new(500).unwrap_or_else(|e| panic!("Valid tilt position: {e:?}")),
             pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
             tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
@@ -548,30 +559,12 @@ mod tests {
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
 
-        // Test pan out of range
-        let cmd_invalid_pan = PanTiltCommand::AbsolutePosition {
-            pan: 3000, // Beyond PAN_MAX (2448)
-            tilt: 500,
-            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
-            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
-        };
-        let result = cmd_invalid_pan.validate_for_model(CameraModel::PTZOpticsG2);
+        // Test pan out of range - we can't create an invalid PanPosition,
+        // so we need to test at a different level
+        let result = PanPosition::new(3000); // Beyond PAN_MAX (2448)
         assert!(result.is_err());
-        match result {
-            Err(Error::ModelValidation { command, .. }) => {
-                assert_eq!(command, "PanTiltAbsolutePosition");
-            }
-            _ => unreachable!("Expected ModelValidation error"),
-        }
-
         // Test tilt out of range
-        let cmd_invalid_tilt = PanTiltCommand::AbsolutePosition {
-            pan: 1000,
-            tilt: 2000, // Beyond TILT_MAX (1296)
-            pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
-            tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
-        };
-        let result = cmd_invalid_tilt.validate_for_model(CameraModel::PTZOpticsG2);
+        let result = TiltPosition::new(2000); // Beyond TILT_MAX (1296)
         assert!(result.is_err());
     }
 
@@ -593,8 +586,8 @@ mod tests {
         assert!(Command::validate_for_model(&move_cmd, CameraModel::PTZOpticsG2).is_ok());
 
         let rel_cmd = PanTiltCommand::RelativePosition {
-            pan: 100,
-            tilt: -100,
+            pan: PanPosition::new(100).unwrap_or_else(|e| panic!("Valid pan position: {e:?}")),
+            tilt: TiltPosition::new(-100).unwrap_or_else(|e| panic!("Valid tilt position: {e:?}")),
             pan_speed: PanSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid pan speed: {e:?}")),
             tilt_speed: TiltSpeed::new(0x10).unwrap_or_else(|e| panic!("Valid tilt speed: {e:?}")),
         };
@@ -633,46 +626,6 @@ const fn position_to_bytes(position: i16) -> [u8; 4] {
     ]
 }
 
-crate::visca_bounded_param! {
-    /// Pan (horizontal) movement speed.
-    ///
-    /// Valid range: 0x00 to 0x18 (0-24 decimal).
-    /// Higher values result in faster movement.
-    PanSpeed: u8 {
-        min: 0x00,
-        max: 0x18,
-        error_msg: "Pan speed must be in the range 0x00..=0x18"
-    }
-}
-
-impl PanSpeed {
-    /// Zero speed value (stop).
-    pub const ZERO: Self = Self(0);
-
-    /// Default medium speed value.
-    pub const DEFAULT_MEDIUM: Self = Self(0x10);
-}
-
-crate::visca_bounded_param! {
-    /// Tilt (vertical) movement speed.
-    ///
-    /// Valid range: 0x00 to 0x14 (0-20 decimal).
-    /// Higher values result in faster movement.
-    TiltSpeed: u8 {
-        min: 0x00,
-        max: 0x14,
-        error_msg: "Tilt speed must be in the range 0x00..=0x14"
-    }
-}
-
-impl TiltSpeed {
-    /// Zero speed value (stop).
-    pub const ZERO: Self = Self(0);
-
-    /// Default medium speed value.
-    pub const DEFAULT_MEDIUM: Self = Self(0x10);
-}
-
 /// Corner position for pan/tilt limits.
 ///
 /// Used to define the movement boundaries of the camera.
@@ -697,9 +650,9 @@ pub enum PanTiltLimitCommand {
         /// Which corner to set the limit for (`DownLeft` or `UpRight`).
         corner: LimitCorner,
         /// Pan position for the limit.
-        pan: i16,
+        pan: PanPosition,
         /// Tilt position for the limit.
-        tilt: i16,
+        tilt: TiltPosition,
     },
     /// Clear the movement limit for the specified corner.
     ///
@@ -714,8 +667,8 @@ impl Command for PanTiltLimitCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Self::Set { corner, pan, tilt } => {
-                let pan_bytes = position_to_bytes(*pan);
-                let tilt_bytes = position_to_bytes(*tilt);
+                let pan_bytes = position_to_bytes(pan.value());
+                let tilt_bytes = position_to_bytes(tilt.value());
 
                 Ok(vec![
                     0x81,

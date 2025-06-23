@@ -5,8 +5,10 @@
 
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, units::Degrees, Camera},
+    camera::{profiles::PTZOpticsG2, Camera},
     command::pan_tilt::PanTiltDirection,
+    types::{PanSpeed, TiltSpeed},
+    units::Degrees,
     Error,
 };
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
@@ -71,12 +73,16 @@ fn blocking_movement_example() -> Result<(), Error> {
     let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Moving camera up...");
-    camera.move_continuous(PanTiltDirection::Up, 0, 10)?;
+    camera.move_continuous(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)?;
     std::thread::sleep(Duration::from_millis(500));
     camera.stop()?;
 
     println!("Moving camera down...");
-    camera.move_continuous(PanTiltDirection::Down, 0, 10)?;
+    camera.move_continuous(
+        PanTiltDirection::Down,
+        PanSpeed::new(0)?,
+        TiltSpeed::new(10)?,
+    )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.stop()?;
 
@@ -137,13 +143,19 @@ async fn async_movement_example() -> Result<(), Error> {
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Moving camera up...");
-    camera.move_continuous(PanTiltDirection::Up, 0, 10).await?;
+    camera
+        .move_continuous(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)
+        .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     camera.stop().await?;
 
     println!("Moving camera down...");
     camera
-        .move_continuous(PanTiltDirection::Down, 0, 10)
+        .move_continuous(
+            PanTiltDirection::Down,
+            PanSpeed::new(0)?,
+            TiltSpeed::new(10)?,
+        )
         .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     camera.stop().await?;

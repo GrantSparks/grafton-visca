@@ -9,6 +9,7 @@ use crate::{
     constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
+    types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
 };
 
 /// One-Push White Balance Trigger command.
@@ -40,20 +41,15 @@ impl Command for OnePushTriggerCommand {
 /// to make small corrections.
 #[derive(Debug, Copy, Clone)]
 pub struct RedTuningCommand {
-    /// Red tuning level (-10 to +10, where 0 is neutral).
-    pub level: i8,
+    /// Red tuning level.
+    pub level: RedTuning,
 }
 
 impl Command for RedTuningCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        if self.level < -10 || self.level > 10 {
-            return Err(Error::InvalidParameter(
-                "Red tuning level must be between -10 and +10".into(),
-            ));
-        }
         // Convert -10..+10 to 0x00..0x14
-        // We've validated level is between -10 and +10, so level + 10 is 0..20
-        let level_offset = self.level + 10;
+        let level_value = self.level.value();
+        let level_offset = level_value + 10;
         debug_assert!((0..=20).contains(&level_offset));
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
@@ -73,16 +69,7 @@ impl Command for RedTuningCommand {
         match model {
             CameraModel::PTZOpticsG2 => {
                 // G2 supports values -10 to +10 (protocol values 0x00 to 0x14)
-                if self.level < -10 || self.level > 10 {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "RedTuning".to_string(),
-                        reason: format!(
-                            "Value {} not supported on G2 cameras (range is -10 to +10)",
-                            self.level
-                        ),
-                    });
-                }
+                // RedTuning type already enforces this constraint
                 Ok(())
             }
             _ => Ok(()),
@@ -97,20 +84,15 @@ impl Command for RedTuningCommand {
 /// to make small corrections.
 #[derive(Debug, Copy, Clone)]
 pub struct BlueTuningCommand {
-    /// Blue tuning level (-10 to +10, where 0 is neutral).
-    pub level: i8,
+    /// Blue tuning level.
+    pub level: BlueTuning,
 }
 
 impl Command for BlueTuningCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        if self.level < -10 || self.level > 10 {
-            return Err(Error::InvalidParameter(
-                "Blue tuning level must be between -10 and +10".into(),
-            ));
-        }
         // Convert -10..+10 to 0x00..0x14
-        // We've validated level is between -10 and +10, so level + 10 is 0..20
-        let level_offset = self.level + 10;
+        let level_value = self.level.value();
+        let level_offset = level_value + 10;
         debug_assert!((0..=20).contains(&level_offset));
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
@@ -130,16 +112,7 @@ impl Command for BlueTuningCommand {
         match model {
             CameraModel::PTZOpticsG2 => {
                 // G2 supports values -10 to +10 (protocol values 0x00 to 0x14)
-                if self.level < -10 || self.level > 10 {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "BlueTuning".to_string(),
-                        reason: format!(
-                            "Value {} not supported on G2 cameras (range is -10 to +10)",
-                            self.level
-                        ),
-                    });
-                }
+                // BlueTuning type already enforces this constraint
                 Ok(())
             }
             _ => Ok(()),
@@ -154,19 +127,22 @@ impl Command for BlueTuningCommand {
 /// produce more vivid colors.
 #[derive(Debug, Copy, Clone)]
 pub struct SaturationCommand {
-    /// Saturation level (0x0 = 60%, 0xE = 200%).
-    pub level: u8,
+    /// Saturation level.
+    pub level: SaturationLevel,
 }
 
 impl Command for SaturationCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        if self.level > 0x0E {
-            return Err(Error::InvalidParameter(
-                "Saturation level must be between 0x0 (60%) and 0xE (200%)".into(),
-            ));
-        }
         Ok(vec![
-            0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00, self.level, 0xFF,
+            0x81,
+            0x01,
+            0x04,
+            0x49,
+            0x00,
+            0x00,
+            0x00,
+            self.level.value(),
+            0xFF,
         ])
     }
 
@@ -182,16 +158,7 @@ impl Command for SaturationCommand {
         match model {
             CameraModel::PTZOpticsG2 => {
                 // G2 supports values 0x0 to 0xE (15 values)
-                if self.level > 0x0E {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "Saturation".to_string(),
-                        reason: format!(
-                            "Value {:#02X} not supported on G2 cameras (max is 0x0E)",
-                            self.level
-                        ),
-                    });
-                }
+                // SaturationLevel type already enforces this constraint
                 Ok(())
             }
             _ => Ok(()),
@@ -206,19 +173,22 @@ impl Command for SaturationCommand {
 /// or create artistic effects.
 #[derive(Debug, Copy, Clone)]
 pub struct HueCommand {
-    /// Hue level (0x0 to 0xE, representing 0 to 14 degrees of rotation).
-    pub level: u8,
+    /// Hue level.
+    pub level: HueLevel,
 }
 
 impl Command for HueCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        if self.level > 0x0E {
-            return Err(Error::InvalidParameter(
-                "Hue level must be between 0x0 (0) and 0xE (14)".into(),
-            ));
-        }
         Ok(vec![
-            0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00, self.level, 0xFF,
+            0x81,
+            0x01,
+            0x04,
+            0x4F,
+            0x00,
+            0x00,
+            0x00,
+            self.level.value(),
+            0xFF,
         ])
     }
 
@@ -234,16 +204,7 @@ impl Command for HueCommand {
         match model {
             CameraModel::PTZOpticsG2 => {
                 // G2 supports values 0x0 to 0xE (15 values)
-                if self.level > 0x0E {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "Hue".to_string(),
-                        reason: format!(
-                            "Value {:#02X} not supported on G2 cameras (max is 0x0E)",
-                            self.level
-                        ),
-                    });
-                }
+                // HueLevel type already enforces this constraint
                 Ok(())
             }
             _ => Ok(()),
@@ -251,87 +212,130 @@ impl Command for HueCommand {
     }
 }
 
-// Use the visca_command! macro for ColorTemperatureCommand
-crate::visca_command! {
-    /// Color Temperature command.
+/// Color Temperature command.
+///
+/// Controls the color temperature setting when white balance is in color temperature mode.
+/// Color temperature is measured in Kelvin (K) and affects the warmth/coolness of the image.
+#[derive(Debug, Copy, Clone)]
+pub enum ColorTemperatureCommand {
+    /// Reset color temperature to default value.
+    Reset,
+    /// Increase color temperature (makes image cooler/bluer).
+    Up,
+    /// Decrease color temperature (makes image warmer/redder).
+    Down,
+    /// Set color temperature directly.
     ///
-    /// Controls the color temperature setting when white balance is in color temperature mode.
-    /// Color temperature is measured in Kelvin (K) and affects the warmth/coolness of the image.
-    category = "Quick",
-    enum ColorTemperatureCommand {
-        /// Reset color temperature to default value.
-        Reset => [0x81, 0x01, 0x04, 0x20, 0x00, 0xFF],
-        /// Increase color temperature (makes image cooler/bluer).
-        Up => [0x81, 0x01, 0x04, 0x20, 0x02, 0xFF],
-        /// Decrease color temperature (makes image warmer/redder).
-        Down => [0x81, 0x01, 0x04, 0x20, 0x03, 0xFF],
-        /// Set color temperature directly.
-        ///
-        /// Valid range: 0x00 (2500K - very warm) to 0x37 (8000K - very cool).
-        /// Lower values produce warmer (more orange/red) colors,
-        /// higher values produce cooler (more blue) colors.
-        Direct(temp: u16) => {
-            if *temp > 0x37 {
-                return Err(Error::InvalidParameter(
-                    "Color temperature must be between 0x00 (2500K) and 0x37 (8000K)".into(),
-                ));
+    /// Lower values produce warmer (more orange/red) colors,
+    /// higher values produce cooler (more blue) colors.
+    Direct(crate::types::ColorTemperature),
+}
+
+impl Command for ColorTemperatureCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(match self {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x20, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x20, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x20, 0x03, 0xFF],
+            Self::Direct(temp) => {
+                let value = temp.value();
+                let high = ((value >> 4) & 0x0F) as u8;
+                let low = (value & 0x0F) as u8;
+                vec![0x81, 0x01, 0x04, 0x20, 0x00, 0x00, high, low, 0xFF]
             }
-            let high = ((temp >> 4) & 0x0F) as u8;
-            let low = (temp & 0x0F) as u8;
-            Ok(vec![0x81, 0x01, 0x04, 0x20, 0x00, 0x00, high, low, 0xFF])
-        }
+        })
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
-// Use the visca_command! macro for RedGainCommand
-crate::visca_command! {
-    /// Red Gain Direct command (different from tuning).
+/// Red Gain Direct command (different from tuning).
+///
+/// Controls the red channel gain in manual white balance mode.
+/// This provides direct control over the red color channel intensity.
+#[derive(Debug, Copy, Clone)]
+pub enum RedGainCommand {
+    /// Reset red gain to default value.
+    Reset,
+    /// Increment red gain value by one step.
+    Up,
+    /// Decrement red gain value by one step.
+    Down,
+    /// Set red gain to a specific value.
     ///
-    /// Controls the red channel gain in manual white balance mode.
-    /// This provides direct control over the red color channel intensity.
-    category = "Quick",
-    enum RedGainCommand {
-        /// Reset red gain to default value.
-        Reset => [0x81, 0x01, 0x04, 0x03, 0x00, 0xFF],
-        /// Increment red gain value by one step.
-        Up => [0x81, 0x01, 0x04, 0x03, 0x02, 0xFF],
-        /// Decrement red gain value by one step.
-        Down => [0x81, 0x01, 0x04, 0x03, 0x03, 0xFF],
-        /// Set red gain to a specific value.
-        ///
-        /// Valid range: 0x00 (minimum) to 0xFF (maximum).
-        /// Higher values increase the intensity of red in the image.
-        Direct(gain: u8) => {
-            let high = (gain >> 4) & 0x0F;
-            let low = gain & 0x0F;
-            Ok(vec![0x81, 0x01, 0x04, 0x43, 0x00, 0x00, high, low, 0xFF])
-        }
+    /// Higher values increase the intensity of red in the image.
+    Direct(crate::types::RedGain),
+}
+
+impl Command for RedGainCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(match self {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x03, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x03, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x03, 0x03, 0xFF],
+            Self::Direct(gain) => {
+                let value = gain.value();
+                let high = (value >> 4) & 0x0F;
+                let low = value & 0x0F;
+                vec![0x81, 0x01, 0x04, 0x43, 0x00, 0x00, high, low, 0xFF]
+            }
+        })
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
-// Use the visca_command! macro for BlueGainCommand
-crate::visca_command! {
-    /// Blue Gain Direct command (different from tuning).
+/// Blue Gain Direct command (different from tuning).
+///
+/// Controls the blue channel gain in manual white balance mode.
+/// This provides direct control over the blue color channel intensity.
+#[derive(Debug, Copy, Clone)]
+pub enum BlueGainCommand {
+    /// Reset blue gain to default value.
+    Reset,
+    /// Increment blue gain value by one step.
+    Up,
+    /// Decrement blue gain value by one step.
+    Down,
+    /// Set blue gain to a specific value.
     ///
-    /// Controls the blue channel gain in manual white balance mode.
-    /// This provides direct control over the blue color channel intensity.
-    category = "Quick",
-    enum BlueGainCommand {
-        /// Reset blue gain to default value.
-        Reset => [0x81, 0x01, 0x04, 0x04, 0x00, 0xFF],
-        /// Increment blue gain value by one step.
-        Up => [0x81, 0x01, 0x04, 0x04, 0x02, 0xFF],
-        /// Decrement blue gain value by one step.
-        Down => [0x81, 0x01, 0x04, 0x04, 0x03, 0xFF],
-        /// Set blue gain to a specific value.
-        ///
-        /// Valid range: 0x00 (minimum) to 0xFF (maximum).
-        /// Higher values increase the intensity of blue in the image.
-        Direct(gain: u8) => {
-            let high = (gain >> 4) & 0x0F;
-            let low = gain & 0x0F;
-            Ok(vec![0x81, 0x01, 0x04, 0x44, 0x00, 0x00, high, low, 0xFF])
-        }
+    /// Higher values increase the intensity of blue in the image.
+    Direct(crate::types::BlueGain),
+}
+
+impl Command for BlueGainCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(match self {
+            Self::Reset => vec![0x81, 0x01, 0x04, 0x04, 0x00, 0xFF],
+            Self::Up => vec![0x81, 0x01, 0x04, 0x04, 0x02, 0xFF],
+            Self::Down => vec![0x81, 0x01, 0x04, 0x04, 0x03, 0xFF],
+            Self::Direct(gain) => {
+                let value = gain.value();
+                let high = (value >> 4) & 0x0F;
+                let low = value & 0x0F;
+                vec![0x81, 0x01, 0x04, 0x44, 0x00, 0x00, high, low, 0xFF]
+            }
+        })
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
@@ -359,7 +363,8 @@ mod tests {
     fn test_red_tuning_command() {
         // Test valid range
         for level in -10..=10 {
-            let cmd = RedTuningCommand { level };
+            let tuning = RedTuning::new(level).unwrap();
+            let cmd = RedTuningCommand { level: tuning };
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 6);
             assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x12]);
@@ -369,37 +374,29 @@ mod tests {
             assert!(matches!(cmd.command_category(), CommandCategory::Quick));
         }
 
-        // Test invalid values
-        let cmd = RedTuningCommand { level: -11 };
-        assert!(cmd.to_bytes().is_err());
-
-        let cmd = RedTuningCommand { level: 11 };
-        assert!(cmd.to_bytes().is_err());
+        // Test invalid values - can't create invalid RedTuning
+        assert!(RedTuning::new(-11).is_err());
+        assert!(RedTuning::new(11).is_err());
     }
 
     #[test]
     fn test_red_tuning_g2_validation() {
         // Test valid G2 values
         for level in -10..=10 {
-            let cmd = RedTuningCommand { level };
+            let tuning = RedTuning::new(level).unwrap();
+            let cmd = RedTuningCommand { level: tuning };
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
-        // Test invalid G2 values
-        let cmd = RedTuningCommand { level: -11 };
-        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
-        assert!(matches!(result, Err(Error::ModelValidation { .. })));
-
-        let cmd = RedTuningCommand { level: 11 };
-        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
-        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+        // Invalid values can't be created with RedTuning type
     }
 
     #[test]
     fn test_blue_tuning_command() {
         // Test valid range
         for level in -10..=10 {
-            let cmd = BlueTuningCommand { level };
+            let tuning = BlueTuning::new(level).unwrap();
+            let cmd = BlueTuningCommand { level: tuning };
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 6);
             assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x13]);
@@ -409,37 +406,29 @@ mod tests {
             assert!(matches!(cmd.command_category(), CommandCategory::Quick));
         }
 
-        // Test invalid values
-        let cmd = BlueTuningCommand { level: -11 };
-        assert!(cmd.to_bytes().is_err());
-
-        let cmd = BlueTuningCommand { level: 11 };
-        assert!(cmd.to_bytes().is_err());
+        // Test invalid values - can't create invalid BlueTuning
+        assert!(BlueTuning::new(-11).is_err());
+        assert!(BlueTuning::new(11).is_err());
     }
 
     #[test]
     fn test_blue_tuning_g2_validation() {
         // Test valid G2 values
         for level in -10..=10 {
-            let cmd = BlueTuningCommand { level };
+            let tuning = BlueTuning::new(level).unwrap();
+            let cmd = BlueTuningCommand { level: tuning };
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
-        // Test invalid G2 values
-        let cmd = BlueTuningCommand { level: -11 };
-        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
-        assert!(matches!(result, Err(Error::ModelValidation { .. })));
-
-        let cmd = BlueTuningCommand { level: 11 };
-        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
-        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+        // Invalid values can't be created with BlueTuning type
     }
 
     #[test]
     fn test_saturation_command() {
         // Test valid range
         for level in 0x00..=0x0E {
-            let cmd = SaturationCommand { level };
+            let sat_level = SaturationLevel::new(level).unwrap();
+            let cmd = SaturationCommand { level: sat_level };
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(
                 bytes,
@@ -449,30 +438,28 @@ mod tests {
             assert!(matches!(cmd.command_category(), CommandCategory::Quick));
         }
 
-        // Test invalid value
-        let cmd = SaturationCommand { level: 0x0F };
-        assert!(cmd.to_bytes().is_err());
+        // Test invalid value - can't create invalid SaturationLevel
+        assert!(SaturationLevel::new(0x0F).is_err());
     }
 
     #[test]
     fn test_saturation_g2_validation() {
         // Test valid G2 values
         for level in 0x00..=0x0E {
-            let cmd = SaturationCommand { level };
+            let sat_level = SaturationLevel::new(level).unwrap();
+            let cmd = SaturationCommand { level: sat_level };
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
-        // Test invalid G2 value
-        let cmd = SaturationCommand { level: 0x0F };
-        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
-        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+        // Invalid values can't be created with SaturationLevel type
     }
 
     #[test]
     fn test_hue_command() {
         // Test valid range
         for level in 0x00..=0x0E {
-            let cmd = HueCommand { level };
+            let hue_level = HueLevel::new(level).unwrap();
+            let cmd = HueCommand { level: hue_level };
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(
                 bytes,
@@ -482,23 +469,20 @@ mod tests {
             assert!(matches!(cmd.command_category(), CommandCategory::Quick));
         }
 
-        // Test invalid value
-        let cmd = HueCommand { level: 0x0F };
-        assert!(cmd.to_bytes().is_err());
+        // Test invalid value - can't create invalid HueLevel
+        assert!(HueLevel::new(0x0F).is_err());
     }
 
     #[test]
     fn test_hue_g2_validation() {
         // Test valid G2 values
         for level in 0x00..=0x0E {
-            let cmd = HueCommand { level };
+            let hue_level = HueLevel::new(level).unwrap();
+            let cmd = HueCommand { level: hue_level };
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
-        // Test invalid G2 value
-        let cmd = HueCommand { level: 0x0F };
-        let result = cmd.validate_for_model(CameraModel::PTZOpticsG2);
-        assert!(matches!(result, Err(Error::ModelValidation { .. })));
+        // Invalid values can't be created with HueLevel type
     }
 
     #[test]
@@ -527,7 +511,8 @@ mod tests {
         // Test Direct with valid values
         let test_values = vec![0x00, 0x10, 0x20, 0x37];
         for temp in test_values {
-            let cmd = ColorTemperatureCommand::Direct(temp);
+            let color_temp = crate::types::ColorTemperature::new(temp).unwrap();
+            let cmd = ColorTemperatureCommand::Direct(color_temp);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x20, 0x00]);
@@ -537,9 +522,8 @@ mod tests {
             assert_eq!(bytes[8], 0xFF);
         }
 
-        // Test Direct with invalid value
-        let cmd = ColorTemperatureCommand::Direct(0x38);
-        assert!(cmd.to_bytes().is_err());
+        // Test Direct with invalid value - can't create invalid ColorTemperature
+        assert!(crate::types::ColorTemperature::new(0x38).is_err());
     }
 
     #[test]
@@ -568,7 +552,8 @@ mod tests {
         // Test Direct with various values
         let test_values = vec![0x00, 0x55, 0xAA, 0xFF];
         for gain in test_values {
-            let cmd = RedGainCommand::Direct(gain);
+            let red_gain = crate::types::RedGain::new(gain).unwrap();
+            let cmd = RedGainCommand::Direct(red_gain);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x43, 0x00]);
@@ -605,7 +590,8 @@ mod tests {
         // Test Direct with various values
         let test_values = vec![0x00, 0x55, 0xAA, 0xFF];
         for gain in test_values {
-            let cmd = BlueGainCommand::Direct(gain);
+            let blue_gain = crate::types::BlueGain::new(gain).unwrap();
+            let cmd = BlueGainCommand::Direct(blue_gain);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x44, 0x00]);
@@ -621,10 +607,18 @@ mod tests {
         // Test that all commands implement Debug and Clone
         let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
             Box::new(OnePushTriggerCommand),
-            Box::new(RedTuningCommand { level: 0 }),
-            Box::new(BlueTuningCommand { level: 0 }),
-            Box::new(SaturationCommand { level: 0 }),
-            Box::new(HueCommand { level: 0 }),
+            Box::new(RedTuningCommand {
+                level: RedTuning::new(0).unwrap(),
+            }),
+            Box::new(BlueTuningCommand {
+                level: BlueTuning::new(0).unwrap(),
+            }),
+            Box::new(SaturationCommand {
+                level: SaturationLevel::new(0).unwrap(),
+            }),
+            Box::new(HueCommand {
+                level: HueLevel::new(0).unwrap(),
+            }),
             Box::new(ColorTemperatureCommand::Reset),
             Box::new(RedGainCommand::Reset),
             Box::new(BlueGainCommand::Reset),
@@ -635,65 +629,86 @@ mod tests {
         }
 
         // Test Clone
-        let red_cmd1 = RedTuningCommand { level: 5 };
+        let red_cmd1 = RedTuningCommand {
+            level: RedTuning::new(5).unwrap(),
+        };
         let red_cmd2 = red_cmd1;
-        assert_eq!(red_cmd1.level, red_cmd2.level);
+        assert_eq!(red_cmd1.level.value(), red_cmd2.level.value());
     }
 
     #[test]
     fn test_edge_cases() {
         // Test boundary values for tuning commands
-        let red_min = RedTuningCommand { level: -10 };
+        let red_min = RedTuningCommand {
+            level: RedTuning::new(-10).unwrap(),
+        };
         assert!(red_min.to_bytes().is_ok());
         assert_eq!(red_min.to_bytes().unwrap()[4], 0x00);
 
-        let red_max = RedTuningCommand { level: 10 };
+        let red_max = RedTuningCommand {
+            level: RedTuning::new(10).unwrap(),
+        };
         assert!(red_max.to_bytes().is_ok());
         assert_eq!(red_max.to_bytes().unwrap()[4], 0x14);
 
-        let blue_min = BlueTuningCommand { level: -10 };
+        let blue_min = BlueTuningCommand {
+            level: BlueTuning::new(-10).unwrap(),
+        };
         assert!(blue_min.to_bytes().is_ok());
         assert_eq!(blue_min.to_bytes().unwrap()[4], 0x00);
 
-        let blue_max = BlueTuningCommand { level: 10 };
+        let blue_max = BlueTuningCommand {
+            level: BlueTuning::new(10).unwrap(),
+        };
         assert!(blue_max.to_bytes().is_ok());
         assert_eq!(blue_max.to_bytes().unwrap()[4], 0x14);
 
         // Test boundary values for saturation and hue
-        let sat_min = SaturationCommand { level: 0x00 };
+        let sat_min = SaturationCommand {
+            level: SaturationLevel::new(0x00).unwrap(),
+        };
         assert!(sat_min.to_bytes().is_ok());
 
-        let sat_max = SaturationCommand { level: 0x0E };
+        let sat_max = SaturationCommand {
+            level: SaturationLevel::new(0x0E).unwrap(),
+        };
         assert!(sat_max.to_bytes().is_ok());
 
-        let hue_min = HueCommand { level: 0x00 };
+        let hue_min = HueCommand {
+            level: HueLevel::new(0x00).unwrap(),
+        };
         assert!(hue_min.to_bytes().is_ok());
 
-        let hue_max = HueCommand { level: 0x0E };
+        let hue_max = HueCommand {
+            level: HueLevel::new(0x0E).unwrap(),
+        };
         assert!(hue_max.to_bytes().is_ok());
 
         // Test boundary value for color temperature
-        let temp_min = ColorTemperatureCommand::Direct(0x00);
+        let temp_min =
+            ColorTemperatureCommand::Direct(crate::types::ColorTemperature::new(0x00).unwrap());
         assert!(temp_min.to_bytes().is_ok());
 
-        let temp_max = ColorTemperatureCommand::Direct(0x37);
+        let temp_max =
+            ColorTemperatureCommand::Direct(crate::types::ColorTemperature::new(0x37).unwrap());
         assert!(temp_max.to_bytes().is_ok());
     }
 
     #[test]
     fn test_nibble_encoding() {
         // Test that Direct commands properly encode values as nibbles
-        let cmd = ColorTemperatureCommand::Direct(0x25);
+        let cmd =
+            ColorTemperatureCommand::Direct(crate::types::ColorTemperature::new(0x25).unwrap());
         let bytes = cmd.to_bytes().unwrap();
         assert_eq!(bytes[6], 0x02); // High nibble
         assert_eq!(bytes[7], 0x05); // Low nibble
 
-        let cmd = RedGainCommand::Direct(0xAB);
+        let cmd = RedGainCommand::Direct(crate::types::RedGain::new(0xAB).unwrap());
         let bytes = cmd.to_bytes().unwrap();
         assert_eq!(bytes[6], 0x0A); // High nibble
         assert_eq!(bytes[7], 0x0B); // Low nibble
 
-        let cmd = BlueGainCommand::Direct(0xF0);
+        let cmd = BlueGainCommand::Direct(crate::types::BlueGain::new(0xF0).unwrap());
         let bytes = cmd.to_bytes().unwrap();
         assert_eq!(bytes[6], 0x0F); // High nibble
         assert_eq!(bytes[7], 0x00); // Low nibble
@@ -706,11 +721,15 @@ mod tests {
         for level in -10..=10 {
             let expected = (level + 10) as u8;
 
-            let red_cmd = RedTuningCommand { level };
+            let red_cmd = RedTuningCommand {
+                level: RedTuning::new(level).unwrap(),
+            };
             let red_bytes = red_cmd.to_bytes().unwrap();
             assert_eq!(red_bytes[4], expected);
 
-            let blue_cmd = BlueTuningCommand { level };
+            let blue_cmd = BlueTuningCommand {
+                level: BlueTuning::new(level).unwrap(),
+            };
             let blue_bytes = blue_cmd.to_bytes().unwrap();
             assert_eq!(blue_bytes[4], expected);
         }

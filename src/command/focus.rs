@@ -15,6 +15,7 @@ use crate::{
     constants::{CameraConstants, CameraModel},
     error::Error,
     timeout::CommandCategory,
+    types::FocusPosition,
 };
 
 crate::visca_bounded_param! {
@@ -43,8 +44,8 @@ pub enum FocusCommand {
     FarVariable(FocusSpeed),
     /// Move focus near at variable speed.
     NearVariable(FocusSpeed),
-    /// Set focus to specific position (0x0000 to 0xFFFF).
-    Direct(u16),
+    /// Set focus to specific position.
+    Direct(FocusPosition),
     /// Enable auto focus mode.
     Auto,
     /// Enable manual focus mode.
@@ -66,7 +67,7 @@ impl FocusCommand {
                 max: *P::FOCUS_RANGE.end() as i32,
             });
         }
-        Ok(Self::Direct(position))
+        Ok(Self::Direct(FocusPosition::new(position)?))
     }
 }
 
@@ -83,10 +84,11 @@ impl Command for FocusCommand {
                 Ok(vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed.value(), 0xFF])
             }
             Self::Direct(position) => {
-                let p = ((*position >> 12) & 0x0F) as u8;
-                let q = ((*position >> 8) & 0x0F) as u8;
-                let r = ((*position >> 4) & 0x0F) as u8;
-                let s = (*position & 0x0F) as u8;
+                let pos_val = position.value();
+                let p = ((pos_val >> 12) & 0x0F) as u8;
+                let q = ((pos_val >> 8) & 0x0F) as u8;
+                let r = ((pos_val >> 4) & 0x0F) as u8;
+                let s = (pos_val & 0x0F) as u8;
                 Ok(vec![0x81, 0x01, 0x04, 0x48, p, q, r, s, 0xFF])
             }
             Self::Auto => Ok(vec![0x81, 0x01, 0x04, 0x38, 0x02, 0xFF]),
@@ -108,12 +110,12 @@ impl Command for FocusCommand {
         match self {
             Self::Direct(position) => {
                 let (min, max) = model.focus_range();
-                if *position < min || *position > max {
+                if position.value() < min || position.value() > max {
                     return Err(Error::ModelValidation {
                         model,
                         command: "FocusDirect".to_string(),
                         reason: format!(
-                            "Position 0x{position:04X} out of range [0x{min:04X}, 0x{max:04X}] for {model:?}"
+                            "Position 0x{:04X} out of range [0x{min:04X}, 0x{max:04X}] for {model:?}", position.value()
                         ),
                     });
                 }
@@ -210,16 +212,17 @@ impl Command for AutoFocusSensitivityCommand {
 /// focusing on objects too close to the lens.
 #[derive(Debug, Clone, Copy)]
 pub struct FocusNearLimitCommand {
-    /// The focus position limit (0x0000 to 0xFFFF).
-    pub position: u16,
+    /// The focus position limit.
+    pub position: FocusPosition,
 }
 
 impl Command for FocusNearLimitCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let p0 = ((self.position >> 12) & 0x0F) as u8;
-        let p1 = ((self.position >> 8) & 0x0F) as u8;
-        let p2 = ((self.position >> 4) & 0x0F) as u8;
-        let p3 = (self.position & 0x0F) as u8;
+        let pos_val = self.position.value();
+        let p0 = ((pos_val >> 12) & 0x0F) as u8;
+        let p1 = ((pos_val >> 8) & 0x0F) as u8;
+        let p2 = ((pos_val >> 4) & 0x0F) as u8;
+        let p3 = (pos_val & 0x0F) as u8;
         Ok(vec![0x81, 0x01, 0x04, 0x28, p0, p1, p2, p3, 0xFF])
     }
 
@@ -235,13 +238,13 @@ impl Command for FocusNearLimitCommand {
         match model {
             CameraModel::PTZOpticsG2 => {
                 // G2 uses same range as Focus Direct: 0x1000-0xF000
-                if self.position < 0x1000 || self.position > 0xF000 {
+                if self.position.value() < 0x1000 || self.position.value() > 0xF000 {
                     return Err(Error::ModelValidation {
                         model,
                         command: "FocusNearLimit".to_string(),
                         reason: format!(
                             "Position {:#06X} not supported on G2 cameras (range is 0x1000-0xF000)",
-                            self.position
+                            self.position.value()
                         ),
                     });
                 }
@@ -332,18 +335,22 @@ mod tests {
 
     #[test]
     fn test_focus_command_direct() {
-        let cmd = FocusCommand::Direct(0x1234);
+        let cmd = FocusCommand::Direct(
+            FocusPosition::new(0x1234).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
+        );
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x48, 0x01, 0x02, 0x03, 0x04, 0xFF]
         );
 
-        let cmd = FocusCommand::Direct(0xFFFF);
+        let cmd = FocusCommand::Direct(
+            FocusPosition::new(0xF000).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
+        );
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x48, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x48, 0x0F, 0x00, 0x00, 0x00, 0xFF]
         );
     }
 
@@ -449,18 +456,24 @@ mod tests {
 
     #[test]
     fn test_focus_near_limit_command() {
-        let cmd = FocusNearLimitCommand { position: 0x1234 };
+        let cmd = FocusNearLimitCommand {
+            position: FocusPosition::new(0x1234)
+                .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
+        };
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x02, 0x03, 0x04, 0xFF]
         );
 
-        let cmd = FocusNearLimitCommand { position: 0x0000 };
+        let cmd = FocusNearLimitCommand {
+            position: FocusPosition::new(0x1000)
+                .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
+        };
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x28, 0x00, 0x00, 0x00, 0x00, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x00, 0x00, 0x00, 0xFF]
         );
     }
 
@@ -489,7 +502,11 @@ mod tests {
             CommandCategory::Quick
         );
         assert_eq!(
-            FocusNearLimitCommand { position: 0 }.command_category(),
+            FocusNearLimitCommand {
+                position: FocusPosition::new(0x1000)
+                    .unwrap_or_else(|e| panic!("Valid focus position: {e:?}"))
+            }
+            .command_category(),
             CommandCategory::Quick
         );
     }

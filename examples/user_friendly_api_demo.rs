@@ -10,7 +10,8 @@ use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera},
     command::{exposure::ExposureMode, pan_tilt::PanTiltDirection},
     types::{
-        FStop, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength, SpeedLevel,
+        FStop, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength,
+        PanSpeed, SpeedLevel, TiltSpeed,
     },
 };
 #[cfg(not(feature = "async"))]
@@ -30,14 +31,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Move slowly for precise positioning
     let slow_pan = SpeedLevel::Slow.to_pan_speed();
     let slow_tilt = SpeedLevel::Slow.to_tilt_speed();
-    camera.move_continuous(PanTiltDirection::UpRight, slow_pan, slow_tilt)?;
+    camera.move_continuous(
+        PanTiltDirection::UpRight,
+        PanSpeed::new(slow_pan)?,
+        TiltSpeed::new(slow_tilt)?,
+    )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.stop()?;
 
     // Move fast for quick repositioning
     let fast_pan = SpeedLevel::Fast.to_pan_speed();
     let fast_tilt = SpeedLevel::Fast.to_tilt_speed();
-    camera.move_continuous(PanTiltDirection::DownLeft, fast_pan, fast_tilt)?;
+    camera.move_continuous(
+        PanTiltDirection::DownLeft,
+        PanSpeed::new(fast_pan)?,
+        TiltSpeed::new(fast_tilt)?,
+    )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.stop()?;
 
@@ -48,11 +57,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_exposure_mode(ExposureMode::Manual)?;
 
     // Set specific F-stop values
-    camera.set_iris(FStop::F2_8.to_iris_level())?;
+    camera.set_iris(IrisLevel::new(FStop::F2_8.to_iris_level())?)?;
     println!("Iris set to {}", FStop::F2_8);
     std::thread::sleep(Duration::from_secs(1));
 
-    camera.set_iris(FStop::F5_6.to_iris_level())?;
+    camera.set_iris(IrisLevel::new(FStop::F5_6.to_iris_level())?)?;
     println!("Iris set to {}", FStop::F5_6);
     std::thread::sleep(Duration::from_secs(1));
 

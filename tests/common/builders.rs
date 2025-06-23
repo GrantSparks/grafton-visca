@@ -6,10 +6,13 @@
 #![allow(dead_code)] // These utilities are for future test use
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::command::{
-    pan_tilt::{PanSpeed, PanTiltCommand, PanTiltDirection, TiltSpeed},
-    preset::{PresetAction, PresetCommand, PresetNumber},
-    zoom::{ZoomCommand, ZoomSpeed},
+use grafton_visca::{
+    command::{
+        pan_tilt::{PanTiltCommand, PanTiltDirection},
+        preset::{PresetAction, PresetCommand, PresetNumber},
+        zoom::{ZoomCommand, ZoomSpeed},
+    },
+    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed, ZoomPosition},
 };
 
 /// Builder for creating `PanTiltCommand` instances in tests.
@@ -66,8 +69,8 @@ impl TestPanTiltBuilder {
     /// Build an absolute position command.
     pub fn build_absolute(self) -> PanTiltCommand {
         PanTiltCommand::AbsolutePosition {
-            pan: self.pan,
-            tilt: self.tilt,
+            pan: PanPosition::new(self.pan).expect("Valid pan position"),
+            tilt: TiltPosition::new(self.tilt).expect("Valid tilt position"),
             pan_speed: self.pan_speed,
             tilt_speed: self.tilt_speed,
         }
@@ -76,8 +79,8 @@ impl TestPanTiltBuilder {
     /// Build a relative position command.
     pub fn build_relative(self) -> PanTiltCommand {
         PanTiltCommand::RelativePosition {
-            pan: self.pan,
-            tilt: self.tilt,
+            pan: PanPosition::new(self.pan).expect("Valid pan position"),
+            tilt: TiltPosition::new(self.tilt).expect("Valid tilt position"),
             pan_speed: self.pan_speed,
             tilt_speed: self.tilt_speed,
         }
@@ -195,7 +198,7 @@ impl TestZoomBuilder {
 
     /// Build a direct zoom position command.
     pub fn build_direct(self) -> ZoomCommand {
-        ZoomCommand::Direct(self.position)
+        ZoomCommand::Direct(ZoomPosition::new(self.position).expect("Valid zoom position"))
     }
 
     /// Build a zoom in command.
@@ -244,8 +247,8 @@ mod tests {
                 pan_speed,
                 tilt_speed,
             } => {
-                assert_eq!(pan, 100);
-                assert_eq!(tilt, 200);
+                assert_eq!(pan.value(), 100);
+                assert_eq!(tilt.value(), 200);
                 assert_eq!(pan_speed.value(), 15);
                 assert_eq!(tilt_speed.value(), 20);
             }
