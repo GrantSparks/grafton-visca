@@ -272,6 +272,9 @@ pub use units::{
 // Re-export FStop from types
 pub use types::FStop;
 
+// Re-export procedural macros
+pub use grafton_visca_macros::{visca_method, visca_method_custom, visca_method_generic};
+
 /// Camera profiles for common models
 pub mod profiles {
     pub use crate::camera::profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
