@@ -76,10 +76,6 @@ mod async_transport;
 #[cfg(all(feature = "async", feature = "tokio"))]
 pub mod tokio;
 
-// Re-exports for async support
-#[cfg(feature = "async")]
-pub use runtime_agnostic::CustomTransport;
-
 // Export the new simplified async transport trait
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;

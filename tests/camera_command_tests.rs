@@ -14,6 +14,17 @@ mod blocking_tests {
         Error,
     };
 
+    // Extension trait for test-specific methods
+    trait MockTransportExt {
+        fn with_timeout() -> Self;
+    }
+
+    impl MockTransportExt for MockTransport {
+        fn with_timeout() -> Self {
+            Self::new() // No responses queued means timeout
+        }
+    }
+
     #[test]
     fn test_camera_power_command() {
         // Create a mock that returns ACK and completion

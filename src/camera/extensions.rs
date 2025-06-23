@@ -37,26 +37,3 @@ use crate::camera::{Camera, CameraProfile};
 pub trait CameraExtension<P: CameraProfile>: Sized {}
 
 impl<P: CameraProfile, T> CameraExtension<P> for Camera<P, T> {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Error;
-
-    // Test extension trait defined manually
-    #[allow(dead_code)]
-    trait TestExt<P: CameraProfile>: CameraExtension<P> {
-        /// Test method.
-        fn test_method(&self, value: u8) -> Result<bool, Error> {
-            Ok(value > 0)
-        }
-    }
-
-    impl<P: CameraProfile, T> TestExt<P> for Camera<P, T> {}
-
-    #[test]
-    fn test_extension_trait_pattern() {
-        // This is mainly a compile-time test
-        // The trait should be properly implemented
-    }
-}
