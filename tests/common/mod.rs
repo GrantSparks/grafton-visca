@@ -33,8 +33,6 @@ pub struct MockTransport {
     pub fail_send: bool,
     /// Whether to fail on receive
     pub fail_receive: bool,
-    /// Fail after N commands (for testing error scenarios)
-    pub fail_after: Option<usize>,
 }
 
 #[cfg(not(feature = "async"))]
@@ -46,7 +44,6 @@ impl MockTransport {
             commands_sent: Arc::new(Mutex::new(Vec::new())),
             fail_send: false,
             fail_receive: false,
-            fail_after: None,
         }
     }
 
