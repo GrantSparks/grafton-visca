@@ -113,21 +113,45 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
     // Pan/Tilt Commands
 
     /// Adds a pan/tilt move command.
+    ///
+    /// Accepts various speed types through generic parameters:
+    /// - Raw u8 values (0-24 for pan, 0-20 for tilt)
+    /// - SpeedLevel enum for intuitive control
+    /// - PanSpeed/TiltSpeed types directly
+    /// - `Percentage<f32>` for percentage-based control
+    ///
+    /// # Example
+    /// ```ignore
+    /// builder
+    ///     .pan_tilt_move(PanTiltDirection::Right, 10u8, 8u8)
+    ///     .pan_tilt_move(PanTiltDirection::Up, SpeedLevel::Fast, SpeedLevel::Medium)
+    ///     .pan_tilt_move(PanTiltDirection::DownLeft, PanSpeed::new(15)?, TiltSpeed::new(12)?)
+    ///     .pan_tilt_move(PanTiltDirection::Left, Percentage(50.0), Percentage(75.0));
+    /// ```
     #[must_use]
-    pub fn pan_tilt_move(
+    pub fn pan_tilt_move<P1, T1>(
         self,
         direction: PanTiltDirection,
-        pan_speed: PanSpeed,
-        tilt_speed: TiltSpeed,
-    ) -> Self {
-        self.add_command(
-            PanTiltCommand::Move {
-                direction,
-                pan_speed,
-                tilt_speed,
-            },
-            format!("Pan/Tilt Move {:?}", direction),
-        )
+        pan_speed: P1,
+        tilt_speed: T1,
+    ) -> Self
+    where
+        P1: TryInto<PanSpeed>,
+        P1::Error: std::fmt::Debug,
+        T1: TryInto<TiltSpeed>,
+        T1::Error: std::fmt::Debug,
+    {
+        match (pan_speed.try_into(), tilt_speed.try_into()) {
+            (Ok(ps), Ok(ts)) => self.add_command(
+                PanTiltCommand::Move {
+                    direction,
+                    pan_speed: ps,
+                    tilt_speed: ts,
+                },
+                format!("Pan/Tilt Move {:?}", direction),
+            ),
+            _ => self, // Invalid speed, skip
+        }
     }
 
     /// Adds a pan/tilt stop command.
@@ -229,30 +253,77 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
     }
 
     /// Adds a zoom in command.
+    ///
+    /// Accepts various speed types through generic parameter:
+    /// - Raw u8 values (0-7)
+    /// - SpeedLevel enum for intuitive control
+    /// - ZoomSpeed type directly
+    ///
+    /// # Example
+    /// ```ignore
+    /// builder
+    ///     .zoom_in(5u8)
+    ///     .zoom_in(SpeedLevel::Fast)
+    ///     .zoom_in(ZoomSpeed::new(7)?);
+    /// ```
     #[must_use]
-    pub fn zoom_in(self, speed: ZoomSpeed) -> Self {
-        self.add_command(
-            ZoomCommand::ZoomInVariable(speed),
-            format!("Zoom In (speed {})", speed.value()),
-        )
+    pub fn zoom_in<Z>(self, speed: Z) -> Self
+    where
+        Z: TryInto<ZoomSpeed>,
+        Z::Error: std::fmt::Debug,
+    {
+        match speed.try_into() {
+            Ok(zoom_speed) => self.add_command(
+                ZoomCommand::ZoomInVariable(zoom_speed),
+                format!("Zoom In (speed {})", zoom_speed.value()),
+            ),
+            Err(_) => self, // Invalid speed, skip
+        }
     }
 
     /// Adds a zoom out command.
+    ///
+    /// Accepts various speed types through generic parameter:
+    /// - Raw u8 values (0-7)
+    /// - SpeedLevel enum for intuitive control
+    /// - ZoomSpeed type directly
+    ///
+    /// # Example
+    /// ```ignore
+    /// builder
+    ///     .zoom_out(5u8)
+    ///     .zoom_out(SpeedLevel::Fast)
+    ///     .zoom_out(ZoomSpeed::new(7)?);
+    /// ```
     #[must_use]
-    pub fn zoom_out(self, speed: ZoomSpeed) -> Self {
-        self.add_command(
-            ZoomCommand::ZoomOutVariable(speed),
-            format!("Zoom Out (speed {})", speed.value()),
-        )
+    pub fn zoom_out<Z>(self, speed: Z) -> Self
+    where
+        Z: TryInto<ZoomSpeed>,
+        Z::Error: std::fmt::Debug,
+    {
+        match speed.try_into() {
+            Ok(zoom_speed) => self.add_command(
+                ZoomCommand::ZoomOutVariable(zoom_speed),
+                format!("Zoom Out (speed {})", zoom_speed.value()),
+            ),
+            Err(_) => self, // Invalid speed, skip
+        }
     }
 
     /// Adds a direct zoom position command.
     #[must_use]
-    pub fn zoom_to(self, position: u16) -> Self {
-        self.add_command(
-            ZoomCommand::Direct(ZoomPosition::new(position).unwrap_or(ZoomPosition::MIN)),
-            format!("Zoom to position {}", position),
-        )
+    pub fn zoom_to<Z>(self, position: Z) -> Self
+    where
+        Z: TryInto<ZoomPosition>,
+        Z::Error: std::fmt::Debug,
+    {
+        match position.try_into() {
+            Ok(zoom_pos) => self.add_command(
+                ZoomCommand::Direct(zoom_pos),
+                format!("Zoom to position {:?}", zoom_pos),
+            ),
+            Err(_) => self, // Invalid position, skip
+        }
     }
 
     // Focus Commands
@@ -264,21 +335,61 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
     }
 
     /// Adds a focus near command.
+    ///
+    /// Accepts various speed types through generic parameter:
+    /// - Raw u8 values (0-7)
+    /// - SpeedLevel enum for intuitive control
+    /// - FocusSpeed type directly
+    ///
+    /// # Example
+    /// ```ignore
+    /// builder
+    ///     .focus_near(3u8)
+    ///     .focus_near(SpeedLevel::Medium)
+    ///     .focus_near(FocusSpeed::new(5)?);
+    /// ```
     #[must_use]
-    pub fn focus_near(self, speed: FocusSpeed) -> Self {
-        self.add_command(
-            FocusCommand::NearVariable(speed),
-            format!("Focus Near (speed {})", speed.value()),
-        )
+    pub fn focus_near<F>(self, speed: F) -> Self
+    where
+        F: TryInto<FocusSpeed>,
+        F::Error: std::fmt::Debug,
+    {
+        match speed.try_into() {
+            Ok(focus_speed) => self.add_command(
+                FocusCommand::NearVariable(focus_speed),
+                format!("Focus Near (speed {})", focus_speed.value()),
+            ),
+            Err(_) => self, // Invalid speed, skip
+        }
     }
 
     /// Adds a focus far command.
+    ///
+    /// Accepts various speed types through generic parameter:
+    /// - Raw u8 values (0-7)
+    /// - SpeedLevel enum for intuitive control
+    /// - FocusSpeed type directly
+    ///
+    /// # Example
+    /// ```ignore
+    /// builder
+    ///     .focus_far(3u8)
+    ///     .focus_far(SpeedLevel::Medium)
+    ///     .focus_far(FocusSpeed::new(5)?);
+    /// ```
     #[must_use]
-    pub fn focus_far(self, speed: FocusSpeed) -> Self {
-        self.add_command(
-            FocusCommand::FarVariable(speed),
-            format!("Focus Far (speed {})", speed.value()),
-        )
+    pub fn focus_far<F>(self, speed: F) -> Self
+    where
+        F: TryInto<FocusSpeed>,
+        F::Error: std::fmt::Debug,
+    {
+        match speed.try_into() {
+            Ok(focus_speed) => self.add_command(
+                FocusCommand::FarVariable(focus_speed),
+                format!("Focus Far (speed {})", focus_speed.value()),
+            ),
+            Err(_) => self, // Invalid speed, skip
+        }
     }
 
     /// Adds a focus auto command.
@@ -295,14 +406,18 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
 
     /// Adds a direct focus position command.
     #[must_use]
-    pub fn focus_to(self, position: u16) -> Self {
-        self.add_command(
-            FocusCommand::Direct(
-                crate::types::FocusPosition::new(position)
-                    .unwrap_or(crate::types::FocusPosition::MIN),
+    pub fn focus_to<F>(self, position: F) -> Self
+    where
+        F: TryInto<crate::types::FocusPosition>,
+        F::Error: std::fmt::Debug,
+    {
+        match position.try_into() {
+            Ok(focus_pos) => self.add_command(
+                FocusCommand::Direct(focus_pos),
+                format!("Focus to position {:?}", focus_pos),
             ),
-            format!("Focus to position {}", position),
-        )
+            Err(_) => self, // Invalid position, skip
+        }
     }
 
     // Preset Commands
@@ -410,11 +525,15 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
 
     /// Adds a 2D noise reduction command.
     #[must_use]
-    pub fn noise_reduction(self, level: u8) -> Self {
-        match crate::types::NoiseReduction2DLevel::new(level) {
+    pub fn noise_reduction<N>(self, level: N) -> Self
+    where
+        N: TryInto<crate::types::NoiseReduction2DLevel>,
+        N::Error: std::fmt::Debug,
+    {
+        match level.try_into() {
             Ok(nr_level) => self.add_command(
                 NoiseReduction2DCommand::Level(nr_level),
-                format!("2D Noise Reduction Level {}", level),
+                format!("2D Noise Reduction Level {:?}", nr_level),
             ),
             Err(_) => self, // Invalid level, skip
         }
@@ -422,11 +541,15 @@ impl<P: CameraProfile, T> CommandBuilder<'_, P, T> {
 
     /// Adds a 3D noise reduction command.
     #[must_use]
-    pub fn noise_reduction_3d(self, level: u8) -> Self {
-        match crate::types::NoiseReduction3DLevel::new(level) {
+    pub fn noise_reduction_3d<N>(self, level: N) -> Self
+    where
+        N: TryInto<crate::types::NoiseReduction3DLevel>,
+        N::Error: std::fmt::Debug,
+    {
+        match level.try_into() {
             Ok(nr_level) => self.add_command(
                 NoiseReduction3DCommand::Level(nr_level),
-                format!("3D Noise Reduction Level {}", level),
+                format!("3D Noise Reduction Level {:?}", nr_level),
             ),
             Err(_) => self, // Invalid level, skip
         }

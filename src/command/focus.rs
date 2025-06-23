@@ -15,7 +15,7 @@ use crate::{
     constants::{CameraConstants, CameraModel},
     error::Error,
     timeout::CommandCategory,
-    types::FocusPosition,
+    types::{FocusPosition, SpeedLevel},
 };
 
 crate::visca_bounded_param! {
@@ -26,6 +26,12 @@ crate::visca_bounded_param! {
         min: 0,
         max: 7,
         error_msg: "Focus speed must be in the range 0..=7"
+    }
+}
+
+impl From<SpeedLevel> for FocusSpeed {
+    fn from(level: SpeedLevel) -> Self {
+        Self(level.to_focus_speed())
     }
 }
 
