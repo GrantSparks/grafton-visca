@@ -253,20 +253,6 @@ impl From<Infallible> for Error {
     }
 }
 
-/// Error context information for debugging.
-#[derive(Debug, Clone)]
-pub struct ErrorContext {
-    /// The operation that was being performed.
-    pub operation: String,
-    /// Additional context about the error.
-    pub context: String,
-}
-
-impl fmt::Display for ErrorContext {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ({})", self.operation, self.context)
-    }
-}
 
 #[cfg(test)]
 #[allow(clippy::panic)]
