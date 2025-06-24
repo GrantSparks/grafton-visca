@@ -637,6 +637,22 @@ where
     pub async fn send_command(&self, command: &dyn Command) -> Result<Response, Error> {
         self.transport.send_command(command).await
     }
+
+    /// Send a command and wait for completion.
+    async fn send_and_wait(&self, command: &dyn Command) -> Result<(), Error> {
+        match self.send_command(command).await? {
+            Response::Completion => Ok(()),
+            Response::Ack => {
+                // ACK should not be returned as final response with new API
+                // Transport handles waiting for completion
+                Ok(())
+            }
+            response => Err(Error::InvalidResponse {
+                expected: "Completion".to_string(),
+                actual: format!("{:?}", response).into_bytes(),
+            }),
+        }
+    }
 }
 
 // Utility methods

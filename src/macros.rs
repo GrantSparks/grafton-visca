@@ -482,46 +482,9 @@ macro_rules! visca_param_command {
     };
 }
 
-/// Create VISCA inquiry commands.
-///
-/// This macro generates inquiry commands that query camera state.
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::visca_inquiry;
-///
-/// visca_inquiry! {
-///     #[category = "Quick"]
-///     PowerInquiry => 0x00
-/// }
-/// ```
-#[macro_export]
-macro_rules! visca_inquiry {
-    (
-        #[category = $category:literal]
-        $name:ident => $inquiry_byte:expr
-    ) => {
-        #[derive(Debug, Copy, Clone)]
-        pub struct $name;
-
-        impl $crate::command::Command for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
-                Ok(vec![0x81, 0x09, 0x04, $inquiry_byte, 0xFF])
-            }
-
-            fn response_type(&self) -> Option<$crate::command::ResponseType> {
-                Some($crate::command::ResponseType::Inquiry)
-            }
-
-            fn command_category(&self) -> $crate::timeout::CommandCategory {
-                match $category {
-                    "Quick" => $crate::timeout::CommandCategory::Quick,
-                    _ => $crate::timeout::CommandCategory::Custom,
-                }
-            }
-        }
-    };
-}
+// DEPRECATED: Use the procedural macro #[visca_inquiry] from grafton_visca_macros instead
+// This declarative macro is replaced by the more powerful procedural macro that
+// handles both command construction and response parsing automatically.
 
 /// Implement up/down/reset method triplets in extension traits.
 ///

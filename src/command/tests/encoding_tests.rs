@@ -116,7 +116,7 @@ mod golden_vector_tests {
         );
 
         // Zoom In
-        let zoom_in = ZoomCommand::In;
+        let zoom_in = ZoomCommand::TeleStandard;
         assert_eq!(
             zoom_in.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF],
@@ -124,7 +124,7 @@ mod golden_vector_tests {
         );
 
         // Zoom Out
-        let zoom_out = ZoomCommand::Out;
+        let zoom_out = ZoomCommand::WideStandard;
         assert_eq!(
             zoom_out.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF],
@@ -132,7 +132,7 @@ mod golden_vector_tests {
         );
 
         // Zoom In WithSpeed with speed
-        let zoom_in_var = ZoomCommand::InWithSpeed(ZoomSpeed::new(5).unwrap());
+        let zoom_in_var = ZoomCommand::TeleVariable(ZoomSpeed::new(5).unwrap());
         assert_eq!(
             zoom_in_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF], // 0x20 | 5 = 0x25
@@ -140,7 +140,7 @@ mod golden_vector_tests {
         );
 
         // Zoom Out WithSpeed with max speed
-        let zoom_out_var = ZoomCommand::OutWithSpeed(ZoomSpeed::new(7).unwrap());
+        let zoom_out_var = ZoomCommand::WideVariable(ZoomSpeed::new(7).unwrap());
         assert_eq!(
             zoom_out_var.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF], // 0x30 | 7 = 0x37

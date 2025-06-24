@@ -66,6 +66,13 @@ This release represents a major evolution of the library from a low-level VISCA 
 - Zero clippy warnings (even on pedantic level)
 - Simplified feature flags - just works out of the box
 
+#### 🔧 Procedural Macros (grafton-visca-macros)
+- Implemented `#[visca_command_variants]` for generating multiple method variants accepting different input types (raw values, typed wrappers, percentages, etc.)
+- Implemented `#[visca_inquiry]` for automatic response parsing based on command type
+- Added `#[visca_position_command]` for position-based commands with automatic validation and unit conversions (degrees, normalized values)
+- Added `#[visca_speed_command]` for speed-based commands with SpeedLevel enum support
+- Added `#[visca_bounded_command]` for bounded value commands with percentage variants and named level enums
+
 ### Changed
 
 #### **BREAKING**: Complete API Overhaul

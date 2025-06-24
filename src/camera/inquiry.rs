@@ -10,7 +10,7 @@ use crate::{
         white_balance::WhiteBalanceMode,
     },
     units::Degrees,
-    Command, Error, InquiryResponse, Response, ViscaUnits,
+    visca_inquiry, Command, Error, InquiryResponse, Response, ViscaUnits,
 };
 
 use super::{Camera, CameraProfile};
@@ -113,13 +113,9 @@ where
     // Power inquiries
 
     /// Get the current power state of the camera.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_power_state(&self) -> Result<bool, Error> {
-        match self.send_and_receive(&InquiryCommand::Power).await? {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Power
     }
 
     // Position inquiries
@@ -159,74 +155,41 @@ where
     // Zoom and focus inquiries
 
     /// Get the current zoom position.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_zoom_position(&self) -> Result<u16, Error> {
-        match self.send_and_receive(&InquiryCommand::ZoomPosition).await? {
-            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::ZoomPosition
     }
 
     /// Get the current focus position.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_focus_position(&self) -> Result<u16, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::FocusPosition)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::FocusPosition
     }
 
     // Exposure inquiries
 
     /// Get the current exposure mode.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {
-        match self.send_and_receive(&InquiryCommand::ExposureMode).await? {
-            Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::ExposureMode
     }
 
     /// Get the current exposure compensation value.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_exposure_compensation(&self) -> Result<i8, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::ExposureCompensation)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::ExposureCompensation
     }
 
     /// Check if exposure compensation is enabled.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::ExposureCompensationMode)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::ExposureCompensationMode
     }
 
     /// Get the current iris setting.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_iris(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Iris).await? {
-            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Iris
     }
 
     /// Get the current shutter speed.
@@ -250,160 +213,93 @@ where
     }
 
     /// Get the current gain.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_gain(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Gain).await? {
-            Response::InquiryResponse(InquiryResponse::Gain { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Gain
     }
 
     /// Get the current gain limit.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_gain_limit(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::GainLimit).await? {
-            Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::GainLimit
     }
 
     /// Get the current iris position.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_iris_position(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Iris).await? {
-            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Iris
     }
 
     // White balance inquiries
 
     /// Get the current white balance mode.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::WhiteBalanceMode)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::WhiteBalanceMode
     }
 
     /// Get the current red gain tuning value.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_red_gain(&self) -> Result<i8, Error> {
-        match self.send_and_receive(&InquiryCommand::RedGain).await? {
-            Response::InquiryResponse(InquiryResponse::RedGain { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::RedGain
     }
 
     /// Get the current blue gain tuning value.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_blue_gain(&self) -> Result<i8, Error> {
-        match self.send_and_receive(&InquiryCommand::BlueGain).await? {
-            Response::InquiryResponse(InquiryResponse::BlueGain { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::BlueGain
     }
 
     /// Get the current color temperature.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_color_temperature(&self) -> Result<u16, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::ColorTemperature)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
-                Ok(temperature)
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::ColorTemperature
     }
 
     // Image quality inquiries
 
     /// Get the current luminance level.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_luminance(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Luminance).await? {
-            Response::InquiryResponse(InquiryResponse::Luminance(level)) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Luminance
     }
 
     /// Get the current contrast level.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_contrast(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Contrast).await? {
-            Response::InquiryResponse(InquiryResponse::Contrast(level)) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Contrast
     }
 
     /// Get the current sharpness level.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_sharpness(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Sharpness).await? {
-            Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Sharpness
     }
 
     /// Get the current sharpness mode.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::SharpnessMode)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::SharpnessMode
     }
 
     /// Get the current saturation level.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_saturation(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Saturation).await? {
-            Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Saturation
     }
 
     /// Get the current hue level.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_hue(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Hue).await? {
-            Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Hue
     }
 
     // Image processing inquiries
 
     /// Check if backlight compensation is enabled.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_backlight_status(&self) -> Result<bool, Error> {
-        match self.send_and_receive(&InquiryCommand::Backlight).await? {
-            Response::InquiryResponse(InquiryResponse::Backlight { status }) => Ok(status),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::Backlight
     }
 
     /// Get the current image flip state.
@@ -420,99 +316,53 @@ where
     }
 
     /// Check if black and white mode is enabled.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_black_white_mode(&self) -> Result<bool, Error> {
-        match self.send_and_receive(&InquiryCommand::BlackWhite).await? {
-            Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => Ok(on),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::BlackWhite
     }
 
     /// Get the anti-flicker mode.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
-        match self.send_and_receive(&InquiryCommand::AntiFlicker).await? {
-            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::AntiFlicker
     }
 
     /// Get the 2D noise reduction level.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_noise_reduction_2d(&self) -> Result<u8, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::NoiseReduction2D)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::NoiseReduction2D
     }
 
     /// Get the 3D noise reduction level.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_noise_reduction_3d(&self) -> Result<u8, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::NoiseReduction3D)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::NoiseReduction3D
     }
 
     /// Get the dynamic range level.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_dynamic_range(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::DynamicRange).await? {
-            Response::InquiryResponse(InquiryResponse::DynamicRange { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::DynamicRange
     }
 
     // Focus control inquiries
 
     /// Get the focus zone setting.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_focus_zone(&self) -> Result<FocusZone, Error> {
-        match self.send_and_receive(&InquiryCommand::FocusZone).await? {
-            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::FocusZone
     }
 
     /// Get the auto-focus sensitivity.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::AutoFocusSensitivity)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
-                Ok(sensitivity)
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::AutoFocusSensitivity
     }
 
     /// Get the focus near limit.
-    #[cfg(feature = "async")]
+    #[visca_inquiry]
     pub async fn get_focus_near_limit(&self) -> Result<u16, Error> {
-        match self
-            .send_and_receive(&InquiryCommand::FocusNearLimit)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        InquiryCommand::FocusNearLimit
     }
 
     // Composite queries
@@ -620,14 +470,7 @@ where
 
     // Power inquiries
 
-    /// Get the current power state of the camera.
-    pub fn get_power_state(&mut self) -> Result<bool, Error> {
-        match self.send_and_receive(&InquiryCommand::Power)? {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
+    // get_power_state is handled by the #[visca_inquiry] macro in the async block
 
     // Position inquiries
 
@@ -657,61 +500,21 @@ where
 
     // Zoom and focus inquiries
 
-    /// Get the current zoom position.
-    pub fn get_zoom_position(&mut self) -> Result<u16, Error> {
-        match self.send_and_receive(&InquiryCommand::ZoomPosition)? {
-            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current focus position.
-    pub fn get_focus_position(&mut self) -> Result<u16, Error> {
-        match self.send_and_receive(&InquiryCommand::FocusPosition)? {
-            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
+    // get_zoom_position is handled by the #[visca_inquiry] macro in the async block
+    // get_focus_position is handled by the #[visca_inquiry] macro in the async block
 
     // Exposure inquiries
 
-    /// Get the current exposure mode.
-    pub fn get_exposure_mode(&mut self) -> Result<ExposureMode, Error> {
-        match self.send_and_receive(&InquiryCommand::ExposureMode)? {
-            Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current exposure compensation value.
-    pub fn get_exposure_compensation(&mut self) -> Result<i8, Error> {
-        match self.send_and_receive(&InquiryCommand::ExposureCompensation)? {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Check if exposure compensation is enabled.
-    pub fn get_exposure_compensation_enabled(&mut self) -> Result<bool, Error> {
-        match self.send_and_receive(&InquiryCommand::ExposureCompensationMode)? {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current iris setting.
-    pub fn get_iris(&mut self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Iris)? {
-            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
+    // The following methods are handled by the #[visca_inquiry] macro in the async block:
+    // - get_exposure_mode
+    // - get_exposure_compensation
+    // - get_exposure_compensation_enabled
+    // - get_iris
+    // - get_shutter_speed (has type conversion, see below)
+    // - get_brightness (has type conversion, see below)
+    // - get_gain
+    // - get_gain_limit
+    // - get_iris_position
 
     /// Get the current shutter speed.
     pub fn get_shutter_speed(&mut self) -> Result<u8, Error> {
@@ -731,108 +534,22 @@ where
         }
     }
 
-    /// Get the current gain.
-    pub fn get_gain(&mut self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Gain)? {
-            Response::InquiryResponse(InquiryResponse::Gain { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current gain limit.
-    pub fn get_gain_limit(&mut self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::GainLimit)? {
-            Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current iris position.
-    pub fn get_iris_position(&mut self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Iris)? {
-            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
     // White balance inquiries
 
-    /// Get the current white balance mode.
-    pub fn get_white_balance_mode(&mut self) -> Result<WhiteBalanceMode, Error> {
-        match self.send_and_receive(&InquiryCommand::WhiteBalanceMode)? {
-            Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current red gain tuning value.
-    pub fn get_red_gain(&mut self) -> Result<i8, Error> {
-        match self.send_and_receive(&InquiryCommand::RedGain)? {
-            Response::InquiryResponse(InquiryResponse::RedGain { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current blue gain tuning value.
-    pub fn get_blue_gain(&mut self) -> Result<i8, Error> {
-        match self.send_and_receive(&InquiryCommand::BlueGain)? {
-            Response::InquiryResponse(InquiryResponse::BlueGain { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
+    // The following methods are handled by the #[visca_inquiry] macro in the async block:
+    // - get_white_balance_mode
+    // - get_red_gain
+    // - get_blue_gain
+    // - get_color_temperature
 
     // Image quality inquiries
 
-    /// Get the current luminance (brightness) level.
-    pub fn get_luminance(&mut self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Luminance)? {
-            Response::InquiryResponse(InquiryResponse::Luminance(level)) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current contrast level.
-    pub fn get_contrast(&mut self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Contrast)? {
-            Response::InquiryResponse(InquiryResponse::Contrast(level)) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current sharpness level.
-    pub fn get_sharpness(&mut self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Sharpness)? {
-            Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current saturation level.
-    pub fn get_saturation(&mut self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Saturation)? {
-            Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current hue level.
-    pub fn get_hue(&mut self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Hue)? {
-            Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
+    // The following methods are handled by the #[visca_inquiry] macro in the async block:
+    // - get_luminance
+    // - get_contrast
+    // - get_sharpness
+    // - get_saturation
+    // - get_hue
 
     /// Get the current image flip status.
     pub fn get_image_flip(&mut self) -> Result<(bool, bool), Error> {
@@ -846,70 +563,19 @@ where
         }
     }
 
-    /// Get the current backlight compensation status.
-    pub fn get_backlight_status(&mut self) -> Result<bool, Error> {
-        match self.send_and_receive(&InquiryCommand::Backlight)? {
-            Response::InquiryResponse(InquiryResponse::Backlight { status }) => Ok(status),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
+    // The following methods are handled by the #[visca_inquiry] macro in the async block:
+    // - get_backlight_status
+    // - get_black_white_mode
 
-    /// Get the current black and white mode status.
-    pub fn get_black_white_mode(&mut self) -> Result<bool, Error> {
-        match self.send_and_receive(&InquiryCommand::BlackWhite)? {
-            Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => Ok(on),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current anti-flicker mode.
-    pub fn get_anti_flicker_mode(&mut self) -> Result<AntiFlickerMode, Error> {
-        match self.send_and_receive(&InquiryCommand::AntiFlicker)? {
-            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current sharpness mode.
-    pub fn get_sharpness_mode(&mut self) -> Result<SharpnessMode, Error> {
-        match self.send_and_receive(&InquiryCommand::SharpnessMode)? {
-            Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current focus zone.
-    pub fn get_focus_zone(&mut self) -> Result<FocusZone, Error> {
-        match self.send_and_receive(&InquiryCommand::FocusZone)? {
-            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current auto focus sensitivity.
-    pub fn get_auto_focus_sensitivity(&mut self) -> Result<AutoFocusSensitivity, Error> {
-        match self.send_and_receive(&InquiryCommand::AutoFocusSensitivity)? {
-            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
-                Ok(sensitivity)
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the focus near limit.
-    pub fn get_focus_near_limit(&mut self) -> Result<u16, Error> {
-        match self.send_and_receive(&InquiryCommand::FocusNearLimit)? {
-            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
+    // The following methods are handled by the #[visca_inquiry] macro in the async block:
+    // - get_anti_flicker
+    // - get_sharpness_mode
+    // - get_focus_zone
+    // - get_auto_focus_sensitivity
+    // - get_focus_near_limit
+    // - get_noise_reduction_2d
+    // - get_noise_reduction_3d
+    // - get_dynamic_range
 
     // Composite queries
 

@@ -42,8 +42,8 @@ mod zoom_commands {
 
     #[test]
     fn test_zoom_standard_speeds() {
-        assert_valid_for_g2(&ZoomCommand::In);
-        assert_valid_for_g2(&ZoomCommand::Out);
+        assert_valid_for_g2(&ZoomCommand::TeleStandard);
+        assert_valid_for_g2(&ZoomCommand::WideStandard);
     }
 
     #[test]
@@ -51,8 +51,8 @@ mod zoom_commands {
         // Valid speeds: 0-7
         for speed in 0..=7 {
             let zoom_speed = ZoomSpeed::new(speed).unwrap();
-            assert_valid_for_g2(&ZoomCommand::InWithSpeed(zoom_speed));
-            assert_valid_for_g2(&ZoomCommand::OutWithSpeed(zoom_speed));
+            assert_valid_for_g2(&ZoomCommand::TeleVariable(zoom_speed));
+            assert_valid_for_g2(&ZoomCommand::WideVariable(zoom_speed));
         }
     }
 
