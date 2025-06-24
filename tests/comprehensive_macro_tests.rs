@@ -228,11 +228,7 @@ impl TestCamera<BlockingTransport> {
 
     // Speed command with validation
     #[visca_speed_command(pan_speed_range = "0x01..=0x18", tilt_speed_range = "0x01..=0x14")]
-    pub fn move_with_speed(
-        &self,
-        pan_speed: u8,
-        tilt_speed: u8,
-    ) -> std::result::Result<(), Error> {
+    pub fn move_with_speed(&self, pan_speed: u8, tilt_speed: u8) -> std::result::Result<(), Error> {
         let _cmd = MoveWithSpeedCommand {
             pan_speed,
             tilt_speed,
