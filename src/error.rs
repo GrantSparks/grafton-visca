@@ -253,7 +253,6 @@ impl From<Infallible> for Error {
     }
 }
 
-
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
