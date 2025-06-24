@@ -47,6 +47,147 @@ use syn::{parse_macro_input, DeriveInput, ItemFn, ReturnType, Type};
 ///     self.send_and_wait(&cmd)
 /// }
 /// ```
+/// Derive macro for generating InquiryCommand implementations
+///
+/// This macro simplifies the creation of inquiry commands by automatically generating
+/// the `to_bytes()` and `response_type()` implementations based on attributes.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// #[derive(InquiryCommand)]
+/// enum Inquiry {
+///     #[visca(0x00, response = Power)]
+///     Power,
+///     
+///     #[visca(0x47, response = ZoomPosition)]
+///     ZoomPos,
+///     
+///     #[visca(0x12, subcategory = 0x06, response = PanTiltPosition)]
+///     PanTiltPos,
+/// }
+/// ```
+#[proc_macro_derive(InquiryCommand, attributes(visca))]
+pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    
+    match &input.data {
+        syn::Data::Enum(enum_data) => {
+            let enum_name = &input.ident;
+            let variants = &enum_data.variants;
+            
+            // Generate to_bytes match arms
+            let to_bytes_arms = variants.iter().map(|variant| {
+                let variant_name = &variant.ident;
+                
+                // Parse visca attributes
+                let mut byte_value = None;
+                let mut subcategory = None;
+                
+                for attr in &variant.attrs {
+                    if attr.path().is_ident("visca") {
+                        // Parse the attribute manually
+                        let tokens = attr.parse_args::<proc_macro2::TokenStream>()
+                            .expect("Failed to parse visca attribute");
+                        let token_str = tokens.to_string();
+                        
+                        // Split by comma and parse each part
+                        for part in token_str.split(',') {
+                            let part = part.trim();
+                            if part.contains("response") {
+                                // Skip response parsing for to_bytes
+                            } else if part.contains("subcategory") {
+                                let value = part.split('=').nth(1)
+                                    .expect("subcategory must have a value")
+                                    .trim();
+                                if value.starts_with("0x") {
+                                    subcategory = Some(u8::from_str_radix(value.trim_start_matches("0x"), 16)
+                                        .expect("subcategory must be a valid hex u8"));
+                                } else {
+                                    subcategory = Some(value.parse::<u8>()
+                                        .expect("subcategory must be a valid u8"));
+                                }
+                            } else if part.starts_with("0x") || part.chars().all(|c| c.is_ascii_hexdigit()) {
+                                // This is the hex byte value
+                                byte_value = Some(u8::from_str_radix(part.trim_start_matches("0x"), 16)
+                                    .expect("Invalid hex value"));
+                            }
+                        }
+                    }
+                }
+                
+                let byte_value = byte_value.expect("visca attribute must have a byte value");
+                
+                if let Some(sub) = subcategory {
+                    quote! {
+                        Self::#variant_name => vec![0x81, 0x09, #sub, #byte_value, 0xFF],
+                    }
+                } else {
+                    quote! {
+                        Self::#variant_name => vec![0x81, 0x09, 0x04, #byte_value, 0xFF],
+                    }
+                }
+            });
+            
+            // Generate response_type match arms
+            let response_type_arms = variants.iter().map(|variant| {
+                let variant_name = &variant.ident;
+                let mut response_type = None;
+                
+                for attr in &variant.attrs {
+                    if attr.path().is_ident("visca") {
+                        // Parse the attribute manually
+                        let tokens = attr.parse_args::<proc_macro2::TokenStream>()
+                            .expect("Failed to parse visca attribute");
+                        let token_str = tokens.to_string();
+                        
+                        // Find response type
+                        for part in token_str.split(',') {
+                            let part = part.trim();
+                            if part.contains("response") {
+                                let value = part.split('=').nth(1)
+                                    .expect("response must have a value")
+                                    .trim();
+                                response_type = Some(format_ident!("{}", value));
+                            }
+                        }
+                    }
+                }
+                
+                let response_type = response_type.expect("visca attribute must have a response type");
+                
+                quote! {
+                    Self::#variant_name => Some(::grafton_visca::command::ResponseType::#response_type),
+                }
+            });
+            
+            let expanded = quote! {
+                impl ::grafton_visca::command::Command for #enum_name {
+                    fn to_bytes(&self) -> Result<Vec<u8>, ::grafton_visca::Error> {
+                        let bytes = match self {
+                            #(#to_bytes_arms)*
+                        };
+                        Ok(bytes)
+                    }
+                    
+                    fn response_type(&self) -> Option<::grafton_visca::command::ResponseType> {
+                        match self {
+                            #(#response_type_arms)*
+                        }
+                    }
+                    
+                    fn command_category(&self) -> ::grafton_visca::timeout::CommandCategory {
+                        ::grafton_visca::timeout::CommandCategory::Quick
+                    }
+                }
+            };
+            
+            TokenStream::from(expanded)
+        }
+        _ => panic!("InquiryCommand can only be derived for enums"),
+    }
+}
+
 #[proc_macro_attribute]
 pub fn visca_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
@@ -175,6 +316,76 @@ pub fn visca_method_custom(_attr: TokenStream, item: TokenStream) -> TokenStream
 pub fn visca_camera_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // For now, just delegate to visca_method_custom
     visca_method_custom(_attr, item)
+}
+
+/// A procedural macro for defining VISCA inquiry methods with automatic response handling.
+///
+/// This macro generates both async and sync versions of inquiry methods that:
+/// - Send an inquiry command
+/// - Receive and parse the response
+/// - Return the appropriate response type
+///
+/// # Example
+///
+/// ```rust,ignore
+/// #[visca_inquiry_method]
+/// pub fn power_status(&self) -> InquiryCommand {
+///     InquiryCommand::Power
+/// }
+/// ```
+///
+/// Expands to methods that return `Result<InquiryResponse, Error>`
+#[proc_macro_attribute]
+pub fn visca_inquiry_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+
+    let vis = &input_fn.vis;
+    let sig = &input_fn.sig;
+    let fn_name = &sig.ident;
+    let generics = &sig.generics;
+    let inputs = &sig.inputs;
+    let attrs = &input_fn.attrs;
+    let block = &input_fn.block;
+
+    // For blocking, we need to change &self to &mut self
+    let blocking_inputs = inputs.iter().map(|arg| {
+        match arg {
+            syn::FnArg::Receiver(receiver) => {
+                if receiver.mutability.is_none() {
+                    syn::parse_quote! { &mut self }
+                } else {
+                    arg.clone()
+                }
+            }
+            other => other.clone(),
+        }
+    });
+
+    let expanded = quote! {
+        #[cfg(feature = "async")]
+        #(#attrs)*
+        #vis async fn #fn_name #generics(#inputs) -> Result<crate::command::response::InquiryResponse, crate::Error> {
+            let cmd = #block;
+            let response = self.send_and_receive(&cmd).await?;
+            match response {
+                crate::command::response::Response::InquiryResponse(inquiry) => Ok(inquiry),
+                _ => Err(crate::Error::UnexpectedResponse),
+            }
+        }
+
+        #[cfg(not(feature = "async"))]
+        #(#attrs)*
+        #vis fn #fn_name #generics(#(#blocking_inputs),*) -> Result<crate::command::response::InquiryResponse, crate::Error> {
+            let cmd = #block;
+            let response = self.send_and_receive(&cmd)?;
+            match response {
+                crate::command::response::Response::InquiryResponse(inquiry) => Ok(inquiry),
+                _ => Err(crate::Error::UnexpectedResponse),
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
 }
 
 /// A procedural macro for defining VISCA command methods that need better ergonomics.
