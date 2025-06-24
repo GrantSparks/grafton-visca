@@ -13,10 +13,6 @@ use std::convert::TryFrom;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Degrees<T = f32>(pub T);
 
-/// Position in radians.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Radians<T = f32>(pub T);
-
 /// Position in VISCA protocol units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViscaUnits<T>(pub T);
@@ -52,23 +48,6 @@ pub struct Fraction {
 
 impl<T> Degrees<T> {
     /// Create a new position in degrees.
-    pub fn new(value: T) -> Self {
-        Self(value)
-    }
-
-    /// Get the inner value.
-    pub fn value(&self) -> &T {
-        &self.0
-    }
-
-    /// Consume and return the inner value.
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
-impl<T> Radians<T> {
-    /// Create a new position in radians.
     pub fn new(value: T) -> Self {
         Self(value)
     }
@@ -185,15 +164,9 @@ impl Fraction {
 }
 
 // Conversion implementations for degrees/radians
-impl From<Degrees<f32>> for Radians<f32> {
-    fn from(degrees: Degrees<f32>) -> Self {
-        Radians(degrees.0.to_radians())
-    }
-}
-
-impl From<Radians<f32>> for Degrees<f32> {
-    fn from(radians: Radians<f32>) -> Self {
-        Degrees(radians.0.to_degrees())
+impl From<f32> for Degrees<f32> {
+    fn from(value: f32) -> Self {
+        Degrees(value)
     }
 }
 
@@ -409,6 +382,18 @@ impl TryFrom<Percentage<f32>> for TiltSpeed {
     }
 }
 
+impl From<Raw<u8>> for PanSpeed {
+    fn from(raw: Raw<u8>) -> Self {
+        PanSpeed::new(raw.0).unwrap_or(PanSpeed::MIN)
+    }
+}
+
+impl From<Raw<u8>> for TiltSpeed {
+    fn from(raw: Raw<u8>) -> Self {
+        TiltSpeed::new(raw.0).unwrap_or(TiltSpeed::MIN)
+    }
+}
+
 // Conversion implementations for GainValue
 impl TryFrom<Percentage<f32>> for crate::types::GainValue {
     type Error = Error;
@@ -563,17 +548,6 @@ impl From<Raw<u8>> for crate::types::HueLevel {
 mod tests {
     use super::*;
     use crate::FStop;
-
-    #[test]
-    fn test_degrees_radians_conversion() {
-        let degrees = Degrees(180.0);
-        let radians: Radians<f32> = degrees.into();
-        assert!((radians.0 - std::f32::consts::PI).abs() < 0.001);
-
-        let radians = Radians(std::f32::consts::PI);
-        let degrees: Degrees<f32> = radians.into();
-        assert!((degrees.0 - 180.0).abs() < 0.001);
-    }
 
     #[test]
     #[allow(clippy::unwrap_used)] // OK in tests

@@ -411,16 +411,6 @@ fn generate_conversion(
         }
     }
 
-    if from_str.contains("Radians") {
-        if to_str.contains("ZoomPosition") {
-            return quote! { self.profile.radians_to_zoom_position(#param_name)? };
-        } else if to_str.contains("FocusPosition") {
-            return quote! { self.profile.radians_to_focus_position(#param_name)? };
-        } else if to_str.contains("ViscaUnits") {
-            return quote! { self.profile.radians_to_units(#param_name) };
-        }
-    }
-
     if from_str.contains("Normalized") {
         if to_str.contains("ZoomPosition") {
             return quote! { crate::types::ZoomPosition::try_from(#param_name.0)? };
@@ -461,8 +451,6 @@ fn generate_conversion(
             return quote! { crate::units::Percentage(#param_name) };
         } else if to_str.contains("Degrees") {
             return quote! { crate::units::Degrees(#param_name) };
-        } else if to_str.contains("Radians") {
-            return quote! { crate::units::Radians(#param_name) };
         } else if to_str.contains("Magnification") {
             return quote! { crate::units::Magnification(#param_name) };
         }

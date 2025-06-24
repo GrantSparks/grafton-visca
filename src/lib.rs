@@ -264,7 +264,7 @@ pub use command::{Command, InquiryResponse, Response};
 
 // Re-export unit types for convenience
 pub use units::{
-    Degrees, Fraction, Kelvin, Magnification, Normalized, Percentage, Radians, Raw, ViscaUnits,
+    Degrees, Fraction, Kelvin, Magnification, Normalized, Percentage, Raw, ViscaUnits,
 };
 // Re-export FStop from types
 pub use types::{FStop, IntoIrisLevel};

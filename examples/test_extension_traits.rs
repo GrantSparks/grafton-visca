@@ -59,7 +59,7 @@ async fn main() -> Result<(), Error> {
 
     // Zoom control
     println!("\nTesting zoom control...");
-    camera.set_zoom(Raw(0x2000u16).into()).await?;
+    camera.set_zoom(Raw(0x2000u16)).await?;
     time::sleep(Duration::from_secs(1)).await;
 
     camera.zoom_in().await?;

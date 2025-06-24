@@ -1,6 +1,6 @@
 //! Type-safe command methods for Camera.
 
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 // Common imports for both async and blocking
 use crate::{
@@ -141,9 +141,29 @@ camera_commands! {
     /// and apply the correction.
     pub fn white_balance_one_push_trigger => OnePushTriggerCommand;
 
-    /// Set white balance color temperature in Kelvin.
-    pub fn set_white_balance_kelvin(kelvin: crate::units::Kelvin) => {
-        let temperature = ColorTemperature::try_from(kelvin)?;
+    /// Set white balance color temperature with flexible parameter types.
+    ///
+    /// Accepts color temperature as:
+    /// - `ColorTemperature` - Direct temperature type
+    /// - `Kelvin` - Temperature in Kelvin (2000-8000K)
+    /// - `Raw<u8>` - Raw VISCA protocol value
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::{Kelvin, Raw};
+    ///
+    /// // Using Kelvin
+    /// camera.set_white_balance(Kelvin(5600))?;  // Daylight
+    /// camera.set_white_balance(Kelvin(3200))?;  // Tungsten
+    ///
+    /// // Using raw value
+    /// camera.set_white_balance(Raw(0x38))?;
+    ///
+    /// // Using typed temperature
+    /// camera.set_white_balance(ColorTemperature::new(0x40)?)?;
+    /// ```
+    pub fn set_white_balance<W>(value: W) where { W: TryInto<ColorTemperature>, W::Error: Into<crate::Error> } => {
+        let temperature = value.try_into().map_err(Into::into)?;
         ColorTemperatureCommand::SetTemperature(temperature)
     };
 }
@@ -159,8 +179,31 @@ camera_commands! {
     /// Reset iris to default position.
     pub fn iris_reset => IrisCommand::Reset;
 
-    /// Set shutter speed directly.
-    pub fn set_shutter_speed(speed: ShutterSpeed) => ShutterCommand::SetSpeed(speed);
+    /// Set shutter speed with flexible parameter types.
+    ///
+    /// Accepts shutter speed as:
+    /// - `ShutterSpeed` - Direct shutter speed type
+    /// - `Fraction` - Fraction notation (e.g., 1/60, 1/1000)
+    /// - `Raw<u8>` - Raw VISCA protocol value
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::{Fraction, Raw};
+    ///
+    /// // Using fraction notation
+    /// camera.set_shutter(Fraction::new(1, 60))?;      // 1/60s
+    /// camera.set_shutter(Fraction::new(1, 1000))?;    // 1/1000s
+    ///
+    /// // Using raw value
+    /// camera.set_shutter(Raw(0x0C))?;
+    ///
+    /// // Using typed speed
+    /// camera.set_shutter(ShutterSpeed::new(0x0A)?)?;
+    /// ```
+    pub fn set_shutter<S>(value: S) where { S: TryInto<ShutterSpeed>, S::Error: Into<crate::Error> } => {
+        let speed = value.try_into().map_err(Into::into)?;
+        ShutterCommand::SetSpeed(speed)
+    };
 
     /// Reset shutter to default speed.
     pub fn shutter_reset => ShutterCommand::Reset;
@@ -250,8 +293,30 @@ camera_commands! {
 
 // Gain Commands
 camera_commands! {
-    /// Set gain value.
-    pub fn set_gain(value: GainValue) => GainCommand::SetValue(value);
+    /// Set gain value with flexible parameter types.
+    ///
+    /// Accepts gain value as:
+    /// - `GainValue` - Direct gain type
+    /// - `Percentage<f32>` - 0-100% of gain range (0-21dB)
+    /// - `Raw<u8>` - Raw VISCA protocol value (0x00-0x07)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::{Percentage, Raw};
+    ///
+    /// // Using percentage
+    /// camera.set_gain(Percentage(50.0))?;
+    ///
+    /// // Using raw value
+    /// camera.set_gain(Raw(0x04))?;
+    ///
+    /// // Using typed value
+    /// camera.set_gain(GainValue::new(0x03)?)?;
+    /// ```
+    pub fn set_gain<G>(value: G) where { G: TryInto<GainValue>, G::Error: Into<crate::Error> } => {
+        let gain = value.try_into().map_err(Into::into)?;
+        GainCommand::SetValue(gain)
+    };
 
     /// Set gain limit.
     pub fn set_gain_limit(limit: GainLimit) => GainLimitCommand { limit };
@@ -272,8 +337,16 @@ camera_commands! {
     /// Reset exposure compensation.
     pub fn exposure_compensation_reset => ExposureCompensationCommand::Reset;
 
-    /// Set brightness level.
-    pub fn set_brightness(level: BrightnessLevel) => BrightCommand::SetLevel(level);
+    /// Set brightness level with flexible parameter types.
+    ///
+    /// Accepts brightness level as:
+    /// - `BrightnessLevel` - Direct type
+    /// - `Percentage<f32>` - 0-100% of brightness range
+    /// - `Raw<u8>` - Raw VISCA protocol value
+    pub fn set_brightness<B>(value: B) where { B: TryInto<BrightnessLevel>, B::Error: Into<crate::Error> } => {
+        let level = value.try_into().map_err(Into::into)?;
+        BrightCommand::SetLevel(level)
+    };
 }
 
 // Color Gain Commands
@@ -293,17 +366,49 @@ camera_commands! {
 
 // Additional Image Adjustment Commands
 camera_commands! {
-    /// Set contrast level.
-    pub fn set_contrast(level: ContrastLevel) => ContrastCommand { value: level };
+    /// Set contrast level with flexible parameter types.
+    ///
+    /// Accepts contrast level as:
+    /// - `ContrastLevel` - Direct type
+    /// - `Percentage<f32>` - 0-100% of contrast range
+    /// - `Raw<u8>` - Raw VISCA protocol value
+    pub fn set_contrast<C>(value: C) where { C: TryInto<ContrastLevel>, C::Error: Into<crate::Error> } => {
+        let level = value.try_into().map_err(Into::into)?;
+        ContrastCommand { value: level }
+    };
 
-    /// Set sharpness level.
-    pub fn set_sharpness(level: SharpnessLevel) => SharpnessCommand::SetLevel { value: level.into() };
+    /// Set sharpness level with flexible parameter types.
+    ///
+    /// Accepts sharpness level as:
+    /// - `SharpnessLevel` - Direct type
+    /// - `Percentage<f32>` - 0-100% of sharpness range
+    /// - `Raw<u8>` - Raw VISCA protocol value
+    pub fn set_sharpness<S>(value: S) where { S: TryInto<SharpnessLevel>, S::Error: Into<crate::Error> } => {
+        let level = value.try_into().map_err(Into::into)?;
+        SharpnessCommand::SetLevel { value: level.into() }
+    };
 
-    /// Set saturation level.
-    pub fn set_saturation(level: SaturationLevel) => SaturationCommand { level };
+    /// Set saturation level with flexible parameter types.
+    ///
+    /// Accepts saturation level as:
+    /// - `SaturationLevel` - Direct type
+    /// - `Percentage<f32>` - 0-100% of saturation range
+    /// - `Raw<u8>` - Raw VISCA protocol value
+    pub fn set_saturation<S>(value: S) where { S: TryInto<SaturationLevel>, S::Error: Into<crate::Error> } => {
+        let level = value.try_into().map_err(Into::into)?;
+        SaturationCommand { level }
+    };
 
-    /// Set hue level.
-    pub fn set_hue(level: HueLevel) => HueCommand { level };
+    /// Set hue level with flexible parameter types.
+    ///
+    /// Accepts hue level as:
+    /// - `HueLevel` - Direct type
+    /// - `Percentage<f32>` - 0-100% of hue range
+    /// - `Raw<u8>` - Raw VISCA protocol value
+    pub fn set_hue<H>(value: H) where { H: TryInto<HueLevel>, H::Error: Into<crate::Error> } => {
+        let level = value.try_into().map_err(Into::into)?;
+        HueCommand { level }
+    };
 }
 
 // Pan/Tilt Movement Commands
@@ -383,16 +488,31 @@ camera_commands! {
 
 // Position Commands
 camera_commands! {
-    /// Move to absolute position specified in degrees.
+    /// Move to absolute position with flexible parameter types.
     ///
-    /// Both pan and tilt angles are specified in degrees.
-    pub fn pan_tilt_degrees(pan_degrees: f32, tilt_degrees: f32) => {
-        PanTiltCommand::absolute_position_degrees::<P>(Degrees(pan_degrees), Degrees(tilt_degrees))?
-    };
-
-    /// Move to absolute position specified in degrees.
-    pub fn set_position(pan: Degrees<f32>, tilt: Degrees<f32>) => {
-        PanTiltCommand::absolute_position_degrees::<P>(pan, tilt)?
+    /// Accepts position as:
+    /// - `Degrees<f32>` - Angle in degrees
+    /// - `f32` - Raw degrees value
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Degrees;
+    ///
+    /// // Using degrees
+    /// camera.set_position(Degrees(45.0), Degrees(-20.0))?;
+    ///
+    /// // Using raw degree values
+    /// camera.set_position(90.0, -45.0)?;
+    /// ```
+    pub fn set_position<P1, T1>(pan: P1, tilt: T1)
+    where {
+        P1: Into<Degrees<f32>>,
+        T1: Into<Degrees<f32>>
+    }
+    => {
+        let pan_deg = pan.into();
+        let tilt_deg = tilt.into();
+        PanTiltCommand::absolute_position_degrees::<P>(pan_deg, tilt_deg)?
     };
 }
 
@@ -400,59 +520,108 @@ camera_commands! {
 camera_commands! {
     /// Move camera continuously in specified direction with given speeds.
     ///
+    /// Accepts speeds as:
+    /// - `PanSpeed`/`TiltSpeed` - Direct speed types
+    /// - `Percentage<f32>` - 0-100% of maximum speed
+    /// - `SpeedLevel` - Convenient speed levels
+    /// - `Raw<u8>` - Raw VISCA protocol values
+    ///
     /// # Examples
     /// ```ignore
+    /// use grafton_visca::units::{Percentage, Raw};
+    /// use grafton_visca::types::{PanSpeed, TiltSpeed, SpeedLevel};
+    /// use grafton_visca::command::pan_tilt::PanTiltDirection;
+    ///
     /// // Using typed speeds
     /// camera.move_continuous(PanTiltDirection::DownLeft, PanSpeed::new(15)?, TiltSpeed::new(12)?)?;
+    ///
+    /// // Using percentages
+    /// camera.move_continuous(PanTiltDirection::Right, Percentage(50.0), Percentage(0.0))?;
+    ///
+    /// // Using speed levels
+    /// camera.move_continuous(PanTiltDirection::UpRight, SpeedLevel::Medium, SpeedLevel::Medium)?;
     /// ```
-    pub fn move_continuous(
+    pub fn move_continuous<PS, TS>(
         direction: PanTiltDirection,
-        pan_speed: PanSpeed,
-        tilt_speed: TiltSpeed,
-    ) => {
+        pan_speed: PS,
+        tilt_speed: TS,
+    ) where {
+        PS: TryInto<PanSpeed>,
+        PS::Error: Into<crate::Error>,
+        TS: TryInto<TiltSpeed>,
+        TS::Error: Into<crate::Error>
+    }
+    => {
+        let pan = pan_speed.try_into().map_err(Into::into)?;
+        let tilt = tilt_speed.try_into().map_err(Into::into)?;
         PanTiltCommand::Move {
             direction,
-            pan_speed,
-            tilt_speed,
-        }
-    };
-
-    /// Move camera continuously with speed level.
-    pub fn move_continuous_level(direction: PanTiltDirection, speed: SpeedLevel) => {
-        PanTiltCommand::Move {
-            direction,
-            pan_speed: PanSpeed::from(speed),
-            tilt_speed: TiltSpeed::from(speed),
+            pan_speed: pan,
+            tilt_speed: tilt,
         }
     };
 }
 
 // Additional Zoom Commands
 camera_commands! {
-    /// Set zoom to direct position with flexible parameter types.
+    /// Set zoom position with flexible parameter types.
     ///
     /// Accepts zoom position as:
-    /// - u16 raw VISCA values
-    /// - f32 normalized values (0.0-1.0)
+    /// - `ZoomPosition` - Direct position type
+    /// - `Percentage<f32>` - 0-100% of zoom range
+    /// - `Magnification<f32>` - Magnification factor (e.g., 2.5x)
+    /// - `Normalized<f32>` - 0.0-1.0 normalized value
+    /// - `Raw<u16>` - Raw VISCA protocol value
     ///
     /// # Examples
     /// ```ignore
-    /// // Using raw value
-    /// camera.set_zoom(0x3000u16)?;
+    /// use grafton_visca::units::{Percentage, Magnification, Raw};
     ///
-    /// // Using normalized value (50% zoom)
-    /// camera.set_zoom(0.5f32)?;
+    /// // Using percentage
+    /// camera.set_zoom(Percentage(50.0))?;
+    ///
+    /// // Using magnification
+    /// camera.set_zoom(Magnification(2.5))?;
+    ///
+    /// // Using raw value
+    /// camera.set_zoom(Raw(0x4000))?;
     ///
     /// // Using typed position
     /// camera.set_zoom(ZoomPosition::new(0x2000)?)?;
     /// ```
-    pub fn set_zoom(position: ZoomPosition) => ZoomCommand::Position(position);
+    pub fn set_zoom<Z>(value: Z) where { Z: TryInto<ZoomPosition>, Z::Error: Into<crate::Error> } => {
+        let position = value.try_into().map_err(Into::into)?;
+        ZoomCommand::Position(position)
+    };
 }
 
 // Additional Focus Commands
 camera_commands! {
-    /// Set focus to specific position (manual mode).
-    pub fn set_focus(position: FocusPosition) => FocusCommand::Position(position);
+    /// Set focus position with flexible parameter types.
+    ///
+    /// Accepts focus position as:
+    /// - `FocusPosition` - Direct position type
+    /// - `Percentage<f32>` - 0-100% of focus range
+    /// - `Normalized<f32>` - 0.0-1.0 normalized value
+    /// - `Raw<u16>` - Raw VISCA protocol value
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::{Percentage, Raw};
+    ///
+    /// // Using percentage
+    /// camera.set_focus(Percentage(75.0))?;
+    ///
+    /// // Using raw value
+    /// camera.set_focus(Raw(0x8000))?;
+    ///
+    /// // Using typed position
+    /// camera.set_focus(FocusPosition::new(0x7000)?)?;
+    /// ```
+    pub fn set_focus<F>(value: F) where { F: TryInto<FocusPosition>, F::Error: Into<crate::Error> } => {
+        let position = value.try_into().map_err(Into::into)?;
+        FocusCommand::Position(position)
+    };
 }
 
 // Note: set_iris method is implemented separately below to support generic IntoIrisLevel trait
@@ -480,124 +649,7 @@ camera_commands! {
 }
 
 // Semantic API Methods - Unit Conversions
-camera_commands! {
-    /// Set zoom position from percentage (0-100%).
-    pub fn set_zoom_percentage(percentage: crate::units::Percentage<f32>) => {
-        let position = ZoomPosition::try_from(percentage)?;
-        ZoomCommand::Position(position)
-    };
-
-    /// Set zoom position from magnification factor.
-    pub fn set_zoom_magnification(magnification: crate::units::Magnification<f32>) => {
-        let position = ZoomPosition::try_from(magnification)?;
-        ZoomCommand::Position(position)
-    };
-
-    /// Set focus position from percentage (0-100%).
-    pub fn set_focus_percentage(percentage: crate::units::Percentage<f32>) => {
-        let position = FocusPosition::try_from(percentage)?;
-        FocusCommand::Position(position)
-    };
-
-    /// Set shutter speed using fraction notation.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// // Set to 1/60s
-    /// camera.set_shutter_fraction(Fraction::new(1, 60))?;
-    ///
-    /// // Set to 1/1000s
-    /// camera.set_shutter_fraction(Fraction::new(1, 1000))?;
-    /// ```
-    pub fn set_shutter_fraction(fraction: crate::units::Fraction) => {
-        let speed = ShutterSpeed::try_from(fraction)?;
-        ShutterCommand::SetSpeed(speed)
-    };
-
-    /// Set pan/tilt position using radians.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// use grafton_visca::units::Radians;
-    /// use std::f32::consts::PI;
-    ///
-    /// // Turn 90 degrees right and 45 degrees up
-    /// camera.set_position_radians(Radians(PI / 2.0), Radians(PI / 4.0))?;
-    /// ```
-    pub fn set_position_radians(
-        pan: crate::units::Radians<f32>,
-        tilt: crate::units::Radians<f32>
-    ) => {
-        let pan_degrees: Degrees<f32> = pan.into();
-        let tilt_degrees: Degrees<f32> = tilt.into();
-        PanTiltCommand::absolute_position_degrees::<P>(pan_degrees, tilt_degrees)?
-    };
-
-    /// Move camera at percentage of maximum speed.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// use grafton_visca::units::Percentage;
-    /// use grafton_visca::command::pan_tilt::PanTiltDirection;
-    ///
-    /// // Move right at 50% speed
-    /// camera.move_percentage(PanTiltDirection::Right, Percentage(50.0), Percentage(0.0))?;
-    ///
-    /// // Move diagonally at 75% speed
-    /// camera.move_percentage(PanTiltDirection::UpRight, Percentage(75.0), Percentage(75.0))?;
-    /// ```
-    pub fn move_percentage(
-        direction: PanTiltDirection,
-        pan_speed: crate::units::Percentage<f32>,
-        tilt_speed: crate::units::Percentage<f32>
-    ) => {
-        let pan = PanSpeed::try_from(pan_speed)?;
-        let tilt = TiltSpeed::try_from(tilt_speed)?;
-        PanTiltCommand::Move {
-            direction,
-            pan_speed: pan,
-            tilt_speed: tilt,
-        }
-    };
-
-    /// Set gain from percentage (0-100%).
-    pub fn set_gain_percentage(percentage: crate::units::Percentage<f32>) => {
-        let gain = GainValue::try_from(percentage)?;
-        GainCommand::SetValue(gain)
-    };
-
-    /// Set sharpness from percentage (0-100%).
-    pub fn set_sharpness_percentage(percentage: crate::units::Percentage<f32>) => {
-        let level = SharpnessLevel::try_from(percentage)?;
-        SharpnessCommand::SetLevel {
-            value: level.value(),
-        }
-    };
-
-    /// Set brightness from percentage (0-100%).
-    pub fn set_brightness_percentage(percentage: crate::units::Percentage<f32>) => {
-        let level = BrightnessLevel::try_from(percentage)?;
-        BrightCommand::SetLevel(level)
-    };
-
-    /// Set contrast from percentage (0-100%).
-    pub fn set_contrast_percentage(percentage: crate::units::Percentage<f32>) => {
-        let value = ContrastLevel::try_from(percentage)?;
-        ContrastCommand { value }
-    };
-
-    /// Set saturation from percentage (0-100%).
-    pub fn set_saturation_percentage(percentage: crate::units::Percentage<f32>) => {
-        let level = SaturationLevel::try_from(percentage)?;
-        SaturationCommand { level }
-    };
-
-    /// Set hue from percentage (0-100%).
-    pub fn set_hue_percentage(percentage: crate::units::Percentage<f32>) => {
-        let level = HueLevel::try_from(percentage)?;
-        HueCommand { level }
-    };
-}
+camera_commands! {}
 
 // Generic parameter methods that require special handling
 // These cannot be handled by the camera_commands! macro due to generic trait bounds

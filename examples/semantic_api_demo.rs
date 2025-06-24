@@ -8,10 +8,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::{Camera, PTZOpticsG2},
         transport::blocking::Udp,
-        units::{Degrees, Fraction, Kelvin, Magnification, Percentage, Radians},
+        units::{Degrees, Fraction, Kelvin, Magnification, Percentage},
         FStop,
     };
-    use std::f32::consts::PI;
 
     // Connect to camera
     let transport = Udp::connect("192.168.1.100:52381")?;
@@ -22,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Zoom Control - Multiple Ways
     println!("1. Zoom Control");
     println!("   Setting zoom to 50% using percentage...");
-    camera.set_zoom_percentage(Percentage(50.0))?;
+    camera.set_zoom(Percentage(50.0))?;
 
     println!("   Setting zoom to 10x magnification...");
     camera.set_zoom_magnification(Magnification(10.0))?;
@@ -44,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.set_position(Degrees(45.0), Degrees(-15.0))?;
 
     println!("   Moving using radians...");
-    camera.set_position_radians(Radians(PI / 4.0), Radians(-PI / 12.0))?;
+    camera.set_position(Degrees(45.0), Degrees(-15.0))?;
 
     // White Balance
     println!("\n4. White Balance");
@@ -92,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Convenience Methods
     println!("\n8. Convenience Methods");
     println!("   Setting zoom to 25%...");
-    camera.set_zoom_percentage(Percentage(25.0))?;
+    camera.set_zoom(Percentage(25.0))?;
 
     println!("   Setting zoom to 5x magnification...");
     camera.set_zoom_magnification(Magnification(5.0))?;
@@ -106,19 +105,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Image Quality Controls
     println!("\n9. Image Quality Controls");
     println!("   Setting gain to 50% (~10.5dB)...");
-    camera.set_gain_percentage(Percentage(50.0))?;
+    camera.set_gain(Percentage(50.0))?;
 
     println!("   Setting sharpness to 70%...");
-    camera.set_sharpness_percentage(Percentage(70.0))?;
+    camera.set_sharpness(Percentage(70.0))?;
 
     println!("   Setting brightness to 50%...");
-    camera.set_brightness_percentage(Percentage(50.0))?;
+    camera.set_brightness(Percentage(50.0))?;
 
     println!("   Setting contrast to 60%...");
-    camera.set_contrast_percentage(Percentage(60.0))?;
+    camera.set_contrast(Percentage(60.0))?;
 
     println!("   Setting saturation to 75%...");
-    camera.set_saturation_percentage(Percentage(75.0))?;
+    camera.set_saturation(Percentage(75.0))?;
 
     println!("   Setting hue to 50%...");
     camera.set_hue_percentage(Percentage(50.0))?;
@@ -158,10 +157,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         camera::{Camera, PTZOpticsG2},
         transport::tokio::Udp,
         types::{BrightnessLevel, FocusPosition, GainValue, SharpnessLevel, ZoomPosition},
-        units::{Degrees, Fraction, Kelvin, Magnification, Percentage, Radians},
+        units::{Degrees, Fraction, Kelvin, Magnification, Percentage},
         FStop,
     };
-    use std::f32::consts::PI;
 
     // Connect to camera
     let transport = Udp::new("0.0.0.0:0", "192.168.1.100:52381").await?;
@@ -172,10 +170,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Zoom Control - Multiple Ways
     println!("1. Zoom Control");
     println!("   Setting zoom to 50% using percentage...");
-    camera.set_zoom_percentage(Percentage(50.0)).await?;
+    camera.set_zoom(Percentage(50.0)).await?;
 
     println!("   Setting zoom to 10x magnification...");
-    camera.set_zoom_magnification(Magnification(10.0)).await?;
+    camera.set_zoom(Magnification(10.0)).await?;
 
     println!("   Setting zoom using raw VISCA value...");
     camera.set_zoom(ZoomPosition::new(0x3000)?).await?;
@@ -183,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Focus Control
     println!("\n2. Focus Control");
     println!("   Setting focus to 75% (near)...");
-    camera.set_focus_percentage(Percentage(75.0)).await?;
+    camera.set_focus(Percentage(75.0)).await?;
 
     println!("   Setting focus using raw value...");
     camera.set_focus(FocusPosition::new(0x8000)?).await?;
@@ -193,26 +191,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Moving to 45° right, 15° up...");
     camera.set_position(Degrees(45.0), Degrees(-15.0)).await?;
 
-    println!("   Moving using radians...");
-    camera
-        .set_position_radians(Radians(PI / 4.0), Radians(-PI / 12.0))
-        .await?;
+    println!("   Moving to another position...");
+    camera.set_position(Degrees(90.0), Degrees(0.0)).await?;
 
     // White Balance
     println!("\n4. White Balance");
     println!("   Setting to daylight (5600K)...");
-    camera.set_white_balance_kelvin(Kelvin(5600)).await?;
+    camera.set_white_balance(Kelvin(5600)).await?;
 
     println!("   Setting to tungsten (3200K)...");
-    camera.set_white_balance_kelvin(Kelvin(3200)).await?;
+    camera.set_white_balance(Kelvin(3200)).await?;
 
     // Shutter Speed
     println!("\n5. Shutter Speed");
     println!("   Setting to 1/60s...");
-    camera.set_shutter_fraction(Fraction::new(1, 60)).await?;
+    camera.set_shutter(Fraction::new(1, 60)).await?;
 
     println!("   Setting to 1/1000s...");
-    camera.set_shutter_fraction(Fraction::new(1, 1000)).await?;
+    camera.set_shutter(Fraction::new(1, 1000)).await?;
 
     // Iris Control
     println!("\n6. Iris Control");
@@ -226,7 +222,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n7. Movement Control");
     println!("   Moving right at 50% speed...");
     camera
-        .move_percentage(
+        .move_continuous(
             grafton_visca::command::pan_tilt::PanTiltDirection::Right,
             Percentage(50.0),
             Percentage(0.0),
@@ -235,7 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("   Moving diagonally at 75% speed...");
     camera
-        .move_percentage(
+        .move_continuous(
             grafton_visca::command::pan_tilt::PanTiltDirection::UpRight,
             Percentage(75.0),
             Percentage(75.0),
@@ -248,13 +244,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Convenience Methods
     println!("\n8. Convenience Methods");
     println!("   Setting zoom to 25%...");
-    camera.set_zoom_percentage(Percentage(25.0)).await?;
+    camera.set_zoom(Percentage(25.0)).await?;
 
     println!("   Setting zoom to 5x magnification...");
-    camera.set_zoom_magnification(Magnification(5.0)).await?;
+    camera.set_zoom(Magnification(5.0)).await?;
 
     println!("   Setting focus to infinity (0%)...");
-    camera.set_focus_percentage(Percentage(0.0)).await?;
+    camera.set_focus(Percentage(0.0)).await?;
 
     println!("   Setting iris to 75% open...");
     camera.set_iris(Percentage(75.0)).await?;
@@ -262,22 +258,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Image Quality Controls
     println!("\n9. Image Quality Controls");
     println!("   Setting gain to 50% (~10.5dB)...");
-    camera.set_gain_percentage(Percentage(50.0)).await?;
+    camera.set_gain(Percentage(50.0)).await?;
 
     println!("   Setting sharpness to 70%...");
-    camera.set_sharpness_percentage(Percentage(70.0)).await?;
+    camera.set_sharpness(Percentage(70.0)).await?;
 
     println!("   Setting brightness to 50%...");
-    camera.set_brightness_percentage(Percentage(50.0)).await?;
+    camera.set_brightness(Percentage(50.0)).await?;
 
     println!("   Setting contrast to 60%...");
-    camera.set_contrast_percentage(Percentage(60.0)).await?;
+    camera.set_contrast(Percentage(60.0)).await?;
 
     println!("   Setting saturation to 75%...");
-    camera.set_saturation_percentage(Percentage(75.0)).await?;
+    camera.set_saturation(Percentage(75.0)).await?;
 
     println!("   Setting hue to 50%...");
-    camera.set_hue_percentage(Percentage(50.0)).await?;
+    camera.set_hue(Percentage(50.0)).await?;
 
     // Using Raw Values
     println!("\n10. Using Raw Values for Fine Control");

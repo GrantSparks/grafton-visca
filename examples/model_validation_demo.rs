@@ -80,7 +80,7 @@ async fn demo_ptzoptics_g2() -> Result<(), Error> {
 
     // Zoom within G2 range (0x0000 - 0x7000)
     println!("  - Setting zoom to 0x4000 (within G2 range)");
-    camera.set_zoom(Raw(0x4000u16).into()).await?;
+    camera.set_zoom(Raw(0x4000u16)).await?;
 
     // Position within G2 range (-170° to +170° pan, -90° to +90° tilt)
     println!("  - Moving to position (100°, 45°)");
@@ -161,7 +161,7 @@ async fn demo_generic_visca() -> Result<(), Error> {
 
     // Generic operations
     println!("\n✅ Generic operations:");
-    camera.set_zoom(Raw(0x4000u16).into()).await?;
+    camera.set_zoom(Raw(0x4000u16)).await?;
     camera.set_position(Degrees(45.0), Degrees(30.0)).await?;
 
     // Generic presets
