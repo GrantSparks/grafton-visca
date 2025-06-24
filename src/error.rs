@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt, io, time::Duration};
+use std::{convert::Infallible, io, time::Duration};
 
 use thiserror::Error as ThisError;
 
