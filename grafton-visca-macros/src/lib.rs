@@ -11,6 +11,9 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput, ItemFn, ReturnType, Type};
 
+mod parser_templates;
+mod inquiry_command;
+
 /// A procedural macro for defining VISCA command methods with automatic
 /// async/sync generation.
 ///
@@ -2809,4 +2812,50 @@ fn generate_response_test(func: &syn::ItemFn, attr: &syn::Attribute) -> proc_mac
             }
         }
     }
+}
+
+/// Derive macro for generating InquiryCommand implementations with parser support
+///
+/// This macro simplifies the creation of inquiry commands by automatically generating
+/// the `to_bytes()`, `response_type()`, and optionally `parse_response()` implementations
+/// based on attributes.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// #[derive(Debug, InquiryCommand, PartialEq)]
+/// enum TestInquiry {
+///     #[visca(0x00, response = Power)]
+///     Power,
+///     
+///     #[visca(0x47, response = ZoomPosition)]
+///     ZoomPos,
+///     
+///     #[visca(0x12, subcategory = 0x06, response = PanTiltPosition)]
+///     PanTiltPos,
+/// }
+/// ```
+///
+/// # With Parser Support
+///
+/// ```rust,ignore
+/// #[derive(Debug, InquiryCommand, PartialEq)]
+/// enum EnhancedInquiry {
+///     #[visca(0x00, response = Power, parser = "bool")]
+///     Power,
+///
+///     #[visca(0x47, response = ZoomPosition, parser = "position")]
+///     ZoomPos,
+///
+///     #[visca(0xA1, response = Luminance, parser = "byte")]
+///     Luminance,
+///
+///     #[visca(0x44, response = RedGain, parser = "offset", field = "gain", offset = 10)]
+///     RedGain,
+/// }
+/// ```
+#[proc_macro_derive(InquiryCommand, attributes(visca))]
+pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    TokenStream::from(inquiry_command::derive_inquiry_command_impl(input))
 }
