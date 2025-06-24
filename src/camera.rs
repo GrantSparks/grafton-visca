@@ -12,6 +12,8 @@ use crate::transport::ViscaProtocol;
 use crate::{Command, Response};
 
 pub mod builder;
+#[macro_use]
+pub mod camera_commands_macro;
 pub mod commands;
 pub mod extensions;
 pub mod inquiry;
