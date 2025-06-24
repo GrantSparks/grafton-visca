@@ -1006,7 +1006,7 @@ pub fn visca_position_command(attr: TokenStream, item: TokenStream) -> TokenStre
                             max_str.parse().unwrap_or_else(|_| quote! { i16::MAX });
 
                         validations.push(quote! {
-                            if #param_name < #min_tokens || #param_name > #max_tokens {
+                            if !(#min_tokens..=#max_tokens).contains(&#param_name) {
                                 return Err(crate::Error::OutOfRange {
                                     parameter: stringify!(#param_name).to_string(),
                                     value: #param_name as i32,
@@ -1376,7 +1376,8 @@ pub fn visca_speed_command(attr: TokenStream, item: TokenStream) -> TokenStream 
     }
 
     // Generate SpeedLevel enum variant
-    let speed_level_method = generate_speed_level_variant(&input_fn, &speed_params);
+    let speed_level_method = generate_speed_level_variant(&input_fn, &speed_params, false);
+    let speed_level_method_blocking = generate_speed_level_variant(&input_fn, &speed_params, true);
 
     // For blocking, we need to change &self to &mut self
     let blocking_inputs = inputs.iter().map(|arg| match arg {
@@ -1437,6 +1438,7 @@ pub fn visca_speed_command(attr: TokenStream, item: TokenStream) -> TokenStream 
             }
 
             #speed_level_method
+            #speed_level_method_blocking
         }
     };
 
@@ -1447,6 +1449,7 @@ pub fn visca_speed_command(attr: TokenStream, item: TokenStream) -> TokenStream 
 fn generate_speed_level_variant(
     input_fn: &ItemFn,
     speed_params: &[syn::Ident],
+    is_blocking: bool,
 ) -> proc_macro2::TokenStream {
     if speed_params.is_empty() {
         return quote! {};
@@ -1465,7 +1468,14 @@ fn generate_speed_level_variant(
 
     for input in input_fn.sig.inputs.iter() {
         match input {
-            syn::FnArg::Receiver(_) => new_params.push(quote! { &self }),
+            syn::FnArg::Receiver(receiver) => {
+                // For blocking mode, convert &self to &mut self
+                if is_blocking && receiver.mutability.is_none() {
+                    new_params.push(quote! { &mut self });
+                } else {
+                    new_params.push(quote! { #receiver });
+                }
+            }
             syn::FnArg::Typed(pat_type) => {
                 if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
                     let param_name = &pat_ident.ident;
@@ -1529,19 +1539,23 @@ fn generate_speed_level_variant(
             if type_path.path.segments.iter().any(|seg| seg.ident == "Result")));
 
     if is_execution {
-        quote! {
-            #[cfg(feature = "async")]
-            /// Execute command with speed level enum.
-            #vis async fn #fn_name_with_level(#(#new_params),*) -> Result<(), grafton_visca::Error> {
-                #(#conversions)*
-                self.#fn_name(#(#call_params),*).await
+        if is_blocking {
+            quote! {
+                #[cfg(not(feature = "async"))]
+                /// Execute command with speed level enum.
+                #vis fn #fn_name_with_level(#(#new_params),*) -> Result<(), grafton_visca::Error> {
+                    #(#conversions)*
+                    self.#fn_name(#(#call_params),*)
+                }
             }
-
-            #[cfg(not(feature = "async"))]
-            /// Execute command with speed level enum.
-            #vis fn #fn_name_with_level(#(#new_params),*) -> Result<(), grafton_visca::Error> {
-                #(#conversions)*
-                self.#fn_name(#(#call_params),*)
+        } else {
+            quote! {
+                #[cfg(feature = "async")]
+                /// Execute command with speed level enum.
+                #vis async fn #fn_name_with_level(#(#new_params),*) -> Result<(), grafton_visca::Error> {
+                    #(#conversions)*
+                    self.#fn_name(#(#call_params),*).await
+                }
             }
         }
     } else {
@@ -1625,7 +1639,7 @@ pub fn visca_bounded_command(attr: TokenStream, item: TokenStream) -> TokenStrea
                             max_str.parse().unwrap_or_else(|_| quote! { 100 });
 
                         validations.push(quote! {
-                            if #param_name < #min_tokens || #param_name > #max_tokens {
+                            if !(#min_tokens..=#max_tokens).contains(&#param_name) {
                                 return Err(crate::Error::ParameterOutOfRange {
                                     parameter: stringify!(#param_name).to_string(),
                                     value: #param_name as i32,
@@ -1744,7 +1758,7 @@ fn generate_percentage_variant(
                 max_str.parse().unwrap_or_else(|_| quote! { 100 });
 
             param_conversions.push(quote! {
-                if #param_name < 0.0 || #param_name > 100.0 {
+                if !(0.0..=100.0).contains(&#param_name) {
                     return Err(crate::Error::ParameterOutOfRange {
                         parameter: format!("{}_percentage", stringify!(#param_name)),
                         value: #param_name as i32,

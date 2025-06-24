@@ -19,7 +19,7 @@ pub enum SpeedLevel {
 }
 
 impl SpeedLevel {
-    fn to_pan_speed(&self) -> u8 {
+    fn to_pan_speed(self) -> u8 {
         match self {
             SpeedLevel::Slow => 1,
             SpeedLevel::Medium => 12,
@@ -27,7 +27,7 @@ impl SpeedLevel {
         }
     }
 
-    fn to_tilt_speed(&self) -> u8 {
+    fn to_tilt_speed(self) -> u8 {
         match self {
             SpeedLevel::Slow => 1,
             SpeedLevel::Medium => 10,
@@ -64,7 +64,7 @@ struct PanPosition(i16);
 
 impl PanPosition {
     fn new(val: i16) -> std::result::Result<Self, Error> {
-        if val < -17000 || val > 17000 {
+        if !(-17000..=17000).contains(&val) {
             return Err(Error::ParameterOutOfRange {
                 parameter: "pan".to_string(),
                 value: val as i32,
@@ -85,7 +85,7 @@ struct TiltPosition(i16);
 
 impl TiltPosition {
     fn new(val: i16) -> std::result::Result<Self, Error> {
-        if val < -3000 || val > 9000 {
+        if !(-3000..=9000).contains(&val) {
             return Err(Error::ParameterOutOfRange {
                 parameter: "tilt".to_string(),
                 value: val as i32,
@@ -228,7 +228,11 @@ impl TestCamera<BlockingTransport> {
 
     // Speed command with validation
     #[visca_speed_command(pan_speed_range = "0x01..=0x18", tilt_speed_range = "0x01..=0x14")]
-    pub fn move_with_speed(&self, pan_speed: u8, tilt_speed: u8) -> std::result::Result<(), Error> {
+    pub fn move_with_speed(
+        &self,
+        pan_speed: u8,
+        tilt_speed: u8,
+    ) -> std::result::Result<(), Error> {
         let _cmd = MoveWithSpeedCommand {
             pan_speed,
             tilt_speed,

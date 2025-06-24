@@ -11,7 +11,7 @@ struct PanPosition(i16);
 
 impl PanPosition {
     fn new(val: i16) -> std::result::Result<Self, Error> {
-        if val < -170 || val > 170 {
+        if !(-170..=170).contains(&val) {
             return Err(Error::ParameterOutOfRange {
                 parameter: "pan".to_string(),
                 value: val as i32,
@@ -32,7 +32,7 @@ struct TiltPosition(i16);
 
 impl TiltPosition {
     fn new(val: i16) -> std::result::Result<Self, Error> {
-        if val < -30 || val > 90 {
+        if !(-30..=90).contains(&val) {
             return Err(Error::ParameterOutOfRange {
                 parameter: "tilt".to_string(),
                 value: val as i32,
@@ -200,7 +200,7 @@ mod speed_tests {
     }
 
     impl SpeedLevel {
-        fn to_pan_speed(&self) -> u8 {
+        fn to_pan_speed(self) -> u8 {
             match self {
                 SpeedLevel::Slow => 1,
                 SpeedLevel::Medium => 12,
