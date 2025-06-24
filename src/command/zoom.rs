@@ -14,10 +14,10 @@
 //! # use grafton_visca::Client;
 //! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
-//! client.send(&ZoomCommand::In).unwrap();
+//! client.send(&ZoomCommand::TeleStandard).unwrap();
 //!
 //! // Zoom out at variable speed
-//! client.send(&ZoomCommand::OutWithSpeed(ZoomSpeed::new(5).unwrap())).unwrap();
+//! client.send(&ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
 //! # }
 //! ```
 
@@ -57,23 +57,23 @@ impl From<SpeedLevel> for ZoomSpeed {
 ///
 /// Provides various ways to control camera zoom:
 /// - `Stop` - Stop zoom movement
-/// - `In` - Zoom in at standard speed
-/// - `Out` - Zoom out at standard speed
-/// - `InWithSpeed` - Zoom in at specified speed (0-7)
-/// - `OutWithSpeed` - Zoom out at specified speed (0-7)
+/// - `TeleStandard` - Zoom in (telephoto) at standard speed
+/// - `WideStandard` - Zoom out (wide) at standard speed
+/// - `TeleVariable` - Zoom in at specified speed (0-7)
+/// - `WideVariable` - Zoom out at specified speed (0-7)
 /// - `Position` - Set zoom to specific position
 #[derive(Debug, Copy, Clone)]
 pub enum ZoomCommand {
     /// Stop zoom movement.
     Stop,
-    /// Zoom in at standard speed.
-    In,
-    /// Zoom out at standard speed.
-    Out,
+    /// Zoom in at standard speed (telephoto).
+    TeleStandard,
+    /// Zoom out at standard speed (wide).
+    WideStandard,
     /// Zoom in at variable speed.
-    InWithSpeed(ZoomSpeed),
+    TeleVariable(ZoomSpeed),
     /// Zoom out at variable speed.
-    OutWithSpeed(ZoomSpeed),
+    WideVariable(ZoomSpeed),
     /// Set zoom to specific position.
     Position(ZoomPosition),
 }
@@ -100,18 +100,18 @@ impl Command for ZoomCommand {
             Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]),
 
             // Zoom in standard
-            Self::In => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
+            Self::TeleStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
 
             // Zoom out standard
-            Self::Out => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
+            Self::WideStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
 
             // Zoom in variable
-            Self::InWithSpeed(speed) => {
+            Self::TeleVariable(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x20 | speed.value(), 0xFF])
             }
 
             // Zoom out variable
-            Self::OutWithSpeed(speed) => {
+            Self::WideVariable(speed) => {
                 Ok(vec![0x81, 0x01, 0x04, 0x07, 0x30 | speed.value(), 0xFF])
             }
 
@@ -128,8 +128,8 @@ impl Command for ZoomCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::In => Some(ResponseType::ZoomIn),
-            Self::Out => Some(ResponseType::ZoomOut),
+            Self::TeleStandard => Some(ResponseType::ZoomIn),
+            Self::WideStandard => Some(ResponseType::ZoomOut),
             _ => None,
         }
     }
@@ -227,28 +227,28 @@ mod tests {
 
     #[test]
     fn test_zoom_command_zoom_in_standard() {
-        let cmd = ZoomCommand::In;
+        let cmd = ZoomCommand::TeleStandard;
         let bytes = cmd
             .to_bytes()
-            .unwrap_or_else(|e| panic!("Failed to convert In command to bytes: {e:?}"));
+            .unwrap_or_else(|e| panic!("Failed to convert TeleStandard command to bytes: {e:?}"));
         assert_eq!(
             bytes,
             vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF],
-            "In command bytes mismatch"
+            "TeleStandard command bytes mismatch"
         );
         assert_eq!(cmd.response_type(), Some(ResponseType::ZoomIn));
     }
 
     #[test]
     fn test_zoom_command_zoom_out_standard() {
-        let cmd = ZoomCommand::Out;
+        let cmd = ZoomCommand::WideStandard;
         let bytes = cmd
             .to_bytes()
-            .unwrap_or_else(|e| panic!("Failed to convert Out command to bytes: {e:?}"));
+            .unwrap_or_else(|e| panic!("Failed to convert WideStandard command to bytes: {e:?}"));
         assert_eq!(
             bytes,
             vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF],
-            "Out command bytes mismatch"
+            "WideStandard command bytes mismatch"
         );
         assert_eq!(cmd.response_type(), Some(ResponseType::ZoomOut));
     }
@@ -257,14 +257,14 @@ mod tests {
     fn test_zoom_command_zoom_in_variable() {
         let speed =
             ZoomSpeed::new(5).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 5: {e:?}"));
-        let cmd = ZoomCommand::InWithSpeed(speed);
+        let cmd = ZoomCommand::TeleVariable(speed);
         let bytes = cmd
             .to_bytes()
-            .unwrap_or_else(|e| panic!("Failed to convert InWithSpeed command to bytes: {e:?}"));
+            .unwrap_or_else(|e| panic!("Failed to convert TeleVariable command to bytes: {e:?}"));
         assert_eq!(
             bytes,
             vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF],
-            "InWithSpeed command bytes mismatch"
+            "TeleVariable command bytes mismatch"
         );
     }
 
@@ -272,14 +272,14 @@ mod tests {
     fn test_zoom_command_zoom_out_variable() {
         let speed =
             ZoomSpeed::new(7).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 7: {e:?}"));
-        let cmd = ZoomCommand::OutWithSpeed(speed);
+        let cmd = ZoomCommand::WideVariable(speed);
         let bytes = cmd
             .to_bytes()
-            .unwrap_or_else(|e| panic!("Failed to convert OutWithSpeed command to bytes: {e:?}"));
+            .unwrap_or_else(|e| panic!("Failed to convert WideVariable command to bytes: {e:?}"));
         assert_eq!(
             bytes,
             vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF],
-            "OutWithSpeed command bytes mismatch"
+            "WideVariable command bytes mismatch"
         );
     }
 
@@ -337,17 +337,23 @@ mod tests {
     fn test_zoom_validation_other_commands() {
         // Test that other zoom commands pass validation
         assert!(Command::validate_for_model(&ZoomCommand::Stop, CameraModel::PTZOpticsG2).is_ok());
-        assert!(Command::validate_for_model(&ZoomCommand::In, CameraModel::PTZOpticsG2).is_ok());
-        assert!(Command::validate_for_model(&ZoomCommand::Out, CameraModel::PTZOpticsG2).is_ok());
+        assert!(
+            Command::validate_for_model(&ZoomCommand::TeleStandard, CameraModel::PTZOpticsG2)
+                .is_ok()
+        );
+        assert!(
+            Command::validate_for_model(&ZoomCommand::WideStandard, CameraModel::PTZOpticsG2)
+                .is_ok()
+        );
         assert!(Command::validate_for_model(
-            &ZoomCommand::InWithSpeed(
+            &ZoomCommand::TeleVariable(
                 ZoomSpeed::new(5).unwrap_or_else(|e| panic!("Valid ZoomSpeed 5: {e:?}"))
             ),
             CameraModel::PTZOpticsG2
         )
         .is_ok());
         assert!(Command::validate_for_model(
-            &ZoomCommand::OutWithSpeed(
+            &ZoomCommand::WideVariable(
                 ZoomSpeed::new(3).unwrap_or_else(|e| panic!("Valid ZoomSpeed 3: {e:?}"))
             ),
             CameraModel::PTZOpticsG2
@@ -362,7 +368,7 @@ mod tests {
             CommandCategory::Movement
         );
         assert_eq!(
-            ZoomCommand::In.command_category(),
+            ZoomCommand::TeleStandard.command_category(),
             CommandCategory::Movement
         );
         assert_eq!(

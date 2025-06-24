@@ -7,11 +7,13 @@ use std::fmt;
 
 use crate::error::Error;
 use crate::units::Percentage;
+use crate::ViscaValue;
 
 /// Socket ID for VISCA commands.
 ///
 /// VISCA protocol uses socket IDs 0 or 1 to track command execution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ViscaValue)]
+#[visca_value(valid_values = "[0, 1]", display_prefix = "Socket")]
 pub struct SocketId(u8);
 
 impl SocketId {
@@ -20,31 +22,6 @@ impl SocketId {
 
     /// Socket ID 1.
     pub const SOCKET_1: Self = Self(1);
-
-    /// Create a new socket ID.
-    ///
-    /// # Errors
-    /// Returns `Error::InvalidParameter` if the value is not 0 or 1.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        match value {
-            0 | 1 => Ok(Self(value)),
-            _ => Err(Error::InvalidParameter(format!(
-                "Socket ID must be 0 or 1, got {value}"
-            ))),
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl fmt::Display for SocketId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Socket {}", self.0)
-    }
 }
 
 impl Default for SocketId {
@@ -54,16 +31,16 @@ impl Default for SocketId {
 }
 
 /// Gain value for direct gain control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    min = "0x00",
+    max = "0x07",
+    display_format = "hex",
+    display_prefix = "Gain"
+)]
 pub struct GainValue(u8);
 
 impl GainValue {
-    /// Minimum gain value.
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum gain value.
-    pub const MAX: Self = Self(0x07);
-
     /// Valid gain values for `PTZOptics` G2 cameras.
     /// These are the only valid values according to the G2 specification.
     pub const G2_VALID_VALUES: &'static [u8] = &[
@@ -76,194 +53,38 @@ impl GainValue {
         0x06, // 18dB
         0x07, // 21dB
     ];
-
-    /// Create a new gain value.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x07.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 0x07 {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "gain".to_string(),
-                value: i32::from(value),
-                min: 0x00,
-                max: 0x07,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for GainValue {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for GainValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Gain {:#02X}", self.0)
-    }
 }
 
 /// Gain limit value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    min = "0x0",
+    max = "0xF",
+    display_format = "hex",
+    display_prefix = "Gain Limit"
+)]
 pub struct GainLimit(u8);
 
 impl GainLimit {
-    /// Minimum gain limit.
-    pub const MIN: Self = Self(0x0);
-
-    /// Maximum gain limit.
-    pub const MAX: Self = Self(0xF);
-
     /// Valid gain limit values for G2 cameras (0x0-0xF).
     pub const G2_VALID_VALUES: &'static [u8] = &[
         0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF,
     ];
-
-    /// Create a new gain limit.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x0-0xF.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 0xF {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "gain_limit".to_string(),
-                value: i32::from(value),
-                min: 0x0,
-                max: 0xF,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for GainLimit {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for GainLimit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Gain Limit {:#X}", self.0)
-    }
 }
 
 /// 2D noise reduction level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "1", max = "5", display_prefix = "2D NR Level")]
 pub struct NoiseReduction2DLevel(u8);
 
-impl NoiseReduction2DLevel {
-    /// Minimum 2D noise reduction level.
-    pub const MIN: Self = Self(1);
-
-    /// Maximum 2D noise reduction level.
-    pub const MAX: Self = Self(5);
-
-    /// Create a new 2D noise reduction level.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 1-5.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        match value {
-            1..=5 => Ok(Self(value)),
-            _ => Err(Error::ParameterOutOfRange {
-                parameter: "2d_noise_reduction".to_string(),
-                value: i32::from(value),
-                min: 1,
-                max: 5,
-            }),
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for NoiseReduction2DLevel {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for NoiseReduction2DLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "2D NR Level {}", self.0)
-    }
-}
+// NoiseReduction2DLevel implementation is auto-generated by ViscaValue derive
 
 /// 3D noise reduction level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "1", max = "8", display_prefix = "3D NR Level")]
 pub struct NoiseReduction3DLevel(u8);
 
-impl NoiseReduction3DLevel {
-    /// Minimum 3D noise reduction level.
-    pub const MIN: Self = Self(1);
-
-    /// Maximum 3D noise reduction level.
-    pub const MAX: Self = Self(8);
-
-    /// Create a new 3D noise reduction level.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 1-8.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        match value {
-            1..=8 => Ok(Self(value)),
-            _ => Err(Error::ParameterOutOfRange {
-                parameter: "3d_noise_reduction".to_string(),
-                value: i32::from(value),
-                min: 1,
-                max: 8,
-            }),
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for NoiseReduction3DLevel {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for NoiseReduction3DLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "3D NR Level {}", self.0)
-    }
-}
+// NoiseReduction3DLevel implementation is auto-generated by ViscaValue derive
 
 /// Trait for types that can be converted into an IrisLevel.
 ///
@@ -278,16 +99,15 @@ pub trait IntoIrisLevel {
 }
 
 /// Iris level for direct iris control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]",
+    display_format = "hex",
+    display_prefix = "Iris"
+)]
 pub struct IrisLevel(u8);
 
 impl IrisLevel {
-    /// Minimum iris level (fully closed).
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum iris level (F1.8 - fully open).
-    pub const MAX: Self = Self(0x0C);
-
     /// Valid iris level values for `PTZOptics` G2 cameras.
     /// These are the only valid values according to the G2 specification.
     pub const G2_VALID_VALUES: &'static [u8] = &[
@@ -305,38 +125,9 @@ impl IrisLevel {
         0x0B, // F2
         0x0C, // F1.8
     ];
-
-    /// Create a new iris level.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x0C.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 0x0C {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "iris".to_string(),
-                value: i32::from(value),
-                min: 0x00,
-                max: 0x0C,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
 }
 
-impl TryFrom<u8> for IrisLevel {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
+// TryFrom<u8> is auto-generated by ViscaValue derive
 
 impl From<FStop> for IrisLevel {
     fn from(fstop: FStop) -> Self {
@@ -344,11 +135,7 @@ impl From<FStop> for IrisLevel {
     }
 }
 
-impl fmt::Display for IrisLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Iris {:#02X}", self.0)
-    }
-}
+// Display is auto-generated by ViscaValue derive
 
 // Implement IntoIrisLevel for IrisLevel itself (identity conversion)
 impl IntoIrisLevel for IrisLevel {
@@ -380,16 +167,15 @@ impl IntoIrisLevel for Percentage<f32> {
 }
 
 /// Shutter speed value for direct shutter control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    valid_values = "[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
+    display_format = "hex",
+    display_prefix = "Shutter"
+)]
 pub struct ShutterSpeed(u16);
 
 impl ShutterSpeed {
-    /// Minimum shutter speed (1/30 second).
-    pub const MIN: Self = Self(0x01);
-
-    /// Maximum shutter speed (1/10000 second).
-    pub const MAX: Self = Self(0x11);
-
     /// Valid shutter speed values for `PTZOptics` G2 cameras.
     /// These are the only valid values according to the G2 specification.
     pub const G2_VALID_VALUES: &'static [u16] = &[
@@ -411,261 +197,67 @@ impl ShutterSpeed {
         0x10, // 1/8000
         0x11, // 1/10000
     ];
-
-    /// Create a new shutter speed.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x01-0x11.
-    pub fn new(value: u16) -> Result<Self, Error> {
-        if (0x01..=0x11).contains(&value) {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "shutter".to_string(),
-                value: i32::from(value),
-                min: 0x01,
-                max: 0x11,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u16 {
-        self.0
-    }
 }
 
-impl TryFrom<u16> for ShutterSpeed {
-    type Error = Error;
+// TryFrom<u16> is auto-generated by ViscaValue derive
 
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for ShutterSpeed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Shutter {:#04X}", self.0)
-    }
-}
+// Display is auto-generated by ViscaValue derive
 
 /// Brightness level for direct brightness control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    min = "0x00",
+    max = "0x11",
+    display_format = "hex",
+    display_prefix = "Brightness"
+)]
 pub struct BrightnessLevel(u16);
 
 impl BrightnessLevel {
-    /// Minimum brightness level.
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum brightness level.
-    pub const MAX: Self = Self(0x11);
-
     /// Valid brightness values for G2 cameras (0x00-0x11).
     pub const G2_VALID_VALUES: &'static [u16] = &[
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
         0x0F, 0x10, 0x11,
     ];
-
-    /// Create a new brightness level.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x11.
-    pub fn new(value: u16) -> Result<Self, Error> {
-        if value <= 0x11 {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "brightness".to_string(),
-                value: i32::from(value),
-                min: 0x00,
-                max: 0x11,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u16 {
-        self.0
-    }
 }
 
-impl TryFrom<u16> for BrightnessLevel {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for BrightnessLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Brightness {:#04X}", self.0)
-    }
-}
+// TryFrom and Display implementations are auto-generated by ViscaValue derive
 
 /// Sharpness level for direct sharpness control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "0", max = "11", display_prefix = "Sharpness")]
 pub struct SharpnessLevel(u8);
 
 impl SharpnessLevel {
-    /// Minimum sharpness level.
-    pub const MIN: Self = Self(0);
-
-    /// Maximum sharpness level.
-    pub const MAX: Self = Self(11);
-
     /// Valid sharpness values for `PTZOptics` G2 cameras.
     /// These are the only valid values according to the G2 specification.
     pub const G2_VALID_VALUES: &'static [u8] = &[
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
     ];
-
-    /// Create a new sharpness level.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-11.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 11 {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "sharpness".to_string(),
-                value: i32::from(value),
-                min: 0,
-                max: 11,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for SharpnessLevel {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for SharpnessLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Sharpness {}", self.0)
-    }
 }
 
 /// Luminance level for brightness adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "0", max = "14", display_prefix = "Luminance")]
 pub struct LuminanceLevel(u8);
 
 impl LuminanceLevel {
-    /// Minimum luminance level.
-    pub const MIN: Self = Self(0);
-
-    /// Maximum luminance level.
-    pub const MAX: Self = Self(14);
-
     /// Valid luminance values for G2 cameras (0x0-0xE).
     pub const G2_VALID_VALUES: &'static [u8] = &[
         0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE,
     ];
-
-    /// Create a new luminance level.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-14.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 14 {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "luminance".to_string(),
-                value: i32::from(value),
-                min: 0,
-                max: 14,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for LuminanceLevel {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for LuminanceLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Luminance {}", self.0)
-    }
 }
 
 /// Contrast level for contrast adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "0", max = "14", display_prefix = "Contrast")]
 pub struct ContrastLevel(u8);
 
 impl ContrastLevel {
-    /// Minimum contrast level.
-    pub const MIN: Self = Self(0);
-
-    /// Maximum contrast level.
-    pub const MAX: Self = Self(14);
-
     /// Valid contrast values for G2 cameras (0x0-0xE).
     pub const G2_VALID_VALUES: &'static [u8] = &[
         0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE,
     ];
-
-    /// Create a new contrast level.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-14.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 14 {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "contrast".to_string(),
-                value: i32::from(value),
-                min: 0,
-                max: 14,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for ContrastLevel {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for ContrastLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Contrast {}", self.0)
-    }
 }
 
 #[cfg(test)]
@@ -1075,13 +667,16 @@ mod speed_tests {
 }
 
 /// Zoom position value for direct zoom control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    min = "0x0000",
+    max = "0x7000",
+    display_format = "hex",
+    display_prefix = "Zoom"
+)]
 pub struct ZoomPosition(u16);
 
 impl ZoomPosition {
-    /// Minimum zoom position (wide).
-    pub const MIN: Self = Self(0x0000);
-
     /// Maximum optical zoom position.
     /// Note: Actual maximum depends on camera model.
     pub const MAX_OPTICAL: Self = Self(0x4000);
@@ -1089,37 +684,6 @@ impl ZoomPosition {
     /// Maximum digital zoom position.
     /// Note: Only available if camera supports digital zoom.
     pub const MAX_DIGITAL: Self = Self(0x7000);
-
-    /// Create a new zoom position.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value exceeds 0x7000.
-    pub fn new(value: u16) -> Result<Self, Error> {
-        if value <= 0x7000 {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "zoom".to_string(),
-                value: i32::from(value),
-                min: 0x0000,
-                max: 0x7000,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u16 {
-        self.0
-    }
-}
-
-impl TryFrom<u16> for ZoomPosition {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
 }
 
 impl TryFrom<f32> for ZoomPosition {
@@ -1145,56 +709,21 @@ impl From<ZoomPosition> for f32 {
     }
 }
 
-impl fmt::Display for ZoomPosition {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Zoom {:#04X}", self.0)
-    }
-}
+// Display is auto-generated by ViscaValue derive
 
 /// Focus position value for direct focus control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    min = "0x1000",
+    max = "0xF000",
+    display_format = "hex",
+    display_prefix = "Focus"
+)]
 pub struct FocusPosition(u16);
 
-impl FocusPosition {
-    /// Minimum focus position (infinity).
-    pub const MIN: Self = Self(0x1000);
+// FocusPosition implementation is auto-generated by ViscaValue derive
 
-    /// Maximum focus position (near).
-    /// Note: Actual maximum depends on camera model.
-    pub const MAX: Self = Self(0xF000);
-
-    /// Create a new focus position.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside valid range.
-    pub fn new(value: u16) -> Result<Self, Error> {
-        // Focus position typically uses range 0x1000-0xF000
-        if (0x1000..=0xF000).contains(&value) {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "focus".to_string(),
-                value: i32::from(value),
-                min: 0x1000,
-                max: 0xF000,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u16 {
-        self.0
-    }
-}
-
-impl TryFrom<u16> for FocusPosition {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
+// TryFrom<u16> is auto-generated by ViscaValue derive
 
 impl TryFrom<f32> for FocusPosition {
     type Error = Error;
@@ -1221,45 +750,20 @@ impl From<FocusPosition> for f32 {
     }
 }
 
-impl fmt::Display for FocusPosition {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Focus {:#04X}", self.0)
-    }
-}
+// Display is auto-generated by ViscaValue derive
 
 /// Color temperature value for white balance control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    min = "0x00",
+    max = "0x37",
+    display_format = "hex",
+    display_prefix = "Color Temp"
+)]
 pub struct ColorTemperature(u16);
 
 impl ColorTemperature {
-    /// Minimum color temperature (2500K).
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum color temperature (8000K).
-    pub const MAX: Self = Self(0x37);
-
-    /// Create a new color temperature.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x37.
-    pub fn new(value: u16) -> Result<Self, Error> {
-        if value <= 0x37 {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "color_temperature".to_string(),
-                value: i32::from(value),
-                min: 0x00,
-                max: 0x37,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u16 {
-        self.0
-    }
+    // MIN, MAX, new() and value() methods auto-generated by ViscaValue derive
 
     /// Convert to temperature in Kelvin.
     #[must_use]
@@ -1284,133 +788,53 @@ impl ColorTemperature {
     }
 }
 
-impl TryFrom<u16> for ColorTemperature {
-    type Error = Error;
+// TryFrom<u16> implementation auto-generated by ViscaValue derive
 
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for ColorTemperature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}K", self.to_kelvin())
-    }
-}
+// Display implementation auto-generated by ViscaValue derive
 
 /// Red gain value for white balance adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    min = "0x00",
+    max = "0xFF",
+    display_format = "hex",
+    display_prefix = "Red Gain"
+)]
 pub struct RedGain(u8);
 
 impl RedGain {
-    /// Minimum red gain.
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum red gain.
-    pub const MAX: Self = Self(0xFF);
-
-    /// Create a new red gain value.
-    ///
-    /// # Errors
-    /// Never returns an error as all u8 values are valid.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        Ok(Self(value))
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
+    // MIN, MAX, new() and value() methods auto-generated by ViscaValue derive
 }
 
-impl TryFrom<u8> for RedGain {
-    type Error = Error;
+// TryFrom<u8> implementation auto-generated by ViscaValue derive
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for RedGain {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Red Gain {:#02X}", self.0)
-    }
-}
+// Display implementation auto-generated by ViscaValue derive
 
 /// Blue gain value for white balance adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    min = "0x00",
+    max = "0xFF",
+    display_format = "hex",
+    display_prefix = "Blue Gain"
+)]
 pub struct BlueGain(u8);
 
 impl BlueGain {
-    /// Minimum blue gain.
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum blue gain.
-    pub const MAX: Self = Self(0xFF);
-
-    /// Create a new blue gain value.
-    ///
-    /// # Errors
-    /// Never returns an error as all u8 values are valid.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        Ok(Self(value))
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
+    // MIN, MAX, new() and value() methods auto-generated by ViscaValue derive
 }
 
-impl TryFrom<u8> for BlueGain {
-    type Error = Error;
+// TryFrom<u8> implementation auto-generated by ViscaValue derive
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for BlueGain {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Blue Gain {:#02X}", self.0)
-    }
-}
+// Display implementation auto-generated by ViscaValue derive
 
 /// Saturation level for color adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "0x00", max = "0x0E", display_prefix = "Saturation")]
 pub struct SaturationLevel(u8);
 
 impl SaturationLevel {
-    /// Minimum saturation (60%).
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum saturation (200%).
-    pub const MAX: Self = Self(0x0E);
-
-    /// Create a new saturation level.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x0E.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 0x0E {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "saturation".to_string(),
-                value: i32::from(value),
-                min: 0x00,
-                max: 0x0E,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
+    // MIN, MAX, new() and value() methods auto-generated by ViscaValue derive
 
     /// Convert to percentage (60% to 200%).
     #[must_use]
@@ -1419,68 +843,22 @@ impl SaturationLevel {
     }
 }
 
-impl TryFrom<u8> for SaturationLevel {
-    type Error = Error;
+// TryFrom<u8> implementation auto-generated by ViscaValue derive
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for SaturationLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Saturation {}%", self.to_percentage())
-    }
-}
+// Display implementation auto-generated by ViscaValue derive
 
 /// Hue level for color adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "0x00", max = "0x0E", display_prefix = "Hue")]
 pub struct HueLevel(u8);
 
 impl HueLevel {
-    /// Minimum hue level.
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum hue level.
-    pub const MAX: Self = Self(0x0E);
-
-    /// Create a new hue level.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0x00-0x0E.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 0x0E {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "hue".to_string(),
-                value: i32::from(value),
-                min: 0x00,
-                max: 0x0E,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
+    // MIN, MAX, new() and value() methods auto-generated by ViscaValue derive
 }
 
-impl TryFrom<u8> for HueLevel {
-    type Error = Error;
+// TryFrom<u8> implementation auto-generated by ViscaValue derive
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for HueLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Hue {}", self.0)
-    }
-}
+// Display implementation auto-generated by ViscaValue derive
 
 /// Red tuning value for fine white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1754,50 +1132,16 @@ impl fmt::Display for TiltPosition {
 }
 
 /// Pan speed value for horizontal camera movement speed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "0x00", max = "0x18", display_prefix = "Pan Speed")]
 pub struct PanSpeed(u8);
 
 impl PanSpeed {
-    /// Minimum pan speed (stop).
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum pan speed (fastest).
-    pub const MAX: Self = Self(0x18); // 24 in decimal
-
     /// Zero speed (stop).
     pub const ZERO: Self = Self(0x00);
-
-    /// Create a new pan speed.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-24.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 24 {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "pan_speed".to_string(),
-                value: i32::from(value),
-                min: 0,
-                max: 24,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
 }
 
-impl TryFrom<u8> for PanSpeed {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
+// TryFrom<u8> is auto-generated by ViscaValue derive
 
 impl From<SpeedLevel> for PanSpeed {
     fn from(level: SpeedLevel) -> Self {
@@ -1805,57 +1149,19 @@ impl From<SpeedLevel> for PanSpeed {
     }
 }
 
-impl fmt::Display for PanSpeed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Pan Speed {}", self.0)
-    }
-}
+// Display is auto-generated by ViscaValue derive
 
 /// Tilt speed value for vertical camera movement speed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "0x00", max = "0x14", display_prefix = "Tilt Speed")]
 pub struct TiltSpeed(u8);
 
 impl TiltSpeed {
-    /// Minimum tilt speed (stop).
-    pub const MIN: Self = Self(0x00);
-
-    /// Maximum tilt speed (fastest).
-    pub const MAX: Self = Self(0x14); // 20 in decimal
-
     /// Zero speed (stop).
     pub const ZERO: Self = Self(0x00);
-
-    /// Create a new tilt speed.
-    ///
-    /// # Errors
-    /// Returns `Error::ParameterOutOfRange` if the value is outside 0-20.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 20 {
-            Ok(Self(value))
-        } else {
-            Err(Error::ParameterOutOfRange {
-                parameter: "tilt_speed".to_string(),
-                value: i32::from(value),
-                min: 0,
-                max: 20,
-            })
-        }
-    }
-
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
 }
 
-impl TryFrom<u8> for TiltSpeed {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
+// TryFrom<u8> is auto-generated by ViscaValue derive
 
 impl From<SpeedLevel> for TiltSpeed {
     fn from(level: SpeedLevel) -> Self {
@@ -1863,8 +1169,4 @@ impl From<SpeedLevel> for TiltSpeed {
     }
 }
 
-impl fmt::Display for TiltSpeed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Tilt Speed {}", self.0)
-    }
-}
+// Display is auto-generated by ViscaValue derive
