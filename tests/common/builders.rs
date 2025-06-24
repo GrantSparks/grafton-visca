@@ -204,18 +204,18 @@ impl TestZoomBuilder {
     /// Build a zoom in command.
     pub fn build_zoom_in(self) -> ZoomCommand {
         if let Some(speed) = self.speed {
-            ZoomCommand::InWithSpeed(speed)
+            ZoomCommand::TeleVariable(speed)
         } else {
-            ZoomCommand::In
+            ZoomCommand::TeleStandard
         }
     }
 
     /// Build a zoom out command.
     pub fn build_zoom_out(self) -> ZoomCommand {
         if let Some(speed) = self.speed {
-            ZoomCommand::OutWithSpeed(speed)
+            ZoomCommand::WideVariable(speed)
         } else {
-            ZoomCommand::Out
+            ZoomCommand::WideStandard
         }
     }
 

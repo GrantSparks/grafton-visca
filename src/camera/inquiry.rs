@@ -97,6 +97,7 @@ pub struct ImageSettings {
     pub hue: u8,
 }
 
+// Async-specific implementations
 #[cfg(feature = "async")]
 impl<P: CameraProfile, T> Camera<P, T>
 where
@@ -105,7 +106,6 @@ where
     /// Send a command and wait for the response.
     ///
     /// This method is used internally for inquiry commands that need to receive data back.
-    #[cfg(feature = "async")]
     async fn send_and_receive(&self, command: &dyn Command) -> Result<Response, Error> {
         self.send_command(command).await
     }
@@ -116,40 +116,6 @@ where
     #[visca_inquiry]
     pub async fn get_power_state(&self) -> Result<bool, Error> {
         InquiryCommand::Power
-    }
-
-    // Position inquiries
-
-    /// Get the current pan/tilt position in degrees.
-    #[cfg(feature = "async")]
-    pub async fn get_position(&self) -> Result<(Degrees<f32>, Degrees<f32>), Error> {
-        match self
-            .send_and_receive(&InquiryCommand::PanTiltPosition)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
-                let pan_deg = self.profile.pan_units_to_degrees(pan);
-                let tilt_deg = self.profile.tilt_units_to_degrees(tilt);
-                Ok((Degrees(pan_deg), Degrees(tilt_deg)))
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current pan/tilt position in VISCA units.
-    #[cfg(feature = "async")]
-    pub async fn get_position_units(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error> {
-        match self
-            .send_and_receive(&InquiryCommand::PanTiltPosition)
-            .await?
-        {
-            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
-                Ok((ViscaUnits(pan), ViscaUnits(tilt)))
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
     }
 
     // Zoom and focus inquiries
@@ -190,26 +156,6 @@ where
     #[visca_inquiry]
     pub async fn get_iris(&self) -> Result<u8, Error> {
         InquiryCommand::Iris
-    }
-
-    /// Get the current shutter speed.
-    #[cfg(feature = "async")]
-    pub async fn get_shutter_speed(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Shutter).await? {
-            Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position as u8),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    /// Get the current brightness level.
-    #[cfg(feature = "async")]
-    pub async fn get_brightness(&self) -> Result<u8, Error> {
-        match self.send_and_receive(&InquiryCommand::Bright).await? {
-            Response::InquiryResponse(InquiryResponse::Bright { position }) => Ok(position as u8),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
     }
 
     /// Get the current gain.
@@ -302,19 +248,6 @@ where
         InquiryCommand::Backlight
     }
 
-    /// Get the current image flip state.
-    #[cfg(feature = "async")]
-    pub async fn get_image_flip(&self) -> Result<(bool, bool), Error> {
-        match self.send_and_receive(&InquiryCommand::ImageFlip).await? {
-            Response::InquiryResponse(InquiryResponse::ImageFlip {
-                vertical,
-                horizontal,
-            }) => Ok((vertical, horizontal)),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
     /// Check if black and white mode is enabled.
     #[visca_inquiry]
     pub async fn get_black_white_mode(&self) -> Result<bool, Error> {
@@ -365,13 +298,74 @@ where
         InquiryCommand::FocusNearLimit
     }
 
+    // Position inquiries
+
+    /// Get the current pan/tilt position in degrees.
+    pub async fn get_position(&self) -> Result<(Degrees<f32>, Degrees<f32>), Error> {
+        match self
+            .send_and_receive(&InquiryCommand::PanTiltPosition)
+            .await?
+        {
+            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+                let pan_deg = self.profile.pan_units_to_degrees(pan);
+                let tilt_deg = self.profile.tilt_units_to_degrees(tilt);
+                Ok((Degrees(pan_deg), Degrees(tilt_deg)))
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current pan/tilt position in VISCA units.
+    pub async fn get_position_units(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error> {
+        match self
+            .send_and_receive(&InquiryCommand::PanTiltPosition)
+            .await?
+        {
+            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+                Ok((ViscaUnits(pan), ViscaUnits(tilt)))
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current shutter speed.
+    pub async fn get_shutter_speed(&self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Shutter).await? {
+            Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position as u8),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current brightness level.
+    pub async fn get_brightness(&self) -> Result<u8, Error> {
+        match self.send_and_receive(&InquiryCommand::Bright).await? {
+            Response::InquiryResponse(InquiryResponse::Bright { position }) => Ok(position as u8),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current image flip state.
+    pub async fn get_image_flip(&self) -> Result<(bool, bool), Error> {
+        match self.send_and_receive(&InquiryCommand::ImageFlip).await? {
+            Response::InquiryResponse(InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            }) => Ok((vertical, horizontal)),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
     // Composite queries
 
     /// Get a complete snapshot of the camera state.
     ///
     /// This method queries multiple camera parameters and returns a comprehensive
     /// state object. Note that this performs multiple inquiries and may take some time.
-    #[cfg(feature = "async")]
     pub async fn get_camera_state(&self) -> Result<CameraState, Error> {
         // Get power state
         let power = self.get_power_state().await?;
@@ -470,7 +464,191 @@ where
 
     // Power inquiries
 
-    // get_power_state is handled by the #[visca_inquiry] macro in the async block
+    /// Get the current power state of the camera.
+    #[visca_inquiry]
+    pub fn get_power_state(&mut self) -> Result<bool, Error> {
+        InquiryCommand::Power
+    }
+
+    // Zoom and focus inquiries
+
+    /// Get the current zoom position.
+    #[visca_inquiry]
+    pub fn get_zoom_position(&mut self) -> Result<u16, Error> {
+        InquiryCommand::ZoomPosition
+    }
+
+    /// Get the current focus position.
+    #[visca_inquiry]
+    pub fn get_focus_position(&mut self) -> Result<u16, Error> {
+        InquiryCommand::FocusPosition
+    }
+
+    // Exposure inquiries
+
+    /// Get the current exposure mode.
+    #[visca_inquiry]
+    pub fn get_exposure_mode(&mut self) -> Result<ExposureMode, Error> {
+        InquiryCommand::ExposureMode
+    }
+
+    /// Get the current exposure compensation value.
+    #[visca_inquiry]
+    pub fn get_exposure_compensation(&mut self) -> Result<i8, Error> {
+        InquiryCommand::ExposureCompensation
+    }
+
+    /// Check if exposure compensation is enabled.
+    #[visca_inquiry]
+    pub fn get_exposure_compensation_enabled(&mut self) -> Result<bool, Error> {
+        InquiryCommand::ExposureCompensationMode
+    }
+
+    /// Get the current iris setting.
+    #[visca_inquiry]
+    pub fn get_iris(&mut self) -> Result<u8, Error> {
+        InquiryCommand::Iris
+    }
+
+    /// Get the current gain.
+    #[visca_inquiry]
+    pub fn get_gain(&mut self) -> Result<u8, Error> {
+        InquiryCommand::Gain
+    }
+
+    /// Get the current gain limit.
+    #[visca_inquiry]
+    pub fn get_gain_limit(&mut self) -> Result<u8, Error> {
+        InquiryCommand::GainLimit
+    }
+
+    /// Get the current iris position.
+    #[visca_inquiry]
+    pub fn get_iris_position(&mut self) -> Result<u8, Error> {
+        InquiryCommand::Iris
+    }
+
+    // White balance inquiries
+
+    /// Get the current white balance mode.
+    #[visca_inquiry]
+    pub fn get_white_balance_mode(&mut self) -> Result<WhiteBalanceMode, Error> {
+        InquiryCommand::WhiteBalanceMode
+    }
+
+    /// Get the current red gain tuning value.
+    #[visca_inquiry]
+    pub fn get_red_gain(&mut self) -> Result<i8, Error> {
+        InquiryCommand::RedGain
+    }
+
+    /// Get the current blue gain tuning value.
+    #[visca_inquiry]
+    pub fn get_blue_gain(&mut self) -> Result<i8, Error> {
+        InquiryCommand::BlueGain
+    }
+
+    /// Get the current color temperature.
+    #[visca_inquiry]
+    pub fn get_color_temperature(&mut self) -> Result<u16, Error> {
+        InquiryCommand::ColorTemperature
+    }
+
+    // Image quality inquiries
+
+    /// Get the current luminance level.
+    #[visca_inquiry]
+    pub fn get_luminance(&mut self) -> Result<u8, Error> {
+        InquiryCommand::Luminance
+    }
+
+    /// Get the current contrast level.
+    #[visca_inquiry]
+    pub fn get_contrast(&mut self) -> Result<u8, Error> {
+        InquiryCommand::Contrast
+    }
+
+    /// Get the current sharpness level.
+    #[visca_inquiry]
+    pub fn get_sharpness(&mut self) -> Result<u8, Error> {
+        InquiryCommand::Sharpness
+    }
+
+    /// Get the current sharpness mode.
+    #[visca_inquiry]
+    pub fn get_sharpness_mode(&mut self) -> Result<SharpnessMode, Error> {
+        InquiryCommand::SharpnessMode
+    }
+
+    /// Get the current saturation level.
+    #[visca_inquiry]
+    pub fn get_saturation(&mut self) -> Result<u8, Error> {
+        InquiryCommand::Saturation
+    }
+
+    /// Get the current hue level.
+    #[visca_inquiry]
+    pub fn get_hue(&mut self) -> Result<u8, Error> {
+        InquiryCommand::Hue
+    }
+
+    // Image processing inquiries
+
+    /// Check if backlight compensation is enabled.
+    #[visca_inquiry]
+    pub fn get_backlight_status(&mut self) -> Result<bool, Error> {
+        InquiryCommand::Backlight
+    }
+
+    /// Check if black and white mode is enabled.
+    #[visca_inquiry]
+    pub fn get_black_white_mode(&mut self) -> Result<bool, Error> {
+        InquiryCommand::BlackWhite
+    }
+
+    /// Get the anti-flicker mode.
+    #[visca_inquiry]
+    pub fn get_anti_flicker(&mut self) -> Result<AntiFlickerMode, Error> {
+        InquiryCommand::AntiFlicker
+    }
+
+    /// Get the 2D noise reduction level.
+    #[visca_inquiry]
+    pub fn get_noise_reduction_2d(&mut self) -> Result<u8, Error> {
+        InquiryCommand::NoiseReduction2D
+    }
+
+    /// Get the 3D noise reduction level.
+    #[visca_inquiry]
+    pub fn get_noise_reduction_3d(&mut self) -> Result<u8, Error> {
+        InquiryCommand::NoiseReduction3D
+    }
+
+    /// Get the dynamic range level.
+    #[visca_inquiry]
+    pub fn get_dynamic_range(&mut self) -> Result<u8, Error> {
+        InquiryCommand::DynamicRange
+    }
+
+    // Focus control inquiries
+
+    /// Get the focus zone setting.
+    #[visca_inquiry]
+    pub fn get_focus_zone(&mut self) -> Result<FocusZone, Error> {
+        InquiryCommand::FocusZone
+    }
+
+    /// Get the auto-focus sensitivity.
+    #[visca_inquiry]
+    pub fn get_auto_focus_sensitivity(&mut self) -> Result<AutoFocusSensitivity, Error> {
+        InquiryCommand::AutoFocusSensitivity
+    }
+
+    /// Get the focus near limit.
+    #[visca_inquiry]
+    pub fn get_focus_near_limit(&mut self) -> Result<u16, Error> {
+        InquiryCommand::FocusNearLimit
+    }
 
     // Position inquiries
 
@@ -498,24 +676,6 @@ where
         }
     }
 
-    // Zoom and focus inquiries
-
-    // get_zoom_position is handled by the #[visca_inquiry] macro in the async block
-    // get_focus_position is handled by the #[visca_inquiry] macro in the async block
-
-    // Exposure inquiries
-
-    // The following methods are handled by the #[visca_inquiry] macro in the async block:
-    // - get_exposure_mode
-    // - get_exposure_compensation
-    // - get_exposure_compensation_enabled
-    // - get_iris
-    // - get_shutter_speed (has type conversion, see below)
-    // - get_brightness (has type conversion, see below)
-    // - get_gain
-    // - get_gain_limit
-    // - get_iris_position
-
     /// Get the current shutter speed.
     pub fn get_shutter_speed(&mut self) -> Result<u8, Error> {
         match self.send_and_receive(&InquiryCommand::Shutter)? {
@@ -534,23 +694,6 @@ where
         }
     }
 
-    // White balance inquiries
-
-    // The following methods are handled by the #[visca_inquiry] macro in the async block:
-    // - get_white_balance_mode
-    // - get_red_gain
-    // - get_blue_gain
-    // - get_color_temperature
-
-    // Image quality inquiries
-
-    // The following methods are handled by the #[visca_inquiry] macro in the async block:
-    // - get_luminance
-    // - get_contrast
-    // - get_sharpness
-    // - get_saturation
-    // - get_hue
-
     /// Get the current image flip status.
     pub fn get_image_flip(&mut self) -> Result<(bool, bool), Error> {
         match self.send_and_receive(&InquiryCommand::ImageFlip)? {
@@ -562,20 +705,6 @@ where
             _ => Err(Error::UnexpectedResponseType),
         }
     }
-
-    // The following methods are handled by the #[visca_inquiry] macro in the async block:
-    // - get_backlight_status
-    // - get_black_white_mode
-
-    // The following methods are handled by the #[visca_inquiry] macro in the async block:
-    // - get_anti_flicker
-    // - get_sharpness_mode
-    // - get_focus_zone
-    // - get_auto_focus_sensitivity
-    // - get_focus_near_limit
-    // - get_noise_reduction_2d
-    // - get_noise_reduction_3d
-    // - get_dynamic_range
 
     // Composite queries
 
