@@ -23,6 +23,9 @@
 ///     // Commands with parameters
 ///     method_name(param: Type) => CommandType { field: param };
 ///     
+///     // Commands with generic parameters
+///     method_name<G>(param: G) where G: Trait => CommandType { field: param.into() };
+///     
 ///     // Fallible commands (note the ? in the definition)
 ///     method_name => {
 ///         CommandType {
@@ -46,7 +49,9 @@ macro_rules! camera_commands {
     (
         $(
             $(#[$attr:meta])*
-            $vis:vis fn $fn_name:ident $( ( $($param:ident : $param_ty:ty),* $(,)? ) )? => $body:expr
+            $vis:vis fn $fn_name:ident $( < $($gen:ident),* $(,)? > )? $( ( $($param:ident : $param_ty:ty),* $(,)? ) )?
+            $( where { $($where_clause:tt)* } )?
+            => $body:expr
         );* $(;)?
     ) => {
         // Generate blocking implementation
@@ -58,7 +63,9 @@ macro_rules! camera_commands {
         {
             $(
                 $(#[$attr])*
-                $vis fn $fn_name(&mut self $(, $($param: $param_ty),*)?) -> Result<(), crate::Error> {
+                $vis fn $fn_name $( < $($gen),* > )? (&mut self $(, $($param: $param_ty),*)?) -> Result<(), crate::Error>
+                $( where $($where_clause)* )?
+                {
                     let cmd = camera_commands!(@build_cmd $body);
                     self.send_and_wait(&cmd)
                 }
@@ -74,7 +81,9 @@ macro_rules! camera_commands {
         {
             $(
                 $(#[$attr])*
-                $vis async fn $fn_name(&self $(, $($param: $param_ty),*)?) -> Result<(), crate::Error> {
+                $vis async fn $fn_name $( < $($gen),* > )? (&self $(, $($param: $param_ty),*)?) -> Result<(), crate::Error>
+                $( where $($where_clause)* )?
+                {
                     let cmd = camera_commands!(@build_cmd $body);
                     self.send_and_wait(&cmd).await
                 }

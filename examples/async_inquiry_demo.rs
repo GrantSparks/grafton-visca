@@ -217,7 +217,7 @@ async fn main() -> Result<(), Error> {
 
     // Change zoom and verify
     println!("\n   - Setting zoom to position 16384 (mid-range)...");
-    camera.set_zoom(Raw(16384u16).into()).await?;
+    camera.set_zoom(Raw(16384u16)).await?;
 
     sleep(Duration::from_secs(2)).await;
 

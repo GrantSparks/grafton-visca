@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(2));
 
     // Move using pan_tilt_degrees method
-    camera.pan_tilt_degrees(90.0, -15.0)?;
+    camera.set_position(90.0, -15.0)?;
     println!("   ✓ Moved using degrees via pan_tilt_degrees");
     thread::sleep(Duration::from_secs(2));
 

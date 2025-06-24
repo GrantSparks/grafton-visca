@@ -108,11 +108,11 @@ async fn demo_zoom_control<T: grafton_visca::transport::AsyncTransport>(
     camera.zoom_stop().await?;
 
     println!("Setting zoom to 50%...");
-    camera.set_zoom(Raw(0x3800u16).into()).await?; // Mid-range zoom
+    camera.set_zoom(Raw(0x3800u16)).await?; // Mid-range zoom
     sleep(Duration::from_secs(1)).await;
 
     println!("Resetting zoom...");
-    camera.set_zoom(Raw(0x0000u16).into()).await?;
+    camera.set_zoom(Raw(0x0000u16)).await?;
     Ok(())
 }
 
