@@ -455,11 +455,7 @@ camera_commands! {
     pub fn set_focus(position: FocusPosition) => FocusCommand::Position(position);
 }
 
-// Iris Commands (Alias)
-camera_commands! {
-    /// Set iris level directly (alias for set_iris_level).
-    pub fn set_iris(level: IrisLevel) => IrisCommand::SetAperture(level);
-}
+// Note: set_iris method is implemented separately below to support generic IntoIrisLevel trait
 
 // Pan/Tilt helper
 camera_commands! {
@@ -481,4 +477,201 @@ camera_commands! {
 
     /// Set blue tuning.
     pub fn set_blue_tuning(tuning: BlueTuning) => BlueTuningCommand { level: tuning };
+}
+
+// Semantic API Methods - Unit Conversions
+camera_commands! {
+    /// Set zoom position from percentage (0-100%).
+    pub fn set_zoom_percentage(percentage: crate::units::Percentage<f32>) => {
+        let position = ZoomPosition::try_from(percentage)?;
+        ZoomCommand::Position(position)
+    };
+
+    /// Set zoom position from magnification factor.
+    pub fn set_zoom_magnification(magnification: crate::units::Magnification<f32>) => {
+        let position = ZoomPosition::try_from(magnification)?;
+        ZoomCommand::Position(position)
+    };
+
+    /// Set focus position from percentage (0-100%).
+    pub fn set_focus_percentage(percentage: crate::units::Percentage<f32>) => {
+        let position = FocusPosition::try_from(percentage)?;
+        FocusCommand::Position(position)
+    };
+
+    /// Set shutter speed using fraction notation.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Set to 1/60s
+    /// camera.set_shutter_fraction(Fraction::new(1, 60))?;
+    ///
+    /// // Set to 1/1000s
+    /// camera.set_shutter_fraction(Fraction::new(1, 1000))?;
+    /// ```
+    pub fn set_shutter_fraction(fraction: crate::units::Fraction) => {
+        let speed = ShutterSpeed::try_from(fraction)?;
+        ShutterCommand::SetSpeed(speed)
+    };
+
+    /// Set pan/tilt position using radians.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Radians;
+    /// use std::f32::consts::PI;
+    ///
+    /// // Turn 90 degrees right and 45 degrees up
+    /// camera.set_position_radians(Radians(PI / 2.0), Radians(PI / 4.0))?;
+    /// ```
+    pub fn set_position_radians(
+        pan: crate::units::Radians<f32>,
+        tilt: crate::units::Radians<f32>
+    ) => {
+        let pan_degrees: Degrees<f32> = pan.into();
+        let tilt_degrees: Degrees<f32> = tilt.into();
+        PanTiltCommand::absolute_position_degrees::<P>(pan_degrees, tilt_degrees)?
+    };
+
+    /// Move camera at percentage of maximum speed.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::Percentage;
+    /// use grafton_visca::command::pan_tilt::PanTiltDirection;
+    ///
+    /// // Move right at 50% speed
+    /// camera.move_percentage(PanTiltDirection::Right, Percentage(50.0), Percentage(0.0))?;
+    ///
+    /// // Move diagonally at 75% speed
+    /// camera.move_percentage(PanTiltDirection::UpRight, Percentage(75.0), Percentage(75.0))?;
+    /// ```
+    pub fn move_percentage(
+        direction: PanTiltDirection,
+        pan_speed: crate::units::Percentage<f32>,
+        tilt_speed: crate::units::Percentage<f32>
+    ) => {
+        let pan = PanSpeed::try_from(pan_speed)?;
+        let tilt = TiltSpeed::try_from(tilt_speed)?;
+        PanTiltCommand::Move {
+            direction,
+            pan_speed: pan,
+            tilt_speed: tilt,
+        }
+    };
+
+    /// Set gain from percentage (0-100%).
+    pub fn set_gain_percentage(percentage: crate::units::Percentage<f32>) => {
+        let gain = GainValue::try_from(percentage)?;
+        GainCommand::SetValue(gain)
+    };
+
+    /// Set sharpness from percentage (0-100%).
+    pub fn set_sharpness_percentage(percentage: crate::units::Percentage<f32>) => {
+        let level = SharpnessLevel::try_from(percentage)?;
+        SharpnessCommand::SetLevel {
+            value: level.value(),
+        }
+    };
+
+    /// Set brightness from percentage (0-100%).
+    pub fn set_brightness_percentage(percentage: crate::units::Percentage<f32>) => {
+        let level = BrightnessLevel::try_from(percentage)?;
+        BrightCommand::SetLevel(level)
+    };
+
+    /// Set contrast from percentage (0-100%).
+    pub fn set_contrast_percentage(percentage: crate::units::Percentage<f32>) => {
+        let value = ContrastLevel::try_from(percentage)?;
+        ContrastCommand { value }
+    };
+
+    /// Set saturation from percentage (0-100%).
+    pub fn set_saturation_percentage(percentage: crate::units::Percentage<f32>) => {
+        let level = SaturationLevel::try_from(percentage)?;
+        SaturationCommand { level }
+    };
+
+    /// Set hue from percentage (0-100%).
+    pub fn set_hue_percentage(percentage: crate::units::Percentage<f32>) => {
+        let level = HueLevel::try_from(percentage)?;
+        HueCommand { level }
+    };
+}
+
+// Generic parameter methods that require special handling
+// These cannot be handled by the camera_commands! macro due to generic trait bounds
+
+#[cfg(not(feature = "async"))]
+impl<P, T> Camera<P, T>
+where
+    P: CameraProfile,
+    T: crate::transport::blocking::BlockingTransport,
+{
+    /// Set iris level with flexible parameter types.
+    ///
+    /// Accepts iris level as:
+    /// - Raw u8 values (0x00-0x0C)
+    /// - IrisLevel type for type safety
+    /// - `Percentage<f32>` values (0.0-100.0)
+    /// - FStop enum values (F1_8, F2_8, etc.)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Using raw value
+    /// camera.set_iris(0x09u8)?;
+    ///
+    /// // Using typed level
+    /// camera.set_iris(IrisLevel::new(0x0B)?)?;
+    ///
+    /// // Using percentage
+    /// camera.set_iris(Percentage(75.0))?;
+    ///
+    /// // Using F-stop
+    /// camera.set_iris(FStop::F2_8)?;
+    /// ```
+    pub fn set_iris(
+        &mut self,
+        level: impl crate::types::IntoIrisLevel,
+    ) -> Result<(), crate::Error> {
+        let cmd = IrisCommand::SetAperture(level.into_iris_level()?);
+        self.send_and_wait(&cmd)
+    }
+}
+
+#[cfg(feature = "async")]
+impl<P, T> Camera<P, T>
+where
+    P: CameraProfile,
+    T: crate::transport::AsyncTransport,
+{
+    /// Set iris level with flexible parameter types.
+    ///
+    /// Accepts iris level as:
+    /// - Raw u8 values (0x00-0x0C)
+    /// - IrisLevel type for type safety
+    /// - `Percentage<f32>` values (0.0-100.0)
+    /// - FStop enum values (F1_8, F2_8, etc.)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Using raw value
+    /// camera.set_iris(0x09u8).await?;
+    ///
+    /// // Using typed level
+    /// camera.set_iris(IrisLevel::new(0x0B)?).await?;
+    ///
+    /// // Using percentage
+    /// camera.set_iris(Percentage(75.0)).await?;
+    ///
+    /// // Using F-stop
+    /// camera.set_iris(FStop::F2_8).await?;
+    /// ```
+    pub async fn set_iris(
+        &self,
+        level: impl crate::types::IntoIrisLevel,
+    ) -> Result<(), crate::Error> {
+        let cmd = IrisCommand::SetAperture(level.into_iris_level()?);
+        self.send_and_wait(&cmd).await
+    }
 }
