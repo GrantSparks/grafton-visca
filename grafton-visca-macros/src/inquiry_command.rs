@@ -10,68 +10,41 @@ use syn::{DeriveInput, Ident};
 
 pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
     match &input.data {
-        syn::Data::Enum(enum_data) => {
-            let enum_name = &input.ident;
-            let variants = &enum_data.variants;
+        syn::Data::Struct(_) => {
+            let struct_name = &input.ident;
 
-            // Generate to_bytes match arms
-            let to_bytes_arms = variants.iter().map(|variant| {
-                let variant_name = &variant.ident;
+            // Parse visca attributes from the struct
+            let attrs = parse_visca_attributes_from_struct(&input);
 
-                // Parse visca attributes
-                let attrs = parse_visca_attributes(variant);
-                let byte_value = attrs
-                    .byte_value
-                    .expect("visca attribute must have a byte value");
+            // Extract required attributes
+            let byte_value = attrs
+                .byte_value
+                .expect("visca attribute must have a 'command' value");
+            let response_type = attrs
+                .response_type
+                .expect("visca attribute must have a 'response' value");
+            let inquiry_variant = attrs
+                .inquiry_variant
+                .expect("visca attribute must have an 'inquiry_variant' value");
 
-                if let Some(sub) = attrs.subcategory {
-                    quote! {
-                        Self::#variant_name => vec![0x81, 0x09, #sub, #byte_value, 0xFF],
-                    }
-                } else {
-                    quote! {
-                        Self::#variant_name => vec![0x81, 0x09, 0x04, #byte_value, 0xFF],
-                    }
-                }
-            });
+            // Generate the bytes based on subcategory
+            let bytes_expr = if let Some(sub) = attrs.subcategory {
+                quote! { vec![0x81, 0x09, #sub, #byte_value, 0xFF] }
+            } else {
+                quote! { vec![0x81, 0x09, 0x04, #byte_value, 0xFF] }
+            };
 
-            // Generate response_type match arms
-            let response_type_arms = variants.iter().map(|variant| {
-                let variant_name = &variant.ident;
-                let attrs = parse_visca_attributes(variant);
-                let response_type = attrs.response_type.expect("visca attribute must have a response type");
+            // Generate parser implementation if parser info is provided
+            let parse_response_impl = if let Some(parser_info) = &attrs.parser {
+                let parser_body = generate_parser_body(&response_type, parser_info);
                 quote! {
-                    Self::#variant_name => Some(::grafton_visca::command::ResponseType::#response_type),
-                }
-            });
-
-            // Generate parser match arms
-            let parser_arms = variants.iter().filter_map(|variant| {
-                let variant_name = &variant.ident;
-                let attrs = parse_visca_attributes(variant);
-
-                // Only generate parser if parser attribute is present
-                attrs.parser.as_ref().map(|parser_info| {
-                    let response_variant = &attrs.response_type.expect("response type required");
-                    generate_parser_arm(variant_name, response_variant, parser_info)
-                })
-            });
-
-            // Generate the parse_response method if any parsers are defined
-            let parse_response_impl = if parser_arms.clone().count() > 0 {
-                quote! {
-                    /// Parse the response data for this inquiry command
-                    pub fn parse_response(&self, data: &[u8]) -> Result<::grafton_visca::command::InquiryResponse, ::grafton_visca::Error> {
-                        if data.is_empty() {
-                            return Err(::grafton_visca::Error::InvalidResponseLength);
-                        }
-
-                        match self {
-                            #(#parser_arms)*
-                            _ => Err(::grafton_visca::Error::InvalidResponse {
-                                expected: "Parser not implemented for this command".to_string(),
-                                actual: data.to_vec(),
-                            }),
+                    impl #struct_name {
+                        /// Parse the response data for this inquiry command
+                        pub fn parse_response(&self, data: &[u8]) -> Result<::grafton_visca::command::InquiryResponse, ::grafton_visca::Error> {
+                            if data.is_empty() {
+                                return Err(::grafton_visca::Error::InvalidResponseLength);
+                            }
+                            Ok(#parser_body)
                         }
                     }
                 }
@@ -80,18 +53,13 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             };
 
             let expanded = quote! {
-                impl ::grafton_visca::command::Command for #enum_name {
+                impl ::grafton_visca::command::Command for #struct_name {
                     fn to_bytes(&self) -> Result<Vec<u8>, ::grafton_visca::Error> {
-                        let bytes = match self {
-                            #(#to_bytes_arms)*
-                        };
-                        Ok(bytes)
+                        Ok(#bytes_expr)
                     }
 
                     fn response_type(&self) -> Option<::grafton_visca::command::ResponseType> {
-                        match self {
-                            #(#response_type_arms)*
-                        }
+                        Some(::grafton_visca::command::ResponseType::#response_type)
                     }
 
                     fn command_category(&self) -> ::grafton_visca::timeout::CommandCategory {
@@ -99,14 +67,18 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                     }
                 }
 
-                impl #enum_name {
-                    #parse_response_impl
+                impl From<#struct_name> for ::grafton_visca::command::InquiryCommand {
+                    fn from(_: #struct_name) -> Self {
+                        ::grafton_visca::command::InquiryCommand::#inquiry_variant
+                    }
                 }
+
+                #parse_response_impl
             };
 
             expanded
         }
-        _ => syn::Error::new_spanned(&input, "InquiryCommand can only be derived for enums")
+        _ => syn::Error::new_spanned(&input, "InquiryCommand can only be derived for structs")
             .to_compile_error(),
     }
 }
@@ -117,6 +89,7 @@ struct ViscaAttributes {
     subcategory: Option<u8>,
     response_type: Option<Ident>,
     parser: Option<ParserInfo>,
+    inquiry_variant: Option<Ident>,
 }
 
 struct ParserInfo {
@@ -127,10 +100,10 @@ struct ParserInfo {
     custom_fn: Option<String>,
 }
 
-fn parse_visca_attributes(variant: &syn::Variant) -> ViscaAttributes {
+fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
     let mut attrs = ViscaAttributes::default();
 
-    for attr in &variant.attrs {
+    for attr in &input.attrs {
         if attr.path().is_ident("visca") {
             // Parse the attribute manually
             let tokens = attr
@@ -142,35 +115,52 @@ fn parse_visca_attributes(variant: &syn::Variant) -> ViscaAttributes {
             for part in token_str.split(',') {
                 let part = part.trim();
 
-                if part.contains("response") {
+                if part.contains("command") && !part.contains("sub_command") {
+                    let value = part
+                        .split('=')
+                        .nth(1)
+                        .expect("command must have a value")
+                        .trim();
+                    if value.starts_with("0x") {
+                        attrs.byte_value = Some(
+                            u8::from_str_radix(value.trim_start_matches("0x"), 16)
+                                .expect("command must be a valid hex u8"),
+                        );
+                    } else {
+                        attrs.byte_value =
+                            Some(value.parse::<u8>().expect("command must be a valid u8"));
+                    }
+                } else if part.contains("response") {
                     let value = part
                         .split('=')
                         .nth(1)
                         .expect("response must have a value")
-                        .trim();
-                    // Extract just the variant name, not the full type definition
-                    let variant_name = if value.contains('{') {
-                        value.split('{').next().unwrap().trim()
-                    } else if value.contains('(') {
-                        value.split('(').next().unwrap().trim()
-                    } else {
-                        value
-                    };
-                    attrs.response_type = Some(format_ident!("{}", variant_name));
-                } else if part.contains("subcategory") {
+                        .trim()
+                        .trim_matches('"');
+                    // For struct attributes, response should be a simple string
+                    attrs.response_type = Some(format_ident!("{}", value));
+                } else if part.contains("inquiry_variant") {
                     let value = part
                         .split('=')
                         .nth(1)
-                        .expect("subcategory must have a value")
+                        .expect("inquiry_variant must have a value")
+                        .trim()
+                        .trim_matches('"');
+                    attrs.inquiry_variant = Some(format_ident!("{}", value));
+                } else if part.contains("sub_command") {
+                    let value = part
+                        .split('=')
+                        .nth(1)
+                        .expect("sub_command must have a value")
                         .trim();
                     if value.starts_with("0x") {
                         attrs.subcategory = Some(
                             u8::from_str_radix(value.trim_start_matches("0x"), 16)
-                                .expect("subcategory must be a valid hex u8"),
+                                .expect("sub_command must be a valid hex u8"),
                         );
                     } else {
                         attrs.subcategory =
-                            Some(value.parse::<u8>().expect("subcategory must be a valid u8"));
+                            Some(value.parse::<u8>().expect("sub_command must be a valid u8"));
                     }
                 } else if part.contains("parser") {
                     let parser_value = part
@@ -230,12 +220,6 @@ fn parse_visca_attributes(variant: &syn::Variant) -> ViscaAttributes {
                     if let Some(ref mut parser) = attrs.parser {
                         parser.custom_fn = Some(value.to_string());
                     }
-                } else if part.starts_with("0x") || part.chars().all(|c| c.is_ascii_hexdigit()) {
-                    // This is the hex byte value
-                    attrs.byte_value = Some(
-                        u8::from_str_radix(part.trim_start_matches("0x"), 16)
-                            .expect("Invalid hex value"),
-                    );
                 }
             }
         }
@@ -244,12 +228,8 @@ fn parse_visca_attributes(variant: &syn::Variant) -> ViscaAttributes {
     attrs
 }
 
-fn generate_parser_arm(
-    variant_name: &Ident,
-    response_variant: &Ident,
-    parser_info: &ParserInfo,
-) -> TokenStream {
-    let parser_body = match parser_info.parser_type.as_str() {
+fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo) -> TokenStream {
+    match parser_info.parser_type.as_str() {
         "bool" => super::parser_templates::generate_bool_parser(response_variant),
         "direct_byte" | "byte" => {
             let field_name = format_ident!("value"); // Default field name
@@ -304,9 +284,5 @@ fn generate_parser_arm(
                 })
             }
         }
-    };
-
-    quote! {
-        Self::#variant_name => Ok(#parser_body),
     }
 }

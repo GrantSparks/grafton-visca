@@ -121,23 +121,26 @@ pub fn visca_test_suite(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Derive macro for generating InquiryCommand implementations with parser support
 ///
 /// This macro eliminates boilerplate by automatically generating the `Command` trait
-/// implementation with `to_bytes()`, `response_type()`, and `command_category()` methods.
+/// implementation with `to_bytes()`, `response_type()`, and `command_category()` methods,
+/// as well as a `From` conversion to the `InquiryCommand` enum.
 /// When parser attributes are provided, it also generates a `parse_response()` method.
 ///
 /// # Basic Usage
 ///
 /// ```rust,ignore
-/// #[derive(Debug, InquiryCommand, PartialEq)]
-/// enum MyInquiry {
-///     #[visca(0x00, response = Power)]
-///     Power,
-///     
-///     #[visca(0x47, response = ZoomPosition)]
-///     ZoomPos,
-///     
-///     #[visca(0x12, subcategory = 0x06, response = PanTiltPosition)]
-///     PanTiltPos,
-/// }
+/// use grafton_visca_macros::InquiryCommand;
+///
+/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[visca(command = 0x00, response = "Power", inquiry_variant = "Power")]
+/// struct PowerInquiry;
+///
+/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[visca(command = 0x47, response = "ZoomPosition", inquiry_variant = "ZoomPosition")]
+/// struct ZoomPositionInquiry;
+///
+/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[visca(command = 0x12, sub_command = 0x06, response = "PanTiltPosition", inquiry_variant = "PanTiltPosition")]
+/// struct PanTiltPositionInquiry;
 /// ```
 ///
 /// # With Response Parsing
@@ -145,20 +148,21 @@ pub fn visca_test_suite(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Add parser attributes to automatically generate response parsing:
 ///
 /// ```rust,ignore
-/// #[derive(Debug, InquiryCommand, PartialEq)]
-/// enum MyInquiry {
-///     #[visca(0x00, response = Power, parser = "bool")]
-///     Power,
+/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[visca(command = 0x00, response = "Power", inquiry_variant = "Power", parser = "bool")]
+/// struct PowerInquiry;
 ///
-///     #[visca(0x47, response = ZoomPosition, parser = "position")]
-///     ZoomPos,
+/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[visca(command = 0x47, response = "ZoomPosition", inquiry_variant = "ZoomPosition", parser = "position")]
+/// struct ZoomPositionInquiry;
 ///
-///     #[visca(0xA1, response = Luminance, parser = "byte")]
-///     Luminance,
+/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[visca(command = 0xA1, response = "Luminance", inquiry_variant = "Luminance", parser = "byte")]
+/// struct LuminanceInquiry;
 ///
-///     #[visca(0x44, response = RedGain, parser = "offset", field = "gain", offset = 10)]
-///     RedGain,
-/// }
+/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[visca(command = 0x44, response = "RedGain", inquiry_variant = "RedGain", parser = "offset", field = "gain", offset = 10)]
+/// struct RedGainInquiry;
 /// ```
 ///
 /// # Supported Parser Types
@@ -174,8 +178,10 @@ pub fn visca_test_suite(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Requirements
 ///
-/// The `response` attribute must reference existing variants in the `ResponseType`
-/// and `InquiryResponse` enums.
+/// - The struct must have the `#[visca(...)]` attribute with required fields
+/// - The `response` attribute must reference existing variants in the `ResponseType` enum
+/// - The `inquiry_variant` must reference existing variants in the `InquiryCommand` enum
+/// - The struct should implement `Debug`, `Copy`, and `Clone` for full compatibility
 #[proc_macro_derive(InquiryCommand, attributes(visca))]
 pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
