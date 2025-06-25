@@ -45,7 +45,7 @@ use syn::{parse_macro_input, DeriveInput};
 ///     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]",
 ///     model_constraints = "PTZOpticsG2"
 /// )]
-/// struct GainValue(u8);
+/// struct Gain(u8);
 /// ```
 pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

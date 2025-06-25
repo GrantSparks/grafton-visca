@@ -129,7 +129,7 @@ pub trait CameraProfile: Default + Send + Sync + std::fmt::Debug {
     type PresetId: Into<u8> + TryFrom<u8, Error = Error> + Copy + Display;
 
     /// Associated type for camera-specific gain values.
-    type GainValue: Into<u8> + TryFrom<u8, Error = Error> + Copy + Display;
+    type Gain: Into<u8> + TryFrom<u8, Error = Error> + Copy + Display;
 
     /// Get the maximum preset ID for this camera.
     fn max_preset_id() -> u8;

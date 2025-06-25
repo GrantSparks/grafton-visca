@@ -2,7 +2,7 @@
 
 use grafton_visca::{
     command::{GainCommand, PanTiltCommand, PanTiltDirection},
-    types::{GainValue, PanSpeed, TiltSpeed},
+    types::{Gain, PanSpeed, TiltSpeed},
     validate_all, Command, Error,
 };
 
@@ -18,12 +18,12 @@ fn run_examples() -> Result<(), Error> {
     // Example 1: ViscaValue macro with model constraints
     println!("1. ViscaValue macro with model_constraints attribute:");
 
-    // GainValue now has model_constraints = "PTZOpticsG2" in its derive
-    let gain = GainValue::new(0x05)?;
-    println!("  Created GainValue: {}", gain);
+    // Gain now has model_constraints = "PTZOpticsG2" in its derive
+    let gain = Gain::new(0x05)?;
+    println!("  Created Gain: {}", gain);
 
     // The macro generates G2_VALID_VALUES constant for backwards compatibility
-    println!("  G2 valid values: {:?}", GainValue::G2_VALID_VALUES);
+    println!("  G2 valid values: {:?}", Gain::G2_VALID_VALUES);
     println!("  Valid values include gain levels from 0dB (0x00) to 21dB (0x07)");
 
     // Use in a command
@@ -91,8 +91,8 @@ fn run_examples() -> Result<(), Error> {
 
     // Example 4: MIN/MAX constants generated for valid_values
     println!("4. MIN/MAX constants auto-generated from valid_values:");
-    println!("  GainValue::MIN = {:#02X}", GainValue::MIN.value());
-    println!("  GainValue::MAX = {:#02X}", GainValue::MAX.value());
+    println!("  Gain::MIN = {:#02X}", Gain::MIN.value());
+    println!("  Gain::MAX = {:#02X}", Gain::MAX.value());
 
     Ok(())
 }

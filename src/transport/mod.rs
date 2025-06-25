@@ -6,8 +6,8 @@
 //! ## Architecture
 //!
 //! The transport layer is designed with clear separation of concerns:
-//! - **Transport traits** (`blocking::Transport`, `AsyncTransport`) - Define I/O interfaces
-//! - **Transport** - Handles VISCA protocol logic (socket management, response correlation)
+//! - **Transport traits** (`blocking::BlockingTransport`, `AsyncTransport`) - Define I/O interfaces
+//! - **ViscaProtocol** - Handles VISCA protocol logic (socket management, response correlation)
 //! - **Implementations** - TCP, UDP, and custom transports
 //!
 //! ## Blocking Transport
@@ -43,10 +43,10 @@
 //! ## Custom Transports
 //!
 //! Implement the appropriate trait for your transport type:
-//! - `blocking::Transport` for blocking I/O
+//! - `blocking::BlockingTransport` for blocking I/O
 //! - `AsyncTransport` for async I/O
 //!
-//! The `Transport` wrapper handles all protocol details automatically.
+//! The `ViscaProtocol` wrapper handles all protocol details automatically.
 
 // Blocking transport module (always available)
 pub mod blocking;

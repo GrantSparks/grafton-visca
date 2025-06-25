@@ -155,23 +155,23 @@ mod value_tests {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
     #[visca_value(min = "0x00", max = "0x07", display_format = "hex")]
-    pub struct GainValue(u8);
+    pub struct Gain(u8);
 
     #[test]
     fn test_visca_value_macro() {
         // Test creation with valid value
-        let gain = GainValue::new(5).unwrap();
+        let gain = Gain::new(5).unwrap();
         assert_eq!(gain.value(), 5);
 
         // Test min/max values
-        assert!(GainValue::new(0).is_ok());
-        assert!(GainValue::new(7).is_ok());
+        assert!(Gain::new(0).is_ok());
+        assert!(Gain::new(7).is_ok());
 
         // Test out of range
-        assert!(GainValue::new(8).is_err());
+        assert!(Gain::new(8).is_err());
 
         // Test TryFrom
-        let gain2: GainValue = 3u8.try_into().unwrap();
+        let gain2: Gain = 3u8.try_into().unwrap();
         assert_eq!(gain2.value(), 3);
 
         // Test From

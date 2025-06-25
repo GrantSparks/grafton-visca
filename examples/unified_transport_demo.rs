@@ -91,8 +91,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // The new transport API has separate blocking and async interfaces
 // For transport-agnostic code, you would use either:
-// 1. Blocking: transport::blocking::ViscaTransport<T> where T: Transport
-// 2. Async: transport::ViscaTransport<T> where T: RawTransport
+// 1. Blocking: transport::blocking::ViscaProtocol<T> where T: BlockingTransport
+// 2. Async: transport::ViscaProtocol<T> where T: AsyncTransport
 //
 // This separation provides cleaner APIs for each use case without
 // forcing async overhead on blocking scenarios.

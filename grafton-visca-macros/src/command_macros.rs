@@ -225,8 +225,8 @@ fn generate_conversion(
     }
 
     if from_str == "u8" {
-        if to_str.contains("GainValue") {
-            return quote! { crate::types::GainValue::new(#param_name)? };
+        if to_str.contains("Gain") && !to_str.contains("GainLimit") {
+            return quote! { crate::types::Gain::new(#param_name)? };
         } else if to_str.contains("RedGain") {
             return quote! { crate::types::RedGain::new(#param_name)? };
         } else if to_str.contains("BlueGain") {

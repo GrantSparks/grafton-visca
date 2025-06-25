@@ -369,7 +369,7 @@ mod exposure_commands {
             gain::{AntiFlickerCommand, AntiFlickerMode, GainCommand, GainLimitCommand},
             image::BacklightCommand,
         },
-        types::{BrightnessLevel, GainLimit, GainValue, IrisLevel, ShutterSpeed},
+        types::{BrightnessLevel, Gain, GainLimit, IrisLevel, ShutterSpeed},
     };
 
     #[test]
@@ -463,7 +463,7 @@ mod exposure_commands {
 
         // Valid range: 0x00 to 0x07 (0-7)
         for value in 0x00..=0x07 {
-            assert_valid_for_g2(&GainCommand::SetValue(GainValue::new(value).unwrap()));
+            assert_valid_for_g2(&GainCommand::SetValue(Gain::new(value).unwrap()));
         }
     }
 

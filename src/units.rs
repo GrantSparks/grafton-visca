@@ -394,8 +394,8 @@ impl From<Raw<u8>> for TiltSpeed {
     }
 }
 
-// Conversion implementations for GainValue
-impl TryFrom<Percentage<f32>> for crate::types::GainValue {
+// Conversion implementations for Gain
+impl TryFrom<Percentage<f32>> for crate::types::Gain {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
@@ -409,13 +409,13 @@ impl TryFrom<Percentage<f32>> for crate::types::GainValue {
         }
         // Map percentage to gain levels (0-7)
         let value = (percentage.0 / 100.0 * 7.0).round() as u8;
-        crate::types::GainValue::new(value)
+        crate::types::Gain::new(value)
     }
 }
 
-impl From<Raw<u8>> for crate::types::GainValue {
+impl From<Raw<u8>> for crate::types::Gain {
     fn from(raw: Raw<u8>) -> Self {
-        crate::types::GainValue::new(raw.0).unwrap_or(crate::types::GainValue::MIN)
+        crate::types::Gain::new(raw.0).unwrap_or(crate::types::Gain::MIN)
     }
 }
 

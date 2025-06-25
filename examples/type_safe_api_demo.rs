@@ -13,7 +13,7 @@ fn main() {
 use grafton_visca::{
     camera::{profiles::PTZOpticsG2, Camera, CameraProfile},
     transport::blocking::create,
-    types::{GainLimit, GainValue},
+    types::{Gain, GainLimit},
 };
 #[cfg(not(feature = "async"))]
 use std::thread;
@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::camera::profiles::G2Gain;
 
     // PTZOpticsG2 has specific gain values
-    camera.set_gain(GainValue::new(G2Gain::Gain12dB as u8)?)?;
+    camera.set_gain(Gain::new(G2Gain::Gain12dB as u8)?)?;
     println!("   ✓ Set gain to 12dB (profile-specific value)");
 
     camera.set_gain_limit(GainLimit::new(6)?)?; // 18dB = value 6
