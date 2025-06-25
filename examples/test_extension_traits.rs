@@ -161,12 +161,8 @@ async fn main() -> Result<(), Error> {
     println!("\nTesting gain control...");
 
     // Set gain value
-    camera
-        .set_gain(grafton_visca::types::GainValue::new(0)?)
-        .await?; // 0dB gain
-    camera
-        .set_gain(grafton_visca::types::GainValue::new(4)?)
-        .await?; // 12dB gain
+    camera.set_gain(grafton_visca::types::Gain::new(0)?).await?; // 0dB gain
+    camera.set_gain(grafton_visca::types::Gain::new(4)?).await?; // 12dB gain
     camera.set_gain_limit(GainLimit::new(4)?).await?; // 12dB limit
 
     // Dynamic range and color temperature

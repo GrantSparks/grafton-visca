@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used)] // Tests can use unwrap
 use crate::command::*;
 use crate::types::{
-    BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, FocusPosition, GainLimit, GainValue,
+    BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, FocusPosition, Gain, GainLimit,
     HueLevel, IrisLevel, PanPosition, RedGain, RedTuning, SaturationLevel, ShutterSpeed,
     TiltPosition, ZoomPosition,
 };
@@ -499,7 +499,7 @@ mod golden_vector_tests {
         );
 
         // Gain Direct 7
-        let gain_7 = GainCommand::SetValue(GainValue::new(0x07).unwrap());
+        let gain_7 = GainCommand::SetValue(Gain::new(0x07).unwrap());
         assert_eq!(
             gain_7.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, 0x00, 0x07, 0xFF],

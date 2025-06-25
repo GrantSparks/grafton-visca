@@ -9,7 +9,7 @@ use crate::{
     constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
-    types::{GainLimit, GainValue},
+    types::{Gain, GainLimit},
 };
 
 /// Commands for controlling gain values.
@@ -27,15 +27,15 @@ pub enum GainCommand {
     /// Decrease value by one step.
     Down,
     /// Set gain to specific value.
-    SetValue(GainValue),
+    SetValue(Gain),
 }
 
 impl GainCommand {
     /// Create a direct gain command with value conversion.
-    pub fn direct<P: crate::camera::CameraProfile>(gain: P::GainValue) -> Result<Self, Error> {
+    pub fn direct<P: crate::camera::CameraProfile>(gain: P::Gain) -> Result<Self, Error> {
         let value: u8 = gain.into();
-        let gain_value = GainValue::new(value)?;
-        Ok(Self::SetValue(gain_value))
+        let gain = Gain::new(value)?;
+        Ok(Self::SetValue(gain))
     }
 }
 
@@ -198,8 +198,7 @@ mod tests {
         // Test various gain values
         let test_values = vec![0x00, 0x01, 0x03, 0x05, 0x07];
         for value in test_values {
-            let gain =
-                GainValue::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+            let gain = Gain::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainCommand::SetValue(gain);
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
@@ -215,14 +214,13 @@ mod tests {
     fn test_gain_command_g2_validation() {
         // Test valid G2 gain values (0x00-0x07)
         for value in 0x00..=0x07 {
-            let gain =
-                GainValue::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+            let gain = Gain::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainCommand::SetValue(gain);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
-        // GainValue itself is limited to 0x00-0x07, which are all valid for G2
-        // So all valid GainValue instances should pass G2 validation
+        // Gain itself is limited to 0x00-0x07, which are all valid for G2
+        // So all valid Gain instances should pass G2 validation
 
         // Non-direct commands should always be valid
         assert!(GainCommand::Reset
@@ -323,7 +321,7 @@ mod tests {
         assert_eq!(GainCommand::Down.command_category(), CommandCategory::Quick);
         assert_eq!(
             GainCommand::SetValue(
-                GainValue::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+                Gain::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
             .command_category(),
             CommandCategory::Quick
@@ -352,7 +350,7 @@ mod tests {
         assert!(GainCommand::Up.response_type().is_none());
         assert!(GainCommand::Down.response_type().is_none());
         assert!(GainCommand::SetValue(
-            GainValue::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            Gain::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
         .response_type()
         .is_none());
@@ -376,7 +374,7 @@ mod tests {
         assert!(debug_str.contains("Reset"));
 
         let cmd = GainCommand::SetValue(
-            GainValue::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            Gain::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
         );
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("SetValue"));

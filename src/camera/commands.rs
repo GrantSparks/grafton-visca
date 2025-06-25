@@ -30,7 +30,7 @@ use crate::{
     },
     types::{
         BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, ContrastLevel, FocusPosition,
-        GainLimit, GainValue, HueLevel, IrisLevel, LuminanceLevel, NoiseReduction2DLevel,
+        Gain, GainLimit, HueLevel, IrisLevel, LuminanceLevel, NoiseReduction2DLevel,
         NoiseReduction3DLevel, PanSpeed, RedGain, RedTuning, SaturationLevel, SharpnessLevel,
         ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition,
     },
@@ -296,7 +296,7 @@ camera_commands! {
     /// Set gain value with flexible parameter types.
     ///
     /// Accepts gain value as:
-    /// - `GainValue` - Direct gain type
+    /// - `Gain` - Direct gain type
     /// - `Percentage<f32>` - 0-100% of gain range (0-21dB)
     /// - `Raw<u8>` - Raw VISCA protocol value (0x00-0x07)
     ///
@@ -311,9 +311,9 @@ camera_commands! {
     /// camera.set_gain(Raw(0x04))?;
     ///
     /// // Using typed value
-    /// camera.set_gain(GainValue::new(0x03)?)?;
+    /// camera.set_gain(Gain::new(0x03)?)?;
     /// ```
-    pub fn set_gain<G>(value: G) where { G: TryInto<GainValue>, G::Error: Into<crate::Error> } => {
+    pub fn set_gain<G>(value: G) where { G: TryInto<Gain>, G::Error: Into<crate::Error> } => {
         let gain = value.try_into().map_err(Into::into)?;
         GainCommand::SetValue(gain)
     };

@@ -197,7 +197,7 @@ impl CameraProfile for CustomProfile {
     const MAX_TILT_SPEED: u8 = 20;
 
     type PresetId = GenericPresetId;
-    type GainValue = GenericGain;
+    type Gain = GenericGain;
 
     fn model_name(&self) -> &str {
         &self.model_name

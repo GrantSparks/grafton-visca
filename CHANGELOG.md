@@ -82,7 +82,7 @@ This release represents a major evolution of the library from a low-level VISCA 
   - `ViscaSession` → `Session`
   - `ViscaResponse` → `Response`
   - `ViscaCommand` → `Command` trait
-  - `ViscaTransport` → `Transport` trait
+  - `ViscaTransport` → `ViscaProtocol` struct
 
 - **Command Naming Improvements**:
   - **Zoom**: `Tele/Wide` terminology → `ZoomIn/ZoomOut` throughout
@@ -275,7 +275,7 @@ match result {
   - Command encoding (pan/tilt commands with validation)
 - **Demo Application**: Added `demo.rs` example showcasing all library features
 - **Documentation Improvements**:
-  - Added trait-level documentation for `ViscaTransport` and `ViscaCommand`
+  - Added trait-level documentation for `ViscaProtocol` and `ViscaCommand`
   - Added comprehensive function documentation for `send_command_and_wait`
   - Added struct-level documentation for transport types
   - Added enum documentation for response types

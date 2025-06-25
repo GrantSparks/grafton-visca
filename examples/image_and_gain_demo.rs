@@ -80,16 +80,12 @@ async fn main() -> Result<(), Error> {
     // Gain control
     println!("\n--- Gain Control ---");
     // Set gain value
-    camera
-        .set_gain(grafton_visca::types::GainValue::new(0)?)
-        .await?; // 0dB
+    camera.set_gain(grafton_visca::types::Gain::new(0)?).await?; // 0dB
     println!("Gain: Minimum (0 dB)");
     time::sleep(Duration::from_secs(1)).await;
 
     // Set gain value
-    camera
-        .set_gain(grafton_visca::types::GainValue::new(2)?)
-        .await?; // Increased gain
+    camera.set_gain(grafton_visca::types::Gain::new(2)?).await?; // Increased gain
     println!("Gain: Up x2");
     time::sleep(Duration::from_secs(1)).await;
 

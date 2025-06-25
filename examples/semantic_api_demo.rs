@@ -125,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Using Raw Values
     println!("\n10. Using Raw Values for Fine Control");
     println!("   Setting gain to raw value 0x04 (12dB)...");
-    camera.set_gain(GainValue::new(0x04)?)?;
+    camera.set_gain(Gain::new(0x04)?)?;
 
     println!("   Setting sharpness to raw value 5...");
     camera.set_sharpness(SharpnessLevel::new(5)?)?;
@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n11. Direct Type Usage");
 
     println!("   Setting gain with typed value...");
-    camera.set_gain(GainValue::new(0x05)?)?; // 15dB
+    camera.set_gain(Gain::new(0x05)?)?; // 15dB
 
     println!("   Setting sharpness with typed level...");
     camera.set_sharpness(SharpnessLevel::new(4)?)?;
@@ -156,7 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::{Camera, PTZOpticsG2},
         transport::tokio::Udp,
-        types::{BrightnessLevel, FocusPosition, GainValue, SharpnessLevel, ZoomPosition},
+        types::{BrightnessLevel, FocusPosition, Gain, SharpnessLevel, ZoomPosition},
         units::{Degrees, Fraction, Kelvin, Magnification, Percentage},
         FStop,
     };
@@ -278,7 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Using Raw Values
     println!("\n10. Using Raw Values for Fine Control");
     println!("   Setting gain to raw value 0x04 (12dB)...");
-    camera.set_gain(GainValue::new(0x04)?).await?;
+    camera.set_gain(Gain::new(0x04)?).await?;
 
     println!("   Setting sharpness to raw value 5...");
     camera.set_sharpness(SharpnessLevel::new(5)?).await?;
@@ -290,7 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n11. Direct Type Usage");
 
     println!("   Setting gain with typed value...");
-    camera.set_gain(GainValue::new(0x05)?).await?; // 15dB
+    camera.set_gain(Gain::new(0x05)?).await?; // 15dB
 
     println!("   Setting sharpness with typed level...");
     camera.set_sharpness(SharpnessLevel::new(4)?).await?;

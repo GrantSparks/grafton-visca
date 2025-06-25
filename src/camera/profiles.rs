@@ -139,7 +139,7 @@ impl CameraProfile for PTZOpticsG2 {
     const MAX_TILT_SPEED: u8 = 20;
 
     type PresetId = G2PresetId;
-    type GainValue = G2Gain;
+    type Gain = G2Gain;
 
     fn pan_units_to_degrees(&self, units: i16) -> f32 {
         // G2 has 340° total pan range (-170° to +170°)
@@ -269,7 +269,7 @@ impl CameraProfile for GenericVisca {
     const FOCUS_RANGE: RangeInclusive<u16> = 0x0000..=0xFFFF;
 
     type PresetId = GenericPresetId;
-    type GainValue = GenericGain;
+    type Gain = GenericGain;
 
     fn pan_units_to_degrees(&self, units: i16) -> f32 {
         // Assume ±180° for generic cameras
@@ -304,7 +304,7 @@ impl CameraProfile for PTZOptics30X {
     const MAX_TILT_SPEED: u8 = 14;
 
     type PresetId = GenericPresetId;
-    type GainValue = GenericGain;
+    type Gain = GenericGain;
 
     fn pan_units_to_degrees(&self, units: i16) -> f32 {
         // 30X has 360° pan range
@@ -339,7 +339,7 @@ impl CameraProfile for SonyEVID70 {
     const FOCUS_RANGE: RangeInclusive<u16> = 0x1000..=0xC000;
 
     type PresetId = GenericPresetId;
-    type GainValue = GenericGain;
+    type Gain = GenericGain;
 
     fn pan_units_to_degrees(&self, units: i16) -> f32 {
         // EVI-D70: ±100° pan

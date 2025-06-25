@@ -38,7 +38,7 @@ impl Default for SocketId {
     display_prefix = "Gain",
     model_constraints = "PTZOpticsG2"
 )]
-pub struct GainValue(u8);
+pub struct Gain(u8);
 
 /// Gain limit value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
@@ -195,12 +195,12 @@ mod tests {
 
     #[test]
     fn test_gain_value() {
-        assert!(GainValue::new(0x00).is_ok());
-        assert!(GainValue::new(0x07).is_ok());
-        assert!(GainValue::new(0x08).is_err());
+        assert!(Gain::new(0x00).is_ok());
+        assert!(Gain::new(0x07).is_ok());
+        assert!(Gain::new(0x08).is_err());
 
-        assert_eq!(GainValue::MIN.value(), 0x00);
-        assert_eq!(GainValue::MAX.value(), 0x07);
+        assert_eq!(Gain::MIN.value(), 0x00);
+        assert_eq!(Gain::MAX.value(), 0x07);
     }
 
     #[test]

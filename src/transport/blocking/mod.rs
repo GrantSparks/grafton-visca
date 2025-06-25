@@ -10,7 +10,7 @@ use crate::error::Error;
 /// Core blocking transport trait.
 ///
 /// Implement this trait to create new transport types for VISCA communication.
-/// This trait handles raw I/O operations; protocol logic is handled by ViscaTransport.
+/// This trait handles raw I/O operations; protocol logic is handled by ViscaProtocol.
 pub trait BlockingTransport: Send + Sync + std::fmt::Debug {
     /// Send raw bytes to the device.
     fn send(&mut self, data: &[u8]) -> Result<(), Error>;
