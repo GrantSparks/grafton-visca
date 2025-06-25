@@ -1,6 +1,6 @@
 //! # grafton-visca
 //!
-//! Rust library for VISCA-over-IP protocol to control PTZ cameras.
+//! Rust library for VISCA protocol to control PTZ cameras.
 #![deny(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -65,6 +65,24 @@ pub use units::{
     ViscaUnits,
 };
 
+// Procedural macro re-exports
+pub use grafton_visca_macros::{
+    visca_bounded_command,
+    visca_camera_method,
+    visca_command_variants,
+    visca_fallible_method,
+    visca_inquiry,
+    visca_method,
+    visca_method_custom,
+    visca_method_generic,
+    visca_mock_transport,
+    visca_position_command,
+    visca_speed_command,
+    visca_test_suite,
+    InquiryCommand,
+    ViscaValue,
+};
+
 /// Predefined camera profiles
 pub mod profiles {
     pub use crate::camera::profiles::{
@@ -77,8 +95,7 @@ pub mod profiles {
 
 // ## What is VISCA?
 //
-// VISCA (Video System Control Architecture) is Sony's protocol for controlling PTZ cameras
-// over IP. It is widely used in robotics, broadcasting, conferencing, and surveillance.
+// VISCA (Video System Control Architecture) is Sony's protocol for controlling PTZ cameras. It is widely used in robotics, broadcasting, conferencing, and surveillance.
 //
 // ## Features
 //
