@@ -11,8 +11,8 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput, ItemFn, ReturnType, Type};
 
-mod parser_templates;
 mod inquiry_command;
+mod parser_templates;
 
 /// A procedural macro for defining VISCA command methods with automatic
 /// async/sync generation.
@@ -2816,15 +2816,15 @@ fn generate_response_test(func: &syn::ItemFn, attr: &syn::Attribute) -> proc_mac
 
 /// Derive macro for generating InquiryCommand implementations with parser support
 ///
-/// This macro simplifies the creation of inquiry commands by automatically generating
-/// the `to_bytes()`, `response_type()`, and optionally `parse_response()` implementations
-/// based on attributes.
+/// This macro eliminates boilerplate by automatically generating the `Command` trait
+/// implementation with `to_bytes()`, `response_type()`, and `command_category()` methods.
+/// When parser attributes are provided, it also generates a `parse_response()` method.
 ///
-/// # Example
+/// # Basic Usage
 ///
 /// ```rust,ignore
 /// #[derive(Debug, InquiryCommand, PartialEq)]
-/// enum TestInquiry {
+/// enum MyInquiry {
 ///     #[visca(0x00, response = Power)]
 ///     Power,
 ///     
@@ -2836,11 +2836,13 @@ fn generate_response_test(func: &syn::ItemFn, attr: &syn::Attribute) -> proc_mac
 /// }
 /// ```
 ///
-/// # With Parser Support
+/// # With Response Parsing
+///
+/// Add parser attributes to automatically generate response parsing:
 ///
 /// ```rust,ignore
 /// #[derive(Debug, InquiryCommand, PartialEq)]
-/// enum EnhancedInquiry {
+/// enum MyInquiry {
 ///     #[visca(0x00, response = Power, parser = "bool")]
 ///     Power,
 ///
@@ -2854,6 +2856,22 @@ fn generate_response_test(func: &syn::ItemFn, attr: &syn::Attribute) -> proc_mac
 ///     RedGain,
 /// }
 /// ```
+///
+/// # Supported Parser Types
+///
+/// - `"bool"` - Boolean values (0x02 = true, 0x03 = false)
+/// - `"byte"` - Direct byte value
+/// - `"position"` - 4-nibble position value (converts to u16)
+/// - `"nibble"` - Extended nibble encoding
+/// - `"offset"` - Byte value with offset subtraction
+/// - `"flags"` - Bit flags (for image flip)
+/// - `"mode"` - Enum value parsing
+/// - `"pan_tilt"` - Special parser for pan/tilt positions
+///
+/// # Requirements
+///
+/// The `response` attribute must reference existing variants in the `ResponseType`
+/// and `InquiryResponse` enums.
 #[proc_macro_derive(InquiryCommand, attributes(visca))]
 pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

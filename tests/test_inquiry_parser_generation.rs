@@ -64,31 +64,31 @@ fn test_derive_with_parser_generates_methods() -> Result<(), Error> {
 #[test]
 fn test_parse_response_bool_parser() -> Result<(), Error> {
     let cmd = TestInquiryWithParser::Power;
-    
+
     // Test power on response
     let response = cmd.parse_response(&[0x02])?;
     match response {
         InquiryResponse::Power { on } => assert!(on, "Power should be on"),
         _ => panic!("Expected Power response, got {:?}", response),
     }
-    
+
     // Test power off response
     let response = cmd.parse_response(&[0x03])?;
     match response {
         InquiryResponse::Power { on } => assert!(!on, "Power should be off"),
         _ => panic!("Expected Power response, got {:?}", response),
     }
-    
+
     // Test invalid response
     assert!(cmd.parse_response(&[0x01]).is_err());
-    
+
     Ok(())
 }
 
 #[test]
 fn test_parse_response_position_parser() -> Result<(), Error> {
     let cmd = TestInquiryWithParser::ZoomPos;
-    
+
     // Test zoom position parsing - 0x1234 should become 0x1234
     let response = cmd.parse_response(&[0x01, 0x02, 0x03, 0x04])?;
     match response {
@@ -97,17 +97,17 @@ fn test_parse_response_position_parser() -> Result<(), Error> {
         }
         _ => panic!("Expected ZoomPosition response, got {:?}", response),
     }
-    
+
     // Test insufficient data
     assert!(cmd.parse_response(&[0x01, 0x02]).is_err());
-    
+
     Ok(())
 }
 
 #[test]
 fn test_parse_response_byte_parser() -> Result<(), Error> {
     let cmd = TestInquiryWithParser::Luminance;
-    
+
     // Test luminance value parsing
     let response = cmd.parse_response(&[0x7F])?;
     match response {
@@ -116,17 +116,17 @@ fn test_parse_response_byte_parser() -> Result<(), Error> {
         }
         _ => panic!("Expected Luminance response, got {:?}", response),
     }
-    
+
     // Test empty data
     assert!(cmd.parse_response(&[]).is_err());
-    
+
     Ok(())
 }
 
 #[test]
 fn test_parse_response_pan_tilt_parser() -> Result<(), Error> {
     let cmd = TestInquiryWithParser::PanTiltPos;
-    
+
     // Test pan/tilt position parsing
     // Pan: 0x1234, Tilt: 0x5678
     let response = cmd.parse_response(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08])?;
@@ -137,10 +137,10 @@ fn test_parse_response_pan_tilt_parser() -> Result<(), Error> {
         }
         _ => panic!("Expected PanTiltPosition response, got {:?}", response),
     }
-    
+
     // Test insufficient data
     assert!(cmd.parse_response(&[0x01, 0x02, 0x03, 0x04]).is_err());
-    
+
     Ok(())
 }
 
@@ -149,10 +149,10 @@ fn test_parse_response_pan_tilt_parser() -> Result<(), Error> {
 enum AdvancedInquiry {
     #[visca(0x42, response = Sharpness, parser = "nibble", field = "value")]
     Sharpness,
-    
+
     #[visca(0x44, response = RedGain, parser = "offset", field = "gain", offset = 10)]
     RedGain,
-    
+
     #[visca(0x66, response = ImageFlip, parser = "flags")]
     ImageFlip,
 }
@@ -160,7 +160,7 @@ enum AdvancedInquiry {
 #[test]
 fn test_parse_response_nibble_parser() -> Result<(), Error> {
     let cmd = AdvancedInquiry::Sharpness;
-    
+
     // Test nibble parsing - 0x3F should become 0x3F
     let response = cmd.parse_response(&[0x03, 0x0F])?;
     match response {
@@ -169,14 +169,14 @@ fn test_parse_response_nibble_parser() -> Result<(), Error> {
         }
         _ => panic!("Expected Sharpness response, got {:?}", response),
     }
-    
+
     Ok(())
 }
 
 #[test]
 fn test_parse_response_offset_parser() -> Result<(), Error> {
     let cmd = AdvancedInquiry::RedGain;
-    
+
     // Test offset parsing - 0x14 (20) - 10 = 10
     let response = cmd.parse_response(&[0x14])?;
     match response {
@@ -185,54 +185,66 @@ fn test_parse_response_offset_parser() -> Result<(), Error> {
         }
         _ => panic!("Expected RedGain response, got {:?}", response),
     }
-    
+
     Ok(())
 }
 
 #[test]
 fn test_parse_response_flags_parser() -> Result<(), Error> {
     let cmd = AdvancedInquiry::ImageFlip;
-    
+
     // Test bit flags parsing
     // 0x00 = both off
     let response = cmd.parse_response(&[0x00])?;
     match response {
-        InquiryResponse::ImageFlip { horizontal, vertical } => {
+        InquiryResponse::ImageFlip {
+            horizontal,
+            vertical,
+        } => {
             assert!(!horizontal, "Horizontal flip should be off");
             assert!(!vertical, "Vertical flip should be off");
         }
         _ => panic!("Expected ImageFlip response, got {:?}", response),
     }
-    
+
     // 0x01 = horizontal on
     let response = cmd.parse_response(&[0x01])?;
     match response {
-        InquiryResponse::ImageFlip { horizontal, vertical } => {
+        InquiryResponse::ImageFlip {
+            horizontal,
+            vertical,
+        } => {
             assert!(horizontal, "Horizontal flip should be on");
             assert!(!vertical, "Vertical flip should be off");
         }
         _ => panic!("Expected ImageFlip response, got {:?}", response),
     }
-    
+
     // 0x02 = vertical on
     let response = cmd.parse_response(&[0x02])?;
     match response {
-        InquiryResponse::ImageFlip { horizontal, vertical } => {
+        InquiryResponse::ImageFlip {
+            horizontal,
+            vertical,
+        } => {
             assert!(!horizontal, "Horizontal flip should be off");
             assert!(vertical, "Vertical flip should be on");
         }
         _ => panic!("Expected ImageFlip response, got {:?}", response),
     }
-    
+
     // 0x03 = both on
     let response = cmd.parse_response(&[0x03])?;
     match response {
-        InquiryResponse::ImageFlip { horizontal, vertical } => {
+        InquiryResponse::ImageFlip {
+            horizontal,
+            vertical,
+        } => {
             assert!(horizontal, "Horizontal flip should be on");
             assert!(vertical, "Vertical flip should be on");
         }
         _ => panic!("Expected ImageFlip response, got {:?}", response),
     }
-    
+
     Ok(())
 }

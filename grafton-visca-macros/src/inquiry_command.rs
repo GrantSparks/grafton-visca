@@ -13,15 +13,17 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
         syn::Data::Enum(enum_data) => {
             let enum_name = &input.ident;
             let variants = &enum_data.variants;
-            
+
             // Generate to_bytes match arms
             let to_bytes_arms = variants.iter().map(|variant| {
                 let variant_name = &variant.ident;
-                
+
                 // Parse visca attributes
                 let attrs = parse_visca_attributes(variant);
-                let byte_value = attrs.byte_value.expect("visca attribute must have a byte value");
-                
+                let byte_value = attrs
+                    .byte_value
+                    .expect("visca attribute must have a byte value");
+
                 if let Some(sub) = attrs.subcategory {
                     quote! {
                         Self::#variant_name => vec![0x81, 0x09, #sub, #byte_value, 0xFF],
@@ -32,13 +34,12 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                     }
                 }
             });
-            
+
             // Generate response_type match arms
             let response_type_arms = variants.iter().map(|variant| {
                 let variant_name = &variant.ident;
                 let attrs = parse_visca_attributes(variant);
                 let response_type = attrs.response_type.expect("visca attribute must have a response type");
-                
                 quote! {
                     Self::#variant_name => Some(::grafton_visca::command::ResponseType::#response_type),
                 }
@@ -48,7 +49,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             let parser_arms = variants.iter().filter_map(|variant| {
                 let variant_name = &variant.ident;
                 let attrs = parse_visca_attributes(variant);
-                
+
                 // Only generate parser if parser attribute is present
                 attrs.parser.as_ref().map(|parser_info| {
                     let response_variant = &attrs.response_type.expect("response type required");
@@ -64,7 +65,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                         if data.is_empty() {
                             return Err(::grafton_visca::Error::InvalidResponseLength);
                         }
-                        
+
                         match self {
                             #(#parser_arms)*
                             _ => Err(::grafton_visca::Error::InvalidResponse {
@@ -77,7 +78,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             } else {
                 quote! {}
             };
-            
+
             let expanded = quote! {
                 impl ::grafton_visca::command::Command for #enum_name {
                     fn to_bytes(&self) -> Result<Vec<u8>, ::grafton_visca::Error> {
@@ -86,13 +87,13 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                         };
                         Ok(bytes)
                     }
-                    
+
                     fn response_type(&self) -> Option<::grafton_visca::command::ResponseType> {
                         match self {
                             #(#response_type_arms)*
                         }
                     }
-                    
+
                     fn command_category(&self) -> ::grafton_visca::timeout::CommandCategory {
                         ::grafton_visca::timeout::CommandCategory::Quick
                     }
@@ -102,7 +103,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                     #parse_response_impl
                 }
             };
-            
+
             expanded
         }
         _ => syn::Error::new_spanned(&input, "InquiryCommand can only be derived for enums")
@@ -128,40 +129,57 @@ struct ParserInfo {
 
 fn parse_visca_attributes(variant: &syn::Variant) -> ViscaAttributes {
     let mut attrs = ViscaAttributes::default();
-    
+
     for attr in &variant.attrs {
         if attr.path().is_ident("visca") {
             // Parse the attribute manually
-            let tokens = attr.parse_args::<proc_macro2::TokenStream>()
+            let tokens = attr
+                .parse_args::<proc_macro2::TokenStream>()
                 .expect("Failed to parse visca attribute");
             let token_str = tokens.to_string();
-            
+
             // Split by comma and parse each part
             for part in token_str.split(',') {
                 let part = part.trim();
-                
+
                 if part.contains("response") {
-                    let value = part.split('=').nth(1)
+                    let value = part
+                        .split('=')
+                        .nth(1)
                         .expect("response must have a value")
                         .trim();
-                    attrs.response_type = Some(format_ident!("{}", value));
+                    // Extract just the variant name, not the full type definition
+                    let variant_name = if value.contains('{') {
+                        value.split('{').next().unwrap().trim()
+                    } else if value.contains('(') {
+                        value.split('(').next().unwrap().trim()
+                    } else {
+                        value
+                    };
+                    attrs.response_type = Some(format_ident!("{}", variant_name));
                 } else if part.contains("subcategory") {
-                    let value = part.split('=').nth(1)
+                    let value = part
+                        .split('=')
+                        .nth(1)
                         .expect("subcategory must have a value")
                         .trim();
                     if value.starts_with("0x") {
-                        attrs.subcategory = Some(u8::from_str_radix(value.trim_start_matches("0x"), 16)
-                            .expect("subcategory must be a valid hex u8"));
+                        attrs.subcategory = Some(
+                            u8::from_str_radix(value.trim_start_matches("0x"), 16)
+                                .expect("subcategory must be a valid hex u8"),
+                        );
                     } else {
-                        attrs.subcategory = Some(value.parse::<u8>()
-                            .expect("subcategory must be a valid u8"));
+                        attrs.subcategory =
+                            Some(value.parse::<u8>().expect("subcategory must be a valid u8"));
                     }
                 } else if part.contains("parser") {
-                    let parser_value = part.split('=').nth(1)
+                    let parser_value = part
+                        .split('=')
+                        .nth(1)
                         .expect("parser must have a value")
                         .trim()
                         .trim_matches('"');
-                    
+
                     let parser_info = ParserInfo {
                         parser_type: parser_value.to_string(),
                         field_name: None,
@@ -169,11 +187,13 @@ fn parse_visca_attributes(variant: &syn::Variant) -> ViscaAttributes {
                         mode_type: None,
                         custom_fn: None,
                     };
-                    
+
                     // Continue parsing for additional parser attributes
                     attrs.parser = Some(parser_info);
                 } else if part.contains("field") && attrs.parser.is_some() {
-                    let value = part.split('=').nth(1)
+                    let value = part
+                        .split('=')
+                        .nth(1)
                         .expect("field must have a value")
                         .trim()
                         .trim_matches('"');
@@ -181,15 +201,19 @@ fn parse_visca_attributes(variant: &syn::Variant) -> ViscaAttributes {
                         parser.field_name = Some(value.to_string());
                     }
                 } else if part.contains("offset") && attrs.parser.is_some() {
-                    let value = part.split('=').nth(1)
+                    let value = part
+                        .split('=')
+                        .nth(1)
                         .expect("offset must have a value")
                         .trim();
                     if let Some(ref mut parser) = attrs.parser {
-                        parser.offset = Some(value.parse::<i8>()
-                            .expect("offset must be a valid i8"));
+                        parser.offset =
+                            Some(value.parse::<i8>().expect("offset must be a valid i8"));
                     }
                 } else if part.contains("type") && attrs.parser.is_some() {
-                    let value = part.split('=').nth(1)
+                    let value = part
+                        .split('=')
+                        .nth(1)
                         .expect("type must have a value")
                         .trim()
                         .trim_matches('"');
@@ -197,7 +221,9 @@ fn parse_visca_attributes(variant: &syn::Variant) -> ViscaAttributes {
                         parser.mode_type = Some(value.to_string());
                     }
                 } else if part.contains("custom_fn") && attrs.parser.is_some() {
-                    let value = part.split('=').nth(1)
+                    let value = part
+                        .split('=')
+                        .nth(1)
                         .expect("custom_fn must have a value")
                         .trim()
                         .trim_matches('"');
@@ -206,13 +232,15 @@ fn parse_visca_attributes(variant: &syn::Variant) -> ViscaAttributes {
                     }
                 } else if part.starts_with("0x") || part.chars().all(|c| c.is_ascii_hexdigit()) {
                     // This is the hex byte value
-                    attrs.byte_value = Some(u8::from_str_radix(part.trim_start_matches("0x"), 16)
-                        .expect("Invalid hex value"));
+                    attrs.byte_value = Some(
+                        u8::from_str_radix(part.trim_start_matches("0x"), 16)
+                            .expect("Invalid hex value"),
+                    );
                 }
             }
         }
     }
-    
+
     attrs
 }
 
@@ -229,28 +257,38 @@ fn generate_parser_arm(
         }
         "position" => super::parser_templates::generate_position_parser(response_variant),
         "extended_nibble" | "nibble" => {
-            let field_name = parser_info.field_name.as_deref()
+            let field_name = parser_info
+                .field_name
+                .as_deref()
                 .map(|s| format_ident!("{}", s))
                 .unwrap_or_else(|| format_ident!("value"));
             super::parser_templates::generate_extended_nibble_parser(response_variant, &field_name)
         }
         "offset" => {
-            let field_name = parser_info.field_name.as_deref()
+            let field_name = parser_info
+                .field_name
+                .as_deref()
                 .map(|s| format_ident!("{}", s))
                 .unwrap_or_else(|| format_ident!("value"));
             let offset = parser_info.offset.unwrap_or(0);
             super::parser_templates::generate_offset_parser(response_variant, &field_name, offset)
         }
-        "flags" | "bit_flags" => super::parser_templates::generate_bit_flags_parser(response_variant),
+        "flags" | "bit_flags" => {
+            super::parser_templates::generate_bit_flags_parser(response_variant)
+        }
         "mode" | "mode_enum" => {
-            let mode_type = parser_info.mode_type.as_deref()
+            let mode_type = parser_info
+                .mode_type
+                .as_deref()
                 .map(|s| format_ident!("{}", s))
                 .expect("mode parser requires type attribute");
             super::parser_templates::generate_mode_enum_parser(response_variant, &mode_type)
         }
         "pan_tilt" => super::parser_templates::generate_pan_tilt_parser(response_variant),
         "custom" => {
-            let custom_fn = parser_info.custom_fn.as_deref()
+            let custom_fn = parser_info
+                .custom_fn
+                .as_deref()
                 .map(|s| format_ident!("{}", s))
                 .expect("custom parser requires custom_fn attribute");
             quote! {
@@ -267,7 +305,7 @@ fn generate_parser_arm(
             }
         }
     };
-    
+
     quote! {
         Self::#variant_name => Ok(#parser_body),
     }
