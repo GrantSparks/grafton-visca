@@ -276,6 +276,8 @@ pub use grafton_visca_macros::{
     visca_position_command, visca_speed_command, visca_test_suite, InquiryCommand, ViscaValue,
 };
 
+// Macros are already exported with #[macro_export] so we don't need to re-export them
+
 /// Camera profiles for common models
 pub mod profiles {
     pub use crate::camera::profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};

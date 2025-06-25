@@ -66,19 +66,19 @@ impl Command for GainCommand {
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
             Self::SetValue(gain) => {
-                if matches!(model, CameraModel::PTZOpticsG2)
-                    && !GainValue::G2_VALID_VALUES.contains(&gain.value())
-                {
-                    return Err(Error::ModelValidation {
+                gain.validate_for_model(model)
+                    .map_err(|_| Error::ModelValidation {
                         model,
                         command: "GainDirect".to_string(),
                         reason: format!(
-                            "Gain value {:#02X} is not valid for G2. Valid values: 0x00-0x07",
-                            gain.value()
+                            "Gain value {:#02X} is not valid for {}",
+                            gain.value(),
+                            match model {
+                                CameraModel::PTZOpticsG2 => "G2 (valid values: 0x00-0x07)",
+                                _ => "this camera model",
+                            }
                         ),
-                    });
-                }
-                Ok(())
+                    })
             }
             _ => Ok(()),
         }
@@ -106,20 +106,20 @@ impl Command for GainLimitCommand {
     }
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match model {
-            CameraModel::PTZOpticsG2 => {
-                let value = self.limit.value();
-                if !GainLimit::G2_VALID_VALUES.contains(&value) {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "GainLimit".to_string(),
-                        reason: format!("Value {value:#02X} not supported on G2 cameras"),
-                    });
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        }
+        self.limit
+            .validate_for_model(model)
+            .map_err(|_| Error::ModelValidation {
+                model,
+                command: "GainLimit".to_string(),
+                reason: format!(
+                    "Gain limit value {:#02X} is not valid for {}",
+                    self.limit.value(),
+                    match model {
+                        CameraModel::PTZOpticsG2 => "G2 (valid values: 0x0-0xF)",
+                        _ => "this camera model",
+                    }
+                ),
+            })
     }
 }
 

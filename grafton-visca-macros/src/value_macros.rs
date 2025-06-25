@@ -18,6 +18,7 @@ use syn::{parse_macro_input, DeriveInput};
 /// - `MIN` and `MAX` constants when bounds are specified
 /// - `TryFrom` and `From` trait implementations
 /// - `Display` implementation with configurable formatting
+/// - Model-specific validation when `model_constraints` is specified
 ///
 /// # Attributes
 ///
@@ -26,6 +27,7 @@ use syn::{parse_macro_input, DeriveInput};
 /// - `valid_values` - List of valid values (alternative to min/max)
 /// - `display_format` - Display format: "hex", "binary", or "decimal" (default)
 /// - `display_prefix` - Optional prefix for display output
+/// - `model_constraints` - Camera models that require validation (e.g., "PTZOpticsG2")
 ///
 /// # Example
 ///
@@ -37,6 +39,13 @@ use syn::{parse_macro_input, DeriveInput};
 /// #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 /// #[visca_value(valid_values = "[0x02, 0x03]", display_format = "hex")]
 /// struct PowerState(u8);
+///
+/// #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+/// #[visca_value(
+///     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]",
+///     model_constraints = "PTZOpticsG2"
+/// )]
+/// struct GainValue(u8);
 /// ```
 pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -71,6 +80,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     let mut valid_values = None;
     let mut display_format = "decimal";
     let mut display_prefix = "";
+    let mut model_constraints = None;
 
     for attr in &input.attrs {
         if attr.path().is_ident("visca_value") {
@@ -99,6 +109,9 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
                 } else if meta.path.is_ident("display_prefix") {
                     let value: syn::LitStr = meta.value()?.parse()?;
                     display_prefix = Box::leak(value.value().into_boxed_str());
+                } else if meta.path.is_ident("model_constraints") {
+                    let value: syn::LitStr = meta.value()?.parse()?;
+                    model_constraints = Some(value.value());
                 }
                 Ok(())
             });
@@ -149,6 +162,39 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             /// Maximum value.
             pub const MAX: Self = Self(#max_tokens);
         }
+    } else if let Some(valid_list) = &valid_values {
+        // When we have valid_values, compute MIN and MAX from the list
+        let values_tokens: proc_macro2::TokenStream =
+            valid_list.parse().unwrap_or_else(|_| quote! { &[] });
+        quote! {
+            /// Minimum value (computed from valid values).
+            pub const MIN: Self = {
+                let arr = #values_tokens;
+                let mut min = arr[0];
+                let mut i = 1;
+                while i < arr.len() {
+                    if arr[i] < min {
+                        min = arr[i];
+                    }
+                    i += 1;
+                }
+                Self(min)
+            };
+
+            /// Maximum value (computed from valid values).
+            pub const MAX: Self = {
+                let arr = #values_tokens;
+                let mut max = arr[0];
+                let mut i = 1;
+                while i < arr.len() {
+                    if arr[i] > max {
+                        max = arr[i];
+                    }
+                    i += 1;
+                }
+                Self(max)
+            };
+        }
     } else {
         quote! {}
     };
@@ -190,9 +236,58 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Generate model-specific validation method if constraints are provided
+    let model_validation = if let Some(constraints) = &model_constraints {
+        // Parse model constraints - format: "PTZOpticsG2" or "PTZOpticsG2|PTZOpticsG3"
+        let models: Vec<&str> = constraints.split('|').collect();
+        let model_checks = models
+            .iter()
+            .map(|model| {
+                let model_ident = quote::format_ident!("{}", model);
+                quote! {
+                    crate::constants::CameraModel::#model_ident
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Generate the G2_VALID_VALUES constant for backwards compatibility
+        let g2_constant = if models.contains(&"PTZOpticsG2") && valid_values.is_some() {
+            let values_tokens: proc_macro2::TokenStream = valid_values
+                .as_ref()
+                .unwrap()
+                .parse()
+                .unwrap_or_else(|_| quote! { &[] });
+            quote! {
+                /// Valid values for PTZOptics G2 cameras.
+                pub const G2_VALID_VALUES: &'static [#inner_type] = &#values_tokens;
+            }
+        } else {
+            quote! {}
+        };
+
+        quote! {
+            #g2_constant
+
+            /// Validate the value for a specific camera model.
+            ///
+            /// # Errors
+            /// Returns an error if the value is not valid for the given camera model.
+            pub fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), crate::Error> {
+                if matches!(model, #(#model_checks)|*) {
+                    // Re-run validation for this model
+                    Self::new(self.value())?;
+                }
+                Ok(())
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         impl #name {
             #constants
+            #model_validation
 
             /// Create a new value with validation.
             ///

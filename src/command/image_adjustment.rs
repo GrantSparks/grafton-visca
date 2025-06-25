@@ -77,22 +77,29 @@ impl Command for SharpnessCommand {
     }
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        use crate::types::SharpnessLevel;
-
         match self {
             Self::SetLevel { value } => {
-                if matches!(model, CameraModel::PTZOpticsG2)
-                    && !SharpnessLevel::G2_VALID_VALUES.contains(value)
-                {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "SharpnessSetLevel".to_string(),
-                        reason: format!(
-                            "Sharpness value {value} is not valid for G2. Valid values: 0-11"
-                        ),
-                    });
+                // Create a temporary SharpnessLevel to validate against model
+                if let Ok(level) = crate::types::SharpnessLevel::new(*value) {
+                    level
+                        .validate_for_model(model)
+                        .map_err(|_| Error::ModelValidation {
+                            model,
+                            command: "SharpnessSetLevel".to_string(),
+                            reason: format!(
+                                "Sharpness value {value} is not valid for {}",
+                                match model {
+                                    CameraModel::PTZOpticsG2 => "G2 (valid values: 0-11)",
+                                    _ => "this camera model",
+                                }
+                            ),
+                        })
+                } else {
+                    // If value is invalid for SharpnessLevel in general, it's an error
+                    Err(Error::InvalidParameter(format!(
+                        "Sharpness value {value} is out of range (0-11)"
+                    )))
                 }
-                Ok(())
             }
             _ => Ok(()),
         }
@@ -130,20 +137,20 @@ impl Command for LuminanceCommand {
     }
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match model {
-            CameraModel::PTZOpticsG2 => {
-                let value = self.value.value();
-                if !LuminanceLevel::G2_VALID_VALUES.contains(&value) {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "Luminance".to_string(),
-                        reason: format!("Value {value:#02X} not supported on G2 cameras"),
-                    });
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        }
+        self.value
+            .validate_for_model(model)
+            .map_err(|_| Error::ModelValidation {
+                model,
+                command: "Luminance".to_string(),
+                reason: format!(
+                    "Luminance value {:#02X} is not valid for {}",
+                    self.value.value(),
+                    match model {
+                        CameraModel::PTZOpticsG2 => "G2 (valid values: 0x0-0xE)",
+                        _ => "this camera model",
+                    }
+                ),
+            })
     }
 }
 
@@ -178,20 +185,20 @@ impl Command for ContrastCommand {
     }
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match model {
-            CameraModel::PTZOpticsG2 => {
-                let value = self.value.value();
-                if !ContrastLevel::G2_VALID_VALUES.contains(&value) {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "Contrast".to_string(),
-                        reason: format!("Value {value:#02X} not supported on G2 cameras"),
-                    });
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        }
+        self.value
+            .validate_for_model(model)
+            .map_err(|_| Error::ModelValidation {
+                model,
+                command: "Contrast".to_string(),
+                reason: format!(
+                    "Contrast value {:#02X} is not valid for {}",
+                    self.value.value(),
+                    match model {
+                        CameraModel::PTZOpticsG2 => "G2 (valid values: 0x0-0xE)",
+                        _ => "this camera model",
+                    }
+                ),
+            })
     }
 }
 

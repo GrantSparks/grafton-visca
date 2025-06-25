@@ -216,25 +216,29 @@ impl PanTiltCommand {
         let safe_pan_speed = pan_speed.min(P::MAX_PAN_SPEED);
         let safe_tilt_speed = tilt_speed.min(P::MAX_TILT_SPEED);
 
+        let (pan_speed, tilt_speed) = crate::validate_all! {
+            pan_speed: PanSpeed::new(safe_pan_speed),
+            tilt_speed: TiltSpeed::new(safe_tilt_speed),
+        }?;
+
         Ok(Self::Move {
             direction,
-            pan_speed: PanSpeed::new(safe_pan_speed).map_err(|_| {
-                Error::InvalidParameter(format!("Invalid pan speed: {}", safe_pan_speed))
-            })?,
-            tilt_speed: TiltSpeed::new(safe_tilt_speed).map_err(|_| {
-                Error::InvalidParameter(format!("Invalid tilt speed: {}", safe_tilt_speed))
-            })?,
+            pan_speed,
+            tilt_speed,
         })
     }
 
     /// Create a stop command.
     pub fn stop() -> Result<Self, Error> {
+        let (pan_speed, tilt_speed) = crate::validate_all! {
+            pan_speed: PanSpeed::new(0),
+            tilt_speed: TiltSpeed::new(0),
+        }?;
+
         Ok(Self::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0)
-                .map_err(|_| Error::InvalidParameter("Invalid pan speed: 0".to_string()))?,
-            tilt_speed: TiltSpeed::new(0)
-                .map_err(|_| Error::InvalidParameter("Invalid tilt speed: 0".to_string()))?,
+            pan_speed,
+            tilt_speed,
         })
     }
 }

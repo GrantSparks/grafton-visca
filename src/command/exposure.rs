@@ -307,19 +307,20 @@ impl Command for IrisCommand {
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
             Self::SetAperture(level) => {
-                if matches!(model, CameraModel::PTZOpticsG2)
-                    && !IrisLevel::G2_VALID_VALUES.contains(&level.value())
-                {
-                    return Err(Error::ModelValidation {
+                level
+                    .validate_for_model(model)
+                    .map_err(|_| Error::ModelValidation {
                         model,
                         command: "IrisLevel".to_string(),
                         reason: format!(
-                            "Iris level value {:#02X} is not valid for G2. Valid values: 0x00-0x0C",
-                            level.value()
+                            "Iris level value {:#02X} is not valid for {}",
+                            level.value(),
+                            match model {
+                                CameraModel::PTZOpticsG2 => "G2 (valid values: 0x00-0x0C)",
+                                _ => "this camera model",
+                            }
                         ),
-                    });
-                }
-                Ok(())
+                    })
             }
             _ => Ok(()),
         }
@@ -373,19 +374,20 @@ impl Command for ShutterCommand {
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
         match self {
             Self::SetSpeed(speed) => {
-                if matches!(model, CameraModel::PTZOpticsG2)
-                    && !ShutterSpeed::G2_VALID_VALUES.contains(&speed.value())
-                {
-                    return Err(Error::ModelValidation {
+                speed
+                    .validate_for_model(model)
+                    .map_err(|_| Error::ModelValidation {
                         model,
                         command: "ShutterSpeed".to_string(),
                         reason: format!(
-                            "Shutter speed value {:#04X} is not valid for G2. Valid values: 0x01-0x11",
-                            speed.value()
+                            "Shutter speed value {:#04X} is not valid for {}",
+                            speed.value(),
+                            match model {
+                                CameraModel::PTZOpticsG2 => "G2 (valid values: 0x01-0x11)",
+                                _ => "this camera model",
+                            }
                         ),
-                    });
-                }
-                Ok(())
+                    })
             }
             _ => Ok(()),
         }
@@ -429,17 +431,22 @@ impl Command for BrightCommand {
     }
 
     fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match (self, model) {
-            (Self::SetLevel(level), CameraModel::PTZOpticsG2) => {
-                let value = level.value();
-                if !BrightnessLevel::G2_VALID_VALUES.contains(&value) {
-                    return Err(Error::ModelValidation {
+        match self {
+            Self::SetLevel(level) => {
+                level
+                    .validate_for_model(model)
+                    .map_err(|_| Error::ModelValidation {
                         model,
                         command: "BrightDirect".to_string(),
-                        reason: format!("Value {value:#04X} not supported on G2 cameras"),
-                    });
-                }
-                Ok(())
+                        reason: format!(
+                            "Brightness value {:#04X} is not valid for {}",
+                            level.value(),
+                            match model {
+                                CameraModel::PTZOpticsG2 => "G2 (valid values: 0x00-0x11)",
+                                _ => "this camera model",
+                            }
+                        ),
+                    })
             }
             _ => Ok(()),
         }
