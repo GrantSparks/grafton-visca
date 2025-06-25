@@ -733,6 +733,47 @@ macro_rules! define_generic_camera_methods {
     };
 }
 
+/// Validate multiple parameters in a single expression.
+///
+/// This macro simplifies the common pattern of validating multiple parameters
+/// with consistent error handling. It converts validation errors to InvalidParameter
+/// errors with descriptive messages.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::validate_all;
+///
+/// fn continuous_move(pan_speed: u8, tilt_speed: u8) -> Result<Self, Error> {
+///     let (pan_speed, tilt_speed) = validate_all! {
+///         pan_speed: PanSpeed::new(pan_speed),
+///         tilt_speed: TiltSpeed::new(tilt_speed),
+///     }?;
+///     
+///     Ok(Self::Move {
+///         direction: PanTiltDirection::Up,
+///         pan_speed,
+///         tilt_speed,
+///     })
+/// }
+/// ```
+#[macro_export]
+macro_rules! validate_all {
+    (
+        $($field:ident : $constructor:expr),+ $(,)?
+    ) => {{
+        {
+            $(
+                let $field = $constructor.map_err(|_| {
+                    $crate::Error::InvalidParameter(
+                        concat!("Invalid ", stringify!($field)).to_string()
+                    )
+                })?;
+            )+
+            Ok::<_, $crate::Error>(($($field),+))
+        }
+    }};
+}
+
 /// Create VISCA commands with boolean on/off parameters.
 ///
 /// This macro generates commands that have a simple boolean parameter
