@@ -358,7 +358,6 @@ pub fn visca_fallible_method(_attr: TokenStream, item: TokenStream) -> TokenStre
     TokenStream::from(expanded)
 }
 
-
 /// A macro for defining inquiry methods that return values from the camera.
 ///
 /// # Example

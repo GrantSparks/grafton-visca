@@ -118,7 +118,6 @@ pub fn visca_test_suite(attr: TokenStream, item: TokenStream) -> TokenStream {
     test_macros::visca_test_suite(attr, item)
 }
 
-
 /// Derive macro for generating InquiryCommand implementations with parser support
 ///
 /// This macro eliminates boilerplate by automatically generating the `Command` trait
