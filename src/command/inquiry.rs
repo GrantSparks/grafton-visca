@@ -5,7 +5,9 @@
 
 // Crate imports
 use crate::{
-    command::{Command, ResponseType},
+    command::{
+        inquiry_structs::*, Command, InquiryResponse, ResponseType,
+    },
     error::Error,
     timeout::CommandCategory,
 };
@@ -87,86 +89,124 @@ pub enum InquiryCommand {
 
 impl Command for InquiryCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let bytes = match self {
-            Self::Power => vec![0x81, 0x09, 0x04, 0x00, 0xFF],
-            Self::PanTiltPosition => vec![0x81, 0x09, 0x06, 0x12, 0xFF],
-            Self::ZoomPosition => vec![0x81, 0x09, 0x04, 0x47, 0xFF],
-            Self::FocusPosition => vec![0x81, 0x09, 0x04, 0x48, 0xFF],
-            Self::ExposureMode => vec![0x81, 0x09, 0x04, 0x39, 0xFF],
-            Self::WhiteBalanceMode => vec![0x81, 0x09, 0x04, 0x35, 0xFF],
-            Self::Luminance => vec![0x81, 0x09, 0x04, 0xA1, 0xFF],
-            Self::Contrast => vec![0x81, 0x09, 0x04, 0xA2, 0xFF],
-            // New inquiry commands
-            Self::Sharpness => vec![0x81, 0x09, 0x04, 0x42, 0xFF],
-            Self::ExposureCompensation => vec![0x81, 0x09, 0x04, 0x4E, 0xFF],
-            Self::ExposureCompensationMode => vec![0x81, 0x09, 0x04, 0x3E, 0xFF],
-            Self::Iris => vec![0x81, 0x09, 0x04, 0x4B, 0xFF],
-            Self::Shutter => vec![0x81, 0x09, 0x04, 0x4A, 0xFF],
-            Self::Bright => vec![0x81, 0x09, 0x04, 0x4D, 0xFF],
-            Self::Gain => vec![0x81, 0x09, 0x04, 0x4C, 0xFF],
-            Self::GainLimit => vec![0x81, 0x09, 0x04, 0x2C, 0xFF],
-            Self::AntiFlicker => vec![0x81, 0x09, 0x04, 0x23, 0xFF],
-            Self::Saturation => vec![0x81, 0x09, 0x04, 0x49, 0xFF],
-            Self::Hue => vec![0x81, 0x09, 0x04, 0x4F, 0xFF],
-            Self::RedGain => vec![0x81, 0x09, 0x0A, 0x12, 0xFF],
-            Self::BlueGain => vec![0x81, 0x09, 0x0A, 0x13, 0xFF],
-            Self::Backlight => vec![0x81, 0x09, 0x04, 0x33, 0xFF],
-            Self::ImageFlip => vec![0x81, 0x09, 0x04, 0x61, 0xFF],
-            // Additional inquiry commands
-            Self::SharpnessMode => vec![0x81, 0x09, 0x04, 0x05, 0xFF],
-            Self::ColorTemperature => vec![0x81, 0x09, 0x04, 0x20, 0xFF],
-            Self::NoiseReduction2D => vec![0x81, 0x09, 0x04, 0x53, 0xFF],
-            Self::NoiseReduction3D => vec![0x81, 0x09, 0x04, 0x54, 0xFF],
-            Self::BlackWhite => vec![0x81, 0x09, 0x04, 0x01, 0xFF],
-            Self::FocusZone => vec![0x81, 0x09, 0x04, 0x3C, 0xFF],
-            Self::AutoFocusSensitivity => vec![0x81, 0x09, 0x04, 0x58, 0xFF],
-            Self::FocusNearLimit => vec![0x81, 0x09, 0x04, 0x28, 0xFF],
-            Self::DynamicRange => vec![0x81, 0x09, 0x04, 0x25, 0xFF],
-        };
-        Ok(bytes)
+        match self {
+            Self::Power => PowerInquiry.to_bytes(),
+            Self::PanTiltPosition => PanTiltPositionInquiry.to_bytes(),
+            Self::ZoomPosition => ZoomPositionInquiry.to_bytes(),
+            Self::FocusPosition => FocusPositionInquiry.to_bytes(),
+            Self::ExposureMode => ExposureModeInquiry.to_bytes(),
+            Self::WhiteBalanceMode => WhiteBalanceModeInquiry.to_bytes(),
+            Self::Luminance => LuminanceInquiry.to_bytes(),
+            Self::Contrast => ContrastInquiry.to_bytes(),
+            Self::Sharpness => SharpnessInquiry.to_bytes(),
+            Self::ExposureCompensation => ExposureCompensationInquiry.to_bytes(),
+            Self::ExposureCompensationMode => ExposureCompensationModeInquiry.to_bytes(),
+            Self::Iris => IrisInquiry.to_bytes(),
+            Self::Shutter => ShutterInquiry.to_bytes(),
+            Self::Bright => BrightInquiry.to_bytes(),
+            Self::Gain => GainInquiry.to_bytes(),
+            Self::GainLimit => GainLimitInquiry.to_bytes(),
+            Self::AntiFlicker => Ok(vec![0x81, 0x09, 0x04, 0x23, 0xFF]),
+            Self::Saturation => SaturationInquiry.to_bytes(),
+            Self::Hue => HueInquiry.to_bytes(),
+            Self::RedGain => RedGainInquiry.to_bytes(),
+            Self::BlueGain => BlueGainInquiry.to_bytes(),
+            Self::Backlight => BacklightInquiry.to_bytes(),
+            Self::ImageFlip => ImageFlipInquiry.to_bytes(),
+            Self::SharpnessMode => Ok(vec![0x81, 0x09, 0x04, 0x05, 0xFF]),
+            Self::ColorTemperature => ColorTemperatureInquiry.to_bytes(),
+            Self::NoiseReduction2D => NoiseReduction2DInquiry.to_bytes(),
+            Self::NoiseReduction3D => NoiseReduction3DInquiry.to_bytes(),
+            Self::BlackWhite => BlackWhiteInquiry.to_bytes(),
+            Self::FocusZone => Ok(vec![0x81, 0x09, 0x04, 0x3C, 0xFF]),
+            Self::AutoFocusSensitivity => Ok(vec![0x81, 0x09, 0x04, 0x58, 0xFF]),
+            Self::FocusNearLimit => FocusNearLimitInquiry.to_bytes(),
+            Self::DynamicRange => DynamicRangeInquiry.to_bytes(),
+        }
     }
 
     fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::Power => Some(ResponseType::Power),
-            Self::PanTiltPosition => Some(ResponseType::PanTiltPosition),
-            Self::ZoomPosition => Some(ResponseType::ZoomPosition),
-            Self::FocusPosition => Some(ResponseType::FocusPosition),
-            Self::ExposureMode => Some(ResponseType::ExposureMode),
-            Self::WhiteBalanceMode => Some(ResponseType::WhiteBalanceMode),
-            Self::Luminance => Some(ResponseType::Luminance),
-            Self::Contrast => Some(ResponseType::Contrast),
-            // New response types
-            Self::Sharpness => Some(ResponseType::Sharpness),
-            Self::ExposureCompensation => Some(ResponseType::ExposureCompensation),
-            Self::ExposureCompensationMode => Some(ResponseType::ExposureCompensationMode),
-            Self::Iris => Some(ResponseType::Iris),
-            Self::Shutter => Some(ResponseType::Shutter),
-            Self::Bright => Some(ResponseType::Bright),
-            Self::Gain => Some(ResponseType::Gain),
-            Self::GainLimit => Some(ResponseType::GainLimit),
+            Self::Power => PowerInquiry.response_type(),
+            Self::PanTiltPosition => PanTiltPositionInquiry.response_type(),
+            Self::ZoomPosition => ZoomPositionInquiry.response_type(),
+            Self::FocusPosition => FocusPositionInquiry.response_type(),
+            Self::ExposureMode => ExposureModeInquiry.response_type(),
+            Self::WhiteBalanceMode => WhiteBalanceModeInquiry.response_type(),
+            Self::Luminance => LuminanceInquiry.response_type(),
+            Self::Contrast => ContrastInquiry.response_type(),
+            Self::Sharpness => SharpnessInquiry.response_type(),
+            Self::ExposureCompensation => ExposureCompensationInquiry.response_type(),
+            Self::ExposureCompensationMode => ExposureCompensationModeInquiry.response_type(),
+            Self::Iris => IrisInquiry.response_type(),
+            Self::Shutter => ShutterInquiry.response_type(),
+            Self::Bright => BrightInquiry.response_type(),
+            Self::Gain => GainInquiry.response_type(),
+            Self::GainLimit => GainLimitInquiry.response_type(),
             Self::AntiFlicker => Some(ResponseType::AntiFlicker),
-            Self::Saturation => Some(ResponseType::Saturation),
-            Self::Hue => Some(ResponseType::Hue),
-            Self::RedGain => Some(ResponseType::RedGain),
-            Self::BlueGain => Some(ResponseType::BlueGain),
-            Self::Backlight => Some(ResponseType::Backlight),
-            Self::ImageFlip => Some(ResponseType::ImageFlip),
-            // Additional response types
+            Self::Saturation => SaturationInquiry.response_type(),
+            Self::Hue => HueInquiry.response_type(),
+            Self::RedGain => RedGainInquiry.response_type(),
+            Self::BlueGain => BlueGainInquiry.response_type(),
+            Self::Backlight => BacklightInquiry.response_type(),
+            Self::ImageFlip => ImageFlipInquiry.response_type(),
             Self::SharpnessMode => Some(ResponseType::SharpnessMode),
-            Self::ColorTemperature => Some(ResponseType::ColorTemperature),
-            Self::NoiseReduction2D => Some(ResponseType::NoiseReduction2D),
-            Self::NoiseReduction3D => Some(ResponseType::NoiseReduction3D),
-            Self::BlackWhite => Some(ResponseType::BlackWhite),
+            Self::ColorTemperature => ColorTemperatureInquiry.response_type(),
+            Self::NoiseReduction2D => NoiseReduction2DInquiry.response_type(),
+            Self::NoiseReduction3D => NoiseReduction3DInquiry.response_type(),
+            Self::BlackWhite => BlackWhiteInquiry.response_type(),
             Self::FocusZone => Some(ResponseType::FocusZone),
             Self::AutoFocusSensitivity => Some(ResponseType::AutoFocusSensitivity),
-            Self::FocusNearLimit => Some(ResponseType::FocusNearLimit),
-            Self::DynamicRange => Some(ResponseType::DynamicRange),
+            Self::FocusNearLimit => FocusNearLimitInquiry.response_type(),
+            Self::DynamicRange => DynamicRangeInquiry.response_type(),
         }
     }
 
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Quick
+    }
+}
+
+impl InquiryCommand {
+    /// Parse the response data for this inquiry command.
+    ///
+    /// This method delegates to the individual inquiry structs that have
+    /// parser implementations via the InquiryCommand derive macro.
+    pub fn parse_response(&self, data: &[u8]) -> Result<InquiryResponse, Error> {
+        match self {
+            Self::Power => PowerInquiry.parse_response(data),
+            Self::PanTiltPosition => PanTiltPositionInquiry.parse_response(data),
+            Self::ZoomPosition => ZoomPositionInquiry.parse_response(data),
+            Self::FocusPosition => FocusPositionInquiry.parse_response(data),
+            Self::ExposureMode => ExposureModeInquiry.parse_response(data),
+            Self::WhiteBalanceMode => WhiteBalanceModeInquiry.parse_response(data),
+            Self::Luminance => LuminanceInquiry.parse_response(data),
+            Self::Contrast => ContrastInquiry.parse_response(data),
+            Self::Sharpness => SharpnessInquiry.parse_response(data),
+            Self::ExposureCompensation => ExposureCompensationInquiry.parse_response(data),
+            Self::ExposureCompensationMode => ExposureCompensationModeInquiry.parse_response(data),
+            Self::Iris => IrisInquiry.parse_response(data),
+            Self::Shutter => ShutterInquiry.parse_response(data),
+            Self::Bright => BrightInquiry.parse_response(data),
+            Self::Gain => GainInquiry.parse_response(data),
+            Self::GainLimit => GainLimitInquiry.parse_response(data),
+            Self::AntiFlicker => Err(Error::InvalidResponse { expected: "AntiFlicker parser not implemented".to_string(), actual: data.to_vec() }),
+            Self::Saturation => SaturationInquiry.parse_response(data),
+            Self::Hue => HueInquiry.parse_response(data),
+            Self::RedGain => RedGainInquiry.parse_response(data),
+            Self::BlueGain => BlueGainInquiry.parse_response(data),
+            Self::Backlight => BacklightInquiry.parse_response(data),
+            Self::ImageFlip => ImageFlipInquiry.parse_response(data),
+            Self::SharpnessMode => Err(Error::InvalidResponse { expected: "SharpnessMode parser not implemented".to_string(), actual: data.to_vec() }),
+            Self::ColorTemperature => ColorTemperatureInquiry.parse_response(data),
+            Self::NoiseReduction2D => NoiseReduction2DInquiry.parse_response(data),
+            Self::NoiseReduction3D => NoiseReduction3DInquiry.parse_response(data),
+            Self::BlackWhite => BlackWhiteInquiry.parse_response(data),
+            Self::FocusZone => Err(Error::InvalidResponse { expected: "FocusZone parser not implemented".to_string(), actual: data.to_vec() }),
+            Self::AutoFocusSensitivity => Err(Error::InvalidResponse { expected: "AutoFocusSensitivity parser not implemented".to_string(), actual: data.to_vec() }),
+            Self::FocusNearLimit => FocusNearLimitInquiry.parse_response(data),
+            Self::DynamicRange => DynamicRangeInquiry.parse_response(data),
+        }
     }
 }
 

@@ -30,26 +30,50 @@ use quote::quote;
 use syn::Ident;
 
 /// Generate a boolean parser (0x02 = on/true, 0x03 = off/false)
-pub fn generate_bool_parser(response_variant: &Ident) -> TokenStream {
-    quote! {
-        {
-            match data[0] {
-                0x02 => ::grafton_visca::command::InquiryResponse::#response_variant { on: true },
-                0x03 => ::grafton_visca::command::InquiryResponse::#response_variant { on: false },
-                _ => return Err(::grafton_visca::Error::InvalidResponse {
-                    expected: "0x02 (on) or 0x03 (off)".to_string(),
-                    actual: vec![data[0]],
-                }),
+pub fn generate_bool_parser(response_variant: &Ident, field_name: Option<&Ident>) -> TokenStream {
+    if let Some(field) = field_name {
+        quote! {
+            {
+                match data[0] {
+                    0x02 => crate::command::InquiryResponse::#response_variant { #field: true },
+                    0x03 => crate::command::InquiryResponse::#response_variant { #field: false },
+                    _ => return Err(crate::Error::InvalidResponse {
+                        expected: "0x02 (on) or 0x03 (off)".to_string(),
+                        actual: vec![data[0]],
+                    }),
+                }
+            }
+        }
+    } else {
+        quote! {
+            {
+                match data[0] {
+                    0x02 => crate::command::InquiryResponse::#response_variant { on: true },
+                    0x03 => crate::command::InquiryResponse::#response_variant { on: false },
+                    _ => return Err(crate::Error::InvalidResponse {
+                        expected: "0x02 (on) or 0x03 (off)".to_string(),
+                        actual: vec![data[0]],
+                    }),
+                }
             }
         }
     }
 }
 
 /// Generate a direct byte parser (value is used as-is)
-pub fn generate_direct_byte_parser(response_variant: &Ident, _field_name: &Ident) -> TokenStream {
-    // For variants like Luminance(u8), Contrast(u8)
-    quote! {
-        ::grafton_visca::command::InquiryResponse::#response_variant(data[0])
+pub fn generate_direct_byte_parser(response_variant: &Ident, field_name: Option<&Ident>) -> TokenStream {
+    if let Some(field) = field_name {
+        // For struct variants with named fields
+        quote! {
+            crate::command::InquiryResponse::#response_variant {
+                #field: data[0],
+            }
+        }
+    } else {
+        // For tuple variants like Luminance(u8), Contrast(u8)
+        quote! {
+            crate::command::InquiryResponse::#response_variant(data[0])
+        }
     }
 }
 
@@ -59,13 +83,13 @@ pub fn generate_position_parser(response_variant: &Ident) -> TokenStream {
     quote! {
         {
             if data.len() < 4 {
-                return Err(::grafton_visca::Error::InvalidResponseLength);
+                return Err(crate::Error::InvalidResponseLength);
             }
             let position = ((data[0] & 0x0F) as u16) << 12
                 | ((data[1] & 0x0F) as u16) << 8
                 | ((data[2] & 0x0F) as u16) << 4
                 | (data[3] & 0x0F) as u16;
-            ::grafton_visca::command::InquiryResponse::#response_variant { position }
+            crate::command::InquiryResponse::#response_variant { position }
         }
     }
 }
@@ -79,11 +103,11 @@ pub fn generate_extended_nibble_parser(
     quote! {
         {
             if data.len() < 2 {
-                return Err(::grafton_visca::Error::InvalidResponseLength);
+                return Err(crate::Error::InvalidResponseLength);
             }
-            let value = ((data[0] & 0x0F) << 4) | (data[1] & 0x0F);
-            ::grafton_visca::command::InquiryResponse::#response_variant {
-                #field_name: value as u8,
+            let value = (((data[0] & 0x0F) as u16) << 4) | ((data[1] & 0x0F) as u16);
+            crate::command::InquiryResponse::#response_variant {
+                #field_name: value,
             }
         }
     }
@@ -97,7 +121,7 @@ pub fn generate_offset_parser(
 ) -> TokenStream {
     quote! {
         {
-            ::grafton_visca::command::InquiryResponse::#response_variant {
+            crate::command::InquiryResponse::#response_variant {
                 #field_name: (data[0] as i8) - #offset,
             }
         }
@@ -108,7 +132,7 @@ pub fn generate_offset_parser(
 pub fn generate_bit_flags_parser(response_variant: &Ident) -> TokenStream {
     quote! {
         {
-            ::grafton_visca::command::InquiryResponse::#response_variant {
+            crate::command::InquiryResponse::#response_variant {
                 horizontal: (data[0] & 0x01) != 0,
                 vertical: (data[0] & 0x02) != 0,
             }
@@ -117,15 +141,28 @@ pub fn generate_bit_flags_parser(response_variant: &Ident) -> TokenStream {
 }
 
 /// Generate a mode enum parser
-pub fn generate_mode_enum_parser(response_variant: &Ident, mode_type: &Ident) -> TokenStream {
-    quote! {
-        {
-            let mode = <#mode_type as TryFrom<u8>>::try_from(data[0])
-                .map_err(|_| ::grafton_visca::Error::InvalidResponse {
-                    expected: format!("Valid {} value", stringify!(#mode_type)),
-                    actual: vec![data[0]],
-                })?;
-            ::grafton_visca::command::InquiryResponse::#response_variant { mode }
+pub fn generate_mode_enum_parser(response_variant: &Ident, mode_type: &Ident, field_name: Option<&Ident>) -> TokenStream {
+    if let Some(field) = field_name {
+        quote! {
+            {
+                let mode = crate::command::#mode_type::try_from(data[0])
+                    .map_err(|_| crate::Error::InvalidResponse {
+                        expected: format!("Valid {} value", stringify!(#mode_type)),
+                        actual: vec![data[0]],
+                    })?;
+                crate::command::InquiryResponse::#response_variant { #field: mode }
+            }
+        }
+    } else {
+        quote! {
+            {
+                let mode = crate::command::#mode_type::try_from(data[0])
+                    .map_err(|_| crate::Error::InvalidResponse {
+                        expected: format!("Valid {} value", stringify!(#mode_type)),
+                        actual: vec![data[0]],
+                    })?;
+                crate::command::InquiryResponse::#response_variant { mode }
+            }
         }
     }
 }
@@ -135,7 +172,7 @@ pub fn generate_pan_tilt_parser(response_variant: &Ident) -> TokenStream {
     quote! {
         {
             if data.len() < 8 {
-                return Err(::grafton_visca::Error::InvalidResponseLength);
+                return Err(crate::Error::InvalidResponseLength);
             }
 
             // Pan position (bytes 0-3)
@@ -152,7 +189,7 @@ pub fn generate_pan_tilt_parser(response_variant: &Ident) -> TokenStream {
                 | (data[7] & 0x0F) as u16;
             let tilt = tilt as i16;
 
-            ::grafton_visca::command::InquiryResponse::#response_variant { pan, tilt }
+            crate::command::InquiryResponse::#response_variant { pan, tilt }
         }
     }
 }

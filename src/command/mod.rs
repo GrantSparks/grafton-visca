@@ -18,12 +18,16 @@ pub mod gain;
 pub mod image;
 pub mod image_adjustment;
 pub mod inquiry;
+pub mod inquiry_structs;
 pub mod pan_tilt;
 pub mod power;
 pub mod preset;
 pub mod response;
 pub mod white_balance;
 pub mod zoom;
+
+#[cfg(test)]
+mod tests;
 
 // Re-export command types
 pub use self::{
@@ -35,6 +39,7 @@ pub use self::{
     image::*,
     image_adjustment::*,
     inquiry::*,
+    inquiry_structs::*,
     pan_tilt::*,
     power::*,
     preset::*,
@@ -43,9 +48,6 @@ pub use self::{
     zoom::*,
 };
 
-// Unit tests for command module
-#[cfg(test)]
-mod tests;
 
 /// Trait for all VISCA commands.
 ///
@@ -121,7 +123,7 @@ pub trait Command: Send + Sync {
 ///
 /// Each variant represents a different type of inquiry response with its associated data.
 /// These are returned wrapped in `Response::InquiryResponse(...)`.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum InquiryResponse {
     /// Power status inquiry response.
     Power {
