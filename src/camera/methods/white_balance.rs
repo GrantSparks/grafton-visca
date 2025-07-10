@@ -27,7 +27,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::WHITE_BALANCE_AUTO);
+        cmd.append(commands::WHITE_BALANCE_AUTO);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -45,7 +45,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::WHITE_BALANCE_AUTO);
+        cmd.append(commands::WHITE_BALANCE_AUTO);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()

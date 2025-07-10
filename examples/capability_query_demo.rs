@@ -1,14 +1,18 @@
 //! Example demonstrating camera capability querying.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, SonyEVID70};
-#[cfg(all(feature = "async", not(feature = "tokio")))]
-use grafton_visca::camera::{CameraProfile, PTZOpticsG2};
-#[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::{BlockingTransport, Udp};
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+use grafton_visca::{camera::Camera, profiles::PTZOpticsG2};
+#[cfg(not(feature = "async"))]
+use grafton_visca::{
+    camera::Camera,
+    profiles::{Generic as GenericVisca, PTZOpticsG2, SonyFR7},
+};
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{Camera, CameraProfile, GenericVisca, PTZOpticsG2, SonyEVID70},
+    camera::Camera,
+    profiles::{Generic as GenericVisca, PTZOpticsG2, SonyFR7},
     transport::{tokio::Udp, AsyncTransport},
 };
 
@@ -34,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using blocking transport
     let g2_camera = Camera::<PTZOpticsG2, _>::new(Udp::connect("192.168.1.100:1259")?);
 
-    let sony_camera = Camera::<SonyEVID70, _>::new(Udp::connect("192.168.1.101:1259")?);
+    let sony_camera = Camera::<SonyFR7, _>::new(Udp::connect("192.168.1.101:1259")?);
 
     let generic_camera = Camera::<GenericVisca, _>::new(Udp::connect("192.168.1.102:1259")?);
 
@@ -60,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Profile-Specific Capabilities ===\n");
 
     let g2_profile = PTZOpticsG2;
-    let sony_profile = SonyEVID70;
+    let sony_profile = SonyFR7;
 
     println!("PTZOptics G2:");
     println!(
@@ -100,13 +104,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sony_profile.white_balance_mode_count()
     );
     println!("  - Exposure Modes: {}", sony_profile.exposure_mode_count());
-    println!("  - Max Preset ID: {}", SonyEVID70::max_preset_id());
+    println!("  - Max Preset ID: {}", SonyFR7::max_preset_id());
 
     Ok(())
 }
 
 #[cfg(not(feature = "async"))]
-fn print_basic_capabilities<P: grafton_visca::camera::CameraProfile, T: BlockingTransport>(
+fn print_basic_capabilities<
+    P: grafton_visca::capabilities::ProfileMetadata,
+    T: BlockingTransport,
+>(
     name: &str,
     camera: &Camera<P, T>,
 ) {
@@ -125,7 +132,7 @@ fn print_basic_capabilities<P: grafton_visca::camera::CameraProfile, T: Blocking
 }
 
 #[cfg(feature = "tokio")]
-fn print_basic_capabilities<P: grafton_visca::camera::CameraProfile, T: AsyncTransport>(
+fn print_basic_capabilities<P: grafton_visca::capabilities::ProfileMetadata, T: AsyncTransport>(
     name: &str,
     camera: &Camera<P, T>,
 ) {
@@ -189,7 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create cameras with different profiles using async transport
     let g2_camera = Camera::<PTZOpticsG2, _>::new(Udp::connect("192.168.1.100:1259").await?);
 
-    let sony_camera = Camera::<SonyEVID70, _>::new(Udp::connect("192.168.1.101:1259").await?);
+    let sony_camera = Camera::<SonyFR7, _>::new(Udp::connect("192.168.1.101:1259").await?);
 
     let generic_camera = Camera::<GenericVisca, _>::new(Udp::connect("192.168.1.102:1259").await?);
 
@@ -219,7 +226,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Profile-Specific Features ===\n");
 
     let g2_profile = PTZOpticsG2;
-    let sony_profile = SonyEVID70;
+    let sony_profile = SonyFR7;
     let generic_profile = GenericVisca;
 
     println!("PTZOptics G2:");

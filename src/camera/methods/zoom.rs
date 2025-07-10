@@ -52,7 +52,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::ZOOM_STOP);
+        cmd.append(commands::ZOOM_STOP);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -65,7 +65,7 @@ where
         let speed = P::ZOOM_SPEED_RANGE.end / 2;
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::ZOOM_TELE_PREFIX)
+        cmd.append(commands::ZOOM_TELE_PREFIX)
             .push(encode_speed(speed));
 
         let response = self.transport.send_command(&cmd.build())?;
@@ -79,7 +79,7 @@ where
         let speed = P::ZOOM_SPEED_RANGE.end / 2;
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::ZOOM_WIDE_PREFIX)
+        cmd.append(commands::ZOOM_WIDE_PREFIX)
             .push(encode_speed(speed));
 
         let response = self.transport.send_command(&cmd.build())?;
@@ -106,7 +106,7 @@ where
         let units = units.min(P::OPTICAL_ZOOM_MAX);
 
         let mut cmd = CommandBuilder::<10>::new();
-        cmd.append(&commands::ZOOM_ABSOLUTE_PREFIX);
+        cmd.append(commands::ZOOM_ABSOLUTE_PREFIX);
         encode_u16_visca(units, &mut cmd);
 
         let response = self.transport.send_command(&cmd.build())?;
@@ -125,7 +125,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::ZOOM_STOP);
+        cmd.append(commands::ZOOM_STOP);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()
@@ -138,7 +138,7 @@ where
         let speed = P::ZOOM_SPEED_RANGE.end / 2;
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::ZOOM_TELE_PREFIX)
+        cmd.append(commands::ZOOM_TELE_PREFIX)
             .push(encode_speed(speed));
 
         let response = self.transport.send_command(&cmd.build()).await?;
@@ -152,7 +152,7 @@ where
         let speed = P::ZOOM_SPEED_RANGE.end / 2;
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::ZOOM_WIDE_PREFIX)
+        cmd.append(commands::ZOOM_WIDE_PREFIX)
             .push(encode_speed(speed));
 
         let response = self.transport.send_command(&cmd.build()).await?;
@@ -179,7 +179,7 @@ where
         let units = units.min(P::OPTICAL_ZOOM_MAX);
 
         let mut cmd = CommandBuilder::<10>::new();
-        cmd.append(&commands::ZOOM_ABSOLUTE_PREFIX);
+        cmd.append(commands::ZOOM_ABSOLUTE_PREFIX);
         encode_u16_visca(units, &mut cmd);
 
         let response = self.transport.send_command(&cmd.build()).await?;

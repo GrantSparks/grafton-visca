@@ -35,7 +35,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::EXPOSURE_AUTO);
+        cmd.append(commands::EXPOSURE_AUTO);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -45,7 +45,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::EXPOSURE_MANUAL);
+        cmd.append(commands::EXPOSURE_MANUAL);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -63,7 +63,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::EXPOSURE_AUTO);
+        cmd.append(commands::EXPOSURE_AUTO);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()
@@ -73,7 +73,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::EXPOSURE_MANUAL);
+        cmd.append(commands::EXPOSURE_MANUAL);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()

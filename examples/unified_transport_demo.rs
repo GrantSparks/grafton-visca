@@ -4,8 +4,8 @@
 fn blocking_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
         camera::Camera,
-        profiles::GenericVisca,
         command::{power::Power, PowerCommand},
+        profiles::GenericVisca,
         transport::blocking::Tcp,
     };
 
@@ -31,8 +31,8 @@ fn blocking_example() -> Result<(), grafton_visca::Error> {
 async fn async_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
         camera::Camera,
-        profiles::GenericVisca,
         command::{power::Power, PowerCommand},
+        profiles::GenericVisca,
         transport::tokio::Tcp,
     };
     use std::time::Duration;

@@ -12,7 +12,7 @@ use grafton_visca::Error;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltMethods, PowerMethods, PresetMethods, ZoomMethods},
+        methods::{PanTiltMethods, PowerMethods, ZoomMethods},
         profiles::G2PresetId,
         Camera,
     },
@@ -277,8 +277,6 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     // Scenario 2: Invalid preset
     println!("\n   b) Handling invalid preset:");
 
-
-
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
         Ok(preset_id) => match camera.recall_preset(preset_id.into()) {
@@ -423,8 +421,6 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Scenario 2: Invalid preset
     println!("\n   b) Handling invalid preset:");
-
-
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {

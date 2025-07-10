@@ -10,7 +10,8 @@ mod common;
 mod blocking_tests {
     use super::common::MockTransport;
     use grafton_visca::{
-        camera::{profiles::G2PresetId, Camera, PTZOpticsG2},
+        camera::{profiles::G2PresetId, Camera},
+        profiles::PTZOpticsG2,
         Error,
     };
 
@@ -201,10 +202,7 @@ mod blocking_tests {
 #[cfg(all(feature = "async", feature = "tokio"))]
 mod async_tests {
     use super::common::MockAsyncTransport;
-    use grafton_visca::{
-        camera::{Camera, PTZOpticsG2},
-        Error,
-    };
+    use grafton_visca::{camera::Camera, profiles::PTZOpticsG2, Error};
 
     #[tokio::test]
     async fn test_async_camera_power_command() {
