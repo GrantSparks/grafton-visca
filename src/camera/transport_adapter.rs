@@ -19,7 +19,7 @@ impl<T> TransportAdapter<T> {
             sequence_number: 0,
         }
     }
-    
+
     #[allow(dead_code)] // TODO: Will be used for Sony protocol sequence numbering
     fn next_sequence(&mut self) -> u8 {
         let seq = self.sequence_number;
@@ -40,23 +40,30 @@ where
         // For Sony encapsulated protocol, we'd add sequence numbers
         // For now, increment sequence for future use
         self.sequence_number = self.next_sequence();
-        
+
         self.transport.send(command)?;
-        self.transport.receive(std::time::Duration::from_millis(5000))
+        self.transport
+            .receive(std::time::Duration::from_millis(5000))
     }
-    
+
     /// Send a const command through the blocking transport.
     pub fn send_const_blocking(&mut self, command: &'static [u8]) -> Result<Vec<u8>, Error> {
         self.send_blocking(command)
     }
-    
+
     /// Send an array command through the blocking transport.
-    pub fn send_array_blocking<const N: usize>(&mut self, command: [u8; N]) -> Result<Vec<u8>, Error> {
+    pub fn send_array_blocking<const N: usize>(
+        &mut self,
+        command: [u8; N],
+    ) -> Result<Vec<u8>, Error> {
         self.send_blocking(&command)
     }
-    
+
     /// Send a command and parse the response.
-    pub fn send_command<const N: usize>(&mut self, command: &[u8; N]) -> Result<crate::command::Response, Error> {
+    pub fn send_command<const N: usize>(
+        &mut self,
+        command: &[u8; N],
+    ) -> Result<crate::command::Response, Error> {
         let response_bytes = self.send_blocking(command)?;
         crate::command::Response::parse(&response_bytes)
     }
@@ -75,19 +82,25 @@ where
         self.transport.send(command).await?;
         self.transport.receive().await
     }
-    
+
     /// Send a const command through the async transport.
     pub async fn send_const_async(&self, command: &'static [u8]) -> Result<Vec<u8>, Error> {
         self.send_async(command).await
     }
-    
+
     /// Send an array command through the async transport.
-    pub async fn send_array_async<const N: usize>(&self, command: [u8; N]) -> Result<Vec<u8>, Error> {
+    pub async fn send_array_async<const N: usize>(
+        &self,
+        command: [u8; N],
+    ) -> Result<Vec<u8>, Error> {
         self.send_async(&command).await
     }
-    
+
     /// Send a command and parse the response.
-    pub async fn send_command<const N: usize>(&self, command: &[u8; N]) -> Result<crate::command::Response, Error> {
+    pub async fn send_command<const N: usize>(
+        &self,
+        command: &[u8; N],
+    ) -> Result<crate::command::Response, Error> {
         let response_bytes = self.send_async(command).await?;
         crate::command::Response::parse(&response_bytes)
     }

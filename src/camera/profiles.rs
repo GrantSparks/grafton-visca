@@ -7,18 +7,16 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::capabilities::{
-    ProfileMetadata, ProtocolStyle,
-    SupportsPanTilt, SupportsZoom, SupportsFocus, SupportsExposure,
-    SupportsWhiteBalance, SupportsImageProcessing, SupportsPresets,
-    SupportsPower, SupportsNDFilter, NDFilterMode,
-    ShutterSpeed, WhiteBalanceMode,
+    NDFilterMode, ProfileMetadata, ProtocolStyle, ShutterSpeed, SupportsExposure, SupportsFocus,
+    SupportsImageProcessing, SupportsNDFilter, SupportsPanTilt, SupportsPower, SupportsPresets,
+    SupportsWhiteBalance, SupportsZoom, WhiteBalanceMode,
 };
 use crate::error::Error;
 
 // Import exposure constants
 mod exposure_constants {
     use crate::capabilities::ShutterSpeed;
-    
+
     pub const PTZOPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
         ShutterSpeed::new("1/30", 0x01),
         ShutterSpeed::new("1/60", 0x02),
@@ -321,7 +319,6 @@ impl SupportsNDFilter for SonyFR7 {
     const ND_STEPS: Option<u8> = None; // Continuous adjustment
 }
 
-
 // Associated types for presets and gain (keeping compatibility)
 
 /// Preset ID for PTZOptics G2 cameras (0-89).
@@ -340,10 +337,10 @@ impl G2PresetId {
             })
         }
     }
-    
+
     /// Home preset (preset 0).
     pub const HOME: Self = Self(0);
-    
+
     /// First user preset.
     pub const PRESET1: Self = Self(1);
 }
@@ -432,7 +429,10 @@ impl TryFrom<u8> for G2Gain {
             6 => Ok(G2Gain::Gain18dB),
             7 => Ok(G2Gain::Gain21dB),
             8 => Ok(G2Gain::Gain24dB),
-            _ => Err(Error::InvalidParameter(format!("Invalid G2 gain value: {}", value))),
+            _ => Err(Error::InvalidParameter(format!(
+                "Invalid G2 gain value: {}",
+                value
+            ))),
         }
     }
 }
@@ -440,68 +440,68 @@ impl TryFrom<u8> for G2Gain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capabilities::pan_tilt::PanTiltExt;
     use crate::capabilities::nd_filter::NDFilterExt;
-    
+    use crate::capabilities::pan_tilt::PanTiltExt;
+
     #[test]
     fn test_ptzoptics_g2_capabilities() {
         let camera = PTZOpticsG2;
-        
+
         // Test pan/tilt validation
         assert!(camera.validate_pan(0).is_ok());
         assert!(camera.validate_pan(2448).is_ok());
         assert!(camera.validate_pan(2449).is_err());
-        
+
         // Test degree conversion
         assert_eq!(camera.degrees_to_pan_units(170.0), 2448);
         assert_eq!(camera.pan_units_to_degrees(2448), 170.0);
     }
-    
+
     #[test]
     fn test_nd_filter_capability() {
         let fr7 = SonyFR7;
-        
+
         // Test that we can compile-time detect ND filter support
         // G2 doesn't implement SupportsNDFilter, so we can't call has_nd_filter() on it
         // This is the whole point - compile-time safety!
-        
+
         // FR7 does have ND filter
         assert!(fr7.has_nd_filter());
         assert_eq!(fr7.nd_filter_description(), "Variable ND filter");
         assert!(fr7.validate_nd_filter(128).is_ok());
     }
-    
+
     #[test]
     fn test_profile_metadata() {
         assert_eq!(PTZOpticsG2::MODEL_NAME, "PTZOptics G2");
         assert_eq!(PTZOpticsG2::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
-        
+
         assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
         assert!(matches!(
             SonyFR7::PROTOCOL_STYLE,
             ProtocolStyle::SonyEncapsulated { use_sequence: true }
         ));
     }
-    
+
     #[test]
     fn test_profile_introspection() {
         use crate::capabilities::ProfileIntrospection;
-        
+
         // Test that ProfileIntrospection trait is available
         let g2 = PTZOpticsG2;
         let fr7 = SonyFR7;
         let generic = GenericVisca;
-        
+
         // The default implementation returns false for all
         // This is a limitation noted in the trait definition
         assert!(!g2.supports_nd_filter());
         assert!(!fr7.supports_nd_filter());
         assert!(!generic.supports_nd_filter());
-        
+
         // But we can still get capability summaries
         let g2_summary = g2.capability_summary();
         assert!(g2_summary.contains("PTZOptics G2"));
-        
+
         let fr7_summary = fr7.capability_summary();
         assert!(fr7_summary.contains("Sony FR7"));
     }

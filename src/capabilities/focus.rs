@@ -9,25 +9,25 @@ use crate::capabilities::ValidationError;
 pub trait SupportsFocus {
     /// Minimum focus position (near limit) in VISCA units.
     const FOCUS_NEAR_LIMIT: u16;
-    
+
     /// Maximum focus position (far limit) in VISCA units.  
     const FOCUS_FAR_LIMIT: u16;
-    
+
     /// Whether camera supports auto focus mode.
     const SUPPORTS_AUTO_FOCUS: bool;
-    
+
     /// Whether camera supports one-push auto focus.
     /// This triggers a single auto focus operation then returns to manual.
     const SUPPORTS_ONE_PUSH_FOCUS: bool;
-    
+
     /// Whether camera supports focus zone selection.
     /// Allows selecting which part of image to focus on.
     const SUPPORTS_FOCUS_ZONE: bool = false;
-    
+
     /// Maximum focus speed for manual focus operations.
     /// Usually 0-7 where 0 is slowest, 7 is fastest.
     const MAX_FOCUS_SPEED: u8 = 7;
-    
+
     /// Whether camera supports auto focus sensitivity adjustment.
     const SUPPORTS_AF_SENSITIVITY: bool = false;
 }
@@ -47,12 +47,12 @@ pub trait FocusExt: SupportsFocus {
             })
         }
     }
-    
+
     /// Validate and clamp focus speed.
     fn validate_focus_speed(&self, speed: u8) -> u8 {
         speed.min(Self::MAX_FOCUS_SPEED)
     }
-    
+
     /// Convert normalized focus (0.0=near, 1.0=far) to VISCA units.
     fn normalized_to_focus_units(&self, normalized: f32) -> Result<u16, ValidationError> {
         if !(0.0..=1.0).contains(&normalized) {
@@ -61,23 +61,23 @@ pub trait FocusExt: SupportsFocus {
                 message: "Must be between 0.0 and 1.0".to_string(),
             });
         }
-        
+
         let range = Self::FOCUS_FAR_LIMIT - Self::FOCUS_NEAR_LIMIT;
         let position = Self::FOCUS_NEAR_LIMIT + (normalized * range as f32) as u16;
         Ok(position)
     }
-    
+
     /// Convert VISCA units to normalized focus (0.0=near, 1.0=far).
     fn focus_units_to_normalized(&self, units: u16) -> f32 {
         let range = Self::FOCUS_FAR_LIMIT - Self::FOCUS_NEAR_LIMIT;
         (units - Self::FOCUS_NEAR_LIMIT) as f32 / range as f32
     }
-    
+
     /// Check if auto focus is available.
     fn can_auto_focus(&self) -> bool {
         Self::SUPPORTS_AUTO_FOCUS
     }
-    
+
     /// Check if one-push focus is available.
     fn can_one_push_focus(&self) -> bool {
         Self::SUPPORTS_ONE_PUSH_FOCUS
@@ -94,14 +94,14 @@ pub enum FocusZone {
     Center,
     /// Top of the image.
     Top,
-    /// Bottom of the image. 
+    /// Bottom of the image.
     Bottom,
     /// Custom zone with coordinates.
-    Custom { 
+    Custom {
         /// X coordinate (0-15).
-        x: u8, 
+        x: u8,
         /// Y coordinate (0-15).
-        y: u8 
+        y: u8,
     },
 }
 
@@ -119,34 +119,34 @@ pub enum AutoFocusSensitivity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     struct TestCamera;
-    
+
     impl SupportsFocus for TestCamera {
         const FOCUS_NEAR_LIMIT: u16 = 0x1000;
         const FOCUS_FAR_LIMIT: u16 = 0xF000;
         const SUPPORTS_AUTO_FOCUS: bool = true;
         const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
     }
-    
+
     #[test]
     fn test_focus_validation() {
         let camera = TestCamera;
-        
+
         assert!(camera.validate_focus_position(0x1000).is_ok());
         assert!(camera.validate_focus_position(0xF000).is_ok());
         assert!(camera.validate_focus_position(0x8000).is_ok());
         assert!(camera.validate_focus_position(0x0FFF).is_err());
         assert!(camera.validate_focus_position(0xF001).is_err());
     }
-    
+
     #[test]
     fn test_normalized_conversion() {
         let camera = TestCamera;
-        
+
         assert_eq!(camera.normalized_to_focus_units(0.0).unwrap(), 0x1000);
         assert_eq!(camera.normalized_to_focus_units(1.0).unwrap(), 0xF000);
-        
+
         // Test round trip
         let pos = camera.normalized_to_focus_units(0.5).unwrap();
         let normalized = camera.focus_units_to_normalized(pos);

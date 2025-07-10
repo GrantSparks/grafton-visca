@@ -12,23 +12,23 @@ use crate::capabilities::ValidationError;
 pub trait SupportsPresets {
     /// Maximum number of presets supported (excluding home position).
     const MAX_PRESETS: u8;
-    
+
     /// Valid range for preset movement speed.
     const PRESET_SPEED_RANGE: Range<u8>;
-    
+
     /// Whether camera supports preset tour functionality.
     const SUPPORTS_PRESET_TOUR: bool;
-    
+
     /// Time needed after preset recall before camera is ready.
     /// Some cameras need stabilization time after moving to preset.
     const PRESET_RECALL_DELAY: Duration = Duration::from_millis(0);
-    
+
     /// Whether camera supports preset thumbnail capture.
     const SUPPORTS_PRESET_THUMBNAIL: bool = false;
-    
+
     /// Whether camera supports preset names/labels.
     const SUPPORTS_PRESET_NAMES: bool = false;
-    
+
     /// Maximum preset name length if supported.
     const MAX_PRESET_NAME_LENGTH: usize = 0;
 }
@@ -49,7 +49,7 @@ pub trait PresetsExt: SupportsPresets {
             })
         }
     }
-    
+
     /// Validate preset recall speed.
     fn validate_preset_speed(&self, speed: u8) -> Result<u8, ValidationError> {
         if Self::PRESET_SPEED_RANGE.contains(&speed) {
@@ -63,17 +63,17 @@ pub trait PresetsExt: SupportsPresets {
             })
         }
     }
-    
+
     /// Check if preset tour is supported.
     fn can_tour_presets(&self) -> bool {
         Self::SUPPORTS_PRESET_TOUR
     }
-    
+
     /// Get the delay needed after preset recall.
     fn preset_recall_delay(&self) -> Duration {
         Self::PRESET_RECALL_DELAY
     }
-    
+
     /// Check if preset is the home position.
     fn is_home_preset(&self, preset: u8) -> bool {
         preset == 0
@@ -106,19 +106,19 @@ impl PresetTour {
             loop_tour: true,
         }
     }
-    
+
     /// Set the dwell time at each preset.
     pub fn with_dwell_time(mut self, duration: Duration) -> Self {
         self.dwell_time = duration;
         self
     }
-    
+
     /// Set the movement speed between presets.
     pub fn with_speed(mut self, speed: u8) -> Self {
         self.movement_speed = speed;
         self
     }
-    
+
     /// Set whether to loop the tour.
     pub fn with_loop(mut self, should_loop: bool) -> Self {
         self.loop_tour = should_loop;
@@ -129,50 +129,50 @@ impl PresetTour {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     struct TestCamera;
-    
+
     impl SupportsPresets for TestCamera {
         const MAX_PRESETS: u8 = 89;
         const PRESET_SPEED_RANGE: Range<u8> = 1..25;
         const SUPPORTS_PRESET_TOUR: bool = true;
         const PRESET_RECALL_DELAY: Duration = Duration::from_millis(100);
     }
-    
+
     #[test]
     fn test_preset_validation() {
         let camera = TestCamera;
-        
+
         assert!(camera.validate_preset_number(0).is_ok());
         assert!(camera.validate_preset_number(89).is_ok());
         assert!(camera.validate_preset_number(90).is_err());
     }
-    
+
     #[test]
     fn test_preset_speed_validation() {
         let camera = TestCamera;
-        
+
         assert!(camera.validate_preset_speed(1).is_ok());
         assert!(camera.validate_preset_speed(24).is_ok());
         assert!(camera.validate_preset_speed(0).is_err());
         assert!(camera.validate_preset_speed(25).is_err());
     }
-    
+
     #[test]
     fn test_home_preset() {
         let camera = TestCamera;
-        
+
         assert!(camera.is_home_preset(0));
         assert!(!camera.is_home_preset(1));
     }
-    
+
     #[test]
     fn test_preset_tour() {
         let tour = PresetTour::new(vec![1, 2, 3])
             .with_dwell_time(Duration::from_secs(10))
             .with_speed(15)
             .with_loop(false);
-        
+
         assert_eq!(tour.presets, vec![1, 2, 3]);
         assert_eq!(tour.dwell_time, Duration::from_secs(10));
         assert_eq!(tour.movement_speed, 15);

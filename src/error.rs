@@ -197,7 +197,7 @@ pub enum Error {
     /// Channel has been closed.
     #[error("Channel closed")]
     ChannelClosed,
-    
+
     /// Validation error from capability traits.
     #[error("Validation error: {0}")]
     ValidationError(#[from] crate::capabilities::ValidationError),

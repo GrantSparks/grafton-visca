@@ -16,7 +16,7 @@ pub mod zoom;
 
 // Core profile metadata trait
 mod profile_metadata;
-pub use profile_metadata::{ProfileMetadata, ProfileIntrospection, ProtocolStyle};
+pub use profile_metadata::{ProfileIntrospection, ProfileMetadata, ProtocolStyle};
 
 // Re-export all capability traits
 pub use exposure::SupportsExposure;

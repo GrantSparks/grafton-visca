@@ -28,14 +28,14 @@ impl std::error::Error for EncodingError {}
 ///
 /// Creates a 15-byte command for absolute pan/tilt positioning.
 pub const fn encode_pan_tilt_absolute(
-    pan: i16, 
-    tilt: i16, 
-    pan_speed: u8, 
-    tilt_speed: u8
+    pan: i16,
+    tilt: i16,
+    pan_speed: u8,
+    tilt_speed: u8,
 ) -> [u8; 15] {
     let pan_speed = if pan_speed > 0x18 { 0x18 } else { pan_speed };
     let tilt_speed = if tilt_speed > 0x14 { 0x14 } else { tilt_speed };
-    
+
     CommandBuilder::<15>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x06, 0x02])
         .byte(pan_speed)
         .byte(tilt_speed)
@@ -49,11 +49,11 @@ pub const fn encode_pan_tilt_relative(
     pan: i16,
     tilt: i16,
     pan_speed: u8,
-    tilt_speed: u8
+    tilt_speed: u8,
 ) -> [u8; 15] {
     let pan_speed = if pan_speed > 0x18 { 0x18 } else { pan_speed };
     let tilt_speed = if tilt_speed > 0x14 { 0x14 } else { tilt_speed };
-    
+
     CommandBuilder::<15>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x06, 0x03])
         .byte(pan_speed)
         .byte(tilt_speed)
@@ -63,14 +63,10 @@ pub const fn encode_pan_tilt_relative(
 }
 
 /// Const function for pan/tilt directional movement.
-pub const fn encode_pan_tilt_move(
-    direction: u8,
-    pan_speed: u8,
-    tilt_speed: u8
-) -> [u8; 9] {
+pub const fn encode_pan_tilt_move(direction: u8, pan_speed: u8, tilt_speed: u8) -> [u8; 9] {
     let pan_speed = if pan_speed > 0x18 { 0x18 } else { pan_speed };
     let tilt_speed = if tilt_speed > 0x14 { 0x14 } else { tilt_speed };
-    
+
     CommandBuilder::<9>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x06, 0x01])
         .byte(pan_speed)
         .byte(tilt_speed)
@@ -143,31 +139,35 @@ pub const fn encode_preset_reset(preset_number: u8) -> [u8; 7] {
 pub fn encode_exposure_manual(
     iris: u16,
     shutter_speed: u8,
-    gain: u8
+    gain: u8,
 ) -> Result<[u8; 15], EncodingError> {
     // Validate parameters
     if iris > 0x1C {
         return Err(EncodingError::InvalidParameter("iris out of range"));
     }
     if shutter_speed > 0x15 {
-        return Err(EncodingError::InvalidParameter("shutter speed out of range"));
+        return Err(EncodingError::InvalidParameter(
+            "shutter speed out of range",
+        ));
     }
     if gain > 0x0F {
         return Err(EncodingError::InvalidParameter("gain out of range"));
     }
-    
-    Ok(CommandBuilder::<15>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x39])
-        .byte(0x03) // Manual mode
-        .byte(0x00) // Reserved
-        .byte(0x00) // Reserved  
-        .byte(iris as u8)
-        .byte(0x00) // Reserved
-        .byte(0x00) // Reserved
-        .byte(shutter_speed)
-        .byte(0x00) // Reserved
-        .byte(0x00) // Reserved
-        .byte(gain)
-        .build())
+
+    Ok(
+        CommandBuilder::<15>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x39])
+            .byte(0x03) // Manual mode
+            .byte(0x00) // Reserved
+            .byte(0x00) // Reserved
+            .byte(iris as u8)
+            .byte(0x00) // Reserved
+            .byte(0x00) // Reserved
+            .byte(shutter_speed)
+            .byte(0x00) // Reserved
+            .byte(0x00) // Reserved
+            .byte(gain)
+            .build(),
+    )
 }
 
 /// Const function for iris direct.
@@ -235,7 +235,7 @@ pub fn encode_u16_visca(value: u16, builder: &mut CommandBuilder<10>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_pan_tilt_absolute() {
         let cmd = encode_pan_tilt_absolute(1000, -500, 10, 10);
@@ -244,31 +244,25 @@ mod tests {
         assert_eq!(cmd[5], 10); // tilt speed
         assert_eq!(cmd[14], 0xFF); // terminator
     }
-    
+
     #[test]
     fn test_zoom_direct() {
         let cmd = encode_zoom_direct(0x4000);
-        assert_eq!(
-            cmd,
-            [0x81, 0x01, 0x04, 0x47, 0x04, 0x00, 0x00, 0x00, 0xFF]
-        );
+        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x47, 0x04, 0x00, 0x00, 0x00, 0xFF]);
     }
-    
+
     #[test]
     fn test_preset_recall() {
         let cmd = encode_preset_recall(5);
-        assert_eq!(
-            cmd,
-            [0x81, 0x01, 0x04, 0x3F, 0x02, 0x05, 0xFF]
-        );
+        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x3F, 0x02, 0x05, 0xFF]);
     }
-    
+
     #[test]
     fn test_const_at_compile_time() {
         // This demonstrates that these functions can be used in const context
         const HOME_POS: [u8; 15] = encode_pan_tilt_absolute(0, 0, 24, 24);
         const ZOOM_MID: [u8; 9] = encode_zoom_direct(0x2000);
-        
+
         assert_eq!(HOME_POS[4], 24);
         assert_eq!(ZOOM_MID[4], 0x02);
     }

@@ -10,7 +10,7 @@ pub trait ImageProcessingMethods {
     /// Enable image flip.
     #[cfg(not(feature = "async"))]
     fn enable_flip(&mut self) -> Result<(), Error>;
-    
+
     /// Enable image flip.
     #[cfg(feature = "async")]
     async fn enable_flip(&self) -> Result<(), Error>;
@@ -25,10 +25,10 @@ where
 {
     fn enable_flip(&mut self) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, CommandBuilder};
-        
+
         let mut cmd = CommandBuilder::<6>::new();
         cmd.append(&commands::IMAGE_FLIP_ON);
-        
+
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
     }
@@ -43,10 +43,10 @@ where
 {
     async fn enable_flip(&self) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, CommandBuilder};
-        
+
         let mut cmd = CommandBuilder::<6>::new();
         cmd.append(&commands::IMAGE_FLIP_ON);
-        
+
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()
     }

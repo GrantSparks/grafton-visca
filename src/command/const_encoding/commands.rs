@@ -1,39 +1,23 @@
 //! Flat re-exports of command constants for easier access.
 
 // Re-export all command constants with flat names
-pub use super::constants::power::{ON as POWER_ON, OFF as POWER_OFF};
-pub use super::constants::pan_tilt::{
-    STOP as PAN_TILT_STOP,
-    HOME as PAN_TILT_HOME,
-    ABSOLUTE_PREFIX as PAN_TILT_ABSOLUTE_PREFIX,
-};
-pub use super::constants::zoom::{
-    STOP as ZOOM_STOP,
-    TELE_VAR_PREFIX as ZOOM_TELE_PREFIX,
-    WIDE_VAR_PREFIX as ZOOM_WIDE_PREFIX,
-    DIRECT_PREFIX as ZOOM_ABSOLUTE_PREFIX,
-};
+pub use super::constants::exposure::{AUTO as EXPOSURE_AUTO, MANUAL as EXPOSURE_MANUAL};
+pub use super::constants::flip::FLIP as IMAGE_FLIP_ON;
 pub use super::constants::focus::{
-    STOP as FOCUS_STOP,
-    FAR as FOCUS_FAR_STD,
-    NEAR as FOCUS_NEAR_STD,
-    AUTO as FOCUS_AUTO,
-    MANUAL as FOCUS_MANUAL,
-    ONE_PUSH as FOCUS_ONE_PUSH,
+    AUTO as FOCUS_AUTO, FAR as FOCUS_FAR_STD, MANUAL as FOCUS_MANUAL, NEAR as FOCUS_NEAR_STD,
+    ONE_PUSH as FOCUS_ONE_PUSH, STOP as FOCUS_STOP,
 };
-pub use super::constants::exposure::{
-    AUTO as EXPOSURE_AUTO,
-    MANUAL as EXPOSURE_MANUAL,
+pub use super::constants::pan_tilt::{
+    ABSOLUTE_PREFIX as PAN_TILT_ABSOLUTE_PREFIX, HOME as PAN_TILT_HOME, STOP as PAN_TILT_STOP,
 };
-pub use super::constants::white_balance::{
-    AUTO as WHITE_BALANCE_AUTO,
-};
-pub use super::constants::flip::{
-    FLIP as IMAGE_FLIP_ON,
-};
+pub use super::constants::power::{OFF as POWER_OFF, ON as POWER_ON};
 pub use super::constants::preset::{
-    RECALL_PREFIX as PRESET_RECALL_PREFIX,
-    SET_PREFIX as PRESET_SET_PREFIX,
+    RECALL_PREFIX as PRESET_RECALL_PREFIX, SET_PREFIX as PRESET_SET_PREFIX,
+};
+pub use super::constants::white_balance::AUTO as WHITE_BALANCE_AUTO;
+pub use super::constants::zoom::{
+    DIRECT_PREFIX as ZOOM_ABSOLUTE_PREFIX, STOP as ZOOM_STOP, TELE_VAR_PREFIX as ZOOM_TELE_PREFIX,
+    WIDE_VAR_PREFIX as ZOOM_WIDE_PREFIX,
 };
 
 // Focus variable speed prefixes (these need to be constructed)

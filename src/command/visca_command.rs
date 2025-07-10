@@ -2,8 +2,8 @@
 
 use crate::command::const_encoding::EncodingError;
 use crate::command::response::ResponseType;
-use crate::timeout::CommandCategory;
 use crate::constants::CameraModel;
+use crate::timeout::CommandCategory;
 use crate::Error;
 
 /// Trait for all VISCA commands with stack allocation support.
@@ -12,15 +12,15 @@ use crate::Error;
 pub trait ViscaCommand: Send + Sync {
     /// Response type expected from this command.
     type Response;
-    
+
     /// Maximum size of the encoded command.
     const MAX_SIZE: usize;
-    
+
     /// Encode the command to a provided buffer.
     ///
     /// Returns the number of bytes written to the buffer.
     fn encode_to(&self, buffer: &mut [u8]) -> Result<usize, EncodingError>;
-    
+
     /// Helper for fixed-size encoding on the stack.
     ///
     /// This method encodes to a stack-allocated array of the specified size.
@@ -32,7 +32,7 @@ pub trait ViscaCommand: Send + Sync {
         }
         Ok(buffer)
     }
-    
+
     /// Legacy support - allocate on heap.
     ///
     /// This method maintains backward compatibility but allocates.
@@ -51,15 +51,15 @@ pub trait ViscaCommand: Send + Sync {
             }
         }
     }
-    
+
     /// Get the expected response type for this command.
     fn response_type(&self) -> Option<ResponseType>;
-    
+
     /// Get the command category for timeout configuration.
     fn command_category(&self) -> CommandCategory {
         CommandCategory::Custom
     }
-    
+
     /// Validate this command for a specific camera model.
     fn validate_for_model(&self, _model: CameraModel) -> Result<(), Error> {
         Ok(())
@@ -77,13 +77,13 @@ pub trait ConstEncodable: ViscaCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     struct TestCommand;
-    
+
     impl ViscaCommand for TestCommand {
         type Response = ();
         const MAX_SIZE: usize = 6;
-        
+
         fn encode_to(&self, buffer: &mut [u8]) -> Result<usize, EncodingError> {
             if buffer.len() < 6 {
                 return Err(EncodingError::BufferTooSmall);
@@ -96,19 +96,19 @@ mod tests {
             buffer[5] = 0xFF;
             Ok(6)
         }
-        
+
         fn response_type(&self) -> Option<ResponseType> {
             None
         }
     }
-    
+
     #[test]
     fn test_encode_array() {
         let cmd = TestCommand;
         let array: [u8; 6] = cmd.encode_array().unwrap();
         assert_eq!(array, [0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
     }
-    
+
     #[test]
     fn test_legacy_to_bytes() {
         let cmd = TestCommand;
