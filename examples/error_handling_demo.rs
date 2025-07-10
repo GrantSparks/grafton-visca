@@ -11,8 +11,13 @@ use grafton_visca::transport::tokio::Tcp;
 use grafton_visca::Error;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
+    camera::{
+        methods::{PanTiltMethods, PowerMethods, PresetMethods, ZoomMethods},
+        profiles::G2PresetId,
+        Camera,
+    },
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     types::{PanSpeed, TiltSpeed},
 };
 use std::time::Duration;
@@ -255,7 +260,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
                     // Stop movement
                     std::thread::sleep(Duration::from_millis(500));
-                    camera.stop()?;
+                    camera.pan_tilt_stop()?;
 
                     // Retry zoom
                     match camera.zoom_in() {
@@ -272,7 +277,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     // Scenario 2: Invalid preset
     println!("\n   b) Handling invalid preset:");
 
-    use grafton_visca::camera::profiles::G2PresetId;
+
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
@@ -401,7 +406,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                     println!("   💡 Solution: Stop movement first or wait");
 
                     // Stop movement and retry
-                    camera.stop().await?;
+                    camera.pan_tilt_stop().await?;
                     println!("   ✓ Movement stopped");
 
                     // Retry zoom
@@ -419,7 +424,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     // Scenario 2: Invalid preset
     println!("\n   b) Handling invalid preset:");
 
-    use grafton_visca::camera::profiles::G2PresetId;
+
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {

@@ -44,7 +44,7 @@ async fn main() -> Result<(), Error> {
 
     // Movement control
     println!("\nTesting movement control...");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     time::sleep(Duration::from_secs(2)).await;
 
     camera
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Error> {
         )
         .await?;
     time::sleep(Duration::from_millis(500)).await;
-    camera.stop().await?;
+    camera.pan_tilt_stop().await?;
 
     // Zoom control
     println!("\nTesting zoom control...");
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Error> {
     camera.set_preset(preset.into()).await?;
     time::sleep(Duration::from_millis(500)).await;
 
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     time::sleep(Duration::from_secs(2)).await;
 
     camera.recall_preset(preset.into()).await?;

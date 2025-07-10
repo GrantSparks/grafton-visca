@@ -100,7 +100,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
             // Stop movement
             let stop_start = Instant::now();
-            match camera.stop() {
+            match camera.pan_tilt_stop() {
                 Ok(_) => {
                     let stop_elapsed = stop_start.elapsed();
                     println!("   ✓ Stop movement completed in {:?}", stop_elapsed);

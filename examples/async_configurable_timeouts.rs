@@ -79,7 +79,7 @@ async fn demonstrate_quick_timeout<T: grafton_visca::transport::AsyncTransport>(
     }
 
     // Home position with timeout
-    match timeout(quick_timeout, camera.home()).await {
+    match timeout(quick_timeout, camera.pan_tilt_home()).await {
         Ok(Ok(_)) => {
             println!("   ✓ Home command succeeded");
         }
@@ -122,7 +122,7 @@ async fn demonstrate_movement_timeout<T: grafton_visca::transport::AsyncTranspor
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             // Stop movement
-            match timeout(movement_timeout, camera.stop()).await {
+            match timeout(movement_timeout, camera.pan_tilt_stop()).await {
                 Ok(Ok(_)) => println!("   ✓ Movement stopped"),
                 Ok(Err(e)) => println!("   ✗ Stop command failed: {}", e),
                 Err(_) => println!("   ✗ Stop command timed out"),

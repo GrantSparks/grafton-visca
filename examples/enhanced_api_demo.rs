@@ -5,14 +5,20 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
-    command::{exposure::ExposureMode, white_balance::WhiteBalanceMode},
+    camera::{
+        methods::{
+            ExposureMethods, ImageProcessingMethods, PanTiltMethods, PowerMethods,
+            WhiteBalanceMethods, ZoomMethods,
+        },
+        Camera,
+    },
+    capabilities::{ExposureMode, WhiteBalanceMode},
+    profiles::PTZOpticsG2,
     transport::create,
     types::{
-        BrightnessLevel, ContrastLevel, NoiseReduction2DLevel, PanSpeed, SaturationLevel,
-        SharpnessLevel, TiltSpeed, ZoomPosition,
+        BrightnessLevel, ContrastLevel, NoiseReduction2DLevel, SaturationLevel,
+        SharpnessLevel, ZoomPosition,
     },
-    units::Degrees,
     Error,
 };
 #[cfg(feature = "tokio")]
@@ -97,35 +103,25 @@ async fn main() -> Result<(), Error> {
 
     // Demonstrate position control with degrees
     println!("\n--- Position Control ---");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     println!("Moved to home position");
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.set_position(Degrees(45.0), Degrees(15.0)).await?;
+    camera.pan_tilt_absolute(45.0, 15.0, 10).await?;
     println!("Moved to 45° pan, 15° tilt");
     time::sleep(Duration::from_secs(3)).await;
 
-    // Note: set_position_normalized is not available in the current API
-    // Using set_position with degrees instead (assuming ±170° pan, -30° to +90° tilt for PTZOpticsG2)
-    camera.set_position(Degrees(-85.0), Degrees(15.0)).await?;
+    // Using absolute position with degrees (assuming ±170° pan, -30° to +90° tilt for PTZOpticsG2)
+    camera.pan_tilt_absolute(-85.0, 15.0, 10).await?;
     println!("Moved to position (-85° pan, +15° tilt)");
     time::sleep(Duration::from_secs(3)).await;
 
     // Demonstrate relative movement
     println!("\n--- Relative Movement ---");
-    // The new API doesn't have direct relative movement, but we can demonstrate
-    // continuous movement instead
-    camera
-        .move_continuous(
-            grafton_visca::command::pan_tilt::PanTiltDirection::UpRight,
-            PanSpeed::new(5)?,
-            TiltSpeed::new(5)?,
-        )
-        .await?;
-    println!("Moving camera up-right...");
-    time::sleep(Duration::from_secs(1)).await;
-    camera.stop().await?;
-    println!("Stopped movement");
+    // Use relative movement to move the camera
+    camera.pan_tilt_relative(10.0, 5.0, 10).await?;
+    println!("Moved camera relative: +10° pan, +5° tilt");
+    time::sleep(Duration::from_secs(2)).await;
 
     // Return to default settings
     println!("\n--- Returning to Defaults ---");
@@ -138,7 +134,7 @@ async fn main() -> Result<(), Error> {
     camera.set_contrast(ContrastLevel::new(8)?).await?;
     camera.set_sharpness(SharpnessLevel::new(8)?).await?;
     camera.set_brightness(BrightnessLevel::new(8)?).await?;
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     camera.set_zoom(ZoomPosition::MIN).await?; // Minimum zoom
     println!("Returned camera to default settings");
 

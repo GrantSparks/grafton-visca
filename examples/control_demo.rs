@@ -45,7 +45,7 @@ fn main() -> Result<(), Error> {
         // Pan/Tilt Control Examples
         println!("1. Pan/Tilt Control");
         println!("   - Moving to home position...");
-        camera.home()?;
+        camera.pan_tilt_home()?;
         std::thread::sleep(Duration::from_secs(3));
 
         println!("   - Moving to position (1000, -500) at default speed...");
@@ -67,7 +67,7 @@ fn main() -> Result<(), Error> {
         std::thread::sleep(Duration::from_millis(1500));
 
         println!("   - Stopping movement...");
-        camera.stop()?;
+        camera.pan_tilt_stop()?;
         std::thread::sleep(Duration::from_millis(500));
 
         // Zoom Control Examples
@@ -124,7 +124,7 @@ fn main() -> Result<(), Error> {
         std::thread::sleep(Duration::from_millis(500));
 
         println!("   - Returning to home...");
-        camera.home()?;
+        camera.pan_tilt_home()?;
         std::thread::sleep(Duration::from_secs(2));
 
         println!("   - Recalling preset 1...");

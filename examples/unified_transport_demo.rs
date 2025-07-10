@@ -3,7 +3,8 @@
 #[cfg(not(feature = "async"))]
 fn blocking_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
-        camera::{Camera, GenericVisca},
+        camera::Camera,
+        profiles::GenericVisca,
         command::{power::Power, PowerCommand},
         transport::blocking::Tcp,
     };
@@ -29,7 +30,8 @@ fn blocking_example() -> Result<(), grafton_visca::Error> {
 #[cfg(feature = "tokio")]
 async fn async_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
-        camera::{Camera, GenericVisca},
+        camera::Camera,
+        profiles::GenericVisca,
         command::{power::Power, PowerCommand},
         transport::tokio::Tcp,
     };

@@ -5,8 +5,8 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{profiles::GenericVisca, Camera},
-    command::zoom::ZoomCommand,
+    camera::{methods::ZoomMethods, Camera},
+    profiles::GenericVisca,
     transport::tokio::Udp,
 };
 
@@ -32,12 +32,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Create a camera using the transport
             let camera = Camera::<GenericVisca, _>::new(transport);
 
-            // Send a VISCA command
-            let command = ZoomCommand::Stop;
-            match camera.send_command(&command).await {
-                Ok(response) => {
-                    println!("✓ Command sent successfully!");
-                    println!("  Response: {:?}", response);
+            // Send a VISCA command using high-level API
+            match camera.zoom_stop().await {
+                Ok(_) => {
+                    println!("✓ Zoom stop command sent successfully!");
                 }
                 Err(e) => {
                     println!("✗ Command failed: {}", e);

@@ -8,8 +8,9 @@
 //! - Maximize throughput with concurrent operations
 
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2,
+    camera::methods::{FocusMethods, PanTiltMethods, PowerMethods, PresetMethods, ZoomMethods},
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     transport::create,
     types::{PanSpeed, TiltSpeed},
     Camera, Error,
@@ -67,7 +68,7 @@ async fn main() -> Result<(), Error> {
 
     // Stop movement and zoom
     let stop_start = Instant::now();
-    camera.stop().await?;
+    camera.pan_tilt_stop().await?;
     camera.zoom_stop().await?;
     println!("Stop commands completed in {:?}", stop_start.elapsed());
 
@@ -122,7 +123,7 @@ async fn main() -> Result<(), Error> {
     let camera1 = Arc::clone(&camera);
     let stop_move = tokio::spawn(async move {
         let cam = camera1.lock().await;
-        cam.stop().await
+        cam.pan_tilt_stop().await
     });
 
     let camera2 = Arc::clone(&camera);
@@ -221,7 +222,7 @@ async fn main() -> Result<(), Error> {
         let camera = Arc::clone(&camera);
         tokio::spawn(async move {
             let cam = camera.lock().await;
-            cam.home().await
+            cam.pan_tilt_home().await
         })
     };
 
@@ -289,7 +290,7 @@ async fn main() -> Result<(), Error> {
         let camera = Arc::clone(&camera);
         tokio::spawn(async move {
             let cam = camera.lock().await;
-            cam.stop().await
+            cam.pan_tilt_stop().await
         })
     };
 

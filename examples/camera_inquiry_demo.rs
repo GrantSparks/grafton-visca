@@ -8,7 +8,14 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{Camera, PTZOpticsG2},
+    camera::{
+        methods::{
+            ExposureMethods, FocusMethods, ImageProcessingMethods, PanTiltMethods, PowerMethods,
+            WhiteBalanceMethods, ZoomMethods,
+        },
+        Camera,
+    },
+    profiles::PTZOpticsG2,
     transport::create,
     Error,
 };

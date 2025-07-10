@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         TiltSpeed::new(slow_tilt)?,
     )?;
     std::thread::sleep(Duration::from_millis(500));
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
 
     // Move fast for quick repositioning
     let fast_pan = SpeedLevel::Fast.to_pan_speed();
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         TiltSpeed::new(fast_tilt)?,
     )?;
     std::thread::sleep(Duration::from_millis(500));
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
 
     // Example 2: Using FStop for iris control
     println!("\n=== F-Stop Demo ===");

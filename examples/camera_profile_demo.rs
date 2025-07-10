@@ -48,7 +48,7 @@ async fn main() -> Result<(), Error> {
 
     // Move to home position
     println!("Moving to home position...");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
     // Move to specific position in degrees

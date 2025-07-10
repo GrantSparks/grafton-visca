@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Stop any ongoing movement
     println!("Stopping camera movement...");
-    camera.stop().await?;
+    camera.pan_tilt_stop().await?;
 
     // Get current position
     println!("Getting current pan/tilt position...");
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Move camera to home position
     println!("Moving to home position...");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
 
     // Demo using custom transport implementation
     println!("\n=== Custom Transport Demo ===");
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Testing custom transport...");
     // This will use the custom transport's send/receive methods
-    custom_camera.stop().await?;
+    custom_camera.pan_tilt_stop().await?;
 
     println!("Demo completed successfully!");
 

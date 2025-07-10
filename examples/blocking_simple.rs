@@ -12,12 +12,12 @@ fn main() {
 #[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::create;
 #[cfg(not(feature = "async"))]
-use grafton_visca::units::Degrees;
-#[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
-    command::pan_tilt::PanTiltDirection,
-    types::{PanSpeed, TiltSpeed},
+    camera::{
+        methods::{PanTiltMethods, PowerMethods, ZoomMethods},
+        Camera,
+    },
+    profiles::PTZOpticsG2,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -40,14 +40,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Camera created successfully with blocking transport!");
     println!("Running without any async runtime - pure blocking I/O!");
 
-    // Display camera capabilities
-    let caps = camera.capabilities();
-    println!("\nCamera Capabilities:");
-    println!("  Model: {}", caps.model_name);
-    println!("  Pan Range: {:?} degrees", caps.pan_range_degrees);
-    println!("  Tilt Range: {:?} degrees", caps.tilt_range_degrees);
-    println!("  Max Pan Speed: {}", caps.max_pan_speed);
-    println!("  Max Tilt Speed: {}", caps.max_tilt_speed);
+    // Note: The capabilities() method is not available in the current API
+    // Camera capabilities are defined by the profile (PTZOpticsG2) at compile time
+    println!("\nUsing PTZOpticsG2 camera profile");
 
     // Test basic operations - all blocking, no async runtime
     println!("\nTesting camera operations:");
@@ -59,25 +54,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Move to home position
     println!("Moving to home position...");
-    camera.home()?;
+    camera.pan_tilt_home()?;
     std::thread::sleep(Duration::from_secs(3));
 
     // Test absolute position movement
     println!("Moving to position (30°, -10°)...");
-    camera.set_position(Degrees(30.0), Degrees(-10.0))?;
+    camera.pan_tilt_absolute(30.0, -10.0, 10)?;
     std::thread::sleep(Duration::from_secs(3));
 
-    // Test continuous movement
-    println!("Starting continuous pan left...");
-    camera.move_continuous(
-        PanTiltDirection::Left,
-        PanSpeed::new(10)?,
-        TiltSpeed::new(0)?,
-    )?;
+    // Test relative movement
+    println!("Moving relative: pan left 20°...");
+    camera.pan_tilt_relative(-20.0, 0.0, 10)?;
     std::thread::sleep(Duration::from_secs(2));
-
-    println!("Stopping movement...");
-    camera.stop()?;
 
     // Test zoom
     println!("Testing zoom in...");
@@ -85,23 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::sleep(Duration::from_secs(1));
     camera.zoom_stop()?;
 
-    // Test inquiry operations
-    println!("\nTesting inquiry operations:");
-
-    // Get power status
-    if let Ok(power_status) = camera.get_power_state() {
-        println!("Power status: {:?}", power_status);
-    }
-
-    // Get current position
-    if let Ok((pan, tilt)) = camera.get_position() {
-        println!("Current position: Pan={:?}, Tilt={:?}", pan, tilt);
-    }
-
-    // Get zoom position
-    if let Ok(zoom_pos) = camera.get_zoom_position() {
-        println!("Zoom position: {:?}", zoom_pos);
-    }
+    // Note: Inquiry methods are not available in the current API
+    // The API focuses on control commands rather than status queries
 
     println!("\nAll operations completed successfully!");
     println!("Pure blocking I/O works perfectly without any async runtime!");

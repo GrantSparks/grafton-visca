@@ -17,10 +17,12 @@ use grafton_visca::transport::blocking::{create, BlockingTransport};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        profiles::{G2PresetId, PTZOpticsG2},
+        methods::{FocusMethods, PanTiltMethods, PresetMethods, ZoomMethods},
+        profiles::G2PresetId,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     types::{FocusPosition, PanSpeed, TiltSpeed, ZoomPosition},
     units::Degrees,
 };
@@ -50,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate sequential command execution with type-safe units
     println!("\n1. Type-safe position control with Degrees");
-    camera.home()?;
+    camera.pan_tilt_home()?;
     println!("   ✓ Moved to home position");
     thread::sleep(Duration::from_secs(2));
 
@@ -63,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2. Sequential movement operations");
 
     // Move to preset position first
-    camera.home()?;
+    camera.pan_tilt_home()?;
     thread::sleep(Duration::from_secs(1));
 
     // Continuous movement
@@ -73,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         TiltSpeed::new(10)?,
     )?;
     thread::sleep(Duration::from_millis(500));
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
     println!("   ✓ Executed: Home → Move UpRight → Stop");
 
     // Zoom operations
@@ -153,7 +155,7 @@ fn perform_scan_sequence<T: BlockingTransport>(
     use grafton_visca::units::Degrees;
 
     // Return to home
-    camera.home()?;
+    camera.pan_tilt_home()?;
     thread::sleep(Duration::from_secs(1));
 
     // Scan left
@@ -163,7 +165,7 @@ fn perform_scan_sequence<T: BlockingTransport>(
         TiltSpeed::new(0)?,
     )?;
     thread::sleep(Duration::from_secs(2));
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
 
     // Scan right
     camera.move_continuous(
@@ -172,7 +174,7 @@ fn perform_scan_sequence<T: BlockingTransport>(
         TiltSpeed::new(0)?,
     )?;
     thread::sleep(Duration::from_secs(4));
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
 
     // Return to center
     camera.set_position(Degrees(0.0), Degrees(0.0))?;
@@ -183,10 +185,12 @@ fn perform_scan_sequence<T: BlockingTransport>(
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
-        profiles::{G2PresetId, PTZOpticsG2},
+        methods::{FocusMethods, PanTiltMethods, PresetMethods, ZoomMethods},
+        profiles::G2PresetId,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     transport::create,
     types::{PanSpeed, TiltSpeed, ZoomPosition},
     units::Degrees,
@@ -209,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate async operations with type-safe units
     println!("\n1. Async type-safe position control");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     println!("   ✓ Moved to home position");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -242,7 +246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Stop both operations
-    camera.stop().await?;
+    camera.pan_tilt_stop().await?;
     camera.zoom_stop().await?;
     println!("   ✓ Completed movement and zoom sequence");
 
@@ -273,7 +277,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Reset to neutral
     println!("\n5. Reset to neutral position");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     camera.set_zoom(ZoomPosition::MIN).await?;
     camera.focus_auto().await?;
     println!("   ✓ Reset camera to neutral state");
@@ -290,7 +294,7 @@ async fn perform_async_scan_sequence<T: grafton_visca::transport::AsyncTransport
     use grafton_visca::units::Degrees;
 
     // Return to home
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Scan pattern with position feedback

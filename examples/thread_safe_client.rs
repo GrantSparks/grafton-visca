@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Stop movement
         {
             let mut cam = camera1.lock().unwrap();
-            cam.stop()?;
+            cam.pan_tilt_stop()?;
         }
         thread::sleep(Duration::from_millis(500));
 
@@ -89,12 +89,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Stop and return home
         {
             let mut cam = camera1.lock().unwrap();
-            cam.stop()?;
+            cam.pan_tilt_stop()?;
         }
         thread::sleep(Duration::from_millis(500));
         {
             let mut cam = camera1.lock().unwrap();
-            cam.home()?;
+            cam.pan_tilt_home()?;
         }
 
         println!("[Thread 1] Pan/tilt complete");

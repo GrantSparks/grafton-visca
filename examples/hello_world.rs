@@ -10,7 +10,8 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
+    camera::{methods::{PanTiltMethods, PowerMethods}, Camera},
+    profiles::PTZOpticsG2,
     transport::blocking::create,
 };
 #[cfg(not(feature = "async"))]
@@ -41,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Move to home position
     println!("Moving to home position...");
-    camera.home()?;
+    camera.pan_tilt_home()?;
 
     println!("Hello from VISCA camera!");
 
