@@ -1,12 +1,12 @@
 //! Exposure methods for cameras that support exposure control.
 
 use crate::camera::Camera;
-use crate::capabilities::{ProfileMetadata, SupportsExposure};
+use crate::capabilities::{Exposure, ProfileMetadata};
 use crate::Error;
 
 /// Extension trait that adds exposure methods to cameras.
 #[allow(async_fn_in_trait)]
-pub trait ExposureMethods {
+pub trait ExposureMethodsExt {
     /// Set auto exposure mode.
     #[cfg(not(feature = "async"))]
     fn exposure_auto(&mut self) -> Result<(), Error>;
@@ -26,9 +26,9 @@ pub trait ExposureMethods {
 
 // Blanket implementation for cameras with exposure support
 #[cfg(not(feature = "async"))]
-impl<P, T> ExposureMethods for Camera<P, T>
+impl<P, T> ExposureMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsExposure,
+    P: ProfileMetadata + Exposure,
     T: crate::transport::blocking::BlockingTransport,
 {
     fn exposure_auto(&mut self) -> Result<(), Error> {
@@ -54,9 +54,9 @@ where
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T> ExposureMethods for Camera<P, T>
+impl<P, T> ExposureMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsExposure,
+    P: ProfileMetadata + Exposure,
     T: crate::transport::AsyncTransport,
 {
     async fn exposure_auto(&self) -> Result<(), Error> {

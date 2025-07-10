@@ -11,7 +11,7 @@ fn main() {
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{FocusMethods, PanTiltMethods, PresetMethods, ZoomMethods},
+        methods::{FocusMethodsExt, PanTiltMethodsExt, PresetMethodsExt, ZoomMethodsExt},
         profiles::PTZOpticsG2,
         Camera,
     },

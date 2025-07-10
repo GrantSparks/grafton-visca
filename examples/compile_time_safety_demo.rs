@@ -122,7 +122,7 @@ fn demonstrate_compile_time_errors() {
 
     // Compile error:
     // error[E0599]: no method named `set_nd_filter` found for struct `Camera<PTZOpticsG2, MockTransport>`
-    // note: the method `set_nd_filter` exists but the trait bound `PTZOpticsG2: SupportsNDFilter` is not satisfied
+    // note: the method `set_nd_filter` exists but the trait bound `PTZOpticsG2: NDFilter` is not satisfied
     */
 
     /*
@@ -132,7 +132,7 @@ fn demonstrate_compile_time_errors() {
 
     // Compile error:
     // error[E0599]: no method named `focus_auto` found for struct `Camera<GenericVisca, MockTransport>`
-    // note: the method `focus_auto` exists but the trait bound `GenericVisca: SupportsFocus` is not satisfied
+    // note: the method `focus_auto` exists but the trait bound `GenericVisca: Focus` is not satisfied
     */
 
     println!("Compile-time safety prevents calling unsupported methods!");
@@ -142,8 +142,8 @@ fn demonstrate_compile_time_errors() {
 fn center_and_focus<P, T>(camera: &mut Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::ProfileMetadata
-        + grafton_visca::capabilities::SupportsPanTilt
-        + grafton_visca::capabilities::SupportsFocus,
+        + grafton_visca::capabilities::PanTilt
+        + grafton_visca::capabilities::Focus,
     T: grafton_visca::transport::blocking::BlockingTransport,
 {
     camera.pan_tilt_home()?;
@@ -155,8 +155,8 @@ where
 fn set_neutral_exposure<P, T>(camera: &mut Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::ProfileMetadata
-        + grafton_visca::capabilities::SupportsNDFilter
-        + grafton_visca::capabilities::SupportsExposure,
+        + grafton_visca::capabilities::NDFilter
+        + grafton_visca::capabilities::Exposure,
     T: grafton_visca::transport::blocking::BlockingTransport,
 {
     camera.set_nd_filter(1)?;

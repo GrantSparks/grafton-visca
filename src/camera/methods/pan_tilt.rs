@@ -2,7 +2,7 @@
 
 use crate::camera::Camera;
 use crate::capabilities::pan_tilt::PanTiltExt;
-use crate::capabilities::{ProfileMetadata, SupportsPanTilt};
+use crate::capabilities::{PanTilt, ProfileMetadata};
 use crate::command::const_encoding::{
     constants::pan_tilt, encode_pan_tilt_absolute, encode_pan_tilt_relative,
 };
@@ -10,7 +10,7 @@ use crate::Error;
 
 /// Extension trait that adds pan/tilt methods to cameras.
 #[allow(async_fn_in_trait)]
-pub trait PanTiltMethods {
+pub trait PanTiltMethodsExt {
     /// Stop all pan/tilt movement.
     #[cfg(not(feature = "async"))]
     fn pan_tilt_stop(&mut self) -> Result<(), Error>;
@@ -66,9 +66,9 @@ pub trait PanTiltMethods {
 
 // Blocking implementation for cameras with pan/tilt
 #[cfg(not(feature = "async"))]
-impl<P, T> PanTiltMethods for Camera<P, T>
+impl<P, T> PanTiltMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsPanTilt + Default,
+    P: ProfileMetadata + PanTilt + Default,
     T: crate::transport::blocking::BlockingTransport,
 {
     fn pan_tilt_stop(&mut self) -> Result<(), Error> {
@@ -122,9 +122,9 @@ where
 
 // Async implementation for cameras with pan/tilt
 #[cfg(feature = "async")]
-impl<P, T> PanTiltMethods for Camera<P, T>
+impl<P, T> PanTiltMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsPanTilt + Default,
+    P: ProfileMetadata + PanTilt + Default,
     T: crate::transport::AsyncTransport,
 {
     async fn pan_tilt_stop(&self) -> Result<(), Error> {
@@ -143,7 +143,7 @@ where
     ) -> Result<(), Error> {
         // Create a dummy instance for validation
         struct Validator<P>(std::marker::PhantomData<P>);
-        impl<P: SupportsPanTilt> Validator<P> {
+        impl<P: PanTilt> Validator<P> {
             fn validate(
                 &self,
                 pan_degrees: f32,
@@ -168,7 +168,7 @@ where
                 Self(std::marker::PhantomData)
             }
         }
-        impl<P: SupportsPanTilt> SupportsPanTilt for DummyCamera<P> {
+        impl<P: PanTilt> PanTilt for DummyCamera<P> {
             const PAN_RANGE: std::ops::Range<i16> = P::PAN_RANGE;
             const TILT_RANGE: std::ops::Range<i16> = P::TILT_RANGE;
             const MAX_PAN_SPEED: u8 = P::MAX_PAN_SPEED;
@@ -193,7 +193,7 @@ where
     ) -> Result<(), Error> {
         // Similar validation approach
         struct Validator<P>(std::marker::PhantomData<P>);
-        impl<P: SupportsPanTilt> Validator<P> {
+        impl<P: PanTilt> Validator<P> {
             fn validate(
                 &self,
                 pan_degrees: f32,
@@ -216,7 +216,7 @@ where
                 Self(std::marker::PhantomData)
             }
         }
-        impl<P: SupportsPanTilt> SupportsPanTilt for DummyCamera<P> {
+        impl<P: PanTilt> PanTilt for DummyCamera<P> {
             const PAN_RANGE: std::ops::Range<i16> = P::PAN_RANGE;
             const TILT_RANGE: std::ops::Range<i16> = P::TILT_RANGE;
             const MAX_PAN_SPEED: u8 = P::MAX_PAN_SPEED;
@@ -262,7 +262,7 @@ mod tests {
 
         let mut _camera: Camera<PTZOpticsG2, MockTransport> = Camera::new(MockTransport);
 
-        // These methods exist because PTZOpticsG2 implements SupportsPanTilt
+        // These methods exist because PTZOpticsG2 implements PanTilt
         #[cfg(not(feature = "async"))]
         {
             let _ = _camera.pan_tilt_stop();

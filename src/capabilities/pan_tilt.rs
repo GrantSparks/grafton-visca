@@ -9,7 +9,7 @@ use crate::capabilities::ValidationError;
 ///
 /// This trait defines the constants and capabilities for pan/tilt operations.
 /// Cameras implementing this trait gain access to pan/tilt movement methods.
-pub trait SupportsPanTilt {
+pub trait PanTilt {
     /// Valid range for pan position in VISCA units.
     /// Typically maps to degrees based on camera model.
     const PAN_RANGE: Range<i16>;
@@ -42,7 +42,7 @@ pub trait SupportsPanTilt {
 }
 
 /// Extension trait that adds validation methods to cameras with pan/tilt support.
-pub trait PanTiltExt: SupportsPanTilt {
+pub trait PanTiltExt: PanTilt {
     /// Validate a pan position is within range.
     fn validate_pan(&self, pan: i16) -> Result<i16, ValidationError> {
         if Self::PAN_RANGE.contains(&pan) {
@@ -103,7 +103,7 @@ pub trait PanTiltExt: SupportsPanTilt {
 }
 
 // Automatic implementation for all types that support pan/tilt
-impl<T: SupportsPanTilt> PanTiltExt for T {}
+impl<T: PanTilt> PanTiltExt for T {}
 
 #[cfg(test)]
 mod tests {
@@ -111,7 +111,7 @@ mod tests {
 
     struct TestCamera;
 
-    impl SupportsPanTilt for TestCamera {
+    impl PanTilt for TestCamera {
         const PAN_RANGE: Range<i16> = -170..171;
         const TILT_RANGE: Range<i16> = -30..91;
         const MAX_PAN_SPEED: u8 = 24;

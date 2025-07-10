@@ -8,7 +8,7 @@ use crate::capabilities::ValidationError;
 ///
 /// This trait defines the constants and capabilities for image quality settings
 /// including brightness, contrast, sharpness, saturation, and image orientation.
-pub trait SupportsImageProcessing {
+pub trait ImageProcessing {
     /// Valid range for brightness adjustment.
     const BRIGHTNESS_RANGE: Range<u8>;
 
@@ -51,7 +51,7 @@ pub trait SupportsImageProcessing {
 }
 
 /// Extension trait that adds validation methods to cameras with image processing support.
-pub trait ImageProcessingExt: SupportsImageProcessing {
+pub trait ImageProcessingExt: ImageProcessing {
     /// Validate brightness value.
     fn validate_brightness(&self, value: u8) -> Result<u8, ValidationError> {
         if Self::BRIGHTNESS_RANGE.contains(&value) {
@@ -156,7 +156,7 @@ pub trait ImageProcessingExt: SupportsImageProcessing {
 }
 
 // Automatic implementation for all types that support image processing
-impl<T: SupportsImageProcessing> ImageProcessingExt for T {}
+impl<T: ImageProcessing> ImageProcessingExt for T {}
 
 /// Image flip modes combining vertical and horizontal flipping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,7 +201,7 @@ mod tests {
 
     struct TestCamera;
 
-    impl SupportsImageProcessing for TestCamera {
+    impl ImageProcessing for TestCamera {
         const BRIGHTNESS_RANGE: Range<u8> = 0..16;
         const CONTRAST_RANGE: Range<u8> = 0..16;
         const SHARPNESS_RANGE: Range<u8> = 0..16;

@@ -8,7 +8,7 @@ use crate::capabilities::ValidationError;
 ///
 /// This trait defines the constants and capabilities for white balance settings
 /// including mode selection, color temperature, and RGB gain control.
-pub trait SupportsWhiteBalance {
+pub trait WhiteBalance {
     /// Supported white balance modes.
     const WB_MODES: &'static [WhiteBalanceMode];
 
@@ -41,7 +41,7 @@ pub trait SupportsWhiteBalance {
 }
 
 /// Extension trait that adds validation methods to cameras with white balance support.
-pub trait WhiteBalanceExt: SupportsWhiteBalance {
+pub trait WhiteBalanceExt: WhiteBalance {
     /// Check if a white balance mode is supported.
     fn supports_wb_mode(&self, mode: WhiteBalanceMode) -> bool {
         Self::WB_MODES.contains(&mode)
@@ -146,7 +146,7 @@ pub trait WhiteBalanceExt: SupportsWhiteBalance {
 }
 
 // Automatic implementation for all types that support white balance
-impl<T: SupportsWhiteBalance> WhiteBalanceExt for T {}
+impl<T: WhiteBalance> WhiteBalanceExt for T {}
 
 /// White balance modes supported by VISCA cameras.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,7 +185,7 @@ mod tests {
 
     struct TestCamera;
 
-    impl SupportsWhiteBalance for TestCamera {
+    impl WhiteBalance for TestCamera {
         const WB_MODES: &'static [WhiteBalanceMode] = TEST_WB_MODES;
         const SUPPORTS_ONE_PUSH_WB: bool = true;
         const RG_TUNING_RANGE: Option<Range<i8>> = Some(-7..8);

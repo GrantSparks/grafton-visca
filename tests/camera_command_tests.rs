@@ -10,7 +10,11 @@ mod common;
 mod blocking_tests {
     use super::common::MockTransport;
     use grafton_visca::{
-        camera::{profiles::G2PresetId, Camera},
+        camera::{
+            methods::{PanTiltMethodsExt, PowerMethodsExt, PresetMethodsExt, ZoomMethodsExt},
+            profiles::G2PresetId,
+            Camera,
+        },
         profiles::PTZOpticsG2,
         Error,
     };
@@ -58,7 +62,7 @@ mod blocking_tests {
         let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Send home command
-        let result = camera.home();
+        let result = camera.pan_tilt_home();
         assert!(result.is_ok(), "Home command should succeed");
 
         // Verify command was sent
@@ -117,11 +121,11 @@ mod blocking_tests {
 
         // Set preset 5
         let preset_id = G2PresetId::new(5).unwrap();
-        let result = camera.set_preset(preset_id.into());
+        let result = camera.preset_set(preset_id.into());
         assert!(result.is_ok(), "Set preset should succeed");
 
         // Recall preset 5
-        let result = camera.recall_preset(preset_id.into());
+        let result = camera.preset_recall(preset_id.into());
         assert!(result.is_ok(), "Recall preset should succeed");
 
         let commands = commands_sent.lock().unwrap();
@@ -161,7 +165,7 @@ mod blocking_tests {
         let transport = mock; // Use raw mock transport, Camera::new will wrap it
         let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
-        let result = camera.home();
+        let result = camera.pan_tilt_home();
         assert!(result.is_err(), "Should timeout");
 
         match result {
@@ -186,7 +190,7 @@ mod blocking_tests {
         let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Execute a sequence of commands
-        assert!(camera.home().is_ok());
+        assert!(camera.pan_tilt_home().is_ok());
         assert!(camera.zoom_stop().is_ok());
         assert!(camera.power_off().is_ok());
 
@@ -202,7 +206,14 @@ mod blocking_tests {
 #[cfg(all(feature = "async", feature = "tokio"))]
 mod async_tests {
     use super::common::MockAsyncTransport;
-    use grafton_visca::{camera::Camera, profiles::PTZOpticsG2, Error};
+    use grafton_visca::{
+        camera::{
+            methods::{PanTiltMethodsExt, PowerMethodsExt, PresetMethodsExt, ZoomMethodsExt},
+            Camera,
+        },
+        profiles::PTZOpticsG2,
+        Error,
+    };
 
     #[tokio::test]
     async fn test_async_camera_power_command() {
@@ -238,7 +249,7 @@ mod async_tests {
         let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
         // Send home command
-        let result = camera.home().await;
+        let result = camera.pan_tilt_home().await;
         assert!(result.is_ok(), "Home command should succeed");
 
         // Verify command was sent
@@ -260,7 +271,7 @@ mod async_tests {
         let transport = mock; // Use raw mock transport, Camera::new will wrap it
         let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
-        let result = camera.home().await;
+        let result = camera.pan_tilt_home().await;
         assert!(result.is_err(), "Should timeout");
 
         match result {
@@ -290,7 +301,7 @@ mod async_tests {
         let cam1 = camera.clone();
         let task1 = tokio::spawn(async move {
             let cam = cam1.lock().await;
-            cam.home().await
+            cam.pan_tilt_home().await
         });
 
         let cam2 = camera.clone();

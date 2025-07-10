@@ -14,7 +14,7 @@ use grafton_visca::transport::blocking::create;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltMethods, PowerMethods, ZoomMethods},
+        methods::{PanTiltMethodsExt, PowerMethodsExt, ZoomMethodsExt},
         Camera,
     },
     profiles::PTZOpticsG2,

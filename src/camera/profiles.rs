@@ -7,9 +7,8 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::capabilities::{
-    NDFilterMode, ProfileMetadata, ProtocolStyle, ShutterSpeed, SupportsExposure, SupportsFocus,
-    SupportsImageProcessing, SupportsNDFilter, SupportsPanTilt, SupportsPower, SupportsPresets,
-    SupportsWhiteBalance, SupportsZoom, WhiteBalanceMode,
+    Exposure, Focus, ImageProcessing, NDFilter, NDFilterMode, PanTilt, Power, Presets,
+    ProfileMetadata, ProtocolStyle, ShutterSpeed, WhiteBalance, WhiteBalanceMode, Zoom,
 };
 use crate::error::Error;
 
@@ -97,7 +96,7 @@ impl ProfileMetadata for PTZOpticsG2 {
 }
 
 // Movement capabilities
-impl SupportsPanTilt for PTZOpticsG2 {
+impl PanTilt for PTZOpticsG2 {
     const PAN_RANGE: std::ops::Range<i16> = -2448..2449;
     const TILT_RANGE: std::ops::Range<i16> = -432..1297;
     const MAX_PAN_SPEED: u8 = 24;
@@ -107,7 +106,7 @@ impl SupportsPanTilt for PTZOpticsG2 {
 }
 
 // Zoom capabilities
-impl SupportsZoom for PTZOpticsG2 {
+impl Zoom for PTZOpticsG2 {
     const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
     const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000); // Additional digital zoom
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
@@ -115,7 +114,7 @@ impl SupportsZoom for PTZOpticsG2 {
 }
 
 // Focus capabilities
-impl SupportsFocus for PTZOpticsG2 {
+impl Focus for PTZOpticsG2 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
@@ -123,7 +122,7 @@ impl SupportsFocus for PTZOpticsG2 {
 }
 
 // Exposure capabilities
-impl SupportsExposure for PTZOpticsG2 {
+impl Exposure for PTZOpticsG2 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..9; // 0dB to 24dB in 3dB steps
@@ -133,7 +132,7 @@ impl SupportsExposure for PTZOpticsG2 {
 }
 
 // White balance capabilities
-impl SupportsWhiteBalance for PTZOpticsG2 {
+impl WhiteBalance for PTZOpticsG2 {
     const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
@@ -141,7 +140,7 @@ impl SupportsWhiteBalance for PTZOpticsG2 {
 }
 
 // Image processing capabilities
-impl SupportsImageProcessing for PTZOpticsG2 {
+impl ImageProcessing for PTZOpticsG2 {
     const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
     const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
@@ -154,19 +153,19 @@ impl SupportsImageProcessing for PTZOpticsG2 {
 }
 
 // Preset capabilities
-impl SupportsPresets for PTZOpticsG2 {
+impl Presets for PTZOpticsG2 {
     const MAX_PRESETS: u8 = 89;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
     const SUPPORTS_PRESET_TOUR: bool = false; // G2 doesn't support tour
 }
 
 // Power capabilities
-impl SupportsPower for PTZOpticsG2 {
+impl Power for PTZOpticsG2 {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = true;
 }
 
-// Note: PTZOpticsG2 does NOT implement SupportsNDFilter
+// Note: PTZOpticsG2 does NOT implement NDFilter
 
 /// Generic VISCA camera profile.
 ///
@@ -183,7 +182,7 @@ impl ProfileMetadata for GenericVisca {
 }
 
 // Only implement basic capabilities for generic camera
-impl SupportsPanTilt for GenericVisca {
+impl PanTilt for GenericVisca {
     const PAN_RANGE: std::ops::Range<i16> = -2880..2881; // ±180°
     const TILT_RANGE: std::ops::Range<i16> = -1440..1441; // ±90°
     const MAX_PAN_SPEED: u8 = 24;
@@ -192,7 +191,7 @@ impl SupportsPanTilt for GenericVisca {
     const TILT_DEGREES_TO_UNITS: f32 = 16.0;
 }
 
-impl SupportsZoom for GenericVisca {
+impl Zoom for GenericVisca {
     const OPTICAL_ZOOM_MAX: u16 = 0xFFFF;
     const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
@@ -200,13 +199,13 @@ impl SupportsZoom for GenericVisca {
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1000.0; // Approximate
 }
 
-impl SupportsPower for GenericVisca {
+impl Power for GenericVisca {
     const POWER_ON_TIME: Duration = Duration::from_secs(30);
     const SUPPORTS_STANDBY: bool = false;
 }
 
 // Generic cameras usually support basic exposure control
-impl SupportsExposure for GenericVisca {
+impl Exposure for GenericVisca {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1C;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..8;
@@ -217,7 +216,7 @@ impl SupportsExposure for GenericVisca {
 }
 
 // And basic white balance
-impl SupportsWhiteBalance for GenericVisca {
+impl WhiteBalance for GenericVisca {
     const WB_MODES: &'static [WhiteBalanceMode] = GENERIC_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
@@ -242,7 +241,7 @@ impl ProfileMetadata for SonyFR7 {
 }
 
 // FR7 has all the standard features
-impl SupportsPanTilt for SonyFR7 {
+impl PanTilt for SonyFR7 {
     const PAN_RANGE: std::ops::Range<i16> = -2700..2701; // ±170° approx
     const TILT_RANGE: std::ops::Range<i16> = -300..1201; // -20° to +80°
     const MAX_PAN_SPEED: u8 = 24;
@@ -251,14 +250,14 @@ impl SupportsPanTilt for SonyFR7 {
     const TILT_DEGREES_TO_UNITS: f32 = 15.0;
 }
 
-impl SupportsZoom for SonyFR7 {
+impl Zoom for SonyFR7 {
     const OPTICAL_ZOOM_MAX: u16 = 0x4000;
     const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1000.0;
 }
 
-impl SupportsFocus for SonyFR7 {
+impl Focus for SonyFR7 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
@@ -267,7 +266,7 @@ impl SupportsFocus for SonyFR7 {
     const SUPPORTS_AF_SENSITIVITY: bool = true;
 }
 
-impl SupportsExposure for SonyFR7 {
+impl Exposure for SonyFR7 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1F;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS; // Similar speeds
     const GAIN_RANGE: std::ops::Range<u8> = 0..16;
@@ -277,7 +276,7 @@ impl SupportsExposure for SonyFR7 {
     const SUPPORTS_EXPOSURE_COMP: bool = true;
 }
 
-impl SupportsWhiteBalance for SonyFR7 {
+impl WhiteBalance for SonyFR7 {
     const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
@@ -286,7 +285,7 @@ impl SupportsWhiteBalance for SonyFR7 {
     const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2800..7500);
 }
 
-impl SupportsImageProcessing for SonyFR7 {
+impl ImageProcessing for SonyFR7 {
     const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
     const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
@@ -300,21 +299,21 @@ impl SupportsImageProcessing for SonyFR7 {
     const SUPPORTS_3D_NR: bool = true;
 }
 
-impl SupportsPresets for SonyFR7 {
+impl Presets for SonyFR7 {
     const MAX_PRESETS: u8 = 255;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
     const SUPPORTS_PRESET_TOUR: bool = true;
     const SUPPORTS_PRESET_THUMBNAIL: bool = true;
 }
 
-impl SupportsPower for SonyFR7 {
+impl Power for SonyFR7 {
     const POWER_ON_TIME: Duration = Duration::from_secs(15);
     const SUPPORTS_STANDBY: bool = true;
     const SUPPORTS_WAKE_ON_LAN: bool = true;
 }
 
 // FR7 DOES have ND filter support!
-impl SupportsNDFilter for SonyFR7 {
+impl NDFilter for SonyFR7 {
     const ND_MODE: NDFilterMode = NDFilterMode::Variable;
     const ND_STEPS: Option<u8> = None; // Continuous adjustment
 }
@@ -462,7 +461,7 @@ mod tests {
         let fr7 = SonyFR7;
 
         // Test that we can compile-time detect ND filter support
-        // G2 doesn't implement SupportsNDFilter, so we can't call has_nd_filter() on it
+        // G2 doesn't implement NDFilter, so we can't call has_nd_filter() on it
         // This is the whole point - compile-time safety!
 
         // FR7 does have ND filter

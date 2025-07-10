@@ -1,10 +1,10 @@
 //! ND filter methods for cameras that support ND filters.
 //!
-//! These methods ONLY exist for cameras that implement SupportsNDFilter.
+//! These methods ONLY exist for cameras that implement NDFilter.
 
 use crate::camera::Camera;
 use crate::capabilities::nd_filter::NDFilterExt;
-use crate::capabilities::{NDFilterMode, ProfileMetadata, SupportsNDFilter};
+use crate::capabilities::{NDFilter, NDFilterMode, ProfileMetadata};
 use crate::command::const_encoding::{
     encode_nd_filter_fixed, encode_nd_filter_stepped, encode_nd_filter_variable,
 };
@@ -12,7 +12,7 @@ use crate::Error;
 
 /// Extension trait that adds ND filter methods to cameras.
 #[allow(async_fn_in_trait)]
-pub trait NDFilterMethods {
+pub trait NDFilterMethodsExt {
     /// Set ND filter level.
     #[cfg(not(feature = "async"))]
     fn set_nd_filter(&mut self, level: u8) -> Result<(), Error>;
@@ -32,9 +32,9 @@ pub trait NDFilterMethods {
 
 // Blocking implementation ONLY for cameras with ND filter
 #[cfg(not(feature = "async"))]
-impl<P, T> NDFilterMethods for Camera<P, T>
+impl<P, T> NDFilterMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsNDFilter + Default,
+    P: ProfileMetadata + NDFilter + Default,
     T: crate::transport::blocking::BlockingTransport,
 {
     fn set_nd_filter(&mut self, level: u8) -> Result<(), Error> {
@@ -69,15 +69,15 @@ where
 
 // Async implementation ONLY for cameras with ND filter
 #[cfg(feature = "async")]
-impl<P, T> NDFilterMethods for Camera<P, T>
+impl<P, T> NDFilterMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsNDFilter,
+    P: ProfileMetadata + NDFilter,
     T: crate::transport::AsyncTransport,
 {
     async fn set_nd_filter(&self, level: u8) -> Result<(), Error> {
         // Create validator
         struct Validator<P>(std::marker::PhantomData<P>);
-        impl<P: SupportsNDFilter> Validator<P> {
+        impl<P: NDFilter> Validator<P> {
             fn validate(&self, level: u8) -> Result<u8, Error> {
                 struct Dummy<P>(std::marker::PhantomData<P>);
 
@@ -86,7 +86,7 @@ where
                         Self(std::marker::PhantomData)
                     }
                 }
-                impl<P: SupportsNDFilter> SupportsNDFilter for Dummy<P> {
+                impl<P: NDFilter> NDFilter for Dummy<P> {
                     const ND_MODE: NDFilterMode = P::ND_MODE;
                     const ND_STEPS: Option<u8> = P::ND_STEPS;
                 }

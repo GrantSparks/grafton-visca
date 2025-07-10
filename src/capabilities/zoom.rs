@@ -8,7 +8,7 @@ use crate::capabilities::ValidationError;
 ///
 /// This trait defines the constants and capabilities for zoom control.
 /// Cameras implementing this trait gain access to zoom methods.
-pub trait SupportsZoom {
+pub trait Zoom {
     /// Maximum optical zoom position in VISCA units.
     /// For PTZOptics G2 this is 0x4000 (20x optical zoom).
     const OPTICAL_ZOOM_MAX: u16;
@@ -34,7 +34,7 @@ pub trait SupportsZoom {
 }
 
 /// Extension trait that adds validation methods to cameras with zoom support.
-pub trait ZoomExt: SupportsZoom {
+pub trait ZoomExt: Zoom {
     /// Validate a zoom position is within range.
     fn validate_zoom_position(&self, position: u16) -> Result<u16, ValidationError> {
         let max = Self::DIGITAL_ZOOM_MAX.unwrap_or(Self::OPTICAL_ZOOM_MAX);
@@ -100,7 +100,7 @@ pub trait ZoomExt: SupportsZoom {
 }
 
 // Automatic implementation for all types that support zoom
-impl<T: SupportsZoom> ZoomExt for T {}
+impl<T: Zoom> ZoomExt for T {}
 
 #[cfg(test)]
 mod tests {
@@ -108,7 +108,7 @@ mod tests {
 
     struct TestCamera;
 
-    impl SupportsZoom for TestCamera {
+    impl Zoom for TestCamera {
         const OPTICAL_ZOOM_MAX: u16 = 0x4000;
         const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
         const ZOOM_SPEED_RANGE: Range<u8> = 0..8;

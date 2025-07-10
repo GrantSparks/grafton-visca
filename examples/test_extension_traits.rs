@@ -5,7 +5,14 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
+    camera::{
+        methods::{
+            ExposureMethodsExt, FocusMethodsExt, ImageProcessingMethodsExt, PanTiltMethodsExt,
+            PowerMethodsExt, WhiteBalanceMethodsExt, ZoomMethodsExt,
+        },
+        profiles::PTZOpticsG2,
+        Camera,
+    },
     command::{
         exposure::{DynamicRangeLevel, ExposureMode},
         // image::ImageFlipMode, // unused import

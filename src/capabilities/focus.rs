@@ -6,7 +6,7 @@ use crate::capabilities::ValidationError;
 ///
 /// This trait defines the constants and capabilities for focus operations.
 /// Cameras implementing this trait gain access to focus control methods.
-pub trait SupportsFocus {
+pub trait Focus {
     /// Minimum focus position (near limit) in VISCA units.
     const FOCUS_NEAR_LIMIT: u16;
 
@@ -33,7 +33,7 @@ pub trait SupportsFocus {
 }
 
 /// Extension trait that adds validation methods to cameras with focus support.
-pub trait FocusExt: SupportsFocus {
+pub trait FocusExt: Focus {
     /// Validate a focus position is within range.
     fn validate_focus_position(&self, position: u16) -> Result<u16, ValidationError> {
         if position >= Self::FOCUS_NEAR_LIMIT && position <= Self::FOCUS_FAR_LIMIT {
@@ -85,7 +85,7 @@ pub trait FocusExt: SupportsFocus {
 }
 
 // Automatic implementation for all types that support focus
-impl<T: SupportsFocus> FocusExt for T {}
+impl<T: Focus> FocusExt for T {}
 
 /// Focus zone selection for cameras that support it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,7 +122,7 @@ mod tests {
 
     struct TestCamera;
 
-    impl SupportsFocus for TestCamera {
+    impl Focus for TestCamera {
         const FOCUS_NEAR_LIMIT: u16 = 0x1000;
         const FOCUS_FAR_LIMIT: u16 = 0xF000;
         const SUPPORTS_AUTO_FOCUS: bool = true;

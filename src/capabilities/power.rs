@@ -6,7 +6,7 @@ use std::time::Duration;
 ///
 /// This trait defines the constants and capabilities for power management
 /// including power on/off timing and standby modes.
-pub trait SupportsPower {
+pub trait Power {
     /// Time required for camera to fully power on and be ready for commands.
     const POWER_ON_TIME: Duration;
 
@@ -27,7 +27,7 @@ pub trait SupportsPower {
 }
 
 /// Extension trait that adds power-related helper methods.
-pub trait PowerExt: SupportsPower {
+pub trait PowerExt: Power {
     /// Get the time to wait after power on before sending commands.
     fn power_on_delay(&self) -> Duration {
         Self::POWER_ON_TIME
@@ -60,7 +60,7 @@ pub trait PowerExt: SupportsPower {
 }
 
 // Automatic implementation for all types that support power
-impl<T: SupportsPower> PowerExt for T {}
+impl<T: Power> PowerExt for T {}
 
 /// Power states for VISCA cameras.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +81,7 @@ mod tests {
 
     struct FastCamera;
 
-    impl SupportsPower for FastCamera {
+    impl Power for FastCamera {
         const POWER_ON_TIME: Duration = Duration::from_secs(5);
         const SUPPORTS_STANDBY: bool = true;
         const SUPPORTS_WAKE_ON_LAN: bool = true;
@@ -89,7 +89,7 @@ mod tests {
 
     struct SlowCamera;
 
-    impl SupportsPower for SlowCamera {
+    impl Power for SlowCamera {
         const POWER_ON_TIME: Duration = Duration::from_secs(30);
         const SUPPORTS_STANDBY: bool = false;
         const HOME_ON_POWER_UP: bool = true;
