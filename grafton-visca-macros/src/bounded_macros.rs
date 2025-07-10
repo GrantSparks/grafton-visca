@@ -220,8 +220,8 @@ pub(crate) fn generate_percentage_variant(
         .collect();
 
     // Check if the original function returns a Result (execution) or command (construction)
-    let is_execution = matches!(&input_fn.sig.output, syn::ReturnType::Type(_, ty) 
-        if matches!(&**ty, syn::Type::Path(type_path) 
+    let is_execution = matches!(&input_fn.sig.output, syn::ReturnType::Type(_, ty)
+        if matches!(&**ty, syn::Type::Path(type_path)
             if type_path.path.segments.iter().any(|seg| seg.ident == "Result")));
 
     if is_execution {
@@ -274,10 +274,8 @@ pub(crate) fn generate_level_variant(
 
     let vis = &input_fn.vis;
     let fn_name = &input_fn.sig.ident;
-    let fn_name_level = syn::Ident::new(
-        &format!("{fn_name}_level"),
-        proc_macro2::Span::call_site(),
-    );
+    let fn_name_level =
+        syn::Ident::new(&format!("{fn_name}_level"), proc_macro2::Span::call_site());
 
     // Parse the max value from range expression
     let max_val = if let Some((_, max_str)) = range_expr.split_once("..=") {
@@ -307,8 +305,8 @@ pub(crate) fn generate_level_variant(
     );
 
     // Check if the original function returns a Result (execution) or command (construction)
-    let is_execution = matches!(&input_fn.sig.output, syn::ReturnType::Type(_, ty) 
-        if matches!(&**ty, syn::Type::Path(type_path) 
+    let is_execution = matches!(&input_fn.sig.output, syn::ReturnType::Type(_, ty)
+        if matches!(&**ty, syn::Type::Path(type_path)
             if type_path.path.segments.iter().any(|seg| seg.ident == "Result")));
 
     if is_execution {
