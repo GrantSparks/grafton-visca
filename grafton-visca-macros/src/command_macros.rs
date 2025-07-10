@@ -161,7 +161,7 @@ pub fn visca_command_variants(attr: TokenStream, item: TokenStream) -> TokenStre
                         Err(e) => {
                             return syn::Error::new(
                                 proc_macro2::Span::call_site(),
-                                format!("Failed to parse type '{}': {}", param_type_str, e),
+                                format!("Failed to parse type '{param_type_str}': {e}"),
                             )
                             .to_compile_error()
                             .into();

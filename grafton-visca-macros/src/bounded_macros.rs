@@ -178,7 +178,7 @@ pub(crate) fn generate_percentage_variant(
     let vis = &input_fn.vis;
     let fn_name = &input_fn.sig.ident;
     let fn_name_percentage = syn::Ident::new(
-        &format!("{}_percentage", fn_name),
+        &format!("{fn_name}_percentage"),
         proc_macro2::Span::call_site(),
     );
 
@@ -275,7 +275,7 @@ pub(crate) fn generate_level_variant(
     let vis = &input_fn.vis;
     let fn_name = &input_fn.sig.ident;
     let fn_name_level = syn::Ident::new(
-        &format!("{}_level", fn_name),
+        &format!("{fn_name}_level"),
         proc_macro2::Span::call_site(),
     );
 

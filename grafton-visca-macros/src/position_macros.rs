@@ -75,7 +75,7 @@ pub fn visca_position_command(attr: TokenStream, item: TokenStream) -> TokenStre
                 let param_name_str = param_name.to_string();
 
                 // Check if this parameter has a range specification
-                if let Some(range_expr) = range_specs.get(&format!("{}_range", param_name_str)) {
+                if let Some(range_expr) = range_specs.get(&format!("{param_name_str}_range")) {
                     // Parse range expression (e.g., "-170..=170")
                     if let Some((min_str, max_str)) = range_expr.split_once("..=") {
                         let min_tokens: proc_macro2::TokenStream =
