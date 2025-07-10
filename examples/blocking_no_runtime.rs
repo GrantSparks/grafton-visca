@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Move to home position
     println!("Moving to home position...");
-    camera.home()?;
+    camera.pan_tilt_home()?;
 
     // Wait for movement to complete
     std::thread::sleep(Duration::from_secs(3));
@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         TiltSpeed::new(0)?,
     )?;
     std::thread::sleep(Duration::from_secs(2));
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
 
     // Test preset operations
     println!("Saving position to preset 1...");
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Move away
     println!("Moving to home...");
-    camera.home()?;
+    camera.pan_tilt_home()?;
     std::thread::sleep(Duration::from_secs(2));
 
     // Recall preset

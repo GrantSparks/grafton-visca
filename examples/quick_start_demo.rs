@@ -50,7 +50,7 @@ fn main() -> Result<(), Error> {
     std::thread::sleep(Duration::from_secs(2));
 
     // Move to home position
-    camera.home()?;
+    camera.pan_tilt_home()?;
     println!("Moved to home position");
 
     // Save current position as preset 1
@@ -80,7 +80,7 @@ fn main() -> Result<(), Error> {
         TiltSpeed::new(0)?,
     )?;
     std::thread::sleep(Duration::from_secs(2));
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
     println!("Continuous movement demo completed");
 
     // Return to preset 1 (home)

@@ -10,10 +10,12 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
-        profiles::{G2PresetId, PTZOpticsG2},
+        methods::{FocusMethods, PanTiltMethods, PresetMethods, ZoomMethods},
+        profiles::G2PresetId,
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     transport::create,
     types::{FocusPosition, PanSpeed, TiltSpeed, ZoomPosition},
     units::Degrees,
@@ -63,7 +65,7 @@ async fn main() -> Result<(), Error> {
     println!("\n1. Sequential Control Operations");
 
     println!("   - Moving to home position...");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Setting up shot 1...");
@@ -112,7 +114,7 @@ async fn main() -> Result<(), Error> {
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Stopping movement...");
-    camera.stop().await?;
+    camera.pan_tilt_stop().await?;
 
     // Focus Operations
     println!("\n3. Focus Control");
@@ -140,7 +142,7 @@ async fn main() -> Result<(), Error> {
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Returning to home...");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
 
     // Clean up presets
     println!("\n5. Cleanup");

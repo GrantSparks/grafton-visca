@@ -5,8 +5,12 @@
 
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
+    camera::{
+        methods::{FocusMethods, PanTiltMethods, PowerMethods, ZoomMethods},
+        Camera,
+    },
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     types::{PanSpeed, TiltSpeed},
     units::Degrees,
     Error,
@@ -34,7 +38,7 @@ fn blocking_udp_example() -> Result<(), Error> {
     camera.power_on()?;
 
     println!("Moving to home position...");
-    camera.home()?;
+    camera.pan_tilt_home()?;
 
     println!("Zooming in...");
     camera.zoom_in()?;
@@ -75,7 +79,7 @@ fn blocking_movement_example() -> Result<(), Error> {
     println!("Moving camera up...");
     camera.move_continuous(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)?;
     std::thread::sleep(Duration::from_millis(500));
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
 
     println!("Moving camera down...");
     camera.move_continuous(
@@ -84,7 +88,7 @@ fn blocking_movement_example() -> Result<(), Error> {
         TiltSpeed::new(10)?,
     )?;
     std::thread::sleep(Duration::from_millis(500));
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
 
     Ok(())
 }
@@ -104,7 +108,7 @@ async fn async_udp_example() -> Result<(), Error> {
     camera.power_on().await?;
 
     println!("Moving to home position...");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
 
     println!("Zooming in...");
     camera.zoom_in().await?;
@@ -147,7 +151,7 @@ async fn async_movement_example() -> Result<(), Error> {
         .move_continuous(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)
         .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    camera.stop().await?;
+    camera.pan_tilt_stop().await?;
 
     println!("Moving camera down...");
     camera
@@ -158,7 +162,7 @@ async fn async_movement_example() -> Result<(), Error> {
         )
         .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    camera.stop().await?;
+    camera.pan_tilt_stop().await?;
 
     Ok(())
 }

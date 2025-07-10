@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✓ Saved position to preset");
 
     thread::sleep(Duration::from_secs(1));
-    camera.home()?;
+    camera.pan_tilt_home()?;
     thread::sleep(Duration::from_secs(2));
 
     camera.recall_preset(preset.into())?;

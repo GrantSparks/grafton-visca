@@ -76,7 +76,7 @@ async fn demo_pan_tilt_movement<T: grafton_visca::transport::AsyncTransport>(
     println!("\n📍 Demo 2: Pan/Tilt Movement");
 
     println!("Moving to home position...");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("Moving camera up-right...");
@@ -90,7 +90,7 @@ async fn demo_pan_tilt_movement<T: grafton_visca::transport::AsyncTransport>(
     sleep(Duration::from_secs(1)).await;
 
     println!("Stopping movement...");
-    camera.stop().await?;
+    camera.pan_tilt_stop().await?;
     Ok(())
 }
 
@@ -180,7 +180,7 @@ async fn demo_position_control<T: grafton_visca::transport::AsyncTransport>(
     sleep(Duration::from_secs(2)).await;
 
     println!("Returning to home...");
-    camera.home().await?;
+    camera.pan_tilt_home().await?;
     sleep(Duration::from_secs(2)).await;
     Ok(())
 }

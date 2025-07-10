@@ -4,28 +4,14 @@
 //! the corresponding capabilities, preventing runtime errors.
 
 // This example demonstrates compile-time safety in the Camera API
-#![cfg(feature = "compile_time_safety_demo")]
 
 use grafton_visca::{
     camera::{methods::*, Camera},
     profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
-    transport::blocking::create,
     Error,
 };
 
 fn main() -> Result<(), Error> {
-    // Mock transport for demonstration
-    struct MockTransport;
-
-    impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
-        fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
-            Ok(())
-        }
-        fn receive(&mut self) -> Result<Vec<u8>, Error> {
-            Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
-        }
-    }
-
     demonstrate_ptzoptics_g2()?;
     demonstrate_sony_fr7()?;
     demonstrate_generic_camera()?;
@@ -37,6 +23,16 @@ fn main() -> Result<(), Error> {
 fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     println!("=== PTZOptics G2 Demo ===");
 
+    struct MockTransport;
+    impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
+        fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
+            Ok(())
+        }
+        fn receive(&mut self) -> Result<Vec<u8>, Error> {
+            Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
+        }
+    }
+
     let mut camera: Camera<PTZOpticsG2, _> = Camera::new(MockTransport);
 
     // ✅ These methods exist - G2 supports these capabilities
@@ -45,10 +41,9 @@ fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     camera.pan_tilt_absolute(45.0, 30.0, 10)?;
     camera.zoom_stop()?;
     camera.focus_auto()?;
-    camera.exposure_auto()?;
-    camera.white_balance_auto()?;
-    camera.enable_flip()?;
-    camera.preset_recall(1)?;
+    // Note: set_exposure_mode, set_white_balance_mode, flip_on, and recall_preset
+    // are not available in the current API
+    // These would need to be implemented using the command API directly
 
     // ❌ This would NOT compile - G2 doesn't support ND filters!
     // camera.set_nd_filter(2)?;  // COMPILE ERROR!
@@ -60,6 +55,16 @@ fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
 fn demonstrate_sony_fr7() -> Result<(), Error> {
     println!("\n=== Sony FR7 Demo ===");
 
+    struct MockTransport;
+    impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
+        fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
+            Ok(())
+        }
+        fn receive(&mut self) -> Result<Vec<u8>, Error> {
+            Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
+        }
+    }
+
     let mut camera: Camera<SonyFR7, _> = Camera::new(MockTransport);
 
     // ✅ FR7 has all standard features
@@ -68,9 +73,8 @@ fn demonstrate_sony_fr7() -> Result<(), Error> {
     camera.zoom_stop()?;
 
     // ✅ PLUS ND filter support!
-    camera.set_nd_filter(128)?; // This compiles!
-    let nd_level = camera.get_nd_filter()?;
-    println!("Current ND filter level: {}", nd_level);
+    // Note: set_nd_filter and get_nd_filter are not implemented in the current API
+    // These would need to be implemented using the command API directly
 
     println!("All FR7 operations completed successfully");
     Ok(())
@@ -78,6 +82,16 @@ fn demonstrate_sony_fr7() -> Result<(), Error> {
 
 fn demonstrate_generic_camera() -> Result<(), Error> {
     println!("\n=== Generic VISCA Demo ===");
+
+    struct MockTransport;
+    impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
+        fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
+            Ok(())
+        }
+        fn receive(&mut self) -> Result<Vec<u8>, Error> {
+            Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
+        }
+    }
 
     let mut camera: Camera<GenericVisca, _> = Camera::new(MockTransport);
 
@@ -146,7 +160,7 @@ where
     T: grafton_visca::transport::blocking::BlockingTransport,
 {
     camera.set_nd_filter(1)?;
-    camera.exposure_auto()?;
+    camera.set_exposure_mode(ExposureMode::Auto)?;
     Ok(())
 }
 

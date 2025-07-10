@@ -6,7 +6,8 @@
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
-        camera::{Camera, PTZOpticsG2},
+        camera::Camera,
+        profiles::PTZOpticsG2,
         transport::blocking::Udp,
         units::{Degrees, Fraction, Kelvin, Magnification, Percentage},
         FStop,
@@ -86,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     println!("\n   Stopping movement...");
-    camera.stop()?;
+    camera.pan_tilt_stop()?;
 
     // Convenience Methods
     println!("\n8. Convenience Methods");
@@ -154,7 +155,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
-        camera::{Camera, PTZOpticsG2},
+        camera::Camera,
+        profiles::PTZOpticsG2,
         transport::tokio::Udp,
         types::{BrightnessLevel, FocusPosition, Gain, SharpnessLevel, ZoomPosition},
         units::{Degrees, Fraction, Kelvin, Magnification, Percentage},
@@ -239,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     println!("\n   Stopping movement...");
-    camera.stop().await?;
+    camera.pan_tilt_stop().await?;
 
     // Convenience Methods
     println!("\n8. Convenience Methods");
