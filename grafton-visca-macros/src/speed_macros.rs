@@ -71,8 +71,7 @@ pub fn visca_speed_command(attr: TokenStream, item: TokenStream) -> TokenStream 
                     speed_params.push(param_name.clone());
 
                     // Check if this parameter has a range specification
-                    if let Some(range_expr) = range_specs.get(&format!("{}_range", param_name_str))
-                    {
+                    if let Some(range_expr) = range_specs.get(&format!("{param_name_str}_range")) {
                         // Parse range expression (e.g., "0..=7" or "0..=0x18")
                         if let Some((min_str, max_str)) = range_expr.split_once("..=") {
                             let min_tokens: proc_macro2::TokenStream =
@@ -180,7 +179,7 @@ pub(crate) fn generate_speed_level_variant(
     let vis = &input_fn.vis;
     let fn_name = &input_fn.sig.ident;
     let fn_name_with_level = syn::Ident::new(
-        &format!("{}_with_level", fn_name),
+        &format!("{fn_name}_with_level"),
         proc_macro2::Span::call_site(),
     );
 
@@ -256,8 +255,8 @@ pub(crate) fn generate_speed_level_variant(
         .collect();
 
     // Check if the original function returns a Result (execution) or command (construction)
-    let is_execution = matches!(&input_fn.sig.output, syn::ReturnType::Type(_, ty) 
-        if matches!(&**ty, syn::Type::Path(type_path) 
+    let is_execution = matches!(&input_fn.sig.output, syn::ReturnType::Type(_, ty)
+        if matches!(&**ty, syn::Type::Path(type_path)
             if type_path.path.segments.iter().any(|seg| seg.ident == "Result")));
 
     if is_execution {

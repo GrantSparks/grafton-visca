@@ -178,7 +178,7 @@ fn generate_degrees_variant(
     let vis = &input_fn.vis;
     let fn_name = &input_fn.sig.ident;
     let fn_name_degrees = syn::Ident::new(
-        &format!("{}_degrees", fn_name),
+        &format!("{fn_name}_degrees"),
         proc_macro2::Span::call_site(),
     );
 
@@ -268,7 +268,7 @@ fn generate_normalized_variant(
     let vis = &input_fn.vis;
     let fn_name = &input_fn.sig.ident;
     let fn_name_normalized = syn::Ident::new(
-        &format!("{}_normalized", fn_name),
+        &format!("{fn_name}_normalized"),
         proc_macro2::Span::call_site(),
     );
 
