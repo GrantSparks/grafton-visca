@@ -51,21 +51,31 @@ fn test_with_helpers() {
 #[test]
 fn test_with_mock_transport() {
     use common::MockTransport;
-    use grafton_visca::camera::{Camera, PTZOpticsG2};
+    use grafton_visca::camera::Camera;
+    use grafton_visca::camera::methods::PowerMethodsExt;
+    use grafton_visca::profiles::PTZOpticsG2;
 
     // Create a mock that returns specific responses
-    let mock = MockTransport::with_ack_completion();
-    let commands_sent = mock.commands_sent.clone();
-    let transport = mock; // Use raw mock transport, Camera::new will wrap it
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let mut mock = MockTransport::new();
+    
+    // Set up expectation for power on command
+    mock.expect_command(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+        .described_as("power on")
+        .will_ack(1)
+        .then_complete(1);
+    
+    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
 
     // Send command and verify response
     assert_ok(camera.power_on(), "Power on command should succeed");
 
+    // Verify expectations were met
+    mock.verify().unwrap();
+    
     // Verify command was sent
-    let commands = commands_sent.lock().unwrap();
-    assert_eq!(commands.len(), 1);
-    assert_eq!(commands[0], vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
+    let history = mock.sent_history();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0], vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
 }
 
 #[cfg(not(feature = "async"))]
@@ -116,34 +126,47 @@ mod integration_style_tests {
     #[test]
     fn test_command_sequence() {
         use common::MockTransport;
-        use grafton_visca::camera::{Camera, PTZOpticsG2};
+        use grafton_visca::camera::Camera;
+        use grafton_visca::camera::methods::{PanTiltMethodsExt, ZoomMethodsExt};
+        use grafton_visca::profiles::PTZOpticsG2;
 
         // Create mock with expected responses
-        let mock = MockTransport::new();
-        mock.add_ack_completion(0); // Home
-        mock.add_ack_completion(1); // Zoom stop
+        let mut mock = MockTransport::new();
+        
+        // Set up expectations for home command
+        mock.expect_command(&[0x81, 0x01, 0x06, 0x04, 0xFF])
+            .described_as("pan/tilt home")
+            .will_ack(1)
+            .then_complete(1);
+            
+        // Set up expectations for zoom stop command  
+        mock.expect_command(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xFF])
+            .described_as("zoom stop")
+            .will_ack(2)
+            .then_complete(2);
 
-        let commands_sent = mock.commands_sent.clone();
-        let transport = mock; // Use raw mock transport, Camera::new will wrap it
-        let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
 
         // Test multiple commands
-        assert_ok(camera.home(), "Home command should succeed");
+        assert_ok(camera.pan_tilt_home(), "Home command should succeed");
 
         assert_ok(camera.zoom_stop(), "Zoom stop command should succeed");
 
+        // Verify expectations were met
+        mock.verify().unwrap();
+        
         // Verify commands were sent
-        let commands = commands_sent.lock().unwrap();
-        assert_eq!(commands.len(), 2, "Should have sent 2 commands");
+        let history = mock.sent_history();
+        assert_eq!(history.len(), 2, "Should have sent 2 commands");
 
         // Check specific command bytes
         assert_bytes_start_with(
-            &commands[0],
+            &history[0],
             &[0x81, 0x01, 0x06, 0x04],
             "First command should be PTZ Home",
         );
         assert_bytes_eq(
-            &commands[1],
+            &history[1],
             &[0x81, 0x01, 0x04, 0x07, 0x00, 0xFF],
             "Second command should be Zoom Stop",
         );

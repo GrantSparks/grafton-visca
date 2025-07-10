@@ -3,8 +3,7 @@
 #[cfg(not(feature = "async"))]
 fn blocking_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
-        camera::Camera,
-        command::{power::Power, PowerCommand},
+        camera::{methods::PowerMethodsExt, Camera},
         profiles::GenericVisca,
         transport::blocking::Tcp,
     };
@@ -15,13 +14,8 @@ fn blocking_example() -> Result<(), grafton_visca::Error> {
     let transport = Tcp::connect("192.168.1.100:5678")?;
     let mut camera = Camera::<GenericVisca, _>::new(transport);
 
-    // Use the camera API
-    let power_cmd = PowerCommand { power: Power::On };
-
-    // This blocks and returns immediately with the response
-    let response = camera.send_command(&power_cmd)?;
-    println!("Command response: {:?}", response);
-
+    // Use the high-level camera API
+    camera.power_on()?;
     println!("Power on command sent successfully!");
 
     Ok(())
@@ -30,8 +24,7 @@ fn blocking_example() -> Result<(), grafton_visca::Error> {
 #[cfg(feature = "tokio")]
 async fn async_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
-        camera::Camera,
-        command::{power::Power, PowerCommand},
+        camera::{methods::PowerMethodsExt, Camera},
         profiles::GenericVisca,
         transport::tokio::Tcp,
     };
@@ -43,13 +36,8 @@ async fn async_example() -> Result<(), grafton_visca::Error> {
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
     let camera = Camera::<GenericVisca, _>::new(transport);
 
-    // Use the camera interface - similar API to blocking!
-    let power_cmd = PowerCommand { power: Power::On };
-
-    // This returns a future that we await
-    let response = camera.send_command(&power_cmd).await?;
-    println!("Command response: {:?}", response);
-
+    // Use the high-level camera API - same methods as blocking!
+    camera.power_on().await?;
     println!("Power on command sent successfully!");
 
     Ok(())

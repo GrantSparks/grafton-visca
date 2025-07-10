@@ -69,7 +69,7 @@ async fn main() -> Result<(), Error> {
     // Set and recall a preset (G2 supports presets 0-89)
     println!("Setting preset 10...");
     let preset = G2PresetId::new(10)?;
-    camera.set_preset(preset.into()).await?;
+    camera.preset_set(preset.into()).await?;
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Move somewhere else
@@ -81,7 +81,7 @@ async fn main() -> Result<(), Error> {
 
     // Recall the preset
     println!("Recalling preset 10...");
-    camera.recall_preset(preset.into()).await?;
+    camera.preset_recall(preset.into()).await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Zoom operations

@@ -152,9 +152,6 @@ name = "custom_profile_builder_demo"
 required-features = ["tokio"]
 
 [[example]]
-name = "capability_query_demo"
-
-[[example]]
 name = "camera_inquiry_demo"
 required-features = ["tokio"]
 

@@ -7,8 +7,9 @@
 use grafton_visca::transport::blocking::create;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::Camera, profiles::PTZOpticsG2,
-    command::{exposure::ExposureMode, pan_tilt::PanTiltDirection},
+    camera::{methods::{ExposureMethodsExt, PanTiltMethodsExt}, Camera}, 
+    profiles::PTZOpticsG2,
+    command::pan_tilt::PanTiltDirection,
     types::{
         FStop, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength,
         PanSpeed, SpeedLevel, TiltSpeed,
@@ -31,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Move slowly for precise positioning
     let slow_pan = SpeedLevel::Slow.to_pan_speed();
     let slow_tilt = SpeedLevel::Slow.to_tilt_speed();
-    camera.move_continuous(
+    camera.pan_tilt_move(
         PanTiltDirection::UpRight,
         PanSpeed::new(slow_pan)?,
         TiltSpeed::new(slow_tilt)?,
@@ -42,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Move fast for quick repositioning
     let fast_pan = SpeedLevel::Fast.to_pan_speed();
     let fast_tilt = SpeedLevel::Fast.to_tilt_speed();
-    camera.move_continuous(
+    camera.pan_tilt_move(
         PanTiltDirection::DownLeft,
         PanSpeed::new(fast_pan)?,
         TiltSpeed::new(fast_tilt)?,
@@ -54,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== F-Stop Demo ===");
 
     // Set to manual exposure mode first
-    camera.set_exposure_mode(ExposureMode::Manual)?;
+    camera.exposure_manual()?;
 
     // Set specific F-stop values
     camera.set_iris(IrisLevel::new(FStop::F2_8.to_iris_level())?)?;

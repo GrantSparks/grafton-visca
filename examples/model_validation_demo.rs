@@ -89,7 +89,7 @@ async fn demo_ptzoptics_g2() -> Result<(), Error> {
     // G2-specific preset (0-89)
     println!("  - Using G2-specific preset 15");
     let preset = G2PresetId::new(15)?;
-    camera.set_preset(preset.into()).await?;
+    camera.preset_set(preset.into()).await?;
 
     println!();
     Ok(())
@@ -166,7 +166,7 @@ async fn demo_generic_visca() -> Result<(), Error> {
 
     // Generic presets
     println!("  - Using generic preset 1");
-    camera.recall_preset(1).await?;
+    camera.preset_recall(1).await?;
 
     println!();
     Ok(())

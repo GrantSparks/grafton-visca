@@ -33,14 +33,11 @@ fn main() -> Result<(), Error> {
     // let tcp_transport = create::tcp("192.168.1.100:5678")?;
     // let mut camera = Camera::<PTZOpticsG2, _>::new(tcp_transport);
 
-    // Display camera capabilities
-    let caps = camera.capabilities();
-    println!("\nCamera Capabilities:");
-    println!("  Model: {}", caps.model_name);
-    println!("  Pan Range: {:?} degrees", caps.pan_range_degrees);
-    println!("  Tilt Range: {:?} degrees", caps.tilt_range_degrees);
-    println!("  Max Pan Speed: {}", caps.max_pan_speed);
-    println!("  Max Tilt Speed: {}", caps.max_tilt_speed);
+    // Camera capabilities are now checked at compile time through the PTZOpticsG2 profile
+    println!("\nUsing PTZOpticsG2 camera profile");
+    println!("  Pan Range: -170 to +170 degrees");
+    println!("  Tilt Range: -30 to +90 degrees");
+    println!("  Max optical zoom: 20x");
     println!();
 
     // Power on the camera
@@ -56,7 +53,7 @@ fn main() -> Result<(), Error> {
 
     // Save current position as preset 1
     let preset1 = G2PresetId::new(1)?;
-    camera.set_preset(preset1.into())?;
+    camera.preset_set(preset1.into())?;
     println!("Saved preset 1");
 
     // Move camera to specific position
@@ -75,7 +72,7 @@ fn main() -> Result<(), Error> {
 
     // Move camera continuously
     println!("Starting continuous movement...");
-    camera.move_continuous(
+    camera.pan_tilt_move(
         PanTiltDirection::Right,
         PanSpeed::new(10)?,
         TiltSpeed::new(0)?,
@@ -85,7 +82,7 @@ fn main() -> Result<(), Error> {
     println!("Continuous movement demo completed");
 
     // Return to preset 1 (home)
-    camera.recall_preset(preset1.into())?;
+    camera.preset_recall(preset1.into())?;
     println!("Returned to preset 1");
 
     // Reset zoom

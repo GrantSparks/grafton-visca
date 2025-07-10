@@ -89,6 +89,11 @@ pub trait PanTiltMethodsExt {
     #[cfg(feature = "async")]
     async fn pan_tilt_reset(&self) -> Result<(), Error>;
 
+    // NOTE: The following methods reference types (LimitCorner, PanTiltLimitCommand) that
+    // don't exist in the codebase yet. They appear to be planned but unimplemented features.
+    // Commenting out to allow compilation until these types are defined.
+    
+    /*
     /// Set pan/tilt limit for a specific corner.
     #[cfg(not(feature = "async"))]
     fn set_pan_tilt_limit(
@@ -120,6 +125,7 @@ pub trait PanTiltMethodsExt {
         &self,
         corner: crate::command::pan_tilt::LimitCorner,
     ) -> Result<(), Error>;
+    */
 }
 
 // Blocking implementation for cameras with pan/tilt
@@ -205,6 +211,7 @@ where
         self.send_const(pan_tilt::RESET)
     }
 
+    /*
     fn set_pan_tilt_limit(
         &mut self,
         corner: crate::command::pan_tilt::LimitCorner,
@@ -234,6 +241,7 @@ where
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
+    */
 }
 
 // Async implementation for cameras with pan/tilt
@@ -401,6 +409,7 @@ where
         self.send_const(pan_tilt::RESET).await
     }
 
+    /*
     async fn set_pan_tilt_limit(
         &self,
         corner: crate::command::pan_tilt::LimitCorner,
@@ -430,6 +439,7 @@ where
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
+    */
 }
 
 #[cfg(test)]

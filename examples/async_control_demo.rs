@@ -77,7 +77,7 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Saving as preset 10...");
     let preset10 = G2PresetId::new(10)?;
-    camera.set_preset(preset10.into()).await?;
+    camera.preset_set(preset10.into()).await?;
     sleep(Duration::from_millis(500)).await;
 
     println!("   - Setting up shot 2...");
@@ -89,7 +89,7 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Saving as preset 11...");
     let preset11 = G2PresetId::new(11)?;
-    camera.set_preset(preset11.into()).await?;
+    camera.preset_set(preset11.into()).await?;
     sleep(Duration::from_millis(500)).await;
 
     // Smooth Movement Example
@@ -97,7 +97,7 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Starting smooth pan...");
     camera
-        .move_continuous(
+        .pan_tilt_move(
             PanTiltDirection::Right,
             PanSpeed::new(8)?,
             TiltSpeed::new(0)?,
@@ -108,7 +108,7 @@ async fn main() -> Result<(), Error> {
 
     println!("   - Starting diagonal movement...");
     camera
-        .move_continuous(
+        .pan_tilt_move(
             PanTiltDirection::UpRight,
             PanSpeed::new(8)?,
             TiltSpeed::new(5)?,
@@ -138,11 +138,11 @@ async fn main() -> Result<(), Error> {
     println!("\n4. Preset Recall Demo");
 
     println!("   - Recalling preset 10...");
-    camera.recall_preset(preset10.into()).await?;
+    camera.preset_recall(preset10.into()).await?;
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Recalling preset 11...");
-    camera.recall_preset(preset11.into()).await?;
+    camera.preset_recall(preset11.into()).await?;
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Returning to home...");

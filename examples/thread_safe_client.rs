@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Move up-right
         {
             let mut cam = camera1.lock().unwrap();
-            cam.move_continuous(
+            cam.pan_tilt_move(
                 PanTiltDirection::UpRight,
                 PanSpeed::new(16)?,
                 TiltSpeed::new(16)?,
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Move down-left
         {
             let mut cam = camera1.lock().unwrap();
-            cam.move_continuous(
+            cam.pan_tilt_move(
                 PanTiltDirection::DownLeft,
                 PanSpeed::new(16)?,
                 TiltSpeed::new(16)?,

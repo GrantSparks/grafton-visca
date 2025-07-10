@@ -55,7 +55,7 @@ async fn main() -> Result<(), Error> {
     time::sleep(Duration::from_secs(2)).await;
 
     camera
-        .move_continuous(
+        .pan_tilt_move(
             PanTiltDirection::Right,
             PanSpeed::new(10)?,
             TiltSpeed::new(0)?,
@@ -77,13 +77,13 @@ async fn main() -> Result<(), Error> {
     println!("\nTesting preset management...");
     use grafton_visca::camera::profiles::G2PresetId;
     let preset = G2PresetId::new(1)?;
-    camera.set_preset(preset.into()).await?;
+    camera.preset_set(preset.into()).await?;
     time::sleep(Duration::from_millis(500)).await;
 
     camera.pan_tilt_home().await?;
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.recall_preset(preset.into()).await?;
+    camera.preset_recall(preset.into()).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Focus control

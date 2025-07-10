@@ -69,14 +69,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // PTZOpticsG2 has specific preset constraints (0-89)
     let preset = G2PresetId::new(5)?;
-    camera.set_preset(preset.into())?;
+    camera.preset_set(preset.into())?;
     println!("   ✓ Saved position to preset");
 
     thread::sleep(Duration::from_secs(1));
     camera.pan_tilt_home()?;
     thread::sleep(Duration::from_secs(2));
 
-    camera.recall_preset(preset.into())?;
+    camera.preset_recall(preset.into())?;
     println!("   ✓ Recalled preset");
 
     // 4. Profile-specific gain values
