@@ -15,7 +15,7 @@ use crate::{
     constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
-    types::{BrightnessLevel, IrisLevel, ShutterSpeed},
+    types::{BrightnessLevel, DynamicRangeLevel, IrisLevel, ShutterSpeed},
 };
 
 /// Camera exposure control modes.
@@ -192,17 +192,6 @@ impl Command for ExposureCompensationCommand {
             }
             _ => Ok(()),
         }
-    }
-}
-
-crate::visca_bounded_param! {
-    /// Dynamic range level.
-    ///
-    /// Valid range: 0 to 8.
-    DynamicRangeLevel: u8 {
-        min: 0,
-        max: 8,
-        error_msg: "Dynamic range level must be between 0 and 8"
     }
 }
 
@@ -452,6 +441,75 @@ impl Command for BrightCommand {
         }
     }
 }
+
+/// Spotlight command (Sony models).
+///
+/// Controls the spotlight feature which enhances exposure for specific subjects.
+#[derive(Debug, Copy, Clone)]
+pub enum SpotlightCommand {
+    /// Turn spotlight on
+    On,
+    /// Turn spotlight off
+    Off,
+}
+
+impl Command for SpotlightCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(match self {
+            Self::On => vec![0x81, 0x01, 0x04, 0x3A, 0x02, 0xFF],
+            Self::Off => vec![0x81, 0x01, 0x04, 0x3A, 0x03, 0xFF],
+        })
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::SonyFR7 => Ok(()), // Supported on Sony models
+            _ => Err(Error::ModelValidation {
+                model,
+                command: "Spotlight".to_string(),
+                reason: "Spotlight is only supported on Sony cameras".to_string(),
+            }),
+        }
+    }
+}
+
+/// Auto Slow Shutter command.
+///
+/// Controls whether the camera can use slower shutter speeds automatically
+/// in low light conditions.
+#[derive(Debug, Copy, Clone)]
+pub enum AutoSlowShutterCommand {
+    /// Enable auto slow shutter
+    On,
+    /// Disable auto slow shutter
+    Off,
+}
+
+impl Command for AutoSlowShutterCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(match self {
+            Self::On => vec![0x81, 0x01, 0x04, 0x5A, 0x02, 0xFF],
+            Self::Off => vec![0x81, 0x01, 0x04, 0x5A, 0x03, 0xFF],
+        })
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
@@ -636,19 +694,6 @@ mod tests {
         assert!(ExposureCompensationCommand::Off
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
-    }
-
-    #[test]
-    fn test_dynamic_range_level() {
-        // Test valid values
-        for value in 0..=8 {
-            let level = DynamicRangeLevel::new(value)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            assert_eq!(level.value(), value);
-        }
-
-        // Test invalid values
-        assert!(DynamicRangeLevel::new(9).is_err());
     }
 
     #[test]

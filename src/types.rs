@@ -178,6 +178,15 @@ pub struct LuminanceLevel(u8);
 )]
 pub struct ContrastLevel(u8);
 
+/// Dynamic range level for wide dynamic range control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(
+    valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8]",
+    display_prefix = "Dynamic Range",
+    model_constraints = "PTZOpticsG2"
+)]
+pub struct DynamicRangeLevel(u8);
+
 #[cfg(test)]
 mod tests {
     use super::*;

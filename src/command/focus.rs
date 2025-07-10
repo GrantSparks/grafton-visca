@@ -152,7 +152,7 @@ impl Command for FocusZoneCommand {
             FocusZone::Center => 0x01,
             FocusZone::Bottom => 0x02,
         };
-        Ok(vec![0x81, 0x01, 0x04, 0x3C, zone_byte, 0xFF])
+        Ok(vec![0x81, 0x01, 0x04, 0xAA, zone_byte, 0xFF])
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -249,6 +249,85 @@ impl Command for FocusNearLimitCommand {
                 Ok(())
             }
             _ => Ok(()),
+        }
+    }
+}
+
+/// Focus Lock command (PTZOptics specific).
+///
+/// Controls whether the camera locks focus at the current position.
+#[derive(Debug, Copy, Clone)]
+pub enum FocusLockCommand {
+    /// Enable focus lock
+    On,
+    /// Disable focus lock
+    Off,
+}
+
+impl Command for FocusLockCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        match self {
+            Self::On => Ok(vec![0x81, 0x0A, 0x04, 0x68, 0x02, 0xFF]),
+            Self::Off => Ok(vec![0x81, 0x0A, 0x04, 0x68, 0x03, 0xFF]),
+        }
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::PTZOpticsG2 => Ok(()), // Supported
+            _ => Err(Error::ModelValidation {
+                model,
+                command: "FocusLock".to_string(),
+                reason: "Focus Lock is only supported on PTZOptics cameras".to_string(),
+            }),
+        }
+    }
+}
+
+/// Push AF command (FR7 specific).
+///
+/// Controls the Push Auto Focus feature which temporarily activates
+/// auto focus when pressed.
+#[derive(Debug, Copy, Clone)]
+pub enum PushAFCommand {
+    /// Press Push AF button (activate temporary auto focus)
+    Press,
+    /// Release Push AF button
+    Release,
+}
+
+impl Command for PushAFCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        match self {
+            Self::Press => Ok(vec![0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00, 0x01, 0xFF]),
+            Self::Release => Ok(vec![0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00, 0x00, 0xFF]),
+        }
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
+        match model {
+            CameraModel::SonyFR7 => Ok(()), // Supported
+            _ => Err(Error::ModelValidation {
+                model,
+                command: "PushAF".to_string(),
+                reason: "Push AF is only supported on Sony FR7 cameras".to_string(),
+            }),
         }
     }
 }
@@ -400,7 +479,7 @@ mod tests {
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3C, 0x00, 0xFF]
+            vec![0x81, 0x01, 0x04, 0xAA, 0x00, 0xFF]
         );
 
         let cmd = FocusZoneCommand {
@@ -409,7 +488,7 @@ mod tests {
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3C, 0x01, 0xFF]
+            vec![0x81, 0x01, 0x04, 0xAA, 0x01, 0xFF]
         );
 
         let cmd = FocusZoneCommand {
@@ -418,7 +497,7 @@ mod tests {
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3C, 0x02, 0xFF]
+            vec![0x81, 0x01, 0x04, 0xAA, 0x02, 0xFF]
         );
     }
 

@@ -22,6 +22,7 @@ pub mod pan_tilt;
 pub mod power;
 pub mod preset;
 pub mod response;
+pub mod system;
 pub mod white_balance;
 pub mod zoom;
 
@@ -45,6 +46,7 @@ pub use self::{
     power::*,
     preset::*,
     response::{parse_response, Response, ResponseType},
+    system::*,
     white_balance::*,
     zoom::*,
 };

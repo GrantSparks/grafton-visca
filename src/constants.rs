@@ -25,6 +25,8 @@ pub enum CameraModel {
     PTZOpticsG3,
     /// `PTZOptics` 30X optical zoom camera
     PTZOptics30X,
+    /// Sony FR7 camera
+    SonyFR7,
     /// Unknown or generic VISCA camera
     Unknown,
 }
@@ -204,6 +206,7 @@ impl CameraConstants for CameraModel {
         match self {
             Self::PTZOpticsG2 | Self::PTZOpticsG3 => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_20X),
             Self::PTZOptics30X => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_30X),
+            Self::SonyFR7 => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_20X),
             Self::Unknown => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_12X),
         }
     }
@@ -212,6 +215,7 @@ impl CameraConstants for CameraModel {
         match self {
             Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => position::PAN_DEGREES_G2,
             Self::PTZOptics30X => position::PAN_DEGREES_30X,
+            Self::SonyFR7 => position::PAN_DEGREES_G2, // Similar to G2
         }
     }
 
@@ -219,6 +223,7 @@ impl CameraConstants for CameraModel {
         match self {
             Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => position::TILT_DEGREES_G2,
             Self::PTZOptics30X => position::TILT_DEGREES_30X,
+            Self::SonyFR7 => position::TILT_DEGREES_G2, // Similar to G2
         }
     }
 
@@ -238,6 +243,7 @@ impl CameraConstants for CameraModel {
         match self {
             Self::PTZOpticsG2 => 89, // G2 cameras support presets 0-89
             Self::PTZOpticsG3 | Self::PTZOptics30X | Self::Unknown => preset::PRESET_ID_MAX,
+            Self::SonyFR7 => 255, // FR7 supports up to 255 presets
         }
     }
 }

@@ -164,6 +164,39 @@ const fn position_to_nibbles(position: u16) -> [u8; 4] {
     ]
 }
 
+/// Digital zoom control state.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DigitalZoom {
+    /// Enable digital zoom.
+    On = 0x02,
+    /// Disable digital zoom.
+    Off = 0x03,
+}
+
+/// Command to control digital zoom.
+///
+/// This command enables or disables digital zoom capability.
+/// When enabled, zoom can continue past the optical zoom limit using digital processing.
+#[derive(Debug, Copy, Clone)]
+pub struct DigitalZoomCommand {
+    /// The desired digital zoom state.
+    pub zoom: DigitalZoom,
+}
+
+impl Command for DigitalZoomCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(vec![0x81, 0x01, 0x04, 0x06, self.zoom as u8, 0xFF])
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {

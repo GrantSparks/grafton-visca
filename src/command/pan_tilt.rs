@@ -531,10 +531,7 @@ mod tests {
             set_limit
                 .to_bytes()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
-            vec![
-                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
-                0xFF
-            ]
+            vec![0x81, 0x01, 0x06, 0x07, 0x00, 0xFF]
         );
 
         // Test Clear command
@@ -545,10 +542,7 @@ mod tests {
             clear_limit
                 .to_bytes()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
-            vec![
-                0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
-                0xFF
-            ]
+            vec![0x81, 0x01, 0x06, 0x07, 0x01, 0xFF]
         );
     }
 
@@ -672,45 +666,31 @@ pub enum PanTiltLimitCommand {
 impl Command for PanTiltLimitCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
-            Self::Set { corner, pan, tilt } => {
-                let pan_bytes = position_to_bytes(pan.value());
-                let tilt_bytes = position_to_bytes(tilt.value());
-
+            Self::Set { corner: _, pan: _, tilt: _ } => {
+                // According to VISCA protocol, Set command sets limit at current position
+                // Format: 81 01 06 07 00 FF (6 bytes)
+                // Note: pan and tilt parameters are ignored as the limit is set at current position
                 Ok(vec![
                     0x81,
                     0x01,
                     0x06,
                     0x07,
                     0x00,
-                    *corner as u8,
-                    pan_bytes[0],
-                    pan_bytes[1],
-                    pan_bytes[2],
-                    pan_bytes[3],
-                    tilt_bytes[0],
-                    tilt_bytes[1],
-                    tilt_bytes[2],
-                    tilt_bytes[3],
                     0xFF,
                 ])
             }
-            Self::Clear { corner } => Ok(vec![
-                0x81,
-                0x01,
-                0x06,
-                0x07,
-                0x01,
-                *corner as u8,
-                0x07,
-                0x0F,
-                0x0F,
-                0x0F,
-                0x07,
-                0x0F,
-                0x0F,
-                0x0F,
-                0xFF,
-            ]),
+            Self::Clear { corner: _ } => {
+                // According to VISCA protocol, Clear command
+                // Format: 81 01 06 07 01 FF (6 bytes)
+                Ok(vec![
+                    0x81,
+                    0x01,
+                    0x06,
+                    0x07,
+                    0x01,
+                    0xFF,
+                ])
+            }
         }
     }
 

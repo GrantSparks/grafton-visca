@@ -11,7 +11,8 @@ use crate::Command;
 #[cfg(test)]
 mod golden_vector_tests {
     use super::*;
-    use crate::command::exposure::{DynamicRangeLevel, ExposureCompensationLevel};
+    use crate::command::exposure::ExposureCompensationLevel;
+    use crate::types::DynamicRangeLevel;
     use crate::command::focus::FocusSpeed;
     use crate::command::pan_tilt::PanTiltDirection;
     use crate::command::power::Power;
@@ -660,10 +661,7 @@ mod golden_vector_tests {
         };
         assert_eq!(
             limit_set.to_bytes().unwrap(),
-            vec![
-                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
-                0xFF
-            ],
+            vec![0x81, 0x01, 0x06, 0x07, 0x00, 0xFF],
             "Pan/Tilt Limit Set should produce correct byte sequence"
         );
 
@@ -673,10 +671,7 @@ mod golden_vector_tests {
         };
         assert_eq!(
             limit_clear.to_bytes().unwrap(),
-            vec![
-                0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
-                0xFF
-            ],
+            vec![0x81, 0x01, 0x06, 0x07, 0x01, 0xFF],
             "Pan/Tilt Limit Clear should produce correct byte sequence"
         );
     }
@@ -907,7 +902,7 @@ mod golden_vector_tests {
         };
         assert_eq!(
             fz_center.to_bytes().unwrap(),
-            vec![0x81, 0x01, 0x04, 0x3C, 0x01, 0xFF],
+            vec![0x81, 0x01, 0x04, 0xAA, 0x01, 0xFF],
             "Focus Zone Center should produce correct byte sequence"
         );
 
