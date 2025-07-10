@@ -79,18 +79,11 @@ pub enum ZoomCommand {
 }
 
 impl ZoomCommand {
-    /// Create a direct zoom command with range validation.
-    pub fn direct<P: crate::camera::CameraProfile>(position: u16) -> Result<Self, Error> {
-        if !P::ZOOM_RANGE.contains(&position) {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "zoom".to_string(),
-                value: position as i32,
-                min: *P::ZOOM_RANGE.start() as i32,
-                max: *P::ZOOM_RANGE.end() as i32,
-            });
-        }
-        Ok(Self::Position(ZoomPosition::new(position)?))
-    }
+    // Legacy method - removed in new API
+    // pub fn direct<P: crate::camera::CameraProfile>(position: u16) -> Result<Self, Error> {
+    //     ...
+    //     Ok(Self::Position(ZoomPosition::new(position)?))
+    // }
 }
 
 impl Command for ZoomCommand {

@@ -25,6 +25,12 @@ pub mod response;
 pub mod white_balance;
 pub mod zoom;
 
+// New const encoding module
+pub mod const_encoding;
+
+// Updated ViscaCommand trait
+pub mod visca_command;
+
 // Re-export command types
 pub use self::{
     color::*,

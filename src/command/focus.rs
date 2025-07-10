@@ -63,18 +63,10 @@ pub enum FocusCommand {
 }
 
 impl FocusCommand {
-    /// Create a direct focus command with range validation.
-    pub fn direct<P: crate::camera::CameraProfile>(position: u16) -> Result<Self, Error> {
-        if !P::FOCUS_RANGE.contains(&position) {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "focus".to_string(),
-                value: position as i32,
-                min: *P::FOCUS_RANGE.start() as i32,
-                max: *P::FOCUS_RANGE.end() as i32,
-            });
-        }
-        Ok(Self::Position(FocusPosition::new(position)?))
-    }
+    // Legacy method - removed in new API
+    // pub fn direct<P: crate::camera::CameraProfile>(position: u16) -> Result<Self, Error> {
+    //     ...
+    // }
 }
 
 impl Command for FocusCommand {

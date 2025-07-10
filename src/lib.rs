@@ -235,6 +235,10 @@
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
 
+
+/// Capability traits for composable camera features
+pub mod capabilities;
+
 /// VISCA command definitions
 pub mod command;
 
@@ -256,10 +260,8 @@ pub mod units;
 
 pub mod timeout; // Public for use in macros
 
-// Core re-exports for Camera<P> API
-pub use camera::{
-    Camera, CameraProfile, CustomProfile, CustomProfileBuilder, CustomProfileTypedBuilder,
-};
+// Core re-exports
+pub use camera::Camera;
 pub use command::{Command, InquiryResponse, Response};
 
 // Re-export unit types for convenience
@@ -278,7 +280,7 @@ pub use grafton_visca_macros::{
 
 // Macros are already exported with #[macro_export] so we don't need to re-export them
 
-/// Camera profiles for common models
+/// Camera profiles with compositional capabilities
 pub mod profiles {
-    pub use crate::camera::profiles::{GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70};
+    pub use crate::camera::profiles::{GenericVisca, PTZOpticsG2, SonyFR7};
 }

@@ -37,7 +37,7 @@ use crate::{
     error::Error,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
-    units::Normalized,
+    // units::Normalized, // Used in commented out code
 };
 
 /// Direction for pan/tilt movement commands.
@@ -137,12 +137,13 @@ pub enum PanTiltCommand {
 }
 
 impl PanTiltCommand {
+    // Legacy methods removed - use the new camera API instead
+    /*
     /// Create an absolute position command with validation.
     pub fn absolute_position<P: crate::camera::CameraProfile>(
         pan: i16,
         tilt: i16,
     ) -> Result<Self, Error> {
-        // Range validation
         if !P::PAN_RANGE.contains(&pan) {
             return Err(Error::ParameterOutOfRange {
                 parameter: "pan".to_string(),
@@ -170,7 +171,7 @@ impl PanTiltCommand {
     }
 
     /// Create an absolute position command from normalized coordinates.
-    pub fn absolute_position_normalized<P: crate::camera::CameraProfile>(
+    pub fn absolute_position_normalized(
         pan: Normalized<f32>,
         tilt: Normalized<f32>,
     ) -> Result<Self, Error> {
@@ -194,7 +195,7 @@ impl PanTiltCommand {
     }
 
     /// Create an absolute position command from degree coordinates.
-    pub fn absolute_position_degrees<P: crate::camera::CameraProfile>(
+    pub fn absolute_position_degrees(
         pan: crate::units::Degrees<f32>,
         tilt: crate::units::Degrees<f32>,
     ) -> Result<Self, Error> {
@@ -207,7 +208,7 @@ impl PanTiltCommand {
     }
 
     /// Create a continuous movement command with speed validation.
-    pub fn continuous_move<P: crate::camera::CameraProfile>(
+    pub fn continuous_move(
         direction: PanTiltDirection,
         pan_speed: u8,
         tilt_speed: u8,
@@ -227,6 +228,7 @@ impl PanTiltCommand {
             tilt_speed,
         })
     }
+    */
 
     /// Create a stop command.
     pub fn stop() -> Result<Self, Error> {

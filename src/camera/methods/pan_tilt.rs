@@ -1,0 +1,219 @@
+//! Pan/Tilt methods for cameras that support movement.
+
+use crate::camera::Camera;
+use crate::capabilities::{ProfileMetadata, SupportsPanTilt};
+use crate::capabilities::pan_tilt::PanTiltExt;
+use crate::command::const_encoding::{constants::pan_tilt, encode_pan_tilt_absolute, encode_pan_tilt_relative};
+use crate::Error;
+
+/// Extension trait that adds pan/tilt methods to cameras.
+#[allow(async_fn_in_trait)]
+pub trait PanTiltMethods {
+    /// Stop all pan/tilt movement.
+    #[cfg(not(feature = "async"))]
+    fn pan_tilt_stop(&mut self) -> Result<(), Error>;
+    
+    /// Stop all pan/tilt movement.
+    #[cfg(feature = "async")]
+    async fn pan_tilt_stop(&self) -> Result<(), Error>;
+    
+    /// Move to home position (0, 0).
+    #[cfg(not(feature = "async"))]
+    fn pan_tilt_home(&mut self) -> Result<(), Error>;
+    
+    /// Move to home position (0, 0).
+    #[cfg(feature = "async")]
+    async fn pan_tilt_home(&self) -> Result<(), Error>;
+    
+    /// Move to absolute pan/tilt position in degrees.
+    #[cfg(not(feature = "async"))]
+    fn pan_tilt_absolute(&mut self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(), Error>;
+    
+    /// Move to absolute pan/tilt position in degrees.
+    #[cfg(feature = "async")]
+    async fn pan_tilt_absolute(&self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(), Error>;
+    
+    /// Move relative to current position in degrees.
+    #[cfg(not(feature = "async"))]
+    fn pan_tilt_relative(&mut self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(), Error>;
+    
+    /// Move relative to current position in degrees.
+    #[cfg(feature = "async")]
+    async fn pan_tilt_relative(&self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(), Error>;
+}
+
+// Blocking implementation for cameras with pan/tilt
+#[cfg(not(feature = "async"))]
+impl<P, T> PanTiltMethods for Camera<P, T>
+where
+    P: ProfileMetadata + SupportsPanTilt + Default,
+    T: crate::transport::blocking::BlockingTransport,
+{
+    fn pan_tilt_stop(&mut self) -> Result<(), Error> {
+        self.send_const(pan_tilt::STOP)
+    }
+    
+    fn pan_tilt_home(&mut self) -> Result<(), Error> {
+        self.send_const(pan_tilt::HOME)
+    }
+    
+    fn pan_tilt_absolute(&mut self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(), Error> {
+        // Create a dummy profile instance to use extension trait methods
+        let profile = P::default();
+        
+        // Use the extension trait to convert degrees to units
+        let pan = profile.degrees_to_pan_units(pan_degrees);
+        let tilt = profile.degrees_to_tilt_units(tilt_degrees);
+        
+        // Validate using profile constants
+        let pan = profile.validate_pan(pan)?;
+        let tilt = profile.validate_tilt(tilt)?;
+        let pan_speed = profile.validate_pan_speed(speed);
+        let tilt_speed = profile.validate_tilt_speed(speed);
+        
+        // Use const encoding
+        let cmd = encode_pan_tilt_absolute(pan, tilt, pan_speed, tilt_speed);
+        self.send_array(cmd)
+    }
+    
+    fn pan_tilt_relative(&mut self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(), Error> {
+        let profile = P::default();
+        let pan = profile.degrees_to_pan_units(pan_degrees);
+        let tilt = profile.degrees_to_tilt_units(tilt_degrees);
+        let pan_speed = profile.validate_pan_speed(speed);
+        let tilt_speed = profile.validate_tilt_speed(speed);
+        
+        let cmd = encode_pan_tilt_relative(pan, tilt, pan_speed, tilt_speed);
+        self.send_array(cmd)
+    }
+}
+
+// Async implementation for cameras with pan/tilt
+#[cfg(feature = "async")]
+impl<P, T> PanTiltMethods for Camera<P, T>
+where
+    P: ProfileMetadata + SupportsPanTilt + Default,
+    T: crate::transport::AsyncTransport,
+{
+    async fn pan_tilt_stop(&self) -> Result<(), Error> {
+        self.send_const(pan_tilt::STOP).await
+    }
+    
+    async fn pan_tilt_home(&self) -> Result<(), Error> {
+        self.send_const(pan_tilt::HOME).await
+    }
+    
+    async fn pan_tilt_absolute(&self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(), Error> {
+        // Create a dummy instance for validation
+        struct Validator<P>(std::marker::PhantomData<P>);
+        impl<P: SupportsPanTilt> Validator<P> {
+            fn validate(&self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(i16, i16, u8, u8), Error> {
+                let dummy = DummyCamera::<P>::default();
+                let pan = dummy.degrees_to_pan_units(pan_degrees);
+                let tilt = dummy.degrees_to_tilt_units(tilt_degrees);
+                let pan = dummy.validate_pan(pan)?;
+                let tilt = dummy.validate_tilt(tilt)?;
+                let pan_speed = dummy.validate_pan_speed(speed);
+                let tilt_speed = dummy.validate_tilt_speed(speed);
+                Ok((pan, tilt, pan_speed, tilt_speed))
+            }
+        }
+        
+        struct DummyCamera<P>(std::marker::PhantomData<P>);
+        
+        impl<P> Default for DummyCamera<P> {
+            fn default() -> Self {
+                Self(std::marker::PhantomData)
+            }
+        }
+        impl<P: SupportsPanTilt> SupportsPanTilt for DummyCamera<P> {
+            const PAN_RANGE: std::ops::Range<i16> = P::PAN_RANGE;
+            const TILT_RANGE: std::ops::Range<i16> = P::TILT_RANGE;
+            const MAX_PAN_SPEED: u8 = P::MAX_PAN_SPEED;
+            const MAX_TILT_SPEED: u8 = P::MAX_TILT_SPEED;
+            const PAN_DEGREES_TO_UNITS: f32 = P::PAN_DEGREES_TO_UNITS;
+            const TILT_DEGREES_TO_UNITS: f32 = P::TILT_DEGREES_TO_UNITS;
+        }
+        
+        let validator = Validator::<P>(std::marker::PhantomData);
+        let (pan, tilt, pan_speed, tilt_speed) = validator.validate(pan_degrees, tilt_degrees, speed)?;
+        
+        let cmd = encode_pan_tilt_absolute(pan, tilt, pan_speed, tilt_speed);
+        self.send_array(cmd).await
+    }
+    
+    async fn pan_tilt_relative(&self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(), Error> {
+        // Similar validation approach
+        struct Validator<P>(std::marker::PhantomData<P>);
+        impl<P: SupportsPanTilt> Validator<P> {
+            fn validate(&self, pan_degrees: f32, tilt_degrees: f32, speed: u8) -> Result<(i16, i16, u8, u8), Error> {
+                let dummy = DummyCamera::<P>::default();
+                let pan = dummy.degrees_to_pan_units(pan_degrees);
+                let tilt = dummy.degrees_to_tilt_units(tilt_degrees);
+                let pan_speed = dummy.validate_pan_speed(speed);
+                let tilt_speed = dummy.validate_tilt_speed(speed);
+                Ok((pan, tilt, pan_speed, tilt_speed))
+            }
+        }
+        
+        struct DummyCamera<P>(std::marker::PhantomData<P>);
+        
+        impl<P> Default for DummyCamera<P> {
+            fn default() -> Self {
+                Self(std::marker::PhantomData)
+            }
+        }
+        impl<P: SupportsPanTilt> SupportsPanTilt for DummyCamera<P> {
+            const PAN_RANGE: std::ops::Range<i16> = P::PAN_RANGE;
+            const TILT_RANGE: std::ops::Range<i16> = P::TILT_RANGE;
+            const MAX_PAN_SPEED: u8 = P::MAX_PAN_SPEED;
+            const MAX_TILT_SPEED: u8 = P::MAX_TILT_SPEED;
+            const PAN_DEGREES_TO_UNITS: f32 = P::PAN_DEGREES_TO_UNITS;
+            const TILT_DEGREES_TO_UNITS: f32 = P::TILT_DEGREES_TO_UNITS;
+        }
+        
+        let validator = Validator::<P>(std::marker::PhantomData);
+        let (pan, tilt, pan_speed, tilt_speed) = validator.validate(pan_degrees, tilt_degrees, speed)?;
+        
+        let cmd = encode_pan_tilt_relative(pan, tilt, pan_speed, tilt_speed);
+        self.send_array(cmd).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::profiles::PTZOpticsG2;
+    
+    #[test]
+    fn test_pan_tilt_methods_exist() {
+        #[derive(Debug)]
+        struct MockTransport;
+        
+        #[cfg(not(feature = "async"))]
+        impl crate::transport::blocking::BlockingTransport for MockTransport {
+            fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
+                Ok(())
+            }
+            fn receive(&mut self, _timeout: std::time::Duration) -> Result<Vec<u8>, Error> {
+                Ok(vec![0x90, 0x50, 0xFF])
+            }
+            fn is_connected(&self) -> bool {
+                true
+            }
+            fn description(&self) -> &str {
+                "MockTransport"
+            }
+        }
+        
+        let mut camera: Camera<PTZOpticsG2, MockTransport> = Camera::new(MockTransport);
+        
+        // These methods exist because PTZOpticsG2 implements SupportsPanTilt
+        #[cfg(not(feature = "async"))]
+        {
+            let _ = camera.pan_tilt_stop();
+            let _ = camera.pan_tilt_home();
+            let _ = camera.pan_tilt_absolute(45.0, 30.0, 10);
+        }
+    }
+}
