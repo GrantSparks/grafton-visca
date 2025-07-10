@@ -47,6 +47,70 @@ impl Command for ImageFlipCommand {
     }
 }
 
+/// Horizontal flip (mirror) state.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum HFlip {
+    /// Enable horizontal flip (mirror).
+    On = 0x02,
+    /// Disable horizontal flip (mirror).
+    Off = 0x03,
+}
+
+/// Command to control horizontal flip (mirror).
+///
+/// This command flips the image horizontally (left-right mirror).
+#[derive(Debug, Copy, Clone)]
+pub struct HorizontalFlipCommand {
+    /// The desired horizontal flip state.
+    pub flip: HFlip,
+}
+
+impl Command for HorizontalFlipCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(vec![0x81, 0x01, 0x04, 0x61, self.flip as u8, 0xFF])
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+}
+
+/// Image freeze state.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Freeze {
+    /// Enable image freeze.
+    On = 0x02,
+    /// Disable image freeze.
+    Off = 0x03,
+}
+
+/// Command to control image freeze.
+///
+/// This command freezes the current image frame.
+#[derive(Debug, Copy, Clone)]
+pub struct ImageFreezeCommand {
+    /// The desired freeze state.
+    pub freeze: Freeze,
+}
+
+impl Command for ImageFreezeCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(vec![0x81, 0x01, 0x04, 0x62, self.freeze as u8, 0xFF])
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn command_category(&self) -> CommandCategory {
+        CommandCategory::Quick
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,

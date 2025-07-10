@@ -2,6 +2,7 @@
 
 use crate::camera::Camera;
 use crate::capabilities::{Focus, ProfileMetadata};
+use crate::command::Command;
 use crate::Error;
 
 /// Extension trait that adds focus methods to cameras.
@@ -54,6 +55,14 @@ pub trait FocusMethodsExt {
     /// Trigger one-push auto focus.
     #[cfg(feature = "async")]
     async fn focus_one_push(&self) -> Result<(), Error>;
+
+    /// Set focus to a specific position.
+    #[cfg(not(feature = "async"))]
+    fn set_focus(&mut self, position: crate::types::FocusPosition) -> Result<(), Error>;
+
+    /// Set focus to a specific position.
+    #[cfg(feature = "async")]
+    async fn set_focus(&self, position: crate::types::FocusPosition) -> Result<(), Error>;
 }
 
 // Blanket implementation for cameras with focus support
@@ -128,6 +137,14 @@ where
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
     }
+
+    fn set_focus(&mut self, position: crate::types::FocusPosition) -> Result<(), Error> {
+        use crate::command::focus::FocusCommand;
+        
+        let cmd = FocusCommand::Position(position);
+        let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
+        crate::command::Response::parse(&response_bytes)?.into_result()
+    }
 }
 
 // Async implementation
@@ -201,5 +218,13 @@ where
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()
+    }
+
+    async fn set_focus(&self, position: crate::types::FocusPosition) -> Result<(), Error> {
+        use crate::command::focus::FocusCommand;
+        
+        let cmd = FocusCommand::Position(position);
+        let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
+        crate::command::Response::parse(&response_bytes)?.into_result()
     }
 }

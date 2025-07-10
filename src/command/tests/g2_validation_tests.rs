@@ -362,14 +362,14 @@ mod exposure_commands {
     use crate::{
         command::{
             exposure::{
-                BrightCommand, DynamicRangeCommand, DynamicRangeLevel, ExposureCommand,
+                BrightCommand, DynamicRangeCommand, ExposureCommand,
                 ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode, IrisCommand,
                 ShutterCommand,
             },
             gain::{AntiFlickerCommand, AntiFlickerMode, GainCommand, GainLimitCommand},
             image::BacklightCommand,
         },
-        types::{BrightnessLevel, Gain, GainLimit, IrisLevel, ShutterSpeed},
+        types::{BrightnessLevel, DynamicRangeLevel, Gain, GainLimit, IrisLevel, ShutterSpeed},
     };
 
     #[test]
@@ -776,14 +776,14 @@ mod validation_tests {
         command::{
             color::{BlueTuningCommand, HueCommand, RedTuningCommand, SaturationCommand},
             exposure::{
-                BrightCommand, DynamicRangeCommand, DynamicRangeLevel, ExposureCompensationCommand,
+                BrightCommand, DynamicRangeCommand, ExposureCompensationCommand,
                 ExposureCompensationLevel,
             },
             focus::FocusNearLimitCommand,
             gain::GainLimitCommand,
             image_adjustment::{ContrastCommand, LuminanceCommand},
         },
-        types::{BrightnessLevel, ContrastLevel, GainLimit, LuminanceLevel},
+        types::{BrightnessLevel, ContrastLevel, DynamicRangeLevel, GainLimit, LuminanceLevel},
     };
 
     #[test]
