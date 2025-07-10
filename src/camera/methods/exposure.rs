@@ -78,9 +78,10 @@ pub trait ExposureMethodsExt {
 
     /// Set color temperature.
     #[cfg(feature = "async")]
-    async fn set_color_temperature(&self, temp: crate::types::ColorTemperature) -> Result<(), Error>;
-
-
+    async fn set_color_temperature(
+        &self,
+        temp: crate::types::ColorTemperature,
+    ) -> Result<(), Error>;
 }
 
 // Blanket implementation for cameras with exposure support
@@ -112,7 +113,7 @@ where
 
     fn set_iris(&mut self, level: crate::types::IrisLevel) -> Result<(), Error> {
         use crate::command::exposure::IrisCommand;
-        
+
         let cmd = IrisCommand::SetAperture(level);
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -120,7 +121,7 @@ where
 
     fn set_brightness(&mut self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
         use crate::command::exposure::BrightCommand;
-        
+
         let cmd = BrightCommand::SetLevel(level);
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -128,7 +129,7 @@ where
 
     fn set_backlight(&mut self, enabled: bool) -> Result<(), Error> {
         use crate::command::image::BacklightCommand;
-        
+
         let cmd = BacklightCommand { status: enabled };
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -136,7 +137,7 @@ where
 
     fn set_gain(&mut self, gain: crate::types::Gain) -> Result<(), Error> {
         use crate::command::gain::GainCommand;
-        
+
         let cmd = GainCommand::SetValue(gain);
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -144,7 +145,7 @@ where
 
     fn set_gain_limit(&mut self, limit: crate::types::GainLimit) -> Result<(), Error> {
         use crate::command::gain::GainLimitCommand;
-        
+
         let cmd = GainLimitCommand { limit };
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -152,7 +153,7 @@ where
 
     fn set_dynamic_range(&mut self, level: crate::types::DynamicRangeLevel) -> Result<(), Error> {
         use crate::command::exposure::DynamicRangeCommand;
-        
+
         let cmd = DynamicRangeCommand::SetLevel(level);
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -160,7 +161,7 @@ where
 
     fn set_color_temperature(&mut self, temp: crate::types::ColorTemperature) -> Result<(), Error> {
         use crate::command::color::ColorTemperatureCommand;
-        
+
         let cmd = ColorTemperatureCommand::SetTemperature(temp);
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -196,7 +197,7 @@ where
 
     async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {
         use crate::command::exposure::IrisCommand;
-        
+
         let cmd = IrisCommand::SetAperture(level);
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -204,7 +205,7 @@ where
 
     async fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
         use crate::command::exposure::BrightCommand;
-        
+
         let cmd = BrightCommand::SetLevel(level);
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -212,7 +213,7 @@ where
 
     async fn set_backlight(&self, enabled: bool) -> Result<(), Error> {
         use crate::command::image::BacklightCommand;
-        
+
         let cmd = BacklightCommand { status: enabled };
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -220,7 +221,7 @@ where
 
     async fn set_gain(&self, gain: crate::types::Gain) -> Result<(), Error> {
         use crate::command::gain::GainCommand;
-        
+
         let cmd = GainCommand::SetValue(gain);
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -228,7 +229,7 @@ where
 
     async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
         use crate::command::gain::GainLimitCommand;
-        
+
         let cmd = GainLimitCommand { limit };
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -236,15 +237,18 @@ where
 
     async fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error> {
         use crate::command::exposure::DynamicRangeCommand;
-        
+
         let cmd = DynamicRangeCommand::SetLevel(level);
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
-    async fn set_color_temperature(&self, temp: crate::types::ColorTemperature) -> Result<(), Error> {
+    async fn set_color_temperature(
+        &self,
+        temp: crate::types::ColorTemperature,
+    ) -> Result<(), Error> {
         use crate::command::color::ColorTemperatureCommand;
-        
+
         let cmd = ColorTemperatureCommand::SetTemperature(temp);
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()

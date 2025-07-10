@@ -102,10 +102,7 @@ mod tests {
     #[test]
     fn test_address_set_command() {
         let cmd = AddressSetCommand;
-        assert_eq!(
-            cmd.to_bytes().unwrap(),
-            vec![0x88, 0x30, 0x01, 0xFF]
-        );
+        assert_eq!(cmd.to_bytes().unwrap(), vec![0x88, 0x30, 0x01, 0xFF]);
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.command_category(), CommandCategory::Quick);
     }
@@ -113,10 +110,7 @@ mod tests {
     #[test]
     fn test_interface_clear_command() {
         let cmd = InterfaceClearCommand;
-        assert_eq!(
-            cmd.to_bytes().unwrap(),
-            vec![0x88, 0x01, 0x00, 0x01, 0xFF]
-        );
+        assert_eq!(cmd.to_bytes().unwrap(), vec![0x88, 0x01, 0x00, 0x01, 0xFF]);
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.command_category(), CommandCategory::Quick);
     }
@@ -126,10 +120,7 @@ mod tests {
         let cmd = CommandCancelCommand {
             socket: Socket::Socket1,
         };
-        assert_eq!(
-            cmd.to_bytes().unwrap(),
-            vec![0x81, 0x21, 0xFF]
-        );
+        assert_eq!(cmd.to_bytes().unwrap(), vec![0x81, 0x21, 0xFF]);
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.command_category(), CommandCategory::Quick);
     }
@@ -139,10 +130,7 @@ mod tests {
         let cmd = CommandCancelCommand {
             socket: Socket::Socket2,
         };
-        assert_eq!(
-            cmd.to_bytes().unwrap(),
-            vec![0x81, 0x22, 0xFF]
-        );
+        assert_eq!(cmd.to_bytes().unwrap(), vec![0x81, 0x22, 0xFF]);
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.command_category(), CommandCategory::Quick);
     }

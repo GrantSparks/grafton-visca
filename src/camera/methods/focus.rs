@@ -140,7 +140,7 @@ where
 
     fn set_focus(&mut self, position: crate::types::FocusPosition) -> Result<(), Error> {
         use crate::command::focus::FocusCommand;
-        
+
         let cmd = FocusCommand::Position(position);
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -222,7 +222,7 @@ where
 
     async fn set_focus(&self, position: crate::types::FocusPosition) -> Result<(), Error> {
         use crate::command::focus::FocusCommand;
-        
+
         let cmd = FocusCommand::Position(position);
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()

@@ -362,9 +362,8 @@ mod exposure_commands {
     use crate::{
         command::{
             exposure::{
-                BrightCommand, DynamicRangeCommand, ExposureCommand,
-                ExposureCompensationCommand, ExposureCompensationLevel, ExposureMode, IrisCommand,
-                ShutterCommand,
+                BrightCommand, DynamicRangeCommand, ExposureCommand, ExposureCompensationCommand,
+                ExposureCompensationLevel, ExposureMode, IrisCommand, ShutterCommand,
             },
             gain::{AntiFlickerCommand, AntiFlickerMode, GainCommand, GainLimitCommand},
             image::BacklightCommand,

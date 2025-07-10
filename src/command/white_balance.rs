@@ -407,12 +407,16 @@ mod tests {
         let cmd = AWBSensitivityCommand {
             sensitivity: AWBSensitivity::Normal,
         };
-        
+
         // Should pass for PTZOpticsG2
-        assert!(cmd.validate_for_model(crate::constants::CameraModel::PTZOpticsG2).is_ok());
-        
+        assert!(cmd
+            .validate_for_model(crate::constants::CameraModel::PTZOpticsG2)
+            .is_ok());
+
         // Should fail for other models
-        assert!(cmd.validate_for_model(crate::constants::CameraModel::SonyFR7).is_err());
+        assert!(cmd
+            .validate_for_model(crate::constants::CameraModel::SonyFR7)
+            .is_err());
     }
 
     #[test]
@@ -420,11 +424,15 @@ mod tests {
         let cmd = WhiteBalanceCommand {
             mode: WhiteBalanceMode::ATW,
         };
-        
+
         // Should pass for SonyFR7
-        assert!(cmd.validate_for_model(crate::constants::CameraModel::SonyFR7).is_ok());
-        
+        assert!(cmd
+            .validate_for_model(crate::constants::CameraModel::SonyFR7)
+            .is_ok());
+
         // Should fail for other models
-        assert!(cmd.validate_for_model(crate::constants::CameraModel::PTZOpticsG2).is_err());
+        assert!(cmd
+            .validate_for_model(crate::constants::CameraModel::PTZOpticsG2)
+            .is_err());
     }
 }

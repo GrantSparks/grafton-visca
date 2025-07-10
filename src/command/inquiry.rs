@@ -83,6 +83,8 @@ pub enum InquiryCommand {
     FocusNearLimit,
     /// Query the dynamic range control level (0-8).
     DynamicRange,
+    /// Query the camera's version information.
+    Version,
 }
 
 impl Command for InquiryCommand {
@@ -122,6 +124,7 @@ impl Command for InquiryCommand {
             Self::AutoFocusSensitivity => vec![0x81, 0x09, 0x04, 0x58, 0xFF],
             Self::FocusNearLimit => vec![0x81, 0x09, 0x04, 0x28, 0xFF],
             Self::DynamicRange => vec![0x81, 0x09, 0x04, 0x25, 0xFF],
+            Self::Version => vec![0x81, 0x09, 0x00, 0x02, 0xFF],
         };
         Ok(bytes)
     }
@@ -162,6 +165,7 @@ impl Command for InquiryCommand {
             Self::AutoFocusSensitivity => Some(ResponseType::AutoFocusSensitivity),
             Self::FocusNearLimit => Some(ResponseType::FocusNearLimit),
             Self::DynamicRange => Some(ResponseType::DynamicRange),
+            Self::Version => Some(ResponseType::Version),
         }
     }
 

@@ -50,19 +50,31 @@ pub trait ImageProcessingMethodsExt {
 
     /// Set noise reduction 2D level.
     #[cfg(not(feature = "async"))]
-    fn set_noise_reduction_2d(&mut self, level: crate::types::NoiseReduction2DLevel) -> Result<(), Error>;
+    fn set_noise_reduction_2d(
+        &mut self,
+        level: crate::types::NoiseReduction2DLevel,
+    ) -> Result<(), Error>;
 
     /// Set noise reduction 2D level.
     #[cfg(feature = "async")]
-    async fn set_noise_reduction_2d(&self, level: crate::types::NoiseReduction2DLevel) -> Result<(), Error>;
+    async fn set_noise_reduction_2d(
+        &self,
+        level: crate::types::NoiseReduction2DLevel,
+    ) -> Result<(), Error>;
 
     /// Set noise reduction 3D level.
     #[cfg(not(feature = "async"))]
-    fn set_noise_reduction_3d(&mut self, level: crate::types::NoiseReduction3DLevel) -> Result<(), Error>;
+    fn set_noise_reduction_3d(
+        &mut self,
+        level: crate::types::NoiseReduction3DLevel,
+    ) -> Result<(), Error>;
 
     /// Set noise reduction 3D level.
     #[cfg(feature = "async")]
-    async fn set_noise_reduction_3d(&self, level: crate::types::NoiseReduction3DLevel) -> Result<(), Error>;
+    async fn set_noise_reduction_3d(
+        &self,
+        level: crate::types::NoiseReduction3DLevel,
+    ) -> Result<(), Error>;
 }
 
 // Blanket implementation for cameras with image processing support
@@ -84,7 +96,7 @@ where
 
     fn set_contrast(&mut self, level: crate::types::ContrastLevel) -> Result<(), Error> {
         use crate::command::image_adjustment::ContrastCommand;
-        
+
         let cmd = ContrastCommand { value: level };
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -92,15 +104,17 @@ where
 
     fn set_sharpness(&mut self, level: crate::types::SharpnessLevel) -> Result<(), Error> {
         use crate::command::image_adjustment::SharpnessCommand;
-        
-        let cmd = SharpnessCommand::SetLevel { value: level.value() };
+
+        let cmd = SharpnessCommand::SetLevel {
+            value: level.value(),
+        };
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     fn set_saturation(&mut self, level: crate::types::SaturationLevel) -> Result<(), Error> {
         use crate::command::color::SaturationCommand;
-        
+
         let cmd = SaturationCommand { level };
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -108,23 +122,29 @@ where
 
     fn set_hue(&mut self, level: crate::types::HueLevel) -> Result<(), Error> {
         use crate::command::color::HueCommand;
-        
+
         let cmd = HueCommand { level };
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
-    fn set_noise_reduction_2d(&mut self, level: crate::types::NoiseReduction2DLevel) -> Result<(), Error> {
+    fn set_noise_reduction_2d(
+        &mut self,
+        level: crate::types::NoiseReduction2DLevel,
+    ) -> Result<(), Error> {
         use crate::command::image::NoiseReduction2DCommand;
-        
+
         let cmd = NoiseReduction2DCommand::Level(level);
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
-    fn set_noise_reduction_3d(&mut self, level: crate::types::NoiseReduction3DLevel) -> Result<(), Error> {
+    fn set_noise_reduction_3d(
+        &mut self,
+        level: crate::types::NoiseReduction3DLevel,
+    ) -> Result<(), Error> {
         use crate::command::image::NoiseReduction3DCommand;
-        
+
         let cmd = NoiseReduction3DCommand::Level(level);
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -150,7 +170,7 @@ where
 
     async fn set_contrast(&self, level: crate::types::ContrastLevel) -> Result<(), Error> {
         use crate::command::image_adjustment::ContrastCommand;
-        
+
         let cmd = ContrastCommand { value: level };
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -158,15 +178,17 @@ where
 
     async fn set_sharpness(&self, level: crate::types::SharpnessLevel) -> Result<(), Error> {
         use crate::command::image_adjustment::SharpnessCommand;
-        
-        let cmd = SharpnessCommand::SetLevel { value: level.value() };
+
+        let cmd = SharpnessCommand::SetLevel {
+            value: level.value(),
+        };
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     async fn set_saturation(&self, level: crate::types::SaturationLevel) -> Result<(), Error> {
         use crate::command::color::SaturationCommand;
-        
+
         let cmd = SaturationCommand { level };
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -174,23 +196,29 @@ where
 
     async fn set_hue(&self, level: crate::types::HueLevel) -> Result<(), Error> {
         use crate::command::color::HueCommand;
-        
+
         let cmd = HueCommand { level };
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
-    async fn set_noise_reduction_2d(&self, level: crate::types::NoiseReduction2DLevel) -> Result<(), Error> {
+    async fn set_noise_reduction_2d(
+        &self,
+        level: crate::types::NoiseReduction2DLevel,
+    ) -> Result<(), Error> {
         use crate::command::image::NoiseReduction2DCommand;
-        
+
         let cmd = NoiseReduction2DCommand::Level(level);
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
-    async fn set_noise_reduction_3d(&self, level: crate::types::NoiseReduction3DLevel) -> Result<(), Error> {
+    async fn set_noise_reduction_3d(
+        &self,
+        level: crate::types::NoiseReduction3DLevel,
+    ) -> Result<(), Error> {
         use crate::command::image::NoiseReduction3DCommand;
-        
+
         let cmd = NoiseReduction3DCommand::Level(level);
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()

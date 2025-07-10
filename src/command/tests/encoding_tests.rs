@@ -12,12 +12,12 @@ use crate::Command;
 mod golden_vector_tests {
     use super::*;
     use crate::command::exposure::ExposureCompensationLevel;
-    use crate::types::DynamicRangeLevel;
     use crate::command::focus::FocusSpeed;
     use crate::command::pan_tilt::PanTiltDirection;
     use crate::command::power::Power;
     use crate::command::preset::{PresetAction, PresetNumber};
     use crate::command::zoom::ZoomSpeed;
+    use crate::types::DynamicRangeLevel;
     use crate::types::{NoiseReduction2DLevel, NoiseReduction3DLevel};
     use crate::types::{PanSpeed, TiltSpeed};
 
