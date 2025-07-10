@@ -206,14 +206,14 @@ mod tests {
             }
         }
         
-        let mut camera: Camera<PTZOpticsG2, MockTransport> = Camera::new(MockTransport);
+        let mut _camera: Camera<PTZOpticsG2, MockTransport> = Camera::new(MockTransport);
         
         // These methods exist because PTZOpticsG2 implements SupportsPanTilt
         #[cfg(not(feature = "async"))]
         {
-            let _ = camera.pan_tilt_stop();
-            let _ = camera.pan_tilt_home();
-            let _ = camera.pan_tilt_absolute(45.0, 30.0, 10);
+            let _ = _camera.pan_tilt_stop();
+            let _ = _camera.pan_tilt_home();
+            let _ = _camera.pan_tilt_absolute(45.0, 30.0, 10);
         }
     }
 }

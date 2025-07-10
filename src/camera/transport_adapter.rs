@@ -7,6 +7,7 @@ use crate::Error;
 #[derive(Debug)]
 pub struct TransportAdapter<T> {
     transport: T,
+    #[allow(dead_code)] // TODO: Will be used for Sony protocol sequence numbering
     sequence_number: u8,
 }
 
@@ -19,6 +20,7 @@ impl<T> TransportAdapter<T> {
         }
     }
     
+    #[allow(dead_code)] // TODO: Will be used for Sony protocol sequence numbering
     fn next_sequence(&mut self) -> u8 {
         let seq = self.sequence_number;
         self.sequence_number = self.sequence_number.wrapping_add(1);

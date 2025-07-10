@@ -42,9 +42,9 @@ where
         
         match P::ND_MODE {
             NDFilterMode::None => {
-                return Err(Error::FeatureNotSupported {
+                Err(Error::FeatureNotSupported {
                     feature: "ND filter".to_string(),
-                });
+                })
             }
             NDFilterMode::Fixed(value) => {
                 let cmd = encode_nd_filter_fixed(validated_level == value);
@@ -93,7 +93,7 @@ where
                 
                 let dummy = Dummy::<P>::default();
                 dummy.validate_nd_filter(level)
-                    .map_err(|e| Error::ValidationError(e))
+                    .map_err(Error::ValidationError)
             }
         }
         
@@ -102,9 +102,9 @@ where
         
         match P::ND_MODE {
             NDFilterMode::None => {
-                return Err(Error::FeatureNotSupported {
+                Err(Error::FeatureNotSupported {
                     feature: "ND filter".to_string(),
-                });
+                })
             }
             NDFilterMode::Fixed(value) => {
                 let cmd = encode_nd_filter_fixed(validated_level == value);
@@ -154,10 +154,10 @@ mod tests {
         }
         
         // This compiles - FR7 has ND filter
-        let mut fr7_camera: Camera<SonyFR7, MockTransport> = Camera::new(MockTransport);
+        let _fr7_camera: Camera<SonyFR7, MockTransport> = Camera::new(MockTransport);
         #[cfg(not(feature = "async"))]
         {
-            let _ = fr7_camera.set_nd_filter(2);
+            let _ = _fr7_camera.set_nd_filter(2);
         }
         
         // This would NOT compile - PTZOpticsG2 doesn't have ND filter
