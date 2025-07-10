@@ -53,7 +53,9 @@ async fn main() -> Result<(), Error> {
 
     // Move to specific position in degrees
     println!("Moving to 45° pan, 30° tilt...");
-    camera.set_position(Degrees(45.0), Degrees(30.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(45.0), Degrees(30.0))
+        .await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Move using normalized coordinates
@@ -61,7 +63,7 @@ async fn main() -> Result<(), Error> {
     // Convert normalized coordinates to degrees
     let pan_deg = Degrees(0.5 * 180.0); // 90 degrees
     let tilt_deg = Degrees(-0.25 * 90.0); // -22.5 degrees
-    camera.set_position(pan_deg, tilt_deg).await?;
+    camera.pan_tilt_absolute(pan_deg, tilt_deg).await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Set and recall a preset (G2 supports presets 0-89)
@@ -72,7 +74,9 @@ async fn main() -> Result<(), Error> {
 
     // Move somewhere else
     println!("Moving to different position...");
-    camera.set_position(Degrees(-30.0), Degrees(15.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(-30.0), Degrees(15.0))
+        .await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Recall the preset

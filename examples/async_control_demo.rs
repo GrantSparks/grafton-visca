@@ -69,7 +69,9 @@ async fn main() -> Result<(), Error> {
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Setting up shot 1...");
-    camera.set_position(Degrees(16.0), Degrees(-4.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(16.0), Degrees(-4.0))
+        .await?;
     camera.set_zoom(ZoomPosition::try_from(0x1800)?).await?;
     sleep(Duration::from_secs(2)).await;
 
@@ -79,7 +81,9 @@ async fn main() -> Result<(), Error> {
     sleep(Duration::from_millis(500)).await;
 
     println!("   - Setting up shot 2...");
-    camera.set_position(Degrees(-12.0), Degrees(8.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(-12.0), Degrees(8.0))
+        .await?;
     camera.set_zoom(ZoomPosition::try_from(0x3000)?).await?;
     sleep(Duration::from_secs(2)).await;
 

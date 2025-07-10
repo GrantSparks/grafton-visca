@@ -84,7 +84,7 @@ async fn demo_ptzoptics_g2() -> Result<(), Error> {
 
     // Position within G2 range (-170° to +170° pan, -90° to +90° tilt)
     println!("  - Moving to position (100°, 45°)");
-    camera.set_position(Degrees(100.0), Degrees(45.0)).await?;
+    camera.pan_tilt_absolute(Degrees(100.0), Degrees(45.0)).await?;
 
     // G2-specific preset (0-89)
     println!("  - Using G2-specific preset 15");
@@ -115,7 +115,7 @@ async fn demo_ptzoptics_30x() -> Result<(), Error> {
 
     // Wider pan range than G2
     println!("  - Moving to position (175°, 45°)");
-    camera.set_position(Degrees(175.0), Degrees(45.0)).await?;
+    camera.pan_tilt_absolute(Degrees(175.0), Degrees(45.0)).await?;
 
     println!();
     Ok(())
@@ -141,7 +141,7 @@ async fn demo_sony_evid70() -> Result<(), Error> {
 
     // Sony has ±100° pan range
     println!("  - Moving to position (90°, 25°)");
-    camera.set_position(Degrees(90.0), Degrees(25.0)).await?;
+    camera.pan_tilt_absolute(Degrees(90.0), Degrees(25.0)).await?;
 
     println!();
     Ok(())
@@ -162,7 +162,7 @@ async fn demo_generic_visca() -> Result<(), Error> {
     // Generic operations
     println!("\n✅ Generic operations:");
     camera.set_zoom(Raw(0x4000u16)).await?;
-    camera.set_position(Degrees(45.0), Degrees(30.0)).await?;
+    camera.pan_tilt_absolute(Degrees(45.0), Degrees(30.0)).await?;
 
     // Generic presets
     println!("  - Using generic preset 1");

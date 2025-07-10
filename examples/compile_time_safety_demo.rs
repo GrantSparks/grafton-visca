@@ -7,6 +7,7 @@
 
 use grafton_visca::{
     camera::{methods::*, Camera},
+    command::ExposureMode,
     profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
     Error,
 };

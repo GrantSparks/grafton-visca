@@ -9,25 +9,25 @@
 //! Note: The Camera API doesn't have built-in per-command timeout configuration.
 //! Timeouts are handled at the transport level or using tokio::time::timeout.
 
-#[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
-    command::pan_tilt::PanTiltDirection,
-    transport::create,
-    types::{PanSpeed, TiltSpeed},
+    camera::{
+        methods::{PanTiltMethodsExt, PowerMethodsExt, PresetMethodsExt},
+        profiles::{G2PresetId, PTZOpticsG2},
+        Camera,
+    },
+    transport::tokio::{Tcp, Udp},
     units::Degrees,
     Error,
 };
 use std::time::Duration;
-#[cfg(feature = "tokio")]
 use tokio::time::timeout;
 
 // Include the transport implementations from the example files
 
 #[cfg(not(feature = "tokio"))]
 fn main() {
-    eprintln!("This example requires the 'async' feature.");
-    eprintln!("Run with: cargo run --example async_configurable_timeouts --features async");
+    eprintln!("This example requires the 'tokio' feature.");
+    eprintln!("Run with: cargo run --example async_configurable_timeouts --features tokio");
 }
 
 #[cfg(feature = "tokio")]
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera with async transport
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = create::udp(&camera_addr).await?;
+    let transport = Udp::connect(&camera_addr).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate different timeout scenarios
@@ -105,14 +105,14 @@ async fn demonstrate_movement_timeout<T: grafton_visca::transport::AsyncTranspor
     let movement_timeout = Duration::from_secs(5);
 
     // Start pan/tilt movement
-    match timeout(
-        movement_timeout,
-        camera.move_continuous(
-            PanTiltDirection::Right,
-            PanSpeed::new(10)?,
-            TiltSpeed::new(0)?,
-        ),
-    )
+    // TODO: The move_continuous method doesn't exist in the current API.
+    // This needs to be implemented or replaced with the correct method.
+    match timeout(movement_timeout, async {
+        // Placeholder - the actual implementation would use the correct movement method
+        Err::<(), Error>(Error::FeatureNotSupported {
+            feature: "move_continuous".to_string(),
+        })
+    })
     .await
     {
         Ok(Ok(_)) => {
@@ -158,7 +158,7 @@ async fn demonstrate_preset_timeout<T: grafton_visca::transport::AsyncTransport>
 
     // Recall preset (which may take time to complete movement)
     let start = std::time::Instant::now();
-    match timeout(preset_timeout, camera.recall_preset(preset.into())).await {
+    match timeout(preset_timeout, camera.preset_recall(preset.into())).await {
         Ok(Ok(_)) => {
             let elapsed = start.elapsed();
             println!("   ✓ Preset recalled successfully in {:?}", elapsed);
@@ -199,7 +199,7 @@ async fn demonstrate_timeout_recovery<T: grafton_visca::transport::AsyncTranspor
 
         match timeout(
             current_timeout,
-            camera.set_position(target_pan, target_tilt),
+            camera.pan_tilt_absolute(target_pan.0, target_tilt.0, 18), // Using speed 18
         )
         .await
         {
@@ -231,12 +231,11 @@ async fn demonstrate_timeout_recovery<T: grafton_visca::transport::AsyncTranspor
     println!("   Async Tcp transport uses a hardcoded 10-second timeout");
     println!("   For custom timeouts, wrap operations with tokio::time::timeout");
 
-    #[cfg(feature = "tokio")]
     {
         // TCP transport is already available via common module
 
         // Async Tcp has a fixed 10s timeout
-        match create::tcp("192.168.1.100:5678").await {
+        match Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(10)).await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");
                 let tcp_camera = Camera::<PTZOpticsG2, _>::new(transport);

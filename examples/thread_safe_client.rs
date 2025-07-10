@@ -10,7 +10,11 @@
 use grafton_visca::transport::blocking::create;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{Camera, CameraProfile, PTZOpticsG2},
+    camera::{
+        methods::{PanTiltMethodsExt, PowerMethodsExt},
+        Camera,
+    },
+    profiles::PTZOpticsG2,
     command::pan_tilt::PanTiltDirection,
     types::{PanSpeed, TiltSpeed},
     Error,

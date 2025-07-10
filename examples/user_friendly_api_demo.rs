@@ -7,7 +7,7 @@
 use grafton_visca::transport::blocking::create;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
+    camera::Camera, profiles::PTZOpticsG2,
     command::{exposure::ExposureMode, pan_tilt::PanTiltDirection},
     types::{
         FStop, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength,

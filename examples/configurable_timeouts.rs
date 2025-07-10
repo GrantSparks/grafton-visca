@@ -16,7 +16,7 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera},
+    camera::Camera, profiles::PTZOpticsG2,
     command::pan_tilt::PanTiltDirection,
     transport::blocking::create,
     types::{PanSpeed, TiltSpeed},
@@ -128,7 +128,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     }
 
     // Move away
-    camera.set_position(Degrees(0.0), Degrees(0.0))?;
+    camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0))?;
     std::thread::sleep(Duration::from_secs(1));
 
     // Recall preset

@@ -7,6 +7,7 @@ use grafton_visca::transport::blocking::create;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
+        methods::{PanTiltMethodsExt, PowerMethodsExt, PresetMethodsExt, ZoomMethodsExt},
         profiles::{G2PresetId, PTZOpticsG2},
         Camera,
     },
@@ -59,7 +60,7 @@ fn main() -> Result<(), Error> {
     println!("Saved preset 1");
 
     // Move camera to specific position
-    camera.set_position(Degrees(45.0), Degrees(-15.0))?;
+    camera.pan_tilt_absolute(Degrees(45.0), Degrees(-15.0))?;
     println!("Moved to 45° pan, -15° tilt");
 
     // Zoom control

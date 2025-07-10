@@ -326,6 +326,7 @@ macro_rules! impl_inquiry_method_async {
 }
 
 // Helper macro for blocking implementation
+#[allow(unused_macros)]
 macro_rules! impl_inquiry_method {
     // Simple variant - returns a single value directly from the response
     ($method:ident, $inquiry_variant:ident, $response_pattern:pat => $extract:expr, $ret_type:ty) => {
