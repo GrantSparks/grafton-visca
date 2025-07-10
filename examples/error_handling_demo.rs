@@ -12,7 +12,7 @@ use grafton_visca::Error;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltMethods, PowerMethods, ZoomMethods},
+        methods::{PanTiltMethodsExt, PowerMethodsExt, ZoomMethodsExt},
         profiles::G2PresetId,
         Camera,
     },

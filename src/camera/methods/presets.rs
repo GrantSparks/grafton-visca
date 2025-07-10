@@ -1,12 +1,12 @@
 //! Preset methods for cameras that support preset positions.
 
 use crate::camera::Camera;
-use crate::capabilities::{ProfileMetadata, SupportsPresets};
+use crate::capabilities::{Presets, ProfileMetadata};
 use crate::Error;
 
 /// Extension trait that adds preset methods to cameras.
 #[allow(async_fn_in_trait)]
-pub trait PresetMethods {
+pub trait PresetMethodsExt {
     /// Recall a preset position.
     #[cfg(not(feature = "async"))]
     fn preset_recall(&mut self, preset: u8) -> Result<(), Error>;
@@ -26,9 +26,9 @@ pub trait PresetMethods {
 
 // Blanket implementation for cameras with preset support
 #[cfg(not(feature = "async"))]
-impl<P, T> PresetMethods for Camera<P, T>
+impl<P, T> PresetMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsPresets,
+    P: ProfileMetadata + Presets,
     T: crate::transport::blocking::BlockingTransport,
 {
     fn preset_recall(&mut self, preset: u8) -> Result<(), Error> {
@@ -74,9 +74,9 @@ where
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T> PresetMethods for Camera<P, T>
+impl<P, T> PresetMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsPresets,
+    P: ProfileMetadata + Presets,
     T: crate::transport::AsyncTransport,
 {
     async fn preset_recall(&self, preset: u8) -> Result<(), Error> {

@@ -9,7 +9,7 @@ use crate::capabilities::ValidationError;
 ///
 /// This trait defines the constants and capabilities for preset management
 /// including storing, recalling, and touring preset positions.
-pub trait SupportsPresets {
+pub trait Presets {
     /// Maximum number of presets supported (excluding home position).
     const MAX_PRESETS: u8;
 
@@ -34,7 +34,7 @@ pub trait SupportsPresets {
 }
 
 /// Extension trait that adds validation methods to cameras with preset support.
-pub trait PresetsExt: SupportsPresets {
+pub trait PresetsExt: Presets {
     /// Validate preset number is within range.
     /// Note: Preset 0 is typically the home position.
     fn validate_preset_number(&self, preset: u8) -> Result<u8, ValidationError> {
@@ -81,7 +81,7 @@ pub trait PresetsExt: SupportsPresets {
 }
 
 // Automatic implementation for all types that support presets
-impl<T: SupportsPresets> PresetsExt for T {}
+impl<T: Presets> PresetsExt for T {}
 
 /// Preset tour configuration for cameras that support it.
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +132,7 @@ mod tests {
 
     struct TestCamera;
 
-    impl SupportsPresets for TestCamera {
+    impl Presets for TestCamera {
         const MAX_PRESETS: u8 = 89;
         const PRESET_SPEED_RANGE: Range<u8> = 1..25;
         const SUPPORTS_PRESET_TOUR: bool = true;

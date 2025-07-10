@@ -1,13 +1,13 @@
 //! Power control methods for cameras.
 
 use crate::camera::Camera;
-use crate::capabilities::{ProfileMetadata, SupportsPower};
+use crate::capabilities::{Power, ProfileMetadata};
 use crate::command::const_encoding::constants::power;
 use crate::Error;
 
 /// Extension trait that adds power methods to cameras.
 #[allow(async_fn_in_trait)]
-pub trait PowerMethods {
+pub trait PowerMethodsExt {
     /// Power on the camera.
     #[cfg(not(feature = "async"))]
     fn power_on(&mut self) -> Result<(), Error>;
@@ -27,9 +27,9 @@ pub trait PowerMethods {
 
 // Blocking implementation for cameras with power control
 #[cfg(not(feature = "async"))]
-impl<P, T> PowerMethods for Camera<P, T>
+impl<P, T> PowerMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsPower,
+    P: ProfileMetadata + Power,
     T: crate::transport::blocking::BlockingTransport,
 {
     fn power_on(&mut self) -> Result<(), Error> {
@@ -51,9 +51,9 @@ where
 
 // Async implementation for cameras with power control
 #[cfg(feature = "async")]
-impl<P, T> PowerMethods for Camera<P, T>
+impl<P, T> PowerMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsPower,
+    P: ProfileMetadata + Power,
     T: crate::transport::AsyncTransport,
 {
     async fn power_on(&self) -> Result<(), Error> {

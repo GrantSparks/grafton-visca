@@ -38,7 +38,7 @@ fn test_ptzoptics_g2_capabilities() {
     assert!(camera.zoom_stop().is_ok());
     assert!(camera.focus_auto().is_ok());
     assert!(camera
-        .set_exposure_mode(grafton_visca::capabilities::ExposureMode::Auto)
+        .set_exposure_mode(grafton_visca::command::ExposureMode::Auto)
         .is_ok());
     assert!(camera
         .set_white_balance_mode(grafton_visca::capabilities::WhiteBalanceMode::Auto)
@@ -70,10 +70,10 @@ fn test_compile_time_method_availability() {
     fn adjust_nd_filter<P, T>(camera: &mut Camera<P, T>) -> Result<(), Error>
     where
         P: grafton_visca::capabilities::ProfileMetadata
-            + grafton_visca::capabilities::SupportsNDFilter
+            + grafton_visca::capabilities::NDFilter
             + Default,
         T: grafton_visca::transport::blocking::BlockingTransport,
-        Camera<P, T>: NDFilterMethods,
+        Camera<P, T>: NDFilterMethodsExt,
     {
         camera.set_nd_filter(64)
     }

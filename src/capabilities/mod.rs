@@ -19,15 +19,15 @@ mod profile_metadata;
 pub use profile_metadata::{ProfileIntrospection, ProfileMetadata, ProtocolStyle};
 
 // Re-export all capability traits
-pub use exposure::SupportsExposure;
-pub use focus::SupportsFocus;
-pub use image_processing::SupportsImageProcessing;
-pub use nd_filter::SupportsNDFilter;
-pub use pan_tilt::SupportsPanTilt;
-pub use power::SupportsPower;
-pub use presets::SupportsPresets;
-pub use white_balance::SupportsWhiteBalance;
-pub use zoom::SupportsZoom;
+pub use exposure::Exposure;
+pub use focus::Focus;
+pub use image_processing::ImageProcessing;
+pub use nd_filter::NDFilter;
+pub use pan_tilt::PanTilt;
+pub use power::Power;
+pub use presets::Presets;
+pub use white_balance::WhiteBalance;
+pub use zoom::Zoom;
 
 // Supporting types
 mod types;

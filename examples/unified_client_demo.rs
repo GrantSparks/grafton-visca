@@ -6,7 +6,7 @@
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
 use grafton_visca::{
     camera::{
-        methods::{FocusMethods, PanTiltMethods, PowerMethods, ZoomMethods},
+        methods::{FocusMethodsExt, PanTiltMethodsExt, PowerMethodsExt, ZoomMethodsExt},
         Camera,
     },
     command::pan_tilt::PanTiltDirection,

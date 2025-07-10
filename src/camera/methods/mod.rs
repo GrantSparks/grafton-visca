@@ -14,12 +14,12 @@ pub mod white_balance;
 pub mod zoom;
 
 // Re-export all extension traits
-pub use exposure::ExposureMethods;
-pub use focus::FocusMethods;
-pub use image_processing::ImageProcessingMethods;
-pub use nd_filter::NDFilterMethods;
-pub use pan_tilt::PanTiltMethods;
-pub use power::PowerMethods;
-pub use presets::PresetMethods;
-pub use white_balance::WhiteBalanceMethods;
-pub use zoom::ZoomMethods;
+pub use exposure::ExposureMethodsExt;
+pub use focus::FocusMethodsExt;
+pub use image_processing::ImageProcessingMethodsExt;
+pub use nd_filter::NDFilterMethodsExt;
+pub use pan_tilt::PanTiltMethodsExt;
+pub use power::PowerMethodsExt;
+pub use presets::PresetMethodsExt;
+pub use white_balance::WhiteBalanceMethodsExt;
+pub use zoom::ZoomMethodsExt;

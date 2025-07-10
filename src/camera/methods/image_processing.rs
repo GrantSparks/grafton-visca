@@ -1,12 +1,12 @@
 //! Image processing methods for cameras that support image adjustments.
 
 use crate::camera::Camera;
-use crate::capabilities::{ProfileMetadata, SupportsImageProcessing};
+use crate::capabilities::{ImageProcessing, ProfileMetadata};
 use crate::Error;
 
 /// Extension trait that adds image processing methods to cameras.
 #[allow(async_fn_in_trait)]
-pub trait ImageProcessingMethods {
+pub trait ImageProcessingMethodsExt {
     /// Enable image flip.
     #[cfg(not(feature = "async"))]
     fn enable_flip(&mut self) -> Result<(), Error>;
@@ -18,9 +18,9 @@ pub trait ImageProcessingMethods {
 
 // Blanket implementation for cameras with image processing support
 #[cfg(not(feature = "async"))]
-impl<P, T> ImageProcessingMethods for Camera<P, T>
+impl<P, T> ImageProcessingMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsImageProcessing,
+    P: ProfileMetadata + ImageProcessing,
     T: crate::transport::blocking::BlockingTransport,
 {
     fn enable_flip(&mut self) -> Result<(), Error> {
@@ -36,9 +36,9 @@ where
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T> ImageProcessingMethods for Camera<P, T>
+impl<P, T> ImageProcessingMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsImageProcessing,
+    P: ProfileMetadata + ImageProcessing,
     T: crate::transport::AsyncTransport,
 {
     async fn enable_flip(&self) -> Result<(), Error> {

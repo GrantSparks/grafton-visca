@@ -1,13 +1,13 @@
 //! Zoom methods for cameras that support zoom control.
 
 use crate::camera::Camera;
-use crate::capabilities::{ProfileMetadata, SupportsZoom};
+use crate::capabilities::{ProfileMetadata, Zoom};
 // Removed unused imports
 use crate::Error;
 
 /// Extension trait that adds zoom methods to cameras.
 #[allow(async_fn_in_trait)]
-pub trait ZoomMethods {
+pub trait ZoomMethodsExt {
     /// Stop zooming.
     #[cfg(not(feature = "async"))]
     fn zoom_stop(&mut self) -> Result<(), Error>;
@@ -43,9 +43,9 @@ pub trait ZoomMethods {
 
 // Blanket implementation for cameras with zoom support
 #[cfg(not(feature = "async"))]
-impl<P, T> ZoomMethods for Camera<P, T>
+impl<P, T> ZoomMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsZoom,
+    P: ProfileMetadata + Zoom,
     T: crate::transport::blocking::BlockingTransport,
 {
     fn zoom_stop(&mut self) -> Result<(), Error> {
@@ -116,9 +116,9 @@ where
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T> ZoomMethods for Camera<P, T>
+impl<P, T> ZoomMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsZoom,
+    P: ProfileMetadata + Zoom,
     T: crate::transport::AsyncTransport,
 {
     async fn zoom_stop(&self) -> Result<(), Error> {

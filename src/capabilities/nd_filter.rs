@@ -6,7 +6,7 @@ use crate::capabilities::ValidationError;
 ///
 /// This trait defines the constants and capabilities for ND filter operations.
 /// ND filters reduce the amount of light entering the camera without affecting color.
-pub trait SupportsNDFilter {
+pub trait NDFilter {
     /// ND filter mode determines how the filter operates.
     const ND_MODE: NDFilterMode;
 
@@ -16,7 +16,7 @@ pub trait SupportsNDFilter {
 }
 
 /// Extension trait that adds validation methods to cameras with ND filter support.
-pub trait NDFilterExt: SupportsNDFilter {
+pub trait NDFilterExt: NDFilter {
     /// Validate an ND filter setting based on the camera's ND mode.
     fn validate_nd_filter(&self, value: u8) -> Result<u8, ValidationError> {
         match Self::ND_MODE {
@@ -76,7 +76,7 @@ pub trait NDFilterExt: SupportsNDFilter {
 }
 
 // Automatic implementation for all types that support ND filter
-impl<T: SupportsNDFilter> NDFilterExt for T {}
+impl<T: NDFilter> NDFilterExt for T {}
 
 /// ND filter operating modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,25 +99,25 @@ mod tests {
     use super::*;
 
     struct NoNDCamera;
-    impl SupportsNDFilter for NoNDCamera {
+    impl NDFilter for NoNDCamera {
         const ND_MODE: NDFilterMode = NDFilterMode::None;
         const ND_STEPS: Option<u8> = None;
     }
 
     struct FixedNDCamera;
-    impl SupportsNDFilter for FixedNDCamera {
+    impl NDFilter for FixedNDCamera {
         const ND_MODE: NDFilterMode = NDFilterMode::Fixed(3);
         const ND_STEPS: Option<u8> = None;
     }
 
     struct SteppedNDCamera;
-    impl SupportsNDFilter for SteppedNDCamera {
+    impl NDFilter for SteppedNDCamera {
         const ND_MODE: NDFilterMode = NDFilterMode::Stepped(3);
         const ND_STEPS: Option<u8> = Some(3);
     }
 
     struct VariableNDCamera;
-    impl SupportsNDFilter for VariableNDCamera {
+    impl NDFilter for VariableNDCamera {
         const ND_MODE: NDFilterMode = NDFilterMode::Variable;
         const ND_STEPS: Option<u8> = None;
     }

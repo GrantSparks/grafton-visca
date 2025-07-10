@@ -1,12 +1,12 @@
 //! Focus methods for cameras that support focus control.
 
 use crate::camera::Camera;
-use crate::capabilities::{ProfileMetadata, SupportsFocus};
+use crate::capabilities::{Focus, ProfileMetadata};
 use crate::Error;
 
 /// Extension trait that adds focus methods to cameras.
 #[allow(async_fn_in_trait)]
-pub trait FocusMethods {
+pub trait FocusMethodsExt {
     /// Set auto focus mode.
     #[cfg(not(feature = "async"))]
     fn focus_auto(&mut self) -> Result<(), Error>;
@@ -58,9 +58,9 @@ pub trait FocusMethods {
 
 // Blanket implementation for cameras with focus support
 #[cfg(not(feature = "async"))]
-impl<P, T> FocusMethods for Camera<P, T>
+impl<P, T> FocusMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsFocus,
+    P: ProfileMetadata + Focus,
     T: crate::transport::blocking::BlockingTransport,
 {
     fn focus_auto(&mut self) -> Result<(), Error> {
@@ -132,9 +132,9 @@ where
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T> FocusMethods for Camera<P, T>
+impl<P, T> FocusMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsFocus,
+    P: ProfileMetadata + Focus,
     T: crate::transport::AsyncTransport,
 {
     async fn focus_auto(&self) -> Result<(), Error> {

@@ -17,7 +17,7 @@ use grafton_visca::transport::blocking::{create, BlockingTransport};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{FocusMethods, PanTiltMethods, ZoomMethods},
+        methods::{FocusMethodsExt, PanTiltMethodsExt, ZoomMethodsExt},
         profiles::G2PresetId,
         Camera,
     },
@@ -185,7 +185,7 @@ fn perform_scan_sequence<T: BlockingTransport>(
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
-        methods::{FocusMethods, PanTiltMethods, ZoomMethods},
+        methods::{FocusMethodsExt, PanTiltMethodsExt, ZoomMethodsExt},
         profiles::G2PresetId,
         Camera,
     },

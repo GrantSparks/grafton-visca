@@ -1,12 +1,12 @@
 //! White balance methods for cameras that support white balance control.
 
 use crate::camera::Camera;
-use crate::capabilities::{ProfileMetadata, SupportsWhiteBalance};
+use crate::capabilities::{ProfileMetadata, WhiteBalance};
 use crate::Error;
 
 /// Extension trait that adds white balance methods to cameras.
 #[allow(async_fn_in_trait)]
-pub trait WhiteBalanceMethods {
+pub trait WhiteBalanceMethodsExt {
     /// Set auto white balance mode.
     #[cfg(not(feature = "async"))]
     fn white_balance_auto(&mut self) -> Result<(), Error>;
@@ -18,9 +18,9 @@ pub trait WhiteBalanceMethods {
 
 // Blanket implementation for cameras with white balance support
 #[cfg(not(feature = "async"))]
-impl<P, T> WhiteBalanceMethods for Camera<P, T>
+impl<P, T> WhiteBalanceMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsWhiteBalance,
+    P: ProfileMetadata + WhiteBalance,
     T: crate::transport::blocking::BlockingTransport,
 {
     fn white_balance_auto(&mut self) -> Result<(), Error> {
@@ -36,9 +36,9 @@ where
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T> WhiteBalanceMethods for Camera<P, T>
+impl<P, T> WhiteBalanceMethodsExt for Camera<P, T>
 where
-    P: ProfileMetadata + SupportsWhiteBalance,
+    P: ProfileMetadata + WhiteBalance,
     T: crate::transport::AsyncTransport,
 {
     async fn white_balance_auto(&self) -> Result<(), Error> {

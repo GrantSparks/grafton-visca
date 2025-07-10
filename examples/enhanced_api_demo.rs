@@ -7,8 +7,8 @@
 use grafton_visca::{
     camera::{
         methods::{
-            ExposureMethods, ImageProcessingMethods, PanTiltMethods, PowerMethods,
-            WhiteBalanceMethods, ZoomMethods,
+            ExposureMethodsExt, ImageProcessingMethodsExt, PanTiltMethodsExt, PowerMethodsExt,
+            WhiteBalanceMethodsExt, ZoomMethodsExt,
         },
         Camera,
     },

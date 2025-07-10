@@ -8,7 +8,7 @@ use crate::capabilities::ValidationError;
 ///
 /// This trait defines the constants and capabilities for exposure settings
 /// including iris, shutter speed, gain, and exposure compensation.
-pub trait SupportsExposure {
+pub trait Exposure {
     /// Valid range for iris values in VISCA units.
     const IRIS_RANGE: Range<u16>;
 
@@ -37,7 +37,7 @@ pub trait SupportsExposure {
 }
 
 /// Extension trait that adds validation methods to cameras with exposure support.
-pub trait ExposureExt: SupportsExposure {
+pub trait ExposureExt: Exposure {
     /// Validate iris value is within range.
     fn validate_iris(&self, iris: u16) -> Result<u16, ValidationError> {
         if Self::IRIS_RANGE.contains(&iris) {
@@ -122,7 +122,7 @@ pub trait ExposureExt: SupportsExposure {
 }
 
 // Automatic implementation for all types that support exposure
-impl<T: SupportsExposure> ExposureExt for T {}
+impl<T: Exposure> ExposureExt for T {}
 
 /// Shutter speed definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,7 +183,7 @@ mod tests {
 
     struct TestCamera;
 
-    impl SupportsExposure for TestCamera {
+    impl Exposure for TestCamera {
         const IRIS_RANGE: Range<u16> = 0x00..0x1D;
         const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
         const GAIN_RANGE: Range<u8> = 0..16;
