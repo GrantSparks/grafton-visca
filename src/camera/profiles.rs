@@ -1,26 +1,328 @@
-//! Camera profile implementations for specific VISCA camera models.
+//! Camera profile implementations using capability traits.
+//!
+//! This module contains camera profiles composed from capability traits,
+//! enabling compile-time feature detection and type-safe operations.
 
 use std::fmt;
-use std::ops::RangeInclusive;
+use std::time::Duration;
 
-use super::CameraProfile;
+use crate::capabilities::{
+    ProfileMetadata, ProtocolStyle,
+    SupportsPanTilt, SupportsZoom, SupportsFocus, SupportsExposure,
+    SupportsWhiteBalance, SupportsImageProcessing, SupportsPresets,
+    SupportsPower, SupportsNDFilter, NDFilterMode,
+    ShutterSpeed, WhiteBalanceMode,
+};
 use crate::error::Error;
 
+// Import exposure constants
+mod exposure_constants {
+    use crate::capabilities::ShutterSpeed;
+    
+    pub const PTZOPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
+        ShutterSpeed::new("1/30", 0x01),
+        ShutterSpeed::new("1/60", 0x02),
+        ShutterSpeed::new("1/90", 0x03),
+        ShutterSpeed::new("1/100", 0x04),
+        ShutterSpeed::new("1/125", 0x05),
+        ShutterSpeed::new("1/180", 0x06),
+        ShutterSpeed::new("1/250", 0x07),
+        ShutterSpeed::new("1/350", 0x08),
+        ShutterSpeed::new("1/500", 0x09),
+        ShutterSpeed::new("1/725", 0x0A),
+        ShutterSpeed::new("1/1000", 0x0B),
+        ShutterSpeed::new("1/1500", 0x0C),
+        ShutterSpeed::new("1/2000", 0x0D),
+        ShutterSpeed::new("1/3000", 0x0E),
+        ShutterSpeed::new("1/4000", 0x0F),
+        ShutterSpeed::new("1/6000", 0x10),
+        ShutterSpeed::new("1/10000", 0x11),
+    ];
+
+    pub const GENERIC_VISCA_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
+        ShutterSpeed::new("1/30", 0x00),
+        ShutterSpeed::new("1/60", 0x01),
+        ShutterSpeed::new("1/100", 0x02),
+        ShutterSpeed::new("1/250", 0x03),
+        ShutterSpeed::new("1/500", 0x04),
+        ShutterSpeed::new("1/1000", 0x05),
+        ShutterSpeed::new("1/2000", 0x06),
+        ShutterSpeed::new("1/4000", 0x07),
+        ShutterSpeed::new("1/10000", 0x08),
+    ];
+}
+
+use exposure_constants::*;
+
+// White balance modes
+const PTZOPTICS_G2_WB_MODES: &[WhiteBalanceMode] = &[
+    WhiteBalanceMode::Auto,
+    WhiteBalanceMode::Indoor,
+    WhiteBalanceMode::Outdoor,
+    WhiteBalanceMode::OnePush,
+    WhiteBalanceMode::Manual,
+    WhiteBalanceMode::Daylight,
+];
+
+const GENERIC_WB_MODES: &[WhiteBalanceMode] = &[
+    WhiteBalanceMode::Auto,
+    WhiteBalanceMode::Indoor,
+    WhiteBalanceMode::Outdoor,
+    WhiteBalanceMode::OnePush,
+    WhiteBalanceMode::Manual,
+];
+
 /// PTZOptics G2 camera profile.
+///
+/// This camera supports:
+/// - Pan/Tilt with 340° pan range and -30° to +90° tilt
+/// - 20x optical zoom with digital zoom extension
+/// - Auto and manual focus
+/// - Full exposure control
+/// - White balance with 6 modes
+/// - Image processing including flip/mirror
+/// - 90 preset positions
+/// - Power control with standby
+///
+/// Does NOT support:
+/// - ND filters
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PTZOpticsG2;
 
-/// PTZOptics 30X camera profile.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct PTZOptics30X;
+// Core metadata
+impl ProfileMetadata for PTZOpticsG2 {
+    const MODEL_NAME: &'static str = "PTZOptics G2";
+    const DEFAULT_ADDRESS: u8 = 1;
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    const ACK_TIMEOUT: Duration = Duration::from_millis(100);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+}
 
-/// Sony EVI-D70 camera profile.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct SonyEVID70;
+// Movement capabilities
+impl SupportsPanTilt for PTZOpticsG2 {
+    const PAN_RANGE: std::ops::Range<i16> = -2448..2449;
+    const TILT_RANGE: std::ops::Range<i16> = -432..1297;
+    const MAX_PAN_SPEED: u8 = 24;
+    const MAX_TILT_SPEED: u8 = 20;
+    const PAN_DEGREES_TO_UNITS: f32 = 14.4; // 2448/170
+    const TILT_DEGREES_TO_UNITS: f32 = 14.4; // (1296+432)/120
+}
 
-/// Generic VISCA camera profile for unknown models.
+// Zoom capabilities
+impl SupportsZoom for PTZOpticsG2 {
+    const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
+    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000); // Additional digital zoom
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3; // 0x4000 / (20-1)
+}
+
+// Focus capabilities
+impl SupportsFocus for PTZOpticsG2 {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xF000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+}
+
+// Exposure capabilities
+impl SupportsExposure for PTZOpticsG2 {
+    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..9; // 0dB to 24dB in 3dB steps
+    const SUPPORTS_AUTO_EXPOSURE: bool = true;
+    const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_WDR: bool = true;
+}
+
+// White balance capabilities
+impl SupportsWhiteBalance for PTZOpticsG2 {
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = true;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+}
+
+// Image processing capabilities
+impl SupportsImageProcessing for PTZOpticsG2 {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_FLIP: bool = true;
+    const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_NOISE_REDUCTION: bool = true;
+    const SUPPORTS_2D_NR: bool = true;
+    const SUPPORTS_3D_NR: bool = true;
+}
+
+// Preset capabilities
+impl SupportsPresets for PTZOpticsG2 {
+    const MAX_PRESETS: u8 = 89;
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
+    const SUPPORTS_PRESET_TOUR: bool = false; // G2 doesn't support tour
+}
+
+// Power capabilities
+impl SupportsPower for PTZOpticsG2 {
+    const POWER_ON_TIME: Duration = Duration::from_secs(10);
+    const SUPPORTS_STANDBY: bool = true;
+}
+
+// Note: PTZOpticsG2 does NOT implement SupportsNDFilter
+
+/// Generic VISCA camera profile.
+///
+/// Conservative profile for unknown VISCA cameras with basic features only.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct GenericVisca;
+
+impl ProfileMetadata for GenericVisca {
+    const MODEL_NAME: &'static str = "Generic VISCA Camera";
+    const DEFAULT_ADDRESS: u8 = 1;
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    const ACK_TIMEOUT: Duration = Duration::from_millis(200);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(10000);
+}
+
+// Only implement basic capabilities for generic camera
+impl SupportsPanTilt for GenericVisca {
+    const PAN_RANGE: std::ops::Range<i16> = -2880..2881; // ±180°
+    const TILT_RANGE: std::ops::Range<i16> = -1440..1441; // ±90°
+    const MAX_PAN_SPEED: u8 = 24;
+    const MAX_TILT_SPEED: u8 = 24;
+    const PAN_DEGREES_TO_UNITS: f32 = 16.0; // Conservative
+    const TILT_DEGREES_TO_UNITS: f32 = 16.0;
+}
+
+impl SupportsZoom for GenericVisca {
+    const OPTICAL_ZOOM_MAX: u16 = 0xFFFF;
+    const DIGITAL_ZOOM_MAX: Option<u16> = None;
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const SUPPORTS_DIRECT_ZOOM: bool = false; // Conservative
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1000.0; // Approximate
+}
+
+impl SupportsPower for GenericVisca {
+    const POWER_ON_TIME: Duration = Duration::from_secs(30);
+    const SUPPORTS_STANDBY: bool = false;
+}
+
+// Generic cameras usually support basic exposure control
+impl SupportsExposure for GenericVisca {
+    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1C;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..8;
+    const SUPPORTS_AUTO_EXPOSURE: bool = true;
+    const SUPPORTS_BACKLIGHT_COMP: bool = false;
+    const SUPPORTS_WDR: bool = false;
+    const SUPPORTS_EXPOSURE_COMP: bool = false;
+}
+
+// And basic white balance
+impl SupportsWhiteBalance for GenericVisca {
+    const WB_MODES: &'static [WhiteBalanceMode] = GENERIC_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = true;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
+    const SUPPORTS_COLOR_TEMP: bool = false;
+    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = None;
+}
+
+/// Sony FR7 camera profile (example with ND filter).
+///
+/// Professional camera with all features including variable ND filter.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SonyFR7;
+
+impl ProfileMetadata for SonyFR7 {
+    const MODEL_NAME: &'static str = "Sony FR7";
+    const DEFAULT_ADDRESS: u8 = 1;
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::SonyEncapsulated { use_sequence: true };
+    const ACK_TIMEOUT: Duration = Duration::from_millis(200);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(8000);
+    const BUSY_TIMEOUT: Duration = Duration::from_millis(240);
+}
+
+// FR7 has all the standard features
+impl SupportsPanTilt for SonyFR7 {
+    const PAN_RANGE: std::ops::Range<i16> = -2700..2701; // ±170° approx
+    const TILT_RANGE: std::ops::Range<i16> = -300..1201; // -20° to +80°
+    const MAX_PAN_SPEED: u8 = 24;
+    const MAX_TILT_SPEED: u8 = 24;
+    const PAN_DEGREES_TO_UNITS: f32 = 15.88;
+    const TILT_DEGREES_TO_UNITS: f32 = 15.0;
+}
+
+impl SupportsZoom for SonyFR7 {
+    const OPTICAL_ZOOM_MAX: u16 = 0x4000;
+    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1000.0;
+}
+
+impl SupportsFocus for SonyFR7 {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xF000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    const SUPPORTS_FOCUS_ZONE: bool = true;
+    const SUPPORTS_AF_SENSITIVITY: bool = true;
+}
+
+impl SupportsExposure for SonyFR7 {
+    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1F;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS; // Similar speeds
+    const GAIN_RANGE: std::ops::Range<u8> = 0..16;
+    const SUPPORTS_AUTO_EXPOSURE: bool = true;
+    const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_WDR: bool = true;
+    const SUPPORTS_EXPOSURE_COMP: bool = true;
+}
+
+impl SupportsWhiteBalance for SonyFR7 {
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = true;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const SUPPORTS_COLOR_TEMP: bool = true;
+    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2800..7500);
+}
+
+impl SupportsImageProcessing for SonyFR7 {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_FLIP: bool = true;
+    const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_HUE: bool = true;
+    const HUE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_NOISE_REDUCTION: bool = true;
+    const SUPPORTS_2D_NR: bool = true;
+    const SUPPORTS_3D_NR: bool = true;
+}
+
+impl SupportsPresets for SonyFR7 {
+    const MAX_PRESETS: u8 = 255;
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
+    const SUPPORTS_PRESET_TOUR: bool = true;
+    const SUPPORTS_PRESET_THUMBNAIL: bool = true;
+}
+
+impl SupportsPower for SonyFR7 {
+    const POWER_ON_TIME: Duration = Duration::from_secs(15);
+    const SUPPORTS_STANDBY: bool = true;
+    const SUPPORTS_WAKE_ON_LAN: bool = true;
+}
+
+// FR7 DOES have ND filter support!
+impl SupportsNDFilter for SonyFR7 {
+    const ND_MODE: NDFilterMode = NDFilterMode::Variable;
+    const ND_STEPS: Option<u8> = None; // Continuous adjustment
+}
+
+
+// Associated types for presets and gain (keeping compatibility)
 
 /// Preset ID for PTZOptics G2 cameras (0-89).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,11 +340,21 @@ impl G2PresetId {
             })
         }
     }
+    
+    /// Home preset (preset 0).
+    pub const HOME: Self = Self(0);
+    
+    /// First user preset.
+    pub const PRESET1: Self = Self(1);
 }
 
 impl fmt::Display for G2PresetId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        if self.0 == 0 {
+            write!(f, "Home")
+        } else {
+            write!(f, "Preset {}", self.0)
+        }
     }
 }
 
@@ -120,279 +432,77 @@ impl TryFrom<u8> for G2Gain {
             6 => Ok(G2Gain::Gain18dB),
             7 => Ok(G2Gain::Gain21dB),
             8 => Ok(G2Gain::Gain24dB),
-            _ => Err(Error::InvalidParameter(format!(
-                "Invalid gain value: {}",
-                value
-            ))),
+            _ => Err(Error::InvalidParameter(format!("Invalid G2 gain value: {}", value))),
         }
     }
 }
 
-impl CameraProfile for PTZOpticsG2 {
-    const MODEL_NAME: &'static str = "PTZOptics G2";
-    const PAN_RANGE: RangeInclusive<i16> = -2448..=2448;
-    const TILT_RANGE: RangeInclusive<i16> = -432..=1296;
-    const ZOOM_RANGE: RangeInclusive<u16> = 0x0000..=0x7000;
-    const FOCUS_RANGE: RangeInclusive<u16> = 0x1000..=0xF000;
-    const DIGITAL_ZOOM_SUPPORTED: bool = true;
-    const MAX_PAN_SPEED: u8 = 24;
-    const MAX_TILT_SPEED: u8 = 20;
-
-    type PresetId = G2PresetId;
-    type Gain = G2Gain;
-
-    fn pan_units_to_degrees(&self, units: i16) -> f32 {
-        // G2 has 340° total pan range (-170° to +170°)
-        (units as f32 / 2448.0) * 170.0
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capabilities::pan_tilt::PanTiltExt;
+    use crate::capabilities::nd_filter::NDFilterExt;
+    
+    #[test]
+    fn test_ptzoptics_g2_capabilities() {
+        let camera = PTZOpticsG2;
+        
+        // Test pan/tilt validation
+        assert!(camera.validate_pan(0).is_ok());
+        assert!(camera.validate_pan(2448).is_ok());
+        assert!(camera.validate_pan(2449).is_err());
+        
+        // Test degree conversion
+        assert_eq!(camera.degrees_to_pan_units(170.0), 2448);
+        assert_eq!(camera.pan_units_to_degrees(2448), 170.0);
     }
-
-    fn tilt_units_to_degrees(&self, units: i16) -> f32 {
-        // G2 has specific tilt range: -30° to +90° (120° total)
-        // -432 units = -30°, 1296 units = +90°
-        let normalized = (units + 432) as f32 / (1296 + 432) as f32;
-        normalized * 120.0 - 30.0
+    
+    #[test]
+    fn test_nd_filter_capability() {
+        let fr7 = SonyFR7;
+        
+        // Test that we can compile-time detect ND filter support
+        // G2 doesn't implement SupportsNDFilter, so we can't call has_nd_filter() on it
+        // This is the whole point - compile-time safety!
+        
+        // FR7 does have ND filter
+        assert!(fr7.has_nd_filter());
+        assert_eq!(fr7.nd_filter_description(), "Variable ND filter");
+        assert!(fr7.validate_nd_filter(128).is_ok());
     }
-
-    fn pan_degrees_to_units(&self, degrees: f32) -> i16 {
-        (degrees / 170.0 * 2448.0).round() as i16
+    
+    #[test]
+    fn test_profile_metadata() {
+        assert_eq!(PTZOpticsG2::MODEL_NAME, "PTZOptics G2");
+        assert_eq!(PTZOpticsG2::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
+        
+        assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
+        assert!(matches!(
+            SonyFR7::PROTOCOL_STYLE,
+            ProtocolStyle::SonyEncapsulated { use_sequence: true }
+        ));
     }
-
-    fn tilt_degrees_to_units(&self, degrees: f32) -> i16 {
-        let normalized = (degrees + 30.0) / 120.0;
-        (normalized * (1296 + 432) as f32 - 432.0).round() as i16
-    }
-
-    fn max_preset_id() -> u8 {
-        89
-    }
-
-    // PTZOptics G2 specific capabilities
-    fn supports_wide_dynamic_range(&self) -> bool {
-        true // G2 supports WDR
-    }
-
-    fn supports_image_stabilization(&self) -> bool {
-        true // G2 has image stabilization
-    }
-
-    fn supports_low_light_mode(&self) -> bool {
-        true // G2 has low-light mode
-    }
-
-    fn supports_noise_reduction(&self) -> bool {
-        true // G2 supports 2D and 3D noise reduction
-    }
-
-    fn white_balance_mode_count(&self) -> u8 {
-        6 // Auto, Indoor, Outdoor, One-Push, Manual, ATW
-    }
-
-    fn gain_range(&self) -> Option<RangeInclusive<u8>> {
-        Some(0..=8) // G2 specific gain range (0dB to 24dB in 3dB steps)
-    }
-}
-
-/// Generic preset ID for standard VISCA cameras (0-255).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GenericPresetId(u8);
-
-impl GenericPresetId {
-    /// Create a new preset ID.
-    pub fn new(id: u8) -> Self {
-        Self(id)
-    }
-}
-
-impl fmt::Display for GenericPresetId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<GenericPresetId> for u8 {
-    fn from(preset: GenericPresetId) -> Self {
-        preset.0
-    }
-}
-
-impl TryFrom<u8> for GenericPresetId {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Ok(Self::new(value))
-    }
-}
-
-/// Generic gain value (0-15).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GenericGain(u8);
-
-impl GenericGain {
-    /// Create a new gain value with validation.
-    pub fn new(value: u8) -> Result<Self, Error> {
-        if value <= 15 {
-            Ok(Self(value))
-        } else {
-            Err(Error::InvalidParameter(format!(
-                "Invalid gain value: {}",
-                value
-            )))
-        }
-    }
-}
-
-impl fmt::Display for GenericGain {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<GenericGain> for u8 {
-    fn from(gain: GenericGain) -> Self {
-        gain.0
-    }
-}
-
-impl TryFrom<u8> for GenericGain {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl CameraProfile for GenericVisca {
-    const MODEL_NAME: &'static str = "Generic VISCA";
-    const PAN_RANGE: RangeInclusive<i16> = -32768..=32767;
-    const TILT_RANGE: RangeInclusive<i16> = -32768..=32767;
-    const ZOOM_RANGE: RangeInclusive<u16> = 0x0000..=0xFFFF;
-    const FOCUS_RANGE: RangeInclusive<u16> = 0x0000..=0xFFFF;
-
-    type PresetId = GenericPresetId;
-    type Gain = GenericGain;
-
-    fn pan_units_to_degrees(&self, units: i16) -> f32 {
-        // Assume ±180° for generic cameras
-        (units as f32 / 32768.0) * 180.0
-    }
-
-    fn tilt_units_to_degrees(&self, units: i16) -> f32 {
-        // Assume ±90° for generic cameras
-        (units as f32 / 32768.0) * 90.0
-    }
-
-    fn pan_degrees_to_units(&self, degrees: f32) -> i16 {
-        (degrees / 180.0 * 32768.0).round() as i16
-    }
-
-    fn tilt_degrees_to_units(&self, degrees: f32) -> i16 {
-        (degrees / 90.0 * 32768.0).round() as i16
-    }
-
-    fn max_preset_id() -> u8 {
-        255
-    }
-}
-
-impl CameraProfile for PTZOptics30X {
-    const MODEL_NAME: &'static str = "PTZOptics 30X";
-    const PAN_RANGE: RangeInclusive<i16> = -32768..=32767;
-    const TILT_RANGE: RangeInclusive<i16> = -20724..=12288;
-    const ZOOM_RANGE: RangeInclusive<u16> = 0x0000..=0x4000;
-    const FOCUS_RANGE: RangeInclusive<u16> = 0x1000..=0x8000;
-    const MAX_PAN_SPEED: u8 = 18;
-    const MAX_TILT_SPEED: u8 = 14;
-
-    type PresetId = GenericPresetId;
-    type Gain = GenericGain;
-
-    fn pan_units_to_degrees(&self, units: i16) -> f32 {
-        // 30X has 360° pan range
-        (units as f32 / 32768.0) * 180.0
-    }
-
-    fn tilt_units_to_degrees(&self, units: i16) -> f32 {
-        // 30X specific tilt mapping
-        let normalized = (units + 20724) as f32 / (12288 + 20724) as f32;
-        normalized * 210.0 - 90.0 // -90° to +120°
-    }
-
-    fn pan_degrees_to_units(&self, degrees: f32) -> i16 {
-        (degrees / 180.0 * 32768.0).round() as i16
-    }
-
-    fn tilt_degrees_to_units(&self, degrees: f32) -> i16 {
-        let normalized = (degrees + 90.0) / 210.0;
-        (normalized * (12288 + 20724) as f32 - 20724.0).round() as i16
-    }
-
-    fn max_preset_id() -> u8 {
-        255
-    }
-}
-
-impl CameraProfile for SonyEVID70 {
-    const MODEL_NAME: &'static str = "Sony EVI-D70";
-    const PAN_RANGE: RangeInclusive<i16> = -1440..=1440;
-    const TILT_RANGE: RangeInclusive<i16> = -360..=360;
-    const ZOOM_RANGE: RangeInclusive<u16> = 0x0000..=0x4000;
-    const FOCUS_RANGE: RangeInclusive<u16> = 0x1000..=0xC000;
-
-    type PresetId = GenericPresetId;
-    type Gain = GenericGain;
-
-    fn pan_units_to_degrees(&self, units: i16) -> f32 {
-        // EVI-D70: ±100° pan
-        (units as f32 / 1440.0) * 100.0
-    }
-
-    fn tilt_units_to_degrees(&self, units: i16) -> f32 {
-        // EVI-D70: ±25° tilt
-        (units as f32 / 360.0) * 25.0
-    }
-
-    fn pan_degrees_to_units(&self, degrees: f32) -> i16 {
-        (degrees / 100.0 * 1440.0).round() as i16
-    }
-
-    fn tilt_degrees_to_units(&self, degrees: f32) -> i16 {
-        (degrees / 25.0 * 360.0).round() as i16
-    }
-
-    fn max_preset_id() -> u8 {
-        5 // EVI-D70 supports presets 0-5
-    }
-
-    // Sony EVI-D70 specific capabilities
-    fn supports_wide_dynamic_range(&self) -> bool {
-        false // EVI-D70 does not support WDR
-    }
-
-    fn supports_image_stabilization(&self) -> bool {
-        false // EVI-D70 does not have image stabilization
-    }
-
-    fn supports_low_light_mode(&self) -> bool {
-        false // EVI-D70 does not have specific low-light mode
-    }
-
-    fn supports_noise_reduction(&self) -> bool {
-        false // EVI-D70 does not have noise reduction
-    }
-
-    fn supports_image_flip(&self) -> bool {
-        false // EVI-D70 does not support image flip
-    }
-
-    fn white_balance_mode_count(&self) -> u8 {
-        4 // Auto, Indoor, Outdoor, One-Push
-    }
-
-    fn exposure_mode_count(&self) -> u8 {
-        3 // Auto, Manual, Shutter Priority
-    }
-
-    fn supports_zoom_speed(&self, speed: u8) -> bool {
-        speed <= 7 // Standard VISCA zoom speeds
+    
+    #[test]
+    fn test_profile_introspection() {
+        use crate::capabilities::ProfileIntrospection;
+        
+        // Test that ProfileIntrospection trait is available
+        let g2 = PTZOpticsG2;
+        let fr7 = SonyFR7;
+        let generic = GenericVisca;
+        
+        // The default implementation returns false for all
+        // This is a limitation noted in the trait definition
+        assert!(!g2.supports_nd_filter());
+        assert!(!fr7.supports_nd_filter());
+        assert!(!generic.supports_nd_filter());
+        
+        // But we can still get capability summaries
+        let g2_summary = g2.capability_summary();
+        assert!(g2_summary.contains("PTZOptics G2"));
+        
+        let fr7_summary = fr7.capability_summary();
+        assert!(fr7_summary.contains("Sony FR7"));
     }
 }

@@ -31,12 +31,10 @@ pub enum GainCommand {
 }
 
 impl GainCommand {
-    /// Create a direct gain command with value conversion.
-    pub fn direct<P: crate::camera::CameraProfile>(gain: P::Gain) -> Result<Self, Error> {
-        let value: u8 = gain.into();
-        let gain = Gain::new(value)?;
-        Ok(Self::SetValue(gain))
-    }
+    // Legacy method - removed in new API
+    // pub fn direct<P: crate::camera::CameraProfile>(gain: P::Gain) -> Result<Self, Error> {
+    //     ...
+    // }
 }
 
 // Manual implementation to add model validation

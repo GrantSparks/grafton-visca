@@ -153,6 +153,27 @@ pub enum ResponseType {
     DynamicRange,
 }
 
+impl Response {
+    /// Convert response to a Result, treating Completion as Ok and Error as Err.
+    pub fn into_result(self) -> Result<(), Error> {
+        match self {
+            Response::Completion => Ok(()),
+            Response::Ack => Ok(()), // ACK is also considered success
+            Response::Error(e) => Err(e),
+            Response::InquiryResponse(_) => Ok(()), // Inquiry responses are success
+            Response::Unknown(bytes) => Err(Error::InvalidResponse {
+                expected: "Known response type".to_string(),
+                actual: bytes,
+            }),
+        }
+    }
+    
+    /// Parse a response from raw bytes.
+    pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
+        parse_response(bytes, &ResponseType::Power) // Default type, will be replaced
+    }
+}
+
 /// Parse a VISCA response from raw bytes.
 ///
 /// # Errors
