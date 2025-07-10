@@ -7,7 +7,12 @@
 //! - Use profile-aware unit conversions
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{camera::Camera, profiles::PTZOpticsG2, transport::create, Error};
+use grafton_visca::{
+    camera::{Camera, methods::{InquiryMethodsExt, PanTiltInquiryMethodsExt}},
+    profiles::PTZOpticsG2,
+    transport::create,
+    Error
+};
 
 // Include the transport implementation from the example file
 
@@ -41,24 +46,14 @@ async fn main() -> Result<(), Error> {
         Err(e) => println!("Failed to get power state: {}", e),
     }
 
-    // Query position in degrees
-    println!("\n--- Position (Degrees) ---");
-    match camera.get_position().await {
-        Ok((pan, tilt)) => {
-            println!("Pan: {:.1}°", pan.0);
-            println!("Tilt: {:.1}°", tilt.0);
-        }
-        Err(e) => println!("Failed to get position: {}", e),
-    }
-
-    // Query position in VISCA units
+    // Query position in VISCA units (available for all cameras)
     println!("\n--- Position (VISCA Units) ---");
-    match camera.get_position_units().await {
+    match camera.get_position().await {
         Ok((pan, tilt)) => {
             println!("Pan: {} units", pan.0);
             println!("Tilt: {} units", tilt.0);
         }
-        Err(e) => println!("Failed to get position units: {}", e),
+        Err(e) => println!("Failed to get position: {}", e),
     }
 
     // Query zoom and focus
@@ -121,34 +116,7 @@ async fn main() -> Result<(), Error> {
         Err(e) => println!("Failed to get hue: {}", e),
     }
 
-    // Query complete camera state
-    println!("\n--- Complete Camera State ---");
-    println!("Querying all camera settings...");
-
-    match camera.get_camera_state().await {
-        Ok(state) => {
-            println!("\nCamera State Summary:");
-            println!("  Power: {}", if state.power { "ON" } else { "OFF" });
-            println!(
-                "  Position: {:.1}° pan, {:.1}° tilt",
-                state.position.pan_degrees, state.position.tilt_degrees
-            );
-            println!(
-                "  Optics: zoom=0x{:04X}, focus=0x{:04X}",
-                state.optics.zoom, state.optics.focus
-            );
-            println!("  Exposure: mode={:?}", state.exposure.mode);
-            println!("  White Balance: {:?}", state.white_balance.mode);
-            println!("  Image Quality:");
-            println!("    - Luminance: {}", state.image.luminance);
-            println!("    - Contrast: {}", state.image.contrast);
-            println!("    - Sharpness: {}", state.image.sharpness);
-            println!("    - Saturation: {}", state.image.saturation);
-            println!("    - Hue: {}", state.image.hue);
-        }
-        Err(e) => println!("Failed to get complete camera state: {}", e),
-    }
-
-    println!("\nInquiry demo completed!");
+    println!("
+Inquiry demo completed!");
     Ok(())
 }

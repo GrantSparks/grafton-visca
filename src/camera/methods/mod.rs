@@ -6,6 +6,7 @@
 pub mod exposure;
 pub mod focus;
 pub mod image_processing;
+pub mod inquiry;
 pub mod nd_filter;
 pub mod pan_tilt;
 pub mod power;
@@ -17,6 +18,7 @@ pub mod zoom;
 pub use exposure::ExposureMethodsExt;
 pub use focus::FocusMethodsExt;
 pub use image_processing::ImageProcessingMethodsExt;
+pub use inquiry::{InquiryMethodsExt, PanTiltInquiryMethodsExt};
 pub use nd_filter::NDFilterMethodsExt;
 pub use pan_tilt::PanTiltMethodsExt;
 pub use power::PowerMethodsExt;

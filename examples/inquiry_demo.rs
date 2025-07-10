@@ -1,12 +1,14 @@
 //! Example program
 
-//! Example demonstrating the high-level inquiry API for querying camera state.
+//! Example demonstrating VISCA inquiry commands.
 //!
-//! This example now uses the new `Camera<P>` API with full inquiry support!
+//! This example shows how to use the high-level inquiry methods
+//! provided by the InquiryMethodsExt trait.
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{Camera, PTZOpticsG2},
+    camera::{Camera, methods::InquiryMethodsExt},
+    profiles::PTZOpticsG2,
     transport::blocking::{create, BlockingTransport},
     Error,
 };
@@ -40,26 +42,23 @@ fn main() -> Result<(), Error> {
 
 #[cfg(not(feature = "async"))]
 fn run_inquiries<T: BlockingTransport>(camera: &mut Camera<PTZOpticsG2, T>) -> Result<(), Error> {
-    // Query individual camera settings
-    println!("\n=== Individual Camera Queries ===");
+    println!("
+=== VISCA Inquiry Command Demo ===");
+    println!("This demonstrates using the high-level inquiry methods.");
+    println!("All commands are sent and parsed automatically.
+");
 
-    // Power state
-    let power = camera.get_power_state()?;
-    println!("Power: {}", if power { "ON" } else { "OFF" });
+    // Example 1: Query power state
+    println!("1. Querying power state...");
+    let power_on = camera.get_power_state()?;
+    println!("   Power is: {}", if power_on { "ON" } else { "OFF" });
 
-    if !power {
+    if !power_on {
         println!("Camera is powered off. Some queries may not work.");
     }
 
-    // Position in degrees
-    let (pan_deg, tilt_deg) = camera.get_position()?;
-    println!(
-        "Position (degrees): pan={:.1}°, tilt={:.1}°",
-        pan_deg.0, tilt_deg.0
-    );
-
-    // Position in VISCA units
-    let (pan_units, tilt_units) = camera.get_position_units()?;
+    // Position in VISCA units (available for all cameras)
+    let (pan_units, tilt_units) = camera.get_position()?;
     println!(
         "Position (units): pan={}, tilt={}",
         pan_units.0, tilt_units.0
@@ -110,45 +109,14 @@ fn run_inquiries<T: BlockingTransport>(camera: &mut Camera<PTZOpticsG2, T>) -> R
     let (vertical_flip, horizontal_flip) = camera.get_image_flip()?;
     println!("Image Flip: Vertical={vertical_flip}, Horizontal={horizontal_flip}");
 
-    let backlight = camera.get_backlight_status()?;
+    let backlight = camera.get_backlight()?;
     println!(
         "Backlight Compensation: {}",
         if backlight { "ON" } else { "OFF" }
     );
 
-    let bw_mode = camera.get_black_white_mode()?;
+    let bw_mode = camera.get_black_white()?;
     println!("Black & White Mode: {}", if bw_mode { "ON" } else { "OFF" });
-
-    // Get complete camera state
-    println!("\n=== Complete Camera State ===");
-    println!("Querying all camera settings...");
-    let state = camera.get_camera_state()?;
-
-    println!("\nCamera State Summary:");
-    println!("  Power: {}", if state.power { "ON" } else { "OFF" });
-    println!(
-        "  Position: pan={}, tilt={} (units)",
-        state.position.pan, state.position.tilt
-    );
-    println!(
-        "  Position: pan={:.1}°, tilt={:.1}° (degrees)",
-        state.position.pan_degrees, state.position.tilt_degrees
-    );
-    println!(
-        "  Optics: zoom=0x{:04X}, focus=0x{:04X}",
-        state.optics.zoom, state.optics.focus
-    );
-    println!(
-        "  Exposure: mode={:?}, compensation={:?}",
-        state.exposure.mode, state.exposure.compensation
-    );
-    println!("  White Balance: {:?}", state.white_balance.mode);
-    println!("  Image Quality:");
-    println!("    - Luminance: {}", state.image.luminance);
-    println!("    - Contrast: {}", state.image.contrast);
-    println!("    - Sharpness: {}", state.image.sharpness);
-    println!("    - Saturation: {}", state.image.saturation);
-    println!("    - Hue: {}", state.image.hue);
 
     println!("\nInquiry demo completed successfully!");
     Ok(())
