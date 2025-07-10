@@ -8,10 +8,13 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{Camera, methods::{InquiryMethodsExt, PanTiltInquiryMethodsExt}},
+    camera::{
+        methods::{InquiryMethodsExt, PanTiltInquiryMethodsExt},
+        Camera,
+    },
     profiles::PTZOpticsG2,
     transport::create,
-    Error
+    Error,
 };
 
 // Include the transport implementation from the example file
@@ -116,7 +119,9 @@ async fn main() -> Result<(), Error> {
         Err(e) => println!("Failed to get hue: {}", e),
     }
 
-    println!("
-Inquiry demo completed!");
+    println!(
+        "
+Inquiry demo completed!"
+    );
     Ok(())
 }

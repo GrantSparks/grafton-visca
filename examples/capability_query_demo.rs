@@ -7,12 +7,12 @@ use grafton_visca::{camera::Camera, profiles::PTZOpticsG2};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::Camera,
-    profiles::{Generic as GenericVisca, PTZOpticsG2, SonyFR7},
+    profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
 };
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::Camera,
-    profiles::{Generic as GenericVisca, PTZOpticsG2, SonyFR7},
+    profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
     transport::{tokio::Udp, AsyncTransport},
 };
 
@@ -52,13 +52,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get full capability summaries
     println!("\n=== Detailed Capability Summaries ===\n");
 
-    let g2_summary = g2_camera.capability_summary();
-    println!("PTZOptics G2 Full Capabilities:");
-    print_capability_summary(&g2_summary);
+    // TODO: capability_summary() method no longer exists
+    // let g2_summary = g2_camera.capability_summary();
+    // println!("PTZOptics G2 Full Capabilities:");
+    // print_capability_summary(&g2_summary);
 
-    let sony_summary = sony_camera.capability_summary();
-    println!("\nSony EVI-D70 Full Capabilities:");
-    print_capability_summary(&sony_summary);
+    // let sony_summary = sony_camera.capability_summary();
+    // println!("
+Sony EVI-D70 Full Capabilities:");
+    // print_capability_summary(&sony_summary);
 
     // Demonstrate profile-specific capability checks
     println!("\n=== Profile-Specific Capabilities ===\n");
@@ -117,8 +119,11 @@ fn print_basic_capabilities<
     name: &str,
     camera: &Camera<P, T>,
 ) {
-    let caps = camera.capabilities();
+    // TODO: capabilities() method no longer exists
+    // let caps = camera.capabilities();
     println!("{} Basic Capabilities:", name);
+    // The following code needs updating for the new API
+    /*
     println!("  Model: {}", caps.model_name);
     println!("  Pan Range: {:?}°", caps.pan_range_degrees);
     println!("  Tilt Range: {:?}°", caps.tilt_range_degrees);
@@ -128,6 +133,7 @@ fn print_basic_capabilities<
     println!("  Digital Zoom: {}", caps.supports_digital_zoom);
     println!("  Max Pan Speed: {}", caps.max_pan_speed);
     println!("  Max Tilt Speed: {}", caps.max_tilt_speed);
+    */
     println!();
 }
 
@@ -136,8 +142,11 @@ fn print_basic_capabilities<P: grafton_visca::capabilities::ProfileMetadata, T: 
     name: &str,
     camera: &Camera<P, T>,
 ) {
-    let caps = camera.capabilities();
+    // TODO: capabilities() method no longer exists
+    // let caps = camera.capabilities();
     println!("{} Basic Capabilities:", name);
+    // The following code needs updating for the new API
+    /*
     println!("  Model: {}", caps.model_name);
     println!("  Pan Range: {:?}°", caps.pan_range_degrees);
     println!("  Tilt Range: {:?}°", caps.tilt_range_degrees);
@@ -147,10 +156,15 @@ fn print_basic_capabilities<P: grafton_visca::capabilities::ProfileMetadata, T: 
     println!("  Digital Zoom: {}", caps.supports_digital_zoom);
     println!("  Max Pan Speed: {}", caps.max_pan_speed);
     println!("  Max Tilt Speed: {}", caps.max_tilt_speed);
+    */
     println!();
 }
 
-fn print_capability_summary(summary: &grafton_visca::camera::CapabilitySummary) {
+// TODO: CapabilitySummary no longer exists in the new API
+#[allow(dead_code)]
+fn print_capability_summary(_summary: &()) {
+}
+    /*
     println!("  Movement:");
     println!("    - Continuous: {}", summary.movement.continuous);
     println!("    - Absolute: {}", summary.movement.absolute);
@@ -210,13 +224,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get full capability summaries
     println!("\n=== Detailed Capability Summaries ===\n");
 
-    let g2_summary = g2_camera.capability_summary();
-    println!("PTZOptics G2 Full Capabilities:");
-    print_capability_summary(&g2_summary);
+    // TODO: capability_summary() method no longer exists
+    // let g2_summary = g2_camera.capability_summary();
+    // println!("PTZOptics G2 Full Capabilities:");
+    // print_capability_summary(&g2_summary);
 
-    let sony_summary = sony_camera.capability_summary();
-    println!("\nSony EVI-D70 Full Capabilities:");
-    print_capability_summary(&sony_summary);
+    // let sony_summary = sony_camera.capability_summary();
+    // println!("
+Sony EVI-D70 Full Capabilities:");
+    // print_capability_summary(&sony_summary);
 
     let generic_summary = generic_camera.capability_summary();
     println!("\nGeneric VISCA Full Capabilities:");

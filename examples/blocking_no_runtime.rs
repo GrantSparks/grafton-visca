@@ -12,8 +12,12 @@ fn main() {
 use grafton_visca::units::Degrees;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{Camera, PTZOpticsG2},
+    camera::{
+        methods::{PanTiltMethodsExt, PowerMethodsExt, PresetMethodsExt, ZoomMethodsExt},
+        Camera,
+    },
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     transport::blocking::create,
     types::{PanSpeed, TiltSpeed},
 };
@@ -62,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Move to specific position using degrees
     println!("Moving to position (30°, -10°)...");
-    camera.set_position(Degrees(30.0), Degrees(-10.0))?;
+    camera.pan_tilt_absolute(Degrees(30.0), Degrees(-10.0))?;
     std::thread::sleep(Duration::from_secs(3));
 
     // Test continuous movement

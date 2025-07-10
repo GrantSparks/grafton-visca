@@ -11,7 +11,11 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, Camera, CameraProfile},
+    camera::{
+        methods::{ExposureMethodsExt, PanTiltMethodsExt, PresetMethodsExt},
+        Camera,
+    },
+    profiles::PTZOpticsG2,
     transport::blocking::create,
     types::{Gain, GainLimit},
 };
@@ -45,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::units::Degrees;
 
     // Move using degrees
-    camera.set_position(Degrees(45.0), Degrees(15.0))?;
+    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0))?;
     println!("   ✓ Moved to 45° pan, 15° tilt");
     thread::sleep(Duration::from_secs(2));
 
@@ -55,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(2));
 
     // Move using pan_tilt_degrees method
-    camera.set_position(90.0, -15.0)?;
+    camera.pan_tilt_absolute(90.0, -15.0)?;
     println!("   ✓ Moved using degrees via pan_tilt_degrees");
     thread::sleep(Duration::from_secs(2));
 
