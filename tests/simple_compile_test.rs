@@ -12,11 +12,11 @@ use grafton_visca::{
 fn test_compilation_succeeds() {
     // Mock transport type (not instantiated)
     struct MockTransport;
-    
+
     // These type declarations compile
     type G2Camera = Camera<PTZOpticsG2, MockTransport>;
     type FR7Camera = Camera<SonyFR7, MockTransport>;
-    
+
     // The test passes if this compiles
     assert!(true);
 }
@@ -26,7 +26,7 @@ fn test_compilation_succeeds() {
 fn invalid_nd_filter_usage() {
     struct MockTransport;
     let mut g2: Camera<PTZOpticsG2, MockTransport> = Camera::new(MockTransport);
-    
+
     // This line would NOT compile because PTZOpticsG2 doesn't implement SupportsNDFilter
     g2.set_nd_filter(2); // COMPILE ERROR!
 }

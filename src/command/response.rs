@@ -167,7 +167,7 @@ impl Response {
             }),
         }
     }
-    
+
     /// Parse a response from raw bytes.
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         parse_response(bytes, &ResponseType::Power) // Default type, will be replaced

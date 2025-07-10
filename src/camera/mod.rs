@@ -43,17 +43,17 @@ where
             transport: TransportAdapter::new(transport),
         }
     }
-    
+
     /// Get the camera model name.
     pub fn model_name(&self) -> &'static str {
         P::MODEL_NAME
     }
-    
+
     /// Get a reference to the transport adapter.
     pub fn transport(&self) -> &TransportAdapter<T> {
         &self.transport
     }
-    
+
     /// Get a mutable reference to the transport adapter.
     pub fn transport_mut(&mut self) -> &mut TransportAdapter<T> {
         &mut self.transport
@@ -73,13 +73,13 @@ where
     pub fn send_raw(&mut self, command: &[u8]) -> Result<Vec<u8>, Error> {
         self.transport.send_blocking(command)
     }
-    
+
     /// Send a const command (zero allocation).
     pub fn send_const(&mut self, command: &'static [u8]) -> Result<(), Error> {
         self.transport.send_const_blocking(command)?;
         Ok(())
     }
-    
+
     /// Send a stack-allocated command.
     pub fn send_array<const N: usize>(&mut self, command: [u8; N]) -> Result<(), Error> {
         self.transport.send_array_blocking(command)?;
@@ -100,13 +100,13 @@ where
     pub async fn send_raw(&self, command: &[u8]) -> Result<Vec<u8>, Error> {
         self.transport.send_async(command).await
     }
-    
+
     /// Send a const command (zero allocation).
     pub async fn send_const(&self, command: &'static [u8]) -> Result<(), Error> {
         self.transport.send_const_async(command).await?;
         Ok(())
     }
-    
+
     /// Send a stack-allocated command.
     pub async fn send_array<const N: usize>(&self, command: [u8; N]) -> Result<(), Error> {
         self.transport.send_array_async(command).await?;
@@ -118,15 +118,15 @@ where
 mod tests {
     use super::*;
     use crate::profiles::{PTZOpticsG2, SonyFR7};
-    
+
     #[test]
     fn test_camera_creation() {
         // Mock transport
         struct MockTransport;
-        
+
         let camera: Camera<PTZOpticsG2, MockTransport> = Camera::new(MockTransport);
         assert_eq!(camera.model_name(), "PTZOptics G2");
-        
+
         let camera: Camera<SonyFR7, MockTransport> = Camera::new(MockTransport);
         assert_eq!(camera.model_name(), "Sony FR7");
     }

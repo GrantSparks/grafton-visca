@@ -16,7 +16,7 @@ pub enum ValidationError {
         /// Maximum valid value.
         max: f64,
     },
-    
+
     /// Parameter has an invalid value.
     InvalidValue {
         /// Name of the parameter.
@@ -24,7 +24,7 @@ pub enum ValidationError {
         /// Description of why the value is invalid.
         message: String,
     },
-    
+
     /// Feature is not supported by this camera.
     NotSupported(&'static str),
 }
@@ -32,7 +32,12 @@ pub enum ValidationError {
 impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ValidationError::OutOfRange { parameter, value, min, max } => {
+            ValidationError::OutOfRange {
+                parameter,
+                value,
+                min,
+                max,
+            } => {
                 write!(
                     f,
                     "{} value {} is out of range [{}, {}]",
@@ -54,7 +59,7 @@ impl std::error::Error for ValidationError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_out_of_range_display() {
         let err = ValidationError::OutOfRange {
@@ -63,33 +68,27 @@ mod tests {
             min: 0.0,
             max: 100.0,
         };
-        
-        assert_eq!(
-            err.to_string(),
-            "zoom value 150 is out of range [0, 100]"
-        );
+
+        assert_eq!(err.to_string(), "zoom value 150 is out of range [0, 100]");
     }
-    
+
     #[test]
     fn test_invalid_value_display() {
         let err = ValidationError::InvalidValue {
             parameter: "shutter speed",
             message: "Must be one of the predefined values".to_string(),
         };
-        
+
         assert_eq!(
             err.to_string(),
             "Invalid shutter speed value: Must be one of the predefined values"
         );
     }
-    
+
     #[test]
     fn test_not_supported_display() {
         let err = ValidationError::NotSupported("ND filter");
-        
-        assert_eq!(
-            err.to_string(),
-            "ND filter is not supported by this camera"
-        );
+
+        assert_eq!(err.to_string(), "ND filter is not supported by this camera");
     }
 }

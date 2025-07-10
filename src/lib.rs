@@ -235,7 +235,6 @@
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
 
-
 /// Capability traits for composable camera features
 pub mod capabilities;
 

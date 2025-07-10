@@ -11,27 +11,27 @@ use crate::capabilities::ValidationError;
 pub trait SupportsExposure {
     /// Valid range for iris values in VISCA units.
     const IRIS_RANGE: Range<u16>;
-    
+
     /// Supported shutter speeds as VISCA values.
     /// Each camera model has specific supported speeds.
     const SHUTTER_SPEEDS: &'static [ShutterSpeed];
-    
+
     /// Valid range for gain values.
     const GAIN_RANGE: Range<u8>;
-    
+
     /// Whether camera supports auto exposure mode.
     const SUPPORTS_AUTO_EXPOSURE: bool;
-    
+
     /// Whether camera supports backlight compensation.
     const SUPPORTS_BACKLIGHT_COMP: bool;
-    
+
     /// Whether camera supports exposure compensation.
     const SUPPORTS_EXPOSURE_COMP: bool = false;
-    
+
     /// Range for exposure compensation if supported.
     /// Typically -7 to +7 in steps.
     const EXPOSURE_COMP_RANGE: Range<i8> = -7..8;
-    
+
     /// Whether camera supports wide dynamic range.
     const SUPPORTS_WDR: bool = false;
 }
@@ -51,7 +51,7 @@ pub trait ExposureExt: SupportsExposure {
             })
         }
     }
-    
+
     /// Validate gain value is within range.
     fn validate_gain(&self, gain: u8) -> Result<u8, ValidationError> {
         if Self::GAIN_RANGE.contains(&gain) {
@@ -65,14 +65,14 @@ pub trait ExposureExt: SupportsExposure {
             })
         }
     }
-    
+
     /// Find the closest supported shutter speed.
     fn find_shutter_speed(&self, target_value: u16) -> Option<&ShutterSpeed> {
         Self::SHUTTER_SPEEDS
             .iter()
             .min_by_key(|speed| (speed.value as i32 - target_value as i32).abs())
     }
-    
+
     /// Validate shutter speed is supported.
     fn validate_shutter_speed(&self, value: u16) -> Result<u16, ValidationError> {
         if Self::SHUTTER_SPEEDS.iter().any(|s| s.value == value) {
@@ -84,13 +84,13 @@ pub trait ExposureExt: SupportsExposure {
             })
         }
     }
-    
+
     /// Validate exposure compensation value.
     fn validate_exposure_comp(&self, value: i8) -> Result<i8, ValidationError> {
         if !Self::SUPPORTS_EXPOSURE_COMP {
             return Err(ValidationError::NotSupported("exposure compensation"));
         }
-        
+
         if Self::EXPOSURE_COMP_RANGE.contains(&value) {
             Ok(value)
         } else {
@@ -102,7 +102,7 @@ pub trait ExposureExt: SupportsExposure {
             })
         }
     }
-    
+
     /// Convert F-stop to iris VISCA units.
     fn fstop_to_iris_units(&self, fstop: f32) -> Result<u16, ValidationError> {
         // This is camera-specific and would need proper calibration
@@ -116,7 +116,7 @@ pub trait ExposureExt: SupportsExposure {
                 Self::IRIS_RANGE.start + (normalized * range as f32) as u16
             }
         };
-        
+
         self.validate_iris(iris)
     }
 }
@@ -171,7 +171,7 @@ pub enum DynamicRangeLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     const TEST_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
         ShutterSpeed::new("1/30", 0x00),
         ShutterSpeed::new("1/60", 0x01),
@@ -180,9 +180,9 @@ mod tests {
         ShutterSpeed::new("1/500", 0x04),
         ShutterSpeed::new("1/1000", 0x05),
     ];
-    
+
     struct TestCamera;
-    
+
     impl SupportsExposure for TestCamera {
         const IRIS_RANGE: Range<u16> = 0x00..0x1D;
         const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
@@ -191,23 +191,23 @@ mod tests {
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
         const SUPPORTS_EXPOSURE_COMP: bool = true;
     }
-    
+
     #[test]
     fn test_iris_validation() {
         let camera = TestCamera;
-        
+
         assert!(camera.validate_iris(0x00).is_ok());
         assert!(camera.validate_iris(0x1C).is_ok());
         assert!(camera.validate_iris(0x1D).is_err());
     }
-    
+
     #[test]
     fn test_shutter_speed_lookup() {
         let camera = TestCamera;
-        
+
         assert_eq!(camera.find_shutter_speed(0x01).unwrap().label, "1/60");
         assert_eq!(camera.find_shutter_speed(0x02).unwrap().label, "1/100");
-        
+
         // Should find closest
         assert_eq!(camera.find_shutter_speed(0x10).unwrap().label, "1/1000");
     }
