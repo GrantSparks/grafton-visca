@@ -7,18 +7,7 @@
 //! - Use profile-aware unit conversions
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{
-    camera::{
-        methods::{
-            ExposureMethods, FocusMethods, ImageProcessingMethods, PanTiltMethods, PowerMethods,
-            WhiteBalanceMethods, ZoomMethods,
-        },
-        Camera,
-    },
-    profiles::PTZOpticsG2,
-    transport::create,
-    Error,
-};
+use grafton_visca::{camera::Camera, profiles::PTZOpticsG2, transport::create, Error};
 
 // Include the transport implementation from the example file
 

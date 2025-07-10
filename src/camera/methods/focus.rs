@@ -67,7 +67,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_AUTO);
+        cmd.append(commands::FOCUS_AUTO);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -77,7 +77,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_MANUAL);
+        cmd.append(commands::FOCUS_MANUAL);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -89,7 +89,7 @@ where
         let speed = speed.min(P::MAX_FOCUS_SPEED);
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_NEAR_PREFIX)
+        cmd.append(commands::FOCUS_NEAR_PREFIX)
             .push(encode_speed(speed));
 
         let response = self.transport.send_command(&cmd.build())?;
@@ -102,7 +102,7 @@ where
         let speed = speed.min(P::MAX_FOCUS_SPEED);
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_FAR_PREFIX)
+        cmd.append(commands::FOCUS_FAR_PREFIX)
             .push(encode_speed(speed));
 
         let response = self.transport.send_command(&cmd.build())?;
@@ -113,7 +113,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_STOP);
+        cmd.append(commands::FOCUS_STOP);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -123,7 +123,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_ONE_PUSH);
+        cmd.append(commands::FOCUS_ONE_PUSH);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -141,7 +141,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_AUTO);
+        cmd.append(commands::FOCUS_AUTO);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()
@@ -151,7 +151,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_MANUAL);
+        cmd.append(commands::FOCUS_MANUAL);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()
@@ -163,7 +163,7 @@ where
         let speed = speed.min(P::MAX_FOCUS_SPEED);
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_NEAR_PREFIX)
+        cmd.append(commands::FOCUS_NEAR_PREFIX)
             .push(encode_speed(speed));
 
         let response = self.transport.send_command(&cmd.build()).await?;
@@ -176,7 +176,7 @@ where
         let speed = speed.min(P::MAX_FOCUS_SPEED);
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_FAR_PREFIX)
+        cmd.append(commands::FOCUS_FAR_PREFIX)
             .push(encode_speed(speed));
 
         let response = self.transport.send_command(&cmd.build()).await?;
@@ -187,7 +187,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_STOP);
+        cmd.append(commands::FOCUS_STOP);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()
@@ -197,7 +197,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::FOCUS_ONE_PUSH);
+        cmd.append(commands::FOCUS_ONE_PUSH);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()

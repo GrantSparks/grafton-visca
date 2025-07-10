@@ -37,8 +37,12 @@ fn test_ptzoptics_g2_capabilities() {
     assert!(camera.home().is_ok());
     assert!(camera.zoom_stop().is_ok());
     assert!(camera.focus_auto().is_ok());
-    assert!(camera.set_exposure_mode(grafton_visca::capabilities::ExposureMode::Auto).is_ok());
-    assert!(camera.set_white_balance_mode(grafton_visca::capabilities::WhiteBalanceMode::Auto).is_ok());
+    assert!(camera
+        .set_exposure_mode(grafton_visca::capabilities::ExposureMode::Auto)
+        .is_ok());
+    assert!(camera
+        .set_white_balance_mode(grafton_visca::capabilities::WhiteBalanceMode::Auto)
+        .is_ok());
     assert!(camera.flip_on().is_ok());
     assert!(camera.recall_preset(1).is_ok());
 

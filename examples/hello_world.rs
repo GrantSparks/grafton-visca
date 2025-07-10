@@ -10,7 +10,10 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{methods::{PanTiltMethods, PowerMethods}, Camera},
+    camera::{
+        methods::{PanTiltMethods, PowerMethods},
+        Camera,
+    },
     profiles::PTZOpticsG2,
     transport::blocking::create,
 };

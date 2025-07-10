@@ -3,17 +3,7 @@
 //! Example demonstrating image quality and gain control features.
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{
-    camera::Camera,
-    profiles::PTZOpticsG2,
-    transport::create,
-    types::{ContrastLevel, Gain, GainLimit, LuminanceLevel, SharpnessLevel},
-    Error,
-};
-#[cfg(feature = "tokio")]
-use std::time::Duration;
-#[cfg(feature = "tokio")]
-use tokio::time;
+use grafton_visca::Error;
 
 #[cfg(not(feature = "tokio"))]
 fn main() {
@@ -25,12 +15,12 @@ fn main() {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     eprintln!("This example uses image processing methods that are not yet implemented in the current API.");
-    eprintln!("");
+    eprintln!();
     eprintln!("Methods like set_luminance, set_contrast, set_sharpness, and set_gain would need");
     eprintln!("to be implemented in the camera methods module.");
-    eprintln!("");
+    eprintln!();
     eprintln!("This example is kept for reference but needs to be updated when these methods");
     eprintln!("are implemented.");
-    
+
     Ok(())
 }

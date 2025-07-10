@@ -11,14 +11,17 @@ use grafton_visca::{
 #[test]
 fn test_compilation_succeeds() {
     // Mock transport type (not instantiated)
+    #[allow(dead_code)]
     struct MockTransport;
 
     // These type declarations compile
+    #[allow(dead_code)]
     type G2Camera = Camera<PTZOpticsG2, MockTransport>;
+    #[allow(dead_code)]
     type FR7Camera = Camera<SonyFR7, MockTransport>;
 
-    // The test passes if this compiles
-    assert!(true);
+    // The test validates that these types compile correctly
+    // No assertion needed - the test passes if compilation succeeds
 }
 
 // This would demonstrate compile-time errors if uncommented:

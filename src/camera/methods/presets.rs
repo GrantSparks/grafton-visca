@@ -45,7 +45,7 @@ where
         }
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::PRESET_RECALL_PREFIX).push(preset);
+        cmd.append(commands::PRESET_RECALL_PREFIX).push(preset);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -65,7 +65,7 @@ where
         }
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::PRESET_SET_PREFIX).push(preset);
+        cmd.append(commands::PRESET_SET_PREFIX).push(preset);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -93,7 +93,7 @@ where
         }
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::PRESET_RECALL_PREFIX).push(preset);
+        cmd.append(commands::PRESET_RECALL_PREFIX).push(preset);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()
@@ -113,7 +113,7 @@ where
         }
 
         let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(&commands::PRESET_SET_PREFIX).push(preset);
+        cmd.append(commands::PRESET_SET_PREFIX).push(preset);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()

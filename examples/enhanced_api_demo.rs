@@ -12,13 +12,8 @@ use grafton_visca::{
         },
         Camera,
     },
-    capabilities::{ExposureMode, WhiteBalanceMode},
     profiles::PTZOpticsG2,
     transport::create,
-    types::{
-        BrightnessLevel, ContrastLevel, NoiseReduction2DLevel, SaturationLevel,
-        SharpnessLevel, ZoomPosition,
-    },
     Error,
 };
 #[cfg(feature = "tokio")]
@@ -45,59 +40,39 @@ async fn main() -> Result<(), Error> {
 
     // Demonstrate exposure control
     println!("\n--- Exposure Control ---");
-    camera.set_exposure_mode(ExposureMode::Auto).await?;
+    camera.exposure_auto().await?;
     println!("Set exposure mode to Auto");
 
-    camera.set_backlight(true).await?;
-    println!("Enabled backlight compensation");
-
-    camera.set_brightness(BrightnessLevel::new(0x08)?).await?;
-    println!("Set brightness to default level");
+    // Note: set_backlight and set_brightness are not available in the current API
+    println!("Note: Backlight compensation and brightness control not yet implemented");
 
     // Demonstrate white balance control
     println!("\n--- White Balance Control ---");
-    camera
-        .set_white_balance_mode(WhiteBalanceMode::Outdoor)
-        .await?;
-    println!("Set white balance to outdoor preset");
-    time::sleep(Duration::from_secs(1)).await;
-
-    camera
-        .set_white_balance_mode(WhiteBalanceMode::Indoor)
-        .await?;
-    println!("Set white balance to indoor preset");
-    time::sleep(Duration::from_secs(1)).await;
+    camera.white_balance_auto().await?;
+    println!("Set white balance to auto mode");
+    // Note: specific white balance modes (Outdoor, Indoor) not yet implemented
+    println!("Note: Specific white balance presets not yet implemented");
 
     // Demonstrate image settings
     println!("\n--- Image Settings ---");
-    // The new API doesn't have image presets, so we'll set individual parameters
-    camera.set_saturation(SaturationLevel::new(10)?).await?; // Higher saturation for "vivid"
-    camera.set_contrast(ContrastLevel::new(9)?).await?; // Higher contrast
-    println!("Applied vivid image settings");
-    time::sleep(Duration::from_secs(1)).await;
+    // Note: Image processing methods like set_saturation, set_contrast are not implemented
+    println!("Note: Image processing controls (saturation, contrast, noise reduction) not yet implemented");
 
-    camera
-        .set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?)
-        .await?;
-    println!("Set 2D noise reduction to level 3");
-
-    // Note: set_image_flip is not available in the current API
-    println!("Note: Image flip control not available in current API");
+    // Image flip is available
+    camera.enable_flip().await?;
+    println!("Enabled image flip");
 
     // Demonstrate zoom control
     println!("\n--- Zoom Control ---");
-    camera.set_zoom(ZoomPosition::MIN).await?; // Minimum zoom
+    camera.zoom_absolute(0.0).await?; // Minimum zoom
     println!("Set zoom to minimum (1x)");
     time::sleep(Duration::from_secs(2)).await;
 
-    // For PTZOpticsG2, zoom range is 0x0000-0x4000 for 12x zoom
-    // 5x would be approximately 0x1555
-    camera.set_zoom(ZoomPosition::try_from(0x1555)?).await?;
+    camera.zoom_absolute(0.42).await?; // Approximately 5x for 12x camera
     println!("Set zoom to approximately 5x");
     time::sleep(Duration::from_secs(2)).await;
 
-    // 25% of max zoom
-    camera.set_zoom(ZoomPosition::try_from(0x1000)?).await?;
+    camera.zoom_absolute(0.25).await?; // 25% of max zoom
     println!("Set zoom to 25% of maximum");
     time::sleep(Duration::from_secs(2)).await;
 
@@ -125,17 +100,11 @@ async fn main() -> Result<(), Error> {
 
     // Return to default settings
     println!("\n--- Returning to Defaults ---");
-    camera.set_exposure_mode(ExposureMode::Auto).await?;
-    camera
-        .set_white_balance_mode(WhiteBalanceMode::Auto)
-        .await?;
-    // Reset image settings to defaults
-    camera.set_saturation(SaturationLevel::new(7)?).await?; // Default values
-    camera.set_contrast(ContrastLevel::new(8)?).await?;
-    camera.set_sharpness(SharpnessLevel::new(8)?).await?;
-    camera.set_brightness(BrightnessLevel::new(8)?).await?;
+    camera.exposure_auto().await?;
+    camera.white_balance_auto().await?;
+    // Note: Cannot reset image settings as they're not implemented
     camera.pan_tilt_home().await?;
-    camera.set_zoom(ZoomPosition::MIN).await?; // Minimum zoom
+    camera.zoom_absolute(0.0).await?; // Minimum zoom
     println!("Returned camera to default settings");
 
     println!("\n=== Demo Complete ===");

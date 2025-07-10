@@ -10,16 +10,7 @@
 //! send_and_receive() method, making it a complete replacement for the Client API.
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{
-    camera::Camera,
-    profiles::PTZOpticsG2,
-    transport::create,
-    units::{Degrees, Raw},
-    Error,
-};
-use std::env;
-#[cfg(feature = "tokio")]
-use tokio::time::{sleep, Duration};
+use grafton_visca::Error;
 
 #[cfg(not(feature = "tokio"))]
 fn main() {
@@ -31,12 +22,12 @@ fn main() {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     eprintln!("This example uses inquiry methods that are not yet implemented in the current API.");
-    eprintln!("");
+    eprintln!();
     eprintln!("The Camera API focuses on control commands. Inquiry functionality would need");
     eprintln!("to be implemented using the command API directly with InquiryCommand types.");
-    eprintln!("");
+    eprintln!();
     eprintln!("This example is kept for reference but needs to be rewritten to use the");
     eprintln!("available API methods.");
-    
+
     Ok(())
 }

@@ -27,7 +27,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::IMAGE_FLIP_ON);
+        cmd.append(commands::IMAGE_FLIP_ON);
 
         let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
@@ -45,7 +45,7 @@ where
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&commands::IMAGE_FLIP_ON);
+        cmd.append(commands::IMAGE_FLIP_ON);
 
         let response = self.transport.send_command(&cmd.build()).await?;
         response.into_result()
