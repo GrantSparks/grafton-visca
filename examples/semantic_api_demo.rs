@@ -224,7 +224,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n7. Movement Control");
     println!("   Moving right at 50% speed...");
     camera
-        .move_continuous(
+        .pan_tilt_move(
             grafton_visca::command::pan_tilt::PanTiltDirection::Right,
             Percentage(50.0),
             Percentage(0.0),
@@ -233,7 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("   Moving diagonally at 75% speed...");
     camera
-        .move_continuous(
+        .pan_tilt_move(
             grafton_visca::command::pan_tilt::PanTiltDirection::UpRight,
             Percentage(75.0),
             Percentage(75.0),

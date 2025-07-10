@@ -77,12 +77,12 @@ fn blocking_movement_example() -> Result<(), Error> {
     let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Moving camera up...");
-    camera.move_continuous(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)?;
+    camera.pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;
 
     println!("Moving camera down...");
-    camera.move_continuous(
+    camera.pan_tilt_move(
         PanTiltDirection::Down,
         PanSpeed::new(0)?,
         TiltSpeed::new(10)?,
@@ -148,14 +148,14 @@ async fn async_movement_example() -> Result<(), Error> {
 
     println!("Moving camera up...");
     camera
-        .move_continuous(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)
+        .pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)
         .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     camera.pan_tilt_stop().await?;
 
     println!("Moving camera down...");
     camera
-        .move_continuous(
+        .pan_tilt_move(
             PanTiltDirection::Down,
             PanSpeed::new(0)?,
             TiltSpeed::new(10)?,

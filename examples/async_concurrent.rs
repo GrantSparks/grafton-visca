@@ -47,7 +47,7 @@ async fn main() -> Result<(), Error> {
 
     // Start moving the camera
     camera
-        .move_continuous(
+        .pan_tilt_move(
             PanTiltDirection::UpRight,
             PanSpeed::new(0x10)?,
             TiltSpeed::new(0x10)?,
@@ -83,7 +83,7 @@ async fn main() -> Result<(), Error> {
     let camera1 = Arc::clone(&camera);
     let move_task = tokio::spawn(async move {
         let cam = camera1.lock().await;
-        cam.move_continuous(
+        cam.pan_tilt_move(
             PanTiltDirection::Right,
             PanSpeed::new(0x08).unwrap(),
             TiltSpeed::new(0).unwrap(),
@@ -143,7 +143,7 @@ async fn main() -> Result<(), Error> {
         let camera = Arc::clone(&camera);
         tokio::spawn(async move {
             let cam = camera.lock().await;
-            cam.set_preset(1).await
+            cam.preset_set(1).await
         })
     };
 
@@ -256,7 +256,7 @@ async fn main() -> Result<(), Error> {
         let camera = Arc::clone(&camera);
         tokio::spawn(async move {
             let cam = camera.lock().await;
-            cam.move_continuous(
+            cam.pan_tilt_move(
                 PanTiltDirection::Right,
                 PanSpeed::new(0x08).unwrap(),
                 TiltSpeed::new(0).unwrap(),

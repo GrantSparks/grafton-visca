@@ -243,7 +243,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("\n   a) Handling CameraBusy during movement:");
 
     // Start a movement
-    match camera.move_continuous(
+    match camera.pan_tilt_move(
         PanTiltDirection::Right,
         PanSpeed::new(10)?,
         TiltSpeed::new(0)?,
@@ -279,7 +279,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
-        Ok(preset_id) => match camera.recall_preset(preset_id.into()) {
+        Ok(preset_id) => match camera.preset_recall(preset_id.into()) {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
                 println!("   ⚠️  Preset {} not found (expected)", id);
@@ -386,7 +386,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Start a movement
     match camera
-        .move_continuous(
+        .pan_tilt_move(
             PanTiltDirection::Right,
             PanSpeed::new(10)?,
             TiltSpeed::new(0)?,
@@ -424,7 +424,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
-        Ok(preset_id) => match camera.recall_preset(preset_id.into()).await {
+        Ok(preset_id) => match camera.preset_recall(preset_id.into()).await {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
                 println!("   ⚠️  Preset {} not found (expected)", id);

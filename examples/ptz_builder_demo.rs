@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(1));
 
     // Continuous movement
-    camera.move_continuous(
+    camera.pan_tilt_move(
         PanTiltDirection::UpRight,
         PanSpeed::new(12)?,
         TiltSpeed::new(10)?,
@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Save current position to preset using G2-specific preset ID
     let preset_id = G2PresetId::new(1)?;
-    camera.set_preset(preset_id.into())?;
+    camera.preset_set(preset_id.into())?;
     println!("   ✓ Saved current position to preset {}", preset_id);
 
     // Move to a different position
@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(2));
 
     // Recall the saved preset
-    camera.recall_preset(preset_id.into())?;
+    camera.preset_recall(preset_id.into())?;
     println!("   ✓ Recalled preset {}", preset_id);
     thread::sleep(Duration::from_secs(2));
 
@@ -159,7 +159,7 @@ fn perform_scan_sequence<T: BlockingTransport>(
     thread::sleep(Duration::from_secs(1));
 
     // Scan left
-    camera.move_continuous(
+    camera.pan_tilt_move(
         PanTiltDirection::Left,
         PanSpeed::new(8)?,
         TiltSpeed::new(0)?,
@@ -168,7 +168,7 @@ fn perform_scan_sequence<T: BlockingTransport>(
     camera.pan_tilt_stop()?;
 
     // Scan right
-    camera.move_continuous(
+    camera.pan_tilt_move(
         PanTiltDirection::Right,
         PanSpeed::new(8)?,
         TiltSpeed::new(0)?,
@@ -233,7 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sequential operations that would typically be concurrent
     // Start moving and zooming (simulating concurrent behavior)
     camera
-        .move_continuous(
+        .pan_tilt_move(
             PanTiltDirection::Right,
             PanSpeed::new(8)?,
             TiltSpeed::new(0)?,
@@ -256,20 +256,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Save positions with G2-specific preset IDs
     camera.pan_tilt_absolute(Degrees(-80.0), Degrees(0.0)).await?;
     let preset1 = G2PresetId::new(1)?;
-    camera.set_preset(preset1.into()).await?;
+    camera.preset_set(preset1.into()).await?;
 
     camera.pan_tilt_absolute(Degrees(0.0), Degrees(45.0)).await?;
     let preset2 = G2PresetId::new(2)?;
-    camera.set_preset(preset2.into()).await?;
+    camera.preset_set(preset2.into()).await?;
 
     camera.pan_tilt_absolute(Degrees(80.0), Degrees(0.0)).await?;
     let preset3 = G2PresetId::new(3)?;
-    camera.set_preset(preset3.into()).await?;
+    camera.preset_set(preset3.into()).await?;
 
     // Patrol between presets
     for _ in 0..2 {
         for preset in &[preset1, preset2, preset3] {
-            camera.recall_preset((*preset).into()).await?;
+            camera.preset_recall((*preset).into()).await?;
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }

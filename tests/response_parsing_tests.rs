@@ -1,9 +1,15 @@
 #![allow(missing_docs)]
+
+mod common;
+
 use grafton_visca::command::gain::AntiFlickerMode;
 use grafton_visca::command::response::{parse_response, Response};
 use grafton_visca::command::{AutoFocusSensitivity, FocusZone, SharpnessMode};
 use grafton_visca::command::{InquiryResponse, ResponseType};
 use grafton_visca::Error;
+use crate::common::{
+    patterns, ResponseBuilder, ProtocolValidator, ValidationMode
+};
 
 #[cfg(test)]
 mod response_parsing_tests {
@@ -11,63 +17,70 @@ mod response_parsing_tests {
 
     #[test]
     fn test_parse_ack_response() {
+        // Test ACK responses using patterns
+        let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+        
         // ACK for socket 0
-        // Note: ACK is recognized by the 0x40-0x4F pattern in byte[1], regardless of response_type
-        let ack_bytes = vec![0x90, 0x40, 0xFF];
-        let response = parse_response(&ack_bytes, &ResponseType::PanTiltPosition);
+        let ack_bytes = patterns::responses::ACK_1;
+        let response = parse_response(ack_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Ok(Response::Ack)));
+        assert!(validator.validate_response(ack_bytes).is_ok());
 
         // ACK for socket 1
-        let ack_bytes = vec![0x90, 0x41, 0xFF];
-        let response = parse_response(&ack_bytes, &ResponseType::ZoomPosition);
+        let ack_bytes = patterns::responses::ACK_2;
+        let response = parse_response(ack_bytes, &ResponseType::ZoomPosition);
         assert!(matches!(response, Ok(Response::Ack)));
+        assert!(validator.validate_response(ack_bytes).is_ok());
     }
 
     #[test]
     fn test_parse_completion_response() {
+        let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+        
         // Completion for socket 0
-        // Note: Completion is recognized by 0x50-0x5F pattern with 3 bytes total
-        let completion_bytes = vec![0x90, 0x50, 0xFF];
-        let response = parse_response(&completion_bytes, &ResponseType::PanTiltPosition);
+        let completion_bytes = patterns::responses::COMPLETE_1;
+        let response = parse_response(completion_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Ok(Response::Completion)));
+        assert!(validator.validate_response(completion_bytes).is_ok());
 
         // Completion for socket 1
-        let completion_bytes = vec![0x90, 0x51, 0xFF];
-        let response = parse_response(&completion_bytes, &ResponseType::ZoomPosition);
+        let completion_bytes = patterns::responses::COMPLETE_2;
+        let response = parse_response(completion_bytes, &ResponseType::ZoomPosition);
         assert!(matches!(response, Ok(Response::Completion)));
+        assert!(validator.validate_response(completion_bytes).is_ok());
     }
 
     #[test]
     fn test_parse_error_responses() {
-        // Errors are recognized by 0x60-0x6F pattern in byte[1]
-        // The parse_response function handles errors by calling Error::from_code
-
-        // Test Syntax Error (0x02)
-        let error_bytes = vec![0x90, 0x60, 0x02, 0xFF];
-        let response = parse_response(&error_bytes, &ResponseType::PanTiltPosition);
+        let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+        
+        // Test Syntax Error using pattern
+        let error_bytes = patterns::responses::SYNTAX_ERROR;
+        let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::SyntaxError)));
+        assert!(validator.validate_response(error_bytes).is_ok());
 
-        // Test Command Buffer Full (0x03)
-        let error_bytes = vec![0x90, 0x60, 0x03, 0xFF];
-        let response = parse_response(&error_bytes, &ResponseType::PanTiltPosition);
+        // Test Command Buffer Full using pattern
+        let error_bytes = patterns::responses::BUFFER_FULL;
+        let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::CommandBufferFull)));
+        assert!(validator.validate_response(error_bytes).is_ok());
 
-        // Test Command Not Executable (0x41) - note different byte[1] pattern
-        let error_bytes = vec![0x90, 0x61, 0x41, 0xFF];
-        let response = parse_response(&error_bytes, &ResponseType::PanTiltPosition);
+        // Test Command Not Executable using pattern
+        let error_bytes = patterns::responses::NOT_EXECUTABLE;
+        let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::CommandNotExecutable)));
+        assert!(validator.validate_response(error_bytes).is_ok());
     }
 
     #[test]
     fn test_parse_pan_tilt_position_response() {
-        // Example Pan/Tilt position response
-        // Pan: 0x1234, Tilt: 0x5678
-        let pt_response_bytes = vec![
-            0x90, 0x50, // Completion header
-            0x01, 0x02, 0x03, 0x04, // Pan position (nibbles of 0x1234)
-            0x05, 0x06, 0x07, 0x08, // Tilt position (nibbles of 0x5678)
-            0xFF,
-        ];
+        // Use ResponseBuilder for pan/tilt position
+        let pt_response_bytes = ResponseBuilder::inquiry()
+            .add_u16_nibbles(0x1234)  // Pan position
+            .add_u16_nibbles(0x5678)  // Tilt position
+            .build();
+            
         let response = parse_response(&pt_response_bytes, &ResponseType::PanTiltPosition);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt })) => {
@@ -76,16 +89,19 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected PanTiltPosition inquiry response"),
         }
+        
+        // Validate protocol compliance
+        let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+        assert!(validator.validate_response(&pt_response_bytes).is_ok());
     }
 
     #[test]
     fn test_parse_zoom_position_response() {
-        // Example Zoom position response
-        let zoom_response_bytes = vec![
-            0x90, 0x50, // Completion header
-            0x0A, 0x0B, 0x0C, 0x0D, // Zoom position (nibbles of 0xABCD)
-            0xFF,
-        ];
+        // Use ResponseBuilder for zoom position
+        let zoom_response_bytes = ResponseBuilder::inquiry()
+            .add_u16_nibbles(0xABCD)
+            .build();
+            
         let response = parse_response(&zoom_response_bytes, &ResponseType::ZoomPosition);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ZoomPosition { position })) => {
@@ -93,16 +109,19 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected ZoomPosition inquiry response"),
         }
+        
+        // Validate protocol compliance
+        let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+        assert!(validator.validate_response(&zoom_response_bytes).is_ok());
     }
 
     #[test]
     fn test_parse_focus_position_response() {
-        // Example Focus position response
-        let focus_response_bytes = vec![
-            0x90, 0x50, // Completion header
-            0x01, 0x02, 0x03, 0x04, // Focus position (nibbles of 0x1234)
-            0xFF,
-        ];
+        // Use ResponseBuilder for focus position
+        let focus_response_bytes = ResponseBuilder::inquiry()
+            .add_u16_nibbles(0x1234)
+            .build();
+            
         let response = parse_response(&focus_response_bytes, &ResponseType::FocusPosition);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::FocusPosition { position })) => {
@@ -110,12 +129,20 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected FocusPosition inquiry response"),
         }
+        
+        // Validate protocol compliance
+        let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+        assert!(validator.validate_response(&focus_response_bytes).is_ok());
     }
 
     #[test]
     fn test_parse_exposure_mode_response() {
+        let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+        
         // Auto exposure mode
-        let exposure_response_bytes = vec![0x90, 0x50, 0x00, 0xFF];
+        let exposure_response_bytes = ResponseBuilder::inquiry()
+            .add_byte(0x00)
+            .build();
         let response = parse_response(&exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) => {
@@ -123,9 +150,12 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected ExposureMode inquiry response"),
         }
+        assert!(validator.validate_response(&exposure_response_bytes).is_ok());
 
         // Manual exposure mode
-        let exposure_response_bytes = vec![0x90, 0x50, 0x03, 0xFF];
+        let exposure_response_bytes = ResponseBuilder::inquiry()
+            .add_byte(0x03)
+            .build();
         let response = parse_response(&exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) => {
@@ -133,12 +163,17 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected ExposureMode inquiry response"),
         }
+        assert!(validator.validate_response(&exposure_response_bytes).is_ok());
     }
 
     #[test]
     fn test_parse_luminance_response() {
+        let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+        
         // Test minimum luminance value (0)
-        let luminance_response_bytes = vec![0x90, 0x50, 0x00, 0xFF];
+        let luminance_response_bytes = ResponseBuilder::inquiry()
+            .add_byte(0x00)
+            .build();
         let response = parse_response(&luminance_response_bytes, &ResponseType::Luminance);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
@@ -146,9 +181,12 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
+        assert!(validator.validate_response(&luminance_response_bytes).is_ok());
 
         // Test middle luminance value (7)
-        let luminance_response_bytes = vec![0x90, 0x50, 0x07, 0xFF];
+        let luminance_response_bytes = ResponseBuilder::inquiry()
+            .add_byte(0x07)
+            .build();
         let response = parse_response(&luminance_response_bytes, &ResponseType::Luminance);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
@@ -156,9 +194,12 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
+        assert!(validator.validate_response(&luminance_response_bytes).is_ok());
 
         // Test maximum luminance value (14)
-        let luminance_response_bytes = vec![0x90, 0x50, 0x0E, 0xFF];
+        let luminance_response_bytes = ResponseBuilder::inquiry()
+            .add_byte(0x0E)
+            .build();
         let response = parse_response(&luminance_response_bytes, &ResponseType::Luminance);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
@@ -166,6 +207,7 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
+        assert!(validator.validate_response(&luminance_response_bytes).is_ok());
     }
 
     #[test]

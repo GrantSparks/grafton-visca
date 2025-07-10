@@ -86,7 +86,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     println!("   These commands may take longer to acknowledge\n");
 
     let start = Instant::now();
-    match camera.move_continuous(
+    match camera.pan_tilt_move(
         PanTiltDirection::Left,
         PanSpeed::new(15)?,
         TiltSpeed::new(0)?,
@@ -119,7 +119,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     // Save preset
     let start = Instant::now();
-    match camera.set_preset(preset_id.into()) {
+    match camera.preset_set(preset_id.into()) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Save preset completed in {:?}", elapsed);
@@ -133,7 +133,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     // Recall preset
     let start = Instant::now();
-    match camera.recall_preset(preset_id.into()) {
+    match camera.preset_recall(preset_id.into()) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Recall preset completed in {:?}", elapsed);

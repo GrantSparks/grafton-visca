@@ -4,8 +4,7 @@
 //! which avoids the complexity of the full runtime abstraction layer.
 
 use grafton_visca::{
-    camera::Camera,
-    command::preset::{PresetAction, PresetCommand},
+    camera::{methods::PresetMethodsExt, Camera},
     profiles::PTZOpticsG2,
     transport::create,
     Error,
@@ -23,11 +22,7 @@ async fn main() -> Result<(), Error> {
 
     // Use the camera normally
     println!("Recalling preset 1...");
-    let preset_cmd = PresetCommand {
-        action: PresetAction::Recall,
-        preset_number: grafton_visca::command::preset::PresetNumber::new(1)?,
-    };
-    camera.send_command(&preset_cmd).await?;
+    camera.preset_recall(1).await?;
 
     println!("Done!");
     Ok(())

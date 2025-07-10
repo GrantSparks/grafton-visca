@@ -88,7 +88,7 @@ async fn demo_pan_tilt_movement<T: grafton_visca::transport::AsyncTransport>(
 
     println!("Moving camera up-right...");
     camera
-        .move_continuous(
+        .pan_tilt_move(
             PanTiltDirection::UpRight,
             PanSpeed::new(16)?,
             TiltSpeed::new(16)?,

@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test continuous movement
     println!("Testing continuous movement...");
-    camera.move_continuous(
+    camera.pan_tilt_move(
         PanTiltDirection::Left,
         PanSpeed::new(10)?,
         TiltSpeed::new(0)?,
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test preset operations
     println!("Saving position to preset 1...");
-    camera.set_preset(1)?;
+    camera.preset_set(1)?;
 
     // Move away
     println!("Moving to home...");
@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Recall preset
     println!("Recalling preset 1...");
-    camera.recall_preset(1)?;
+    camera.preset_recall(1)?;
     std::thread::sleep(Duration::from_secs(3));
 
     println!("\nAll operations completed successfully!");
