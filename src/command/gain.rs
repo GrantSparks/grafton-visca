@@ -48,7 +48,7 @@ impl Command for GainCommand {
                 let val = value.value();
                 let high = (val >> 4) & 0x0F;
                 let low = val & 0x0F;
-                vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, high, low, 0xFF]
+                vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0x00, high, low, 0xFF]
             }
         })
     }

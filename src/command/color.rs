@@ -241,7 +241,7 @@ impl Command for ColorTemperatureCommand {
                 let value = temp.value();
                 let high = ((value >> 4) & 0x0F) as u8;
                 let low = (value & 0x0F) as u8;
-                vec![0x81, 0x01, 0x04, 0x20, 0x00, 0x00, high, low, 0xFF]
+                vec![0x81, 0x01, 0x04, 0x20, high, low, 0xFF]
             }
         })
     }

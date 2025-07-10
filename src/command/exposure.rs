@@ -161,7 +161,10 @@ impl Command for ExposureCompensationCommand {
             Self::Down => vec![0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF],
             Self::SetLevel(level) => {
                 let value = level.to_protocol_value();
-                vec![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, value, 0xFF]
+                // Split value into two nibbles (0p and 0q format)
+                let p = (value >> 4) & 0x0F;
+                let q = value & 0x0F;
+                vec![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, p, q, 0xFF]
             }
         })
     }
@@ -406,7 +409,7 @@ impl Command for BrightCommand {
                 let value = level.value();
                 let high = ((value >> 4) & 0x0F) as u8;
                 let low = (value & 0x0F) as u8;
-                vec![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, high, low, 0xFF]
+                vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, high, low, 0xFF]
             }
         })
     }

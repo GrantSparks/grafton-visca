@@ -23,6 +23,7 @@ pub mod power;
 pub mod preset;
 pub mod response;
 pub mod system;
+pub mod tally;
 pub mod white_balance;
 pub mod zoom;
 
@@ -47,6 +48,7 @@ pub use self::{
     preset::*,
     response::{parse_response, Response, ResponseType},
     system::*,
+    tally::*,
     white_balance::*,
     zoom::*,
 };
@@ -293,5 +295,26 @@ pub enum InquiryResponse {
     DynamicRange {
         /// Dynamic range level (0x0=0 to 0x8=8).
         level: u8,
+    },
+    /// Camera version information inquiry response.
+    Version {
+        /// Vendor ID.
+        vendor: u16,
+        /// Model ID.
+        model: u16,
+        /// ROM version.
+        rom_version: u32,
+        /// Maximum socket number.
+        max_socket: u8,
+    },
+    /// Red tally light state inquiry response.
+    TallyRed {
+        /// Whether the red tally light is on.
+        on: bool,
+    },
+    /// Green tally light state inquiry response.
+    TallyGreen {
+        /// Whether the green tally light is on.
+        on: bool,
     },
 }

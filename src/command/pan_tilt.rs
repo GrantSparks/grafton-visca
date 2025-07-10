@@ -666,30 +666,20 @@ pub enum PanTiltLimitCommand {
 impl Command for PanTiltLimitCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
-            Self::Set { corner: _, pan: _, tilt: _ } => {
+            Self::Set {
+                corner: _,
+                pan: _,
+                tilt: _,
+            } => {
                 // According to VISCA protocol, Set command sets limit at current position
                 // Format: 81 01 06 07 00 FF (6 bytes)
                 // Note: pan and tilt parameters are ignored as the limit is set at current position
-                Ok(vec![
-                    0x81,
-                    0x01,
-                    0x06,
-                    0x07,
-                    0x00,
-                    0xFF,
-                ])
+                Ok(vec![0x81, 0x01, 0x06, 0x07, 0x00, 0xFF])
             }
             Self::Clear { corner: _ } => {
                 // According to VISCA protocol, Clear command
                 // Format: 81 01 06 07 01 FF (6 bytes)
-                Ok(vec![
-                    0x81,
-                    0x01,
-                    0x06,
-                    0x07,
-                    0x01,
-                    0xFF,
-                ])
+                Ok(vec![0x81, 0x01, 0x06, 0x07, 0x01, 0xFF])
             }
         }
     }

@@ -151,6 +151,12 @@ pub enum ResponseType {
     FocusNearLimit,
     /// Dynamic range control level inquiry response (0-8).
     DynamicRange,
+    /// Camera version information inquiry response.
+    Version,
+    /// Red tally light state inquiry response.
+    TallyRed,
+    /// Green tally light state inquiry response.
+    TallyGreen,
 }
 
 impl Response {
@@ -285,6 +291,9 @@ fn parse_inquiry_response(response: &[u8], response_type: ResponseType) -> Resul
             response,
             ValueType::Extended(ExtendedValueType::DynamicRange),
         ),
+        ResponseType::Version => parse_version_response(response),
+        ResponseType::TallyRed => parse_tally_response(response, true),
+        ResponseType::TallyGreen => parse_tally_response(response, false),
         _ => Ok(Response::Completion),
     }
 }
@@ -583,6 +592,49 @@ enum PositionType {
     Zoom,
     Focus,
     FocusNearLimit,
+}
+
+fn parse_version_response(response: &[u8]) -> Result<Response, Error> {
+    if response.len() != 14 {
+        return Err(Error::InvalidResponseLength);
+    }
+
+    // Extract vendor ID (bytes 2-3)
+    let vendor = u16::from(response[2]) << 8 | u16::from(response[3]);
+
+    // Extract model ID (bytes 4-5)
+    let model = u16::from(response[4]) << 8 | u16::from(response[5]);
+
+    // Extract ROM version (bytes 6-9)
+    let rom_version = u32::from(response[6]) << 24
+        | u32::from(response[7]) << 16
+        | u32::from(response[8]) << 8
+        | u32::from(response[9]);
+
+    // Extract max socket number (byte 10)
+    let max_socket = response[10];
+
+    Ok(Response::InquiryResponse(InquiryResponse::Version {
+        vendor,
+        model,
+        rom_version,
+        max_socket,
+    }))
+}
+
+#[allow(clippy::missing_const_for_fn)] // Error contains String fields
+fn parse_tally_response(response: &[u8], is_red: bool) -> Result<Response, Error> {
+    if response.len() != 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+
+    let on = response[2] == 0x02;
+
+    Ok(Response::InquiryResponse(if is_red {
+        InquiryResponse::TallyRed { on }
+    } else {
+        InquiryResponse::TallyGreen { on }
+    }))
 }
 
 #[derive(Debug, Clone, Copy)]
