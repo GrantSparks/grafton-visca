@@ -1,52 +1,41 @@
 //! Transport layer for VISCA communication.
 //!
-//! This module provides both blocking and async transport implementations with a
-//! unified `Transport` that handles all VISCA protocol details.
+//! This module provides both blocking and async transport implementations using
+//! a unified `Transport` trait with Generic Associated Types (GATs).
 //!
 //! ## Architecture
 //!
-//! The transport layer is designed with clear separation of concerns:
-//! - **Transport traits** (`blocking::BlockingTransport`, `AsyncTransport`) - Define I/O interfaces
-//! - **ViscaProtocol** - Handles VISCA protocol logic (socket management, response correlation)
-//! - **Implementations** - TCP, UDP, and custom transports
+//! The transport layer uses GATs to provide a single trait that works for both
+//! blocking and async implementations:
+//! - **Transport trait** - Unified interface using GAT futures
+//! - **ViscaProtocol** - Handles VISCA protocol logic (ACK/completion responses)
+//! - **Implementations** - TCP and UDP for both blocking and async
 //!
-//! ## Blocking Transport
+//! ## Usage
 //!
-//! For applications without async requirements:
+//! For blocking transports:
 //! ```rust,no_run
-//! use grafton_visca::transport::blocking::create;
+//! use grafton_visca::transport::blocking::TcpGat;
 //!
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let transport = create::tcp("192.168.1.100:5678")?;
-//! // transport is ready to use with Camera
+//! let transport = TcpGat::connect("192.168.1.100:5678")?;
+//! // transport is ready to use with CameraBlocking
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! ## Async Transport
-//!
-//! The async support is runtime-agnostic. The library provides tokio implementations,
-//! but you can implement `AsyncTransport` for any runtime:
-//!
+//! For async transports (with tokio):
 //! ```rust,no_run
 //! # #[cfg(feature = "tokio")]
-//! use grafton_visca::transport::create;
+//! use grafton_visca::transport::tokio::tcp_gat::TcpGat;
 //!
 //! # #[cfg(feature = "tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let transport = create::tcp("192.168.1.100:5678").await?;
-//! // transport is ready to use with async Camera methods
+//! let transport = TcpGat::connect("192.168.1.100:5678").await?;
+//! // transport is ready to use with CameraAsync
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! ## Custom Transports
-//!
-//! Implement the appropriate trait for your transport type:
-//! - `blocking::BlockingTransport` for blocking I/O
-//! - `AsyncTransport` for async I/O
-//!
-//! The `ViscaProtocol` wrapper handles all protocol details automatically.
 
 // New GAT-based transport trait
 pub mod gat_transport;
@@ -55,59 +44,14 @@ pub use gat_transport::{Transport, TransportExt};
 // Blocking transport module (always available)
 pub mod blocking;
 
-// Re-export blocking types for easier access
-pub use blocking::{BlockingTransport, Tcp as BlockingTcp, Udp as BlockingUdp};
+// Re-export GAT transport implementations
+pub use blocking::{TcpGat as BlockingTcp, UdpGat as BlockingUdp};
 
-// Unified VISCA transport implementation
-mod visca_transport;
-
-// New GAT-based VISCA protocol
+// GAT-based VISCA protocol
 pub mod visca_protocol_gat;
+pub use visca_protocol_gat::ViscaProtocol;
 
-// Internal modules
-mod internal {
-    // Synchronization primitives
-    #[cfg(feature = "async")]
-    pub(super) mod sync_primitives;
-}
-
-// Async transport modules (optional)
-#[cfg(feature = "async")]
-mod runtime_agnostic;
-
-// Simplified async transport trait
-#[cfg(feature = "async")]
-mod async_transport;
-
-// Clean tokio implementations
+// Tokio implementations
 #[cfg(all(feature = "async", feature = "tokio"))]
 pub mod tokio;
 
-// Export the new simplified async transport trait
-#[cfg(feature = "async")]
-pub use async_transport::AsyncTransport;
-
-// Export the unified Transport
-pub use visca_transport::ViscaProtocol;
-
-/// Convenience functions for creating async transports.
-#[cfg(all(feature = "async", feature = "tokio"))]
-pub mod create {
-    use super::tokio::{Tcp, Udp};
-    use crate::Error;
-
-    /// Create an async TCP transport connected to the given address.
-    pub async fn tcp(address: &str) -> Result<Tcp, Error> {
-        Tcp::connect(address).await
-    }
-
-    /// Create an async TCP transport with custom timeout.
-    pub async fn tcp_timeout(address: &str, timeout: std::time::Duration) -> Result<Tcp, Error> {
-        Tcp::connect_timeout(address, timeout).await
-    }
-
-    /// Create an async UDP transport connected to the given address.
-    pub async fn udp(address: &str) -> Result<Udp, Error> {
-        Udp::connect(address).await
-    }
-}
