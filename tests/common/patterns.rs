@@ -192,6 +192,81 @@ pub mod system {
     pub const CANCEL_2: &[u8] = &[0x81, 0x22, 0xFF];
 }
 
+/// Inquiry command patterns - all inquiry commands in one place
+pub mod inquiry {
+    /// Power state inquiry
+    pub const POWER: &[u8] = &[0x81, 0x09, 0x04, 0x00, 0xFF];
+    
+    /// Zoom position inquiry
+    pub const ZOOM_POSITION: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xFF];
+    
+    /// Pan/tilt position inquiry
+    pub const PAN_TILT_POSITION: &[u8] = &[0x81, 0x09, 0x06, 0x12, 0xFF];
+    
+    /// Focus position inquiry
+    pub const FOCUS_POSITION: &[u8] = &[0x81, 0x09, 0x04, 0x48, 0xFF];
+    
+    /// Focus near limit inquiry
+    pub const FOCUS_NEAR_LIMIT: &[u8] = &[0x81, 0x09, 0x04, 0x28, 0xFF];
+    
+    /// Exposure mode inquiry
+    pub const EXPOSURE_MODE: &[u8] = &[0x81, 0x09, 0x04, 0x39, 0xFF];
+    
+    /// White balance mode inquiry
+    pub const WHITE_BALANCE_MODE: &[u8] = &[0x81, 0x09, 0x04, 0x35, 0xFF];
+    
+    /// Anti-flicker mode inquiry
+    pub const ANTI_FLICKER: &[u8] = &[0x81, 0x09, 0x04, 0x5D, 0xFF];
+    
+    /// Focus zone inquiry
+    pub const FOCUS_ZONE: &[u8] = &[0x81, 0x09, 0x04, 0xAA, 0xFF];
+    
+    /// Auto focus sensitivity inquiry
+    pub const AUTO_FOCUS_SENSITIVITY: &[u8] = &[0x81, 0x09, 0x04, 0x58, 0xFF];
+    
+    /// Sharpness mode inquiry
+    pub const SHARPNESS_MODE: &[u8] = &[0x81, 0x09, 0x04, 0x42, 0xFF];
+    
+    /// Sharpness value inquiry
+    pub const SHARPNESS: &[u8] = &[0x81, 0x09, 0x04, 0x42, 0xFF];
+    
+    /// Gain limit inquiry
+    pub const GAIN_LIMIT: &[u8] = &[0x81, 0x09, 0x04, 0x2C, 0xFF];
+    
+    /// Red gain inquiry
+    pub const RED_GAIN: &[u8] = &[0x81, 0x09, 0x04, 0x43, 0xFF];
+    
+    /// Blue gain inquiry
+    pub const BLUE_GAIN: &[u8] = &[0x81, 0x09, 0x04, 0x44, 0xFF];
+    
+    /// Exposure compensation mode inquiry
+    pub const EXPOSURE_COMPENSATION_MODE: &[u8] = &[0x81, 0x09, 0x04, 0x3E, 0xFF];
+    
+    /// Exposure compensation value inquiry
+    pub const EXPOSURE_COMPENSATION: &[u8] = &[0x81, 0x09, 0x04, 0x4E, 0xFF];
+    
+    /// Black/white mode inquiry
+    pub const BLACK_WHITE: &[u8] = &[0x81, 0x09, 0x04, 0x3F, 0xFF];
+    
+    /// Image flip inquiry
+    pub const IMAGE_FLIP: &[u8] = &[0x81, 0x09, 0x04, 0x61, 0xFF];
+    
+    /// Backlight compensation inquiry
+    pub const BACKLIGHT: &[u8] = &[0x81, 0x09, 0x04, 0x33, 0xFF];
+    
+    /// Luminance inquiry
+    pub const LUMINANCE: &[u8] = &[0x81, 0x09, 0x04, 0x4D, 0xFF];
+    
+    /// Contrast inquiry
+    pub const CONTRAST: &[u8] = &[0x81, 0x09, 0x04, 0x4C, 0xFF];
+    
+    /// Shutter speed inquiry
+    pub const SHUTTER: &[u8] = &[0x81, 0x09, 0x04, 0x4A, 0xFF];
+    
+    /// Iris position inquiry
+    pub const IRIS: &[u8] = &[0x81, 0x09, 0x04, 0x4B, 0xFF];
+}
+
 /// Helper function to create power on response
 pub fn power_on_response() -> Vec<u8> {
     vec![0x90, 0x50, 0x02, 0xFF]

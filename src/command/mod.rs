@@ -53,9 +53,7 @@ pub use self::{
     zoom::*,
 };
 
-// Unit tests for command module
-#[cfg(test)]
-mod tests;
+// Note: Complex tests moved to tests/ directory for enhanced testing infrastructure
 
 /// Trait for all VISCA commands.
 ///

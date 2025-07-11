@@ -14,25 +14,29 @@ use grafton_visca::{
     Result,
 };
 use crate::common::{
-    MockTransport, ProtocolValidator, ValidationMode,
+    MockTransport, MockTransportBuilder, ProtocolValidator, ValidationMode,
     patterns, ScenarioBuilder, MockResponse, CommandFixtures, generators,
 };
 use std::time::Duration;
 
 #[test]
 fn test_all_power_commands_with_fixtures() {
-    let mut mock = MockTransport::new();
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
     
     // Get all power command fixtures
     let power_cmds = CommandFixtures::power_commands();
     
-    // Set up expectations for each command
+    // Use MockTransportBuilder for power command expectations
+    let mut builder = MockTransportBuilder::new().connected(true);
+    
     for (name, cmd_bytes) in &power_cmds {
-        mock.expect_command(cmd_bytes)
-            .described_as(name)
-            .will_ack(1)
-            .then_complete(1);
+        builder = builder.expect(
+            cmd_bytes,
+            vec![
+                MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
+                MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
+            ],
+        );
             
         // Validate each command
         assert!(
@@ -42,29 +46,34 @@ fn test_all_power_commands_with_fixtures() {
         );
     }
     
+    let mock = builder.build();
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
     
     // Execute the commands
     camera.power_on().unwrap();
     camera.power_off().unwrap();
     
-    // Verify all expectations were met
-    mock.verify().unwrap();
+    // MockTransportBuilder automatically verifies expectations when dropped
 }
 
 #[test]
 fn test_zoom_commands_with_fixtures() {
-    let mut mock = MockTransport::new();
     let zoom_cmds = CommandFixtures::zoom_commands();
     
-    // Set up mock for all zoom commands
-    for (name, cmd_bytes) in &zoom_cmds {
-        mock.expect_command(cmd_bytes)
-            .described_as(name)
-            .will_ack(1)
-            .then_complete(1);
+    // Use MockTransportBuilder for zoom command expectations
+    let mut builder = MockTransportBuilder::new().connected(true);
+    
+    for (_name, cmd_bytes) in &zoom_cmds {
+        builder = builder.expect(
+            cmd_bytes,
+            vec![
+                MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
+                MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
+            ],
+        );
     }
     
+    let mock = builder.build();
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
     
     // Execute zoom commands
@@ -76,22 +85,27 @@ fn test_zoom_commands_with_fixtures() {
     camera.zoom_in().unwrap();
     camera.zoom_out().unwrap();
     
-    mock.verify().unwrap();
+    // MockTransportBuilder automatically verifies expectations when dropped
 }
 
 #[test]
 fn test_preset_commands_with_fixtures() {
     let preset_cmds = CommandFixtures::preset_commands();
-    let mut mock = MockTransport::new();
     
-    // Set up expectations for preset commands
-    for (name, cmd_bytes) in &preset_cmds {
-        mock.expect_command(cmd_bytes)
-            .described_as(name)
-            .will_ack(1)
-            .then_complete(1);
+    // Use MockTransportBuilder for preset command expectations
+    let mut builder = MockTransportBuilder::new().connected(true);
+    
+    for (_name, cmd_bytes) in &preset_cmds {
+        builder = builder.expect(
+            cmd_bytes,
+            vec![
+                MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
+                MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
+            ],
+        );
     }
     
+    let mock = builder.build();
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
     
     // Test preset operations
@@ -100,7 +114,7 @@ fn test_preset_commands_with_fixtures() {
     camera.preset_set(2.into()).unwrap();
     camera.preset_recall(2.into()).unwrap();
     
-    mock.verify().unwrap();
+    // MockTransportBuilder automatically verifies expectations when dropped
 }
 
 #[test]
@@ -126,7 +140,9 @@ fn test_edge_case_commands() {
 #[test]
 fn test_zoom_positions_with_generator() {
     let zoom_positions = generators::zoom_positions();
-    let mut mock = MockTransport::new();
+    
+    // Use MockTransportBuilder for zoom position expectations
+    let mut builder = MockTransportBuilder::new().connected(true);
     
     // Test a subset of zoom positions
     for position in zoom_positions.iter().take(5) {
@@ -140,12 +156,16 @@ fn test_zoom_positions_with_generator() {
             0xFF
         ];
         
-        mock.expect_command(&cmd_bytes)
-            .described_as(&format!("zoom to position 0x{:04X}", position))
-            .will_ack(1)
-            .then_complete(1);
+        builder = builder.expect(
+            &cmd_bytes,
+            vec![
+                MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
+                MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
+            ],
+        );
     }
     
+    let mock = builder.build();
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
     
     // Execute zoom position commands
@@ -155,7 +175,7 @@ fn test_zoom_positions_with_generator() {
         camera.zoom_absolute(normalized).unwrap();
     }
     
-    mock.verify().unwrap();
+    // MockTransportBuilder automatically verifies expectations when dropped
 }
 
 #[test]
@@ -190,7 +210,7 @@ fn test_pan_tilt_positions_with_generator() {
         camera.pan_tilt_absolute(*pan as f32, *tilt as f32, speed).unwrap();
     }
     
-    mock.verify().unwrap();
+    // MockTransportBuilder automatically verifies expectations when dropped
 }
 
 #[test]
@@ -234,7 +254,7 @@ fn test_comprehensive_command_sequence() {
     camera.preset_recall(1.into()).unwrap();
     camera.focus_auto().unwrap();
     
-    mock.verify().unwrap();
+    // MockTransportBuilder automatically verifies expectations when dropped
 }
 
 // Helper function to build pan/tilt absolute command

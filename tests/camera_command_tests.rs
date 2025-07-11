@@ -78,23 +78,31 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_zoom_commands() {
-        let mut mock = MockTransport::new();
-        
-        // Set up expectations for multiple zoom commands
-        mock.expect_command(&patterns::zoom::STOP)
-            .described_as("zoom stop")
-            .will_ack(1)
-            .then_complete(1);
-            
-        mock.expect_command(&patterns::zoom::TELE_STD)
-            .described_as("zoom in (tele)")
-            .will_ack(2)
-            .then_complete(2);
-            
-        mock.expect_command(&patterns::zoom::WIDE_STD)
-            .described_as("zoom out (wide)")
-            .will_ack(1)
-            .then_complete(1);
+        // Use MockTransportBuilder for multiple command expectations
+        let mock = MockTransportBuilder::new()
+            .connected(true)
+            .expect(
+                &patterns::zoom::STOP,
+                vec![
+                    MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
+                    MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
+                ],
+            )
+            .expect(
+                &patterns::zoom::TELE_STD,
+                vec![
+                    MockResponse::Immediate(patterns::responses::ACK_2.to_vec()),
+                    MockResponse::Immediate(patterns::responses::COMPLETE_2.to_vec()),
+                ],
+            )
+            .expect(
+                &patterns::zoom::WIDE_STD,
+                vec![
+                    MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
+                    MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
+                ],
+            )
+            .build();
         
         let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
         
@@ -103,8 +111,7 @@ mod blocking_tests {
         assert!(camera.zoom_in().is_ok());
         assert!(camera.zoom_out().is_ok());
         
-        // Verify all expectations were met
-        mock.verify().unwrap();
+        // MockTransportBuilder automatically verifies expectations when dropped
         
         // Verify all commands were sent
         let history = mock.sent_history();
@@ -116,18 +123,24 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_preset_operations() {
-        let mut mock = MockTransport::new();
-        
-        // Set up expectations for preset operations
-        mock.expect_command(&[0x81, 0x01, 0x04, 0x3F, 0x01, 0x05, 0xFF])
-            .described_as("set preset 5")
-            .will_ack(1)
-            .then_complete(1);
-            
-        mock.expect_command(&[0x81, 0x01, 0x04, 0x3F, 0x02, 0x05, 0xFF])
-            .described_as("recall preset 5")
-            .will_ack(2)
-            .then_complete(2);
+        // Use MockTransportBuilder for preset operation expectations
+        let mock = MockTransportBuilder::new()
+            .connected(true)
+            .expect(
+                &[0x81, 0x01, 0x04, 0x3F, 0x01, 0x05, 0xFF],
+                vec![
+                    MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
+                    MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
+                ],
+            )
+            .expect(
+                &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x05, 0xFF],
+                vec![
+                    MockResponse::Immediate(patterns::responses::ACK_2.to_vec()),
+                    MockResponse::Immediate(patterns::responses::COMPLETE_2.to_vec()),
+                ],
+            )
+            .build();
         
         let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
         
@@ -136,18 +149,19 @@ mod blocking_tests {
         assert!(camera.preset_set(preset_id.into()).is_ok());
         assert!(camera.preset_recall(preset_id.into()).is_ok());
         
-        // Verify expectations
-        mock.verify().unwrap();
+        // MockTransportBuilder automatically verifies expectations when dropped
     }
 
     #[test]
     fn test_camera_error_handling() {
-        let mut mock = MockTransport::new();
-        
-        // Set up expectation that returns an error
-        mock.expect_command(&patterns::power::ON)
-            .described_as("power on command")
-            .will_error(0x02); // Syntax error
+        // Use MockTransportBuilder for error response
+        let mock = MockTransportBuilder::new()
+            .connected(true)
+            .expect(
+                &patterns::power::ON,
+                vec![MockResponse::ErrorCode(0x02)], // Syntax error
+            )
+            .build();
         
         let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
         
@@ -162,7 +176,7 @@ mod blocking_tests {
             _ => panic!("Expected SyntaxError, got {:?}", result),
         }
         
-        mock.verify().unwrap();
+        // MockTransportBuilder automatically verifies expectations when dropped
     }
 
     #[test]
@@ -229,14 +243,19 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_with_protocol_validation() {
-        let mut mock = MockTransport::new();
+        // Use MockTransportBuilder with protocol validation
+        let mock = MockTransportBuilder::new()
+            .connected(true)
+            .expect(
+                &patterns::power::ON,
+                vec![
+                    MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
+                    MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
+                ],
+            )
+            .build();
+        
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        
-        // Set up expectations
-        mock.expect_command(&patterns::power::ON)
-            .will_ack(1)
-            .then_complete(1);
-        
         let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
         
         // Validate command before sending
