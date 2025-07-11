@@ -223,41 +223,40 @@ for zoom in zoom_positions {
 }
 ```
 
-## Helper Macros
+## Pattern Usage
 
-The library provides convenient macros:
-
-```rust
-// Command creation
-let power_on = cmd!(0x01, 0x04, 0x00, 0x02);
-let inquiry = inq!(0x04, 0x47);
-
-// Response creation
-let ack = resp!(ack 1);
-let complete = resp!(complete 1);
-let error = resp!(error 0x03);
-let data = resp!(data 0x04, 0x00, 0x00, 0x00);
-```
-
-## Protocol Byte Patterns
-
-Pre-defined patterns for common operations:
+Use the predefined patterns for consistent testing:
 
 ```rust
 use grafton_visca::test_utils::patterns;
 
-// Commands
-patterns::power::ON
-patterns::power::STANDBY
-patterns::zoom::STOP
-patterns::pan_tilt::HOME
+// Command patterns
+let power_on = patterns::power::ON;
+let zoom_stop = patterns::zoom::STOP;
+let pan_tilt_home = patterns::pan_tilt::HOME;
 
-// Responses
-patterns::responses::ACK_1
-patterns::responses::COMPLETE_1
-patterns::responses::BUFFER_FULL
-patterns::responses::NOT_EXECUTABLE
+// Response patterns
+let ack = patterns::responses::ACK_1;
+let complete = patterns::responses::COMPLETE_1;
+let error = patterns::responses::SYNTAX_ERROR;
 ```
+
+## Available Test Patterns
+
+The testing framework provides comprehensive patterns:
+
+**Command Patterns:**
+- `patterns::power::*` - Power control commands
+- `patterns::zoom::*` - Zoom control commands  
+- `patterns::pan_tilt::*` - Pan/tilt movement commands
+- `patterns::focus::*` - Focus control commands
+- `patterns::preset::*` - Preset management commands
+- `patterns::inquiry::*` - All inquiry commands
+
+**Response Patterns:**
+- `patterns::responses::ACK_*` - Acknowledgment responses
+- `patterns::responses::COMPLETE_*` - Completion responses
+- `patterns::responses::*_ERROR` - Error responses
 
 ## Testing Best Practices
 
@@ -389,15 +388,48 @@ mock.verify().unwrap_or_else(|e| {
 });
 ```
 
-## Future Improvements
+## Implementation Status
 
-Potential enhancements to the testing framework:
+### ✅ Implemented Features
 
-1. **Property-based testing**: Integration with proptest/quickcheck
-2. **Fuzzing support**: For protocol robustness testing  
-3. **Performance benchmarks**: For timing-critical operations
-4. **Multi-camera scenarios**: For daisy-chain testing
-5. **Record/replay**: Capture real camera sessions for testing
+- **MockTransport**: Fully implemented with command expectations, response simulation, and history tracking
+- **ProtocolValidator**: Implemented with strict, relaxed, and minimal validation modes
+- **ResponseBuilder**: Fluent API for building VISCA responses with nibble encoding support
+- **ScenarioBuilder**: High-level test scenario creation with timing simulation
+- **Test Patterns**: Comprehensive command and response patterns for all major operations
+- **Command Fixtures**: Pre-defined command sets for power, zoom, focus, and preset operations
+
+### 🚧 Partially Implemented
+
+- **MockTransportBuilder**: Builder pattern implemented but not widely used in tests
+- **Data Generators**: Basic generators for zoom positions, pan/tilt coordinates, and speed values
+
+### ❌ Not Implemented
+
+The following features from the original design are not implemented due to cost/benefit analysis:
+
+1. **Helper Macros** (`cmd!`, `inq!`, `resp!`) - Would improve readability but adds complexity
+2. **Property-based testing** - Would require additional dependencies (proptest)
+3. **Fuzzing support** - Complex implementation with limited benefit for VISCA protocol
+4. **Performance benchmarks** - Would require criterion dependency
+5. **Multi-camera scenarios** - Niche use case with complex implementation
+6. **Record/replay** - Complex implementation with limited practical application
+
+## Migration from src/ to tests/
+
+The testing framework supports moving complex tests from `src/` to the `tests/` directory:
+
+- **Response parsing tests** → `tests/response_parsing_enhanced.rs`
+- **Model validation tests** → `tests/model_validation_enhanced.rs`
+- **Basic unit tests** remain in `src/` for type validation and simple byte encoding
+
+## Recommendations
+
+1. **Use MockTransport** for all integration-style tests requiring camera simulation
+2. **Use ProtocolValidator** in strict mode for critical path testing
+3. **Keep basic unit tests in src/** for fast feedback during development
+4. **Use ScenarioBuilder** for complex multi-command test sequences
+5. **Leverage existing patterns** from `tests/common/patterns.rs` for consistency
 
 ## Conclusion
 
