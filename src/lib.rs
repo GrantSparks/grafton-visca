@@ -259,8 +259,12 @@ pub mod units;
 
 pub mod timeout; // Public for use in macros
 
+// Minimal blocking executor
+pub mod blocking;
+
 // Core re-exports
-pub use camera::Camera;
+pub use camera::async_facade::CameraAsync as Camera;
+pub use camera::blocking_facade::CameraBlocking;
 pub use command::{Command, InquiryResponse, Response};
 
 // Re-export unit types for convenience

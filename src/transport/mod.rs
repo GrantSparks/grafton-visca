@@ -48,6 +48,10 @@
 //!
 //! The `ViscaProtocol` wrapper handles all protocol details automatically.
 
+// New GAT-based transport trait
+pub mod gat_transport;
+pub use gat_transport::{Transport, TransportExt};
+
 // Blocking transport module (always available)
 pub mod blocking;
 
@@ -56,6 +60,9 @@ pub use blocking::{BlockingTransport, Tcp as BlockingTcp, Udp as BlockingUdp};
 
 // Unified VISCA transport implementation
 mod visca_transport;
+
+// New GAT-based VISCA protocol
+pub mod visca_protocol_gat;
 
 // Internal modules
 mod internal {
