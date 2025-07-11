@@ -8,7 +8,7 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::methods::{InquiryAsyncExt, PanTiltInquiryAsyncExt},
+    camera::methods::InquiryAsyncExt,
     profiles::PTZOpticsG2,
     transport::tokio::Tcp,
     Camera, Error,

@@ -12,7 +12,7 @@
 use grafton_visca::{
     camera::{
         methods::{PanTiltAsyncExt, PowerAsyncExt, PresetsAsyncExt},
-        profiles::{G2PresetId, PTZOpticsG2},
+        profiles::PTZOpticsG2,
     },
     transport::{
         tokio::{Tcp, Udp},
