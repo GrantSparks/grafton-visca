@@ -41,6 +41,12 @@ pub enum Error {
     #[error("Camera is busy executing another command")]
     CameraBusy,
 
+    /// Command has been acknowledged but is still pending completion.
+    /// This is returned when an ACK is received, indicating the command
+    /// was queued but not yet executed.
+    #[error("Command acknowledged and pending completion")]
+    CommandPending,
+
     /// Camera is still performing a mechanical movement operation.
     #[error("Camera is still moving, position: pan={pan}, tilt={tilt}")]
     CameraMoving {
@@ -223,6 +229,7 @@ impl Error {
         matches!(
             self,
             Self::CameraBusy
+                | Self::CommandPending
                 | Self::CameraMoving { .. }
                 | Self::CommandTimeout { .. }
                 | Self::CommandBufferFull
@@ -235,6 +242,7 @@ impl Error {
     pub const fn suggested_retry_delay(&self) -> Option<Duration> {
         match self {
             Self::CameraBusy => Some(Duration::from_millis(100)),
+            Self::CommandPending => Some(Duration::from_millis(50)), // Short delay, waiting for completion
             Self::CameraMoving { .. } => Some(Duration::from_millis(500)),
             Self::CommandTimeout { .. } => Some(Duration::from_secs(1)),
             Self::CommandBufferFull => Some(Duration::from_millis(200)),
