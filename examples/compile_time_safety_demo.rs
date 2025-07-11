@@ -7,7 +7,6 @@
 
 use grafton_visca::{
     camera::{methods::*, Camera},
-    command::ExposureMode,
     profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
     Error,
 };
@@ -24,13 +23,20 @@ fn main() -> Result<(), Error> {
 fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     println!("=== PTZOptics G2 Demo ===");
 
+    #[derive(Debug)]
     struct MockTransport;
     impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
         fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
             Ok(())
         }
-        fn receive(&mut self) -> Result<Vec<u8>, Error> {
+        fn receive(&mut self, _timeout: std::time::Duration) -> Result<Vec<u8>, Error> {
             Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn description(&self) -> &str {
+            "MockTransport"
         }
     }
 
@@ -56,13 +62,20 @@ fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
 fn demonstrate_sony_fr7() -> Result<(), Error> {
     println!("\n=== Sony FR7 Demo ===");
 
+    #[derive(Debug)]
     struct MockTransport;
     impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
         fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
             Ok(())
         }
-        fn receive(&mut self) -> Result<Vec<u8>, Error> {
+        fn receive(&mut self, _timeout: std::time::Duration) -> Result<Vec<u8>, Error> {
             Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn description(&self) -> &str {
+            "MockTransport"
         }
     }
 
@@ -84,13 +97,20 @@ fn demonstrate_sony_fr7() -> Result<(), Error> {
 fn demonstrate_generic_camera() -> Result<(), Error> {
     println!("\n=== Generic VISCA Demo ===");
 
+    #[derive(Debug)]
     struct MockTransport;
     impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
         fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
             Ok(())
         }
-        fn receive(&mut self) -> Result<Vec<u8>, Error> {
+        fn receive(&mut self, _timeout: std::time::Duration) -> Result<Vec<u8>, Error> {
             Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn description(&self) -> &str {
+            "MockTransport"
         }
     }
 
@@ -144,7 +164,8 @@ fn center_and_focus<P, T>(camera: &mut Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::ProfileMetadata
         + grafton_visca::capabilities::PanTilt
-        + grafton_visca::capabilities::Focus,
+        + grafton_visca::capabilities::Focus
+        + Default,
     T: grafton_visca::transport::blocking::BlockingTransport,
 {
     camera.pan_tilt_home()?;
@@ -157,11 +178,12 @@ fn set_neutral_exposure<P, T>(camera: &mut Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::ProfileMetadata
         + grafton_visca::capabilities::NDFilter
-        + grafton_visca::capabilities::Exposure,
+        + grafton_visca::capabilities::Exposure
+        + Default,
     T: grafton_visca::transport::blocking::BlockingTransport,
 {
     camera.set_nd_filter(1)?;
-    camera.set_exposure_mode(ExposureMode::Auto)?;
+    camera.exposure_auto()?;
     Ok(())
 }
 
