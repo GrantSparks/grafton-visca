@@ -16,12 +16,14 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{PanTiltBlockingExt, PowerBlockingExt, PresetBlockingExt},
+    camera::{
+        methods::{PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt, FocusBlockingExt},
+        profiles::G2PresetId,
+    },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     transport::blocking::TcpGat,
     types::{PanSpeed, TiltSpeed},
-    units::Degrees,
     CameraBlocking, Error,
 };
 #[cfg(not(feature = "async"))]
@@ -89,8 +91,8 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     let start = Instant::now();
     match camera.pan_tilt_move(
         PanTiltDirection::Left,
-        PanSpeed::new(15)?,
-        TiltSpeed::new(0)?,
+        PanSpeed::try_from(15)?,
+        TiltSpeed::try_from(0)?,
     ) {
         Ok(_) => {
             let elapsed = start.elapsed();
@@ -129,7 +131,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     }
 
     // Move away
-    camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0))?;
+    camera.pan_tilt_absolute(0.0, 0.0, 5)?;
     std::thread::sleep(Duration::from_secs(1));
 
     // Recall preset

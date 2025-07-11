@@ -11,13 +11,12 @@
 
 use grafton_visca::{
     camera::{
-        methods::{PanTiltMethodsExt, PowerMethodsExt, PresetMethodsExt},
+        methods::{PanTiltAsyncExt, PowerAsyncExt, PresetsAsyncExt},
         profiles::{G2PresetId, PTZOpticsG2},
-        Camera,
     },
-    transport::tokio::{Tcp, Udp},
+    transport::{tokio::{TcpGat, UdpGat}, Transport},
     units::Degrees,
-    Error,
+    Camera, Error,
 };
 use std::time::Duration;
 use tokio::time::timeout;
@@ -44,7 +43,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera with async transport
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = Udp::connect(&camera_addr).await?;
+    let transport = UdpGat::connect(&camera_addr).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate different timeout scenarios
@@ -57,9 +56,14 @@ async fn main() -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_quick_timeout<T: grafton_visca::transport::AsyncTransport>(
+async fn demonstrate_quick_timeout<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("1. Quick Commands with Short Timeout:");
     println!("   Using 1 second timeout for status checks\n");
 
@@ -96,9 +100,14 @@ async fn demonstrate_quick_timeout<T: grafton_visca::transport::AsyncTransport>(
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_movement_timeout<T: grafton_visca::transport::AsyncTransport>(
+async fn demonstrate_movement_timeout<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("2. Movement Commands with Medium Timeout:");
     println!("   Using 5 second timeout for movement commands\n");
 
@@ -144,9 +153,14 @@ async fn demonstrate_movement_timeout<T: grafton_visca::transport::AsyncTranspor
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_preset_timeout<T: grafton_visca::transport::AsyncTransport>(
+async fn demonstrate_preset_timeout<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("3. Preset Commands with Long Timeout:");
     println!("   Using 30 second timeout for preset operations\n");
 
@@ -176,9 +190,14 @@ async fn demonstrate_preset_timeout<T: grafton_visca::transport::AsyncTransport>
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_timeout_recovery<T: grafton_visca::transport::AsyncTransport>(
+async fn demonstrate_timeout_recovery<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("4. Timeout Recovery Strategies:");
     println!("   Demonstrating retry logic with exponential backoff\n");
 
@@ -235,7 +254,7 @@ async fn demonstrate_timeout_recovery<T: grafton_visca::transport::AsyncTranspor
         // TCP transport is already available via common module
 
         // Async Tcp has a fixed 10s timeout
-        match Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(10)).await {
+        match TcpGat::connect_timeout("192.168.1.100:5678", Duration::from_secs(10)).await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");
                 let tcp_camera = Camera::<PTZOpticsG2, _>::new(transport);

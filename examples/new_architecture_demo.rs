@@ -7,21 +7,18 @@
 #[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
-        camera::{CameraAsync, CameraBlocking, BlockingExt},
+        CameraBlocking,
         profiles::PTZOpticsG2,
-        transport::blocking::tcp_gat::TcpGat,
+        transport::blocking::TcpGat,
     };
 
     // Create a blocking TCP transport
     let transport = TcpGat::connect("192.168.1.100:5678")?;
     
-    // Create camera with async interface
-    let camera = CameraAsync::<PTZOpticsG2, _>::new(transport);
+    // Create camera with blocking interface
+    let camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
     
-    // Convert to blocking interface
-    let camera = camera.blocking();
-    
-    println!("Camera model: {}", camera.profile_info());
+    println!("Camera model: PTZOptics G2");
     
     // Future camera methods would be used like:
     // camera.power_on()?;
@@ -35,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
-        camera::CameraAsync,
+        Camera,
         profiles::PTZOpticsG2,
         transport::tokio::tcp_gat::TcpGat,
     };
@@ -44,9 +41,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = TcpGat::connect("192.168.1.100:5678").await?;
     
     // Create camera with async interface
-    let camera = CameraAsync::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
     
-    println!("Camera model: {}", camera.profile_info());
+    println!("Camera model: PTZOptics G2");
     
     // Future camera methods would be used like:
     // camera.power_on().await?;

@@ -4,17 +4,12 @@
 
 use grafton_visca::{
     camera::methods::{
-        ExposureAsyncExt, ImageProcessingAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
+        ExposureAsyncExt, FocusAsyncExt, ImageProcessingAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
         WhiteBalanceAsyncExt, ZoomAsyncExt,
     },
-    command::{
-        exposure::ExposureMode, pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
-    },
+    command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     transport::tokio::TcpGat,
-    types::{PanSpeed, TiltSpeed},
-    units::Degrees,
-    units::Raw,
     Camera, Error,
 };
 use std::time::Duration;
@@ -61,10 +56,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
-async fn demo_power_control<T: grafton_visca::transport::AsyncTransport>(
+#[cfg(feature = "tokio")]
+async fn demo_power_control<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: grafton_visca::transport::Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("📍 Demo 1: Power Control");
     println!("Powering on camera...");
     camera.power_on().await?;
@@ -73,10 +73,15 @@ async fn demo_power_control<T: grafton_visca::transport::AsyncTransport>(
     Ok(())
 }
 
-#[cfg(feature = "async")]
-async fn demo_pan_tilt_movement<T: grafton_visca::transport::AsyncTransport>(
+#[cfg(feature = "tokio")]
+async fn demo_pan_tilt_movement<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: grafton_visca::transport::Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("\n📍 Demo 2: Pan/Tilt Movement");
 
     println!("Moving to home position...");
@@ -87,8 +92,8 @@ async fn demo_pan_tilt_movement<T: grafton_visca::transport::AsyncTransport>(
     camera
         .pan_tilt_move(
             PanTiltDirection::UpRight,
-            PanSpeed::new(16)?,
-            TiltSpeed::new(16)?,
+            16,
+            16,
         )
         .await?;
     sleep(Duration::from_secs(1)).await;
@@ -98,10 +103,15 @@ async fn demo_pan_tilt_movement<T: grafton_visca::transport::AsyncTransport>(
     Ok(())
 }
 
-#[cfg(feature = "async")]
-async fn demo_zoom_control<T: grafton_visca::transport::AsyncTransport>(
+#[cfg(feature = "tokio")]
+async fn demo_zoom_control<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: grafton_visca::transport::Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("\n📍 Demo 3: Zoom Control");
 
     println!("Zooming in...");
@@ -112,18 +122,23 @@ async fn demo_zoom_control<T: grafton_visca::transport::AsyncTransport>(
     camera.zoom_stop().await?;
 
     println!("Setting zoom to 50%...");
-    camera.set_zoom(Raw(0x3800u16)).await?; // Mid-range zoom
+    camera.zoom_absolute(0.5).await?; // Mid-range zoom
     sleep(Duration::from_secs(1)).await;
 
     println!("Resetting zoom...");
-    camera.set_zoom(Raw(0x0000u16)).await?;
+    camera.zoom_absolute(0.0).await?;
     Ok(())
 }
 
-#[cfg(feature = "async")]
-async fn demo_focus_control<T: grafton_visca::transport::AsyncTransport>(
+#[cfg(feature = "tokio")]
+async fn demo_focus_control<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: grafton_visca::transport::Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("\n📍 Demo 4: Focus Control");
 
     println!("Setting auto-focus mode...");
@@ -135,55 +150,65 @@ async fn demo_focus_control<T: grafton_visca::transport::AsyncTransport>(
     Ok(())
 }
 
-#[cfg(feature = "async")]
-async fn demo_exposure_settings<T: grafton_visca::transport::AsyncTransport>(
+#[cfg(feature = "tokio")]
+async fn demo_exposure_settings<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: grafton_visca::transport::Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("\n📍 Demo 5: Exposure Settings");
 
     println!("Setting exposure to auto...");
-    camera.set_exposure_mode(ExposureMode::Auto).await?;
+    camera.exposure_auto().await?;
     sleep(Duration::from_millis(500)).await;
 
-    println!("Switching to shutter priority mode...");
-    camera.set_exposure_mode(ExposureMode::Shutter).await?;
+    println!("Switching to manual mode...");
+    camera.exposure_manual().await?;
     Ok(())
 }
 
-#[cfg(feature = "async")]
-async fn demo_white_balance<T: grafton_visca::transport::AsyncTransport>(
+#[cfg(feature = "tokio")]
+async fn demo_white_balance<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: grafton_visca::transport::Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("\n📍 Demo 6: White Balance");
 
     println!("Setting white balance to auto...");
-    camera
-        .set_white_balance_mode(WhiteBalanceMode::Auto)
-        .await?;
+    camera.white_balance_auto().await?;
     sleep(Duration::from_millis(500)).await;
 
-    println!("Switching to indoor mode...");
-    camera
-        .set_white_balance_mode(WhiteBalanceMode::Indoor)
-        .await?;
+    println!("Note: Only auto white balance is available in current API");
     Ok(())
 }
 
-#[cfg(feature = "async")]
-async fn demo_position_control<T: grafton_visca::transport::AsyncTransport>(
+#[cfg(feature = "tokio")]
+async fn demo_position_control<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: grafton_visca::transport::Transport + Send + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     println!("\n📍 Demo 7: Position Control");
 
     println!("Moving to specific position (45°, 20°)...");
     camera
-        .pan_tilt_absolute(Degrees(45.0), Degrees(20.0))
+        .pan_tilt_absolute(45.0, 20.0, 18)
         .await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("Moving to position (-30°, -10°)...");
     camera
-        .pan_tilt_absolute(Degrees(-30.0), Degrees(-10.0))
+        .pan_tilt_absolute(-30.0, -10.0, 18)
         .await?;
     sleep(Duration::from_secs(2)).await;
 

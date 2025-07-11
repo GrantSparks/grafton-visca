@@ -16,7 +16,7 @@ use grafton_visca::{
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     transport::tokio::UdpGat,
-    types::{FocusPosition, PanSpeed, TiltSpeed},
+    types::FocusPosition,
     Camera, Error,
 };
 use std::env;
@@ -98,8 +98,8 @@ async fn main() -> Result<(), Error> {
     camera
         .pan_tilt_move(
             PanTiltDirection::Right,
-            PanSpeed::new(8)?,
-            TiltSpeed::new(0)?,
+            8,
+            0,
         )
         .await?;
 
@@ -109,8 +109,8 @@ async fn main() -> Result<(), Error> {
     camera
         .pan_tilt_move(
             PanTiltDirection::UpRight,
-            PanSpeed::new(8)?,
-            TiltSpeed::new(5)?,
+            8,
+            5,
         )
         .await?;
 

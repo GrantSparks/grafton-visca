@@ -4,7 +4,7 @@
 //! which avoids the complexity of the full runtime abstraction layer.
 
 use grafton_visca::{
-    camera::methods::PresetAsyncExt,
+    camera::methods::PresetsAsyncExt,
     profiles::PTZOpticsG2,
     transport::tokio::TcpGat,
     Camera, Error,

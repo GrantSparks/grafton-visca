@@ -37,8 +37,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let slow_tilt = SpeedLevel::Slow.to_tilt_speed();
     camera.pan_tilt_move(
         PanTiltDirection::UpRight,
-        PanSpeed::new(slow_pan)?.into(),
-        TiltSpeed::new(slow_tilt)?.into(),
+        PanSpeed::try_from(slow_pan)?.into(),
+        TiltSpeed::try_from(slow_tilt)?.into(),
     )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;
@@ -48,8 +48,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fast_tilt = SpeedLevel::Fast.to_tilt_speed();
     camera.pan_tilt_move(
         PanTiltDirection::DownLeft,
-        PanSpeed::new(fast_pan)?.into(),
-        TiltSpeed::new(fast_tilt)?.into(),
+        PanSpeed::try_from(fast_pan)?.into(),
+        TiltSpeed::try_from(fast_tilt)?.into(),
     )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;

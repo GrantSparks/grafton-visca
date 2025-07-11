@@ -7,12 +7,11 @@ use grafton_visca::transport::blocking::{TcpGat, UdpGat};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltBlockingExt, PowerBlockingExt, PresetBlockingExt, ZoomBlockingExt},
+        methods::{PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt, ZoomBlockingExt},
         profiles::{G2PresetId, PTZOpticsG2},
     },
     command::pan_tilt::PanTiltDirection,
-    types::{PanSpeed, TiltSpeed, ZoomPosition},
-    units::Degrees,
+    types::{PanSpeed, TiltSpeed},
     CameraBlocking, Error,
 };
 #[cfg(not(feature = "async"))]
@@ -66,15 +65,15 @@ fn main() -> Result<(), Error> {
     camera.zoom_stop()?;
 
     // Set specific zoom position (50% of max)
-    camera.set_zoom(ZoomPosition::try_from(0.5f32)?)?;
+    camera.zoom_absolute(0.5)?;
     println!("Set zoom to 50%");
 
     // Move camera continuously
     println!("Starting continuous movement...");
     camera.pan_tilt_move(
         PanTiltDirection::Right,
-        PanSpeed::new(10)?,
-        TiltSpeed::new(0)?,
+        PanSpeed::try_from(10)?,
+        TiltSpeed::try_from(0)?,
     )?;
     std::thread::sleep(Duration::from_secs(2));
     camera.pan_tilt_stop()?;
@@ -85,7 +84,7 @@ fn main() -> Result<(), Error> {
     println!("Returned to preset 1");
 
     // Reset zoom
-    camera.set_zoom(ZoomPosition::MIN)?;
+    camera.zoom_absolute(0.0)?;
     println!("Reset zoom to minimum");
 
     println!("\nDemo completed successfully!");

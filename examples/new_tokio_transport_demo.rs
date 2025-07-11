@@ -5,9 +5,12 @@
 
 use grafton_visca::{
     profiles::PTZOpticsG2,
-    transport::{create, AsyncTransport},
+    transport::{tokio::TcpGat, gat_transport::Transport},
+    camera::methods::PanTiltAsyncExt,
     Camera, Error,
 };
+use std::future::{ready, Ready};
+use bytes::Bytes;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,8 +19,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example: Using the simplified tokio transport API
     println!("=== Simplified Tokio Transport API ===");
 
-    // Connect using the create helper functions
-    let visca = create::tcp("192.168.1.100:1259").await?;
+    // Connect using the TcpGat transport
+    let visca = TcpGat::connect("192.168.1.100:1259").await?;
     println!("Connected via TCP");
 
     // Create camera using the transport
@@ -27,10 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Stopping camera movement...");
     camera.pan_tilt_stop().await?;
 
-    // Get current position
-    println!("Getting current pan/tilt position...");
-    let (pan, tilt) = camera.get_position().await?;
-    println!("Current position: pan={:?}, tilt={:?}", pan, tilt);
+    // Move to center position
+    println!("Moving to center position...");
+    camera.pan_tilt_absolute(0.0, 0.0, 10).await?;
 
     // Move camera to home position
     println!("Moving to home position...");
@@ -51,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // Example of how you could implement a custom transport using AsyncTransport
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CustomTransport {
     description: String,
 }
@@ -62,31 +64,24 @@ impl CustomTransport {
     }
 }
 
-impl AsyncTransport for CustomTransport {
-    type SendFuture<'a> =
-        std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>;
-    type ReceiveFuture<'a> =
-        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
+impl Transport for CustomTransport {
+    type Error = Error;
+    type SendFut<'a> = Ready<Result<(), Error>>;
+    type RecvFut<'a> = Ready<Result<Bytes, Error>>;
 
-    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFuture<'a> {
-        Box::pin(async move {
-            println!(
-                "{}: Custom transport sending {} bytes: {:02X?}",
-                self.description,
-                data.len(),
-                data
-            );
-            // Simulate sending
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            Ok(())
-        })
+    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
+        println!(
+            "{}: Custom transport sending {} bytes: {:02X?}",
+            self.description,
+            data.len(),
+            data
+        );
+        // Simulate sending
+        ready(Ok(()))
     }
 
-    fn receive(&self) -> Self::ReceiveFuture<'_> {
-        Box::pin(async move {
-            // Simulate receiving an ACK response
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            Ok(vec![0x90, 0x41, 0xFF]) // Simple ACK for socket 1
-        })
+    fn recv(&self) -> Self::RecvFut<'_> {
+        // Simulate receiving an ACK response
+        ready(Ok(Bytes::from_static(&[0x90, 0x41, 0xFF]))) // Simple ACK for socket 1
     }
 }

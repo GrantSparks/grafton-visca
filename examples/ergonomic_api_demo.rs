@@ -24,8 +24,8 @@ fn main() -> Result<(), Error> {
     // Create speed types from different sources
     let pan_speed_from_enum = PanSpeed::from(SpeedLevel::Fast);
     let tilt_speed_from_enum = TiltSpeed::from(SpeedLevel::Medium);
-    let pan_speed_from_raw = PanSpeed::new(15)?;
-    let tilt_speed_from_raw = TiltSpeed::new(12)?;
+    let pan_speed_from_raw = PanSpeed::try_from(15)?;
+    let tilt_speed_from_raw = TiltSpeed::try_from(12)?;
 
     println!("  • Pan speed from enum: {}", pan_speed_from_enum);
     println!("  • Tilt speed from enum: {}", tilt_speed_from_enum);
