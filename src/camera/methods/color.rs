@@ -61,7 +61,7 @@ where
 {
     fn one_push_trigger(&self) -> impl Future<Output = Result<(), Error>> {
         async move {
-            match self.send_command(&OnePushTriggerCommand).await? {
+            match self.send_command(&OnePushTriggerCommand::new()).await? {
                 Response::Ack => Ok(()),
                 Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
@@ -153,7 +153,7 @@ where
 
     fn set_red_tuning(&self, tuning: RedTuning) -> impl Future<Output = Result<(), Error>> {
         async move {
-            let cmd = RedTuningCommand { level: tuning };
+            let cmd = RedTuningCommand::new(tuning);
             match self.send_command(&cmd).await? {
                 Response::Ack => Ok(()),
                 Response::Error(e) => Err(e.into()),
@@ -164,7 +164,7 @@ where
 
     fn set_blue_tuning(&self, tuning: BlueTuning) -> impl Future<Output = Result<(), Error>> {
         async move {
-            let cmd = BlueTuningCommand { level: tuning };
+            let cmd = BlueTuningCommand::new(tuning);
             match self.send_command(&cmd).await? {
                 Response::Ack => Ok(()),
                 Response::Error(e) => Err(e.into()),

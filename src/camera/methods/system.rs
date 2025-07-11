@@ -37,7 +37,7 @@ where
 {
     fn trigger_address_assignment(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            let cmd = AddressSetCommand;
+            let cmd = AddressSetCommand::new();
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::Completion => Ok(()),
@@ -49,7 +49,7 @@ where
 
     fn interface_clear(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            let cmd = InterfaceClearCommand;
+            let cmd = InterfaceClearCommand::new();
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::Completion => Ok(()),
@@ -61,7 +61,7 @@ where
 
     fn cancel_command(&self, socket: Socket) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            let cmd = CommandCancelCommand { socket };
+            let cmd = CommandCancelCommand::new(socket);
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::Completion => Ok(()),

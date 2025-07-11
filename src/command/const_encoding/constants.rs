@@ -176,15 +176,32 @@ pub mod white_balance {
 pub mod flip {
     use super::*;
 
-    /// Image flip off.
-    pub const OFF: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x66, 0x00];
+    /// Image flip prefix.
+    pub const PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x66];
 
-    /// Flip image vertically.
-    pub const FLIP: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x66, 0x02];
+    /// Horizontal flip prefix.
+    pub const HFLIP_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x61];
 
-    /// Mirror image horizontally.
-    pub const MIRROR: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x66, 0x01];
+    /// Image freeze prefix.
+    pub const FREEZE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x62];
+}
 
-    /// Flip and mirror (180° rotation).
-    pub const FLIP_MIRROR: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x66, 0x03];
+/// Image adjustment command constants.
+pub mod image {
+    use super::*;
+
+    /// Backlight compensation prefix.
+    pub const BACKLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x33];
+
+    /// 2D noise reduction prefix.
+    pub const NOISE_REDUCTION_2D_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x53];
+
+    /// 3D noise reduction prefix.
+    pub const NOISE_REDUCTION_3D_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x54];
+
+    /// Black and white mode prefix.
+    pub const BLACK_WHITE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x01];
+
+    /// Combined image flip prefix (same as horizontal flip).
+    pub const FLIP_COMBINED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x61];
 }

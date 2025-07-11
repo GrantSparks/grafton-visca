@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{response::ResponseType, Command},
+    command::{response::ResponseType, Command, const_encoding::CommandBuilder},
     constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
@@ -88,11 +88,26 @@ impl Command for GainCommand {
 pub struct GainLimitCommand {
     /// The maximum gain level allowed in auto mode.
     pub limit: GainLimit,
+    /// Internal command bytes.
+    command: [u8; 6],
+}
+
+impl GainLimitCommand {
+    /// Create a new gain limit command.
+    pub fn new(limit: GainLimit) -> Self {
+        let mut cmd = CommandBuilder::<6>::new();
+        cmd.append(&[0x81, 0x01, 0x04, 0x2C]);
+        cmd.push(limit.value());
+        Self {
+            limit,
+            command: cmd.build(),
+        }
+    }
 }
 
 impl Command for GainLimitCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![0x81, 0x01, 0x04, 0x2C, self.limit.value(), 0xFF])
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -140,11 +155,26 @@ pub enum AntiFlickerMode {
 pub struct AntiFlickerCommand {
     /// The anti-flicker mode to apply.
     pub mode: AntiFlickerMode,
+    /// Internal command bytes.
+    command: [u8; 6],
+}
+
+impl AntiFlickerCommand {
+    /// Create a new anti-flicker command.
+    pub fn new(mode: AntiFlickerMode) -> Self {
+        let mut cmd = CommandBuilder::<6>::new();
+        cmd.append(&[0x81, 0x01, 0x04, 0x23]);
+        cmd.push(mode as u8);
+        Self {
+            mode,
+            command: cmd.build(),
+        }
+    }
 }
 
 impl Command for AntiFlickerCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![0x81, 0x01, 0x04, 0x23, self.mode as u8, 0xFF])
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -239,7 +269,7 @@ mod tests {
         for value in test_values {
             let limit =
                 GainLimit::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = GainLimitCommand { limit };
+            let cmd = GainLimitCommand::new(limit);
             assert_eq!(
                 cmd.to_bytes()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -254,7 +284,7 @@ mod tests {
         for value in GainLimit::G2_VALID_VALUES {
             let limit =
                 GainLimit::new(*value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = GainLimitCommand { limit };
+            let cmd = GainLimitCommand::new(limit);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -262,7 +292,7 @@ mod tests {
         // Check if value 0x08 is not in G2_VALID_VALUES
         if !GainLimit::G2_VALID_VALUES.contains(&0x08) {
             if let Ok(limit) = GainLimit::new(0x08) {
-                let cmd = GainLimitCommand { limit };
+                let cmd = GainLimitCommand::new(limit);
                 assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_err());
             }
         }
@@ -278,9 +308,7 @@ mod tests {
     #[test]
     fn test_anti_flicker_command() {
         // Test Off mode
-        let cmd = AntiFlickerCommand {
-            mode: AntiFlickerMode::Off,
-        };
+        let cmd = AntiFlickerCommand::new(AntiFlickerMode::Off);
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -288,9 +316,7 @@ mod tests {
         );
 
         // Test 50Hz mode
-        let cmd = AntiFlickerCommand {
-            mode: AntiFlickerMode::Hz50,
-        };
+        let cmd = AntiFlickerCommand::new(AntiFlickerMode::Hz50);
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -298,9 +324,7 @@ mod tests {
         );
 
         // Test 60Hz mode
-        let cmd = AntiFlickerCommand {
-            mode: AntiFlickerMode::Hz60,
-        };
+        let cmd = AntiFlickerCommand::new(AntiFlickerMode::Hz60);
         assert_eq!(
             cmd.to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -325,18 +349,14 @@ mod tests {
             CommandCategory::Quick
         );
         assert_eq!(
-            GainLimitCommand {
-                limit: GainLimit::new(0x03)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-            }
+            GainLimitCommand::new(
+                GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )
             .command_category(),
             CommandCategory::Quick
         );
         assert_eq!(
-            AntiFlickerCommand {
-                mode: AntiFlickerMode::Hz50
-            }
-            .command_category(),
+            AntiFlickerCommand::new(AntiFlickerMode::Hz50).command_category(),
             CommandCategory::Quick
         );
     }
@@ -352,14 +372,12 @@ mod tests {
         )
         .response_type()
         .is_none());
-        assert!(GainLimitCommand {
-            limit: GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        }
+        assert!(GainLimitCommand::new(
+            GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+        )
         .response_type()
         .is_none());
-        assert!(AntiFlickerCommand {
-            mode: AntiFlickerMode::Hz50
-        }
+        assert!(AntiFlickerCommand::new(AntiFlickerMode::Hz50)
         .response_type()
         .is_none());
     }
@@ -381,9 +399,7 @@ mod tests {
     #[test]
     fn test_anti_flicker_clone() {
         // Test Copy/Clone traits
-        let cmd1 = AntiFlickerCommand {
-            mode: AntiFlickerMode::Hz50,
-        };
+        let cmd1 = AntiFlickerCommand::new(AntiFlickerMode::Hz50);
         let cmd2 = cmd1; // Copy
         let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 

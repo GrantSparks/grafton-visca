@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{Command, ResponseType},
+    command::{Command, ResponseType, const_encoding::CommandBuilder},
     constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
@@ -111,21 +111,26 @@ impl Command for SharpnessCommand {
 pub struct LuminanceCommand {
     /// The luminance level.
     pub value: LuminanceLevel,
+    /// Internal command bytes.
+    command: [u8; 9],
+}
+
+impl LuminanceCommand {
+    /// Create a new luminance command.
+    pub fn new(value: LuminanceLevel) -> Self {
+        let mut cmd = CommandBuilder::<9>::new();
+        cmd.append(&[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00]);
+        cmd.push(value.value());
+        Self {
+            value,
+            command: cmd.build(),
+        }
+    }
 }
 
 impl Command for LuminanceCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![
-            0x81,
-            0x01,
-            0x04,
-            0xA1,
-            0x00,
-            0x00,
-            0x00,
-            self.value.value(),
-            0xFF,
-        ])
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -159,21 +164,26 @@ impl Command for LuminanceCommand {
 pub struct ContrastCommand {
     /// The contrast level.
     pub value: ContrastLevel,
+    /// Internal command bytes.
+    command: [u8; 9],
+}
+
+impl ContrastCommand {
+    /// Create a new contrast command.
+    pub fn new(value: ContrastLevel) -> Self {
+        let mut cmd = CommandBuilder::<9>::new();
+        cmd.append(&[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00]);
+        cmd.push(value.value());
+        Self {
+            value,
+            command: cmd.build(),
+        }
+    }
 }
 
 impl Command for ContrastCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![
-            0x81,
-            0x01,
-            0x04,
-            0xA2,
-            0x00,
-            0x00,
-            0x00,
-            self.value.value(),
-            0xFF,
-        ])
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -308,7 +318,7 @@ mod tests {
         for value in 0..=14 {
             let level = LuminanceLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = LuminanceCommand { value: level };
+            let cmd = LuminanceCommand::new(level);
             let bytes = cmd
                 .to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -327,7 +337,7 @@ mod tests {
         for value in 0..=14 {
             let level = LuminanceLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = LuminanceCommand { value: level };
+            let cmd = LuminanceCommand::new(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -341,7 +351,7 @@ mod tests {
         for value in 0..=14 {
             let level = ContrastLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ContrastCommand { value: level };
+            let cmd = ContrastCommand::new(level);
             let bytes = cmd
                 .to_bytes()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -360,7 +370,7 @@ mod tests {
         for value in 0..=14 {
             let level = ContrastLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ContrastCommand { value: level };
+            let cmd = ContrastCommand::new(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -382,14 +392,12 @@ mod tests {
             Box::new(SharpnessCommand::Reset),
             Box::new(SharpnessCommand::Mode(SharpnessMode::Auto)),
             Box::new(SharpnessCommand::SetLevel { value: 5 }),
-            Box::new(LuminanceCommand {
-                value: LuminanceLevel::new(7)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            }),
-            Box::new(ContrastCommand {
-                value: ContrastLevel::new(7)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            }),
+            Box::new(LuminanceCommand::new(
+                LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )),
+            Box::new(ContrastCommand::new(
+                ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )),
         ];
 
         for cmd in cmds {
@@ -422,23 +430,23 @@ mod tests {
         // Test boundary values for luminance
         let level =
             LuminanceLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = LuminanceCommand { value: level };
+        let cmd = LuminanceCommand::new(level);
         assert!(cmd.to_bytes().is_ok());
 
         let level =
             LuminanceLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = LuminanceCommand { value: level };
+        let cmd = LuminanceCommand::new(level);
         assert!(cmd.to_bytes().is_ok());
 
         // Test boundary values for contrast
         let level =
             ContrastLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = ContrastCommand { value: level };
+        let cmd = ContrastCommand::new(level);
         assert!(cmd.to_bytes().is_ok());
 
         let level =
             ContrastLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = ContrastCommand { value: level };
+        let cmd = ContrastCommand::new(level);
         assert!(cmd.to_bytes().is_ok());
     }
 
@@ -469,14 +477,12 @@ mod tests {
             Box::new(SharpnessCommand::Up),
             Box::new(SharpnessCommand::Down),
             Box::new(SharpnessCommand::SetLevel { value: 5 }),
-            Box::new(LuminanceCommand {
-                value: LuminanceLevel::new(7)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            }),
-            Box::new(ContrastCommand {
-                value: ContrastLevel::new(7)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            }),
+            Box::new(LuminanceCommand::new(
+                LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )),
+            Box::new(ContrastCommand::new(
+                ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )),
         ];
 
         for cmd in cmds {
@@ -502,12 +508,12 @@ mod tests {
         // Test LuminanceCommand and ContrastCommand use Quick category
         let level =
             LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = LuminanceCommand { value: level };
+        let cmd = LuminanceCommand::new(level);
         assert!(matches!(cmd.command_category(), CommandCategory::Quick));
 
         let level =
             ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = ContrastCommand { value: level };
+        let cmd = ContrastCommand::new(level);
         assert!(matches!(cmd.command_category(), CommandCategory::Quick));
     }
 }
