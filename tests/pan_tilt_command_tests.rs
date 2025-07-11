@@ -2,19 +2,17 @@
 
 mod common;
 
+use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
     camera::{methods::PanTiltMethodsExt, Camera},
     command::{
-        pan_tilt::{PanTiltCommand, PanTiltDirection}, 
-        Command, ResponseType
+        pan_tilt::{PanTiltCommand, PanTiltDirection},
+        Command, ResponseType,
     },
     profiles::PTZOpticsG2,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
     Error,
-};
-use crate::common::{
-    MockTransport, ProtocolValidator, ValidationMode, patterns, ResponseBuilder
 };
 
 #[test]
@@ -105,10 +103,10 @@ fn test_pan_tilt_command_to_bytes() {
     let bytes = home
         .to_bytes()
         .unwrap_or_else(|e| panic!("Valid command: {e:?}"));
-    
+
     // Verify using pattern constants
     assert_eq!(bytes, patterns::pan_tilt::HOME);
-    
+
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
     assert!(validator.validate_command(&bytes).is_ok());
@@ -129,7 +127,10 @@ fn test_pan_tilt_command_to_bytes() {
         tilt_speed,
     };
     let bytes = stop.to_bytes().unwrap();
-    assert_eq!(bytes, vec![0x81, 0x01, 0x06, 0x01, 0x10, 0x10, 0x03, 0x03, 0xFF]);
+    assert_eq!(
+        bytes,
+        vec![0x81, 0x01, 0x06, 0x01, 0x10, 0x10, 0x03, 0x03, 0xFF]
+    );
 }
 
 #[test]
@@ -144,7 +145,10 @@ fn test_pan_tilt_directional_commands() {
         tilt_speed,
     };
     let bytes = up.to_bytes().unwrap();
-    assert_eq!(bytes, vec![0x81, 0x01, 0x06, 0x01, 0x18, 0x14, 0x03, 0x01, 0xFF]);
+    assert_eq!(
+        bytes,
+        vec![0x81, 0x01, 0x06, 0x01, 0x18, 0x14, 0x03, 0x01, 0xFF]
+    );
 
     // Test UpRight command
     let up_right = PanTiltCommand::Move {
@@ -153,7 +157,10 @@ fn test_pan_tilt_directional_commands() {
         tilt_speed,
     };
     let bytes = up_right.to_bytes().unwrap();
-    assert_eq!(bytes, vec![0x81, 0x01, 0x06, 0x01, 0x18, 0x14, 0x02, 0x01, 0xFF]);
+    assert_eq!(
+        bytes,
+        vec![0x81, 0x01, 0x06, 0x01, 0x18, 0x14, 0x02, 0x01, 0xFF]
+    );
 }
 
 #[test]
@@ -171,7 +178,8 @@ fn test_pan_tilt_absolute_position() {
     assert_eq!(
         bytes,
         vec![
-            0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x01, 0x02, 0x03, 0x04, 0x0F, 0x0A, 0x09, 0x09, 0xFF
+            0x81, 0x01, 0x06, 0x02, 0x10, 0x10, 0x01, 0x02, 0x03, 0x04, 0x0F, 0x0A, 0x09, 0x09,
+            0xFF
         ]
     );
 }
@@ -193,7 +201,8 @@ fn test_pan_tilt_relative_position() {
     assert_eq!(
         bytes,
         vec![
-            0x81, 0x01, 0x06, 0x03, 0x10, 0x10, 0x0F, 0x0F, 0x09, 0x0C, 0x00, 0x00, 0x0C, 0x08, 0xFF
+            0x81, 0x01, 0x06, 0x03, 0x10, 0x10, 0x0F, 0x0F, 0x09, 0x0C, 0x00, 0x00, 0x0C, 0x08,
+            0xFF
         ]
     );
 }
@@ -202,7 +211,7 @@ fn test_pan_tilt_relative_position() {
 fn test_response_type() {
     assert_eq!(PanTiltCommand::Home.response_type(), None);
     assert_eq!(PanTiltCommand::Reset.response_type(), None);
-    
+
     let cmd = PanTiltCommand::Move {
         direction: PanTiltDirection::Stop,
         pan_speed: PanSpeed::new(1).unwrap(),
@@ -214,9 +223,15 @@ fn test_response_type() {
 #[test]
 fn test_command_category() {
     // Home and Reset are movement commands that may take time
-    assert_eq!(PanTiltCommand::Home.command_category(), CommandCategory::Movement);
-    assert_eq!(PanTiltCommand::Reset.command_category(), CommandCategory::Movement);
-    
+    assert_eq!(
+        PanTiltCommand::Home.command_category(),
+        CommandCategory::Movement
+    );
+    assert_eq!(
+        PanTiltCommand::Reset.command_category(),
+        CommandCategory::Movement
+    );
+
     // Other commands are standard
     let cmd = PanTiltCommand::Move {
         direction: PanTiltDirection::Up,
@@ -229,30 +244,32 @@ fn test_command_category() {
 #[test]
 fn test_pan_tilt_with_camera() {
     let mut mock = MockTransport::new();
-    
+
     // Set up expectations
     mock.expect_command(&patterns::pan_tilt::HOME)
         .described_as("pan/tilt home")
         .will_ack(1)
         .then_complete(1);
-        
+
     mock.expect_command(&patterns::pan_tilt::STOP)
         .described_as("pan/tilt stop")
         .will_ack(1)
         .then_complete(1);
-        
+
     mock.expect_command(&patterns::pan_tilt::UP)
         .described_as("pan/tilt up")
         .will_ack(1)
         .then_complete(1);
-    
+
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
-    
+
     // Test commands
     assert!(camera.pan_tilt_home().is_ok());
     assert!(camera.pan_tilt_stop().is_ok());
-    assert!(camera.pan_tilt_move(PanTiltDirection::Up, 0x18, 0x18).is_ok());
-    
+    assert!(camera
+        .pan_tilt_move(PanTiltDirection::Up, 0x18, 0x18)
+        .is_ok());
+
     // Verify all expectations were met
     mock.verify().unwrap();
 }
@@ -260,42 +277,42 @@ fn test_pan_tilt_with_camera() {
 #[test]
 fn test_pan_tilt_absolute_with_camera() {
     let mut mock = MockTransport::new();
-    
+
     // Build expected command for absolute position
     let expected_cmd = vec![
         0x81, 0x01, 0x06, 0x02, 0x10, 0x10, // Header and speeds
         0x00, 0x00, 0x00, 0x00, // Pan position 0
         0x00, 0x00, 0x00, 0x00, // Tilt position 0
-        0xFF
+        0xFF,
     ];
-    
+
     mock.expect_command(&expected_cmd)
         .described_as("pan/tilt absolute to center")
         .will_ack(1)
         .then_complete(1);
-    
+
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
-    
+
     // Move to center position
     assert!(camera.pan_tilt_absolute(0.0, 0.0, 0x10).is_ok());
-    
+
     mock.verify().unwrap();
 }
 
 #[test]
 fn test_pan_tilt_with_inquiry_response() {
     let mut mock = MockTransport::new();
-    
+
     // Set up pan/tilt position inquiry
     mock.expect_command(&patterns::pan_tilt::POSITION_INQ)
         .described_as("pan/tilt position inquiry")
         .will_return_data(&[
             0x01, 0x02, 0x03, 0x04, // Pan position 0x1234
-            0x05, 0x06, 0x07, 0x08  // Tilt position 0x5678
+            0x05, 0x06, 0x07, 0x08, // Tilt position 0x5678
         ]);
-    
+
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
-    
+
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly
     mock.verify().unwrap();

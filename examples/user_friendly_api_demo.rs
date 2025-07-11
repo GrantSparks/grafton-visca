@@ -7,9 +7,12 @@
 use grafton_visca::transport::blocking::create;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{methods::{ExposureMethodsExt, PanTiltMethodsExt}, Camera}, 
-    profiles::PTZOpticsG2,
+    camera::{
+        methods::{ExposureMethodsExt, PanTiltMethodsExt},
+        Camera,
+    },
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     types::{
         FStop, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength,
         PanSpeed, SpeedLevel, TiltSpeed,
@@ -34,8 +37,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let slow_tilt = SpeedLevel::Slow.to_tilt_speed();
     camera.pan_tilt_move(
         PanTiltDirection::UpRight,
-        PanSpeed::new(slow_pan)?,
-        TiltSpeed::new(slow_tilt)?,
+        PanSpeed::new(slow_pan)?.into(),
+        TiltSpeed::new(slow_tilt)?.into(),
     )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;
@@ -45,8 +48,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fast_tilt = SpeedLevel::Fast.to_tilt_speed();
     camera.pan_tilt_move(
         PanTiltDirection::DownLeft,
-        PanSpeed::new(fast_pan)?,
-        TiltSpeed::new(fast_tilt)?,
+        PanSpeed::new(fast_pan)?.into(),
+        TiltSpeed::new(fast_tilt)?.into(),
     )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;

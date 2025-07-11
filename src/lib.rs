@@ -283,4 +283,3 @@ pub use grafton_visca_macros::{
 pub mod profiles {
     pub use crate::camera::profiles::{GenericVisca, PTZOpticsG2, SonyFR7};
 }
-

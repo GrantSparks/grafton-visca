@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use crate::common::{MockTransport, ResponseBuilder, MockResponse, patterns};
+use crate::common::{patterns, MockResponse, MockTransport, ResponseBuilder};
 
 /// Builder for creating test scenarios
 #[derive(Debug)]
@@ -24,13 +24,13 @@ pub enum ScenarioStep {
         responses: Vec<MockResponse>,
         description: String,
     },
-    
+
     /// Simulate a delay
     Delay(Duration),
-    
+
     /// Simulate disconnection
     Disconnect,
-    
+
     /// Simulate reconnection
     Reconnect,
 }
@@ -52,13 +52,13 @@ impl ScenarioBuilder {
             steps: Vec::new(),
         }
     }
-    
+
     /// Add a description to the scenario
     pub fn description(mut self, desc: &str) -> Self {
         self.description = desc.to_string();
         self
     }
-    
+
     /// Expect a power on command
     pub fn expect_power_on(mut self) -> Self {
         self.steps.push(ScenarioStep::ExpectCommand {
@@ -71,7 +71,7 @@ impl ScenarioBuilder {
         });
         self
     }
-    
+
     /// Expect a power standby command
     pub fn expect_power_standby(mut self) -> Self {
         self.steps.push(ScenarioStep::ExpectCommand {
@@ -84,7 +84,7 @@ impl ScenarioBuilder {
         });
         self
     }
-    
+
     /// Expect a pan/tilt home command
     pub fn expect_home(mut self) -> Self {
         self.steps.push(ScenarioStep::ExpectCommand {
@@ -97,7 +97,7 @@ impl ScenarioBuilder {
         });
         self
     }
-    
+
     /// Expect a preset recall with settling time
     pub fn expect_preset_recall(mut self, preset: u8) -> Self {
         self.steps.push(ScenarioStep::ExpectCommand {
@@ -108,13 +108,14 @@ impl ScenarioBuilder {
             ],
             description: format!("Recall preset {}", preset),
         });
-        
+
         // Add settling delay for cameras that need it
-        self.steps.push(ScenarioStep::Delay(Duration::from_millis(240)));
-        
+        self.steps
+            .push(ScenarioStep::Delay(Duration::from_millis(240)));
+
         self
     }
-    
+
     /// Expect a custom command
     pub fn expect_command(mut self, command: &[u8], responses: Vec<MockResponse>) -> Self {
         self.steps.push(ScenarioStep::ExpectCommand {
@@ -124,7 +125,7 @@ impl ScenarioBuilder {
         });
         self
     }
-    
+
     /// Build the scenario
     pub fn build(self) -> TestScenario {
         TestScenario {
@@ -140,23 +141,27 @@ impl TestScenario {
     pub fn apply_to(&self, transport: &mut MockTransport) -> Result<(), String> {
         for (i, step) in self.steps.iter().enumerate() {
             match step {
-                ScenarioStep::ExpectCommand { command, responses, description } => {
+                ScenarioStep::ExpectCommand {
+                    command,
+                    responses,
+                    description,
+                } => {
                     let expectation = transport.expect_command(command);
                     expectation.described_as(description);
-                    
+
                     for response in responses {
                         expectation.will_respond(response.clone());
                     }
                 }
-                
+
                 ScenarioStep::Delay(duration) => {
                     std::thread::sleep(*duration);
                 }
-                
+
                 ScenarioStep::Disconnect => {
                     transport.disconnect();
                 }
-                
+
                 ScenarioStep::Reconnect => {
                     // For MockTransport, we need to access the inner state
                     // This is a limitation - in real code we'd add a reconnect method
@@ -165,7 +170,7 @@ impl TestScenario {
                 }
             }
         }
-        
+
         Ok(())
     }
 }

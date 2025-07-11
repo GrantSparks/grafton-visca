@@ -2,19 +2,17 @@
 
 mod common;
 
+use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
     camera::{methods::ZoomMethodsExt, Camera},
     command::{
-        zoom::{ZoomCommand, ZoomSpeed}, 
-        Command, ResponseType
+        zoom::{ZoomCommand, ZoomSpeed},
+        Command, ResponseType,
     },
     profiles::PTZOpticsG2,
     timeout::CommandCategory,
     types::ZoomPosition,
     Error,
-};
-use crate::common::{
-    MockTransport, ProtocolValidator, ValidationMode, patterns, ResponseBuilder
 };
 
 #[test]
@@ -47,8 +45,7 @@ fn test_zoom_speed_try_from() {
 
 #[test]
 fn test_zoom_speed_into_u8() {
-    let speed =
-        ZoomSpeed::new(3).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 3: {e:?}"));
+    let speed = ZoomSpeed::new(3).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 3: {e:?}"));
     let value: u8 = speed.value();
     assert_eq!(value, 3);
 }
@@ -59,10 +56,10 @@ fn test_zoom_command_stop() {
     let bytes = cmd
         .to_bytes()
         .unwrap_or_else(|e| panic!("Failed to convert Stop command to bytes: {e:?}"));
-    
+
     // Verify using pattern constants
     assert_eq!(bytes, patterns::zoom::STOP);
-    
+
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
     assert!(validator.validate_command(&bytes).is_ok());
@@ -74,11 +71,11 @@ fn test_zoom_command_zoom_in_standard() {
     let bytes = cmd
         .to_bytes()
         .unwrap_or_else(|e| panic!("Failed to convert TeleStandard command to bytes: {e:?}"));
-    
+
     // Verify using pattern constants
     assert_eq!(bytes, patterns::zoom::TELE_STD);
     assert_eq!(cmd.response_type(), Some(ResponseType::ZoomIn));
-    
+
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
     assert!(validator.validate_command(&bytes).is_ok());
@@ -90,10 +87,10 @@ fn test_zoom_command_zoom_out_standard() {
     let bytes = cmd
         .to_bytes()
         .unwrap_or_else(|e| panic!("Failed to convert WideStandard command to bytes: {e:?}"));
-    
+
     // Verify using pattern constants
     assert_eq!(bytes, patterns::zoom::WIDE_STD);
-    
+
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
     assert!(validator.validate_command(&bytes).is_ok());
@@ -101,16 +98,15 @@ fn test_zoom_command_zoom_out_standard() {
 
 #[test]
 fn test_zoom_command_zoom_in_variable() {
-    let speed =
-        ZoomSpeed::new(5).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 5: {e:?}"));
+    let speed = ZoomSpeed::new(5).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 5: {e:?}"));
     let cmd = ZoomCommand::TeleVariable(speed);
     let bytes = cmd
         .to_bytes()
         .unwrap_or_else(|e| panic!("Failed to convert TeleVariable command to bytes: {e:?}"));
-    
+
     // Verify command structure
     assert_eq!(bytes, vec![0x81, 0x01, 0x04, 0x07, 0x25, 0xFF]);
-    
+
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
     assert!(validator.validate_command(&bytes).is_ok());
@@ -118,16 +114,15 @@ fn test_zoom_command_zoom_in_variable() {
 
 #[test]
 fn test_zoom_command_zoom_out_variable() {
-    let speed =
-        ZoomSpeed::new(7).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 7: {e:?}"));
+    let speed = ZoomSpeed::new(7).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 7: {e:?}"));
     let cmd = ZoomCommand::WideVariable(speed);
     let bytes = cmd
         .to_bytes()
         .unwrap_or_else(|e| panic!("Failed to convert WideVariable command to bytes: {e:?}"));
-    
+
     // Verify command structure
     assert_eq!(bytes, vec![0x81, 0x01, 0x04, 0x07, 0x37, 0xFF]);
-    
+
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
     assert!(validator.validate_command(&bytes).is_ok());
@@ -141,10 +136,13 @@ fn test_zoom_command_position() {
     let bytes = cmd
         .to_bytes()
         .unwrap_or_else(|e| panic!("Failed to convert Position command to bytes: {e:?}"));
-    
+
     // Verify command structure
-    assert_eq!(bytes, vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF]);
-    
+    assert_eq!(
+        bytes,
+        vec![0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF]
+    );
+
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
     assert!(validator.validate_command(&bytes).is_ok());
@@ -200,30 +198,30 @@ fn test_zoom_response_type() {
 #[test]
 fn test_zoom_commands_with_camera() {
     let mut mock = MockTransport::new();
-    
+
     // Set up expectations for zoom commands
     mock.expect_command(&patterns::zoom::STOP)
         .described_as("zoom stop")
         .will_ack(1)
         .then_complete(1);
-        
+
     mock.expect_command(&patterns::zoom::TELE_STD)
         .described_as("zoom in standard")
         .will_ack(1)
         .then_complete(1);
-        
+
     mock.expect_command(&patterns::zoom::WIDE_STD)
         .described_as("zoom out standard")
         .will_ack(1)
         .then_complete(1);
-    
+
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
-    
+
     // Test zoom commands
     assert!(camera.zoom_stop().is_ok());
     assert!(camera.zoom_in().is_ok());
     assert!(camera.zoom_out().is_ok());
-    
+
     // Verify all expectations were met
     mock.verify().unwrap();
 }
@@ -231,14 +229,14 @@ fn test_zoom_commands_with_camera() {
 #[test]
 fn test_zoom_with_inquiry_response() {
     let mut mock = MockTransport::new();
-    
+
     // Set up zoom position inquiry
     mock.expect_command(&patterns::zoom::POSITION_INQ)
         .described_as("zoom position inquiry")
         .will_return_data(&[0x04, 0x00, 0x00, 0x00]); // Position 0x4000
-    
+
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
-    
+
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly
     mock.verify().unwrap();

@@ -92,7 +92,7 @@ pub trait PanTiltMethodsExt {
     // NOTE: The following methods reference types (LimitCorner, PanTiltLimitCommand) that
     // don't exist in the codebase yet. They appear to be planned but unimplemented features.
     // Commenting out to allow compilation until these types are defined.
-    
+
     /*
     /// Set pan/tilt limit for a specific corner.
     #[cfg(not(feature = "async"))]
@@ -195,9 +195,9 @@ where
 
         // Use the PanTiltCommand directly instead of const encoding
         use crate::command::pan_tilt::PanTiltCommand;
-        use crate::types::{PanSpeed, TiltSpeed};
         use crate::command::Command;
-        
+        use crate::types::{PanSpeed, TiltSpeed};
+
         let cmd = PanTiltCommand::Move {
             direction,
             pan_speed: PanSpeed::new(pan_speed)?,
@@ -220,7 +220,7 @@ where
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTiltLimitCommand;
         use crate::command::Command;
-        
+
         let cmd = PanTiltLimitCommand::Set {
             corner,
             pan: pan_position,
@@ -236,7 +236,7 @@ where
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTiltLimitCommand;
         use crate::command::Command;
-        
+
         let cmd = PanTiltLimitCommand::Clear { corner };
         let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
@@ -393,9 +393,9 @@ where
 
         // Use the PanTiltCommand directly instead of const encoding
         use crate::command::pan_tilt::PanTiltCommand;
-        use crate::types::{PanSpeed, TiltSpeed};
         use crate::command::Command;
-        
+        use crate::types::{PanSpeed, TiltSpeed};
+
         let cmd = PanTiltCommand::Move {
             direction,
             pan_speed: PanSpeed::new(pan_speed)?,
@@ -418,7 +418,7 @@ where
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTiltLimitCommand;
         use crate::command::Command;
-        
+
         let cmd = PanTiltLimitCommand::Set {
             corner,
             pan: pan_position,
@@ -434,7 +434,7 @@ where
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTiltLimitCommand;
         use crate::command::Command;
-        
+
         let cmd = PanTiltLimitCommand::Clear { corner };
         let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
         crate::command::Response::parse(&response_bytes)?.into_result()

@@ -60,7 +60,16 @@ where
         self.send_const(power::ON).await?;
 
         // Wait for camera to be ready
+        #[cfg(feature = "tokio")]
         tokio::time::sleep(P::POWER_ON_TIME).await;
+
+        #[cfg(all(feature = "async", not(feature = "tokio")))]
+        {
+            // For non-tokio async runtimes, we skip the sleep
+            // since we don't have a runtime-agnostic sleep implementation
+            // Users can implement their own delays if needed
+        }
+
         Ok(())
     }
 
@@ -68,7 +77,16 @@ where
         self.send_const(power::OFF).await?;
 
         // Wait for standby/off
+        #[cfg(feature = "tokio")]
         tokio::time::sleep(P::STANDBY_TIME).await;
+
+        #[cfg(all(feature = "async", not(feature = "tokio")))]
+        {
+            // For non-tokio async runtimes, we skip the sleep
+            // since we don't have a runtime-agnostic sleep implementation
+            // Users can implement their own delays if needed
+        }
+
         Ok(())
     }
 }

@@ -7,7 +7,6 @@
 // (none)
 
 // Third-party crate imports
-use log::error;
 
 // Workspace / local-crate imports
 use crate::{
@@ -134,55 +133,103 @@ pub enum ResponseType {
     TallyRed,
     /// Green tally light state inquiry response.
     TallyGreen,
-    
+
     // Additional response types for completeness
+    /// Sharpness position inquiry response.
     SharpnessPosition,
+    /// Horizontal flip state inquiry response.
     HorizontalFlip,
+    /// Vertical flip state inquiry response.
     VerticalFlip,
+    /// Black and white mode state inquiry response.
     BlackWhiteMode,
+    /// Exposure compensation position inquiry response.
     ExposureCompensationPosition,
+    /// Red tuning level inquiry response.
     RedTuning,
+    /// Blue tuning level inquiry response.
     BlueTuning,
+    /// Auto white balance sensitivity inquiry response.
     AutoWhiteBalanceSensitivity,
+    /// 3D noise reduction state inquiry response.
     ThreeDNoiseReduction,
+    /// 2D noise reduction state inquiry response.
     TwoDNoiseReduction,
+    /// Motion sync mode inquiry response.
     MotionSyncMode,
+    /// Motion sync speed inquiry response.
     MotionSyncSpeed,
+    /// Focus mode inquiry response.
     FocusMode,
+    /// Focus range inquiry response.
     FocusRange,
+    /// Menu open/close state inquiry response.
     MenuOpenClose,
+    /// USB audio state inquiry response.
     UsbAudio,
+    /// RTMP state inquiry response.
     Rtmp,
+    /// Auto focus state inquiry response.
     AutoFocus,
+    /// Focus unlock state inquiry response.
     FocusUnlock,
+    /// Zoom out state inquiry response.
     ZoomOut,
+    /// Zoom in state inquiry response.
     ZoomIn,
+    /// Iris up state inquiry response.
     IrisUp,
+    /// Iris down state inquiry response.
     IrisDown,
+    /// Night/day mode inquiry response.
     NightDayMode,
+    /// Night/day position inquiry response.
     NightDayPosition,
+    /// Auto trace state inquiry response.
     AutoTrace,
+    /// Two tone mode inquiry response.
     TwoToneMode,
+    /// Defog mode inquiry response.
     DefogMode,
+    /// Noise reduction level inquiry response.
     NrLevel,
+    /// Noise reduction mode inquiry response.
     NrMode,
+    /// Noise reduction speed inquiry response.
     NrSpeed,
+    /// Broadcast domain inquiry response.
     BroadcastDomain,
+    /// Resolution inquiry response.
     Resolution,
+    /// ND filter state inquiry response.
     NdFilter,
+    /// ND filter preset inquiry response.
     NdFilterPreset,
+    /// Focus near/far state inquiry response.
     FocusNearFar,
+    /// Zoom tele/wide state inquiry response.
     ZoomTeleWide,
+    /// Standby state inquiry response.
     Standby,
+    /// Tally state inquiry response.
     Tally,
+    /// Digital PTZ state inquiry response.
     DigitalPtz,
+    /// Digital mode inquiry response.
     Digital,
+    /// Iris control inquiry response.
     IrisControl,
+    /// Defog level inquiry response.
     DefogLevel,
+    /// Night/day state inquiry response.
     NightDay,
+    /// Night/day switch inquiry response.
     NightDaySwitch,
+    /// Flip mode inquiry response.
     FlipMode,
+    /// Tally status inquiry response.
     TallyStatus,
+    /// Tally auto adjust inquiry response.
     TallyAutoAdjust,
 }
 
@@ -250,10 +297,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             let pan = combine_nibbles_i16(&payload[0..4]);
             let tilt = combine_nibbles_i16(&payload[4..8]);
-            Ok(Response::InquiryResponse(InquiryResponse::PanTiltPosition {
-                pan,
-                tilt,
-            }))
+            Ok(Response::InquiryResponse(
+                InquiryResponse::PanTiltPosition { pan, tilt },
+            ))
         }
         ResponseType::FocusPosition => {
             if payload.len() != 4 {
@@ -283,9 +329,16 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x0A => ExposureMode::Shutter,
                 0x0B => ExposureMode::Iris,
                 0x0D => ExposureMode::Bright,
-                _ => return Err(Error::InvalidParameter(format!("Unknown exposure mode: {:02X}", payload[0]))),
+                _ => {
+                    return Err(Error::InvalidParameter(format!(
+                        "Unknown exposure mode: {:02X}",
+                        payload[0]
+                    )))
+                }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode }))
+            Ok(Response::InquiryResponse(InquiryResponse::ExposureMode {
+                mode,
+            }))
         }
         ResponseType::WhiteBalanceMode => {
             if payload.len() != 1 {
@@ -298,9 +351,16 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x03 => WhiteBalanceMode::OnePush,
                 0x05 => WhiteBalanceMode::Manual,
                 0x20 => WhiteBalanceMode::ColorTemperature,
-                _ => return Err(Error::InvalidParameter(format!("Unknown white balance mode: {:02X}", payload[0]))),
+                _ => {
+                    return Err(Error::InvalidParameter(format!(
+                        "Unknown white balance mode: {:02X}",
+                        payload[0]
+                    )))
+                }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }))
+            Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance {
+                mode,
+            }))
         }
         ResponseType::AntiFlicker => {
             if payload.len() != 1 {
@@ -310,9 +370,16 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x00 => AntiFlickerMode::Off,
                 0x01 => AntiFlickerMode::Hz50,
                 0x02 => AntiFlickerMode::Hz60,
-                _ => return Err(Error::InvalidParameter(format!("Unknown anti-flicker mode: {:02X}", payload[0]))),
+                _ => {
+                    return Err(Error::InvalidParameter(format!(
+                        "Unknown anti-flicker mode: {:02X}",
+                        payload[0]
+                    )))
+                }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }))
+            Ok(Response::InquiryResponse(InquiryResponse::AntiFlicker {
+                mode,
+            }))
         }
         ResponseType::FocusZone => {
             if payload.len() != 1 {
@@ -322,9 +389,16 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x00 => FocusZone::Top,
                 0x01 => FocusZone::Center,
                 0x02 => FocusZone::Bottom,
-                _ => return Err(Error::InvalidParameter(format!("Unknown focus zone: {:02X}", payload[0]))),
+                _ => {
+                    return Err(Error::InvalidParameter(format!(
+                        "Unknown focus zone: {:02X}",
+                        payload[0]
+                    )))
+                }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::FocusZone { zone }))
+            Ok(Response::InquiryResponse(InquiryResponse::FocusZone {
+                zone,
+            }))
         }
         ResponseType::AutoFocusSensitivity => {
             if payload.len() != 1 {
@@ -334,17 +408,26 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x00 => AutoFocusSensitivity::Low,
                 0x01 => AutoFocusSensitivity::Normal,
                 0x02 => AutoFocusSensitivity::High,
-                _ => return Err(Error::InvalidParameter(format!("Unknown auto focus sensitivity: {:02X}", payload[0]))),
+                _ => {
+                    return Err(Error::InvalidParameter(format!(
+                        "Unknown auto focus sensitivity: {:02X}",
+                        payload[0]
+                    )))
+                }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }))
+            Ok(Response::InquiryResponse(
+                InquiryResponse::AutoFocusSensitivity { sensitivity },
+            ))
         }
         ResponseType::ExposureCompensationMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensationMode {
-                on: payload[0] == 0x02,
-            }))
+            Ok(Response::InquiryResponse(
+                InquiryResponse::ExposureCompensationMode {
+                    on: payload[0] == 0x02,
+                },
+            ))
         }
         ResponseType::SharpnessMode => {
             if payload.len() != 1 {
@@ -353,9 +436,16 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             let mode = match payload[0] {
                 0x02 => SharpnessMode::Auto,
                 0x03 => SharpnessMode::Manual,
-                _ => return Err(Error::InvalidParameter(format!("Unknown sharpness mode: {:02X}", payload[0]))),
+                _ => {
+                    return Err(Error::InvalidParameter(format!(
+                        "Unknown sharpness mode: {:02X}",
+                        payload[0]
+                    )))
+                }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }))
+            Ok(Response::InquiryResponse(InquiryResponse::SharpnessMode {
+                mode,
+            }))
         }
         ResponseType::BlackWhite => {
             if payload.len() != 1 {
@@ -394,23 +484,29 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let value = combine_nibbles_u8(&payload[2..4]);
-            Ok(Response::InquiryResponse(InquiryResponse::Sharpness { value }))
+            Ok(Response::InquiryResponse(InquiryResponse::Sharpness {
+                value,
+            }))
         }
         ResponseType::ExposureCompensation => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let raw_value = combine_nibbles_u8(&payload[2..4]);
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensation {
-                value: raw_value as i8 - 7,
-            }))
+            Ok(Response::InquiryResponse(
+                InquiryResponse::ExposureCompensation {
+                    value: raw_value as i8 - 7,
+                },
+            ))
         }
         ResponseType::Shutter => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[2..4]);
-            Ok(Response::InquiryResponse(InquiryResponse::Shutter { position }))
+            Ok(Response::InquiryResponse(InquiryResponse::Shutter {
+                position,
+            }))
         }
         ResponseType::ImageFlip => {
             if payload.len() != 1 {
@@ -434,13 +530,17 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::Luminance(payload[0])))
+            Ok(Response::InquiryResponse(InquiryResponse::Luminance(
+                payload[0],
+            )))
         }
         ResponseType::Contrast => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::Contrast(payload[0])))
+            Ok(Response::InquiryResponse(InquiryResponse::Contrast(
+                payload[0],
+            )))
         }
         ResponseType::TallyRed => {
             if payload.len() != 1 {
@@ -467,7 +567,10 @@ fn combine_nibbles_u16(nibbles: &[u8]) -> u16 {
     if nibbles.len() < 4 {
         return 0;
     }
-    ((nibbles[0] as u16) << 12) | ((nibbles[1] as u16) << 8) | ((nibbles[2] as u16) << 4) | (nibbles[3] as u16)
+    ((nibbles[0] as u16) << 12)
+        | ((nibbles[1] as u16) << 8)
+        | ((nibbles[2] as u16) << 4)
+        | (nibbles[3] as u16)
 }
 
 fn combine_nibbles_i16(nibbles: &[u8]) -> i16 {
@@ -549,7 +652,7 @@ mod tests {
             _ => panic!("Expected Power inquiry response"),
         }
 
-        // Power Off  
+        // Power Off
         let response = vec![0x90, 0x50, 0x03, 0xFF];
         let result = parse_response(&response, &ResponseType::Power).unwrap();
         match result {

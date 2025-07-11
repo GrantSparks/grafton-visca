@@ -151,13 +151,17 @@ async fn main() -> Result<(), Error> {
     use grafton_visca::units::Degrees;
 
     // Using degrees
-    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(45.0), Degrees(15.0))
+        .await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Using VISCA units
     // Set position using raw VISCA units (convert to appropriate units)
     // This would require using ViscaUnits or converting to degrees
-    camera.pan_tilt_absolute(Degrees(10.0), Degrees(5.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(10.0), Degrees(5.0))
+        .await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Using normalized coordinates - convert to degrees

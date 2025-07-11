@@ -61,7 +61,7 @@ impl ProtocolValidator {
         let mut sockets_in_use = HashMap::new();
         sockets_in_use.insert(0, false);
         sockets_in_use.insert(1, false);
-        
+
         Self {
             mode,
             sockets_in_use,
@@ -70,11 +70,11 @@ impl ProtocolValidator {
             errors_detected: 0,
         }
     }
-    
+
     /// Validate a VISCA command
     pub fn validate_command(&mut self, command: &[u8]) -> Result<(), ValidationError> {
         self.commands_sent += 1;
-        
+
         // Basic structure validation
         if command.len() < 3 {
             self.errors_detected += 1;
@@ -85,7 +85,7 @@ impl ProtocolValidator {
                 actual: Some(command.to_vec()),
             });
         }
-        
+
         // Check header byte (address)
         let header = command[0];
         if header & 0xF0 != 0x80 {
@@ -97,7 +97,7 @@ impl ProtocolValidator {
                 actual: Some(vec![header]),
             });
         }
-        
+
         // Check terminator
         if command[command.len() - 1] != 0xFF {
             self.errors_detected += 1;
@@ -108,7 +108,7 @@ impl ProtocolValidator {
                 actual: Some(vec![command[command.len() - 1]]),
             });
         }
-        
+
         if self.mode == ValidationMode::Strict {
             // Validate command structure based on command type
             if command.len() > 1 {
@@ -128,14 +128,14 @@ impl ProtocolValidator {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate a VISCA response
     pub fn validate_response(&mut self, response: &[u8]) -> Result<(), ValidationError> {
         self.responses_received += 1;
-        
+
         // Basic structure validation
         if response.len() < 3 {
             self.errors_detected += 1;
@@ -146,7 +146,7 @@ impl ProtocolValidator {
                 actual: Some(response.to_vec()),
             });
         }
-        
+
         // Check header byte
         let header = response[0];
         if header & 0xF0 != 0x90 {
@@ -158,7 +158,7 @@ impl ProtocolValidator {
                 actual: Some(vec![header]),
             });
         }
-        
+
         // Check terminator
         if response[response.len() - 1] != 0xFF {
             self.errors_detected += 1;
@@ -169,7 +169,7 @@ impl ProtocolValidator {
                 actual: Some(vec![response[response.len() - 1]]),
             });
         }
-        
+
         // Validate response type
         if response.len() > 1 {
             let response_type = response[1];
@@ -213,20 +213,20 @@ impl ProtocolValidator {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Check if a socket is available
     pub fn is_socket_available(&self, socket: u8) -> bool {
         self.sockets_in_use.get(&socket).copied().unwrap_or(false) == false
     }
-    
+
     /// Check if all sockets are free
     pub fn all_sockets_free(&self) -> bool {
         self.sockets_in_use.values().all(|&in_use| !in_use)
     }
-    
+
     /// Reset the validator state
     pub fn reset(&mut self) {
         self.sockets_in_use.insert(0, false);
@@ -235,22 +235,24 @@ impl ProtocolValidator {
         self.responses_received = 0;
         self.errors_detected = 0;
     }
-    
+
     /// Get validation summary
     pub fn get_summary(&self) -> ValidationSummary {
         ValidationSummary {
             commands_sent: self.commands_sent,
             responses_received: self.responses_received,
             errors_detected: self.errors_detected,
-            sockets_in_use: self.sockets_in_use.iter()
+            sockets_in_use: self
+                .sockets_in_use
+                .iter()
                 .filter(|(_, &in_use)| in_use)
                 .map(|(&socket, _)| socket)
                 .collect(),
         }
     }
-    
+
     // Private helper methods
-    
+
     fn validate_command_packet(&self, command: &[u8]) -> Result<(), ValidationError> {
         // Command packets should have at least 4 bytes: header, command, data, terminator
         if command.len() < 4 {
@@ -261,10 +263,10 @@ impl ProtocolValidator {
                 actual: Some(command.to_vec()),
             });
         }
-        
+
         // Validate data bytes (should be 0x00-0x0F for nibbles in strict mode)
         if self.mode == ValidationMode::Strict {
-            for (i, &byte) in command[2..command.len()-1].iter().enumerate() {
+            for (i, &byte) in command[2..command.len() - 1].iter().enumerate() {
                 // Some commands use full bytes, so only check obvious nibble positions
                 if command.len() > 6 && i > 2 && byte > 0x0F && byte < 0x80 {
                     return Err(ValidationError {
@@ -276,10 +278,10 @@ impl ProtocolValidator {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn validate_inquiry_packet(&self, command: &[u8]) -> Result<(), ValidationError> {
         // Inquiry packets have specific structure
         if command.len() < 5 {
@@ -290,7 +292,7 @@ impl ProtocolValidator {
                 actual: Some(command.to_vec()),
             });
         }
-        
+
         Ok(())
     }
 }
@@ -307,46 +309,46 @@ pub struct ValidationSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_validate_valid_command() {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        
+
         // Valid power on command
         let command = vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
         assert!(validator.validate_command(&command).is_ok());
-        
+
         // Valid inquiry command
         let inquiry = vec![0x81, 0x09, 0x04, 0x00, 0xFF];
         assert!(validator.validate_command(&inquiry).is_ok());
     }
-    
+
     #[test]
     fn test_validate_invalid_commands() {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        
+
         // Too short
         assert!(validator.validate_command(&[0x81, 0xFF]).is_err());
-        
+
         // Invalid header
         assert!(validator.validate_command(&[0x71, 0x01, 0xFF]).is_err());
-        
+
         // Missing terminator
         assert!(validator.validate_command(&[0x81, 0x01, 0x04]).is_err());
     }
-    
+
     #[test]
     fn test_socket_tracking() {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        
+
         // Initially all sockets are free
         assert!(validator.all_sockets_free());
-        
+
         // ACK response marks socket as in use
         validator.validate_response(&[0x90, 0x41, 0xFF]).unwrap();
         assert!(!validator.is_socket_available(1));
         assert!(validator.is_socket_available(0));
-        
+
         // Completion response frees the socket
         validator.validate_response(&[0x90, 0x51, 0xFF]).unwrap();
         assert!(validator.is_socket_available(1));

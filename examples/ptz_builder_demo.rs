@@ -218,7 +218,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Async position control with degrees
-    camera.pan_tilt_absolute(Degrees(45.0), Degrees(-15.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(45.0), Degrees(-15.0))
+        .await?;
     println!("   ✓ Set position to pan=45°, tilt=-15°");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -254,15 +256,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n4. Async preset patrol");
 
     // Save positions with G2-specific preset IDs
-    camera.pan_tilt_absolute(Degrees(-80.0), Degrees(0.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(-80.0), Degrees(0.0))
+        .await?;
     let preset1 = G2PresetId::new(1)?;
     camera.preset_set(preset1.into()).await?;
 
-    camera.pan_tilt_absolute(Degrees(0.0), Degrees(45.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(0.0), Degrees(45.0))
+        .await?;
     let preset2 = G2PresetId::new(2)?;
     camera.preset_set(preset2.into()).await?;
 
-    camera.pan_tilt_absolute(Degrees(80.0), Degrees(0.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(80.0), Degrees(0.0))
+        .await?;
     let preset3 = G2PresetId::new(3)?;
     camera.preset_set(preset3.into()).await?;
 

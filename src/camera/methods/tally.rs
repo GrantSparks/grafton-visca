@@ -98,47 +98,65 @@ where
     T: crate::transport::blocking::BlockingTransport,
 {
     fn tally_red_on(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&TallyCommand::RedOn.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&TallyCommand::RedOn.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     fn tally_red_off(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&TallyCommand::RedOff.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&TallyCommand::RedOff.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     fn tally_bright_lo(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&TallyCommand::BrightLo.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&TallyCommand::BrightLo.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     fn tally_bright_hi(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&TallyCommand::BrightHi.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&TallyCommand::BrightHi.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     fn tally_green_on(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&TallyCommand::GreenOn.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&TallyCommand::GreenOn.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     fn tally_green_off(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&TallyCommand::GreenOff.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&TallyCommand::GreenOff.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     fn tally_flash(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&TallyCommand::Flash.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&TallyCommand::Flash.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     fn tally_on(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&TallyCommand::On.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&TallyCommand::On.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     fn tally_off(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&TallyCommand::Off.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&TallyCommand::Off.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
@@ -159,47 +177,74 @@ where
     T: crate::transport::AsyncTransport,
 {
     async fn tally_red_on(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&TallyCommand::RedOn.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&TallyCommand::RedOn.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     async fn tally_red_off(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&TallyCommand::RedOff.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&TallyCommand::RedOff.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     async fn tally_bright_lo(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&TallyCommand::BrightLo.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&TallyCommand::BrightLo.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     async fn tally_bright_hi(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&TallyCommand::BrightHi.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&TallyCommand::BrightHi.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     async fn tally_green_on(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&TallyCommand::GreenOn.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&TallyCommand::GreenOn.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     async fn tally_green_off(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&TallyCommand::GreenOff.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&TallyCommand::GreenOff.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     async fn tally_flash(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&TallyCommand::Flash.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&TallyCommand::Flash.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     async fn tally_on(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&TallyCommand::On.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&TallyCommand::On.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
     async fn tally_off(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&TallyCommand::Off.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&TallyCommand::Off.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 

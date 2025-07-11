@@ -191,10 +191,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Pan/Tilt Control
     println!("\n3. Pan/Tilt Control");
     println!("   Moving to 45° right, 15° up...");
-    camera.pan_tilt_absolute(Degrees(45.0), Degrees(-15.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(45.0), Degrees(-15.0))
+        .await?;
 
     println!("   Moving to another position...");
-    camera.pan_tilt_absolute(Degrees(90.0), Degrees(0.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(90.0), Degrees(0.0))
+        .await?;
 
     // White Balance
     println!("\n4. White Balance");

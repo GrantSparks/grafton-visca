@@ -385,4 +385,3 @@ fn position_to_bytes(position: i16) -> [u8; 4] {
         (pos_u16 & 0x0F) as u8,
     ]
 }
-

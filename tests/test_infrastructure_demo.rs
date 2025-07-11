@@ -51,19 +51,19 @@ fn test_with_helpers() {
 #[test]
 fn test_with_mock_transport() {
     use common::MockTransport;
-    use grafton_visca::camera::Camera;
     use grafton_visca::camera::methods::PowerMethodsExt;
+    use grafton_visca::camera::Camera;
     use grafton_visca::profiles::PTZOpticsG2;
 
     // Create a mock that returns specific responses
     let mut mock = MockTransport::new();
-    
+
     // Set up expectation for power on command
     mock.expect_command(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
         .described_as("power on")
         .will_ack(1)
         .then_complete(1);
-    
+
     let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
 
     // Send command and verify response
@@ -71,7 +71,7 @@ fn test_with_mock_transport() {
 
     // Verify expectations were met
     mock.verify().unwrap();
-    
+
     // Verify command was sent
     let history = mock.sent_history();
     assert_eq!(history.len(), 1);
@@ -126,20 +126,20 @@ mod integration_style_tests {
     #[test]
     fn test_command_sequence() {
         use common::MockTransport;
-        use grafton_visca::camera::Camera;
         use grafton_visca::camera::methods::{PanTiltMethodsExt, ZoomMethodsExt};
+        use grafton_visca::camera::Camera;
         use grafton_visca::profiles::PTZOpticsG2;
 
         // Create mock with expected responses
         let mut mock = MockTransport::new();
-        
+
         // Set up expectations for home command
         mock.expect_command(&[0x81, 0x01, 0x06, 0x04, 0xFF])
             .described_as("pan/tilt home")
             .will_ack(1)
             .then_complete(1);
-            
-        // Set up expectations for zoom stop command  
+
+        // Set up expectations for zoom stop command
         mock.expect_command(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xFF])
             .described_as("zoom stop")
             .will_ack(2)
@@ -154,7 +154,7 @@ mod integration_style_tests {
 
         // Verify expectations were met
         mock.verify().unwrap();
-        
+
         // Verify commands were sent
         let history = mock.sent_history();
         assert_eq!(history.len(), 2, "Should have sent 2 commands");

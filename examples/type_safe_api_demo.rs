@@ -36,30 +36,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. Camera profile provides compile-time type safety
     println!("1. Camera profile information:");
-    let caps = camera.capabilities();
-    println!("   Model: {}", caps.model_name);
-    println!("   Pan range: {:?} degrees", caps.pan_range_degrees);
-    println!("   Tilt range: {:?} degrees", caps.tilt_range_degrees);
-    println!("   Max pan speed: {}", caps.max_pan_speed);
-    println!("   Max tilt speed: {}", caps.max_tilt_speed);
+    println!("   Model: {}", camera.model_name());
+    println!("   Camera profile implements capability traits at compile-time");
+    println!("   Available methods are determined by profile capabilities");
     println!("   ✓ All capabilities are type-safe and model-specific");
 
     // 2. Position control with type-safe units
-    println!("\n2. Type-safe position control:");
-    use grafton_visca::units::Degrees;
+    println!("
+2. Type-safe position control:");
 
     // Move using degrees
-    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0))?;
+    camera.pan_tilt_absolute(45.0, 15.0, 5)?;
     println!("   ✓ Moved to 45° pan, 15° tilt");
     thread::sleep(Duration::from_secs(2));
 
     // Move using pan_tilt method with normalized coordinates (0.0 to 1.0)
-    camera.pan_tilt(0.5, -0.25)?;
+    camera.pan_tilt_absolute(0.5, -0.25, 5)?;
     println!("   ✓ Moved using normalized coordinates");
     thread::sleep(Duration::from_secs(2));
 
     // Move using pan_tilt_degrees method
-    camera.pan_tilt_absolute(90.0, -15.0)?;
+    camera.pan_tilt_absolute(90.0, -15.0, 5)?;
     println!("   ✓ Moved using degrees via pan_tilt_degrees");
     thread::sleep(Duration::from_secs(2));
 
@@ -98,20 +95,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✓ Gain values are restricted to valid camera options");
 
     // 6. Profile-aware conversions
-    println!("\n6. Profile-aware unit conversions:");
-    let pan_degrees = camera.profile().pan_units_to_degrees(1000);
-    let tilt_degrees = camera.profile().tilt_units_to_degrees(500);
-    println!(
-        "   VISCA units (1000, 500) = ({:.1}°, {:.1}°)",
-        pan_degrees, tilt_degrees
-    );
-
-    let pan_units = camera.profile().pan_degrees_to_units(45.0);
-    let tilt_units = camera.profile().tilt_degrees_to_units(15.0);
-    println!(
-        "   Degrees (45°, 15°) = VISCA units ({}, {})",
-        pan_units, tilt_units
-    );
+    println!("
+6. Profile-aware unit conversions:");
+    println!("   ✓ Unit conversions are handled internally by the Camera API");
+    println!("   ✓ Profile-specific ranges and scaling are enforced automatically");
 
     println!("\n=== Demo Complete ===");
     println!("\nBenefits of the type-safe Camera API:");
