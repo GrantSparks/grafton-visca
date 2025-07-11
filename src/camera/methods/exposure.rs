@@ -171,7 +171,7 @@ where
         async move {
             use crate::command::image::BacklightCommand;
 
-            let command = BacklightCommand { status: enabled };
+            let command = BacklightCommand::new(enabled);
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
@@ -202,7 +202,7 @@ where
         async move {
             use crate::command::gain::GainLimitCommand;
 
-            let command = GainLimitCommand { limit };
+            let command = GainLimitCommand::new(limit);
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),

@@ -26,7 +26,8 @@ struct EnableFlipCommand([u8; 6]);
 impl EnableFlipCommand {
     fn new() -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(commands::IMAGE_FLIP_ON);
+        cmd.append(commands::FLIP_PREFIX);
+        cmd.push(0x02); // On value
         Self(cmd.build())
     }
 }
@@ -89,7 +90,7 @@ where
 
     fn set_contrast(&self, level: ContrastLevel) -> impl Future<Output = Result<(), Error>> {
         async move {
-            let cmd = ContrastCommand { value: level };
+            let cmd = ContrastCommand::new(level);
             match self.send_command(&cmd).await? {
                 Response::Ack => Ok(()),
                 Response::Error(e) => Err(e.into()),
@@ -113,7 +114,7 @@ where
 
     fn set_saturation(&self, level: SaturationLevel) -> impl Future<Output = Result<(), Error>> {
         async move {
-            let cmd = SaturationCommand { level };
+            let cmd = SaturationCommand::new(level);
             match self.send_command(&cmd).await? {
                 Response::Ack => Ok(()),
                 Response::Error(e) => Err(e.into()),
@@ -124,7 +125,7 @@ where
 
     fn set_hue(&self, level: HueLevel) -> impl Future<Output = Result<(), Error>> {
         async move {
-            let cmd = HueCommand { level };
+            let cmd = HueCommand::new(level);
             match self.send_command(&cmd).await? {
                 Response::Ack => Ok(()),
                 Response::Error(e) => Err(e.into()),

@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{response::ResponseType, Command},
+    command::{response::ResponseType, Command, const_encoding::CommandBuilder},
     constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
@@ -18,11 +18,31 @@ use crate::{
 /// the current scene. The camera will analyze the image and set the
 /// white balance to achieve neutral colors.
 #[derive(Debug, Copy, Clone)]
-pub struct OnePushTriggerCommand;
+pub struct OnePushTriggerCommand {
+    /// Internal command bytes.
+    command: [u8; 6],
+}
+
+impl OnePushTriggerCommand {
+    /// Create a new one-push white balance trigger command.
+    pub fn new() -> Self {
+        let mut cmd = CommandBuilder::<6>::new();
+        cmd.append(&[0x81, 0x01, 0x04, 0x10, 0x05]);
+        Self {
+            command: cmd.build(),
+        }
+    }
+}
+
+impl Default for OnePushTriggerCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Command for OnePushTriggerCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![0x81, 0x01, 0x04, 0x10, 0x05, 0xFF])
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -43,18 +63,33 @@ impl Command for OnePushTriggerCommand {
 pub struct RedTuningCommand {
     /// Red tuning level.
     pub level: RedTuning,
+    /// Internal command bytes.
+    command: [u8; 6],
 }
 
-impl Command for RedTuningCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+impl RedTuningCommand {
+    /// Create a new red tuning command.
+    pub fn new(level: RedTuning) -> Self {
+        let mut cmd = CommandBuilder::<6>::new();
+        cmd.append(&[0x81, 0x0A, 0x01, 0x12]);
         // Convert -10..+10 to 0x00..0x14
-        let level_value = self.level.value();
+        let level_value = level.value();
         let level_offset = level_value + 10;
         debug_assert!((0..=20).contains(&level_offset));
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
-        Ok(vec![0x81, 0x0A, 0x01, 0x12, encoded, 0xFF])
+        cmd.push(encoded);
+        Self {
+            level,
+            command: cmd.build(),
+        }
+    }
+}
+
+impl Command for RedTuningCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -86,18 +121,33 @@ impl Command for RedTuningCommand {
 pub struct BlueTuningCommand {
     /// Blue tuning level.
     pub level: BlueTuning,
+    /// Internal command bytes.
+    command: [u8; 6],
 }
 
-impl Command for BlueTuningCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+impl BlueTuningCommand {
+    /// Create a new blue tuning command.
+    pub fn new(level: BlueTuning) -> Self {
+        let mut cmd = CommandBuilder::<6>::new();
+        cmd.append(&[0x81, 0x0A, 0x01, 0x13]);
         // Convert -10..+10 to 0x00..0x14
-        let level_value = self.level.value();
+        let level_value = level.value();
         let level_offset = level_value + 10;
         debug_assert!((0..=20).contains(&level_offset));
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
-        Ok(vec![0x81, 0x0A, 0x01, 0x13, encoded, 0xFF])
+        cmd.push(encoded);
+        Self {
+            level,
+            command: cmd.build(),
+        }
+    }
+}
+
+impl Command for BlueTuningCommand {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -129,21 +179,26 @@ impl Command for BlueTuningCommand {
 pub struct SaturationCommand {
     /// Saturation level.
     pub level: SaturationLevel,
+    /// Internal command bytes.
+    command: [u8; 9],
+}
+
+impl SaturationCommand {
+    /// Create a new saturation command.
+    pub fn new(level: SaturationLevel) -> Self {
+        let mut cmd = CommandBuilder::<9>::new();
+        cmd.append(&[0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00]);
+        cmd.push(level.value());
+        Self {
+            level,
+            command: cmd.build(),
+        }
+    }
 }
 
 impl Command for SaturationCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![
-            0x81,
-            0x01,
-            0x04,
-            0x49,
-            0x00,
-            0x00,
-            0x00,
-            self.level.value(),
-            0xFF,
-        ])
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -175,21 +230,26 @@ impl Command for SaturationCommand {
 pub struct HueCommand {
     /// Hue level.
     pub level: HueLevel,
+    /// Internal command bytes.
+    command: [u8; 9],
+}
+
+impl HueCommand {
+    /// Create a new hue command.
+    pub fn new(level: HueLevel) -> Self {
+        let mut cmd = CommandBuilder::<9>::new();
+        cmd.append(&[0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00]);
+        cmd.push(level.value());
+        Self {
+            level,
+            command: cmd.build(),
+        }
+    }
 }
 
 impl Command for HueCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![
-            0x81,
-            0x01,
-            0x04,
-            0x4F,
-            0x00,
-            0x00,
-            0x00,
-            self.level.value(),
-            0xFF,
-        ])
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -350,7 +410,7 @@ mod tests {
 
     #[test]
     fn test_one_push_trigger_command() {
-        let cmd = OnePushTriggerCommand;
+        let cmd = OnePushTriggerCommand::new();
         assert_eq!(
             cmd.to_bytes().unwrap(),
             vec![0x81, 0x01, 0x04, 0x10, 0x05, 0xFF]
@@ -364,7 +424,7 @@ mod tests {
         // Test valid range
         for level in -10..=10 {
             let tuning = RedTuning::new(level).unwrap();
-            let cmd = RedTuningCommand { level: tuning };
+            let cmd = RedTuningCommand::new(tuning);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 6);
             assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x12]);
@@ -384,7 +444,7 @@ mod tests {
         // Test valid G2 values
         for level in -10..=10 {
             let tuning = RedTuning::new(level).unwrap();
-            let cmd = RedTuningCommand { level: tuning };
+            let cmd = RedTuningCommand::new(tuning);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -396,7 +456,7 @@ mod tests {
         // Test valid range
         for level in -10..=10 {
             let tuning = BlueTuning::new(level).unwrap();
-            let cmd = BlueTuningCommand { level: tuning };
+            let cmd = BlueTuningCommand::new(tuning);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(bytes.len(), 6);
             assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x13]);
@@ -416,7 +476,7 @@ mod tests {
         // Test valid G2 values
         for level in -10..=10 {
             let tuning = BlueTuning::new(level).unwrap();
-            let cmd = BlueTuningCommand { level: tuning };
+            let cmd = BlueTuningCommand::new(tuning);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -428,7 +488,7 @@ mod tests {
         // Test valid range
         for level in 0x00..=0x0E {
             let sat_level = SaturationLevel::new(level).unwrap();
-            let cmd = SaturationCommand { level: sat_level };
+            let cmd = SaturationCommand::new(sat_level);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(
                 bytes,
@@ -447,7 +507,7 @@ mod tests {
         // Test valid G2 values
         for level in 0x00..=0x0E {
             let sat_level = SaturationLevel::new(level).unwrap();
-            let cmd = SaturationCommand { level: sat_level };
+            let cmd = SaturationCommand::new(sat_level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -459,7 +519,7 @@ mod tests {
         // Test valid range
         for level in 0x00..=0x0E {
             let hue_level = HueLevel::new(level).unwrap();
-            let cmd = HueCommand { level: hue_level };
+            let cmd = HueCommand::new(hue_level);
             let bytes = cmd.to_bytes().unwrap();
             assert_eq!(
                 bytes,
@@ -478,7 +538,7 @@ mod tests {
         // Test valid G2 values
         for level in 0x00..=0x0E {
             let hue_level = HueLevel::new(level).unwrap();
-            let cmd = HueCommand { level: hue_level };
+            let cmd = HueCommand::new(hue_level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -606,19 +666,11 @@ mod tests {
     fn test_command_traits() {
         // Test that all commands implement Debug and Clone
         let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
-            Box::new(OnePushTriggerCommand),
-            Box::new(RedTuningCommand {
-                level: RedTuning::new(0).unwrap(),
-            }),
-            Box::new(BlueTuningCommand {
-                level: BlueTuning::new(0).unwrap(),
-            }),
-            Box::new(SaturationCommand {
-                level: SaturationLevel::new(0).unwrap(),
-            }),
-            Box::new(HueCommand {
-                level: HueLevel::new(0).unwrap(),
-            }),
+            Box::new(OnePushTriggerCommand::new()),
+            Box::new(RedTuningCommand::new(RedTuning::new(0).unwrap())),
+            Box::new(BlueTuningCommand::new(BlueTuning::new(0).unwrap())),
+            Box::new(SaturationCommand::new(SaturationLevel::new(0).unwrap())),
+            Box::new(HueCommand::new(HueLevel::new(0).unwrap())),
             Box::new(ColorTemperatureCommand::Reset),
             Box::new(RedGainCommand::Reset),
             Box::new(BlueGainCommand::Reset),
@@ -629,9 +681,7 @@ mod tests {
         }
 
         // Test Clone
-        let red_cmd1 = RedTuningCommand {
-            level: RedTuning::new(5).unwrap(),
-        };
+        let red_cmd1 = RedTuningCommand::new(RedTuning::new(5).unwrap());
         let red_cmd2 = red_cmd1;
         assert_eq!(red_cmd1.level.value(), red_cmd2.level.value());
     }
@@ -639,49 +689,33 @@ mod tests {
     #[test]
     fn test_edge_cases() {
         // Test boundary values for tuning commands
-        let red_min = RedTuningCommand {
-            level: RedTuning::new(-10).unwrap(),
-        };
+        let red_min = RedTuningCommand::new(RedTuning::new(-10).unwrap());
         assert!(red_min.to_bytes().is_ok());
         assert_eq!(red_min.to_bytes().unwrap()[4], 0x00);
 
-        let red_max = RedTuningCommand {
-            level: RedTuning::new(10).unwrap(),
-        };
+        let red_max = RedTuningCommand::new(RedTuning::new(10).unwrap());
         assert!(red_max.to_bytes().is_ok());
         assert_eq!(red_max.to_bytes().unwrap()[4], 0x14);
 
-        let blue_min = BlueTuningCommand {
-            level: BlueTuning::new(-10).unwrap(),
-        };
+        let blue_min = BlueTuningCommand::new(BlueTuning::new(-10).unwrap());
         assert!(blue_min.to_bytes().is_ok());
         assert_eq!(blue_min.to_bytes().unwrap()[4], 0x00);
 
-        let blue_max = BlueTuningCommand {
-            level: BlueTuning::new(10).unwrap(),
-        };
+        let blue_max = BlueTuningCommand::new(BlueTuning::new(10).unwrap());
         assert!(blue_max.to_bytes().is_ok());
         assert_eq!(blue_max.to_bytes().unwrap()[4], 0x14);
 
         // Test boundary values for saturation and hue
-        let sat_min = SaturationCommand {
-            level: SaturationLevel::new(0x00).unwrap(),
-        };
+        let sat_min = SaturationCommand::new(SaturationLevel::new(0x00).unwrap());
         assert!(sat_min.to_bytes().is_ok());
 
-        let sat_max = SaturationCommand {
-            level: SaturationLevel::new(0x0E).unwrap(),
-        };
+        let sat_max = SaturationCommand::new(SaturationLevel::new(0x0E).unwrap());
         assert!(sat_max.to_bytes().is_ok());
 
-        let hue_min = HueCommand {
-            level: HueLevel::new(0x00).unwrap(),
-        };
+        let hue_min = HueCommand::new(HueLevel::new(0x00).unwrap());
         assert!(hue_min.to_bytes().is_ok());
 
-        let hue_max = HueCommand {
-            level: HueLevel::new(0x0E).unwrap(),
-        };
+        let hue_max = HueCommand::new(HueLevel::new(0x0E).unwrap());
         assert!(hue_max.to_bytes().is_ok());
 
         // Test boundary value for color temperature
@@ -724,15 +758,11 @@ mod tests {
         for level in -10..=10 {
             let expected = (level + 10) as u8;
 
-            let red_cmd = RedTuningCommand {
-                level: RedTuning::new(level).unwrap(),
-            };
+            let red_cmd = RedTuningCommand::new(RedTuning::new(level).unwrap());
             let red_bytes = red_cmd.to_bytes().unwrap();
             assert_eq!(red_bytes[4], expected);
 
-            let blue_cmd = BlueTuningCommand {
-                level: BlueTuning::new(level).unwrap(),
-            };
+            let blue_cmd = BlueTuningCommand::new(BlueTuning::new(level).unwrap());
             let blue_bytes = blue_cmd.to_bytes().unwrap();
             assert_eq!(blue_bytes[4], expected);
         }

@@ -11,7 +11,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{Command, ResponseType},
+    command::{Command, ResponseType, const_encoding::CommandBuilder},
     error::Error,
     timeout::CommandCategory,
 };
@@ -21,12 +21,31 @@ use crate::{
 /// This is used during initial setup of VISCA cameras on a serial bus.
 /// Note: This is a broadcast command that affects all cameras on the bus.
 #[derive(Debug, Copy, Clone)]
-pub struct AddressSetCommand;
+pub struct AddressSetCommand {
+    /// Internal command bytes.
+    command: [u8; 4],
+}
+
+impl AddressSetCommand {
+    /// Create a new address set command.
+    pub fn new() -> Self {
+        let mut cmd = CommandBuilder::<4>::new();
+        cmd.append(&[0x88, 0x30, 0x01]);
+        Self {
+            command: cmd.build(),
+        }
+    }
+}
+
+impl Default for AddressSetCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Command for AddressSetCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        // Broadcast command: 88 30 01 FF
-        Ok(vec![0x88, 0x30, 0x01, 0xFF])
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -43,12 +62,31 @@ impl Command for AddressSetCommand {
 /// This resets the command buffer and clears any pending commands.
 /// Note: This is a broadcast command that affects all cameras on the bus.
 #[derive(Debug, Copy, Clone)]
-pub struct InterfaceClearCommand;
+pub struct InterfaceClearCommand {
+    /// Internal command bytes.
+    command: [u8; 5],
+}
+
+impl InterfaceClearCommand {
+    /// Create a new interface clear command.
+    pub fn new() -> Self {
+        let mut cmd = CommandBuilder::<5>::new();
+        cmd.append(&[0x88, 0x01, 0x00, 0x01]);
+        Self {
+            command: cmd.build(),
+        }
+    }
+}
+
+impl Default for InterfaceClearCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Command for InterfaceClearCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        // Broadcast command: 88 01 00 01 FF
-        Ok(vec![0x88, 0x01, 0x00, 0x01, 0xFF])
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -76,14 +114,29 @@ pub enum Socket {
 pub struct CommandCancelCommand {
     /// The socket to cancel commands on.
     pub socket: Socket,
+    /// Internal command bytes.
+    command: [u8; 3],
+}
+
+impl CommandCancelCommand {
+    /// Create a new command cancel command.
+    pub fn new(socket: Socket) -> Self {
+        let mut cmd = CommandBuilder::<3>::new();
+        cmd.append(&[0x81]);
+        cmd.push(match socket {
+            Socket::Socket1 => 0x21,
+            Socket::Socket2 => 0x22,
+        });
+        Self {
+            socket,
+            command: cmd.build(),
+        }
+    }
 }
 
 impl Command for CommandCancelCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self.socket {
-            Socket::Socket1 => vec![0x81, 0x21, 0xFF],
-            Socket::Socket2 => vec![0x81, 0x22, 0xFF],
-        })
+        Ok(self.command.to_vec())
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -101,7 +154,7 @@ mod tests {
 
     #[test]
     fn test_address_set_command() {
-        let cmd = AddressSetCommand;
+        let cmd = AddressSetCommand::new();
         assert_eq!(cmd.to_bytes().unwrap(), vec![0x88, 0x30, 0x01, 0xFF]);
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.command_category(), CommandCategory::Quick);
@@ -109,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_interface_clear_command() {
-        let cmd = InterfaceClearCommand;
+        let cmd = InterfaceClearCommand::new();
         assert_eq!(cmd.to_bytes().unwrap(), vec![0x88, 0x01, 0x00, 0x01, 0xFF]);
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.command_category(), CommandCategory::Quick);
@@ -117,9 +170,7 @@ mod tests {
 
     #[test]
     fn test_command_cancel_socket1() {
-        let cmd = CommandCancelCommand {
-            socket: Socket::Socket1,
-        };
+        let cmd = CommandCancelCommand::new(Socket::Socket1);
         assert_eq!(cmd.to_bytes().unwrap(), vec![0x81, 0x21, 0xFF]);
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.command_category(), CommandCategory::Quick);
@@ -127,9 +178,7 @@ mod tests {
 
     #[test]
     fn test_command_cancel_socket2() {
-        let cmd = CommandCancelCommand {
-            socket: Socket::Socket2,
-        };
+        let cmd = CommandCancelCommand::new(Socket::Socket2);
         assert_eq!(cmd.to_bytes().unwrap(), vec![0x81, 0x22, 0xFF]);
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.command_category(), CommandCategory::Quick);
