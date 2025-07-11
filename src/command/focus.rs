@@ -203,7 +203,6 @@ impl Command for AutoFocusSensitivityCommand {
     }
 }
 
-// Use the visca_param_command! macro for FocusNearLimitCommand
 /// Command to set the focus near limit.
 ///
 /// Sets the minimum focus distance to prevent the camera from

@@ -19,34 +19,6 @@ macro_rules! visca_bytes {
     };
 }
 
-/// Alternative macro that returns sized array for stack allocation.
-///
-/// # Example
-/// ```
-/// const HOME_CMD: [u8; 6] = visca_array!(6; 0x81, 0x01, 0x06, 0x04);
-/// // Results in: [0x81, 0x01, 0x06, 0x04, 0x00, 0xFF]
-/// ```
-#[macro_export]
-macro_rules! visca_array {
-    // Must specify size
-    ($size:expr; $($byte:expr),+ $(,)?) => {
-        {
-            const fn make_array() -> [u8; $size] {
-                let mut arr = [0u8; $size];
-                let bytes = [$($byte),+];
-                let mut i = 0;
-                while i < bytes.len() {
-                    arr[i] = bytes[i];
-                    i += 1;
-                }
-                arr[$size - 1] = 0xFF; // Terminator
-                arr
-            }
-            make_array()
-        }
-    };
-}
-
 /// Macro for creating VISCA command prefixes (without terminator).
 ///
 /// # Example
