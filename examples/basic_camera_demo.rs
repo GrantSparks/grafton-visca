@@ -3,22 +3,19 @@
 //! This example demonstrates common camera operations using the async API.
 
 use grafton_visca::{
-    camera::{
-        methods::{
-            ExposureMethodsExt, ImageProcessingMethodsExt, PanTiltMethodsExt, PowerMethodsExt,
-            WhiteBalanceMethodsExt, ZoomMethodsExt,
-        },
-        profiles::PTZOpticsG2,
-        Camera,
+    camera::methods::{
+        ExposureAsyncExt, ImageProcessingAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
+        WhiteBalanceAsyncExt, ZoomAsyncExt,
     },
     command::{
         exposure::ExposureMode, pan_tilt::PanTiltDirection, white_balance::WhiteBalanceMode,
     },
-    transport::tokio::Tcp,
+    profiles::PTZOpticsG2,
+    transport::tokio::TcpGat,
     types::{PanSpeed, TiltSpeed},
     units::Degrees,
     units::Raw,
-    Error,
+    Camera, Error,
 };
 use std::time::Duration;
 use tokio::time::sleep;
@@ -36,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("====================\n");
 
     // Create async transport
-    let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
+    let transport = TcpGat::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demo 1: Power Control

@@ -8,13 +8,10 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{
-        methods::{InquiryMethodsExt, PanTiltInquiryMethodsExt},
-        Camera,
-    },
+    camera::methods::{InquiryAsyncExt, PanTiltInquiryAsyncExt},
     profiles::PTZOpticsG2,
-    transport::create,
-    Error,
+    transport::tokio::TcpGat,
+    Camera, Error,
 };
 
 // Include the transport implementation from the example file
@@ -39,7 +36,7 @@ async fn main() -> Result<(), Error> {
 
     // Connect to camera
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = create::tcp(&camera_addr).await?;
+    let transport = TcpGat::connect(&camera_addr).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Query power state

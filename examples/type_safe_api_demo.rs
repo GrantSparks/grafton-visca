@@ -11,13 +11,11 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{
-        methods::{ExposureMethodsExt, PanTiltMethodsExt, PresetMethodsExt},
-        Camera,
-    },
+    camera::methods::{ExposureBlockingExt, PanTiltBlockingExt, PresetBlockingExt},
     profiles::PTZOpticsG2,
-    transport::blocking::create,
+    transport::blocking::UdpGat,
     types::{Gain, GainLimit},
+    CameraBlocking,
 };
 #[cfg(not(feature = "async"))]
 use std::thread;
@@ -29,8 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Connect to camera using the new Camera API
-    let transport = create::udp("192.168.1.100:5678")?;
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let transport = UdpGat::connect("192.168.1.100:5678")?;
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Type-Safe Camera API Demo ===\n");
 

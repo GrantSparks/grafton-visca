@@ -4,10 +4,11 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::Camera,
+    camera::methods::WhiteBalanceAsyncExt,
     profiles::PTZOpticsG2,
-    transport::create,
+    transport::tokio::UdpGat,
     types::{BlueTuning, RedTuning},
+    Camera,
 };
 
 #[cfg(feature = "tokio")]
@@ -17,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Create camera with PTZOptics G2 profile
-    let transport = create::udp("192.168.1.100:52381").await?;
+    let transport = UdpGat::connect("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate fine-tuning commands

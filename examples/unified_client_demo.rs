@@ -3,25 +3,26 @@
 //! This example shows how the Camera API works seamlessly with
 //! different transport adapters for blocking and async usage.
 
-#[cfg(any(not(feature = "async"), feature = "tokio"))]
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{
-        methods::{FocusMethodsExt, PanTiltMethodsExt, PowerMethodsExt, ZoomMethodsExt},
-        Camera,
-    },
+    camera::methods::{FocusBlockingExt, PanTiltBlockingExt, PowerBlockingExt, ZoomBlockingExt},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    types::{PanSpeed, TiltSpeed},
-    units::Degrees,
-    Error,
+    transport::blocking::{TcpGat, UdpGat},
+    CameraBlocking, Error,
 };
+
+#[cfg(all(feature = "async", feature = "tokio"))]
+use grafton_visca::{
+    camera::methods::{FocusAsyncExt, PanTiltAsyncExt, PowerAsyncExt, ZoomAsyncExt},
+    command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
+    transport::tokio::{TcpGat, UdpGat},
+    Camera, Error,
+};
+
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
 use std::time::Duration;
-
-#[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::create;
-#[cfg(all(feature = "async", feature = "tokio"))]
-use grafton_visca::transport::create;
 
 // ==================== BLOCKING EXAMPLES ====================
 
@@ -30,8 +31,8 @@ fn blocking_udp_example() -> Result<(), Error> {
     println!("=== Blocking UDP Example ===");
 
     // Create a camera with blocking UDP transport
-    let transport = create::udp("192.168.1.100:5678")?;
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let transport = UdpGat::connect("192.168.1.100:5678")?;
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     // All operations are synchronous
     println!("Powering on camera...");
@@ -53,15 +54,15 @@ fn blocking_tcp_example() -> Result<(), Error> {
     println!("\n=== Blocking TCP Example ===");
 
     // Create a camera with blocking TCP transport
-    let transport = create::tcp("192.168.1.100:5678")?;
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let transport = TcpGat::connect("192.168.1.100:5678")?;
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     // All operations are synchronous
     println!("Powering on camera...");
     camera.power_on()?;
 
     println!("Setting position...");
-    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0))?;
+    camera.pan_tilt_absolute(45.0, 15.0, 10)?;
 
     println!("Adjusting focus...");
     camera.focus_auto()?;
@@ -73,19 +74,19 @@ fn blocking_tcp_example() -> Result<(), Error> {
 fn blocking_movement_example() -> Result<(), Error> {
     println!("\n=== Blocking Movement Example ===");
 
-    let transport = create::udp("192.168.1.100:5678")?;
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let transport = UdpGat::connect("192.168.1.100:5678")?;
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     println!("Moving camera up...");
-    camera.pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)?;
+    camera.pan_tilt_move(PanTiltDirection::Up, 0, 10)?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;
 
     println!("Moving camera down...");
     camera.pan_tilt_move(
         PanTiltDirection::Down,
-        PanSpeed::new(0)?,
-        TiltSpeed::new(10)?,
+        0,
+        10,
     )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;
@@ -100,7 +101,7 @@ async fn async_udp_example() -> Result<(), Error> {
     println!("=== Async UDP Example ===");
 
     // Create a camera with async UDP transport
-    let transport = create::udp("192.168.1.100:5678").await?;
+    let transport = UdpGat::connect("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // All operations are async
@@ -123,7 +124,7 @@ async fn async_tcp_example() -> Result<(), Error> {
     println!("\n=== Async TCP Example ===");
 
     // Create a camera with async TCP transport
-    let transport = create::tcp("192.168.1.100:5678").await?;
+    let transport = TcpGat::connect("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // All operations are async
@@ -132,7 +133,7 @@ async fn async_tcp_example() -> Result<(), Error> {
 
     println!("Setting position...");
     camera
-        .pan_tilt_absolute(Degrees(45.0), Degrees(15.0))
+        .pan_tilt_absolute(45.0, 15.0, 10)
         .await?;
 
     println!("Adjusting focus...");
@@ -145,12 +146,12 @@ async fn async_tcp_example() -> Result<(), Error> {
 async fn async_movement_example() -> Result<(), Error> {
     println!("\n=== Async Movement Example ===");
 
-    let transport = create::udp("192.168.1.100:5678").await?;
+    let transport = UdpGat::connect("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Moving camera up...");
     camera
-        .pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)
+        .pan_tilt_move(PanTiltDirection::Up, 0, 10)
         .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     camera.pan_tilt_stop().await?;
@@ -159,8 +160,8 @@ async fn async_movement_example() -> Result<(), Error> {
     camera
         .pan_tilt_move(
             PanTiltDirection::Down,
-            PanSpeed::new(0)?,
-            TiltSpeed::new(10)?,
+            0,
+            10,
         )
         .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;

@@ -10,13 +10,10 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{
-        methods::{FocusMethodsExt, PanTiltMethodsExt, PresetMethodsExt, ZoomMethodsExt},
-        profiles::PTZOpticsG2,
-        Camera,
-    },
-    transport::blocking::create,
-    Error,
+    camera::methods::{FocusBlockingExt, PanTiltBlockingExt, PresetBlockingExt, ZoomBlockingExt},
+    profiles::PTZOpticsG2,
+    transport::blocking::UdpGat,
+    CameraBlocking, Error,
 };
 #[cfg(not(feature = "async"))]
 use std::{env, time::Duration};
@@ -37,8 +34,8 @@ fn main() -> Result<(), Error> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
-    let transport = create::udp(camera_addr)?;
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let transport = UdpGat::connect(camera_addr)?;
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     println!("\n=== Camera Control Demo ===\n");
 

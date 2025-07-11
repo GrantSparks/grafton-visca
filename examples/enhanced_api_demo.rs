@@ -5,16 +5,13 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{
-        methods::{
-            ExposureMethodsExt, ImageProcessingMethodsExt, PanTiltMethodsExt, PowerMethodsExt,
-            WhiteBalanceMethodsExt, ZoomMethodsExt,
-        },
-        Camera,
+    camera::methods::{
+        ExposureAsyncExt, ImageProcessingAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
+        WhiteBalanceAsyncExt, ZoomAsyncExt,
     },
     profiles::PTZOpticsG2,
-    transport::create,
-    Error,
+    transport::tokio::UdpGat,
+    Camera, Error,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -27,7 +24,7 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Connect to camera using new Camera API with UDP transport
-    let transport = create::udp("192.168.1.100:5678").await?;
+    let transport = UdpGat::connect("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Enhanced Camera API Demo ===\n");

@@ -10,12 +10,10 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{
-        methods::{PanTiltMethodsExt, PowerMethodsExt},
-        Camera,
-    },
+    camera::methods::{PanTiltBlockingExt, PowerBlockingExt},
     profiles::PTZOpticsG2,
-    transport::blocking::create,
+    transport::blocking::TcpGat,
+    CameraBlocking,
 };
 #[cfg(not(feature = "async"))]
 use std::env;
@@ -33,8 +31,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at {}", camera_addr);
 
     // Create camera with blocking TCP transport
-    let transport = create::tcp(&camera_addr)?;
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let transport = TcpGat::connect(&camera_addr)?;
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     // Power on the camera
     println!("Powering on camera...");

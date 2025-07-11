@@ -5,9 +5,10 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{profiles::GenericVisca, Camera},
     command::zoom::ZoomCommand,
-    transport::tokio::Tcp,
+    profiles::GenericVisca,
+    transport::tokio::TcpGat,
+    Camera,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -27,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create TCP transport directly
     let addr = "192.168.1.100:5678";
-    match Tcp::connect_timeout(addr, Duration::from_secs(5)).await {
+    match TcpGat::connect_timeout(addr, Duration::from_secs(5)).await {
         Ok(transport) => {
             println!("✓ TCP transport created for {}", addr);
 
