@@ -47,6 +47,7 @@ where
     fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + '_;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> TallyCoreExt<P, T> for CameraCore<P, T>
 where
     P: ProfileMetadata,

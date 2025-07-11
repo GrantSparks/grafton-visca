@@ -53,6 +53,7 @@ where
     fn zoom_absolute(&self, position: f32) -> impl Future<Output = Result<(), Error>> + '_;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> ZoomCoreExt<P, T> for CameraCore<P, T>
 where
     P: ProfileMetadata + Zoom,
