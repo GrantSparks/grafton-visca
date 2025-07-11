@@ -16,8 +16,9 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::Camera, profiles::PTZOpticsG2,
+    camera::Camera,
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     transport::blocking::create,
     types::{PanSpeed, TiltSpeed},
     units::Degrees,

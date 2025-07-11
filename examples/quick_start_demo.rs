@@ -57,7 +57,7 @@ fn main() -> Result<(), Error> {
     println!("Saved preset 1");
 
     // Move camera to specific position
-    camera.pan_tilt_absolute(Degrees(45.0), Degrees(-15.0))?;
+    camera.pan_tilt_absolute(45.0, -15.0, 5)?;
     println!("Moved to 45° pan, -15° tilt");
 
     // Zoom control

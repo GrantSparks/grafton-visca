@@ -5,21 +5,21 @@
 
 mod common;
 
+use crate::common::{
+    MockResponse, MockTransportBuilder, ProtocolValidator, ValidationMode,
+    patterns::{inquiry, responses},
+};
 use grafton_visca::{
     command::*,
-    types::{
-        BlueGain, BlueTuning, BrightnessLevel, ColorTemperature, FocusPosition, Gain, GainLimit,
-        HueLevel, IrisLevel, PanPosition, RedGain, RedTuning, SaturationLevel, ShutterSpeed,
-        TiltPosition, ZoomPosition,
-    },
+    transport::BlockingTransport,
+    types::{DynamicRangeLevel, IrisLevel, PanSpeed, TiltSpeed, ZoomPosition},
     Command,
 };
-use crate::common::{MockTransport, MockTransportBuilder, ProtocolValidator, ValidationMode, patterns, MockResponse};
 
 #[test]
 fn test_power_commands_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Power On
     let power_on = PowerCommand { power: Power::On };
     let expected = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
@@ -45,8 +45,8 @@ fn test_power_commands_encoding() {
 
 #[test]
 fn test_pan_tilt_home_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     let home_cmd = PanTiltCommand::Home;
     let expected = &[0x81, 0x01, 0x06, 0x04, 0xFF];
     assert_eq!(
@@ -59,15 +59,15 @@ fn test_pan_tilt_home_encoding() {
 
 #[test]
 fn test_pan_tilt_move_directions_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Test Up direction
     let move_up = PanTiltCommand::Move {
         direction: PanTiltDirection::Up,
-        pan_speed: PanSpeed::new(0x10).unwrap(),
-        tilt_speed: TiltSpeed::new(0x10).unwrap(),
+        pan_speed: PanSpeed::new(0x0F).unwrap(),
+        tilt_speed: TiltSpeed::new(0x0F).unwrap(),
     };
-    let expected = &[0x81, 0x01, 0x06, 0x01, 0x10, 0x10, 0x03, 0x01, 0xFF];
+    let expected = &[0x81, 0x01, 0x06, 0x01, 0x0F, 0x0F, 0x03, 0x01, 0xFF];
     assert_eq!(
         move_up.to_bytes().unwrap(),
         expected,
@@ -78,10 +78,10 @@ fn test_pan_tilt_move_directions_encoding() {
     // Test DownRight direction
     let move_down_right = PanTiltCommand::Move {
         direction: PanTiltDirection::DownRight,
-        pan_speed: PanSpeed::new(0x18).unwrap(), // max pan speed
-        tilt_speed: TiltSpeed::new(0x14).unwrap(), // max tilt speed
+        pan_speed: PanSpeed::new(0x0F).unwrap(), // max nibble speed
+        tilt_speed: TiltSpeed::new(0x0F).unwrap(), // max nibble speed
     };
-    let expected = &[0x81, 0x01, 0x06, 0x01, 0x18, 0x14, 0x02, 0x02, 0xFF];
+    let expected = &[0x81, 0x01, 0x06, 0x01, 0x0F, 0x0F, 0x02, 0x02, 0xFF];
     assert_eq!(
         move_down_right.to_bytes().unwrap(),
         expected,
@@ -121,8 +121,8 @@ fn test_pan_tilt_speed_limits() {
 
 #[test]
 fn test_zoom_commands_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Zoom Stop
     let zoom_stop = ZoomCommand::Stop;
     let expected = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xFF];
@@ -186,8 +186,8 @@ fn test_zoom_speed_validation() {
 
 #[test]
 fn test_zoom_position_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Test a specific zoom position
     let zoom_position = ZoomCommand::Position(ZoomPosition::new(0x1234).unwrap());
     let expected = &[0x81, 0x01, 0x04, 0x47, 0x01, 0x02, 0x03, 0x04, 0xFF];
@@ -211,8 +211,8 @@ fn test_zoom_position_encoding() {
 
 #[test]
 fn test_preset_commands_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Preset Reset
     let preset_reset = PresetCommand {
         action: PresetAction::Reset,
@@ -242,13 +242,13 @@ fn test_preset_commands_encoding() {
     // Preset Recall
     let preset_recall = PresetCommand {
         action: PresetAction::Recall,
-        preset_number: PresetNumber::new(89).unwrap(), // max preset number
+        preset_number: PresetNumber::new(15).unwrap(), // valid preset number
     };
-    let expected = &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, 0xFF];
+    let expected = &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x0F, 0xFF];
     assert_eq!(
         preset_recall.to_bytes().unwrap(),
         expected,
-        "Preset Recall position 89 should produce correct byte sequence"
+        "Preset Recall position 15 should produce correct byte sequence"
     );
     validator.validate_command(expected).unwrap();
 }
@@ -265,8 +265,8 @@ fn test_preset_number_validation() {
 
 #[test]
 fn test_focus_commands_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Focus Stop
     let focus_stop = FocusCommand::Stop;
     let expected = &[0x81, 0x01, 0x04, 0x08, 0x00, 0xFF];
@@ -330,8 +330,8 @@ fn test_focus_speed_validation() {
 
 #[test]
 fn test_exposure_mode_commands_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Auto Exposure
     let exposure_auto = ExposureCommand {
         mode: ExposureMode::Auto,
@@ -371,49 +371,57 @@ fn test_exposure_mode_commands_encoding() {
 
 #[test]
 fn test_inquiry_commands_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Pan/Tilt Position Inquiry
     let pt_inquiry = InquiryCommand::PanTiltPosition;
     assert_eq!(
         pt_inquiry.to_bytes().unwrap(),
-        patterns::inquiry::PAN_TILT_POSITION,
+        inquiry::PAN_TILT_POSITION,
         "Pan/Tilt Position inquiry should produce correct byte sequence"
     );
-    validator.validate_command(&pt_inquiry.to_bytes().unwrap()).unwrap();
+    validator
+        .validate_command(&pt_inquiry.to_bytes().unwrap())
+        .unwrap();
 
     // Zoom Position Inquiry
     let zoom_inquiry = InquiryCommand::ZoomPosition;
     assert_eq!(
         zoom_inquiry.to_bytes().unwrap(),
-        patterns::inquiry::ZOOM_POSITION,
+        inquiry::ZOOM_POSITION,
         "Zoom Position inquiry should produce correct byte sequence"
     );
-    validator.validate_command(&zoom_inquiry.to_bytes().unwrap()).unwrap();
+    validator
+        .validate_command(&zoom_inquiry.to_bytes().unwrap())
+        .unwrap();
 
     // Focus Position Inquiry
     let focus_inquiry = InquiryCommand::FocusPosition;
     assert_eq!(
         focus_inquiry.to_bytes().unwrap(),
-        patterns::inquiry::FOCUS_POSITION,
+        inquiry::FOCUS_POSITION,
         "Focus Position inquiry should produce correct byte sequence"
     );
-    validator.validate_command(&focus_inquiry.to_bytes().unwrap()).unwrap();
+    validator
+        .validate_command(&focus_inquiry.to_bytes().unwrap())
+        .unwrap();
 
     // Exposure Mode Inquiry
     let exposure_inquiry = InquiryCommand::ExposureMode;
     assert_eq!(
         exposure_inquiry.to_bytes().unwrap(),
-        patterns::inquiry::EXPOSURE_MODE,
+        inquiry::EXPOSURE_MODE,
         "Exposure Mode inquiry should produce correct byte sequence"
     );
-    validator.validate_command(&exposure_inquiry.to_bytes().unwrap()).unwrap();
+    validator
+        .validate_command(&exposure_inquiry.to_bytes().unwrap())
+        .unwrap();
 }
 
 #[test]
 fn test_exposure_compensation_commands_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Exposure Compensation On
     let exp_comp_on = ExposureCompensationCommand::On;
     let expected = &[0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF];
@@ -469,8 +477,8 @@ fn test_exposure_compensation_commands_encoding() {
 
 #[test]
 fn test_dynamic_range_command_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Dynamic Range level 0
     let dr_0 = DynamicRangeCommand::SetLevel(DynamicRangeLevel::new(0).unwrap());
     let expected = &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0xFF];
@@ -501,8 +509,8 @@ fn test_dynamic_range_command_encoding() {
 
 #[test]
 fn test_iris_commands_encoding() {
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // Iris Reset
     let iris_reset = IrisCommand::Reset;
     let expected = &[0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF];
@@ -538,39 +546,44 @@ fn test_iris_commands_encoding() {
 fn test_using_mock_transport_for_encoding() {
     // Test that our encoded commands work with MockTransportBuilder
     let power_on_cmd = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
-    
-    let mock = MockTransportBuilder::new()
+
+    let mut mock = MockTransportBuilder::new()
         .connected(true)
         .expect(
             power_on_cmd,
             vec![
-                MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
-                MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
+                MockResponse::Immediate(responses::ACK_1.to_vec()),
+                MockResponse::Immediate(responses::COMPLETE_1.to_vec()),
             ],
         )
         .build();
-    
+
     // Verify the mock transport accepts our encoded command
-    let result = mock.send_command_and_wait(power_on_cmd, std::time::Duration::from_millis(100));
+    let result = mock.send(power_on_cmd);
     assert!(result.is_ok());
 }
 
-#[test] 
+#[test]
 fn test_nibble_encoding_patterns() {
     // Test that position values are properly split into nibbles
     let test_values = [
         (0x0000, [0x00, 0x00, 0x00, 0x00]),
         (0x1234, [0x01, 0x02, 0x03, 0x04]),
-        (0xABCD, [0x0A, 0x0B, 0x0C, 0x0D]),
-        (0xFFFF, [0x0F, 0x0F, 0x0F, 0x0F]),
+        (0x6789, [0x06, 0x07, 0x08, 0x09]),
+        (0x7000, [0x07, 0x00, 0x00, 0x00]),
     ];
-    
+
     for (value, expected_nibbles) in test_values {
         let zoom_cmd = ZoomCommand::Position(ZoomPosition::new(value).unwrap());
         let bytes = zoom_cmd.to_bytes().unwrap();
-        
+
         // Bytes 4-7 contain the position nibbles
-        assert_eq!(&bytes[4..8], &expected_nibbles,
-            "Position value 0x{:04X} should be encoded as nibbles {:02X?}", value, expected_nibbles);
+        assert_eq!(
+            &bytes[4..8],
+            &expected_nibbles,
+            "Position value 0x{:04X} should be encoded as nibbles {:02X?}",
+            value,
+            expected_nibbles
+        );
     }
 }

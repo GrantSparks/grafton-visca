@@ -15,7 +15,7 @@ impl CommandFixtures {
         commands.insert("power_off", vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]);
         commands
     }
-    
+
     /// Get all zoom command fixtures
     pub fn zoom_commands() -> HashMap<&'static str, Vec<u8>> {
         let mut commands = HashMap::new();
@@ -26,17 +26,29 @@ impl CommandFixtures {
         commands.insert("zoom_wide_var_5", vec![0x81, 0x01, 0x04, 0x07, 0x35, 0xFF]);
         commands
     }
-    
+
     /// Get all preset command fixtures
     pub fn preset_commands() -> HashMap<&'static str, Vec<u8>> {
         let mut commands = HashMap::new();
-        commands.insert("preset_set_1", vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x01, 0xFF]);
-        commands.insert("preset_recall_1", vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x01, 0xFF]);
-        commands.insert("preset_set_2", vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x02, 0xFF]);
-        commands.insert("preset_recall_2", vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x02, 0xFF]);
+        commands.insert(
+            "preset_set_1",
+            vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x01, 0xFF],
+        );
+        commands.insert(
+            "preset_recall_1",
+            vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x01, 0xFF],
+        );
+        commands.insert(
+            "preset_set_2",
+            vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x02, 0xFF],
+        );
+        commands.insert(
+            "preset_recall_2",
+            vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x02, 0xFF],
+        );
         commands
     }
-    
+
     /// Get all focus command fixtures
     pub fn focus_commands() -> Vec<(&'static str, Vec<u8>)> {
         vec![
@@ -47,14 +59,20 @@ impl CommandFixtures {
             ("focus_near", vec![0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]),
         ]
     }
-    
+
     /// Get edge case commands for testing error handling
     pub fn edge_case_commands() -> Vec<(&'static str, Vec<u8>)> {
         vec![
             ("empty_command", vec![0x81, 0xFF]), // Too short
             ("missing_terminator", vec![0x81, 0x01, 0x04, 0x00, 0x02]), // No FF
             ("invalid_header", vec![0x71, 0x01, 0x04, 0x00, 0x02, 0xFF]), // Wrong header
-            ("maximum_length", vec![0x81, 0x01, 0x06, 0x02, 0x18, 0x18, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF]), // Max nibbles
+            (
+                "maximum_length",
+                vec![
+                    0x81, 0x01, 0x06, 0x02, 0x18, 0x18, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F,
+                    0x0F, 0xFF,
+                ],
+            ), // Max nibbles
         ]
     }
 }
@@ -71,20 +89,20 @@ pub mod generators {
             0x6000, // High zoom
         ]
     }
-    
+
     /// Generate pan/tilt position pairs for testing
     pub fn pan_tilt_positions() -> Vec<(i16, i16)> {
         vec![
-            (0, 0),           // Center/home
-            (-2448, -432),    // Top-left
-            (2448, -432),     // Top-right
-            (-2448, 1296),    // Bottom-left
-            (2448, 1296),     // Bottom-right
-            (1000, 500),      // Arbitrary position
-            (-1000, -500),    // Arbitrary position
+            (0, 0),        // Center/home
+            (-2448, -432), // Top-left
+            (2448, -432),  // Top-right
+            (-2448, 1296), // Bottom-left
+            (2448, 1296),  // Bottom-right
+            (1000, 500),   // Arbitrary position
+            (-1000, -500), // Arbitrary position
         ]
     }
-    
+
     /// Generate speed values for testing
     pub fn speed_values() -> Vec<u8> {
         vec![
@@ -95,17 +113,17 @@ pub mod generators {
             0x1F, // Maximum speed (not all cameras support)
         ]
     }
-    
+
     /// Generate preset IDs for testing
     pub fn preset_ids() -> Vec<u8> {
         vec![0, 1, 2, 3, 4, 5, 10, 15, 20, 50, 99, 127]
     }
-    
+
     /// Alias for preset_ids for backward compatibility
     pub fn preset_numbers() -> Vec<u8> {
         preset_ids()
     }
-    
+
     /// Generate exposure mode values
     pub fn exposure_modes() -> Vec<u8> {
         vec![
@@ -116,7 +134,7 @@ pub mod generators {
             0x0D, // Bright mode
         ]
     }
-    
+
     /// Generate white balance modes
     pub fn white_balance_modes() -> Vec<u8> {
         vec![
@@ -128,7 +146,7 @@ pub mod generators {
             0x05, // Manual
         ]
     }
-    
+
     /// Generate shutter speed indices
     pub fn shutter_speeds() -> Vec<u8> {
         vec![
@@ -145,7 +163,7 @@ pub mod generators {
             0x32, // 1/10000
         ]
     }
-    
+
     /// Generate gain values
     pub fn gain_values() -> Vec<u8> {
         vec![

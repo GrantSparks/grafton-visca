@@ -7,7 +7,7 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{Camera, methods::InquiryMethodsExt},
+    camera::{methods::InquiryMethodsExt, Camera},
     profiles::PTZOpticsG2,
     transport::blocking::{create, BlockingTransport},
     Error,
@@ -42,11 +42,15 @@ fn main() -> Result<(), Error> {
 
 #[cfg(not(feature = "async"))]
 fn run_inquiries<T: BlockingTransport>(camera: &mut Camera<PTZOpticsG2, T>) -> Result<(), Error> {
-    println!("
-=== VISCA Inquiry Command Demo ===");
+    println!(
+        "
+=== VISCA Inquiry Command Demo ==="
+    );
     println!("This demonstrates using the high-level inquiry methods.");
-    println!("All commands are sent and parsed automatically.
-");
+    println!(
+        "All commands are sent and parsed automatically.
+"
+    );
 
     // Example 1: Query power state
     println!("1. Querying power state...");

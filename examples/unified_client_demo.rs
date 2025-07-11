@@ -131,7 +131,9 @@ async fn async_tcp_example() -> Result<(), Error> {
     camera.power_on().await?;
 
     println!("Setting position...");
-    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0)).await?;
+    camera
+        .pan_tilt_absolute(Degrees(45.0), Degrees(15.0))
+        .await?;
 
     println!("Adjusting focus...");
     camera.focus_auto().await?;

@@ -94,7 +94,9 @@ where
     T: crate::transport::blocking::BlockingTransport,
 {
     fn one_push_trigger(&mut self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_blocking(&OnePushTriggerCommand.to_bytes()?)?;
+        let response_bytes = self
+            .transport
+            .send_blocking(&OnePushTriggerCommand.to_bytes()?)?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
@@ -110,7 +112,7 @@ where
                 let cmd = ColorTemperatureCommand::SetTemperature(t);
                 let response_bytes = self.transport.send_blocking(&cmd.to_bytes()?)?;
                 crate::command::Response::parse(&response_bytes)?.into_result()
-            },
+            }
             None => {
                 use crate::command::inquiry::InquiryCommand;
                 let cmd = InquiryCommand::ColorTemperature;
@@ -163,7 +165,10 @@ where
     T: crate::transport::AsyncTransport,
 {
     async fn one_push_trigger(&self) -> Result<(), Error> {
-        let response_bytes = self.transport.send_async(&OnePushTriggerCommand.to_bytes()?).await?;
+        let response_bytes = self
+            .transport
+            .send_async(&OnePushTriggerCommand.to_bytes()?)
+            .await?;
         crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
@@ -179,7 +184,7 @@ where
                 let cmd = ColorTemperatureCommand::SetTemperature(t);
                 let response_bytes = self.transport.send_async(&cmd.to_bytes()?).await?;
                 crate::command::Response::parse(&response_bytes)?.into_result()
-            },
+            }
             None => {
                 use crate::command::inquiry::InquiryCommand;
                 let cmd = InquiryCommand::ColorTemperature;

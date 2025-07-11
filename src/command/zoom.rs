@@ -196,4 +196,3 @@ impl Command for DigitalZoomCommand {
         CommandCategory::Quick
     }
 }
-

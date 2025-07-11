@@ -5,15 +5,15 @@
 
 mod common;
 
+use crate::common::{MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
     command::{
-        gain::AntiFlickerMode, image_adjustment::SharpnessMode, AutoFocusSensitivity, ExposureMode,
-        FocusZone, InquiryResponse, Response, ResponseType, WhiteBalanceMode,
-        response::parse_response,
+        gain::AntiFlickerMode, image_adjustment::SharpnessMode, response::parse_response,
+        AutoFocusSensitivity, ExposureMode, FocusZone, InquiryResponse, Response, ResponseType,
+        WhiteBalanceMode,
     },
     Error,
 };
-use crate::common::{MockTransport, ProtocolValidator, ValidationMode, ResponseBuilder};
 
 #[test]
 fn test_response_debug() {
@@ -343,9 +343,7 @@ fn test_parse_auto_focus_sensitivity_values() {
         let response = vec![0x90, 0x50, byte, 0xFF];
         let result = parse_response(&response, &ResponseType::AutoFocusSensitivity).unwrap();
         match result {
-            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity {
-                sensitivity,
-            }) => {
+            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
                 assert_eq!(sensitivity, expected_sensitivity);
             }
             _ => panic!("Expected AutoFocusSensitivity inquiry response"),
@@ -526,15 +524,15 @@ fn test_edge_case_values() {
 #[test]
 fn test_protocol_compliance_with_validator() {
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+
     // Test that various response formats comply with protocol
     let responses = vec![
-        vec![0x90, 0x41, 0xFF], // ACK
-        vec![0x90, 0x51, 0xFF], // Completion
-        vec![0x90, 0x50, 0x02, 0xFF], // Power inquiry response
+        vec![0x90, 0x41, 0xFF],                         // ACK
+        vec![0x90, 0x51, 0xFF],                         // Completion
+        vec![0x90, 0x50, 0x02, 0xFF],                   // Power inquiry response
         vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF], // Zoom position response
     ];
-    
+
     for response in responses {
         // Responses don't go through command validation, but we can check format
         assert!(response.len() >= 3);
@@ -549,14 +547,12 @@ fn test_response_builder_integration() {
     let ack = ResponseBuilder::ack(1);
     let result = parse_response(&ack, &ResponseType::Power).unwrap();
     assert!(matches!(result, Response::Ack));
-    
+
     let completion = ResponseBuilder::completion(1);
     let result = parse_response(&completion, &ResponseType::Power).unwrap();
     assert!(matches!(result, Response::Completion));
-    
-    let power_on = ResponseBuilder::inquiry()
-        .add_on_off(true)
-        .build();
+
+    let power_on = ResponseBuilder::inquiry().add_on_off(true).build();
     let result = parse_response(&power_on, &ResponseType::Power).unwrap();
     match result {
         Response::InquiryResponse(InquiryResponse::Power { on }) => assert!(on),

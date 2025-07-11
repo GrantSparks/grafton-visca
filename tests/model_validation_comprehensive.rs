@@ -5,8 +5,8 @@
 
 mod common;
 
-use grafton_visca::{constants::CameraModel, Command};
 use crate::common::{MockTransport, ProtocolValidator, ValidationMode};
+use grafton_visca::{constants::CameraModel, Command};
 
 /// Helper function to test that a command is valid for G2
 fn assert_valid_for_g2<C: Command>(command: &C) {
@@ -19,23 +19,27 @@ fn assert_valid_for_g2<C: Command>(command: &C) {
 /// Helper function to test command validation with mock transport
 fn test_command_with_mock<C: Command>(command: &C, description: &str) {
     let mut mock = MockTransport::new();
-    let validator = ProtocolValidator::new(ValidationMode::Strict);
-    
+    let mut validator = ProtocolValidator::new(ValidationMode::Strict);
+
     // First validate for G2
     assert_valid_for_g2(command);
-    
+
     // Test encoding
     let bytes = command.to_bytes().unwrap();
     validator.validate_command(&bytes).unwrap();
-    
+
     // Test with mock transport
     mock.expect_command(&bytes)
         .described_as(description)
         .will_ack(1)
         .will_complete(1);
-    
-    let result = mock.send_command_and_wait(&bytes, std::time::Duration::from_millis(100));
-    assert!(result.is_ok(), "Mock transport should accept valid G2 command: {}", description);
+
+    let result = mock.send(&bytes);
+    assert!(
+        result.is_ok(),
+        "Mock transport should accept valid G2 command: {}",
+        description
+    );
 }
 
 mod power_commands {
@@ -46,7 +50,12 @@ mod power_commands {
     fn test_power_commands() {
         // All power commands should be valid for G2
         test_command_with_mock(&PowerCommand { power: Power::On }, "power on");
-        test_command_with_mock(&PowerCommand { power: Power::Standby }, "power standby");
+        test_command_with_mock(
+            &PowerCommand {
+                power: Power::Standby,
+            },
+            "power standby",
+        );
     }
 }
 
@@ -71,12 +80,12 @@ mod zoom_commands {
         for speed in 0..=7 {
             let zoom_speed = ZoomSpeed::new(speed).unwrap();
             test_command_with_mock(
-                &ZoomCommand::TeleVariable(zoom_speed), 
-                &format!("zoom tele variable speed {}", speed)
+                &ZoomCommand::TeleVariable(zoom_speed),
+                &format!("zoom tele variable speed {}", speed),
             );
             test_command_with_mock(
-                &ZoomCommand::WideVariable(zoom_speed), 
-                &format!("zoom wide variable speed {}", speed)
+                &ZoomCommand::WideVariable(zoom_speed),
+                &format!("zoom wide variable speed {}", speed),
             );
         }
     }
@@ -92,11 +101,11 @@ mod zoom_commands {
             (0x3000, "zoom position mid"),
             (0x7000, "zoom position 20X optical limit"),
         ];
-        
+
         for (pos, desc) in positions {
             test_command_with_mock(
                 &ZoomCommand::Position(ZoomPosition::new(pos).unwrap()),
-                desc
+                desc,
             );
         }
 
@@ -133,11 +142,11 @@ mod focus_commands {
             let focus_speed = FocusSpeed::new(speed).unwrap();
             test_command_with_mock(
                 &FocusCommand::FarWithSpeed(focus_speed),
-                &format!("focus far with speed {}", speed)
+                &format!("focus far with speed {}", speed),
             );
             test_command_with_mock(
                 &FocusCommand::NearWithSpeed(focus_speed),
-                &format!("focus near with speed {}", speed)
+                &format!("focus near with speed {}", speed),
             );
         }
     }
@@ -152,11 +161,11 @@ mod focus_commands {
             (0x8000, "focus position mid"),
             (0xF000, "focus position near limit"),
         ];
-        
+
         for (pos, desc) in positions {
             test_command_with_mock(
                 &FocusCommand::Position(FocusPosition::new(pos).unwrap()),
-                desc
+                desc,
             );
         }
 
@@ -190,7 +199,7 @@ mod focus_commands {
             (FocusZone::Center, "focus zone center"),
             (FocusZone::Bottom, "focus zone bottom"),
         ];
-        
+
         for (zone, desc) in zones {
             test_command_with_mock(&FocusZoneCommand { zone }, desc);
         }
@@ -203,7 +212,7 @@ mod focus_commands {
             (AutoFocusSensitivity::Low, "af sensitivity low"),
             (AutoFocusSensitivity::High, "af sensitivity high"),
         ];
-        
+
         for (sensitivity, desc) in sensitivities {
             test_command_with_mock(&AutoFocusSensitivityCommand { sensitivity }, desc);
         }
@@ -219,13 +228,13 @@ mod focus_commands {
             (0x8000, "focus near limit mid"),
             (0xF000, "focus near limit near"),
         ];
-        
+
         for (pos, desc) in positions {
             test_command_with_mock(
                 &FocusNearLimitCommand {
                     position: FocusPosition::new(pos).unwrap(),
                 },
-                desc
+                desc,
             );
         }
     }
@@ -271,7 +280,7 @@ mod pan_tilt_commands {
                     pan_speed,
                     tilt_speed,
                 },
-                desc
+                desc,
             );
         }
     }
@@ -287,7 +296,7 @@ mod pan_tilt_commands {
                     pan_speed,
                     tilt_speed: TiltSpeed::new(0x10).unwrap(),
                 },
-                &format!("pan move with speed {}", speed)
+                &format!("pan move with speed {}", speed),
             );
         }
 
@@ -300,7 +309,7 @@ mod pan_tilt_commands {
                     pan_speed: PanSpeed::new(0x10).unwrap(),
                     tilt_speed,
                 },
-                &format!("tilt move with speed {}", speed)
+                &format!("tilt move with speed {}", speed),
             );
         }
     }
@@ -317,7 +326,7 @@ mod pan_tilt_commands {
             (2448, 1296, "absolute position max"),
             (-2448, -432, "absolute position min"),
         ];
-        
+
         for (pan, tilt, desc) in positions {
             test_command_with_mock(
                 &PanTiltCommand::AbsolutePosition {
@@ -326,7 +335,7 @@ mod pan_tilt_commands {
                     pan_speed,
                     tilt_speed,
                 },
-                desc
+                desc,
             );
         }
 
@@ -347,7 +356,7 @@ mod pan_tilt_commands {
             (100, 100, "relative position positive"),
             (-100, -100, "relative position negative"),
         ];
-        
+
         for (pan, tilt, desc) in positions {
             test_command_with_mock(
                 &PanTiltCommand::RelativePosition {
@@ -356,7 +365,7 @@ mod pan_tilt_commands {
                     pan_speed,
                     tilt_speed,
                 },
-                desc
+                desc,
             );
         }
     }
@@ -384,7 +393,7 @@ mod preset_commands {
                         action,
                         preset_number: preset,
                     },
-                    &format!("preset {} {}", action_name, preset_id)
+                    &format!("preset {} {}", action_name, preset_id),
                 );
             }
         }
@@ -393,8 +402,14 @@ mod preset_commands {
     #[test]
     fn test_preset_limits() {
         // Test that preset number validation works
-        assert!(PresetNumber::new(90).is_err(), "Preset 90 should be invalid");
-        assert!(PresetNumber::new(255).is_err(), "Preset 255 should be invalid");
+        assert!(
+            PresetNumber::new(90).is_err(),
+            "Preset 90 should be invalid"
+        );
+        assert!(
+            PresetNumber::new(255).is_err(),
+            "Preset 255 should be invalid"
+        );
     }
 }
 
@@ -421,7 +436,7 @@ mod exposure_commands {
             (ExposureMode::Iris, "exposure iris priority"),
             (ExposureMode::Bright, "exposure bright"),
         ];
-        
+
         for (mode, desc) in modes {
             test_command_with_mock(&ExposureCommand { mode }, desc);
         }
@@ -436,7 +451,7 @@ mod exposure_commands {
             (ExposureCompensationCommand::Up, "exp comp up"),
             (ExposureCompensationCommand::Down, "exp comp down"),
         ];
-        
+
         for (cmd, desc) in commands {
             test_command_with_mock(&cmd, desc);
         }
@@ -445,9 +460,9 @@ mod exposure_commands {
         for value in [-7, 0, 7] {
             test_command_with_mock(
                 &ExposureCompensationCommand::SetLevel(
-                    ExposureCompensationLevel::new(value).unwrap()
+                    ExposureCompensationLevel::new(value).unwrap(),
                 ),
-                &format!("exp comp level {}", value)
+                &format!("exp comp level {}", value),
             );
         }
     }
@@ -465,7 +480,7 @@ mod exposure_commands {
             (IrisCommand::Up, "iris up"),
             (IrisCommand::Down, "iris down"),
         ];
-        
+
         for (cmd, desc) in commands {
             test_command_with_mock(&cmd, desc);
         }
@@ -474,7 +489,7 @@ mod exposure_commands {
         for value in [0x00, 0x06, 0x0C] {
             test_command_with_mock(
                 &IrisCommand::SetAperture(IrisLevel::new(value).unwrap()),
-                &format!("iris aperture 0x{:02X}", value)
+                &format!("iris aperture 0x{:02X}", value),
             );
         }
     }
@@ -486,7 +501,7 @@ mod exposure_commands {
             (GainCommand::Up, "gain up"),
             (GainCommand::Down, "gain down"),
         ];
-        
+
         for (cmd, desc) in commands {
             test_command_with_mock(&cmd, desc);
         }
@@ -495,7 +510,7 @@ mod exposure_commands {
         for value in [0x00, 0x03, 0x07] {
             test_command_with_mock(
                 &GainCommand::SetValue(Gain::new(value).unwrap()),
-                &format!("gain value {}", value)
+                &format!("gain value {}", value),
             );
         }
     }
@@ -508,7 +523,7 @@ mod exposure_commands {
                 &GainLimitCommand {
                     limit: GainLimit::new(value).unwrap(),
                 },
-                &format!("gain limit {}", value)
+                &format!("gain limit {}", value),
             );
         }
     }
@@ -518,10 +533,8 @@ mod exposure_commands {
         // Valid range: 0 to 8
         for value in [0, 4, 8] {
             test_command_with_mock(
-                &DynamicRangeCommand::SetLevel(
-                    DynamicRangeLevel::new(value).unwrap()
-                ),
-                &format!("dynamic range {}", value)
+                &DynamicRangeCommand::SetLevel(DynamicRangeLevel::new(value).unwrap()),
+                &format!("dynamic range {}", value),
             );
         }
     }
@@ -533,7 +546,7 @@ mod exposure_commands {
             (AntiFlickerMode::Hz50, "anti flicker 50Hz"),
             (AntiFlickerMode::Hz60, "anti flicker 60Hz"),
         ];
-        
+
         for (mode, desc) in modes {
             test_command_with_mock(&AntiFlickerCommand { mode }, desc);
         }
@@ -560,7 +573,7 @@ mod white_balance_commands {
             (WhiteBalanceMode::Manual, "wb manual"),
             (WhiteBalanceMode::ColorTemperature, "wb color temperature"),
         ];
-        
+
         for (mode, desc) in modes {
             test_command_with_mock(&WhiteBalanceCommand { mode }, desc);
         }
@@ -581,13 +594,13 @@ mod white_balance_commands {
                 &RedTuningCommand {
                     level: RedTuning::new(value).unwrap(),
                 },
-                &format!("red tuning {}", value)
+                &format!("red tuning {}", value),
             );
             test_command_with_mock(
                 &BlueTuningCommand {
                     level: BlueTuning::new(value).unwrap(),
                 },
-                &format!("blue tuning {}", value)
+                &format!("blue tuning {}", value),
             );
         }
     }
@@ -598,7 +611,7 @@ fn test_comprehensive_g2_coverage() {
     // This test ensures we've covered all major command categories
     let test_modules = [
         "power_commands",
-        "zoom_commands", 
+        "zoom_commands",
         "focus_commands",
         "pan_tilt_commands",
         "preset_commands",
@@ -616,20 +629,23 @@ fn test_comprehensive_g2_coverage() {
 fn test_mock_transport_integration_with_g2_commands() {
     // Test that G2 commands work end-to-end with mock transport
     let mut mock = MockTransport::new();
-    
+
     // Setup a realistic command sequence
     let power_on = PowerCommand { power: Power::On };
     let power_on_bytes = power_on.to_bytes().unwrap();
-    
+
     mock.expect_command(&power_on_bytes)
         .described_as("G2 power on sequence")
         .will_ack(1)
         .will_complete(1);
-    
+
     // Validate for G2
     assert_valid_for_g2(&power_on);
-    
+
     // Execute through mock
     let result = mock.send_command_and_wait(&power_on_bytes, std::time::Duration::from_millis(100));
-    assert!(result.is_ok(), "G2 command should execute successfully through mock transport");
+    assert!(
+        result.is_ok(),
+        "G2 command should execute successfully through mock transport"
+    );
 }

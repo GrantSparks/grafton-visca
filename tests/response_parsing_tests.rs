@@ -2,14 +2,12 @@
 
 mod common;
 
+use crate::common::{patterns, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::command::gain::AntiFlickerMode;
 use grafton_visca::command::response::{parse_response, Response};
 use grafton_visca::command::{AutoFocusSensitivity, FocusZone, SharpnessMode};
 use grafton_visca::command::{InquiryResponse, ResponseType};
 use grafton_visca::Error;
-use crate::common::{
-    patterns, ResponseBuilder, ProtocolValidator, ValidationMode
-};
 
 #[cfg(test)]
 mod response_parsing_tests {
@@ -19,7 +17,7 @@ mod response_parsing_tests {
     fn test_parse_ack_response() {
         // Test ACK responses using patterns
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        
+
         // ACK for socket 0
         let ack_bytes = patterns::responses::ACK_1;
         let response = parse_response(ack_bytes, &ResponseType::PanTiltPosition);
@@ -36,7 +34,7 @@ mod response_parsing_tests {
     #[test]
     fn test_parse_completion_response() {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        
+
         // Completion for socket 0
         let completion_bytes = patterns::responses::COMPLETE_1;
         let response = parse_response(completion_bytes, &ResponseType::PanTiltPosition);
@@ -53,7 +51,7 @@ mod response_parsing_tests {
     #[test]
     fn test_parse_error_responses() {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        
+
         // Test Syntax Error using pattern
         let error_bytes = patterns::responses::SYNTAX_ERROR;
         let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
@@ -77,10 +75,10 @@ mod response_parsing_tests {
     fn test_parse_pan_tilt_position_response() {
         // Use ResponseBuilder for pan/tilt position
         let pt_response_bytes = ResponseBuilder::inquiry()
-            .add_u16_nibbles(0x1234)  // Pan position
-            .add_u16_nibbles(0x5678)  // Tilt position
+            .add_u16_nibbles(0x1234) // Pan position
+            .add_u16_nibbles(0x5678) // Tilt position
             .build();
-            
+
         let response = parse_response(&pt_response_bytes, &ResponseType::PanTiltPosition);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt })) => {
@@ -89,7 +87,7 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected PanTiltPosition inquiry response"),
         }
-        
+
         // Validate protocol compliance
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
         assert!(validator.validate_response(&pt_response_bytes).is_ok());
@@ -98,10 +96,8 @@ mod response_parsing_tests {
     #[test]
     fn test_parse_zoom_position_response() {
         // Use ResponseBuilder for zoom position
-        let zoom_response_bytes = ResponseBuilder::inquiry()
-            .add_u16_nibbles(0xABCD)
-            .build();
-            
+        let zoom_response_bytes = ResponseBuilder::inquiry().add_u16_nibbles(0xABCD).build();
+
         let response = parse_response(&zoom_response_bytes, &ResponseType::ZoomPosition);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ZoomPosition { position })) => {
@@ -109,7 +105,7 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected ZoomPosition inquiry response"),
         }
-        
+
         // Validate protocol compliance
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
         assert!(validator.validate_response(&zoom_response_bytes).is_ok());
@@ -118,10 +114,8 @@ mod response_parsing_tests {
     #[test]
     fn test_parse_focus_position_response() {
         // Use ResponseBuilder for focus position
-        let focus_response_bytes = ResponseBuilder::inquiry()
-            .add_u16_nibbles(0x1234)
-            .build();
-            
+        let focus_response_bytes = ResponseBuilder::inquiry().add_u16_nibbles(0x1234).build();
+
         let response = parse_response(&focus_response_bytes, &ResponseType::FocusPosition);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::FocusPosition { position })) => {
@@ -129,7 +123,7 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected FocusPosition inquiry response"),
         }
-        
+
         // Validate protocol compliance
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
         assert!(validator.validate_response(&focus_response_bytes).is_ok());
@@ -138,11 +132,9 @@ mod response_parsing_tests {
     #[test]
     fn test_parse_exposure_mode_response() {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        
+
         // Auto exposure mode
-        let exposure_response_bytes = ResponseBuilder::inquiry()
-            .add_byte(0x00)
-            .build();
+        let exposure_response_bytes = ResponseBuilder::inquiry().add_byte(0x00).build();
         let response = parse_response(&exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) => {
@@ -150,12 +142,12 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected ExposureMode inquiry response"),
         }
-        assert!(validator.validate_response(&exposure_response_bytes).is_ok());
+        assert!(validator
+            .validate_response(&exposure_response_bytes)
+            .is_ok());
 
         // Manual exposure mode
-        let exposure_response_bytes = ResponseBuilder::inquiry()
-            .add_byte(0x03)
-            .build();
+        let exposure_response_bytes = ResponseBuilder::inquiry().add_byte(0x03).build();
         let response = parse_response(&exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) => {
@@ -163,17 +155,17 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected ExposureMode inquiry response"),
         }
-        assert!(validator.validate_response(&exposure_response_bytes).is_ok());
+        assert!(validator
+            .validate_response(&exposure_response_bytes)
+            .is_ok());
     }
 
     #[test]
     fn test_parse_luminance_response() {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        
+
         // Test minimum luminance value (0)
-        let luminance_response_bytes = ResponseBuilder::inquiry()
-            .add_byte(0x00)
-            .build();
+        let luminance_response_bytes = ResponseBuilder::inquiry().add_byte(0x00).build();
         let response = parse_response(&luminance_response_bytes, &ResponseType::Luminance);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
@@ -181,12 +173,12 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
-        assert!(validator.validate_response(&luminance_response_bytes).is_ok());
+        assert!(validator
+            .validate_response(&luminance_response_bytes)
+            .is_ok());
 
         // Test middle luminance value (7)
-        let luminance_response_bytes = ResponseBuilder::inquiry()
-            .add_byte(0x07)
-            .build();
+        let luminance_response_bytes = ResponseBuilder::inquiry().add_byte(0x07).build();
         let response = parse_response(&luminance_response_bytes, &ResponseType::Luminance);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
@@ -194,12 +186,12 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
-        assert!(validator.validate_response(&luminance_response_bytes).is_ok());
+        assert!(validator
+            .validate_response(&luminance_response_bytes)
+            .is_ok());
 
         // Test maximum luminance value (14)
-        let luminance_response_bytes = ResponseBuilder::inquiry()
-            .add_byte(0x0E)
-            .build();
+        let luminance_response_bytes = ResponseBuilder::inquiry().add_byte(0x0E).build();
         let response = parse_response(&luminance_response_bytes, &ResponseType::Luminance);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
@@ -207,7 +199,9 @@ mod response_parsing_tests {
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
-        assert!(validator.validate_response(&luminance_response_bytes).is_ok());
+        assert!(validator
+            .validate_response(&luminance_response_bytes)
+            .is_ok());
     }
 
     #[test]

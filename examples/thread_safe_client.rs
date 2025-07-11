@@ -14,8 +14,8 @@ use grafton_visca::{
         methods::{PanTiltMethodsExt, PowerMethodsExt},
         Camera,
     },
-    profiles::PTZOpticsG2,
     command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
     types::{PanSpeed, TiltSpeed},
     Error,
 };
