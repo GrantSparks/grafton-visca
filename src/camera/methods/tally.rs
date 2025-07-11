@@ -172,41 +172,40 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait TallyAsyncExt<P, T>
 where
     P: ProfileMetadata,
     T: Transport,
 {
     /// Turn red tally light on.
-    async fn tally_red_on(&self) -> Result<(), Error>;
+    fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Turn red tally light off.
-    async fn tally_red_off(&self) -> Result<(), Error>;
+    fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set tally brightness to low.
-    async fn tally_bright_lo(&self) -> Result<(), Error>;
+    fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set tally brightness to high.
-    async fn tally_bright_hi(&self) -> Result<(), Error>;
+    fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Turn green tally light on.
-    async fn tally_green_on(&self) -> Result<(), Error>;
+    fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Turn green tally light off.
-    async fn tally_green_off(&self) -> Result<(), Error>;
+    fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Flash tally light.
-    async fn tally_flash(&self) -> Result<(), Error>;
+    fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Turn tally light on.
-    async fn tally_on(&self) -> Result<(), Error>;
+    fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Turn tally light off.
-    async fn tally_off(&self) -> Result<(), Error>;
+    fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Get tally light status.
-    async fn get_tally_status(&self) -> Result<bool, Error>;
+    fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + Send;
 }
 
 impl<P, T> TallyAsyncExt<P, T> for CameraAsync<P, T>
@@ -214,44 +213,44 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    async fn tally_red_on(&self) -> Result<(), Error> {
-        self.core().tally_red_on().await
+    fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().tally_red_on().await }
     }
 
-    async fn tally_red_off(&self) -> Result<(), Error> {
-        self.core().tally_red_off().await
+    fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().tally_red_off().await }
     }
 
-    async fn tally_bright_lo(&self) -> Result<(), Error> {
-        self.core().tally_bright_lo().await
+    fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().tally_bright_lo().await }
     }
 
-    async fn tally_bright_hi(&self) -> Result<(), Error> {
-        self.core().tally_bright_hi().await
+    fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().tally_bright_hi().await }
     }
 
-    async fn tally_green_on(&self) -> Result<(), Error> {
-        self.core().tally_green_on().await
+    fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().tally_green_on().await }
     }
 
-    async fn tally_green_off(&self) -> Result<(), Error> {
-        self.core().tally_green_off().await
+    fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().tally_green_off().await }
     }
 
-    async fn tally_flash(&self) -> Result<(), Error> {
-        self.core().tally_flash().await
+    fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().tally_flash().await }
     }
 
-    async fn tally_on(&self) -> Result<(), Error> {
-        self.core().tally_on().await
+    fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().tally_on().await }
     }
 
-    async fn tally_off(&self) -> Result<(), Error> {
-        self.core().tally_off().await
+    fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().tally_off().await }
     }
 
-    async fn get_tally_status(&self) -> Result<bool, Error> {
-        self.core().get_tally_status().await
+    fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + Send {
+        async move { self.core().get_tally_status().await }
     }
 }
 

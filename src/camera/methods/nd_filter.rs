@@ -106,17 +106,16 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait NDFilterAsyncExt<P, T>
 where
     P: ProfileMetadata + NDFilter + Default,
     T: Transport,
 {
     /// Set ND filter level.
-    async fn set_nd_filter(&self, level: u8) -> Result<(), Error>;
+    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Get current ND filter setting.
-    async fn get_nd_filter(&self) -> Result<u8, Error>;
+    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + Send;
 }
 
 impl<P, T> NDFilterAsyncExt<P, T> for CameraAsync<P, T>
@@ -124,12 +123,12 @@ where
     P: ProfileMetadata + NDFilter + Default,
     T: Transport,
 {
-    async fn set_nd_filter(&self, level: u8) -> Result<(), Error> {
-        self.core().set_nd_filter(level).await
+    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_nd_filter(level).await }
     }
 
-    async fn get_nd_filter(&self) -> Result<u8, Error> {
-        self.core().get_nd_filter().await
+    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_nd_filter().await }
     }
 }
 

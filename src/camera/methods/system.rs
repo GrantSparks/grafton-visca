@@ -73,7 +73,6 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait SystemAsyncExt<P, T>
 where
     P: ProfileMetadata,
@@ -81,13 +80,13 @@ where
 {
     /// Trigger automatic address assignment (broadcast command for serial bus).
     /// Note: This doesn't set a specific address but triggers the auto-addressing process.
-    async fn trigger_address_assignment(&self) -> Result<(), Error>;
+    fn trigger_address_assignment(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Clear interface (reset communication).
-    async fn interface_clear(&self) -> Result<(), Error>;
+    fn interface_clear(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Cancel command on specific socket.
-    async fn cancel_command(&self, socket: Socket) -> Result<(), Error>;
+    fn cancel_command(&self, socket: Socket) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> SystemAsyncExt<P, T> for CameraAsync<P, T>
@@ -95,16 +94,16 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    async fn trigger_address_assignment(&self) -> Result<(), Error> {
-        self.core().trigger_address_assignment().await
+    fn trigger_address_assignment(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().trigger_address_assignment().await }
     }
 
-    async fn interface_clear(&self) -> Result<(), Error> {
-        self.core().interface_clear().await
+    fn interface_clear(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().interface_clear().await }
     }
 
-    async fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
-        self.core().cancel_command(socket).await
+    fn cancel_command(&self, socket: Socket) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().cancel_command(socket).await }
     }
 }
 

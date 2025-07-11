@@ -571,60 +571,59 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait InquiryAsyncExt<P, T>
 where
     P: ProfileMetadata,
     T: Transport,
 {
     // Power and Basic State
-    async fn get_power_state(&self) -> Result<bool, Error>;
+    fn get_power_state(&self) -> impl Future<Output = Result<bool, Error>> + Send;
 
     // Position Queries
-    async fn get_position(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>;
+    fn get_position(&self) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + Send;
 
     // Optics Queries
-    async fn get_zoom_position(&self) -> Result<u16, Error>;
-    async fn get_focus_position(&self) -> Result<u16, Error>;
-    async fn get_focus_near_limit(&self) -> Result<u16, Error>;
-    async fn get_focus_zone(&self) -> Result<FocusZone, Error>;
-    async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error>;
+    fn get_zoom_position(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    fn get_focus_position(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    fn get_focus_near_limit(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    fn get_focus_zone(&self) -> impl Future<Output = Result<FocusZone, Error>> + Send;
+    fn get_auto_focus_sensitivity(&self) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + Send;
 
     // Exposure Queries
-    async fn get_exposure_mode(&self) -> Result<ExposureMode, Error>;
-    async fn get_exposure_compensation(&self) -> Result<i8, Error>;
-    async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error>;
-    async fn get_iris(&self) -> Result<u8, Error>;
-    async fn get_shutter(&self) -> Result<u16, Error>;
-    async fn get_brightness(&self) -> Result<u16, Error>;
-    async fn get_gain(&self) -> Result<u8, Error>;
-    async fn get_gain_limit(&self) -> Result<u8, Error>;
-    async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error>;
-    async fn get_backlight(&self) -> Result<bool, Error>;
-    async fn get_dynamic_range(&self) -> Result<u8, Error>;
+    fn get_exposure_mode(&self) -> impl Future<Output = Result<ExposureMode, Error>> + Send;
+    fn get_exposure_compensation(&self) -> impl Future<Output = Result<i8, Error>> + Send;
+    fn get_exposure_compensation_enabled(&self) -> impl Future<Output = Result<bool, Error>> + Send;
+    fn get_iris(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    fn get_shutter(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    fn get_brightness(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    fn get_gain(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    fn get_gain_limit(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    fn get_anti_flicker(&self) -> impl Future<Output = Result<AntiFlickerMode, Error>> + Send;
+    fn get_backlight(&self) -> impl Future<Output = Result<bool, Error>> + Send;
+    fn get_dynamic_range(&self) -> impl Future<Output = Result<u8, Error>> + Send;
 
     // Color Queries
-    async fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error>;
-    async fn get_color_temperature(&self) -> Result<u16, Error>;
-    async fn get_red_gain(&self) -> Result<i8, Error>;
-    async fn get_blue_gain(&self) -> Result<i8, Error>;
+    fn get_white_balance_mode(&self) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + Send;
+    fn get_color_temperature(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    fn get_red_gain(&self) -> impl Future<Output = Result<i8, Error>> + Send;
+    fn get_blue_gain(&self) -> impl Future<Output = Result<i8, Error>> + Send;
 
     // Image Quality Queries
-    async fn get_luminance(&self) -> Result<u8, Error>;
-    async fn get_contrast(&self) -> Result<u8, Error>;
-    async fn get_sharpness(&self) -> Result<u8, Error>;
-    async fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error>;
-    async fn get_saturation(&self) -> Result<u8, Error>;
-    async fn get_hue(&self) -> Result<u8, Error>;
-    async fn get_noise_reduction_2d(&self) -> Result<u8, Error>;
-    async fn get_noise_reduction_3d(&self) -> Result<u8, Error>;
+    fn get_luminance(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    fn get_contrast(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    fn get_sharpness(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    fn get_sharpness_mode(&self) -> impl Future<Output = Result<SharpnessMode, Error>> + Send;
+    fn get_saturation(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    fn get_hue(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    fn get_noise_reduction_2d(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    fn get_noise_reduction_3d(&self) -> impl Future<Output = Result<u8, Error>> + Send;
 
     // Special Effects Queries
-    async fn get_image_flip(&self) -> Result<(bool, bool), Error>;
-    async fn get_black_white(&self) -> Result<bool, Error>;
+    fn get_image_flip(&self) -> impl Future<Output = Result<(bool, bool), Error>> + Send;
+    fn get_black_white(&self) -> impl Future<Output = Result<bool, Error>> + Send;
 
     // Camera Information
-    async fn get_version(&self) -> Result<(u16, u16, u32, u8), Error>;
+    fn get_version(&self) -> impl Future<Output = Result<(u16, u16, u32, u8), Error>> + Send;
 }
 
 impl<P, T> InquiryAsyncExt<P, T> for CameraAsync<P, T>
@@ -632,136 +631,136 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    async fn get_power_state(&self) -> Result<bool, Error> {
-        self.core().get_power_state().await
+    fn get_power_state(&self) -> impl Future<Output = Result<bool, Error>> + Send {
+        async move { self.core().get_power_state().await }
     }
 
-    async fn get_position(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error> {
-        self.core().get_position().await
+    fn get_position(&self) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + Send {
+        async move { self.core().get_position().await }
     }
 
-    async fn get_zoom_position(&self) -> Result<u16, Error> {
-        self.core().get_zoom_position().await
+    fn get_zoom_position(&self) -> impl Future<Output = Result<u16, Error>> + Send {
+        async move { self.core().get_zoom_position().await }
     }
 
-    async fn get_focus_position(&self) -> Result<u16, Error> {
-        self.core().get_focus_position().await
+    fn get_focus_position(&self) -> impl Future<Output = Result<u16, Error>> + Send {
+        async move { self.core().get_focus_position().await }
     }
 
-    async fn get_focus_near_limit(&self) -> Result<u16, Error> {
-        self.core().get_focus_near_limit().await
+    fn get_focus_near_limit(&self) -> impl Future<Output = Result<u16, Error>> + Send {
+        async move { self.core().get_focus_near_limit().await }
     }
 
-    async fn get_focus_zone(&self) -> Result<FocusZone, Error> {
-        self.core().get_focus_zone().await
+    fn get_focus_zone(&self) -> impl Future<Output = Result<FocusZone, Error>> + Send {
+        async move { self.core().get_focus_zone().await }
     }
 
-    async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
-        self.core().get_auto_focus_sensitivity().await
+    fn get_auto_focus_sensitivity(&self) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + Send {
+        async move { self.core().get_auto_focus_sensitivity().await }
     }
 
-    async fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {
-        self.core().get_exposure_mode().await
+    fn get_exposure_mode(&self) -> impl Future<Output = Result<ExposureMode, Error>> + Send {
+        async move { self.core().get_exposure_mode().await }
     }
 
-    async fn get_exposure_compensation(&self) -> Result<i8, Error> {
-        self.core().get_exposure_compensation().await
+    fn get_exposure_compensation(&self) -> impl Future<Output = Result<i8, Error>> + Send {
+        async move { self.core().get_exposure_compensation().await }
     }
 
-    async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
-        self.core().get_exposure_compensation_enabled().await
+    fn get_exposure_compensation_enabled(&self) -> impl Future<Output = Result<bool, Error>> + Send {
+        async move { self.core().get_exposure_compensation_enabled().await }
     }
 
-    async fn get_iris(&self) -> Result<u8, Error> {
-        self.core().get_iris().await
+    fn get_iris(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_iris().await }
     }
 
-    async fn get_shutter(&self) -> Result<u16, Error> {
-        self.core().get_shutter().await
+    fn get_shutter(&self) -> impl Future<Output = Result<u16, Error>> + Send {
+        async move { self.core().get_shutter().await }
     }
 
-    async fn get_brightness(&self) -> Result<u16, Error> {
-        self.core().get_brightness().await
+    fn get_brightness(&self) -> impl Future<Output = Result<u16, Error>> + Send {
+        async move { self.core().get_brightness().await }
     }
 
-    async fn get_gain(&self) -> Result<u8, Error> {
-        self.core().get_gain().await
+    fn get_gain(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_gain().await }
     }
 
-    async fn get_gain_limit(&self) -> Result<u8, Error> {
-        self.core().get_gain_limit().await
+    fn get_gain_limit(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_gain_limit().await }
     }
 
-    async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
-        self.core().get_anti_flicker().await
+    fn get_anti_flicker(&self) -> impl Future<Output = Result<AntiFlickerMode, Error>> + Send {
+        async move { self.core().get_anti_flicker().await }
     }
 
-    async fn get_backlight(&self) -> Result<bool, Error> {
-        self.core().get_backlight().await
+    fn get_backlight(&self) -> impl Future<Output = Result<bool, Error>> + Send {
+        async move { self.core().get_backlight().await }
     }
 
-    async fn get_dynamic_range(&self) -> Result<u8, Error> {
-        self.core().get_dynamic_range().await
+    fn get_dynamic_range(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_dynamic_range().await }
     }
 
-    async fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error> {
-        self.core().get_white_balance_mode().await
+    fn get_white_balance_mode(&self) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + Send {
+        async move { self.core().get_white_balance_mode().await }
     }
 
-    async fn get_color_temperature(&self) -> Result<u16, Error> {
-        self.core().get_color_temperature().await
+    fn get_color_temperature(&self) -> impl Future<Output = Result<u16, Error>> + Send {
+        async move { self.core().get_color_temperature().await }
     }
 
-    async fn get_red_gain(&self) -> Result<i8, Error> {
-        self.core().get_red_gain().await
+    fn get_red_gain(&self) -> impl Future<Output = Result<i8, Error>> + Send {
+        async move { self.core().get_red_gain().await }
     }
 
-    async fn get_blue_gain(&self) -> Result<i8, Error> {
-        self.core().get_blue_gain().await
+    fn get_blue_gain(&self) -> impl Future<Output = Result<i8, Error>> + Send {
+        async move { self.core().get_blue_gain().await }
     }
 
-    async fn get_luminance(&self) -> Result<u8, Error> {
-        self.core().get_luminance().await
+    fn get_luminance(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_luminance().await }
     }
 
-    async fn get_contrast(&self) -> Result<u8, Error> {
-        self.core().get_contrast().await
+    fn get_contrast(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_contrast().await }
     }
 
-    async fn get_sharpness(&self) -> Result<u8, Error> {
-        self.core().get_sharpness().await
+    fn get_sharpness(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_sharpness().await }
     }
 
-    async fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error> {
-        self.core().get_sharpness_mode().await
+    fn get_sharpness_mode(&self) -> impl Future<Output = Result<SharpnessMode, Error>> + Send {
+        async move { self.core().get_sharpness_mode().await }
     }
 
-    async fn get_saturation(&self) -> Result<u8, Error> {
-        self.core().get_saturation().await
+    fn get_saturation(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_saturation().await }
     }
 
-    async fn get_hue(&self) -> Result<u8, Error> {
-        self.core().get_hue().await
+    fn get_hue(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_hue().await }
     }
 
-    async fn get_noise_reduction_2d(&self) -> Result<u8, Error> {
-        self.core().get_noise_reduction_2d().await
+    fn get_noise_reduction_2d(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_noise_reduction_2d().await }
     }
 
-    async fn get_noise_reduction_3d(&self) -> Result<u8, Error> {
-        self.core().get_noise_reduction_3d().await
+    fn get_noise_reduction_3d(&self) -> impl Future<Output = Result<u8, Error>> + Send {
+        async move { self.core().get_noise_reduction_3d().await }
     }
 
-    async fn get_image_flip(&self) -> Result<(bool, bool), Error> {
-        self.core().get_image_flip().await
+    fn get_image_flip(&self) -> impl Future<Output = Result<(bool, bool), Error>> + Send {
+        async move { self.core().get_image_flip().await }
     }
 
-    async fn get_black_white(&self) -> Result<bool, Error> {
-        self.core().get_black_white().await
+    fn get_black_white(&self) -> impl Future<Output = Result<bool, Error>> + Send {
+        async move { self.core().get_black_white().await }
     }
 
-    async fn get_version(&self) -> Result<(u16, u16, u32, u8), Error> {
-        self.core().get_version().await
+    fn get_version(&self) -> impl Future<Output = Result<(u16, u16, u32, u8), Error>> + Send {
+        async move { self.core().get_version().await }
     }
 }
 
@@ -986,14 +985,13 @@ where
 }
 
 /// Extension trait for async Camera facade with pan/tilt capability.
-#[allow(async_fn_in_trait)]
 pub trait PanTiltInquiryAsyncExt<P, T>
 where
     P: ProfileMetadata + PanTilt,
     T: Transport,
 {
     /// Query the current pan and tilt position in degrees.
-    async fn get_position_degrees(&self) -> Result<(Degrees, Degrees), Error>;
+    fn get_position_degrees(&self) -> impl Future<Output = Result<(Degrees, Degrees), Error>> + Send;
 }
 
 impl<P, T> PanTiltInquiryAsyncExt<P, T> for CameraAsync<P, T>
@@ -1001,8 +999,8 @@ where
     P: ProfileMetadata + PanTilt,
     T: Transport,
 {
-    async fn get_position_degrees(&self) -> Result<(Degrees, Degrees), Error> {
-        self.core().get_position_degrees().await
+    fn get_position_degrees(&self) -> impl Future<Output = Result<(Degrees, Degrees), Error>> + Send {
+        async move { self.core().get_position_degrees().await }
     }
 }
 

@@ -63,14 +63,13 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait WhiteBalanceAsyncExt<P, T>
 where
     P: ProfileMetadata + WhiteBalance,
     T: Transport,
 {
     /// Set auto white balance mode.
-    async fn white_balance_auto(&self) -> Result<(), Error>;
+    fn white_balance_auto(&self) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> WhiteBalanceAsyncExt<P, T> for CameraAsync<P, T>
@@ -78,8 +77,8 @@ where
     P: ProfileMetadata + WhiteBalance,
     T: Transport,
 {
-    async fn white_balance_auto(&self) -> Result<(), Error> {
-        self.core().white_balance_auto().await
+    fn white_balance_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().white_balance_auto().await }
     }
 }
 
