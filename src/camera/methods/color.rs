@@ -54,6 +54,7 @@ pub trait ColorCoreExt<P: ProfileMetadata> {
     fn set_blue_tuning(&self, tuning: BlueTuning) -> impl Future<Output = Result<(), Error>>;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> ColorCoreExt<P> for CameraCore<P, T>
 where
     P: ProfileMetadata,

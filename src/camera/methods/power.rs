@@ -68,6 +68,7 @@ where
     fn power_off(&self) -> impl Future<Output = Result<(), Error>> + '_;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> PowerCoreExt<P, T> for CameraCore<P, T>
 where
     P: ProfileMetadata + Power,

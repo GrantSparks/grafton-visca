@@ -66,6 +66,7 @@ where
     fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + '_;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> NDFilterCoreExt<P, T> for CameraCore<P, T>
 where
     P: ProfileMetadata + NDFilter + Default,

@@ -154,6 +154,7 @@ pub trait PanTiltCoreExt<P: ProfileMetadata + PanTilt> {
     fn pan_tilt_reset(&self) -> impl Future<Output = Result<(), Error>>;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> PanTiltCoreExt<P> for CameraCore<P, T>
 where
     P: ProfileMetadata + PanTilt + Default,

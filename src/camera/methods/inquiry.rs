@@ -140,6 +140,7 @@ where
     fn get_version(&self) -> impl Future<Output = Result<(u16, u16, u32, u8), Error>> + '_;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> InquiryCoreExt<P, T> for CameraCore<P, T>
 where
     P: ProfileMetadata,
@@ -985,6 +986,7 @@ where
     fn get_position_degrees(&self) -> impl Future<Output = Result<(Degrees, Degrees), Error>> + '_;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> PanTiltInquiryCoreExt<P, T> for CameraCore<P, T>
 where
     P: ProfileMetadata + PanTilt,

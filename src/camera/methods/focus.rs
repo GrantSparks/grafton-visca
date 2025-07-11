@@ -172,6 +172,7 @@ where
     ) -> impl Future<Output = Result<(), Error>> + '_;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> FocusCoreExt<P, T> for CameraCore<P, T>
 where
     P: ProfileMetadata + Focus,

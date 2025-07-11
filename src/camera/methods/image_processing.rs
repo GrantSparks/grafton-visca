@@ -72,6 +72,7 @@ pub trait ImageProcessingCoreExt<P: ProfileMetadata + ImageProcessing> {
     ) -> impl Future<Output = Result<(), Error>>;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> ImageProcessingCoreExt<P> for CameraCore<P, T>
 where
     P: ProfileMetadata + ImageProcessing,

@@ -68,6 +68,7 @@ where
     fn preset_set(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + '_;
 }
 
+#[allow(clippy::manual_async_fn)]
 impl<P, T> PresetsCoreExt<P, T> for CameraCore<P, T>
 where
     P: ProfileMetadata + Presets,
