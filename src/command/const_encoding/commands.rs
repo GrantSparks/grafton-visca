@@ -2,7 +2,7 @@
 
 // Re-export all command constants with flat names
 pub use super::constants::exposure::{AUTO as EXPOSURE_AUTO, MANUAL as EXPOSURE_MANUAL};
-pub use super::constants::flip::{PREFIX as FLIP_PREFIX, HFLIP_PREFIX, FREEZE_PREFIX};
+pub use super::constants::flip::{FREEZE_PREFIX, HFLIP_PREFIX, PREFIX as FLIP_PREFIX};
 pub use super::constants::focus::{
     AUTO as FOCUS_AUTO, FAR as FOCUS_FAR_STD, MANUAL as FOCUS_MANUAL, NEAR as FOCUS_NEAR_STD,
     ONE_PUSH as FOCUS_ONE_PUSH, STOP as FOCUS_STOP,

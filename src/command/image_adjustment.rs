@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{Command, ResponseType, const_encoding::CommandBuilder},
+    command::{const_encoding::CommandBuilder, Command, ResponseType},
     constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
@@ -393,10 +393,10 @@ mod tests {
             Box::new(SharpnessCommand::Mode(SharpnessMode::Auto)),
             Box::new(SharpnessCommand::SetLevel { value: 5 }),
             Box::new(LuminanceCommand::new(
-                LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+                LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             )),
             Box::new(ContrastCommand::new(
-                ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+                ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             )),
         ];
 
@@ -478,10 +478,10 @@ mod tests {
             Box::new(SharpnessCommand::Down),
             Box::new(SharpnessCommand::SetLevel { value: 5 }),
             Box::new(LuminanceCommand::new(
-                LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+                LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             )),
             Box::new(ContrastCommand::new(
-                ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+                ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             )),
         ];
 

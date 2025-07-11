@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{response::ResponseType, Command, const_encoding::CommandBuilder},
+    command::{const_encoding::CommandBuilder, response::ResponseType, Command},
     constants::CameraModel,
     error::Error,
     timeout::CommandCategory,
@@ -378,8 +378,8 @@ mod tests {
         .response_type()
         .is_none());
         assert!(AntiFlickerCommand::new(AntiFlickerMode::Hz50)
-        .response_type()
-        .is_none());
+            .response_type()
+            .is_none());
     }
 
     #[test]

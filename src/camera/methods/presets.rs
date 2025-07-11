@@ -129,8 +129,10 @@ where
 
 impl<P, T> PresetsAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + Presets,
-    T: Transport,
+    P: ProfileMetadata + Presets + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn preset_recall(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().preset_recall(preset).await }

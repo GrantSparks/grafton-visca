@@ -91,8 +91,10 @@ where
 
 impl<P, T> SystemAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata,
-    T: Transport,
+    P: ProfileMetadata + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn trigger_address_assignment(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().trigger_address_assignment().await }

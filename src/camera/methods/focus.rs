@@ -294,13 +294,18 @@ where
     fn focus_one_push(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set focus to a specific position.
-    fn set_focus(&self, position: crate::types::FocusPosition) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_focus(
+        &self,
+        position: crate::types::FocusPosition,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> FocusAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + Focus,
-    T: Transport,
+    P: ProfileMetadata + Focus + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn focus_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().focus_auto().await }
@@ -326,7 +331,10 @@ where
         async move { self.core().focus_one_push().await }
     }
 
-    fn set_focus(&self, position: crate::types::FocusPosition) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_focus(
+        &self,
+        position: crate::types::FocusPosition,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_focus(position).await }
     }
 }

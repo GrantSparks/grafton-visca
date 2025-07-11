@@ -260,10 +260,16 @@ where
     fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set iris level.
-    fn set_iris(&self, level: crate::types::IrisLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_iris(
+        &self,
+        level: crate::types::IrisLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set brightness level.
-    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_brightness(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set backlight compensation.
     fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + Send;
@@ -272,10 +278,16 @@ where
     fn set_gain(&self, gain: crate::types::Gain) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set gain limit.
-    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_gain_limit(
+        &self,
+        limit: crate::types::GainLimit,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set dynamic range level.
-    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_dynamic_range(
+        &self,
+        level: crate::types::DynamicRangeLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set color temperature.
     fn set_color_temperature(
@@ -286,8 +298,10 @@ where
 
 impl<P, T> ExposureAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + Exposure,
-    T: Transport,
+    P: ProfileMetadata + Exposure + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().exposure_auto().await }
@@ -297,11 +311,17 @@ where
         async move { self.core().exposure_manual().await }
     }
 
-    fn set_iris(&self, level: crate::types::IrisLevel) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_iris(
+        &self,
+        level: crate::types::IrisLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_iris(level).await }
     }
 
-    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_brightness(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_brightness(level).await }
     }
 
@@ -313,11 +333,17 @@ where
         async move { self.core().set_gain(gain).await }
     }
 
-    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_gain_limit(
+        &self,
+        limit: crate::types::GainLimit,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_gain_limit(limit).await }
     }
 
-    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_dynamic_range(
+        &self,
+        level: crate::types::DynamicRangeLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_dynamic_range(level).await }
     }
 

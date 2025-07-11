@@ -190,8 +190,10 @@ where
 
 impl<P, T> ZoomAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + Zoom,
-    T: Transport,
+    P: ProfileMetadata + Zoom + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().zoom_stop().await }

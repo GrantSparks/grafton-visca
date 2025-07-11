@@ -172,25 +172,39 @@ pub trait ImageProcessingAsyncExt<P: ProfileMetadata + ImageProcessing>: Sized {
     fn set_contrast(&self, level: ContrastLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set sharpness level.
-    fn set_sharpness(&self, level: SharpnessLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_sharpness(
+        &self,
+        level: SharpnessLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set saturation level.
-    fn set_saturation(&self, level: SaturationLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_saturation(
+        &self,
+        level: SaturationLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set hue level.
     fn set_hue(&self, level: HueLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set noise reduction 2D level.
-    fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_noise_reduction_2d(
+        &self,
+        level: NoiseReduction2DLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set noise reduction 3D level.
-    fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_noise_reduction_3d(
+        &self,
+        level: NoiseReduction3DLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> ImageProcessingAsyncExt<P> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + ImageProcessing,
-    T: Transport,
+    P: ProfileMetadata + ImageProcessing + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn enable_flip(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().enable_flip().await }
@@ -200,11 +214,17 @@ where
         async move { self.core().set_contrast(level).await }
     }
 
-    fn set_sharpness(&self, level: SharpnessLevel) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_sharpness(
+        &self,
+        level: SharpnessLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_sharpness(level).await }
     }
 
-    fn set_saturation(&self, level: SaturationLevel) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_saturation(
+        &self,
+        level: SaturationLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_saturation(level).await }
     }
 
@@ -212,11 +232,17 @@ where
         async move { self.core().set_hue(level).await }
     }
 
-    fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_noise_reduction_2d(
+        &self,
+        level: NoiseReduction2DLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_noise_reduction_2d(level).await }
     }
 
-    fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_noise_reduction_3d(
+        &self,
+        level: NoiseReduction3DLevel,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_noise_reduction_3d(level).await }
     }
 }

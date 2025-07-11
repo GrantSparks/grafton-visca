@@ -307,8 +307,10 @@ pub trait PanTiltAsyncExt<P: ProfileMetadata + PanTilt>: Sized {
 
 impl<P, T> PanTiltAsyncExt<P> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + PanTilt + Default,
-    T: Transport,
+    P: ProfileMetadata + PanTilt + Default + Sync + Send,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn pan_tilt_stop(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().pan_tilt_stop().await }
