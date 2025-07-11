@@ -14,7 +14,7 @@ use grafton_visca::{
     camera::methods::{PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt, ZoomBlockingExt},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    transport::blocking::TcpGat,
+    transport::blocking::Tcp,
     types::{PanSpeed, TiltSpeed},
     CameraBlocking,
 };
@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at {}", camera_ip);
 
     // Create transport using the blocking API
-    let transport = TcpGat::connect(&camera_ip)?;
+    let transport = Tcp::connect(&camera_ip)?;
 
     // Create camera with PTZOpticsG2 profile
     let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);

@@ -3,17 +3,20 @@
 //! This module provides `AnyTransport` for rare cases where dynamic dispatch
 //! is needed instead of the zero-cost generic approach.
 
-use crate::{Error, transport::gat_transport::Transport};
+use crate::{transport::gat_transport::Transport, Error};
 use bytes::Bytes;
 use core::future::Future;
 use core::pin::Pin;
 
 /// Type-erased transport trait for dynamic dispatch.
-/// 
+///
 /// This trait mirrors the Transport trait but boxes its futures,
 /// making it object-safe at the cost of an extra allocation.
 trait ErasedTransport: Send + Sync {
-    fn send<'a>(&'a self, bytes: &'a [u8]) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
+    fn send<'a>(
+        &'a self,
+        bytes: &'a [u8],
+    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
     fn recv<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<Bytes, Error>> + Send + 'a>>;
 }
 
@@ -27,29 +30,28 @@ where
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,
 {
-    fn send<'a>(&'a self, bytes: &'a [u8]) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>> {
-        Box::pin(async move {
-            self.0.send(bytes).await.map_err(Into::into)
-        })
+    fn send<'a>(
+        &'a self,
+        bytes: &'a [u8],
+    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>> {
+        Box::pin(async move { self.0.send(bytes).await.map_err(Into::into) })
     }
 
     fn recv<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<Bytes, Error>> + Send + 'a>> {
-        Box::pin(async move {
-            self.0.recv().await.map_err(Into::into)
-        })
+        Box::pin(async move { self.0.recv().await.map_err(Into::into) })
     }
 }
 
 /// Dynamic transport wrapper for trait-object use cases.
-/// 
+///
 /// This type allows runtime transport selection at the cost of dynamic dispatch.
 /// For most use cases, the generic Transport trait should be preferred.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```no_run
 /// # use grafton_visca::transport::AnyTransport;
-/// # use grafton_visca::transport::blocking::{TcpGat, UdpGat};
+/// # use grafton_visca::transport::blocking::{Tcp, Udp};
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let use_tcp = true;
 /// // Can store different transport types in the same variable
@@ -79,10 +81,12 @@ impl AnyTransport {
 /// Implementation of Transport for AnyTransport.
 impl Transport for AnyTransport {
     type Error = Error;
-    type SendFut<'a> = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>
+    type SendFut<'a>
+        = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>
     where
         Self: 'a;
-    type RecvFut<'a> = Pin<Box<dyn Future<Output = Result<Bytes, Self::Error>> + Send + 'a>>
+    type RecvFut<'a>
+        = Pin<Box<dyn Future<Output = Result<Bytes, Self::Error>> + Send + 'a>>
     where
         Self: 'a;
 

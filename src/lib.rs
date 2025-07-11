@@ -276,10 +276,9 @@ pub use types::{FStop, IntoIrisLevel};
 
 // Re-export procedural macros
 pub use grafton_visca_macros::{
-    visca_bounded_command, visca_camera_method, visca_command_variants,
-    visca_fallible_method, visca_inquiry, visca_method, visca_method_custom, visca_method_generic,
-    visca_mock_transport, visca_position_command, visca_speed_command, visca_test_suite,
-    InquiryCommand, ViscaValue,
+    visca_bounded_command, visca_camera_method, visca_command_variants, visca_fallible_method,
+    visca_inquiry, visca_method, visca_method_custom, visca_method_generic, visca_mock_transport,
+    visca_position_command, visca_speed_command, visca_test_suite, InquiryCommand, ViscaValue,
 };
 
 // Macros are already exported with #[macro_export] so we don't need to re-export them

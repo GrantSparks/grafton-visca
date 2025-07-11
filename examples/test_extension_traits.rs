@@ -6,8 +6,8 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::methods::{
-        ExposureAsyncExt, FocusAsyncExt, ImageProcessingAsyncExt, PanTiltAsyncExt,
-        PowerAsyncExt, PresetsAsyncExt, WhiteBalanceAsyncExt, ZoomAsyncExt,
+        ExposureAsyncExt, FocusAsyncExt, ImageProcessingAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
+        PresetsAsyncExt, WhiteBalanceAsyncExt, ZoomAsyncExt,
     },
     command::{
         // exposure::{DynamicRangeLevel, ExposureMode}, // not used
@@ -16,11 +16,10 @@ use grafton_visca::{
         // white_balance::WhiteBalanceMode, // not used
     },
     profiles::PTZOpticsG2,
-    transport::tokio::UdpGat,
+    transport::tokio::Udp,
     types::{
-        BrightnessLevel, ColorTemperature, ContrastLevel, DynamicRangeLevel,
-        GainLimit, HueLevel, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
-        SaturationLevel, SharpnessLevel,
+        BrightnessLevel, ColorTemperature, ContrastLevel, DynamicRangeLevel, GainLimit, HueLevel,
+        IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
     },
     Camera, Error,
 };
@@ -35,7 +34,7 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a camera with the new API
-    let transport = UdpGat::connect("192.168.1.100:5678").await?;
+    let transport = Udp::connect("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Testing Comprehensive Camera API ===\n");
@@ -50,13 +49,7 @@ async fn main() -> Result<(), Error> {
     camera.pan_tilt_home().await?;
     time::sleep(Duration::from_secs(2)).await;
 
-    camera
-        .pan_tilt_move(
-            PanTiltDirection::Right,
-            10,
-            0,
-        )
-        .await?;
+    camera.pan_tilt_move(PanTiltDirection::Right, 10, 0).await?;
     time::sleep(Duration::from_millis(500)).await;
     camera.pan_tilt_stop().await?;
 
@@ -147,17 +140,13 @@ async fn main() -> Result<(), Error> {
     println!("\nTesting position control with different units...");
 
     // Using degrees
-    camera
-        .pan_tilt_absolute(45.0, 15.0, 10)
-        .await?;
+    camera.pan_tilt_absolute(45.0, 15.0, 10).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Using VISCA units
     // Set position using raw VISCA units (convert to appropriate units)
     // This would require using ViscaUnits or converting to degrees
-    camera
-        .pan_tilt_absolute(10.0, 5.0, 10)
-        .await?;
+    camera.pan_tilt_absolute(10.0, 5.0, 10).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Using normalized coordinates - convert to degrees

@@ -2,11 +2,7 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::ProfileMetadata,
     command::{tally::TallyCommand, Response},
     transport::gat_transport::Transport,
@@ -22,31 +18,31 @@ where
 {
     /// Turn red tally light on - returns a future.
     fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Turn red tally light off - returns a future.
     fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Set tally brightness to low - returns a future.
     fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Set tally brightness to high - returns a future.
     fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Turn green tally light on - returns a future.
     fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Turn green tally light off - returns a future.
     fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Flash tally light - returns a future.
     fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Turn tally light on - returns a future.
     fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Turn tally light off - returns a future.
     fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Get tally light status - returns a future.
     fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + '_;
 }
@@ -67,7 +63,7 @@ where
             }
         }
     }
-    
+
     fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = TallyCommand::RedOff;
@@ -79,7 +75,7 @@ where
             }
         }
     }
-    
+
     fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = TallyCommand::BrightLo;
@@ -91,7 +87,7 @@ where
             }
         }
     }
-    
+
     fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = TallyCommand::BrightHi;
@@ -103,7 +99,7 @@ where
             }
         }
     }
-    
+
     fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = TallyCommand::GreenOn;
@@ -115,7 +111,7 @@ where
             }
         }
     }
-    
+
     fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = TallyCommand::GreenOff;
@@ -127,7 +123,7 @@ where
             }
         }
     }
-    
+
     fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = TallyCommand::Flash;
@@ -139,7 +135,7 @@ where
             }
         }
     }
-    
+
     fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = TallyCommand::On;
@@ -151,7 +147,7 @@ where
             }
         }
     }
-    
+
     fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = TallyCommand::Off;
@@ -163,7 +159,7 @@ where
             }
         }
     }
-    
+
     fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + '_ {
         async move {
             // For now, return a NotImplemented error as there's no tally inquiry command in the protocol
@@ -184,31 +180,31 @@ where
 {
     /// Turn red tally light on.
     async fn tally_red_on(&self) -> Result<(), Error>;
-    
+
     /// Turn red tally light off.
     async fn tally_red_off(&self) -> Result<(), Error>;
-    
+
     /// Set tally brightness to low.
     async fn tally_bright_lo(&self) -> Result<(), Error>;
-    
+
     /// Set tally brightness to high.
     async fn tally_bright_hi(&self) -> Result<(), Error>;
-    
+
     /// Turn green tally light on.
     async fn tally_green_on(&self) -> Result<(), Error>;
-    
+
     /// Turn green tally light off.
     async fn tally_green_off(&self) -> Result<(), Error>;
-    
+
     /// Flash tally light.
     async fn tally_flash(&self) -> Result<(), Error>;
-    
+
     /// Turn tally light on.
     async fn tally_on(&self) -> Result<(), Error>;
-    
+
     /// Turn tally light off.
     async fn tally_off(&self) -> Result<(), Error>;
-    
+
     /// Get tally light status.
     async fn get_tally_status(&self) -> Result<bool, Error>;
 }
@@ -221,39 +217,39 @@ where
     async fn tally_red_on(&self) -> Result<(), Error> {
         self.core().tally_red_on().await
     }
-    
+
     async fn tally_red_off(&self) -> Result<(), Error> {
         self.core().tally_red_off().await
     }
-    
+
     async fn tally_bright_lo(&self) -> Result<(), Error> {
         self.core().tally_bright_lo().await
     }
-    
+
     async fn tally_bright_hi(&self) -> Result<(), Error> {
         self.core().tally_bright_hi().await
     }
-    
+
     async fn tally_green_on(&self) -> Result<(), Error> {
         self.core().tally_green_on().await
     }
-    
+
     async fn tally_green_off(&self) -> Result<(), Error> {
         self.core().tally_green_off().await
     }
-    
+
     async fn tally_flash(&self) -> Result<(), Error> {
         self.core().tally_flash().await
     }
-    
+
     async fn tally_on(&self) -> Result<(), Error> {
         self.core().tally_on().await
     }
-    
+
     async fn tally_off(&self) -> Result<(), Error> {
         self.core().tally_off().await
     }
-    
+
     async fn get_tally_status(&self) -> Result<bool, Error> {
         self.core().get_tally_status().await
     }
@@ -267,31 +263,31 @@ where
 {
     /// Turn red tally light on.
     fn tally_red_on(&self) -> Result<(), Error>;
-    
+
     /// Turn red tally light off.
     fn tally_red_off(&self) -> Result<(), Error>;
-    
+
     /// Set tally brightness to low.
     fn tally_bright_lo(&self) -> Result<(), Error>;
-    
+
     /// Set tally brightness to high.
     fn tally_bright_hi(&self) -> Result<(), Error>;
-    
+
     /// Turn green tally light on.
     fn tally_green_on(&self) -> Result<(), Error>;
-    
+
     /// Turn green tally light off.
     fn tally_green_off(&self) -> Result<(), Error>;
-    
+
     /// Flash tally light.
     fn tally_flash(&self) -> Result<(), Error>;
-    
+
     /// Turn tally light on.
     fn tally_on(&self) -> Result<(), Error>;
-    
+
     /// Turn tally light off.
     fn tally_off(&self) -> Result<(), Error>;
-    
+
     /// Get tally light status.
     fn get_tally_status(&self) -> Result<bool, Error>;
 }
@@ -304,39 +300,39 @@ where
     fn tally_red_on(&self) -> Result<(), Error> {
         block_on(self.core().tally_red_on())
     }
-    
+
     fn tally_red_off(&self) -> Result<(), Error> {
         block_on(self.core().tally_red_off())
     }
-    
+
     fn tally_bright_lo(&self) -> Result<(), Error> {
         block_on(self.core().tally_bright_lo())
     }
-    
+
     fn tally_bright_hi(&self) -> Result<(), Error> {
         block_on(self.core().tally_bright_hi())
     }
-    
+
     fn tally_green_on(&self) -> Result<(), Error> {
         block_on(self.core().tally_green_on())
     }
-    
+
     fn tally_green_off(&self) -> Result<(), Error> {
         block_on(self.core().tally_green_off())
     }
-    
+
     fn tally_flash(&self) -> Result<(), Error> {
         block_on(self.core().tally_flash())
     }
-    
+
     fn tally_on(&self) -> Result<(), Error> {
         block_on(self.core().tally_on())
     }
-    
+
     fn tally_off(&self) -> Result<(), Error> {
         block_on(self.core().tally_off())
     }
-    
+
     fn get_tally_status(&self) -> Result<bool, Error> {
         block_on(self.core().get_tally_status())
     }
@@ -346,11 +342,11 @@ where
 mod tests {
     use super::*;
     use crate::profiles::PTZOpticsG2;
-    
+
     #[test]
     fn test_tally_methods_compile() {
         // This test demonstrates that tally methods are available for all cameras
-        
+
         fn _test_tally_methods<T: Transport>(_camera: &CameraAsync<PTZOpticsG2, T>) {
             // All cameras can use tally methods
         }

@@ -2,10 +2,9 @@
 //!
 //! This module provides async transport implementations using the tokio runtime.
 
-// GAT-based implementations
-pub mod tcp_gat;
-pub mod udp_gat;
+pub mod tcp;
+pub mod udp;
 
 // Re-export for convenience
-pub use tcp_gat::TcpGat;
-pub use udp_gat::UdpGat;
+pub use tcp::Tcp;
+pub use udp::Udp;

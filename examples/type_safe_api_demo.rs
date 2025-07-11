@@ -13,7 +13,7 @@ fn main() {
 use grafton_visca::{
     camera::methods::{ExposureBlockingExt, PanTiltBlockingExt, PresetBlockingExt},
     profiles::PTZOpticsG2,
-    transport::blocking::UdpGat,
+    transport::blocking::Udp,
     types::{Gain, GainLimit},
     CameraBlocking,
 };
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Connect to camera using the new Camera API
-    let transport = UdpGat::connect("192.168.1.100:5678")?;
+    let transport = Udp::connect("192.168.1.100:5678")?;
     let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Type-Safe Camera API Demo ===\n");

@@ -4,10 +4,7 @@
 //! which avoids the complexity of the full runtime abstraction layer.
 
 use grafton_visca::{
-    camera::methods::PresetsAsyncExt,
-    profiles::PTZOpticsG2,
-    transport::tokio::TcpGat,
-    Camera, Error,
+    camera::methods::PresetsAsyncExt, profiles::PTZOpticsG2, transport::tokio::Tcp, Camera, Error,
 };
 
 #[tokio::main]
@@ -15,7 +12,7 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a TCP transport using the simplified API
-    let visca_transport = TcpGat::connect("192.168.1.100:1259").await?;
+    let visca_transport = Tcp::connect("192.168.1.100:1259").await?;
 
     // Create camera using the transport
     let camera = Camera::<PTZOpticsG2, _>::new(visca_transport);

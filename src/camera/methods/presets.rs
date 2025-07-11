@@ -2,11 +2,7 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{Presets, ProfileMetadata, ValidationError},
     command::{
         const_encoding::{commands, CommandBuilder},
@@ -32,7 +28,7 @@ impl Command for PresetRecallCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -53,7 +49,7 @@ impl Command for PresetSetCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -67,7 +63,7 @@ where
 {
     /// Recall a preset position - returns a future.
     fn preset_recall(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Set current position as a preset - returns a future.
     fn preset_set(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + '_;
 }
@@ -81,14 +77,12 @@ where
         async move {
             // Validate preset number
             if preset == 0 || preset > P::MAX_PRESETS {
-                return Err(Error::ValidationError(
-                    ValidationError::InvalidValue {
-                        parameter: "preset",
-                        message: format!("Preset {} is invalid, must be 1-{}", preset, P::MAX_PRESETS),
-                    },
-                ));
+                return Err(Error::ValidationError(ValidationError::InvalidValue {
+                    parameter: "preset",
+                    message: format!("Preset {} is invalid, must be 1-{}", preset, P::MAX_PRESETS),
+                }));
             }
-            
+
             let command = PresetRecallCommand::new(preset);
             let response = self.send_command(&command).await?;
             match response {
@@ -98,19 +92,17 @@ where
             }
         }
     }
-    
+
     fn preset_set(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             // Validate preset number
             if preset == 0 || preset > P::MAX_PRESETS {
-                return Err(Error::ValidationError(
-                    ValidationError::InvalidValue {
-                        parameter: "preset",
-                        message: format!("Preset {} is invalid, must be 1-{}", preset, P::MAX_PRESETS),
-                    },
-                ));
+                return Err(Error::ValidationError(ValidationError::InvalidValue {
+                    parameter: "preset",
+                    message: format!("Preset {} is invalid, must be 1-{}", preset, P::MAX_PRESETS),
+                }));
             }
-            
+
             let command = PresetSetCommand::new(preset);
             let response = self.send_command(&command).await?;
             match response {
@@ -131,7 +123,7 @@ where
 {
     /// Recall a preset position.
     async fn preset_recall(&self, preset: u8) -> Result<(), Error>;
-    
+
     /// Set current position as a preset.
     async fn preset_set(&self, preset: u8) -> Result<(), Error>;
 }
@@ -144,7 +136,7 @@ where
     async fn preset_recall(&self, preset: u8) -> Result<(), Error> {
         self.core().preset_recall(preset).await
     }
-    
+
     async fn preset_set(&self, preset: u8) -> Result<(), Error> {
         self.core().preset_set(preset).await
     }
@@ -158,7 +150,7 @@ where
 {
     /// Recall a preset position.
     fn preset_recall(&self, preset: u8) -> Result<(), Error>;
-    
+
     /// Set current position as a preset.
     fn preset_set(&self, preset: u8) -> Result<(), Error>;
 }
@@ -171,7 +163,7 @@ where
     fn preset_recall(&self, preset: u8) -> Result<(), Error> {
         block_on(self.core().preset_recall(preset))
     }
-    
+
     fn preset_set(&self, preset: u8) -> Result<(), Error> {
         block_on(self.core().preset_set(preset))
     }

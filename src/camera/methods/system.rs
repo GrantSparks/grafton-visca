@@ -2,11 +2,7 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::ProfileMetadata,
     command::{
         system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket},
@@ -25,10 +21,10 @@ where
 {
     /// Set camera address (1-7) - returns a future.
     fn set_address(&self, address: u8) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Clear interface (reset communication) - returns a future.
     fn interface_clear(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Cancel command on specific socket - returns a future.
     fn cancel_command(&self, socket: Socket) -> impl Future<Output = Result<(), Error>> + '_;
 }
@@ -52,7 +48,7 @@ where
             }
         }
     }
-    
+
     fn interface_clear(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let cmd = InterfaceClearCommand;
@@ -64,7 +60,7 @@ where
             }
         }
     }
-    
+
     fn cancel_command(&self, socket: Socket) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let cmd = CommandCancelCommand { socket };
@@ -87,10 +83,10 @@ where
 {
     /// Set camera address (1-7).
     async fn set_address(&self, address: u8) -> Result<(), Error>;
-    
+
     /// Clear interface (reset communication).
     async fn interface_clear(&self) -> Result<(), Error>;
-    
+
     /// Cancel command on specific socket.
     async fn cancel_command(&self, socket: Socket) -> Result<(), Error>;
 }
@@ -103,11 +99,11 @@ where
     async fn set_address(&self, address: u8) -> Result<(), Error> {
         self.core().set_address(address).await
     }
-    
+
     async fn interface_clear(&self) -> Result<(), Error> {
         self.core().interface_clear().await
     }
-    
+
     async fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
         self.core().cancel_command(socket).await
     }
@@ -121,10 +117,10 @@ where
 {
     /// Set camera address (1-7).
     fn set_address(&self, address: u8) -> Result<(), Error>;
-    
+
     /// Clear interface (reset communication).
     fn interface_clear(&self) -> Result<(), Error>;
-    
+
     /// Cancel command on specific socket.
     fn cancel_command(&self, socket: Socket) -> Result<(), Error>;
 }
@@ -137,11 +133,11 @@ where
     fn set_address(&self, address: u8) -> Result<(), Error> {
         block_on(self.core().set_address(address))
     }
-    
+
     fn interface_clear(&self) -> Result<(), Error> {
         block_on(self.core().interface_clear())
     }
-    
+
     fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
         block_on(self.core().cancel_command(socket))
     }
@@ -151,11 +147,11 @@ where
 mod tests {
     use super::*;
     use crate::profiles::PTZOpticsG2;
-    
+
     #[test]
     fn test_system_methods_compile() {
         // This test demonstrates that system methods are available for all cameras
-        
+
         fn _test_system_methods<T: Transport>(_camera: &CameraAsync<PTZOpticsG2, T>) {
             // All cameras can use system methods
         }

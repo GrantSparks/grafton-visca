@@ -15,7 +15,7 @@ const ACK_TIMEOUT: Duration = Duration::from_millis(500);
 const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// VISCA protocol handler that manages protocol-specific logic.
-/// 
+///
 /// This wraps any Transport implementation and adds VISCA protocol handling:
 /// - Command formatting and termination
 /// - ACK/Completion response handling
@@ -91,7 +91,7 @@ impl<T: Transport> ViscaProtocol<T> {
     async fn wait_for_completion(&self, timeout: Duration) -> Result<Response, Error> {
         let bytes = self.recv_with_timeout(timeout).await?;
         let response = Response::parse(&bytes.to_vec())?;
-        
+
         match response {
             Response::Completion => Ok(response),
             Response::Error(e) => Err(e),
@@ -107,7 +107,7 @@ impl<T: Transport> ViscaProtocol<T> {
     ) -> Result<Response, Error> {
         let bytes = self.recv_with_timeout(timeout).await?;
         let response = Response::parse(&bytes.to_vec())?;
-        
+
         // Verify we got the expected response type
         if response.matches_type(expected_type) {
             Ok(response)
@@ -128,7 +128,7 @@ impl<T: Transport> ViscaProtocol<T> {
                 .map_err(|_| Error::Timeout)?
                 .map_err(Into::into)
         }
-        
+
         #[cfg(not(feature = "tokio"))]
         {
             // For blocking transports, timeout is handled in the transport itself
@@ -142,15 +142,32 @@ impl<T: Transport> ViscaProtocol<T> {
 impl Response {
     fn matches_type(&self, expected: ResponseType) -> bool {
         match (self, expected) {
-            (Response::InquiryResponse(InquiryResponse::ZoomPosition { .. }), ResponseType::ZoomPosition) => true,
-            (Response::InquiryResponse(InquiryResponse::FocusPosition { .. }), ResponseType::FocusPosition) => true,
-            (Response::InquiryResponse(InquiryResponse::PanTiltPosition { .. }), ResponseType::PanTiltPosition) => true,
+            (
+                Response::InquiryResponse(InquiryResponse::ZoomPosition { .. }),
+                ResponseType::ZoomPosition,
+            ) => true,
+            (
+                Response::InquiryResponse(InquiryResponse::FocusPosition { .. }),
+                ResponseType::FocusPosition,
+            ) => true,
+            (
+                Response::InquiryResponse(InquiryResponse::PanTiltPosition { .. }),
+                ResponseType::PanTiltPosition,
+            ) => true,
             (Response::InquiryResponse(InquiryResponse::Power { .. }), ResponseType::Power) => true,
-            (Response::InquiryResponse(InquiryResponse::WhiteBalance { .. }), ResponseType::WhiteBalanceMode) => true,
-            (Response::InquiryResponse(InquiryResponse::ExposureMode { .. }), ResponseType::ExposureMode) => true,
+            (
+                Response::InquiryResponse(InquiryResponse::WhiteBalance { .. }),
+                ResponseType::WhiteBalanceMode,
+            ) => true,
+            (
+                Response::InquiryResponse(InquiryResponse::ExposureMode { .. }),
+                ResponseType::ExposureMode,
+            ) => true,
             (Response::InquiryResponse(InquiryResponse::Iris { .. }), ResponseType::Iris) => true,
             (Response::InquiryResponse(InquiryResponse::Gain { .. }), ResponseType::Gain) => true,
-            (Response::InquiryResponse(InquiryResponse::Shutter { .. }), ResponseType::Shutter) => true,
+            (Response::InquiryResponse(InquiryResponse::Shutter { .. }), ResponseType::Shutter) => {
+                true
+            }
             _ => false,
         }
     }

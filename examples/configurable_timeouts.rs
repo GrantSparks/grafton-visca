@@ -17,12 +17,12 @@ fn main() {
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt, FocusBlockingExt},
+        methods::{FocusBlockingExt, PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt},
         profiles::G2PresetId,
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    transport::blocking::TcpGat,
+    transport::blocking::Tcp,
     types::{PanSpeed, TiltSpeed},
     CameraBlocking, Error,
 };
@@ -54,7 +54,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     use grafton_visca::camera::profiles::G2PresetId;
 
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = TcpGat::connect(camera_addr)?;
+    let transport = Tcp::connect(camera_addr)?;
     let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     println!("Note: The Camera API doesn't have built-in timeout support.");

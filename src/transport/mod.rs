@@ -15,10 +15,10 @@
 //!
 //! For blocking transports:
 //! ```rust,no_run
-//! use grafton_visca::transport::blocking::TcpGat;
+//! use grafton_visca::transport::blocking::Tcp;
 //!
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let transport = TcpGat::connect("192.168.1.100:5678")?;
+//! let transport = Tcp::connect("192.168.1.100:5678")?;
 //! // transport is ready to use with CameraBlocking
 //! # Ok(())
 //! # }
@@ -27,33 +27,32 @@
 //! For async transports (with tokio):
 //! ```rust,no_run
 //! # #[cfg(feature = "tokio")]
-//! use grafton_visca::transport::tokio::tcp_gat::TcpGat;
+//! use grafton_visca::transport::tokio::tcp::Tcp;
 //!
 //! # #[cfg(feature = "tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let transport = TcpGat::connect("192.168.1.100:5678").await?;
+//! let transport = Tcp::connect("192.168.1.100:5678").await?;
 //! // transport is ready to use with CameraAsync
 //! # Ok(())
 //! # }
 //! ```
 
-// New GAT-based transport trait
-pub mod gat_transport;
+// Transport trait and utilities
 pub mod any_transport;
-pub use gat_transport::{Transport, TransportExt};
+pub mod gat_transport;
 pub use any_transport::AnyTransport;
+pub use gat_transport::{Transport, TransportExt};
 
 // Blocking transport module (always available)
 pub mod blocking;
 
-// Re-export GAT transport implementations
-pub use blocking::{TcpGat as BlockingTcp, UdpGat as BlockingUdp};
+// Re-export transport implementations
+pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 
-// GAT-based VISCA protocol
-pub mod visca_protocol_gat;
-pub use visca_protocol_gat::ViscaProtocol;
+// VISCA protocol
+pub mod visca_protocol;
+pub use visca_protocol::ViscaProtocol;
 
 // Tokio implementations
 #[cfg(all(feature = "async", feature = "tokio"))]
 pub mod tokio;
-

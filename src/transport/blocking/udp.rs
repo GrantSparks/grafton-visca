@@ -1,29 +1,29 @@
 //! Blocking UDP transport implementation using GAT.
 
-use crate::transport::gat_transport::{Transport, blocking::ready};
+use crate::transport::gat_transport::{blocking::ready, Transport};
 use crate::Error;
+use core::future::Ready;
 use std::net::UdpSocket;
 use std::sync::Mutex;
 use std::time::Duration;
-use core::future::Ready;
 
 /// UDP transport for blocking VISCA communication.
 #[derive(Debug)]
-pub struct UdpGat {
+pub struct Udp {
     socket: Mutex<UdpSocket>,
     _remote_addr: String,
 }
 
-impl UdpGat {
+impl Udp {
     /// Connect to a UDP endpoint.
     pub fn connect(address: &str) -> Result<Self, Error> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         socket.connect(address)?;
-        
+
         // Set timeouts
         socket.set_read_timeout(Some(Duration::from_secs(5)))?;
         socket.set_write_timeout(Some(Duration::from_secs(5)))?;
-        
+
         Ok(Self {
             socket: Mutex::new(socket),
             _remote_addr: address.to_string(),
@@ -31,7 +31,7 @@ impl UdpGat {
     }
 }
 
-impl Transport for UdpGat {
+impl Transport for Udp {
     type Error = Error;
     type SendFut<'a> = Ready<Result<(), Self::Error>>;
     type RecvFut<'a> = Ready<Result<bytes::Bytes, Self::Error>>;
@@ -46,27 +46,27 @@ impl Transport for UdpGat {
 }
 
 fn send_impl(socket: &Mutex<UdpSocket>, data: &[u8]) -> Result<(), Error> {
-    let socket = socket.lock()
+    let socket = socket
+        .lock()
         .map_err(|e| Error::TransportError(format!("Failed to lock socket: {}", e)))?;
-    
+
     socket.send(data)?;
     Ok(())
 }
 
 fn recv_impl(socket: &Mutex<UdpSocket>) -> Result<bytes::Bytes, Error> {
-    let socket = socket.lock()
+    let socket = socket
+        .lock()
         .map_err(|e| Error::TransportError(format!("Failed to lock socket: {}", e)))?;
-    
+
     let mut buffer = vec![0u8; 1024];
-    
+
     match socket.recv(&mut buffer) {
         Ok(n) => {
             buffer.truncate(n);
             Ok(bytes::Bytes::from(buffer))
         }
-        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-            Err(Error::Timeout)
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Err(Error::Timeout),
         Err(e) => Err(e.into()),
     }
 }

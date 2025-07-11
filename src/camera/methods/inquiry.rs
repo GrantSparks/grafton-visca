@@ -2,16 +2,11 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{PanTilt, ProfileMetadata},
     command::{
-        inquiry::InquiryCommand,
-        AntiFlickerMode, AutoFocusSensitivity, ExposureMode, FocusZone, InquiryResponse,
-        Response, SharpnessMode, WhiteBalanceMode,
+        inquiry::InquiryCommand, AntiFlickerMode, AutoFocusSensitivity, ExposureMode, FocusZone,
+        InquiryResponse, Response, SharpnessMode, WhiteBalanceMode,
     },
     transport::gat_transport::Transport,
     units::{Degrees, ViscaUnits},
@@ -26,117 +21,121 @@ where
     T: Transport,
 {
     // Power and Basic State
-    
+
     /// Query the camera's power state - returns a future.
     fn get_power_state(&self) -> impl Future<Output = Result<bool, Error>> + '_;
-    
+
     // Position Queries - return VISCA units for all cameras
-    
+
     /// Query the current pan and tilt position in VISCA units - returns a future.
-    fn get_position(&self) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + '_;
-    
+    fn get_position(
+        &self,
+    ) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + '_;
+
     // Optics Queries
-    
+
     /// Query the current zoom position - returns a future.
     fn get_zoom_position(&self) -> impl Future<Output = Result<u16, Error>> + '_;
-    
+
     /// Query the current focus position - returns a future.
     fn get_focus_position(&self) -> impl Future<Output = Result<u16, Error>> + '_;
-    
+
     /// Query the focus near limit position - returns a future.
     fn get_focus_near_limit(&self) -> impl Future<Output = Result<u16, Error>> + '_;
-    
+
     /// Query the current focus zone - returns a future.
     fn get_focus_zone(&self) -> impl Future<Output = Result<FocusZone, Error>> + '_;
-    
+
     /// Query the auto focus sensitivity - returns a future.
-    fn get_auto_focus_sensitivity(&self) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + '_;
-    
+    fn get_auto_focus_sensitivity(
+        &self,
+    ) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + '_;
+
     // Exposure Queries
-    
+
     /// Query the current exposure mode - returns a future.
     fn get_exposure_mode(&self) -> impl Future<Output = Result<ExposureMode, Error>> + '_;
-    
+
     /// Query the exposure compensation value - returns a future.
     fn get_exposure_compensation(&self) -> impl Future<Output = Result<i8, Error>> + '_;
-    
+
     /// Query whether exposure compensation is enabled - returns a future.
     fn get_exposure_compensation_enabled(&self) -> impl Future<Output = Result<bool, Error>> + '_;
-    
+
     /// Query the current iris position - returns a future.
     fn get_iris(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     /// Query the current shutter position - returns a future.
     fn get_shutter(&self) -> impl Future<Output = Result<u16, Error>> + '_;
-    
+
     /// Query the current brightness level - returns a future.
     fn get_brightness(&self) -> impl Future<Output = Result<u16, Error>> + '_;
-    
+
     /// Query the current gain level - returns a future.
     fn get_gain(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     /// Query the gain limit - returns a future.
     fn get_gain_limit(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     /// Query the anti-flicker mode - returns a future.
     fn get_anti_flicker(&self) -> impl Future<Output = Result<AntiFlickerMode, Error>> + '_;
-    
+
     /// Query the backlight compensation status - returns a future.
     fn get_backlight(&self) -> impl Future<Output = Result<bool, Error>> + '_;
-    
+
     /// Query the dynamic range level - returns a future.
     fn get_dynamic_range(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     // Color Queries
-    
+
     /// Query the current white balance mode - returns a future.
     fn get_white_balance_mode(&self) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + '_;
-    
+
     /// Query the color temperature (only valid in manual white balance mode) - returns a future.
     fn get_color_temperature(&self) -> impl Future<Output = Result<u16, Error>> + '_;
-    
+
     /// Query the red gain value - returns a future.
     fn get_red_gain(&self) -> impl Future<Output = Result<i8, Error>> + '_;
-    
+
     /// Query the blue gain value - returns a future.
     fn get_blue_gain(&self) -> impl Future<Output = Result<i8, Error>> + '_;
-    
+
     // Image Quality Queries
-    
+
     /// Query the luminance level - returns a future.
     fn get_luminance(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     /// Query the contrast level - returns a future.
     fn get_contrast(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     /// Query the sharpness value - returns a future.
     fn get_sharpness(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     /// Query the sharpness mode - returns a future.
     fn get_sharpness_mode(&self) -> impl Future<Output = Result<SharpnessMode, Error>> + '_;
-    
+
     /// Query the saturation level - returns a future.
     fn get_saturation(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     /// Query the hue value - returns a future.
     fn get_hue(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     /// Query the 2D noise reduction level - returns a future.
     fn get_noise_reduction_2d(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     /// Query the 3D noise reduction level - returns a future.
     fn get_noise_reduction_3d(&self) -> impl Future<Output = Result<u8, Error>> + '_;
-    
+
     // Special Effects Queries
-    
+
     /// Query the current image flip state - returns a future.
     fn get_image_flip(&self) -> impl Future<Output = Result<(bool, bool), Error>> + '_;
-    
+
     /// Query whether black and white mode is enabled - returns a future.
     fn get_black_white(&self) -> impl Future<Output = Result<bool, Error>> + '_;
-    
+
     // Camera Information
-    
+
     /// Query the camera's version information - returns a future.
     fn get_version(&self) -> impl Future<Output = Result<(u16, u16, u32, u8), Error>> + '_;
 }
@@ -157,8 +156,10 @@ where
             }
         }
     }
-    
-    fn get_position(&self) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + '_ {
+
+    fn get_position(
+        &self,
+    ) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + '_ {
         async move {
             let cmd = InquiryCommand::PanTiltPosition;
             let response = self.send_command(&cmd).await?;
@@ -171,43 +172,49 @@ where
             }
         }
     }
-    
+
     fn get_zoom_position(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::ZoomPosition;
             let response = self.send_command(&cmd).await?;
             match response {
-                Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
+                Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => {
+                    Ok(position)
+                }
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
-    
+
     fn get_focus_position(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::FocusPosition;
             let response = self.send_command(&cmd).await?;
             match response {
-                Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
+                Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => {
+                    Ok(position)
+                }
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
-    
+
     fn get_focus_near_limit(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::FocusNearLimit;
             let response = self.send_command(&cmd).await?;
             match response {
-                Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
+                Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => {
+                    Ok(position)
+                }
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
-    
+
     fn get_focus_zone(&self) -> impl Future<Output = Result<FocusZone, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::FocusZone;
@@ -219,21 +226,23 @@ where
             }
         }
     }
-    
-    fn get_auto_focus_sensitivity(&self) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + '_ {
+
+    fn get_auto_focus_sensitivity(
+        &self,
+    ) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::AutoFocusSensitivity;
             let response = self.send_command(&cmd).await?;
             match response {
-                Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
-                    Ok(sensitivity)
-                }
+                Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity {
+                    sensitivity,
+                }) => Ok(sensitivity),
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
-    
+
     fn get_exposure_mode(&self) -> impl Future<Output = Result<ExposureMode, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::ExposureMode;
@@ -245,31 +254,35 @@ where
             }
         }
     }
-    
+
     fn get_exposure_compensation(&self) -> impl Future<Output = Result<i8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::ExposureCompensation;
             let response = self.send_command(&cmd).await?;
             match response {
-                Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
+                Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => {
+                    Ok(value)
+                }
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
-    
+
     fn get_exposure_compensation_enabled(&self) -> impl Future<Output = Result<bool, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::ExposureCompensationMode;
             let response = self.send_command(&cmd).await?;
             match response {
-                Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
+                Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => {
+                    Ok(on)
+                }
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
-    
+
     fn get_iris(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Iris;
@@ -281,7 +294,7 @@ where
             }
         }
     }
-    
+
     fn get_shutter(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Shutter;
@@ -293,7 +306,7 @@ where
             }
         }
     }
-    
+
     fn get_brightness(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Bright;
@@ -305,7 +318,7 @@ where
             }
         }
     }
-    
+
     fn get_gain(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Gain;
@@ -317,7 +330,7 @@ where
             }
         }
     }
-    
+
     fn get_gain_limit(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::GainLimit;
@@ -329,7 +342,7 @@ where
             }
         }
     }
-    
+
     fn get_anti_flicker(&self) -> impl Future<Output = Result<AntiFlickerMode, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::AntiFlicker;
@@ -341,7 +354,7 @@ where
             }
         }
     }
-    
+
     fn get_backlight(&self) -> impl Future<Output = Result<bool, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Backlight;
@@ -353,7 +366,7 @@ where
             }
         }
     }
-    
+
     fn get_dynamic_range(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::DynamicRange;
@@ -365,7 +378,7 @@ where
             }
         }
     }
-    
+
     fn get_white_balance_mode(&self) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::WhiteBalanceMode;
@@ -377,7 +390,7 @@ where
             }
         }
     }
-    
+
     fn get_color_temperature(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::ColorTemperature;
@@ -391,7 +404,7 @@ where
             }
         }
     }
-    
+
     fn get_red_gain(&self) -> impl Future<Output = Result<i8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::RedGain;
@@ -403,7 +416,7 @@ where
             }
         }
     }
-    
+
     fn get_blue_gain(&self) -> impl Future<Output = Result<i8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::BlueGain;
@@ -415,7 +428,7 @@ where
             }
         }
     }
-    
+
     fn get_luminance(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Luminance;
@@ -427,7 +440,7 @@ where
             }
         }
     }
-    
+
     fn get_contrast(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Contrast;
@@ -439,7 +452,7 @@ where
             }
         }
     }
-    
+
     fn get_sharpness(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Sharpness;
@@ -451,7 +464,7 @@ where
             }
         }
     }
-    
+
     fn get_sharpness_mode(&self) -> impl Future<Output = Result<SharpnessMode, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::SharpnessMode;
@@ -463,7 +476,7 @@ where
             }
         }
     }
-    
+
     fn get_saturation(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Saturation;
@@ -475,7 +488,7 @@ where
             }
         }
     }
-    
+
     fn get_hue(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Hue;
@@ -487,7 +500,7 @@ where
             }
         }
     }
-    
+
     fn get_noise_reduction_2d(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::NoiseReduction2D;
@@ -499,7 +512,7 @@ where
             }
         }
     }
-    
+
     fn get_noise_reduction_3d(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::NoiseReduction3D;
@@ -511,7 +524,7 @@ where
             }
         }
     }
-    
+
     fn get_image_flip(&self) -> impl Future<Output = Result<(bool, bool), Error>> + '_ {
         async move {
             let cmd = InquiryCommand::ImageFlip;
@@ -526,7 +539,7 @@ where
             }
         }
     }
-    
+
     fn get_black_white(&self) -> impl Future<Output = Result<bool, Error>> + '_ {
         async move {
             let cmd = InquiryCommand::BlackWhite;
@@ -538,7 +551,7 @@ where
             }
         }
     }
-    
+
     fn get_version(&self) -> impl Future<Output = Result<(u16, u16, u32, u8), Error>> + '_ {
         async move {
             let cmd = InquiryCommand::Version;
@@ -566,17 +579,17 @@ where
 {
     // Power and Basic State
     async fn get_power_state(&self) -> Result<bool, Error>;
-    
+
     // Position Queries
     async fn get_position(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>;
-    
+
     // Optics Queries
     async fn get_zoom_position(&self) -> Result<u16, Error>;
     async fn get_focus_position(&self) -> Result<u16, Error>;
     async fn get_focus_near_limit(&self) -> Result<u16, Error>;
     async fn get_focus_zone(&self) -> Result<FocusZone, Error>;
     async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error>;
-    
+
     // Exposure Queries
     async fn get_exposure_mode(&self) -> Result<ExposureMode, Error>;
     async fn get_exposure_compensation(&self) -> Result<i8, Error>;
@@ -589,13 +602,13 @@ where
     async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error>;
     async fn get_backlight(&self) -> Result<bool, Error>;
     async fn get_dynamic_range(&self) -> Result<u8, Error>;
-    
+
     // Color Queries
     async fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error>;
     async fn get_color_temperature(&self) -> Result<u16, Error>;
     async fn get_red_gain(&self) -> Result<i8, Error>;
     async fn get_blue_gain(&self) -> Result<i8, Error>;
-    
+
     // Image Quality Queries
     async fn get_luminance(&self) -> Result<u8, Error>;
     async fn get_contrast(&self) -> Result<u8, Error>;
@@ -605,11 +618,11 @@ where
     async fn get_hue(&self) -> Result<u8, Error>;
     async fn get_noise_reduction_2d(&self) -> Result<u8, Error>;
     async fn get_noise_reduction_3d(&self) -> Result<u8, Error>;
-    
+
     // Special Effects Queries
     async fn get_image_flip(&self) -> Result<(bool, bool), Error>;
     async fn get_black_white(&self) -> Result<bool, Error>;
-    
+
     // Camera Information
     async fn get_version(&self) -> Result<(u16, u16, u32, u8), Error>;
 }
@@ -622,131 +635,131 @@ where
     async fn get_power_state(&self) -> Result<bool, Error> {
         self.core().get_power_state().await
     }
-    
+
     async fn get_position(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error> {
         self.core().get_position().await
     }
-    
+
     async fn get_zoom_position(&self) -> Result<u16, Error> {
         self.core().get_zoom_position().await
     }
-    
+
     async fn get_focus_position(&self) -> Result<u16, Error> {
         self.core().get_focus_position().await
     }
-    
+
     async fn get_focus_near_limit(&self) -> Result<u16, Error> {
         self.core().get_focus_near_limit().await
     }
-    
+
     async fn get_focus_zone(&self) -> Result<FocusZone, Error> {
         self.core().get_focus_zone().await
     }
-    
+
     async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
         self.core().get_auto_focus_sensitivity().await
     }
-    
+
     async fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {
         self.core().get_exposure_mode().await
     }
-    
+
     async fn get_exposure_compensation(&self) -> Result<i8, Error> {
         self.core().get_exposure_compensation().await
     }
-    
+
     async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
         self.core().get_exposure_compensation_enabled().await
     }
-    
+
     async fn get_iris(&self) -> Result<u8, Error> {
         self.core().get_iris().await
     }
-    
+
     async fn get_shutter(&self) -> Result<u16, Error> {
         self.core().get_shutter().await
     }
-    
+
     async fn get_brightness(&self) -> Result<u16, Error> {
         self.core().get_brightness().await
     }
-    
+
     async fn get_gain(&self) -> Result<u8, Error> {
         self.core().get_gain().await
     }
-    
+
     async fn get_gain_limit(&self) -> Result<u8, Error> {
         self.core().get_gain_limit().await
     }
-    
+
     async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
         self.core().get_anti_flicker().await
     }
-    
+
     async fn get_backlight(&self) -> Result<bool, Error> {
         self.core().get_backlight().await
     }
-    
+
     async fn get_dynamic_range(&self) -> Result<u8, Error> {
         self.core().get_dynamic_range().await
     }
-    
+
     async fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error> {
         self.core().get_white_balance_mode().await
     }
-    
+
     async fn get_color_temperature(&self) -> Result<u16, Error> {
         self.core().get_color_temperature().await
     }
-    
+
     async fn get_red_gain(&self) -> Result<i8, Error> {
         self.core().get_red_gain().await
     }
-    
+
     async fn get_blue_gain(&self) -> Result<i8, Error> {
         self.core().get_blue_gain().await
     }
-    
+
     async fn get_luminance(&self) -> Result<u8, Error> {
         self.core().get_luminance().await
     }
-    
+
     async fn get_contrast(&self) -> Result<u8, Error> {
         self.core().get_contrast().await
     }
-    
+
     async fn get_sharpness(&self) -> Result<u8, Error> {
         self.core().get_sharpness().await
     }
-    
+
     async fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error> {
         self.core().get_sharpness_mode().await
     }
-    
+
     async fn get_saturation(&self) -> Result<u8, Error> {
         self.core().get_saturation().await
     }
-    
+
     async fn get_hue(&self) -> Result<u8, Error> {
         self.core().get_hue().await
     }
-    
+
     async fn get_noise_reduction_2d(&self) -> Result<u8, Error> {
         self.core().get_noise_reduction_2d().await
     }
-    
+
     async fn get_noise_reduction_3d(&self) -> Result<u8, Error> {
         self.core().get_noise_reduction_3d().await
     }
-    
+
     async fn get_image_flip(&self) -> Result<(bool, bool), Error> {
         self.core().get_image_flip().await
     }
-    
+
     async fn get_black_white(&self) -> Result<bool, Error> {
         self.core().get_black_white().await
     }
-    
+
     async fn get_version(&self) -> Result<(u16, u16, u32, u8), Error> {
         self.core().get_version().await
     }
@@ -760,17 +773,17 @@ where
 {
     // Power and Basic State
     fn get_power_state(&self) -> Result<bool, Error>;
-    
+
     // Position Queries
     fn get_position(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>;
-    
+
     // Optics Queries
     fn get_zoom_position(&self) -> Result<u16, Error>;
     fn get_focus_position(&self) -> Result<u16, Error>;
     fn get_focus_near_limit(&self) -> Result<u16, Error>;
     fn get_focus_zone(&self) -> Result<FocusZone, Error>;
     fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error>;
-    
+
     // Exposure Queries
     fn get_exposure_mode(&self) -> Result<ExposureMode, Error>;
     fn get_exposure_compensation(&self) -> Result<i8, Error>;
@@ -783,13 +796,13 @@ where
     fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error>;
     fn get_backlight(&self) -> Result<bool, Error>;
     fn get_dynamic_range(&self) -> Result<u8, Error>;
-    
+
     // Color Queries
     fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error>;
     fn get_color_temperature(&self) -> Result<u16, Error>;
     fn get_red_gain(&self) -> Result<i8, Error>;
     fn get_blue_gain(&self) -> Result<i8, Error>;
-    
+
     // Image Quality Queries
     fn get_luminance(&self) -> Result<u8, Error>;
     fn get_contrast(&self) -> Result<u8, Error>;
@@ -799,11 +812,11 @@ where
     fn get_hue(&self) -> Result<u8, Error>;
     fn get_noise_reduction_2d(&self) -> Result<u8, Error>;
     fn get_noise_reduction_3d(&self) -> Result<u8, Error>;
-    
+
     // Special Effects Queries
     fn get_image_flip(&self) -> Result<(bool, bool), Error>;
     fn get_black_white(&self) -> Result<bool, Error>;
-    
+
     // Camera Information
     fn get_version(&self) -> Result<(u16, u16, u32, u8), Error>;
 }
@@ -816,131 +829,131 @@ where
     fn get_power_state(&self) -> Result<bool, Error> {
         block_on(self.core().get_power_state())
     }
-    
+
     fn get_position(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error> {
         block_on(self.core().get_position())
     }
-    
+
     fn get_zoom_position(&self) -> Result<u16, Error> {
         block_on(self.core().get_zoom_position())
     }
-    
+
     fn get_focus_position(&self) -> Result<u16, Error> {
         block_on(self.core().get_focus_position())
     }
-    
+
     fn get_focus_near_limit(&self) -> Result<u16, Error> {
         block_on(self.core().get_focus_near_limit())
     }
-    
+
     fn get_focus_zone(&self) -> Result<FocusZone, Error> {
         block_on(self.core().get_focus_zone())
     }
-    
+
     fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
         block_on(self.core().get_auto_focus_sensitivity())
     }
-    
+
     fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {
         block_on(self.core().get_exposure_mode())
     }
-    
+
     fn get_exposure_compensation(&self) -> Result<i8, Error> {
         block_on(self.core().get_exposure_compensation())
     }
-    
+
     fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
         block_on(self.core().get_exposure_compensation_enabled())
     }
-    
+
     fn get_iris(&self) -> Result<u8, Error> {
         block_on(self.core().get_iris())
     }
-    
+
     fn get_shutter(&self) -> Result<u16, Error> {
         block_on(self.core().get_shutter())
     }
-    
+
     fn get_brightness(&self) -> Result<u16, Error> {
         block_on(self.core().get_brightness())
     }
-    
+
     fn get_gain(&self) -> Result<u8, Error> {
         block_on(self.core().get_gain())
     }
-    
+
     fn get_gain_limit(&self) -> Result<u8, Error> {
         block_on(self.core().get_gain_limit())
     }
-    
+
     fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
         block_on(self.core().get_anti_flicker())
     }
-    
+
     fn get_backlight(&self) -> Result<bool, Error> {
         block_on(self.core().get_backlight())
     }
-    
+
     fn get_dynamic_range(&self) -> Result<u8, Error> {
         block_on(self.core().get_dynamic_range())
     }
-    
+
     fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error> {
         block_on(self.core().get_white_balance_mode())
     }
-    
+
     fn get_color_temperature(&self) -> Result<u16, Error> {
         block_on(self.core().get_color_temperature())
     }
-    
+
     fn get_red_gain(&self) -> Result<i8, Error> {
         block_on(self.core().get_red_gain())
     }
-    
+
     fn get_blue_gain(&self) -> Result<i8, Error> {
         block_on(self.core().get_blue_gain())
     }
-    
+
     fn get_luminance(&self) -> Result<u8, Error> {
         block_on(self.core().get_luminance())
     }
-    
+
     fn get_contrast(&self) -> Result<u8, Error> {
         block_on(self.core().get_contrast())
     }
-    
+
     fn get_sharpness(&self) -> Result<u8, Error> {
         block_on(self.core().get_sharpness())
     }
-    
+
     fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error> {
         block_on(self.core().get_sharpness_mode())
     }
-    
+
     fn get_saturation(&self) -> Result<u8, Error> {
         block_on(self.core().get_saturation())
     }
-    
+
     fn get_hue(&self) -> Result<u8, Error> {
         block_on(self.core().get_hue())
     }
-    
+
     fn get_noise_reduction_2d(&self) -> Result<u8, Error> {
         block_on(self.core().get_noise_reduction_2d())
     }
-    
+
     fn get_noise_reduction_3d(&self) -> Result<u8, Error> {
         block_on(self.core().get_noise_reduction_3d())
     }
-    
+
     fn get_image_flip(&self) -> Result<(bool, bool), Error> {
         block_on(self.core().get_image_flip())
     }
-    
+
     fn get_black_white(&self) -> Result<bool, Error> {
         block_on(self.core().get_black_white())
     }
-    
+
     fn get_version(&self) -> Result<(u16, u16, u32, u8), Error> {
         block_on(self.core().get_version())
     }

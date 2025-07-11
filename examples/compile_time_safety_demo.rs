@@ -5,6 +5,7 @@
 
 // This example demonstrates compile-time safety in the Camera API
 
+use bytes::Bytes;
 use grafton_visca::{
     camera::methods::*,
     profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
@@ -12,7 +13,6 @@ use grafton_visca::{
     CameraBlocking, Error,
 };
 use std::future::{ready, Ready};
-use bytes::Bytes;
 
 fn main() -> Result<(), Error> {
     demonstrate_ptzoptics_g2()?;
@@ -32,11 +32,11 @@ fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
         type Error = Error;
         type SendFut<'a> = Ready<Result<(), Error>>;
         type RecvFut<'a> = Ready<Result<Bytes, Error>>;
-        
+
         fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
             ready(Ok(()))
         }
-        
+
         fn recv(&self) -> Self::RecvFut<'_> {
             ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
@@ -70,11 +70,11 @@ fn demonstrate_sony_fr7() -> Result<(), Error> {
         type Error = Error;
         type SendFut<'a> = Ready<Result<(), Error>>;
         type RecvFut<'a> = Ready<Result<Bytes, Error>>;
-        
+
         fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
             ready(Ok(()))
         }
-        
+
         fn recv(&self) -> Self::RecvFut<'_> {
             ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
@@ -104,11 +104,11 @@ fn demonstrate_generic_camera() -> Result<(), Error> {
         type Error = Error;
         type SendFut<'a> = Ready<Result<(), Error>>;
         type RecvFut<'a> = Ready<Result<Bytes, Error>>;
-        
+
         fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
             ready(Ok(()))
         }
-        
+
         fn recv(&self) -> Self::RecvFut<'_> {
             ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
@@ -198,11 +198,11 @@ mod tests {
         type Error = Error;
         type SendFut<'a> = Ready<Result<(), Error>>;
         type RecvFut<'a> = Ready<Result<Bytes, Error>>;
-        
+
         fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
             ready(Ok(()))
         }
-        
+
         fn recv(&self) -> Self::RecvFut<'_> {
             ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }

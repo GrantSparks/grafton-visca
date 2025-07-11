@@ -2,11 +2,7 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{Power, ProfileMetadata},
     command::{
         const_encoding::{commands, CommandBuilder},
@@ -32,7 +28,7 @@ impl Command for PowerOnCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -53,7 +49,7 @@ impl Command for PowerOffCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -67,7 +63,7 @@ where
 {
     /// Power on the camera - returns a future.
     fn power_on(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Power off the camera - returns a future.
     fn power_off(&self) -> impl Future<Output = Result<(), Error>> + '_;
 }
@@ -87,13 +83,13 @@ where
                     #[cfg(feature = "tokio")]
                     tokio::time::sleep(P::POWER_ON_TIME).await;
                     Ok(())
-                },
+                }
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
-    
+
     fn power_off(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = PowerOffCommand::new();
@@ -104,7 +100,7 @@ where
                     #[cfg(feature = "tokio")]
                     tokio::time::sleep(P::STANDBY_TIME).await;
                     Ok(())
-                },
+                }
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
@@ -121,7 +117,7 @@ where
 {
     /// Power on the camera.
     async fn power_on(&self) -> Result<(), Error>;
-    
+
     /// Power off the camera.
     async fn power_off(&self) -> Result<(), Error>;
 }
@@ -134,7 +130,7 @@ where
     async fn power_on(&self) -> Result<(), Error> {
         self.core().power_on().await
     }
-    
+
     async fn power_off(&self) -> Result<(), Error> {
         self.core().power_off().await
     }
@@ -148,7 +144,7 @@ where
 {
     /// Power on the camera.
     fn power_on(&self) -> Result<(), Error>;
-    
+
     /// Power off the camera.
     fn power_off(&self) -> Result<(), Error>;
 }
@@ -161,7 +157,7 @@ where
     fn power_on(&self) -> Result<(), Error> {
         block_on(self.core().power_on())
     }
-    
+
     fn power_off(&self) -> Result<(), Error> {
         block_on(self.core().power_off())
     }

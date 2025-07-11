@@ -9,7 +9,7 @@ use grafton_visca::{
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    transport::tokio::TcpGat,
+    transport::tokio::Tcp,
     Camera, Error,
 };
 use std::time::Duration;
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("====================\n");
 
     // Create async transport
-    let transport = TcpGat::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
+    let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demo 1: Power Control
@@ -57,9 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_power_control<T>(
-    camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error>
+async fn demo_power_control<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
 where
     T: grafton_visca::transport::Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -74,9 +72,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_pan_tilt_movement<T>(
-    camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error>
+async fn demo_pan_tilt_movement<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
 where
     T: grafton_visca::transport::Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -90,11 +86,7 @@ where
 
     println!("Moving camera up-right...");
     camera
-        .pan_tilt_move(
-            PanTiltDirection::UpRight,
-            16,
-            16,
-        )
+        .pan_tilt_move(PanTiltDirection::UpRight, 16, 16)
         .await?;
     sleep(Duration::from_secs(1)).await;
 
@@ -104,9 +96,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_zoom_control<T>(
-    camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error>
+async fn demo_zoom_control<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
 where
     T: grafton_visca::transport::Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -131,9 +121,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_focus_control<T>(
-    camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error>
+async fn demo_focus_control<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
 where
     T: grafton_visca::transport::Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -151,9 +139,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_exposure_settings<T>(
-    camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error>
+async fn demo_exposure_settings<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
 where
     T: grafton_visca::transport::Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -171,9 +157,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_white_balance<T>(
-    camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error>
+async fn demo_white_balance<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
 where
     T: grafton_visca::transport::Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -190,9 +174,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_position_control<T>(
-    camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Error>
+async fn demo_position_control<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
 where
     T: grafton_visca::transport::Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -201,15 +183,11 @@ where
     println!("\n📍 Demo 7: Position Control");
 
     println!("Moving to specific position (45°, 20°)...");
-    camera
-        .pan_tilt_absolute(45.0, 20.0, 18)
-        .await?;
+    camera.pan_tilt_absolute(45.0, 20.0, 18).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("Moving to position (-30°, -10°)...");
-    camera
-        .pan_tilt_absolute(-30.0, -10.0, 18)
-        .await?;
+    camera.pan_tilt_absolute(-30.0, -10.0, 18).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("Returning to home...");

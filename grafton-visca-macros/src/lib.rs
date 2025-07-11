@@ -187,4 +187,3 @@ pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     TokenStream::from(inquiry_command::derive_inquiry_command_impl(input))
 }
-

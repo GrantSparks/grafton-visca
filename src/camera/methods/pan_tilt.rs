@@ -2,15 +2,11 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
-    capabilities::{ProfileMetadata, PanTilt, pan_tilt::PanTiltExt},
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
+    capabilities::{pan_tilt::PanTiltExt, PanTilt, ProfileMetadata},
     command::{
         const_encoding::{
-            commands, CommandBuilder, encode_pan_tilt_absolute, encode_pan_tilt_relative,
+            commands, encode_pan_tilt_absolute, encode_pan_tilt_relative, CommandBuilder,
         },
         pan_tilt::{PanTiltCommand, PanTiltDirection},
         Command, Response,
@@ -36,7 +32,7 @@ impl Command for PanTiltStopCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<crate::command::ResponseType> {
         None // Action command
     }
@@ -57,7 +53,7 @@ impl Command for PanTiltHomeCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<crate::command::ResponseType> {
         None // Action command
     }
@@ -78,7 +74,7 @@ impl Command for PanTiltResetCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<crate::command::ResponseType> {
         None // Action command
     }
@@ -97,7 +93,7 @@ impl Command for PanTiltAbsoluteCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<crate::command::ResponseType> {
         None // Action command
     }
@@ -116,7 +112,7 @@ impl Command for PanTiltRelativeCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<crate::command::ResponseType> {
         None // Action command
     }
@@ -252,7 +248,7 @@ where
                 pan_speed: PanSpeed::new(pan_speed)?,
                 tilt_speed: TiltSpeed::new(tilt_speed)?,
             };
-            
+
             match self.send_command(&cmd).await? {
                 Response::Ack => Ok(()),
                 Response::Error(e) => Err(e.into()),
@@ -328,7 +324,9 @@ where
         tilt_degrees: f32,
         speed: u8,
     ) -> Result<(), Error> {
-        self.core().pan_tilt_absolute(pan_degrees, tilt_degrees, speed).await
+        self.core()
+            .pan_tilt_absolute(pan_degrees, tilt_degrees, speed)
+            .await
     }
 
     async fn pan_tilt_relative(
@@ -337,7 +335,9 @@ where
         tilt_degrees: f32,
         speed: u8,
     ) -> Result<(), Error> {
-        self.core().pan_tilt_relative(pan_degrees, tilt_degrees, speed).await
+        self.core()
+            .pan_tilt_relative(pan_degrees, tilt_degrees, speed)
+            .await
     }
 
     async fn pan_tilt_move(
@@ -346,7 +346,9 @@ where
         pan_speed: u8,
         tilt_speed: u8,
     ) -> Result<(), Error> {
-        self.core().pan_tilt_move(direction, pan_speed, tilt_speed).await
+        self.core()
+            .pan_tilt_move(direction, pan_speed, tilt_speed)
+            .await
     }
 
     async fn pan_tilt_reset(&self) -> Result<(), Error> {
@@ -409,7 +411,10 @@ where
         tilt_degrees: f32,
         speed: u8,
     ) -> Result<(), Error> {
-        block_on(self.core().pan_tilt_absolute(pan_degrees, tilt_degrees, speed))
+        block_on(
+            self.core()
+                .pan_tilt_absolute(pan_degrees, tilt_degrees, speed),
+        )
     }
 
     fn pan_tilt_relative(
@@ -418,7 +423,10 @@ where
         tilt_degrees: f32,
         speed: u8,
     ) -> Result<(), Error> {
-        block_on(self.core().pan_tilt_relative(pan_degrees, tilt_degrees, speed))
+        block_on(
+            self.core()
+                .pan_tilt_relative(pan_degrees, tilt_degrees, speed),
+        )
     }
 
     fn pan_tilt_move(

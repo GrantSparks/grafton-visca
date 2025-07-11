@@ -8,7 +8,7 @@ use grafton_visca::{
     camera::methods::{FocusBlockingExt, PanTiltBlockingExt, PowerBlockingExt, ZoomBlockingExt},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    transport::blocking::{TcpGat, UdpGat},
+    transport::blocking::{Tcp, Udp},
     CameraBlocking, Error,
 };
 
@@ -17,7 +17,7 @@ use grafton_visca::{
     camera::methods::{FocusAsyncExt, PanTiltAsyncExt, PowerAsyncExt, ZoomAsyncExt},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    transport::tokio::{TcpGat, UdpGat},
+    transport::tokio::{Tcp, Udp},
     Camera, Error,
 };
 
@@ -31,7 +31,7 @@ fn blocking_udp_example() -> Result<(), Error> {
     println!("=== Blocking UDP Example ===");
 
     // Create a camera with blocking UDP transport
-    let transport = UdpGat::connect("192.168.1.100:5678")?;
+    let transport = Udp::connect("192.168.1.100:5678")?;
     let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     // All operations are synchronous
@@ -54,7 +54,7 @@ fn blocking_tcp_example() -> Result<(), Error> {
     println!("\n=== Blocking TCP Example ===");
 
     // Create a camera with blocking TCP transport
-    let transport = TcpGat::connect("192.168.1.100:5678")?;
+    let transport = Tcp::connect("192.168.1.100:5678")?;
     let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     // All operations are synchronous
@@ -74,7 +74,7 @@ fn blocking_tcp_example() -> Result<(), Error> {
 fn blocking_movement_example() -> Result<(), Error> {
     println!("\n=== Blocking Movement Example ===");
 
-    let transport = UdpGat::connect("192.168.1.100:5678")?;
+    let transport = Udp::connect("192.168.1.100:5678")?;
     let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     println!("Moving camera up...");
@@ -83,11 +83,7 @@ fn blocking_movement_example() -> Result<(), Error> {
     camera.pan_tilt_stop()?;
 
     println!("Moving camera down...");
-    camera.pan_tilt_move(
-        PanTiltDirection::Down,
-        0,
-        10,
-    )?;
+    camera.pan_tilt_move(PanTiltDirection::Down, 0, 10)?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;
 
@@ -101,7 +97,7 @@ async fn async_udp_example() -> Result<(), Error> {
     println!("=== Async UDP Example ===");
 
     // Create a camera with async UDP transport
-    let transport = UdpGat::connect("192.168.1.100:5678").await?;
+    let transport = Udp::connect("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // All operations are async
@@ -124,7 +120,7 @@ async fn async_tcp_example() -> Result<(), Error> {
     println!("\n=== Async TCP Example ===");
 
     // Create a camera with async TCP transport
-    let transport = TcpGat::connect("192.168.1.100:5678").await?;
+    let transport = Tcp::connect("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // All operations are async
@@ -132,9 +128,7 @@ async fn async_tcp_example() -> Result<(), Error> {
     camera.power_on().await?;
 
     println!("Setting position...");
-    camera
-        .pan_tilt_absolute(45.0, 15.0, 10)
-        .await?;
+    camera.pan_tilt_absolute(45.0, 15.0, 10).await?;
 
     println!("Adjusting focus...");
     camera.focus_auto().await?;
@@ -146,24 +140,16 @@ async fn async_tcp_example() -> Result<(), Error> {
 async fn async_movement_example() -> Result<(), Error> {
     println!("\n=== Async Movement Example ===");
 
-    let transport = UdpGat::connect("192.168.1.100:5678").await?;
+    let transport = Udp::connect("192.168.1.100:5678").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Moving camera up...");
-    camera
-        .pan_tilt_move(PanTiltDirection::Up, 0, 10)
-        .await?;
+    camera.pan_tilt_move(PanTiltDirection::Up, 0, 10).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     camera.pan_tilt_stop().await?;
 
     println!("Moving camera down...");
-    camera
-        .pan_tilt_move(
-            PanTiltDirection::Down,
-            0,
-            10,
-        )
-        .await?;
+    camera.pan_tilt_move(PanTiltDirection::Down, 0, 10).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     camera.pan_tilt_stop().await?;
 
