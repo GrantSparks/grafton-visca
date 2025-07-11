@@ -3,6 +3,7 @@
 use crate::camera::Camera;
 use crate::capabilities::{Presets, ProfileMetadata};
 use crate::Error;
+use grafton_visca_macros::dual_native_method;
 
 /// Extension trait that adds preset methods to cameras.
 #[allow(async_fn_in_trait)]
@@ -24,13 +25,14 @@ pub trait PresetMethodsExt {
     async fn preset_set(&self, preset: u8) -> Result<(), Error>;
 }
 
-// Blanket implementation for cameras with preset support
+// Blanket implementation for cameras with preset support - blocking
 #[cfg(not(feature = "async"))]
 impl<P, T> PresetMethodsExt for Camera<P, T>
 where
     P: ProfileMetadata + Presets,
     T: crate::transport::blocking::BlockingTransport,
 {
+    #[dual_native_method]
     fn preset_recall(&mut self, preset: u8) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, CommandBuilder};
 
@@ -47,10 +49,11 @@ where
         let mut cmd = CommandBuilder::<7>::new();
         cmd.append(commands::PRESET_RECALL_PREFIX).push(preset);
 
-        let response = self.transport.send_command(&cmd.build())?;
-        response.into_result()
+        let response_bytes = self.send_raw(&cmd.build())?;
+        crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
+    #[dual_native_method]
     fn preset_set(&mut self, preset: u8) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, CommandBuilder};
 
@@ -67,19 +70,20 @@ where
         let mut cmd = CommandBuilder::<7>::new();
         cmd.append(commands::PRESET_SET_PREFIX).push(preset);
 
-        let response = self.transport.send_command(&cmd.build())?;
-        response.into_result()
+        let response_bytes = self.send_raw(&cmd.build())?;
+        crate::command::Response::parse(&response_bytes)?.into_result()
     }
 }
 
-// Async implementation
+// Blanket implementation for cameras with preset support - async
 #[cfg(feature = "async")]
 impl<P, T> PresetMethodsExt for Camera<P, T>
 where
     P: ProfileMetadata + Presets,
     T: crate::transport::AsyncTransport,
 {
-    async fn preset_recall(&self, preset: u8) -> Result<(), Error> {
+    #[dual_native_method]
+    fn preset_recall(&mut self, preset: u8) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         // Validate preset number
@@ -95,11 +99,12 @@ where
         let mut cmd = CommandBuilder::<7>::new();
         cmd.append(commands::PRESET_RECALL_PREFIX).push(preset);
 
-        let response = self.transport.send_command(&cmd.build()).await?;
-        response.into_result()
+        let response_bytes = self.send_raw(&cmd.build())?;
+        crate::command::Response::parse(&response_bytes)?.into_result()
     }
 
-    async fn preset_set(&self, preset: u8) -> Result<(), Error> {
+    #[dual_native_method]
+    fn preset_set(&mut self, preset: u8) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         // Validate preset number
@@ -115,7 +120,7 @@ where
         let mut cmd = CommandBuilder::<7>::new();
         cmd.append(commands::PRESET_SET_PREFIX).push(preset);
 
-        let response = self.transport.send_command(&cmd.build()).await?;
-        response.into_result()
+        let response_bytes = self.send_raw(&cmd.build())?;
+        crate::command::Response::parse(&response_bytes)?.into_result()
     }
 }

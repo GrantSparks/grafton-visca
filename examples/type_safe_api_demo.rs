@@ -42,8 +42,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✓ All capabilities are type-safe and model-specific");
 
     // 2. Position control with type-safe units
-    println!("
-2. Type-safe position control:");
+    println!(
+        "
+2. Type-safe position control:"
+    );
 
     // Move using degrees
     camera.pan_tilt_absolute(45.0, 15.0, 5)?;
@@ -95,8 +97,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✓ Gain values are restricted to valid camera options");
 
     // 6. Profile-aware conversions
-    println!("
-6. Profile-aware unit conversions:");
+    println!(
+        "
+6. Profile-aware unit conversions:"
+    );
     println!("   ✓ Unit conversions are handled internally by the Camera API");
     println!("   ✓ Profile-specific ranges and scaling are enforced automatically");
 

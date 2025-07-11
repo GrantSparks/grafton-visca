@@ -4,6 +4,7 @@ use crate::camera::Camera;
 use crate::capabilities::{ProfileMetadata, Zoom};
 // Removed unused imports
 use crate::Error;
+use grafton_visca_macros::dual_native_method;
 
 /// Extension trait that adds zoom methods to cameras.
 #[allow(async_fn_in_trait)]
@@ -41,13 +42,14 @@ pub trait ZoomMethodsExt {
     async fn zoom_absolute(&self, position: f32) -> Result<(), Error>;
 }
 
-// Blanket implementation for cameras with zoom support
+// Blanket implementation for cameras with zoom support - blocking
 #[cfg(not(feature = "async"))]
 impl<P, T> ZoomMethodsExt for Camera<P, T>
 where
     P: ProfileMetadata + Zoom,
     T: crate::transport::blocking::BlockingTransport,
 {
+    #[dual_native_method]
     fn zoom_stop(&mut self) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, CommandBuilder};
 
@@ -58,6 +60,7 @@ where
         response.into_result()
     }
 
+    #[dual_native_method]
     fn zoom_in(&mut self) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, encode_speed, CommandBuilder};
 
@@ -72,6 +75,7 @@ where
         response.into_result()
     }
 
+    #[dual_native_method]
     fn zoom_out(&mut self) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, encode_speed, CommandBuilder};
 
@@ -86,6 +90,7 @@ where
         response.into_result()
     }
 
+    #[dual_native_method]
     fn zoom_absolute(&mut self, position: f32) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, encode_u16_visca, CommandBuilder};
 
@@ -121,17 +126,19 @@ where
     P: ProfileMetadata + Zoom,
     T: crate::transport::AsyncTransport,
 {
-    async fn zoom_stop(&self) -> Result<(), Error> {
+    #[dual_native_method]
+    fn zoom_stop(&mut self) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, CommandBuilder};
 
         let mut cmd = CommandBuilder::<7>::new();
         cmd.append(commands::ZOOM_STOP);
 
-        let response = self.transport.send_command(&cmd.build()).await?;
+        let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
     }
 
-    async fn zoom_in(&self) -> Result<(), Error> {
+    #[dual_native_method]
+    fn zoom_in(&mut self) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, encode_speed, CommandBuilder};
 
         // Use medium speed by default
@@ -141,11 +148,12 @@ where
         cmd.append(commands::ZOOM_TELE_PREFIX)
             .push(encode_speed(speed));
 
-        let response = self.transport.send_command(&cmd.build()).await?;
+        let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
     }
 
-    async fn zoom_out(&self) -> Result<(), Error> {
+    #[dual_native_method]
+    fn zoom_out(&mut self) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, encode_speed, CommandBuilder};
 
         // Use medium speed by default
@@ -155,11 +163,12 @@ where
         cmd.append(commands::ZOOM_WIDE_PREFIX)
             .push(encode_speed(speed));
 
-        let response = self.transport.send_command(&cmd.build()).await?;
+        let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
     }
 
-    async fn zoom_absolute(&self, position: f32) -> Result<(), Error> {
+    #[dual_native_method]
+    fn zoom_absolute(&mut self, position: f32) -> Result<(), Error> {
         use crate::command::const_encoding::{commands, encode_u16_visca, CommandBuilder};
 
         // Validate position
@@ -182,7 +191,7 @@ where
         cmd.append(commands::ZOOM_ABSOLUTE_PREFIX);
         encode_u16_visca(units, &mut cmd);
 
-        let response = self.transport.send_command(&cmd.build()).await?;
+        let response = self.transport.send_command(&cmd.build())?;
         response.into_result()
     }
 }
