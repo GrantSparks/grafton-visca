@@ -19,8 +19,9 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    /// Set camera address (1-7) - returns a future.
-    fn set_address(&self, address: u8) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Trigger automatic address assignment (broadcast command for serial bus) - returns a future.
+    /// Note: This doesn't set a specific address but triggers the auto-addressing process.
+    fn trigger_address_assignment(&self) -> impl Future<Output = Result<(), Error>> + '_;
 
     /// Clear interface (reset communication) - returns a future.
     fn interface_clear(&self) -> impl Future<Output = Result<(), Error>> + '_;
@@ -34,11 +35,8 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    fn set_address(&self, address: u8) -> impl Future<Output = Result<(), Error>> + '_ {
+    fn trigger_address_assignment(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            // Note: AddressSetCommand is a broadcast command that doesn't take an address parameter
-            // The address parameter here is ignored, but kept for API compatibility
-            let _ = address;
             let cmd = AddressSetCommand;
             let response = self.send_command(&cmd).await?;
             match response {
@@ -81,8 +79,9 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    /// Set camera address (1-7).
-    async fn set_address(&self, address: u8) -> Result<(), Error>;
+    /// Trigger automatic address assignment (broadcast command for serial bus).
+    /// Note: This doesn't set a specific address but triggers the auto-addressing process.
+    async fn trigger_address_assignment(&self) -> Result<(), Error>;
 
     /// Clear interface (reset communication).
     async fn interface_clear(&self) -> Result<(), Error>;
@@ -96,8 +95,8 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    async fn set_address(&self, address: u8) -> Result<(), Error> {
-        self.core().set_address(address).await
+    async fn trigger_address_assignment(&self) -> Result<(), Error> {
+        self.core().trigger_address_assignment().await
     }
 
     async fn interface_clear(&self) -> Result<(), Error> {
@@ -115,8 +114,9 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    /// Set camera address (1-7).
-    fn set_address(&self, address: u8) -> Result<(), Error>;
+    /// Trigger automatic address assignment (broadcast command for serial bus).
+    /// Note: This doesn't set a specific address but triggers the auto-addressing process.
+    fn trigger_address_assignment(&self) -> Result<(), Error>;
 
     /// Clear interface (reset communication).
     fn interface_clear(&self) -> Result<(), Error>;
@@ -130,8 +130,8 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    fn set_address(&self, address: u8) -> Result<(), Error> {
-        block_on(self.core().set_address(address))
+    fn trigger_address_assignment(&self) -> Result<(), Error> {
+        block_on(self.core().trigger_address_assignment())
     }
 
     fn interface_clear(&self) -> Result<(), Error> {

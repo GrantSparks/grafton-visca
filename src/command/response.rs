@@ -37,10 +37,14 @@ pub enum Response {
 
 impl Response {
     /// Convert response to a Result, treating Completion as Ok and Error as Err.
+    /// 
+    /// Note: ACK responses are treated as an error because they only indicate
+    /// the command was queued, not completed. Callers should wait for the
+    /// subsequent Completion response.
     pub fn into_result(self) -> Result<(), Error> {
         match self {
             Response::Completion => Ok(()),
-            Response::Ack => Ok(()), // ACK is also considered success
+            Response::Ack => Err(Error::CommandPending), // ACK means command is queued, not completed
             Response::Error(e) => Err(e),
             Response::InquiryResponse(_) => Ok(()), // Inquiry responses are success
             Response::Unknown(bytes) => Err(Error::InvalidResponse {
@@ -51,8 +55,48 @@ impl Response {
     }
 
     /// Parse a response from raw bytes.
+    /// 
+    /// This method is for parsing basic responses (ACK, Completion, Error).
+    /// For inquiry responses, use `parse_with_type` instead.
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
-        parse_response(bytes, &ResponseType::Power) // Default type, will be replaced
+        // Check for common non-inquiry responses first
+        if bytes.is_empty() {
+            return Err(Error::InvalidResponse {
+                expected: "Non-empty response".to_string(),
+                actual: bytes.to_vec(),
+            });
+        }
+        
+        // ACK: 9x 4y FF (where x = socket, y = ack type)
+        if bytes.len() == 3 && (bytes[0] & 0xF0) == 0x90 && (bytes[1] & 0xF0) == 0x40 && bytes[2] == 0xFF {
+            return Ok(Response::Ack);
+        }
+        
+        // Completion: 9x 5y FF (where x = socket, y = completion type)
+        if bytes.len() == 3 && (bytes[0] & 0xF0) == 0x90 && (bytes[1] & 0xF0) == 0x50 && bytes[2] == 0xFF {
+            return Ok(Response::Completion);
+        }
+        
+        // Error: 9x 6y zz FF (where x = socket, y = error type, zz = error code)
+        if bytes.len() >= 4 && (bytes[0] & 0xF0) == 0x90 && (bytes[1] & 0xF0) == 0x60 {
+            return Ok(Response::Error(Error::from_code(bytes[2])));
+        }
+        
+        // If it's an inquiry response (9x 50 ...), it needs a specific type
+        if bytes.len() > 3 && (bytes[0] & 0xF0) == 0x90 && bytes[1] == 0x50 {
+            return Err(Error::InvalidResponse {
+                expected: "Use parse_with_type for inquiry responses".to_string(),
+                actual: bytes.to_vec(),
+            });
+        }
+        
+        // Unknown response format
+        Ok(Response::Unknown(bytes.to_vec()))
+    }
+    
+    /// Parse an inquiry response with a specific expected type.
+    pub fn parse_with_type(bytes: &[u8], response_type: &ResponseType) -> Result<Self, Error> {
+        parse_response(bytes, response_type)
     }
 }
 

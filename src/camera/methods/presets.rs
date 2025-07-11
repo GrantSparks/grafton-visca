@@ -75,11 +75,11 @@ where
 {
     fn preset_recall(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            // Validate preset number
-            if preset == 0 || preset > P::MAX_PRESETS {
+            // Validate preset number (0 is valid - it's the home position)
+            if preset > P::MAX_PRESETS {
                 return Err(Error::ValidationError(ValidationError::InvalidValue {
                     parameter: "preset",
-                    message: format!("Preset {} is invalid, must be 1-{}", preset, P::MAX_PRESETS),
+                    message: format!("Preset {} is invalid, must be 0-{}", preset, P::MAX_PRESETS),
                 }));
             }
 
@@ -95,11 +95,11 @@ where
 
     fn preset_set(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            // Validate preset number
-            if preset == 0 || preset > P::MAX_PRESETS {
+            // Validate preset number (0 is valid - it's the home position)
+            if preset > P::MAX_PRESETS {
                 return Err(Error::ValidationError(ValidationError::InvalidValue {
                     parameter: "preset",
-                    message: format!("Preset {} is invalid, must be 1-{}", preset, P::MAX_PRESETS),
+                    message: format!("Preset {} is invalid, must be 0-{}", preset, P::MAX_PRESETS),
                 }));
             }
 
