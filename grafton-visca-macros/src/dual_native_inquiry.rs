@@ -24,27 +24,86 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
+use std::collections::HashSet;
 use syn::{
     fold::{self, Fold},
-    parse_macro_input, FnArg, ItemFn, Receiver,
+    parse::{Parse, ParseStream},
+    parse_macro_input,
+    punctuated::Punctuated,
+    FnArg, Ident, ItemFn, Receiver, Token,
 };
 
 /// Names of methods that must be awaited in async builds.
-const ASYNC_METHODS: &[&str] = &["send_raw", "send_and_wait", "send_and_receive"];
+const ASYNC_METHODS: &[&str] = &[
+    "send_raw",
+    "send_and_wait",
+    "send_and_receive",
+    "send_const",
+    "send_array",
+    "send_blocking",
+    "send_async",
+];
+
+/// Attribute arguments for #[dual_native_inquiry(...)]
+#[derive(Default)]
+struct DualNativeInquiryArgs {
+    await_methods: HashSet<String>,
+}
+
+impl Parse for DualNativeInquiryArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut args = Self::default();
+
+        if input.is_empty() {
+            return Ok(args);
+        }
+
+        // Parse "await_methods(...)"
+        let ident: Ident = input.parse()?;
+        if ident != "await_methods" {
+            return Err(syn::Error::new(ident.span(), "expected 'await_methods'"));
+        }
+
+        let content;
+        syn::parenthesized!(content in input);
+
+        // Parse comma-separated list of method names
+        let methods: Punctuated<Ident, Token![,]> =
+            content.parse_terminated(Ident::parse, Token![,])?;
+
+        for method in methods {
+            args.await_methods.insert(method.to_string());
+        }
+
+        Ok(args)
+    }
+}
 
 /// Fold the AST, inserting `.await` after certain method calls.
-struct Awaitify;
+struct Awaitify {
+    await_methods: HashSet<String>,
+}
 
 impl Fold for Awaitify {
     fn fold_expr(&mut self, expr: syn::Expr) -> syn::Expr {
         match expr {
             syn::Expr::MethodCall(mc) => {
                 let mc = fold::fold_expr_method_call(self, mc);
+
+                // Check if this is a method call on self
+                let is_self_method = match &*mc.receiver {
+                    syn::Expr::Path(path) => {
+                        path.path.segments.len() == 1 && path.path.segments[0].ident == "self"
+                    }
+                    _ => false,
+                };
+
                 // If the method is one that becomes async, attach `.await`
-                if ASYNC_METHODS
-                    .iter()
-                    .any(|name| name == &mc.method.to_string())
-                {
+                let method_name = mc.method.to_string();
+                let needs_await = ASYNC_METHODS.iter().any(|name| name == &method_name)
+                    || (is_self_method && self.await_methods.contains(&method_name));
+
+                if needs_await {
                     syn::Expr::Await(syn::ExprAwait {
                         attrs: Vec::new(),
                         base: Box::new(syn::Expr::MethodCall(mc)),
@@ -55,12 +114,37 @@ impl Fold for Awaitify {
                     syn::Expr::MethodCall(mc)
                 }
             }
+            // Handle try expressions (e.g., method_call()?)
+            syn::Expr::Try(try_expr) => {
+                // First fold the inner expression
+                let inner = self.fold_expr(*try_expr.expr);
+
+                // Check if the inner expression became an await expression
+                if matches!(inner, syn::Expr::Await(_)) {
+                    // If so, wrap the await in a try expression
+                    syn::Expr::Try(syn::ExprTry {
+                        attrs: try_expr.attrs,
+                        expr: Box::new(inner),
+                        question_token: try_expr.question_token,
+                    })
+                } else {
+                    // Otherwise, just update the inner expression
+                    syn::Expr::Try(syn::ExprTry {
+                        attrs: try_expr.attrs,
+                        expr: Box::new(inner),
+                        question_token: try_expr.question_token,
+                    })
+                }
+            }
             other => fold::fold_expr(self, other),
         }
     }
 }
 
-pub fn dual_native_inquiry(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn dual_native_inquiry(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // --- Parse the attribute arguments -------------------------------------------------------
+    let args = parse_macro_input!(attr as DualNativeInquiryArgs);
+
     // --- Parse the original method -----------------------------------------------------------
     let input_fn = parse_macro_input!(item as ItemFn);
     let vis = &input_fn.vis;
@@ -85,7 +169,7 @@ pub fn dual_native_inquiry(_attr: TokenStream, item: TokenStream) -> TokenStream
                 ..
             }) => {
                 // convert `&self` to `&mut self`
-                blocking_inputs.push(syn::parse_quote!( &mut self ));
+                blocking_inputs.push(syn::parse_quote!(&mut self));
             }
             _ => blocking_inputs.push(arg.clone()),
         }
@@ -113,14 +197,16 @@ pub fn dual_native_inquiry(_attr: TokenStream, item: TokenStream) -> TokenStream
                 ..
             }) => {
                 // convert `&mut self` to `&self`
-                async_inputs.push(syn::parse_quote!( &self ));
+                async_inputs.push(syn::parse_quote!(&self));
             }
             _ => async_inputs.push(arg.clone()),
         }
     }
 
     // Transform the original block to insert `.await`
-    let mut awaitifier = Awaitify;
+    let mut awaitifier = Awaitify {
+        await_methods: args.await_methods,
+    };
     let async_block = awaitifier.fold_block(*orig_block.clone());
 
     let async_fn = quote! {

@@ -6,8 +6,8 @@
 mod common;
 
 use crate::common::{
-    MockResponse, MockTransportBuilder, ProtocolValidator, ValidationMode,
     patterns::{inquiry, responses},
+    MockResponse, MockTransportBuilder, ProtocolValidator, ValidationMode,
 };
 use grafton_visca::{
     command::*,
