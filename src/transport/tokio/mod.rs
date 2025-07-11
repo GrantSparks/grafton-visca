@@ -7,5 +7,9 @@
 mod tcp;
 mod udp;
 
+// GAT-based implementations
+pub mod tcp_gat;
+pub mod udp_gat;
+
 pub use tcp::Tcp;
 pub use udp::Udp;

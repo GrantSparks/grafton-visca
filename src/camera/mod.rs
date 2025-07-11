@@ -8,6 +8,13 @@ use std::marker::PhantomData;
 use crate::capabilities::ProfileMetadata;
 use crate::Error;
 
+// Core camera implementation
+pub mod core;
+
+// Facade implementations  
+pub mod async_facade;
+pub mod blocking_facade;
+
 pub mod methods;
 pub mod profiles;
 pub mod transport_adapter;
