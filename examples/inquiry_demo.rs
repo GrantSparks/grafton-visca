@@ -9,7 +9,7 @@
 use grafton_visca::{
     camera::methods::InquiryBlockingExt,
     profiles::PTZOpticsG2,
-    transport::blocking::{BlockingTransport, TcpGat},
+    transport::blocking::TcpGat,
     CameraBlocking, Error,
 };
 #[cfg(not(feature = "async"))]
@@ -41,7 +41,7 @@ fn main() -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "async"))]
-fn run_inquiries<T: BlockingTransport>(camera: &mut CameraBlocking<PTZOpticsG2, T>) -> Result<(), Error> {
+fn run_inquiries<T: grafton_visca::transport::gat_transport::Transport>(camera: &mut CameraBlocking<PTZOpticsG2, T>) -> Result<(), Error> {
     println!(
         "
 === VISCA Inquiry Command Demo ==="

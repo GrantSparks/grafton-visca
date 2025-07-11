@@ -18,11 +18,10 @@ use grafton_visca::{
     profiles::PTZOpticsG2,
     transport::tokio::UdpGat,
     types::{
-        BrightnessLevel, ColorTemperature, ContrastLevel, DynamicRangeLevel, FocusPosition, 
-        GainLimit, HueLevel, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, 
-        SaturationLevel, SharpnessLevel, TiltSpeed,
+        BrightnessLevel, ColorTemperature, ContrastLevel, DynamicRangeLevel,
+        GainLimit, HueLevel, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
+        SaturationLevel, SharpnessLevel,
     },
-    units::Raw,
     Camera, Error,
 };
 #[cfg(feature = "tokio")]
@@ -54,8 +53,8 @@ async fn main() -> Result<(), Error> {
     camera
         .pan_tilt_move(
             PanTiltDirection::Right,
-            PanSpeed::new(10)?,
-            TiltSpeed::new(0)?,
+            10,
+            0,
         )
         .await?;
     time::sleep(Duration::from_millis(500)).await;
@@ -146,7 +145,6 @@ async fn main() -> Result<(), Error> {
 
     // Position control with different unit types
     println!("\nTesting position control with different units...");
-    use grafton_visca::units::Degrees;
 
     // Using degrees
     camera

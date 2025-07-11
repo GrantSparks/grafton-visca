@@ -1,51 +1,49 @@
 //! Camera model validation demonstration
 //!
 //! This example demonstrates how the Camera<P> API enforces model-specific
-//! constraints at compile time and runtime. It shows how different camera profiles
-//! (PTZOpticsG2, PTZOptics30X, SonyEVID70) have different ranges and capabilities.
+//! constraints at compile time. It shows how different camera profiles
+//! (PTZOpticsG2, GenericVisca, SonyFR7) have different capabilities.
 
-#[cfg(feature = "async")]
-use grafton_visca::transport::AsyncTransport;
+#[cfg(feature = "tokio")]
+use grafton_visca::transport::gat_transport::Transport;
 use grafton_visca::{
     camera::{
-        profiles::{G2PresetId, GenericVisca, PTZOptics30X, PTZOpticsG2, SonyEVID70},
-        CameraProfile,
+        profiles::{G2PresetId, GenericVisca, PTZOpticsG2, SonyFR7},
+        methods::{PanTiltAsyncExt, ZoomAsyncExt, PresetsAsyncExt},
     },
-    types::ZoomPosition,
-    units::Degrees,
-    units::Raw,
     Camera, Error,
 };
-use std::future::Future;
-use std::pin::Pin;
+use std::future::{ready, Ready};
+use bytes::Bytes;
 
 /// Mock transport for demonstration purposes.
 /// In real usage, you would use Udp or Tcp.
-#[cfg(feature = "async")]
-#[derive(Debug)]
+#[cfg(feature = "tokio")]
+#[derive(Debug, Clone)]
 struct MockTransport;
 
-#[cfg(feature = "async")]
-impl AsyncTransport for MockTransport {
-    type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
-    type ReceiveFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
+#[cfg(feature = "tokio")]
+impl Transport for MockTransport {
+    type Error = Error;
+    type SendFut<'a> = Ready<Result<(), Error>>;
+    type RecvFut<'a> = Ready<Result<Bytes, Error>>;
 
-    fn send(&self, _data: &[u8]) -> Self::SendFuture<'_> {
-        Box::pin(async { Ok(()) })
+    fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
+        ready(Ok(()))
     }
 
-    fn receive(&self) -> Self::ReceiveFuture<'_> {
-        Box::pin(async { Ok(vec![0x90, 0x50, 0xFF]) }) // Mock completion response
+    fn recv(&self) -> Self::RecvFut<'_> {
+        ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() {
-    eprintln!("This example requires the 'async' feature.");
-    eprintln!("Run with: cargo run --example model_validation_demo --features async");
+    eprintln!("This example requires the 'tokio' feature.");
+    eprintln!("Run with: cargo run --example model_validation_demo --features tokio");
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Camera Model Validation Demo");
@@ -53,15 +51,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demo different camera profiles
     demo_ptzoptics_g2().await?;
-    demo_ptzoptics_30x().await?;
-    demo_sony_evid70().await?;
+    demo_sony_fr7().await?;
     demo_generic_visca().await?;
 
     println!("\n✅ All model validations completed successfully!");
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn demo_ptzoptics_g2() -> Result<(), Error> {
     println!("📸 PTZOptics G2 Camera");
     println!("----------------------");
@@ -70,22 +67,21 @@ async fn demo_ptzoptics_g2() -> Result<(), Error> {
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Get profile information
-    let profile = camera.profile();
-    println!("Model: {}", profile.model_name());
-    println!("Pan range: {:?} degrees", profile.pan_degree_range());
-    println!("Tilt range: {:?} degrees", profile.tilt_degree_range());
+    println!("Model: PTZOptics G2");
+    println!("Pan range: -170 to +170 degrees");
+    println!("Tilt range: -30 to +90 degrees");
 
     // Valid operations for G2
     println!("\n✅ Valid operations:");
 
     // Zoom within G2 range (0x0000 - 0x7000)
     println!("  - Setting zoom to 0x4000 (within G2 range)");
-    camera.set_zoom(Raw(0x4000u16)).await?;
+    camera.zoom_absolute(0x4000 as f32 / 0x7000 as f32).await?;  // Normalize for G2 range
 
     // Position within G2 range (-170° to +170° pan, -90° to +90° tilt)
     println!("  - Moving to position (100°, 45°)");
     camera
-        .pan_tilt_absolute(Degrees(100.0), Degrees(45.0))
+        .pan_tilt_absolute(100.0, 45.0, 10)
         .await?;
 
     // G2-specific preset (0-89)
@@ -97,63 +93,33 @@ async fn demo_ptzoptics_g2() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
-async fn demo_ptzoptics_30x() -> Result<(), Error> {
-    println!("📸 PTZOptics 30X Camera");
-    println!("-----------------------");
+#[cfg(feature = "tokio")]
+async fn demo_sony_fr7() -> Result<(), Error> {
+    println!("📸 Sony FR7 Camera");
+    println!("------------------");
 
     let transport = MockTransport;
-    let camera = Camera::<PTZOptics30X, _>::new(transport);
+    let camera = Camera::<SonyFR7, _>::new(transport);
 
-    let profile = camera.profile();
-    println!("Model: {}", profile.model_name());
-    println!("Pan range: {:?} degrees", profile.pan_degree_range());
-    println!("Tilt range: {:?} degrees", profile.tilt_degree_range());
+    println!("Model: Sony FR7");
+    println!("Using Sony FR7 profile");
 
-    // 30X has larger zoom range than G2
+    // Sony FR7 operations
     println!("\n✅ Valid operations:");
-    println!("  - Setting zoom to 0x9000 (30X extended range)");
-    camera.set_zoom(ZoomPosition::try_from(0x9000u16)?).await?;
+    println!("  - Setting zoom");
+    camera.zoom_absolute(0x5000 as f32 / 0xFFFF as f32).await?;  // Normalize for generic range
 
-    // Wider pan range than G2
-    println!("  - Moving to position (175°, 45°)");
-    camera
-        .pan_tilt_absolute(Degrees(175.0), Degrees(45.0))
-        .await?;
-
-    println!();
-    Ok(())
-}
-
-#[cfg(feature = "async")]
-async fn demo_sony_evid70() -> Result<(), Error> {
-    println!("📸 Sony EVI-D70 Camera");
-    println!("----------------------");
-
-    let transport = MockTransport;
-    let camera = Camera::<SonyEVID70, _>::new(transport);
-
-    let profile = camera.profile();
-    println!("Model: {}", profile.model_name());
-    println!("Pan range: {:?} degrees", profile.pan_degree_range());
-    println!("Tilt range: {:?} degrees", profile.tilt_degree_range());
-
-    // Sony has different ranges
-    println!("\n✅ Valid operations:");
-    println!("  - Setting zoom to 0x5000");
-    camera.set_zoom(ZoomPosition::try_from(0x5000u16)?).await?;
-
-    // Sony has ±100° pan range
+    // Position control
     println!("  - Moving to position (90°, 25°)");
     camera
-        .pan_tilt_absolute(Degrees(90.0), Degrees(25.0))
+        .pan_tilt_absolute(90.0, 25.0, 10)
         .await?;
 
     println!();
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "tokio")]
 async fn demo_generic_visca() -> Result<(), Error> {
     println!("📸 Generic VISCA Camera");
     println!("-----------------------");
@@ -161,20 +127,18 @@ async fn demo_generic_visca() -> Result<(), Error> {
     let transport = MockTransport;
     let camera = Camera::<GenericVisca, _>::new(transport);
 
-    let profile = camera.profile();
-    println!("Model: {}", profile.model_name());
+    println!("Model: Generic VISCA");
     println!("Using generic VISCA defaults for unknown camera models");
 
     // Generic operations
     println!("\n✅ Generic operations:");
-    camera.set_zoom(Raw(0x4000u16)).await?;
+    camera.zoom_absolute(0x4000 as f32 / 0x7000 as f32).await?;  // Normalize for G2 range
     camera
-        .pan_tilt_absolute(Degrees(45.0), Degrees(30.0))
+        .pan_tilt_absolute(45.0, 30.0, 10)
         .await?;
 
-    // Generic presets
-    println!("  - Using generic preset 1");
-    camera.preset_recall(1).await?;
+    // Note: GenericVisca doesn't support presets in the current implementation
+    println!("  - Generic cameras may not support all features");
 
     println!();
     Ok(())

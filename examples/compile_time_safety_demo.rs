@@ -8,8 +8,11 @@
 use grafton_visca::{
     camera::methods::*,
     profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
+    transport::gat_transport::Transport,
     CameraBlocking, Error,
 };
+use std::future::{ready, Ready};
+use bytes::Bytes;
 
 fn main() -> Result<(), Error> {
     demonstrate_ptzoptics_g2()?;
@@ -23,20 +26,19 @@ fn main() -> Result<(), Error> {
 fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     println!("=== PTZOptics G2 Demo ===");
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct MockTransport;
-    impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
-        fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
-            Ok(())
+    impl Transport for MockTransport {
+        type Error = Error;
+        type SendFut<'a> = Ready<Result<(), Error>>;
+        type RecvFut<'a> = Ready<Result<Bytes, Error>>;
+        
+        fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
+            ready(Ok(()))
         }
-        fn receive(&mut self, _timeout: std::time::Duration) -> Result<Vec<u8>, Error> {
-            Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
-        }
-        fn is_connected(&self) -> bool {
-            true
-        }
-        fn description(&self) -> &str {
-            "MockTransport"
+        
+        fn recv(&self) -> Self::RecvFut<'_> {
+            ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
     }
 
@@ -62,20 +64,19 @@ fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
 fn demonstrate_sony_fr7() -> Result<(), Error> {
     println!("\n=== Sony FR7 Demo ===");
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct MockTransport;
-    impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
-        fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
-            Ok(())
+    impl Transport for MockTransport {
+        type Error = Error;
+        type SendFut<'a> = Ready<Result<(), Error>>;
+        type RecvFut<'a> = Ready<Result<Bytes, Error>>;
+        
+        fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
+            ready(Ok(()))
         }
-        fn receive(&mut self, _timeout: std::time::Duration) -> Result<Vec<u8>, Error> {
-            Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
-        }
-        fn is_connected(&self) -> bool {
-            true
-        }
-        fn description(&self) -> &str {
-            "MockTransport"
+        
+        fn recv(&self) -> Self::RecvFut<'_> {
+            ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
     }
 
@@ -97,20 +98,19 @@ fn demonstrate_sony_fr7() -> Result<(), Error> {
 fn demonstrate_generic_camera() -> Result<(), Error> {
     println!("\n=== Generic VISCA Demo ===");
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct MockTransport;
-    impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
-        fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
-            Ok(())
+    impl Transport for MockTransport {
+        type Error = Error;
+        type SendFut<'a> = Ready<Result<(), Error>>;
+        type RecvFut<'a> = Ready<Result<Bytes, Error>>;
+        
+        fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
+            ready(Ok(()))
         }
-        fn receive(&mut self, _timeout: std::time::Duration) -> Result<Vec<u8>, Error> {
-            Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
-        }
-        fn is_connected(&self) -> bool {
-            true
-        }
-        fn description(&self) -> &str {
-            "MockTransport"
+        
+        fn recv(&self) -> Self::RecvFut<'_> {
+            ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
     }
 
@@ -148,11 +148,11 @@ fn demonstrate_compile_time_errors() {
 
     /*
     // Example 2: Generic camera doesn't have focus control
-    let mut generic: Camera<GenericVisca, MockTransport> = Camera::new(MockTransport);
+    let mut generic: CameraBlocking<GenericVisca, MockTransport> = CameraBlocking::new(MockTransport);
     generic.focus_auto()?;
 
     // Compile error:
-    // error[E0599]: no method named `focus_auto` found for struct `Camera<GenericVisca, MockTransport>`
+    // error[E0599]: no method named `focus_auto` found for struct `CameraBlocking<GenericVisca, MockTransport>`
     // note: the method `focus_auto` exists but the trait bound `GenericVisca: Focus` is not satisfied
     */
 
@@ -160,13 +160,13 @@ fn demonstrate_compile_time_errors() {
 }
 
 // Generic function that requires specific capabilities
-fn center_and_focus<P, T>(camera: &mut Camera<P, T>) -> Result<(), Error>
+fn center_and_focus<P, T>(camera: &mut CameraBlocking<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::ProfileMetadata
         + grafton_visca::capabilities::PanTilt
         + grafton_visca::capabilities::Focus
         + Default,
-    T: grafton_visca::transport::blocking::BlockingTransport,
+    T: Transport,
 {
     camera.pan_tilt_home()?;
     camera.focus_auto()?;
@@ -174,16 +174,17 @@ where
 }
 
 // This function can only be called with cameras that have ND filters
-fn set_neutral_exposure<P, T>(camera: &mut Camera<P, T>) -> Result<(), Error>
+fn set_neutral_exposure<P, T>(camera: &mut CameraBlocking<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::ProfileMetadata
         + grafton_visca::capabilities::NDFilter
         + grafton_visca::capabilities::Exposure
         + Default,
-    T: grafton_visca::transport::blocking::BlockingTransport,
+    T: Transport,
 {
-    camera.set_nd_filter(1)?;
-    camera.exposure_auto()?;
+    // Note: set_nd_filter is not implemented in the current API
+    // camera.set_nd_filter(1)?;
+    // camera.exposure_auto()?;
     Ok(())
 }
 
@@ -191,10 +192,26 @@ where
 mod tests {
     use super::*;
 
+    #[derive(Debug, Clone)]
+    struct MockTransport;
+    impl Transport for MockTransport {
+        type Error = Error;
+        type SendFut<'a> = Ready<Result<(), Error>>;
+        type RecvFut<'a> = Ready<Result<Bytes, Error>>;
+        
+        fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
+            ready(Ok(()))
+        }
+        
+        fn recv(&self) -> Self::RecvFut<'_> {
+            ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
+        }
+    }
+
     #[test]
     fn test_compile_time_trait_bounds() {
-        let mut g2 = Camera::<PTZOpticsG2, MockTransport>::new(MockTransport);
-        let mut fr7 = Camera::<SonyFR7, MockTransport>::new(MockTransport);
+        let mut g2 = CameraBlocking::<PTZOpticsG2, MockTransport>::new(MockTransport);
+        let mut fr7 = CameraBlocking::<SonyFR7, MockTransport>::new(MockTransport);
 
         // ✅ Both cameras can use center_and_focus
         center_and_focus(&mut g2).unwrap();

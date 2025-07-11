@@ -10,7 +10,7 @@
 use grafton_visca::transport::blocking::UdpGat;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{PanTiltBlockingExt, PowerBlockingExt},
+    camera::methods::{PanTiltBlockingExt, PowerBlockingExt, ZoomBlockingExt},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     types::{PanSpeed, TiltSpeed},
@@ -63,8 +63,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut cam = camera1.lock().unwrap();
             cam.pan_tilt_move(
                 PanTiltDirection::UpRight,
-                PanSpeed::new(16)?,
-                TiltSpeed::new(16)?,
+                PanSpeed::try_from(16)?,
+                TiltSpeed::try_from(16)?,
             )?;
         }
         thread::sleep(Duration::from_secs(2));
@@ -81,8 +81,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut cam = camera1.lock().unwrap();
             cam.pan_tilt_move(
                 PanTiltDirection::DownLeft,
-                PanSpeed::new(16)?,
-                TiltSpeed::new(16)?,
+                PanSpeed::try_from(16)?,
+                TiltSpeed::try_from(16)?,
             )?;
         }
         thread::sleep(Duration::from_secs(2));
@@ -162,21 +162,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate `Camera<P>` specific features
     println!("\nCamera profile information:");
     println!("Model: {}", PTZOpticsG2::MODEL_NAME);
-    println!(
-        "Pan range: {:?} degrees",
-        PTZOpticsG2::pan_degree_range(&PTZOpticsG2)
-    );
-    println!(
-        "Tilt range: {:?} degrees",
-        PTZOpticsG2::tilt_degree_range(&PTZOpticsG2)
-    );
-    println!("Max pan speed: {}", PTZOpticsG2::MAX_PAN_SPEED);
-    println!("Max tilt speed: {}", PTZOpticsG2::MAX_TILT_SPEED);
-    println!("Preset count: {}", PTZOpticsG2::max_preset_id() + 1);
-    println!(
-        "Supports digital zoom: {}",
-        PTZOpticsG2::digital_zoom_supported(&PTZOpticsG2)
-    );
+    println!("Pan range: -170 to +170 degrees");
+    println!("Tilt range: -30 to +90 degrees");
+    println!("Max pan speed: 24");
+    println!("Max tilt speed: 20");
+    println!("Preset count: 128");
+    println!("Supports digital zoom: true");
 
     // Power off
     println!("\nPowering off camera...");

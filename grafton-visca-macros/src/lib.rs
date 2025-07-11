@@ -12,7 +12,6 @@ use syn::{parse_macro_input, DeriveInput};
 
 mod bounded_macros;
 mod command_macros;
-mod dual_native_inquiry;
 mod inquiry_command;
 mod method_macros;
 mod parser_templates;
@@ -189,7 +188,3 @@ pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
     TokenStream::from(inquiry_command::derive_inquiry_command_impl(input))
 }
 
-#[proc_macro_attribute]
-pub fn dual_native_inquiry(attr: TokenStream, item: TokenStream) -> TokenStream {
-    dual_native_inquiry::dual_native_inquiry(attr, item)
-}

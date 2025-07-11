@@ -5,9 +5,9 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{profiles::GenericVisca, Camera},
-    command::zoom::ZoomCommand,
-    transport::tokio::{Tcp, Udp},
+    camera::{profiles::GenericVisca},
+    Camera,
+    transport::tokio::{TcpGat, UdpGat},
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -27,17 +27,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: TCP transport with Camera API
     println!("1. Creating TCP transport session...");
-    match Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await {
+    match TcpGat::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await {
         Ok(transport) => {
             println!("   ✓ TCP transport created");
 
             // Create camera with the transport
             let camera = Camera::<GenericVisca, _>::new(transport);
 
-            // Send a command - note we use &camera, not &mut camera
-            let command = ZoomCommand::Stop;
-            match camera.send_command(&command).await {
-                Ok(response) => println!("   ✓ Response: {response:?}"),
+            // Use camera methods - note we use &camera, not &mut camera
+            use grafton_visca::camera::methods::ZoomAsyncExt;
+            match camera.zoom_stop().await {
+                Ok(_) => println!("   ✓ Zoom stop command sent"),
                 Err(e) => println!("   ✗ Error: {e}"),
             }
         }
@@ -48,17 +48,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 2: UDP transport with Camera API
     println!("2. Creating UDP transport session...");
-    match Udp::connect("192.168.1.100:52381").await {
+    match UdpGat::connect("192.168.1.100:52381").await {
         Ok(transport) => {
             println!("   ✓ UDP transport created");
 
             // Create camera with the transport
             let camera = Camera::<GenericVisca, _>::new(transport);
 
-            // Send a command - using &camera (interior mutability)
-            let command = ZoomCommand::Stop;
-            match camera.send_command(&command).await {
-                Ok(response) => println!("   ✓ Response: {response:?}"),
+            // Use camera methods - using &camera (interior mutability)
+            use grafton_visca::camera::methods::ZoomAsyncExt;
+            match camera.zoom_stop().await {
+                Ok(_) => println!("   ✓ Zoom stop command sent"),
                 Err(e) => println!("   ✗ Error: {e}"),
             }
         }

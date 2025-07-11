@@ -4,13 +4,11 @@
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PTZOpticsG2},
-        Camera,
+        methods::{PowerAsyncExt, PanTiltAsyncExt, PresetsAsyncExt, ZoomAsyncExt, FocusAsyncExt},
     },
-    transport::tokio::Tcp,
-    types::ZoomPosition,
-    units::Degrees,
-    units::Raw,
-    Error,
+    capabilities::{ProfileMetadata, PanTilt, Presets},
+    transport::tokio::TcpGat,
+    Camera, Error,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -28,17 +26,16 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a G2 camera with TCP transport
-    let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
+    let transport = TcpGat::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Display camera capabilities
-    let caps = camera.capabilities();
-    println!("Camera Model: {}", caps.model_name);
-    println!("Pan Range: {:?} degrees", caps.pan_range_degrees);
-    println!("Tilt Range: {:?} degrees", caps.tilt_range_degrees);
-    println!("Max Pan Speed: {}", caps.max_pan_speed);
-    println!("Max Tilt Speed: {}", caps.max_tilt_speed);
-    println!("Preset Count: {}", caps.preset_count);
+    println!("Camera Model: {}", PTZOpticsG2::MODEL_NAME);
+    println!("Pan Range: {:?}", <PTZOpticsG2 as PanTilt>::PAN_RANGE);
+    println!("Tilt Range: {:?}", <PTZOpticsG2 as PanTilt>::TILT_RANGE);
+    println!("Max Pan Speed: {}", <PTZOpticsG2 as PanTilt>::MAX_PAN_SPEED);
+    println!("Max Tilt Speed: {}", <PTZOpticsG2 as PanTilt>::MAX_TILT_SPEED);
+    println!("Max Presets: {}", <PTZOpticsG2 as Presets>::MAX_PRESETS);
     println!();
 
     // Power on the camera
@@ -54,16 +51,15 @@ async fn main() -> Result<(), Error> {
     // Move to specific position in degrees
     println!("Moving to 45° pan, 30° tilt...");
     camera
-        .pan_tilt_absolute(Degrees(45.0), Degrees(30.0))
+        .pan_tilt_absolute(45.0, 30.0, 18)
         .await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Move using normalized coordinates
     println!("Moving to normalized position (0.5, -0.25)...");
     // Convert normalized coordinates to degrees
-    let pan_deg = Degrees(0.5 * 180.0); // 90 degrees
-    let tilt_deg = Degrees(-0.25 * 90.0); // -22.5 degrees
-    camera.pan_tilt_absolute(pan_deg, tilt_deg).await?;
+    // 0.5 * 180° = 90 degrees pan, -0.25 * 90° = -22.5 degrees tilt
+    camera.pan_tilt_absolute(90.0, -22.5, 18).await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Set and recall a preset (G2 supports presets 0-89)
@@ -75,7 +71,7 @@ async fn main() -> Result<(), Error> {
     // Move somewhere else
     println!("Moving to different position...");
     camera
-        .pan_tilt_absolute(Degrees(-30.0), Degrees(15.0))
+        .pan_tilt_absolute(-30.0, 15.0, 18)
         .await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
@@ -94,8 +90,7 @@ async fn main() -> Result<(), Error> {
 
     // Set specific zoom position
     println!("Setting zoom to 50%...");
-    let _zoom_50_percent = ZoomPosition::new(0x7000 / 2)?; // Half of max zoom for G2
-    camera.set_zoom(Raw(0x7000u16 / 2)).await?; // Direct VISCA value
+    camera.zoom_absolute(0.5).await?; // 50% zoom
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Focus control

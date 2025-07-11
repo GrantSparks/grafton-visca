@@ -40,15 +40,15 @@ fn run_examples() -> Result<(), Error> {
     let tilt_speed_raw = 8;
 
     // Old way (verbose):
-    let _pan_speed_old = PanSpeed::new(pan_speed_raw)
+    let _pan_speed_old = PanSpeed::try_from(pan_speed_raw)
         .map_err(|_| Error::InvalidParameter(format!("Invalid pan speed: {}", pan_speed_raw)))?;
-    let _tilt_speed_old = TiltSpeed::new(tilt_speed_raw)
+    let _tilt_speed_old = TiltSpeed::try_from(tilt_speed_raw)
         .map_err(|_| Error::InvalidParameter(format!("Invalid tilt speed: {}", tilt_speed_raw)))?;
 
     // New way with validate_all!:
     let (pan_speed, tilt_speed) = validate_all! {
-        pan_speed: PanSpeed::new(pan_speed_raw),
-        tilt_speed: TiltSpeed::new(tilt_speed_raw),
+        pan_speed: PanSpeed::try_from(pan_speed_raw),
+        tilt_speed: TiltSpeed::try_from(tilt_speed_raw),
     }?;
 
     println!(
@@ -80,8 +80,8 @@ fn run_examples() -> Result<(), Error> {
         invalid_pan, invalid_tilt
     );
     match validate_all! {
-        pan_speed: PanSpeed::new(invalid_pan),
-        tilt_speed: TiltSpeed::new(invalid_tilt),
+        pan_speed: PanSpeed::try_from(invalid_pan),
+        tilt_speed: TiltSpeed::try_from(invalid_tilt),
     } {
         Ok(_) => println!("  Unexpected success"),
         Err(e) => println!("  ✓ Got expected error: {}", e),

@@ -4,21 +4,30 @@
 //! including retry logic and error classification.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::Tcp;
+use grafton_visca::transport::blocking::TcpGat;
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::Tcp;
+use grafton_visca::transport::tokio::TcpGat;
 
 use grafton_visca::Error;
-#[cfg(any(not(feature = "async"), feature = "tokio"))]
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltMethodsExt, PowerMethodsExt, ZoomMethodsExt},
+        methods::{PanTiltBlockingExt, PowerBlockingExt, ZoomBlockingExt, PresetsBlockingExt},
         profiles::G2PresetId,
-        Camera,
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    types::{PanSpeed, TiltSpeed},
+    CameraBlocking,
+};
+#[cfg(feature = "tokio")]
+use grafton_visca::{
+    camera::{
+        methods::{PanTiltAsyncExt, PowerAsyncExt, ZoomAsyncExt, PresetsAsyncExt},
+        profiles::G2PresetId,
+    },
+    Camera,
+    command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
 };
 use std::time::Duration;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
@@ -160,7 +169,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match Tcp::connect(camera_addr) {
+    let transport = match TcpGat::connect(camera_addr) {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -168,14 +177,11 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Err(e) => {
             println!("   ✗ Failed to create transport: {}", e);
             println!("   💡 This is expected if the address is invalid");
-            return Err(Error::ConnectionFailed {
-                addr: camera_addr.to_string(),
-                source: e,
-            });
+            return Err(e.into());
         }
     };
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -245,8 +251,8 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     // Start a movement
     match camera.pan_tilt_move(
         PanTiltDirection::Right,
-        PanSpeed::new(10)?,
-        TiltSpeed::new(0)?,
+        10,
+        0,
     ) {
         Ok(_) => {
             println!("   ✓ Started movement");
@@ -298,13 +304,12 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   💡 Some cameras don't support all VISCA features");
     println!("   💡 Use capability queries to check support");
 
-    // Get camera capabilities (profile-based, not from camera)
-    let caps = camera.capabilities();
+    // Show camera capabilities (profile-based, not from camera)
     println!("   ✓ Camera capabilities (from profile):");
-    println!("     Model: {}", caps.model_name);
-    println!("     Pan range: {:?} degrees", caps.pan_range_degrees);
-    println!("     Tilt range: {:?} degrees", caps.tilt_range_degrees);
-    println!("     Preset count: {}", caps.preset_count);
+    println!("     Model: PTZOptics G2");
+    println!("     Pan range: -170 to +170 degrees");
+    println!("     Tilt range: -30 to +90 degrees");
+    println!("     Preset count: 128");
     println!("   💡 These are based on the camera profile, not runtime queries");
 
     Ok(())
@@ -316,7 +321,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match Tcp::connect_timeout(camera_addr, Duration::from_secs(5)).await {
+    let transport = match TcpGat::connect_timeout(camera_addr, Duration::from_secs(5)).await {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -324,7 +329,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Err(e) => {
             println!("   ✗ Failed to create transport: {}", e);
             println!("   💡 This is expected if the address is invalid");
-            return Err(e);
+            return Err(e.into());
         }
     };
 
@@ -388,8 +393,8 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     match camera
         .pan_tilt_move(
             PanTiltDirection::Right,
-            PanSpeed::new(10)?,
-            TiltSpeed::new(0)?,
+            10,
+            0,
         )
         .await
     {
@@ -443,13 +448,12 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   💡 Some cameras don't support all VISCA features");
     println!("   💡 Use capability queries to check support");
 
-    // Get camera capabilities (profile-based, not from camera)
-    let caps = camera.capabilities();
+    // Show camera capabilities (profile-based, not from camera)
     println!("   ✓ Camera capabilities (from profile):");
-    println!("     Model: {}", caps.model_name);
-    println!("     Pan range: {:?} degrees", caps.pan_range_degrees);
-    println!("     Tilt range: {:?} degrees", caps.tilt_range_degrees);
-    println!("     Preset count: {}", caps.preset_count);
+    println!("     Model: PTZOptics G2");
+    println!("     Pan range: -170 to +170 degrees");
+    println!("     Tilt range: -30 to +90 degrees");
+    println!("     Preset count: 128");
     println!("   💡 These are based on the camera profile, not runtime queries");
 
     Ok(())

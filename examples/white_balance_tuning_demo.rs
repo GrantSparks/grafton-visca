@@ -1,13 +1,12 @@
 //! Example program
-
-//! Demonstrates white balance fine-tuning commands.
+//!
+//! Demonstrates white balance control commands.
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::methods::WhiteBalanceAsyncExt,
     profiles::PTZOpticsG2,
     transport::tokio::UdpGat,
-    types::{BlueTuning, RedTuning},
     Camera,
 };
 
@@ -21,23 +20,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = UdpGat::connect("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
-    // Demonstrate fine-tuning commands
-    println!("Demonstrating white balance fine-tuning...");
+    // Demonstrate white balance commands
+    println!("Demonstrating white balance control...");
 
-    // Apply red tuning
-    println!("Applying slight red correction (+2)...");
-    camera.set_red_tuning(RedTuning::new(2)?).await?;
+    // Set to auto white balance
+    println!("Setting white balance to auto...");
+    camera.white_balance_auto().await?;
 
-    // Apply blue tuning
-    println!("Applying slight blue correction (-3)...");
-    camera.set_blue_tuning(BlueTuning::new(-3)?).await?;
+    // Wait a moment
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    // Reset both to neutral
-    println!("Resetting both tuning values to neutral...");
-    camera.set_red_tuning(RedTuning::new(0)?).await?;
-    camera.set_blue_tuning(BlueTuning::new(0)?).await?;
+    // Note: white_balance_manual and white_balance_one_push_trigger 
+    // are not available in the current API.
+    // You would need to implement these using the command API directly
+    // or extend the white balance trait with these methods.
 
-    println!("White balance tuning demonstration complete!");
+    println!("White balance demonstration complete!");
 
     Ok(())
 }

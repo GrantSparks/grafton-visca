@@ -9,10 +9,9 @@ fn main() {
 }
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::units::Degrees;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{PanTiltBlockingExt, PowerBlockingExt, PresetBlockingExt, ZoomBlockingExt},
+    camera::methods::{PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt, ZoomBlockingExt},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     transport::blocking::TcpGat,
@@ -64,15 +63,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Move to specific position using degrees
     println!("Moving to position (30°, -10°)...");
-    camera.pan_tilt_absolute(Degrees(30.0), Degrees(-10.0))?;
+    camera.pan_tilt_absolute(30.0, -10.0, 5)?;
     std::thread::sleep(Duration::from_secs(3));
 
     // Test continuous movement
     println!("Testing continuous movement...");
     camera.pan_tilt_move(
         PanTiltDirection::Left,
-        PanSpeed::new(10)?,
-        TiltSpeed::new(0)?,
+        PanSpeed::try_from(10)?,
+        TiltSpeed::try_from(0)?,
     )?;
     std::thread::sleep(Duration::from_secs(2));
     camera.pan_tilt_stop()?;
