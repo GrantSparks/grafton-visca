@@ -2,23 +2,19 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{ImageProcessing, ProfileMetadata},
     command::{
+        color::{HueCommand, SaturationCommand},
         const_encoding::{commands, CommandBuilder},
-        image_adjustment::{ContrastCommand, SharpnessCommand},
-        color::{SaturationCommand, HueCommand},
         image::{NoiseReduction2DCommand, NoiseReduction3DCommand},
+        image_adjustment::{ContrastCommand, SharpnessCommand},
         Command, Response,
     },
     transport::gat_transport::Transport,
     types::{
-        ContrastLevel, SharpnessLevel, SaturationLevel, HueLevel,
-        NoiseReduction2DLevel, NoiseReduction3DLevel,
+        ContrastLevel, HueLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel,
+        SharpnessLevel,
     },
     Error,
 };
@@ -39,7 +35,7 @@ impl Command for EnableFlipCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<crate::command::ResponseType> {
         None // Action command
     }
@@ -63,10 +59,16 @@ pub trait ImageProcessingCoreExt<P: ProfileMetadata + ImageProcessing> {
     fn set_hue(&self, level: HueLevel) -> impl Future<Output = Result<(), Error>>;
 
     /// Set noise reduction 2D level.
-    fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> impl Future<Output = Result<(), Error>>;
+    fn set_noise_reduction_2d(
+        &self,
+        level: NoiseReduction2DLevel,
+    ) -> impl Future<Output = Result<(), Error>>;
 
     /// Set noise reduction 3D level.
-    fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> impl Future<Output = Result<(), Error>>;
+    fn set_noise_reduction_3d(
+        &self,
+        level: NoiseReduction3DLevel,
+    ) -> impl Future<Output = Result<(), Error>>;
 }
 
 impl<P, T> ImageProcessingCoreExt<P> for CameraCore<P, T>
@@ -131,7 +133,10 @@ where
         }
     }
 
-    fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> impl Future<Output = Result<(), Error>> {
+    fn set_noise_reduction_2d(
+        &self,
+        level: NoiseReduction2DLevel,
+    ) -> impl Future<Output = Result<(), Error>> {
         async move {
             let cmd = NoiseReduction2DCommand::Level(level);
             match self.send_command(&cmd).await? {
@@ -142,7 +147,10 @@ where
         }
     }
 
-    fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> impl Future<Output = Result<(), Error>> {
+    fn set_noise_reduction_3d(
+        &self,
+        level: NoiseReduction3DLevel,
+    ) -> impl Future<Output = Result<(), Error>> {
         async move {
             let cmd = NoiseReduction3DCommand::Level(level);
             match self.send_command(&cmd).await? {

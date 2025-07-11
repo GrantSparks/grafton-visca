@@ -2,12 +2,8 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
-    capabilities::{ProfileMetadata, Focus},
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
+    capabilities::{Focus, ProfileMetadata},
     command::{
         const_encoding::{commands, encode_speed, CommandBuilder},
         Command, Response, ResponseType,
@@ -32,7 +28,7 @@ impl Command for FocusAutoCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -53,7 +49,7 @@ impl Command for FocusManualCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -75,7 +71,7 @@ impl Command for FocusNearCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -97,7 +93,7 @@ impl Command for FocusFarCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -118,7 +114,7 @@ impl Command for FocusStopCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -139,7 +135,7 @@ impl Command for FocusOnePushCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }
@@ -153,24 +149,27 @@ where
 {
     /// Set auto focus mode - returns a future.
     fn focus_auto(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Set manual focus mode - returns a future.
     fn focus_manual(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Focus near at specified speed - returns a future.
     fn focus_near(&self, speed: u8) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Focus far at specified speed - returns a future.
     fn focus_far(&self, speed: u8) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Stop focus movement - returns a future.
     fn focus_stop(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Trigger one-push auto focus - returns a future.
     fn focus_one_push(&self) -> impl Future<Output = Result<(), Error>> + '_;
-    
+
     /// Set focus to a specific position - returns a future.
-    fn set_focus(&self, position: crate::types::FocusPosition) -> impl Future<Output = Result<(), Error>> + '_;
+    fn set_focus(
+        &self,
+        position: crate::types::FocusPosition,
+    ) -> impl Future<Output = Result<(), Error>> + '_;
 }
 
 impl<P, T> FocusCoreExt<P, T> for CameraCore<P, T>
@@ -189,7 +188,7 @@ where
             }
         }
     }
-    
+
     fn focus_manual(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = FocusManualCommand::new();
@@ -201,7 +200,7 @@ where
             }
         }
     }
-    
+
     fn focus_near(&self, speed: u8) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let speed = speed.min(P::MAX_FOCUS_SPEED);
@@ -214,7 +213,7 @@ where
             }
         }
     }
-    
+
     fn focus_far(&self, speed: u8) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let speed = speed.min(P::MAX_FOCUS_SPEED);
@@ -227,7 +226,7 @@ where
             }
         }
     }
-    
+
     fn focus_stop(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = FocusStopCommand::new();
@@ -239,7 +238,7 @@ where
             }
         }
     }
-    
+
     fn focus_one_push(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             let command = FocusOnePushCommand::new();
@@ -251,11 +250,14 @@ where
             }
         }
     }
-    
-    fn set_focus(&self, position: crate::types::FocusPosition) -> impl Future<Output = Result<(), Error>> + '_ {
+
+    fn set_focus(
+        &self,
+        position: crate::types::FocusPosition,
+    ) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
             use crate::command::focus::FocusCommand;
-            
+
             let command = FocusCommand::Position(position);
             let response = self.send_command(&command).await?;
             match response {
@@ -276,22 +278,22 @@ where
 {
     /// Set auto focus mode.
     async fn focus_auto(&self) -> Result<(), Error>;
-    
+
     /// Set manual focus mode.
     async fn focus_manual(&self) -> Result<(), Error>;
-    
+
     /// Focus near at specified speed.
     async fn focus_near(&self, speed: u8) -> Result<(), Error>;
-    
+
     /// Focus far at specified speed.
     async fn focus_far(&self, speed: u8) -> Result<(), Error>;
-    
+
     /// Stop focus movement.
     async fn focus_stop(&self) -> Result<(), Error>;
-    
+
     /// Trigger one-push auto focus.
     async fn focus_one_push(&self) -> Result<(), Error>;
-    
+
     /// Set focus to a specific position.
     async fn set_focus(&self, position: crate::types::FocusPosition) -> Result<(), Error>;
 }
@@ -304,27 +306,27 @@ where
     async fn focus_auto(&self) -> Result<(), Error> {
         self.core().focus_auto().await
     }
-    
+
     async fn focus_manual(&self) -> Result<(), Error> {
         self.core().focus_manual().await
     }
-    
+
     async fn focus_near(&self, speed: u8) -> Result<(), Error> {
         self.core().focus_near(speed).await
     }
-    
+
     async fn focus_far(&self, speed: u8) -> Result<(), Error> {
         self.core().focus_far(speed).await
     }
-    
+
     async fn focus_stop(&self) -> Result<(), Error> {
         self.core().focus_stop().await
     }
-    
+
     async fn focus_one_push(&self) -> Result<(), Error> {
         self.core().focus_one_push().await
     }
-    
+
     async fn set_focus(&self, position: crate::types::FocusPosition) -> Result<(), Error> {
         self.core().set_focus(position).await
     }
@@ -338,22 +340,22 @@ where
 {
     /// Set auto focus mode.
     fn focus_auto(&self) -> Result<(), Error>;
-    
+
     /// Set manual focus mode.
     fn focus_manual(&self) -> Result<(), Error>;
-    
+
     /// Focus near at specified speed.
     fn focus_near(&self, speed: u8) -> Result<(), Error>;
-    
+
     /// Focus far at specified speed.
     fn focus_far(&self, speed: u8) -> Result<(), Error>;
-    
+
     /// Stop focus movement.
     fn focus_stop(&self) -> Result<(), Error>;
-    
+
     /// Trigger one-push auto focus.
     fn focus_one_push(&self) -> Result<(), Error>;
-    
+
     /// Set focus to a specific position.
     fn set_focus(&self, position: crate::types::FocusPosition) -> Result<(), Error>;
 }
@@ -366,27 +368,27 @@ where
     fn focus_auto(&self) -> Result<(), Error> {
         block_on(self.core().focus_auto())
     }
-    
+
     fn focus_manual(&self) -> Result<(), Error> {
         block_on(self.core().focus_manual())
     }
-    
+
     fn focus_near(&self, speed: u8) -> Result<(), Error> {
         block_on(self.core().focus_near(speed))
     }
-    
+
     fn focus_far(&self, speed: u8) -> Result<(), Error> {
         block_on(self.core().focus_far(speed))
     }
-    
+
     fn focus_stop(&self) -> Result<(), Error> {
         block_on(self.core().focus_stop())
     }
-    
+
     fn focus_one_push(&self) -> Result<(), Error> {
         block_on(self.core().focus_one_push())
     }
-    
+
     fn set_focus(&self, position: crate::types::FocusPosition) -> Result<(), Error> {
         block_on(self.core().set_focus(position))
     }

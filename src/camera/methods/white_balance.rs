@@ -2,11 +2,7 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{ProfileMetadata, WhiteBalance},
     command::{
         const_encoding::{commands, CommandBuilder},
@@ -32,7 +28,7 @@ impl Command for WhiteBalanceAutoCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.to_vec())
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None // Action command
     }

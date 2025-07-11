@@ -4,10 +4,7 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::methods::WhiteBalanceAsyncExt,
-    profiles::PTZOpticsG2,
-    transport::tokio::UdpGat,
-    Camera,
+    camera::methods::WhiteBalanceAsyncExt, profiles::PTZOpticsG2, transport::tokio::Udp, Camera,
 };
 
 #[cfg(feature = "tokio")]
@@ -17,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Create camera with PTZOptics G2 profile
-    let transport = UdpGat::connect("192.168.1.100:52381").await?;
+    let transport = Udp::connect("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate white balance commands
@@ -30,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wait a moment
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    // Note: white_balance_manual and white_balance_one_push_trigger 
+    // Note: white_balance_manual and white_balance_one_push_trigger
     // are not available in the current API.
     // You would need to implement these using the command API directly
     // or extend the white balance trait with these methods.

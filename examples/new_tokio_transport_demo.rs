@@ -3,14 +3,14 @@
 //! This example demonstrates how to use the new clean tokio transports
 //! that work directly with AsyncTransport without adapters.
 
+use bytes::Bytes;
 use grafton_visca::{
-    profiles::PTZOpticsG2,
-    transport::{tokio::TcpGat, gat_transport::Transport},
     camera::methods::PanTiltAsyncExt,
+    profiles::PTZOpticsG2,
+    transport::{gat_transport::Transport, tokio::Tcp},
     Camera, Error,
 };
 use std::future::{ready, Ready};
-use bytes::Bytes;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,8 +19,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example: Using the simplified tokio transport API
     println!("=== Simplified Tokio Transport API ===");
 
-    // Connect using the TcpGat transport
-    let visca = TcpGat::connect("192.168.1.100:1259").await?;
+    // Connect using the Tcp transport
+    let visca = Tcp::connect("192.168.1.100:1259").await?;
     println!("Connected via TCP");
 
     // Create camera using the transport

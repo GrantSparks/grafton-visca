@@ -3,10 +3,9 @@
 //! This module provides synchronous I/O for VISCA camera control,
 //! designed as the primary API for most use cases.
 
-// GAT-based implementations
-pub mod tcp_gat;
-pub mod udp_gat;
+pub mod tcp;
+pub mod udp;
 
 // Re-exports
-pub use tcp_gat::TcpGat;
-pub use udp_gat::UdpGat;
+pub use tcp::Tcp;
+pub use udp::Udp;

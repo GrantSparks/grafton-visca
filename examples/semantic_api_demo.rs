@@ -6,15 +6,15 @@
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
-        camera::methods::{PanTiltBlockingExt, ZoomBlockingExt, FocusBlockingExt},
-        CameraBlocking,
-        profiles::PTZOpticsG2,
-        transport::blocking::UdpGat,
+        camera::methods::{FocusBlockingExt, PanTiltBlockingExt, ZoomBlockingExt},
         command::pan_tilt::PanTiltDirection,
+        profiles::PTZOpticsG2,
+        transport::blocking::Udp,
+        CameraBlocking,
     };
 
     // Connect to camera
-    let transport = UdpGat::connect("192.168.1.100:52381")?;
+    let transport = Udp::connect("192.168.1.100:52381")?;
     let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Semantic API Demo ===\n");
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.zoom_absolute(0.5)?;
 
     println!("   Setting zoom using raw VISCA value...");
-    camera.zoom_absolute(0x3000 as f32 / 0x4000 as f32)?;  // Convert to normalized position
+    camera.zoom_absolute(0x3000 as f32 / 0x4000 as f32)?; // Convert to normalized position
 
     // Focus Control
     println!("\n2. Focus Control");
@@ -49,11 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Movement Control
     println!("\n4. Movement Control");
     println!("   Moving right at speed 10...");
-    camera.pan_tilt_move(
-        PanTiltDirection::Right,
-        10,
-        0,
-    )?;
+    camera.pan_tilt_move(PanTiltDirection::Right, 10, 0)?;
 
     println!("   Stopping movement...");
     camera.pan_tilt_stop()?;
@@ -63,14 +59,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Zooming in...");
     camera.zoom_in()?;
     std::thread::sleep(std::time::Duration::from_millis(500));
-    
+
     println!("   Stopping zoom...");
     camera.zoom_stop()?;
 
     println!("   Zooming out...");
     camera.zoom_out()?;
     std::thread::sleep(std::time::Duration::from_millis(500));
-    
+
     println!("   Stopping zoom...");
     camera.zoom_stop()?;
 
@@ -89,15 +85,15 @@ fn main() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
-        camera::methods::{PanTiltAsyncExt, ZoomAsyncExt, FocusAsyncExt},
-        Camera,
-        profiles::PTZOpticsG2,
-        transport::tokio::UdpGat,
+        camera::methods::{FocusAsyncExt, PanTiltAsyncExt, ZoomAsyncExt},
         command::pan_tilt::PanTiltDirection,
+        profiles::PTZOpticsG2,
+        transport::tokio::Udp,
+        Camera,
     };
 
     // Connect to camera
-    let transport = UdpGat::connect("192.168.1.100:52381").await?;
+    let transport = Udp::connect("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Semantic API Demo (Async) ===\n");
@@ -108,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.zoom_absolute(0.5).await?;
 
     println!("   Setting zoom using raw VISCA value...");
-    camera.zoom_absolute(0x3000 as f32 / 0x4000 as f32).await?;  // Convert to normalized position
+    camera.zoom_absolute(0x3000 as f32 / 0x4000 as f32).await?; // Convert to normalized position
 
     // Focus Control
     println!("\n2. Focus Control");
@@ -132,11 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Movement Control
     println!("\n4. Movement Control");
     println!("   Moving right at speed 10...");
-    camera.pan_tilt_move(
-        PanTiltDirection::Right,
-        10,
-        0,
-    ).await?;
+    camera.pan_tilt_move(PanTiltDirection::Right, 10, 0).await?;
 
     println!("   Stopping movement...");
     camera.pan_tilt_stop().await?;
@@ -146,14 +138,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Zooming in...");
     camera.zoom_in().await?;
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    
+
     println!("   Stopping zoom...");
     camera.zoom_stop().await?;
 
     println!("   Zooming out...");
     camera.zoom_out().await?;
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    
+
     println!("   Stopping zoom...");
     camera.zoom_stop().await?;
 

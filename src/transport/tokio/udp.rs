@@ -2,24 +2,24 @@
 
 use crate::transport::gat_transport::Transport;
 use crate::Error;
-use tokio::net::UdpSocket;
-use std::sync::Arc;
-use std::pin::Pin;
 use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use tokio::net::UdpSocket;
 
 /// UDP transport for async VISCA communication using tokio.
 #[derive(Debug)]
-pub struct UdpGat {
+pub struct Udp {
     socket: Arc<UdpSocket>,
     _remote_addr: String,
 }
 
-impl UdpGat {
+impl Udp {
     /// Connect to a UDP endpoint.
     pub async fn connect(address: &str) -> Result<Self, Error> {
         let socket = UdpSocket::bind("0.0.0.0:0").await?;
         socket.connect(address).await?;
-        
+
         Ok(Self {
             socket: Arc::new(socket),
             _remote_addr: address.to_string(),
@@ -27,7 +27,7 @@ impl UdpGat {
     }
 }
 
-impl Transport for UdpGat {
+impl Transport for Udp {
     type Error = Error;
     type SendFut<'a> = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
     type RecvFut<'a> = Pin<Box<dyn Future<Output = Result<bytes::Bytes, Self::Error>> + Send + 'a>>;

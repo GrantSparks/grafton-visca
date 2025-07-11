@@ -3,11 +3,11 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
+        methods::{FocusAsyncExt, PanTiltAsyncExt, PowerAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
         profiles::{G2PresetId, PTZOpticsG2},
-        methods::{PowerAsyncExt, PanTiltAsyncExt, PresetsAsyncExt, ZoomAsyncExt, FocusAsyncExt},
     },
-    capabilities::{ProfileMetadata, PanTilt, Presets},
-    transport::tokio::TcpGat,
+    capabilities::{PanTilt, Presets, ProfileMetadata},
+    transport::tokio::Tcp,
     Camera, Error,
 };
 #[cfg(feature = "tokio")]
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a G2 camera with TCP transport
-    let transport = TcpGat::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
+    let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Display camera capabilities
@@ -34,7 +34,10 @@ async fn main() -> Result<(), Error> {
     println!("Pan Range: {:?}", <PTZOpticsG2 as PanTilt>::PAN_RANGE);
     println!("Tilt Range: {:?}", <PTZOpticsG2 as PanTilt>::TILT_RANGE);
     println!("Max Pan Speed: {}", <PTZOpticsG2 as PanTilt>::MAX_PAN_SPEED);
-    println!("Max Tilt Speed: {}", <PTZOpticsG2 as PanTilt>::MAX_TILT_SPEED);
+    println!(
+        "Max Tilt Speed: {}",
+        <PTZOpticsG2 as PanTilt>::MAX_TILT_SPEED
+    );
     println!("Max Presets: {}", <PTZOpticsG2 as Presets>::MAX_PRESETS);
     println!();
 
@@ -50,9 +53,7 @@ async fn main() -> Result<(), Error> {
 
     // Move to specific position in degrees
     println!("Moving to 45° pan, 30° tilt...");
-    camera
-        .pan_tilt_absolute(45.0, 30.0, 18)
-        .await?;
+    camera.pan_tilt_absolute(45.0, 30.0, 18).await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Move using normalized coordinates
@@ -70,9 +71,7 @@ async fn main() -> Result<(), Error> {
 
     // Move somewhere else
     println!("Moving to different position...");
-    camera
-        .pan_tilt_absolute(-30.0, 15.0, 18)
-        .await?;
+    camera.pan_tilt_absolute(-30.0, 15.0, 18).await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Recall the preset

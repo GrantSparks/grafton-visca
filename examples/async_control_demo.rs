@@ -15,7 +15,7 @@ use grafton_visca::{
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    transport::tokio::UdpGat,
+    transport::tokio::Udp,
     types::FocusPosition,
     Camera, Error,
 };
@@ -46,7 +46,7 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = UdpGat::connect(camera_addr).await?;
+    let transport = Udp::connect(camera_addr).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("\n=== Async Camera Control Demo ===\n");
@@ -66,9 +66,7 @@ async fn main() -> Result<(), Error> {
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Setting up shot 1...");
-    camera
-        .pan_tilt_absolute(16.0, -4.0, 10)
-        .await?;
+    camera.pan_tilt_absolute(16.0, -4.0, 10).await?;
     // Zoom to about 37.5% position (0x1800 / 0x4000)
     camera.zoom_absolute(0.375).await?;
     sleep(Duration::from_secs(2)).await;
@@ -79,9 +77,7 @@ async fn main() -> Result<(), Error> {
     sleep(Duration::from_millis(500)).await;
 
     println!("   - Setting up shot 2...");
-    camera
-        .pan_tilt_absolute(-12.0, 8.0, 10)
-        .await?;
+    camera.pan_tilt_absolute(-12.0, 8.0, 10).await?;
     // Zoom to 75% position (0x3000 / 0x4000)
     camera.zoom_absolute(0.75).await?;
     sleep(Duration::from_secs(2)).await;
@@ -95,23 +91,13 @@ async fn main() -> Result<(), Error> {
     println!("\n2. Smooth Movement Sequence");
 
     println!("   - Starting smooth pan...");
-    camera
-        .pan_tilt_move(
-            PanTiltDirection::Right,
-            8,
-            0,
-        )
-        .await?;
+    camera.pan_tilt_move(PanTiltDirection::Right, 8, 0).await?;
 
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Starting diagonal movement...");
     camera
-        .pan_tilt_move(
-            PanTiltDirection::UpRight,
-            8,
-            5,
-        )
+        .pan_tilt_move(PanTiltDirection::UpRight, 8, 5)
         .await?;
 
     sleep(Duration::from_secs(2)).await;

@@ -2,11 +2,7 @@
 
 use crate::{
     blocking::block_on,
-    camera::{
-        async_facade::CameraAsync,
-        blocking_facade::CameraBlocking,
-        core::CameraCore,
-    },
+    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::ProfileMetadata,
     command::{
         color::{
@@ -28,10 +24,16 @@ pub trait ColorCoreExt<P: ProfileMetadata> {
     fn one_push_trigger(&self) -> impl Future<Output = Result<(), Error>>;
 
     /// Set color temperature.
-    fn set_color_temperature(&self, temp: ColorTemperature) -> impl Future<Output = Result<(), Error>>;
+    fn set_color_temperature(
+        &self,
+        temp: ColorTemperature,
+    ) -> impl Future<Output = Result<(), Error>>;
 
     /// Set or query color temperature.
-    fn color_temperature(&self, temp: Option<ColorTemperature>) -> impl Future<Output = Result<(), Error>>;
+    fn color_temperature(
+        &self,
+        temp: Option<ColorTemperature>,
+    ) -> impl Future<Output = Result<(), Error>>;
 
     /// Set red gain.
     fn set_red_gain(&self, gain: RedGain) -> impl Future<Output = Result<(), Error>>;
@@ -67,7 +69,10 @@ where
         }
     }
 
-    fn set_color_temperature(&self, temp: ColorTemperature) -> impl Future<Output = Result<(), Error>> {
+    fn set_color_temperature(
+        &self,
+        temp: ColorTemperature,
+    ) -> impl Future<Output = Result<(), Error>> {
         async move {
             let cmd = ColorTemperatureCommand::SetTemperature(temp);
             match self.send_command(&cmd).await? {
@@ -78,7 +83,10 @@ where
         }
     }
 
-    fn color_temperature(&self, temp: Option<ColorTemperature>) -> impl Future<Output = Result<(), Error>> {
+    fn color_temperature(
+        &self,
+        temp: Option<ColorTemperature>,
+    ) -> impl Future<Output = Result<(), Error>> {
         async move {
             match temp {
                 Some(t) => {

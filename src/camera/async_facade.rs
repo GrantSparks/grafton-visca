@@ -1,13 +1,11 @@
 //! Async facade for Camera that provides ergonomic async methods.
 
 use crate::{
-    capabilities::ProfileMetadata,
-    camera::core::CameraCore,
-    transport::gat_transport::Transport,
+    camera::core::CameraCore, capabilities::ProfileMetadata, transport::gat_transport::Transport,
 };
 
 /// Async camera interface that wraps CameraCore with async methods.
-/// 
+///
 /// This type is re-exported as `Camera` and provides the primary
 /// async API for camera control.
 #[derive(Debug)]
@@ -44,8 +42,8 @@ where
 
 // Extension traits will add async methods that call the core methods
 // and await the futures. For example:
-// 
-// impl<P, T> ZoomMethodsExt for CameraAsync<P, T> 
+//
+// impl<P, T> ZoomMethodsExt for CameraAsync<P, T>
 // where
 //     P: ProfileMetadata + Zoom,
 //     T: Transport,

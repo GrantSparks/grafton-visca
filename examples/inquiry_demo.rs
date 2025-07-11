@@ -7,9 +7,7 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::InquiryBlockingExt,
-    profiles::PTZOpticsG2,
-    transport::blocking::TcpGat,
+    camera::methods::InquiryBlockingExt, profiles::PTZOpticsG2, transport::blocking::Tcp,
     CameraBlocking, Error,
 };
 #[cfg(not(feature = "async"))]
@@ -31,7 +29,7 @@ fn main() -> Result<(), Error> {
     // Connect to camera using blocking transport
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
-    let transport = TcpGat::connect(camera_addr)?;
+    let transport = Tcp::connect(camera_addr)?;
     let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     // Run inquiries using blocking methods
@@ -41,7 +39,9 @@ fn main() -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "async"))]
-fn run_inquiries<T: grafton_visca::transport::gat_transport::Transport>(camera: &mut CameraBlocking<PTZOpticsG2, T>) -> Result<(), Error> {
+fn run_inquiries<T: grafton_visca::transport::gat_transport::Transport>(
+    camera: &mut CameraBlocking<PTZOpticsG2, T>,
+) -> Result<(), Error> {
     println!(
         "
 === VISCA Inquiry Command Demo ==="

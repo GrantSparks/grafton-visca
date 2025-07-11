@@ -11,7 +11,7 @@ use grafton_visca::{
     camera::methods::{FocusAsyncExt, PanTiltAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    transport::tokio::UdpGat,
+    transport::tokio::Udp,
     Camera, Error,
 };
 use std::sync::Arc;
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Error> {
         .unwrap_or_else(|| "192.168.0.100:5678".to_string());
 
     println!("Connecting to camera at {}...", camera_addr);
-    let transport = UdpGat::connect(&camera_addr).await?;
+    let transport = Udp::connect(&camera_addr).await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Example 1: Sequential commands with timing
@@ -46,11 +46,7 @@ async fn main() -> Result<(), Error> {
 
     // Start moving the camera
     camera
-        .pan_tilt_move(
-            PanTiltDirection::UpRight,
-            0x10,
-            0x10,
-        )
+        .pan_tilt_move(PanTiltDirection::UpRight, 0x10, 0x10)
         .await?;
     let move_time = start.elapsed();
 
@@ -82,12 +78,7 @@ async fn main() -> Result<(), Error> {
     let camera1 = Arc::clone(&camera);
     let move_task = tokio::spawn(async move {
         let cam = camera1.lock().await;
-        cam.pan_tilt_move(
-            PanTiltDirection::Right,
-            0x08,
-            0,
-        )
-        .await
+        cam.pan_tilt_move(PanTiltDirection::Right, 0x08, 0).await
     });
 
     let camera2 = Arc::clone(&camera);
@@ -261,12 +252,7 @@ async fn main() -> Result<(), Error> {
         let camera = Arc::clone(&camera);
         tokio::spawn(async move {
             let cam = camera.lock().await;
-            cam.pan_tilt_move(
-                PanTiltDirection::Right,
-                0x08,
-                0,
-            )
-            .await
+            cam.pan_tilt_move(PanTiltDirection::Right, 0x08, 0).await
         })
     };
 

@@ -6,7 +6,7 @@
 // Core camera implementation
 pub mod core;
 
-// Facade implementations  
+// Facade implementations
 pub mod async_facade;
 pub mod blocking_facade;
 

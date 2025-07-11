@@ -12,7 +12,7 @@
 //! using the `Camera<P>` API with helper functions and sequential operations.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::UdpGat;
+use grafton_visca::transport::blocking::Udp;
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a type-safe camera instance with PTZOpticsG2 profile
     let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
-    let transport = UdpGat::connect(&camera_ip)?;
+    let transport = Udp::connect(&camera_ip)?;
     let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
     println!("Connected to PTZOptics G2 camera");
 
@@ -67,11 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(1));
 
     // Continuous movement
-    camera.pan_tilt_move(
-        PanTiltDirection::UpRight,
-        12,
-        10,
-    )?;
+    camera.pan_tilt_move(PanTiltDirection::UpRight, 12, 10)?;
     thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;
     println!("   ✓ Executed: Home → Move UpRight → Stop");
@@ -145,26 +141,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn perform_scan_sequence<T: grafton_visca::transport::gat_transport::Transport>(
     camera: &mut CameraBlocking<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-
     // Return to home
     camera.pan_tilt_home()?;
     thread::sleep(Duration::from_secs(1));
 
     // Scan left
-    camera.pan_tilt_move(
-        PanTiltDirection::Left,
-        8,
-        0,
-    )?;
+    camera.pan_tilt_move(PanTiltDirection::Left, 8, 0)?;
     thread::sleep(Duration::from_secs(2));
     camera.pan_tilt_stop()?;
 
     // Scan right
-    camera.pan_tilt_move(
-        PanTiltDirection::Right,
-        8,
-        0,
-    )?;
+    camera.pan_tilt_move(PanTiltDirection::Right, 8, 0)?;
     thread::sleep(Duration::from_secs(4));
     camera.pan_tilt_stop()?;
 
@@ -177,13 +164,13 @@ fn perform_scan_sequence<T: grafton_visca::transport::gat_transport::Transport>(
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
-        methods::{FocusAsyncExt, PanTiltAsyncExt, ZoomAsyncExt, PresetsAsyncExt},
+        methods::{FocusAsyncExt, PanTiltAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
         profiles::G2PresetId,
     },
-    Camera,
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    transport::tokio::UdpGat,
+    transport::tokio::Udp,
+    Camera,
 };
 
 #[cfg(feature = "tokio")]
@@ -197,7 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Async PTZ Pattern Demo with Camera<P> API ===");
 
     // Create async camera with type-safe profile
-    let transport = UdpGat::connect("192.168.1.100:52381").await?;
+    let transport = Udp::connect("192.168.1.100:52381").await?;
     let camera = Camera::<PTZOpticsG2, _>::new(transport);
     println!("Connected to PTZOptics G2 camera (async)");
 
@@ -208,9 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Async position control with degrees
-    camera
-        .pan_tilt_absolute(45.0, -15.0, 5)
-        .await?;
+    camera.pan_tilt_absolute(45.0, -15.0, 5).await?;
     println!("   ✓ Set position to pan=45°, tilt=-15°");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -224,13 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Sequential operations that would typically be concurrent
     // Start moving and zooming (simulating concurrent behavior)
-    camera
-        .pan_tilt_move(
-            PanTiltDirection::Right,
-            8,
-            0,
-        )
-        .await?;
+    camera.pan_tilt_move(PanTiltDirection::Right, 8, 0).await?;
     camera.zoom_in().await?;
     println!("   → Started movement and zoom");
 
@@ -246,21 +225,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n4. Async preset patrol");
 
     // Save positions with G2-specific preset IDs
-    camera
-        .pan_tilt_absolute(-80.0, 0.0, 5)
-        .await?;
+    camera.pan_tilt_absolute(-80.0, 0.0, 5).await?;
     let preset1 = G2PresetId::new(1)?;
     camera.preset_set(preset1.into()).await?;
 
-    camera
-        .pan_tilt_absolute(0.0, 45.0, 5)
-        .await?;
+    camera.pan_tilt_absolute(0.0, 45.0, 5).await?;
     let preset2 = G2PresetId::new(2)?;
     camera.preset_set(preset2.into()).await?;
 
-    camera
-        .pan_tilt_absolute(80.0, 0.0, 5)
-        .await?;
+    camera.pan_tilt_absolute(80.0, 0.0, 5).await?;
     let preset3 = G2PresetId::new(3)?;
     camera.preset_set(preset3.into()).await?;
 
@@ -289,20 +262,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn perform_async_scan_sequence<T: grafton_visca::transport::gat_transport::Transport>(
     camera: &Camera<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-
     // Return to home
     camera.pan_tilt_home().await?;
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Scan pattern with position feedback
-    let scan_positions = vec![
-        -90.0,
-        -45.0,
-        0.0,
-        45.0,
-        90.0,
-        0.0,
-    ];
+    let scan_positions = vec![-90.0, -45.0, 0.0, 45.0, 90.0, 0.0];
 
     for pan_pos in scan_positions {
         camera.pan_tilt_absolute(pan_pos, 0.0, 5).await?;

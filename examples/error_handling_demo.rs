@@ -4,30 +4,30 @@
 //! including retry logic and error classification.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::TcpGat;
+use grafton_visca::transport::blocking::Tcp;
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::TcpGat;
+use grafton_visca::transport::tokio::Tcp;
 
 use grafton_visca::Error;
+#[cfg(feature = "tokio")]
+use grafton_visca::{
+    camera::{
+        methods::{PanTiltAsyncExt, PowerAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
+        profiles::G2PresetId,
+    },
+    command::pan_tilt::PanTiltDirection,
+    profiles::PTZOpticsG2,
+    Camera,
+};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltBlockingExt, PowerBlockingExt, ZoomBlockingExt, PresetsBlockingExt},
+        methods::{PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt, ZoomBlockingExt},
         profiles::G2PresetId,
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     CameraBlocking,
-};
-#[cfg(feature = "tokio")]
-use grafton_visca::{
-    camera::{
-        methods::{PanTiltAsyncExt, PowerAsyncExt, ZoomAsyncExt, PresetsAsyncExt},
-        profiles::G2PresetId,
-    },
-    Camera,
-    command::pan_tilt::PanTiltDirection,
-    profiles::PTZOpticsG2,
 };
 use std::time::Duration;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
@@ -169,7 +169,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match TcpGat::connect(camera_addr) {
+    let transport = match Tcp::connect(camera_addr) {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -249,11 +249,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("\n   a) Handling CameraBusy during movement:");
 
     // Start a movement
-    match camera.pan_tilt_move(
-        PanTiltDirection::Right,
-        10,
-        0,
-    ) {
+    match camera.pan_tilt_move(PanTiltDirection::Right, 10, 0) {
         Ok(_) => {
             println!("   ✓ Started movement");
 
@@ -321,7 +317,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {}...", camera_addr);
 
     // Try to create transport
-    let transport = match TcpGat::connect_timeout(camera_addr, Duration::from_secs(5)).await {
+    let transport = match Tcp::connect_timeout(camera_addr, Duration::from_secs(5)).await {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -390,14 +386,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   a) Camera busy while moving:");
 
     // Start a movement
-    match camera
-        .pan_tilt_move(
-            PanTiltDirection::Right,
-            10,
-            0,
-        )
-        .await
-    {
+    match camera.pan_tilt_move(PanTiltDirection::Right, 10, 0).await {
         Ok(_) => {
             println!("   ✓ Started continuous movement");
 

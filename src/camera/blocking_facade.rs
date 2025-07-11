@@ -1,13 +1,11 @@
 //! Blocking facade for Camera that provides synchronous methods.
 
 use crate::{
-    capabilities::ProfileMetadata,
-    camera::core::CameraCore,
-    transport::gat_transport::Transport,
+    camera::core::CameraCore, capabilities::ProfileMetadata, transport::gat_transport::Transport,
 };
 
 /// Blocking camera interface that wraps CameraCore with sync methods.
-/// 
+///
 /// This provides a synchronous API by using a minimal executor to
 /// block on the futures returned by CameraCore.
 #[derive(Debug)]
@@ -44,7 +42,7 @@ where
 
 // Extension traits will add blocking methods that call the core methods
 // and block on the futures. For example:
-// 
+//
 // impl<P, T> ZoomMethodsExt for CameraBlocking<P, T>
 // where
 //     P: ProfileMetadata + Zoom,
