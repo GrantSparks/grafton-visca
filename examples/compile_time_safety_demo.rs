@@ -19,6 +19,7 @@ fn main() -> Result<(), Error> {
     demonstrate_sony_fr7()?;
     demonstrate_generic_camera()?;
     demonstrate_compile_time_errors();
+    demonstrate_generic_functions()?;
 
     Ok(())
 }
@@ -159,6 +160,50 @@ fn demonstrate_compile_time_errors() {
     println!("Compile-time safety prevents calling unsupported methods!");
 }
 
+fn demonstrate_generic_functions() -> Result<(), Error> {
+    println!("\n=== Generic Functions Demo ===");
+    
+    #[derive(Debug, Clone)]
+    struct MockTransport;
+    impl Transport for MockTransport {
+        type Error = Error;
+        type SendFut<'a> = Ready<Result<(), Error>>;
+        type RecvFut<'a> = Ready<Result<Bytes, Error>>;
+
+        fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
+            ready(Ok(()))
+        }
+
+        fn recv(&self) -> Self::RecvFut<'_> {
+            ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
+        }
+    }
+    
+    // Demonstrate center_and_focus with cameras that support both PanTilt and Focus
+    let mut g2 = CameraBlocking::<PTZOpticsG2, MockTransport>::new(MockTransport);
+    let mut fr7 = CameraBlocking::<SonyFR7, MockTransport>::new(MockTransport);
+    
+    println!("Centering and focusing PTZOptics G2...");
+    center_and_focus(&mut g2)?;
+    
+    println!("Centering and focusing Sony FR7...");
+    center_and_focus(&mut fr7)?;
+    
+    // Generic camera cannot use center_and_focus because it lacks Focus capability
+    // let mut generic = CameraBlocking::<GenericVisca, MockTransport>::new(MockTransport);
+    // center_and_focus(&mut generic)?; // COMPILE ERROR!
+    
+    // Demonstrate set_neutral_exposure - only works with cameras that have ND filters
+    println!("Setting neutral exposure on Sony FR7 (has ND filter)...");
+    set_neutral_exposure(&mut fr7)?;
+    
+    // PTZOptics G2 cannot use set_neutral_exposure because it lacks NDFilter capability
+    // set_neutral_exposure(&mut g2)?; // COMPILE ERROR!
+    
+    println!("Generic functions demonstrated successfully!");
+    Ok(())
+}
+
 // Generic function that requires specific capabilities
 fn center_and_focus<P, T>(camera: &mut CameraBlocking<P, T>) -> Result<(), Error>
 where
@@ -174,7 +219,7 @@ where
 }
 
 // This function can only be called with cameras that have ND filters
-fn set_neutral_exposure<P, T>(camera: &mut CameraBlocking<P, T>) -> Result<(), Error>
+fn set_neutral_exposure<P, T>(_camera: &mut CameraBlocking<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::ProfileMetadata
         + grafton_visca::capabilities::NDFilter

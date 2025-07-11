@@ -4,7 +4,7 @@
 
 use grafton_visca::{
     camera::methods::{
-        ExposureAsyncExt, FocusAsyncExt, ImageProcessingAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
+        ExposureAsyncExt, FocusAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
         WhiteBalanceAsyncExt, ZoomAsyncExt,
     },
     command::pan_tilt::PanTiltDirection,

@@ -16,7 +16,6 @@ use grafton_visca::{
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     transport::tokio::Udp,
-    types::FocusPosition,
     Camera, Error,
 };
 use std::env;
