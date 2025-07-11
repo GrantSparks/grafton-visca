@@ -270,32 +270,31 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait FocusAsyncExt<P, T>
 where
     P: ProfileMetadata + Focus,
     T: Transport,
 {
     /// Set auto focus mode.
-    async fn focus_auto(&self) -> Result<(), Error>;
+    fn focus_auto(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set manual focus mode.
-    async fn focus_manual(&self) -> Result<(), Error>;
+    fn focus_manual(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Focus near at specified speed.
-    async fn focus_near(&self, speed: u8) -> Result<(), Error>;
+    fn focus_near(&self, speed: u8) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Focus far at specified speed.
-    async fn focus_far(&self, speed: u8) -> Result<(), Error>;
+    fn focus_far(&self, speed: u8) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Stop focus movement.
-    async fn focus_stop(&self) -> Result<(), Error>;
+    fn focus_stop(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Trigger one-push auto focus.
-    async fn focus_one_push(&self) -> Result<(), Error>;
+    fn focus_one_push(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set focus to a specific position.
-    async fn set_focus(&self, position: crate::types::FocusPosition) -> Result<(), Error>;
+    fn set_focus(&self, position: crate::types::FocusPosition) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> FocusAsyncExt<P, T> for CameraAsync<P, T>
@@ -303,32 +302,32 @@ where
     P: ProfileMetadata + Focus,
     T: Transport,
 {
-    async fn focus_auto(&self) -> Result<(), Error> {
-        self.core().focus_auto().await
+    fn focus_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().focus_auto().await }
     }
 
-    async fn focus_manual(&self) -> Result<(), Error> {
-        self.core().focus_manual().await
+    fn focus_manual(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().focus_manual().await }
     }
 
-    async fn focus_near(&self, speed: u8) -> Result<(), Error> {
-        self.core().focus_near(speed).await
+    fn focus_near(&self, speed: u8) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().focus_near(speed).await }
     }
 
-    async fn focus_far(&self, speed: u8) -> Result<(), Error> {
-        self.core().focus_far(speed).await
+    fn focus_far(&self, speed: u8) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().focus_far(speed).await }
     }
 
-    async fn focus_stop(&self) -> Result<(), Error> {
-        self.core().focus_stop().await
+    fn focus_stop(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().focus_stop().await }
     }
 
-    async fn focus_one_push(&self) -> Result<(), Error> {
-        self.core().focus_one_push().await
+    fn focus_one_push(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().focus_one_push().await }
     }
 
-    async fn set_focus(&self, position: crate::types::FocusPosition) -> Result<(), Error> {
-        self.core().set_focus(position).await
+    fn set_focus(&self, position: crate::types::FocusPosition) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_focus(position).await }
     }
 }
 

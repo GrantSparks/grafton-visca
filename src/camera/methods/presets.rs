@@ -115,17 +115,16 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait PresetsAsyncExt<P, T>
 where
     P: ProfileMetadata + Presets,
     T: Transport,
 {
     /// Recall a preset position.
-    async fn preset_recall(&self, preset: u8) -> Result<(), Error>;
+    fn preset_recall(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set current position as a preset.
-    async fn preset_set(&self, preset: u8) -> Result<(), Error>;
+    fn preset_set(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> PresetsAsyncExt<P, T> for CameraAsync<P, T>
@@ -133,12 +132,12 @@ where
     P: ProfileMetadata + Presets,
     T: Transport,
 {
-    async fn preset_recall(&self, preset: u8) -> Result<(), Error> {
-        self.core().preset_recall(preset).await
+    fn preset_recall(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().preset_recall(preset).await }
     }
 
-    async fn preset_set(&self, preset: u8) -> Result<(), Error> {
-        self.core().preset_set(preset).await
+    fn preset_set(&self, preset: u8) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().preset_set(preset).await }
     }
 }
 

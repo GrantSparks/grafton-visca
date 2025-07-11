@@ -170,23 +170,22 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait ZoomAsyncExt<P, T>
 where
     P: ProfileMetadata + Zoom,
     T: Transport,
 {
     /// Stop zooming.
-    async fn zoom_stop(&self) -> Result<(), Error>;
+    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Start zooming in (telephoto).
-    async fn zoom_in(&self) -> Result<(), Error>;
+    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Start zooming out (wide).
-    async fn zoom_out(&self) -> Result<(), Error>;
+    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    async fn zoom_absolute(&self, position: f32) -> Result<(), Error>;
+    fn zoom_absolute(&self, position: f32) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> ZoomAsyncExt<P, T> for CameraAsync<P, T>
@@ -194,20 +193,20 @@ where
     P: ProfileMetadata + Zoom,
     T: Transport,
 {
-    async fn zoom_stop(&self) -> Result<(), Error> {
-        self.core().zoom_stop().await
+    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().zoom_stop().await }
     }
 
-    async fn zoom_in(&self) -> Result<(), Error> {
-        self.core().zoom_in().await
+    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().zoom_in().await }
     }
 
-    async fn zoom_out(&self) -> Result<(), Error> {
-        self.core().zoom_out().await
+    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().zoom_out().await }
     }
 
-    async fn zoom_absolute(&self, position: f32) -> Result<(), Error> {
-        self.core().zoom_absolute(position).await
+    fn zoom_absolute(&self, position: f32) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().zoom_absolute(position).await }
     }
 }
 

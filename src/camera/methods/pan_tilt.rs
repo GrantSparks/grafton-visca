@@ -272,37 +272,37 @@ where
 /// Extension trait for CameraAsync that adds pan/tilt methods.
 pub trait PanTiltAsyncExt<P: ProfileMetadata + PanTilt>: Sized {
     /// Stop all pan/tilt movement.
-    async fn pan_tilt_stop(&self) -> Result<(), Error>;
+    fn pan_tilt_stop(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Move to home position (0, 0).
-    async fn pan_tilt_home(&self) -> Result<(), Error>;
+    fn pan_tilt_home(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Move to absolute pan/tilt position in degrees.
-    async fn pan_tilt_absolute(
+    fn pan_tilt_absolute(
         &self,
         pan_degrees: f32,
         tilt_degrees: f32,
         speed: u8,
-    ) -> Result<(), Error>;
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Move relative to current position in degrees.
-    async fn pan_tilt_relative(
+    fn pan_tilt_relative(
         &self,
         pan_degrees: f32,
         tilt_degrees: f32,
         speed: u8,
-    ) -> Result<(), Error>;
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Move pan/tilt in a specific direction.
-    async fn pan_tilt_move(
+    fn pan_tilt_move(
         &self,
         direction: PanTiltDirection,
         pan_speed: u8,
         tilt_speed: u8,
-    ) -> Result<(), Error>;
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Reset pan/tilt to default position.
-    async fn pan_tilt_reset(&self) -> Result<(), Error>;
+    fn pan_tilt_reset(&self) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> PanTiltAsyncExt<P> for CameraAsync<P, T>
@@ -310,49 +310,55 @@ where
     P: ProfileMetadata + PanTilt + Default,
     T: Transport,
 {
-    async fn pan_tilt_stop(&self) -> Result<(), Error> {
-        self.core().pan_tilt_stop().await
+    fn pan_tilt_stop(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().pan_tilt_stop().await }
     }
 
-    async fn pan_tilt_home(&self) -> Result<(), Error> {
-        self.core().pan_tilt_home().await
+    fn pan_tilt_home(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().pan_tilt_home().await }
     }
 
-    async fn pan_tilt_absolute(
+    fn pan_tilt_absolute(
         &self,
         pan_degrees: f32,
         tilt_degrees: f32,
         speed: u8,
-    ) -> Result<(), Error> {
-        self.core()
-            .pan_tilt_absolute(pan_degrees, tilt_degrees, speed)
-            .await
+    ) -> impl Future<Output = Result<(), Error>> + Send {
+        async move {
+            self.core()
+                .pan_tilt_absolute(pan_degrees, tilt_degrees, speed)
+                .await
+        }
     }
 
-    async fn pan_tilt_relative(
+    fn pan_tilt_relative(
         &self,
         pan_degrees: f32,
         tilt_degrees: f32,
         speed: u8,
-    ) -> Result<(), Error> {
-        self.core()
-            .pan_tilt_relative(pan_degrees, tilt_degrees, speed)
-            .await
+    ) -> impl Future<Output = Result<(), Error>> + Send {
+        async move {
+            self.core()
+                .pan_tilt_relative(pan_degrees, tilt_degrees, speed)
+                .await
+        }
     }
 
-    async fn pan_tilt_move(
+    fn pan_tilt_move(
         &self,
         direction: PanTiltDirection,
         pan_speed: u8,
         tilt_speed: u8,
-    ) -> Result<(), Error> {
-        self.core()
-            .pan_tilt_move(direction, pan_speed, tilt_speed)
-            .await
+    ) -> impl Future<Output = Result<(), Error>> + Send {
+        async move {
+            self.core()
+                .pan_tilt_move(direction, pan_speed, tilt_speed)
+                .await
+        }
     }
 
-    async fn pan_tilt_reset(&self) -> Result<(), Error> {
-        self.core().pan_tilt_reset().await
+    fn pan_tilt_reset(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().pan_tilt_reset().await }
     }
 }
 

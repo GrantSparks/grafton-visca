@@ -166,25 +166,25 @@ where
 /// Extension trait for CameraAsync that adds image processing methods.
 pub trait ImageProcessingAsyncExt<P: ProfileMetadata + ImageProcessing>: Sized {
     /// Enable image flip.
-    async fn enable_flip(&self) -> Result<(), Error>;
+    fn enable_flip(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set contrast level.
-    async fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error>;
+    fn set_contrast(&self, level: ContrastLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set sharpness level.
-    async fn set_sharpness(&self, level: SharpnessLevel) -> Result<(), Error>;
+    fn set_sharpness(&self, level: SharpnessLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set saturation level.
-    async fn set_saturation(&self, level: SaturationLevel) -> Result<(), Error>;
+    fn set_saturation(&self, level: SaturationLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set hue level.
-    async fn set_hue(&self, level: HueLevel) -> Result<(), Error>;
+    fn set_hue(&self, level: HueLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set noise reduction 2D level.
-    async fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> Result<(), Error>;
+    fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set noise reduction 3D level.
-    async fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> Result<(), Error>;
+    fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> ImageProcessingAsyncExt<P> for CameraAsync<P, T>
@@ -192,32 +192,32 @@ where
     P: ProfileMetadata + ImageProcessing,
     T: Transport,
 {
-    async fn enable_flip(&self) -> Result<(), Error> {
-        self.core().enable_flip().await
+    fn enable_flip(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().enable_flip().await }
     }
 
-    async fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error> {
-        self.core().set_contrast(level).await
+    fn set_contrast(&self, level: ContrastLevel) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_contrast(level).await }
     }
 
-    async fn set_sharpness(&self, level: SharpnessLevel) -> Result<(), Error> {
-        self.core().set_sharpness(level).await
+    fn set_sharpness(&self, level: SharpnessLevel) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_sharpness(level).await }
     }
 
-    async fn set_saturation(&self, level: SaturationLevel) -> Result<(), Error> {
-        self.core().set_saturation(level).await
+    fn set_saturation(&self, level: SaturationLevel) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_saturation(level).await }
     }
 
-    async fn set_hue(&self, level: HueLevel) -> Result<(), Error> {
-        self.core().set_hue(level).await
+    fn set_hue(&self, level: HueLevel) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_hue(level).await }
     }
 
-    async fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> Result<(), Error> {
-        self.core().set_noise_reduction_2d(level).await
+    fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_noise_reduction_2d(level).await }
     }
 
-    async fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> Result<(), Error> {
-        self.core().set_noise_reduction_3d(level).await
+    fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_noise_reduction_3d(level).await }
     }
 }
 

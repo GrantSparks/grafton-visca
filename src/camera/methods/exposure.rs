@@ -248,41 +248,40 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait ExposureAsyncExt<P, T>
 where
     P: ProfileMetadata + Exposure,
     T: Transport,
 {
     /// Set auto exposure mode.
-    async fn exposure_auto(&self) -> Result<(), Error>;
+    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set manual exposure mode.
-    async fn exposure_manual(&self) -> Result<(), Error>;
+    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set iris level.
-    async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error>;
+    fn set_iris(&self, level: crate::types::IrisLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set brightness level.
-    async fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>;
+    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set backlight compensation.
-    async fn set_backlight(&self, enabled: bool) -> Result<(), Error>;
+    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set gain value.
-    async fn set_gain(&self, gain: crate::types::Gain) -> Result<(), Error>;
+    fn set_gain(&self, gain: crate::types::Gain) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set gain limit.
-    async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error>;
+    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set dynamic range level.
-    async fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error>;
+    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set color temperature.
-    async fn set_color_temperature(
+    fn set_color_temperature(
         &self,
         temp: crate::types::ColorTemperature,
-    ) -> Result<(), Error>;
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> ExposureAsyncExt<P, T> for CameraAsync<P, T>
@@ -290,43 +289,43 @@ where
     P: ProfileMetadata + Exposure,
     T: Transport,
 {
-    async fn exposure_auto(&self) -> Result<(), Error> {
-        self.core().exposure_auto().await
+    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().exposure_auto().await }
     }
 
-    async fn exposure_manual(&self) -> Result<(), Error> {
-        self.core().exposure_manual().await
+    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().exposure_manual().await }
     }
 
-    async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {
-        self.core().set_iris(level).await
+    fn set_iris(&self, level: crate::types::IrisLevel) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_iris(level).await }
     }
 
-    async fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
-        self.core().set_brightness(level).await
+    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_brightness(level).await }
     }
 
-    async fn set_backlight(&self, enabled: bool) -> Result<(), Error> {
-        self.core().set_backlight(enabled).await
+    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_backlight(enabled).await }
     }
 
-    async fn set_gain(&self, gain: crate::types::Gain) -> Result<(), Error> {
-        self.core().set_gain(gain).await
+    fn set_gain(&self, gain: crate::types::Gain) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_gain(gain).await }
     }
 
-    async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
-        self.core().set_gain_limit(limit).await
+    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_gain_limit(limit).await }
     }
 
-    async fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error> {
-        self.core().set_dynamic_range(level).await
+    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_dynamic_range(level).await }
     }
 
-    async fn set_color_temperature(
+    fn set_color_temperature(
         &self,
         temp: crate::types::ColorTemperature,
-    ) -> Result<(), Error> {
-        self.core().set_color_temperature(temp).await
+    ) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_color_temperature(temp).await }
     }
 }
 

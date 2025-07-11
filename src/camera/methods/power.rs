@@ -109,17 +109,16 @@ where
 }
 
 /// Extension trait for async Camera facade.
-#[allow(async_fn_in_trait)]
 pub trait PowerAsyncExt<P, T>
 where
     P: ProfileMetadata + Power,
     T: Transport,
 {
     /// Power on the camera.
-    async fn power_on(&self) -> Result<(), Error>;
+    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Power off the camera.
-    async fn power_off(&self) -> Result<(), Error>;
+    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> PowerAsyncExt<P, T> for CameraAsync<P, T>
@@ -127,12 +126,12 @@ where
     P: ProfileMetadata + Power,
     T: Transport,
 {
-    async fn power_on(&self) -> Result<(), Error> {
-        self.core().power_on().await
+    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().power_on().await }
     }
 
-    async fn power_off(&self) -> Result<(), Error> {
-        self.core().power_off().await
+    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().power_off().await }
     }
 }
 

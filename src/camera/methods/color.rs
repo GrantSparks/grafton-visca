@@ -177,31 +177,31 @@ where
 /// Extension trait for CameraAsync that adds color adjustment methods.
 pub trait ColorAsyncExt<P: ProfileMetadata>: Sized {
     /// Trigger one-push white balance.
-    async fn one_push_trigger(&self) -> Result<(), Error>;
+    fn one_push_trigger(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set color temperature.
-    async fn set_color_temperature(&self, temp: ColorTemperature) -> Result<(), Error>;
+    fn set_color_temperature(&self, temp: ColorTemperature) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set or query color temperature.
-    async fn color_temperature(&self, temp: Option<ColorTemperature>) -> Result<(), Error>;
+    fn color_temperature(&self, temp: Option<ColorTemperature>) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set red gain.
-    async fn set_red_gain(&self, gain: RedGain) -> Result<(), Error>;
+    fn set_red_gain(&self, gain: RedGain) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set, reset, increase or decrease red gain.
-    async fn red_gain(&self, command: RedGainCommand) -> Result<(), Error>;
+    fn red_gain(&self, command: RedGainCommand) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set blue gain.
-    async fn set_blue_gain(&self, gain: BlueGain) -> Result<(), Error>;
+    fn set_blue_gain(&self, gain: BlueGain) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set, reset, increase or decrease blue gain.
-    async fn blue_gain(&self, command: BlueGainCommand) -> Result<(), Error>;
+    fn blue_gain(&self, command: BlueGainCommand) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set red tuning.
-    async fn set_red_tuning(&self, tuning: RedTuning) -> Result<(), Error>;
+    fn set_red_tuning(&self, tuning: RedTuning) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set blue tuning.
-    async fn set_blue_tuning(&self, tuning: BlueTuning) -> Result<(), Error>;
+    fn set_blue_tuning(&self, tuning: BlueTuning) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> ColorAsyncExt<P> for CameraAsync<P, T>
@@ -209,40 +209,40 @@ where
     P: ProfileMetadata,
     T: Transport,
 {
-    async fn one_push_trigger(&self) -> Result<(), Error> {
-        self.core().one_push_trigger().await
+    fn one_push_trigger(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().one_push_trigger().await }
     }
 
-    async fn set_color_temperature(&self, temp: ColorTemperature) -> Result<(), Error> {
-        self.core().set_color_temperature(temp).await
+    fn set_color_temperature(&self, temp: ColorTemperature) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_color_temperature(temp).await }
     }
 
-    async fn color_temperature(&self, temp: Option<ColorTemperature>) -> Result<(), Error> {
-        self.core().color_temperature(temp).await
+    fn color_temperature(&self, temp: Option<ColorTemperature>) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().color_temperature(temp).await }
     }
 
-    async fn set_red_gain(&self, gain: RedGain) -> Result<(), Error> {
-        self.core().set_red_gain(gain).await
+    fn set_red_gain(&self, gain: RedGain) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_red_gain(gain).await }
     }
 
-    async fn red_gain(&self, command: RedGainCommand) -> Result<(), Error> {
-        self.core().red_gain(command).await
+    fn red_gain(&self, command: RedGainCommand) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().red_gain(command).await }
     }
 
-    async fn set_blue_gain(&self, gain: BlueGain) -> Result<(), Error> {
-        self.core().set_blue_gain(gain).await
+    fn set_blue_gain(&self, gain: BlueGain) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_blue_gain(gain).await }
     }
 
-    async fn blue_gain(&self, command: BlueGainCommand) -> Result<(), Error> {
-        self.core().blue_gain(command).await
+    fn blue_gain(&self, command: BlueGainCommand) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().blue_gain(command).await }
     }
 
-    async fn set_red_tuning(&self, tuning: RedTuning) -> Result<(), Error> {
-        self.core().set_red_tuning(tuning).await
+    fn set_red_tuning(&self, tuning: RedTuning) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_red_tuning(tuning).await }
     }
 
-    async fn set_blue_tuning(&self, tuning: BlueTuning) -> Result<(), Error> {
-        self.core().set_blue_tuning(tuning).await
+    fn set_blue_tuning(&self, tuning: BlueTuning) -> impl Future<Output = Result<(), Error>> + Send {
+        async move { self.core().set_blue_tuning(tuning).await }
     }
 }
 
