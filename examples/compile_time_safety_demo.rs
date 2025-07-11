@@ -6,9 +6,9 @@
 // This example demonstrates compile-time safety in the Camera API
 
 use grafton_visca::{
-    camera::{methods::*, Camera},
+    camera::methods::*,
     profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
-    Error,
+    CameraBlocking, Error,
 };
 
 fn main() -> Result<(), Error> {
@@ -40,7 +40,7 @@ fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
         }
     }
 
-    let mut camera: Camera<PTZOpticsG2, _> = Camera::new(MockTransport);
+    let mut camera: CameraBlocking<PTZOpticsG2, _> = CameraBlocking::new(MockTransport);
 
     // ✅ These methods exist - G2 supports these capabilities
     camera.power_on()?;
@@ -79,7 +79,7 @@ fn demonstrate_sony_fr7() -> Result<(), Error> {
         }
     }
 
-    let mut camera: Camera<SonyFR7, _> = Camera::new(MockTransport);
+    let mut camera: CameraBlocking<SonyFR7, _> = CameraBlocking::new(MockTransport);
 
     // ✅ FR7 has all standard features
     camera.power_on()?;
@@ -114,7 +114,7 @@ fn demonstrate_generic_camera() -> Result<(), Error> {
         }
     }
 
-    let mut camera: Camera<GenericVisca, _> = Camera::new(MockTransport);
+    let mut camera: CameraBlocking<GenericVisca, _> = CameraBlocking::new(MockTransport);
 
     // ✅ Generic camera only has basic features
     camera.power_on()?;
@@ -138,11 +138,11 @@ fn demonstrate_compile_time_errors() {
 
     /*
     // Example 1: PTZOptics G2 doesn't have ND filter
-    let mut g2_camera: Camera<PTZOpticsG2, MockTransport> = Camera::new(MockTransport);
+    let mut g2_camera: CameraBlocking<PTZOpticsG2, MockTransport> = CameraBlocking::new(MockTransport);
     g2_camera.set_nd_filter(2)?;
 
     // Compile error:
-    // error[E0599]: no method named `set_nd_filter` found for struct `Camera<PTZOpticsG2, MockTransport>`
+    // error[E0599]: no method named `set_nd_filter` found for struct `CameraBlocking<PTZOpticsG2, MockTransport>`
     // note: the method `set_nd_filter` exists but the trait bound `PTZOpticsG2: NDFilter` is not satisfied
     */
 

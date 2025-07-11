@@ -12,19 +12,19 @@
 //! using the `Camera<P>` API with helper functions and sequential operations.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::{create, BlockingTransport};
+use grafton_visca::transport::blocking::{BlockingTransport, UdpGat};
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{FocusMethodsExt, PanTiltMethodsExt, ZoomMethodsExt},
+        methods::{FocusBlockingExt, PanTiltBlockingExt, ZoomBlockingExt},
         profiles::G2PresetId,
-        Camera,
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     types::{FocusPosition, PanSpeed, TiltSpeed, ZoomPosition},
     units::Degrees,
+    CameraBlocking,
 };
 
 #[cfg(not(feature = "async"))]
@@ -46,8 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a type-safe camera instance with PTZOpticsG2 profile
     let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
-    let transport = create::udp(&camera_ip)?;
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let transport = UdpGat::connect(&camera_ip)?;
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
     println!("Connected to PTZOptics G2 camera");
 
     // Demonstrate sequential command execution with type-safe units

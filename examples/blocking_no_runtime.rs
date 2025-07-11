@@ -12,14 +12,12 @@ fn main() {
 use grafton_visca::units::Degrees;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{
-        methods::{PanTiltMethodsExt, PowerMethodsExt, PresetMethodsExt, ZoomMethodsExt},
-        Camera,
-    },
+    camera::methods::{PanTiltBlockingExt, PowerBlockingExt, PresetBlockingExt, ZoomBlockingExt},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    transport::blocking::create,
+    transport::blocking::TcpGat,
     types::{PanSpeed, TiltSpeed},
+    CameraBlocking,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -34,10 +32,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at {}", camera_ip);
 
     // Create transport using the blocking API
-    let transport = create::tcp(&camera_ip)?;
+    let transport = TcpGat::connect(&camera_ip)?;
 
     // Create camera with PTZOpticsG2 profile
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
 
     println!("Camera created successfully with blocking transport API!");
 

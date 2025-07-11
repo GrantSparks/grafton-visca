@@ -3,18 +3,17 @@
 //! This example demonstrates basic camera control using the new Camera API.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::create;
+use grafton_visca::transport::blocking::{TcpGat, UdpGat};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltMethodsExt, PowerMethodsExt, PresetMethodsExt, ZoomMethodsExt},
+        methods::{PanTiltBlockingExt, PowerBlockingExt, PresetBlockingExt, ZoomBlockingExt},
         profiles::{G2PresetId, PTZOpticsG2},
-        Camera,
     },
     command::pan_tilt::PanTiltDirection,
     types::{PanSpeed, TiltSpeed, ZoomPosition},
     units::Degrees,
-    Error,
+    CameraBlocking, Error,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -25,13 +24,13 @@ fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Connect to camera using UDP
-    let udp_transport = create::udp("192.168.1.100:1259")?;
-    let mut camera = Camera::<PTZOpticsG2, _>::new(udp_transport);
+    let udp_transport = UdpGat::connect("192.168.1.100:1259")?;
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(udp_transport);
     println!("Connected to camera via UDP");
 
     // Or connect using TCP
-    // let tcp_transport = create::tcp("192.168.1.100:5678")?;
-    // let mut camera = Camera::<PTZOpticsG2, _>::new(tcp_transport);
+    // let tcp_transport = TcpGat::connect("192.168.1.100:5678")?;
+    // let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(tcp_transport);
 
     // Camera capabilities are now checked at compile time through the PTZOpticsG2 profile
     println!("\nUsing PTZOpticsG2 camera profile");

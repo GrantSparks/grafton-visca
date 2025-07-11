@@ -39,7 +39,9 @@
 
 // New GAT-based transport trait
 pub mod gat_transport;
+pub mod any_transport;
 pub use gat_transport::{Transport, TransportExt};
+pub use any_transport::AnyTransport;
 
 // Blocking transport module (always available)
 pub mod blocking;
