@@ -210,8 +210,10 @@ where
 
 impl<P, T> TallyAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata,
-    T: Transport,
+    P: ProfileMetadata + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().tally_red_on().await }

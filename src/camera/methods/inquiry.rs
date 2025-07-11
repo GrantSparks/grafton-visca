@@ -580,19 +580,24 @@ where
     fn get_power_state(&self) -> impl Future<Output = Result<bool, Error>> + Send;
 
     // Position Queries
-    fn get_position(&self) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + Send;
+    fn get_position(
+        &self,
+    ) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + Send;
 
     // Optics Queries
     fn get_zoom_position(&self) -> impl Future<Output = Result<u16, Error>> + Send;
     fn get_focus_position(&self) -> impl Future<Output = Result<u16, Error>> + Send;
     fn get_focus_near_limit(&self) -> impl Future<Output = Result<u16, Error>> + Send;
     fn get_focus_zone(&self) -> impl Future<Output = Result<FocusZone, Error>> + Send;
-    fn get_auto_focus_sensitivity(&self) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + Send;
+    fn get_auto_focus_sensitivity(
+        &self,
+    ) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + Send;
 
     // Exposure Queries
     fn get_exposure_mode(&self) -> impl Future<Output = Result<ExposureMode, Error>> + Send;
     fn get_exposure_compensation(&self) -> impl Future<Output = Result<i8, Error>> + Send;
-    fn get_exposure_compensation_enabled(&self) -> impl Future<Output = Result<bool, Error>> + Send;
+    fn get_exposure_compensation_enabled(&self)
+        -> impl Future<Output = Result<bool, Error>> + Send;
     fn get_iris(&self) -> impl Future<Output = Result<u8, Error>> + Send;
     fn get_shutter(&self) -> impl Future<Output = Result<u16, Error>> + Send;
     fn get_brightness(&self) -> impl Future<Output = Result<u16, Error>> + Send;
@@ -603,7 +608,9 @@ where
     fn get_dynamic_range(&self) -> impl Future<Output = Result<u8, Error>> + Send;
 
     // Color Queries
-    fn get_white_balance_mode(&self) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + Send;
+    fn get_white_balance_mode(
+        &self,
+    ) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + Send;
     fn get_color_temperature(&self) -> impl Future<Output = Result<u16, Error>> + Send;
     fn get_red_gain(&self) -> impl Future<Output = Result<i8, Error>> + Send;
     fn get_blue_gain(&self) -> impl Future<Output = Result<i8, Error>> + Send;
@@ -628,14 +635,18 @@ where
 
 impl<P, T> InquiryAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata,
-    T: Transport,
+    P: ProfileMetadata + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn get_power_state(&self) -> impl Future<Output = Result<bool, Error>> + Send {
         async move { self.core().get_power_state().await }
     }
 
-    fn get_position(&self) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + Send {
+    fn get_position(
+        &self,
+    ) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + Send {
         async move { self.core().get_position().await }
     }
 
@@ -655,7 +666,9 @@ where
         async move { self.core().get_focus_zone().await }
     }
 
-    fn get_auto_focus_sensitivity(&self) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + Send {
+    fn get_auto_focus_sensitivity(
+        &self,
+    ) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + Send {
         async move { self.core().get_auto_focus_sensitivity().await }
     }
 
@@ -667,7 +680,9 @@ where
         async move { self.core().get_exposure_compensation().await }
     }
 
-    fn get_exposure_compensation_enabled(&self) -> impl Future<Output = Result<bool, Error>> + Send {
+    fn get_exposure_compensation_enabled(
+        &self,
+    ) -> impl Future<Output = Result<bool, Error>> + Send {
         async move { self.core().get_exposure_compensation_enabled().await }
     }
 
@@ -703,7 +718,9 @@ where
         async move { self.core().get_dynamic_range().await }
     }
 
-    fn get_white_balance_mode(&self) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + Send {
+    fn get_white_balance_mode(
+        &self,
+    ) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + Send {
         async move { self.core().get_white_balance_mode().await }
     }
 
@@ -991,15 +1008,21 @@ where
     T: Transport,
 {
     /// Query the current pan and tilt position in degrees.
-    fn get_position_degrees(&self) -> impl Future<Output = Result<(Degrees, Degrees), Error>> + Send;
+    fn get_position_degrees(
+        &self,
+    ) -> impl Future<Output = Result<(Degrees, Degrees), Error>> + Send;
 }
 
 impl<P, T> PanTiltInquiryAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + PanTilt,
-    T: Transport,
+    P: ProfileMetadata + PanTilt + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
-    fn get_position_degrees(&self) -> impl Future<Output = Result<(Degrees, Degrees), Error>> + Send {
+    fn get_position_degrees(
+        &self,
+    ) -> impl Future<Output = Result<(Degrees, Degrees), Error>> + Send {
         async move { self.core().get_position_degrees().await }
     }
 }

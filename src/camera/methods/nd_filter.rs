@@ -120,8 +120,10 @@ where
 
 impl<P, T> NDFilterAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + NDFilter + Default,
-    T: Transport,
+    P: ProfileMetadata + NDFilter + Default + Sync + Send,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_nd_filter(level).await }

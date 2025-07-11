@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{response::ResponseType, Command, const_encoding::CommandBuilder},
+    command::{const_encoding::CommandBuilder, response::ResponseType, Command},
     constants::CameraModel,
     error::Error,
     timeout::CommandCategory,

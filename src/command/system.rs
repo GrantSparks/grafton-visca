@@ -11,7 +11,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{Command, ResponseType, const_encoding::CommandBuilder},
+    command::{const_encoding::CommandBuilder, Command, ResponseType},
     error::Error,
     timeout::CommandCategory,
 };

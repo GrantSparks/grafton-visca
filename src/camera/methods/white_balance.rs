@@ -74,8 +74,10 @@ where
 
 impl<P, T> WhiteBalanceAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + WhiteBalance,
-    T: Transport,
+    P: ProfileMetadata + WhiteBalance + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn white_balance_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().white_balance_auto().await }

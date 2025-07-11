@@ -180,10 +180,16 @@ pub trait ColorAsyncExt<P: ProfileMetadata>: Sized {
     fn one_push_trigger(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set color temperature.
-    fn set_color_temperature(&self, temp: ColorTemperature) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_color_temperature(
+        &self,
+        temp: ColorTemperature,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set or query color temperature.
-    fn color_temperature(&self, temp: Option<ColorTemperature>) -> impl Future<Output = Result<(), Error>> + Send;
+    fn color_temperature(
+        &self,
+        temp: Option<ColorTemperature>,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set red gain.
     fn set_red_gain(&self, gain: RedGain) -> impl Future<Output = Result<(), Error>> + Send;
@@ -195,29 +201,39 @@ pub trait ColorAsyncExt<P: ProfileMetadata>: Sized {
     fn set_blue_gain(&self, gain: BlueGain) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set, reset, increase or decrease blue gain.
-    fn blue_gain(&self, command: BlueGainCommand) -> impl Future<Output = Result<(), Error>> + Send;
+    fn blue_gain(&self, command: BlueGainCommand)
+        -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set red tuning.
     fn set_red_tuning(&self, tuning: RedTuning) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set blue tuning.
-    fn set_blue_tuning(&self, tuning: BlueTuning) -> impl Future<Output = Result<(), Error>> + Send;
+    fn set_blue_tuning(&self, tuning: BlueTuning)
+        -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> ColorAsyncExt<P> for CameraAsync<P, T>
 where
-    P: ProfileMetadata,
-    T: Transport,
+    P: ProfileMetadata + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn one_push_trigger(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().one_push_trigger().await }
     }
 
-    fn set_color_temperature(&self, temp: ColorTemperature) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_color_temperature(
+        &self,
+        temp: ColorTemperature,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_color_temperature(temp).await }
     }
 
-    fn color_temperature(&self, temp: Option<ColorTemperature>) -> impl Future<Output = Result<(), Error>> + Send {
+    fn color_temperature(
+        &self,
+        temp: Option<ColorTemperature>,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().color_temperature(temp).await }
     }
 
@@ -233,7 +249,10 @@ where
         async move { self.core().set_blue_gain(gain).await }
     }
 
-    fn blue_gain(&self, command: BlueGainCommand) -> impl Future<Output = Result<(), Error>> + Send {
+    fn blue_gain(
+        &self,
+        command: BlueGainCommand,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().blue_gain(command).await }
     }
 
@@ -241,7 +260,10 @@ where
         async move { self.core().set_red_tuning(tuning).await }
     }
 
-    fn set_blue_tuning(&self, tuning: BlueTuning) -> impl Future<Output = Result<(), Error>> + Send {
+    fn set_blue_tuning(
+        &self,
+        tuning: BlueTuning,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().set_blue_tuning(tuning).await }
     }
 }

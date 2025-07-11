@@ -123,8 +123,10 @@ where
 
 impl<P, T> PowerAsyncExt<P, T> for CameraAsync<P, T>
 where
-    P: ProfileMetadata + Power,
-    T: Transport,
+    P: ProfileMetadata + Power + Sync,
+    T: Transport + Sync,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn power_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().power_on().await }
