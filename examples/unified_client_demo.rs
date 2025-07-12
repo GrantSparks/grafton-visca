@@ -1,210 +1,164 @@
 //! Demo of the unified Camera API in both blocking and async contexts.
 //!
-//! This example shows how the Camera API works seamlessly with
-//! different transport adapters for blocking and async usage.
+//! This example shows how the UnifiedCamera API works seamlessly without
+//! requiring generic type parameters for profile or transport.
 
-#[cfg(not(feature = "async"))]
-use grafton_visca::{
-    camera::methods::{FocusBlockingExt, PanTiltBlockingExt, PowerBlockingExt, ZoomBlockingExt},
-    command::pan_tilt::PanTiltDirection,
-    profiles::PTZOpticsG2,
-    transport::blocking::{Tcp, Udp},
-    CameraBlocking, Error,
-};
+use grafton_visca::{Error, ProfileId, UnifiedCamera};
 
-#[cfg(all(feature = "async", feature = "tokio"))]
-use grafton_visca::{
-    camera::methods::{FocusAsyncExt, PanTiltAsyncExt, PowerAsyncExt, ZoomAsyncExt},
-    command::pan_tilt::PanTiltDirection,
-    profiles::PTZOpticsG2,
-    transport::tokio::{Tcp, Udp},
-    Camera, Error,
-};
+#[cfg(not(feature = "tokio"))]
+use grafton_visca::transport::blocking::{Tcp, Udp};
 
-#[cfg(any(not(feature = "async"), feature = "tokio"))]
-use std::time::Duration;
+#[cfg(feature = "tokio")]
+use grafton_visca::transport::tokio::{Tcp, Udp};
 
 // ==================== BLOCKING EXAMPLES ====================
 
-#[cfg(not(feature = "async"))]
-fn blocking_udp_example() -> Result<(), Error> {
-    println!("=== Blocking UDP Example ===");
+#[cfg(not(feature = "tokio"))]
+fn blocking_examples() -> Result<(), Error> {
+    println!("=== Unified Camera with Blocking Transport ===\n");
 
-    // Create a camera with blocking UDP transport
-    let transport = Udp::connect("192.168.1.100:5678")?;
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
+    // Example 1: Create camera with default profile (GenericVisca)
+    println!("Example 1: Default profile with UDP");
+    let udp_transport = Udp::connect("192.168.1.100:52381")?;
+    let camera = UnifiedCamera::new_blocking(udp_transport);
+    println!("Created camera: {}", camera.model_name());
+    println!("Profile info: {}", camera.profile_info());
 
-    // All operations are synchronous
-    println!("Powering on camera...");
-    camera.power_on()?;
+    // Example 2: Create camera with specific profile
+    println!("\nExample 2: PTZOptics G2 profile with TCP");
+    let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
+    let camera = UnifiedCamera::with_profile_blocking(ProfileId::PTZOpticsG2, tcp_transport);
+    println!("Created camera: {}", camera.model_name());
+    println!("Profile info: {}", camera.profile_info());
 
-    println!("Moving to home position...");
-    camera.pan_tilt_home()?;
+    // Example 3: Create Sony FR7 camera
+    println!("\nExample 3: Sony FR7 profile");
+    let transport = Udp::connect("192.168.1.200:52381")?;
+    let camera = UnifiedCamera::with_profile_blocking(ProfileId::SonyFR7, transport);
+    println!("Created camera: {}", camera.model_name());
+    println!("Profile info: {}", camera.profile_info());
 
-    println!("Zooming in...");
-    camera.zoom_in()?;
-    std::thread::sleep(Duration::from_secs(1));
-    camera.zoom_stop()?;
-
-    Ok(())
-}
-
-#[cfg(not(feature = "async"))]
-fn blocking_tcp_example() -> Result<(), Error> {
-    println!("\n=== Blocking TCP Example ===");
-
-    // Create a camera with blocking TCP transport
+    // Example 4: Check capabilities at runtime
+    println!("\nExample 4: Runtime capability checking");
     let transport = Tcp::connect("192.168.1.100:5678")?;
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
-
-    // All operations are synchronous
-    println!("Powering on camera...");
-    camera.power_on()?;
-
-    println!("Setting position...");
-    camera.pan_tilt_absolute(45.0, 15.0, 10)?;
-
-    println!("Adjusting focus...");
-    camera.focus_auto()?;
-
-    Ok(())
-}
-
-#[cfg(not(feature = "async"))]
-fn blocking_movement_example() -> Result<(), Error> {
-    println!("\n=== Blocking Movement Example ===");
-
-    let transport = Udp::connect("192.168.1.100:5678")?;
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
-
-    println!("Moving camera up...");
-    camera.pan_tilt_move(PanTiltDirection::Up, 0, 10)?;
-    std::thread::sleep(Duration::from_millis(500));
-    camera.pan_tilt_stop()?;
-
-    println!("Moving camera down...");
-    camera.pan_tilt_move(PanTiltDirection::Down, 0, 10)?;
-    std::thread::sleep(Duration::from_millis(500));
-    camera.pan_tilt_stop()?;
+    let camera = UnifiedCamera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
+    
+    println!("Capabilities for {}:", camera.model_name());
+    println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
+    println!("  - Zoom: {}", camera.supports_capability("zoom"));
+    println!("  - Focus: {}", camera.supports_capability("focus"));
+    println!("  - ND Filter: {}", camera.supports_capability("nd_filter"));
+    println!("  - Presets: {}", camera.supports_capability("presets"));
 
     Ok(())
 }
 
 // ==================== ASYNC EXAMPLES ====================
 
-#[cfg(all(feature = "async", feature = "tokio"))]
-async fn async_udp_example() -> Result<(), Error> {
-    println!("=== Async UDP Example ===");
+#[cfg(feature = "tokio")]
+async fn async_examples() -> Result<(), Error> {
+    println!("=== Unified Camera with Async Transport ===\n");
 
-    // Create a camera with async UDP transport
-    let transport = Udp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    // Example 1: Create camera with default profile (GenericVisca)
+    println!("Example 1: Default profile with UDP");
+    let udp_transport = Udp::connect("192.168.1.100:52381").await?;
+    let camera = UnifiedCamera::new(udp_transport);
+    println!("Created camera: {}", camera.model_name());
+    println!("Profile info: {}", camera.profile_info());
 
-    // All operations are async
-    println!("Powering on camera...");
-    camera.power_on().await?;
+    // Example 2: Create camera with specific profile
+    println!("\nExample 2: PTZOptics G2 profile with TCP");
+    let tcp_transport = Tcp::connect("192.168.1.100:5678").await?;
+    let camera = UnifiedCamera::with_profile(ProfileId::PTZOpticsG2, tcp_transport);
+    println!("Created camera: {}", camera.model_name());
+    println!("Profile info: {}", camera.profile_info());
 
-    println!("Moving to home position...");
-    camera.pan_tilt_home().await?;
+    // Example 3: Create Sony FR7 camera
+    println!("\nExample 3: Sony FR7 profile");
+    let transport = Udp::connect("192.168.1.200:52381").await?;
+    let camera = UnifiedCamera::with_profile(ProfileId::SonyFR7, transport);
+    println!("Created camera: {}", camera.model_name());
+    println!("Profile info: {}", camera.profile_info());
 
-    println!("Zooming in...");
-    camera.zoom_in().await?;
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    camera.zoom_stop().await?;
-
-    Ok(())
-}
-
-#[cfg(all(feature = "async", feature = "tokio"))]
-async fn async_tcp_example() -> Result<(), Error> {
-    println!("\n=== Async TCP Example ===");
-
-    // Create a camera with async TCP transport
+    // Example 4: Check capabilities at runtime
+    println!("\nExample 4: Runtime capability checking");
     let transport = Tcp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
-
-    // All operations are async
-    println!("Powering on camera...");
-    camera.power_on().await?;
-
-    println!("Setting position...");
-    camera.pan_tilt_absolute(45.0, 15.0, 10).await?;
-
-    println!("Adjusting focus...");
-    camera.focus_auto().await?;
+    let camera = UnifiedCamera::with_profile(ProfileId::PTZOpticsG2, transport);
+    
+    println!("Capabilities for {}:", camera.model_name());
+    println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
+    println!("  - Zoom: {}", camera.supports_capability("zoom"));
+    println!("  - Focus: {}", camera.supports_capability("focus"));
+    println!("  - ND Filter: {}", camera.supports_capability("nd_filter"));
+    println!("  - Presets: {}", camera.supports_capability("presets"));
 
     Ok(())
 }
 
-#[cfg(all(feature = "async", feature = "tokio"))]
-async fn async_movement_example() -> Result<(), Error> {
-    println!("\n=== Async Movement Example ===");
+// ==================== ADVANCED EXAMPLE ====================
 
-    let transport = Udp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+fn advanced_example() {
+    println!("\n=== Advanced UnifiedCamera Features ===\n");
 
-    println!("Moving camera up...");
-    camera.pan_tilt_move(PanTiltDirection::Up, 0, 10).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    camera.pan_tilt_stop().await?;
-
-    println!("Moving camera down...");
-    camera.pan_tilt_move(PanTiltDirection::Down, 0, 10).await?;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    camera.pan_tilt_stop().await?;
-
-    Ok(())
+    // Show the benefits of the unified API
+    println!("Benefits of UnifiedCamera:");
+    println!("1. No generic type parameters needed");
+    println!("2. Profile selected at runtime via enum");
+    println!("3. Works with any transport (async or blocking)");
+    println!("4. Runtime capability introspection");
+    println!("5. Simplified API for new users");
+    
+    println!("\nComparison with generic API:");
+    println!("OLD: CameraAsync<PTZOpticsG2, Tcp>");
+    println!("NEW: UnifiedCamera (profile and transport hidden)");
+    
+    println!("\nProfile options:");
+    println!("- ProfileId::GenericVisca (default)");
+    println!("- ProfileId::PTZOpticsG2");
+    println!("- ProfileId::SonyFR7");
 }
 
 // ==================== MAIN FUNCTIONS ====================
 
-#[cfg(all(feature = "async", not(feature = "tokio")))]
-fn main() {
-    eprintln!("This example requires either no features (blocking) or tokio feature (async).");
-    eprintln!("Run with: cargo run --example unified_client_demo --features tokio");
-}
-
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Error> {
     env_logger::init();
 
-    println!("=== Unified Camera API Demo (Blocking Mode) ===\n");
-    println!("This demo shows how the Camera API works in blocking mode.\n");
+    println!("=== UnifiedCamera Demo (Blocking Mode) ===\n");
+    println!("This demo shows the new UnifiedCamera API that eliminates generics.\n");
 
-    // Run blocking examples
-    blocking_udp_example()?;
-    blocking_tcp_example()?;
-    blocking_movement_example()?;
+    blocking_examples()?;
+    advanced_example();
 
     println!("\n=== Demo Complete ===");
     println!("\nKey takeaways:");
-    println!("• Camera API provides synchronous operations in blocking mode");
-    println!("• Works with blocking UDP and TCP transports");
-    println!("• Same API surface as async mode");
-    println!("• Methods take &mut self for blocking operations");
+    println!("• UnifiedCamera provides a single type for all cameras");
+    println!("• No generic parameters required");
+    println!("• Profile selection is done at runtime");
+    println!("• Works with both async and blocking transports");
+    println!("• Provides runtime capability introspection");
 
     Ok(())
 }
 
-#[cfg(all(feature = "async", feature = "tokio"))]
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::init();
 
-    println!("=== Unified Camera API Demo (Async Mode) ===\n");
-    println!("This demo shows how the Camera API works in async mode.\n");
+    println!("=== UnifiedCamera Demo (Async Mode) ===\n");
+    println!("This demo shows the new UnifiedCamera API that eliminates generics.\n");
 
-    // Run async examples
-    async_udp_example().await?;
-    async_tcp_example().await?;
-    async_movement_example().await?;
+    async_examples().await?;
+    advanced_example();
 
     println!("\n=== Demo Complete ===");
     println!("\nKey takeaways:");
-    println!("• Camera API provides async operations with .await");
-    println!("• Works with async UDP and TCP transports");
-    println!("• Same API surface as blocking mode");
-    println!("• Methods take &self for async operations (interior mutability)");
+    println!("• UnifiedCamera provides a single type for all cameras");
+    println!("• No generic parameters required");
+    println!("• Profile selection is done at runtime");
+    println!("• Works with both async and blocking transports");
+    println!("• Provides runtime capability introspection");
 
     Ok(())
 }

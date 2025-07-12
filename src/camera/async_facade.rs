@@ -8,6 +8,10 @@ use crate::{
 ///
 /// This type is re-exported as `Camera` and provides the primary
 /// async API for camera control.
+#[deprecated(
+    since = "0.5.0",
+    note = "Use `UnifiedCamera` instead, which provides a simpler API without generics"
+)]
 #[derive(Debug)]
 pub struct CameraAsync<P, T>
 where
