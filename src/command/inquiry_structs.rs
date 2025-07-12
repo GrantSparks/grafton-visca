@@ -1,294 +1,189 @@
-//! Internal inquiry command structs using derive macro.
+//! Inquiry command structs using derive macro.
 //!
 //! This module uses the InquiryCommand derive macro to generate
-//! Command implementations for all inquiry types, eliminating
-//! code duplication with the manual enum implementation.
+//! Command implementations for all inquiry types.
 
-use crate::command::InquiryCommand as InquiryCommandEnum;
 use grafton_visca_macros::InquiryCommand;
 
 // Power and System Inquiries
 
+/// Inquiry command to get the current power state of the camera.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x00, response = "Power", inquiry_variant = "Power")]
-pub(crate) struct PowerInquiry;
+#[visca(command = 0x00, response = "Power")]
+pub struct PowerInquiry;
 
+/// Inquiry command to get the camera version information.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x02, sub_command = 0x00, response = "Version", inquiry_variant = "Version")]
-pub(crate) struct VersionInquiry;
+#[visca(command = 0x02, sub_command = 0x00, response = "Version")]
+pub struct VersionInquiry;
 
 // Position Inquiries
 
+/// Inquiry command to get the current pan/tilt position.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x12, sub_command = 0x06, response = "PanTiltPosition", inquiry_variant = "PanTiltPosition")]
-pub(crate) struct PanTiltPositionInquiry;
+#[visca(command = 0x12, sub_command = 0x06, response = "PanTiltPosition")]
+pub struct PanTiltPositionInquiry;
 
+/// Inquiry command to get the current zoom position.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x47, response = "ZoomPosition", inquiry_variant = "ZoomPosition")]
-pub(crate) struct ZoomPositionInquiry;
+#[visca(command = 0x47, response = "ZoomPosition")]
+pub struct ZoomPositionInquiry;
 
+/// Inquiry command to get the current focus position.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x48, response = "FocusPosition", inquiry_variant = "FocusPosition")]
-pub(crate) struct FocusPositionInquiry;
+#[visca(command = 0x48, response = "FocusPosition")]
+pub struct FocusPositionInquiry;
 
 // Exposure Inquiries
 
+/// Inquiry command to get the current exposure mode setting.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x39, response = "ExposureMode", inquiry_variant = "ExposureMode")]
-pub(crate) struct ExposureModeInquiry;
+#[visca(command = 0x39, response = "ExposureMode")]
+pub struct ExposureModeInquiry;
 
+/// Inquiry command to get the current exposure compensation value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x4E, response = "ExposureCompensation", inquiry_variant = "ExposureCompensation")]
-pub(crate) struct ExposureCompensationInquiry;
+#[visca(command = 0x4E, response = "ExposureCompensation")]
+pub struct ExposureCompensationInquiry;
 
+/// Inquiry command to get the exposure compensation mode on/off status.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x3E, response = "ExposureCompensationMode", inquiry_variant = "ExposureCompensationMode")]
-pub(crate) struct ExposureCompensationModeInquiry;
+#[visca(command = 0x3E, response = "ExposureCompensationMode")]
+pub struct ExposureCompensationModeInquiry;
 
+/// Inquiry command to get the current iris position value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x4B, response = "Iris", inquiry_variant = "Iris")]
-pub(crate) struct IrisInquiry;
+#[visca(command = 0x4B, response = "Iris")]
+pub struct IrisInquiry;
 
+/// Inquiry command to get the current shutter speed setting.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x4A, response = "Shutter", inquiry_variant = "Shutter")]
-pub(crate) struct ShutterInquiry;
+#[visca(command = 0x4A, response = "Shutter")]
+pub struct ShutterInquiry;
 
+/// Inquiry command to get the current brightness adjustment value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x4D, response = "Bright", inquiry_variant = "Bright")]
-pub(crate) struct BrightInquiry;
+#[visca(command = 0x4D, response = "Bright")]
+pub struct BrightInquiry;
 
 // White Balance and Color Inquiries
 
+/// Inquiry command to get the current white balance mode.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x35, response = "WhiteBalanceMode", inquiry_variant = "WhiteBalanceMode")]
-pub(crate) struct WhiteBalanceModeInquiry;
+#[visca(command = 0x35, response = "WhiteBalanceMode")]
+pub struct WhiteBalanceModeInquiry;
 
+/// Inquiry command to get the current color temperature value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x20, response = "ColorTemperature", inquiry_variant = "ColorTemperature")]
-pub(crate) struct ColorTemperatureInquiry;
+#[visca(command = 0x20, response = "ColorTemperature")]
+pub struct ColorTemperatureInquiry;
 
+/// Inquiry command to get the current red gain value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x12, sub_command = 0x0A, response = "RedGain", inquiry_variant = "RedGain")]
-pub(crate) struct RedGainInquiry;
+#[visca(command = 0x12, sub_command = 0x0A, response = "RedGain")]
+pub struct RedGainInquiry;
 
+/// Inquiry command to get the current blue gain value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x13, sub_command = 0x0A, response = "BlueGain", inquiry_variant = "BlueGain")]
-pub(crate) struct BlueGainInquiry;
+#[visca(command = 0x13, sub_command = 0x0A, response = "BlueGain")]
+pub struct BlueGainInquiry;
 
 // Image Adjustment Inquiries
 
+/// Inquiry command to get the current luminance setting.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0xA1, response = "Luminance", inquiry_variant = "Luminance")]
-pub(crate) struct LuminanceInquiry;
+#[visca(command = 0xA1, response = "Luminance")]
+pub struct LuminanceInquiry;
 
+/// Inquiry command to get the current contrast level.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0xA2, response = "Contrast", inquiry_variant = "Contrast")]
-pub(crate) struct ContrastInquiry;
+#[visca(command = 0xA2, response = "Contrast")]
+pub struct ContrastInquiry;
 
+/// Inquiry command to get the current sharpness level.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x42, response = "Sharpness", inquiry_variant = "Sharpness")]
-pub(crate) struct SharpnessInquiry;
+#[visca(command = 0x42, response = "Sharpness")]
+pub struct SharpnessInquiry;
 
+/// Inquiry command to get the current sharpness mode on/off status.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x05, response = "SharpnessMode", inquiry_variant = "SharpnessMode")]
-pub(crate) struct SharpnessModeInquiry;
+#[visca(command = 0x05, response = "SharpnessMode")]
+pub struct SharpnessModeInquiry;
 
+/// Inquiry command to get the current color saturation level.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x49, response = "Saturation", inquiry_variant = "Saturation")]
-pub(crate) struct SaturationInquiry;
+#[visca(command = 0x49, response = "Saturation")]
+pub struct SaturationInquiry;
 
+/// Inquiry command to get the current hue adjustment value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x4F, response = "Hue", inquiry_variant = "Hue")]
-pub(crate) struct HueInquiry;
+#[visca(command = 0x4F, response = "Hue")]
+pub struct HueInquiry;
 
 // Gain Inquiries
 
+/// Inquiry command to get the current gain value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x4C, response = "Gain", inquiry_variant = "Gain")]
-pub(crate) struct GainInquiry;
+#[visca(command = 0x4C, response = "Gain")]
+pub struct GainInquiry;
 
+/// Inquiry command to get the current gain limit setting.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x2C, response = "GainLimit", inquiry_variant = "GainLimit")]
-pub(crate) struct GainLimitInquiry;
+#[visca(command = 0x2C, response = "GainLimit")]
+pub struct GainLimitInquiry;
 
+/// Inquiry command to get the anti-flicker mode setting.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x23, response = "AntiFlicker", inquiry_variant = "AntiFlicker")]
-pub(crate) struct AntiFlickerInquiry;
+#[visca(command = 0x23, response = "AntiFlicker")]
+pub struct AntiFlickerInquiry;
 
 // Image Processing Inquiries
 
+/// Inquiry command to get the backlight compensation mode.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x33, response = "Backlight", inquiry_variant = "Backlight")]
-pub(crate) struct BacklightInquiry;
+#[visca(command = 0x33, response = "Backlight")]
+pub struct BacklightInquiry;
 
+/// Inquiry command to get the image flip (mirror/reverse) settings.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x61, response = "ImageFlip", inquiry_variant = "ImageFlip")]
-pub(crate) struct ImageFlipInquiry;
+#[visca(command = 0x61, response = "ImageFlip")]
+pub struct ImageFlipInquiry;
 
+/// Inquiry command to get the black and white mode on/off status.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x01, response = "BlackWhite", inquiry_variant = "BlackWhite")]
-pub(crate) struct BlackWhiteInquiry;
+#[visca(command = 0x01, response = "BlackWhite")]
+pub struct BlackWhiteInquiry;
 
+/// Inquiry command to get the 2D noise reduction level.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x53, response = "NoiseReduction2D", inquiry_variant = "NoiseReduction2D")]
-pub(crate) struct NoiseReduction2DInquiry;
+#[visca(command = 0x53, response = "NoiseReduction2D")]
+pub struct NoiseReduction2DInquiry;
 
+/// Inquiry command to get the 3D noise reduction level.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x54, response = "NoiseReduction3D", inquiry_variant = "NoiseReduction3D")]
-pub(crate) struct NoiseReduction3DInquiry;
+#[visca(command = 0x54, response = "NoiseReduction3D")]
+pub struct NoiseReduction3DInquiry;
 
+/// Inquiry command to get the dynamic range mode/level.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x25, response = "DynamicRange", inquiry_variant = "DynamicRange")]
-pub(crate) struct DynamicRangeInquiry;
+#[visca(command = 0x25, response = "DynamicRange")]
+pub struct DynamicRangeInquiry;
 
 // Focus Inquiries
 
+/// Inquiry command to get the current focus zone selection.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x3C, response = "FocusZone", inquiry_variant = "FocusZone")]
-pub(crate) struct FocusZoneInquiry;
+#[visca(command = 0x3C, response = "FocusZone")]
+pub struct FocusZoneInquiry;
 
+/// Inquiry command to get the auto-focus sensitivity setting.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x58, response = "AutoFocusSensitivity", inquiry_variant = "AutoFocusSensitivity")]
-pub(crate) struct AutoFocusSensitivityInquiry;
+#[visca(command = 0x58, response = "AutoFocusSensitivity")]
+pub struct AutoFocusSensitivityInquiry;
 
+/// Inquiry command to get the focus near limit position.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x28, response = "FocusNearLimit", inquiry_variant = "FocusNearLimit")]
-pub(crate) struct FocusNearLimitInquiry;
+#[visca(command = 0x28, response = "FocusNearLimit")]
+pub struct FocusNearLimitInquiry;
 
-/// Factory function to create inquiry command instances based on the enum variant.
-/// This provides a bridge between the enum-based API and the struct implementations.
-pub(crate) fn create_inquiry_command(command: InquiryCommandEnum) -> Box<dyn crate::command::Command> {
-    match command {
-        InquiryCommandEnum::Power => Box::new(PowerInquiry),
-        InquiryCommandEnum::PanTiltPosition => Box::new(PanTiltPositionInquiry),
-        InquiryCommandEnum::ZoomPosition => Box::new(ZoomPositionInquiry),
-        InquiryCommandEnum::FocusPosition => Box::new(FocusPositionInquiry),
-        InquiryCommandEnum::ExposureMode => Box::new(ExposureModeInquiry),
-        InquiryCommandEnum::WhiteBalanceMode => Box::new(WhiteBalanceModeInquiry),
-        InquiryCommandEnum::Luminance => Box::new(LuminanceInquiry),
-        InquiryCommandEnum::Contrast => Box::new(ContrastInquiry),
-        InquiryCommandEnum::Sharpness => Box::new(SharpnessInquiry),
-        InquiryCommandEnum::ExposureCompensation => Box::new(ExposureCompensationInquiry),
-        InquiryCommandEnum::ExposureCompensationMode => Box::new(ExposureCompensationModeInquiry),
-        InquiryCommandEnum::Iris => Box::new(IrisInquiry),
-        InquiryCommandEnum::Shutter => Box::new(ShutterInquiry),
-        InquiryCommandEnum::Bright => Box::new(BrightInquiry),
-        InquiryCommandEnum::Gain => Box::new(GainInquiry),
-        InquiryCommandEnum::GainLimit => Box::new(GainLimitInquiry),
-        InquiryCommandEnum::AntiFlicker => Box::new(AntiFlickerInquiry),
-        InquiryCommandEnum::Saturation => Box::new(SaturationInquiry),
-        InquiryCommandEnum::Hue => Box::new(HueInquiry),
-        InquiryCommandEnum::RedGain => Box::new(RedGainInquiry),
-        InquiryCommandEnum::BlueGain => Box::new(BlueGainInquiry),
-        InquiryCommandEnum::Backlight => Box::new(BacklightInquiry),
-        InquiryCommandEnum::ImageFlip => Box::new(ImageFlipInquiry),
-        InquiryCommandEnum::SharpnessMode => Box::new(SharpnessModeInquiry),
-        InquiryCommandEnum::ColorTemperature => Box::new(ColorTemperatureInquiry),
-        InquiryCommandEnum::NoiseReduction2D => Box::new(NoiseReduction2DInquiry),
-        InquiryCommandEnum::NoiseReduction3D => Box::new(NoiseReduction3DInquiry),
-        InquiryCommandEnum::BlackWhite => Box::new(BlackWhiteInquiry),
-        InquiryCommandEnum::FocusZone => Box::new(FocusZoneInquiry),
-        InquiryCommandEnum::AutoFocusSensitivity => Box::new(AutoFocusSensitivityInquiry),
-        InquiryCommandEnum::FocusNearLimit => Box::new(FocusNearLimitInquiry),
-        InquiryCommandEnum::DynamicRange => Box::new(DynamicRangeInquiry),
-        InquiryCommandEnum::Version => Box::new(VersionInquiry),
-    }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::command::ResponseType;
-
-    #[test]
-    fn test_all_inquiries_match_enum() {
-        // Test each inquiry variant creates the correct command bytes
-        let test_cases = vec![
-            (InquiryCommandEnum::Power, vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-            (InquiryCommandEnum::PanTiltPosition, vec![0x81, 0x09, 0x06, 0x12, 0xFF]),
-            (InquiryCommandEnum::ZoomPosition, vec![0x81, 0x09, 0x04, 0x47, 0xFF]),
-            (InquiryCommandEnum::FocusPosition, vec![0x81, 0x09, 0x04, 0x48, 0xFF]),
-            (InquiryCommandEnum::ExposureMode, vec![0x81, 0x09, 0x04, 0x39, 0xFF]),
-            (InquiryCommandEnum::WhiteBalanceMode, vec![0x81, 0x09, 0x04, 0x35, 0xFF]),
-            (InquiryCommandEnum::Luminance, vec![0x81, 0x09, 0x04, 0xA1, 0xFF]),
-            (InquiryCommandEnum::Contrast, vec![0x81, 0x09, 0x04, 0xA2, 0xFF]),
-            (InquiryCommandEnum::Sharpness, vec![0x81, 0x09, 0x04, 0x42, 0xFF]),
-            (InquiryCommandEnum::ExposureCompensation, vec![0x81, 0x09, 0x04, 0x4E, 0xFF]),
-            (InquiryCommandEnum::ExposureCompensationMode, vec![0x81, 0x09, 0x04, 0x3E, 0xFF]),
-            (InquiryCommandEnum::Iris, vec![0x81, 0x09, 0x04, 0x4B, 0xFF]),
-            (InquiryCommandEnum::Shutter, vec![0x81, 0x09, 0x04, 0x4A, 0xFF]),
-            (InquiryCommandEnum::Bright, vec![0x81, 0x09, 0x04, 0x4D, 0xFF]),
-            (InquiryCommandEnum::Gain, vec![0x81, 0x09, 0x04, 0x4C, 0xFF]),
-            (InquiryCommandEnum::GainLimit, vec![0x81, 0x09, 0x04, 0x2C, 0xFF]),
-            (InquiryCommandEnum::AntiFlicker, vec![0x81, 0x09, 0x04, 0x23, 0xFF]),
-            (InquiryCommandEnum::Saturation, vec![0x81, 0x09, 0x04, 0x49, 0xFF]),
-            (InquiryCommandEnum::Hue, vec![0x81, 0x09, 0x04, 0x4F, 0xFF]),
-            (InquiryCommandEnum::RedGain, vec![0x81, 0x09, 0x0A, 0x12, 0xFF]),
-            (InquiryCommandEnum::BlueGain, vec![0x81, 0x09, 0x0A, 0x13, 0xFF]),
-            (InquiryCommandEnum::Backlight, vec![0x81, 0x09, 0x04, 0x33, 0xFF]),
-            (InquiryCommandEnum::ImageFlip, vec![0x81, 0x09, 0x04, 0x61, 0xFF]),
-            (InquiryCommandEnum::SharpnessMode, vec![0x81, 0x09, 0x04, 0x05, 0xFF]),
-            (InquiryCommandEnum::ColorTemperature, vec![0x81, 0x09, 0x04, 0x20, 0xFF]),
-            (InquiryCommandEnum::NoiseReduction2D, vec![0x81, 0x09, 0x04, 0x53, 0xFF]),
-            (InquiryCommandEnum::NoiseReduction3D, vec![0x81, 0x09, 0x04, 0x54, 0xFF]),
-            (InquiryCommandEnum::BlackWhite, vec![0x81, 0x09, 0x04, 0x01, 0xFF]),
-            (InquiryCommandEnum::FocusZone, vec![0x81, 0x09, 0x04, 0x3C, 0xFF]),
-            (InquiryCommandEnum::AutoFocusSensitivity, vec![0x81, 0x09, 0x04, 0x58, 0xFF]),
-            (InquiryCommandEnum::FocusNearLimit, vec![0x81, 0x09, 0x04, 0x28, 0xFF]),
-            (InquiryCommandEnum::DynamicRange, vec![0x81, 0x09, 0x04, 0x25, 0xFF]),
-            (InquiryCommandEnum::Version, vec![0x81, 0x09, 0x00, 0x02, 0xFF]),
-        ];
-
-        for (variant, expected_bytes) in test_cases {
-            let cmd = create_inquiry_command(variant);
-            let bytes = cmd.to_bytes().expect("Failed to get bytes");
-            assert_eq!(bytes, expected_bytes, "Mismatch for {:?}", variant);
-        }
-    }
-
-    #[test]
-    fn test_response_types_match() {
-        // Test that each inquiry returns the correct response type
-        let test_cases = vec![
-            (InquiryCommandEnum::Power, ResponseType::Power),
-            (InquiryCommandEnum::PanTiltPosition, ResponseType::PanTiltPosition),
-            (InquiryCommandEnum::ZoomPosition, ResponseType::ZoomPosition),
-            (InquiryCommandEnum::FocusPosition, ResponseType::FocusPosition),
-            (InquiryCommandEnum::ExposureMode, ResponseType::ExposureMode),
-            (InquiryCommandEnum::WhiteBalanceMode, ResponseType::WhiteBalanceMode),
-            (InquiryCommandEnum::Luminance, ResponseType::Luminance),
-            (InquiryCommandEnum::Contrast, ResponseType::Contrast),
-            (InquiryCommandEnum::Sharpness, ResponseType::Sharpness),
-            (InquiryCommandEnum::ExposureCompensation, ResponseType::ExposureCompensation),
-            (InquiryCommandEnum::ExposureCompensationMode, ResponseType::ExposureCompensationMode),
-            (InquiryCommandEnum::Iris, ResponseType::Iris),
-            (InquiryCommandEnum::Shutter, ResponseType::Shutter),
-            (InquiryCommandEnum::Bright, ResponseType::Bright),
-            (InquiryCommandEnum::Gain, ResponseType::Gain),
-            (InquiryCommandEnum::GainLimit, ResponseType::GainLimit),
-            (InquiryCommandEnum::AntiFlicker, ResponseType::AntiFlicker),
-            (InquiryCommandEnum::Saturation, ResponseType::Saturation),
-            (InquiryCommandEnum::Hue, ResponseType::Hue),
-            (InquiryCommandEnum::RedGain, ResponseType::RedGain),
-            (InquiryCommandEnum::BlueGain, ResponseType::BlueGain),
-            (InquiryCommandEnum::Backlight, ResponseType::Backlight),
-            (InquiryCommandEnum::ImageFlip, ResponseType::ImageFlip),
-            (InquiryCommandEnum::SharpnessMode, ResponseType::SharpnessMode),
-            (InquiryCommandEnum::ColorTemperature, ResponseType::ColorTemperature),
-            (InquiryCommandEnum::NoiseReduction2D, ResponseType::NoiseReduction2D),
-            (InquiryCommandEnum::NoiseReduction3D, ResponseType::NoiseReduction3D),
-            (InquiryCommandEnum::BlackWhite, ResponseType::BlackWhite),
-            (InquiryCommandEnum::FocusZone, ResponseType::FocusZone),
-            (InquiryCommandEnum::AutoFocusSensitivity, ResponseType::AutoFocusSensitivity),
-            (InquiryCommandEnum::FocusNearLimit, ResponseType::FocusNearLimit),
-            (InquiryCommandEnum::DynamicRange, ResponseType::DynamicRange),
-            (InquiryCommandEnum::Version, ResponseType::Version),
-        ];
-
-        for (variant, expected_response) in test_cases {
-            let cmd = create_inquiry_command(variant);
-            let response_type = cmd.response_type();
-            assert_eq!(response_type, Some(expected_response), "Mismatch for {:?}", variant);
-        }
-    }
-}

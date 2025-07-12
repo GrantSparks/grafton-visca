@@ -9,7 +9,7 @@ use crate::{
             BlueGainCommand, BlueTuningCommand, ColorTemperatureCommand, OnePushTriggerCommand,
             RedGainCommand, RedTuningCommand,
         },
-        inquiry::InquiryCommand,
+        inquiry::ColorTemperatureInquiry,
         Response,
     },
     transport::core::{BlockingTransport, Transport},
@@ -99,7 +99,7 @@ where
                     }
                 }
                 None => {
-                    let cmd = InquiryCommand::ColorTemperature;
+                    let cmd = ColorTemperatureInquiry;
                     match self.send_command(&cmd).await? {
                         Response::Ack => Ok(()),
                         Response::Error(e) => Err(e.into()),

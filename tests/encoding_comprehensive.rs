@@ -374,7 +374,7 @@ fn test_inquiry_commands_encoding() {
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
 
     // Pan/Tilt Position Inquiry
-    let pt_inquiry = InquiryCommand::PanTiltPosition;
+    let pt_inquiry = PanTiltPositionInquiry;
     assert_eq!(
         pt_inquiry.to_bytes().unwrap(),
         inquiry::PAN_TILT_POSITION,
@@ -385,7 +385,7 @@ fn test_inquiry_commands_encoding() {
         .unwrap();
 
     // Zoom Position Inquiry
-    let zoom_inquiry = InquiryCommand::ZoomPosition;
+    let zoom_inquiry = ZoomPositionInquiry;
     assert_eq!(
         zoom_inquiry.to_bytes().unwrap(),
         inquiry::ZOOM_POSITION,
@@ -396,7 +396,7 @@ fn test_inquiry_commands_encoding() {
         .unwrap();
 
     // Focus Position Inquiry
-    let focus_inquiry = InquiryCommand::FocusPosition;
+    let focus_inquiry = FocusPositionInquiry;
     assert_eq!(
         focus_inquiry.to_bytes().unwrap(),
         inquiry::FOCUS_POSITION,
@@ -407,7 +407,7 @@ fn test_inquiry_commands_encoding() {
         .unwrap();
 
     // Exposure Mode Inquiry
-    let exposure_inquiry = InquiryCommand::ExposureMode;
+    let exposure_inquiry = ExposureModeInquiry;
     assert_eq!(
         exposure_inquiry.to_bytes().unwrap(),
         inquiry::EXPOSURE_MODE,

@@ -5,7 +5,7 @@ use crate::{
     camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{PanTilt, ProfileMetadata},
     command::{
-        inquiry::InquiryCommand, AntiFlickerMode, AutoFocusSensitivity, ExposureMode, FocusZone,
+        inquiry::*, AntiFlickerMode, AutoFocusSensitivity, ExposureMode, FocusZone,
         InquiryResponse, Response, SharpnessMode, WhiteBalanceMode,
     },
     transport::core::{BlockingTransport, Transport},
@@ -148,7 +148,7 @@ where
 {
     fn get_power_state(&self) -> impl Future<Output = Result<bool, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Power;
+            let cmd = PowerInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
@@ -162,7 +162,7 @@ where
         &self,
     ) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::PanTiltPosition;
+            let cmd = PanTiltPositionInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
@@ -176,7 +176,7 @@ where
 
     fn get_zoom_position(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::ZoomPosition;
+            let cmd = ZoomPositionInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => {
@@ -190,7 +190,7 @@ where
 
     fn get_focus_position(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::FocusPosition;
+            let cmd = FocusPositionInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => {
@@ -204,7 +204,7 @@ where
 
     fn get_focus_near_limit(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::FocusNearLimit;
+            let cmd = FocusNearLimitInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => {
@@ -218,7 +218,7 @@ where
 
     fn get_focus_zone(&self) -> impl Future<Output = Result<FocusZone, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::FocusZone;
+            let cmd = FocusZoneInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
@@ -232,7 +232,7 @@ where
         &self,
     ) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::AutoFocusSensitivity;
+            let cmd = AutoFocusSensitivityInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity {
@@ -246,7 +246,7 @@ where
 
     fn get_exposure_mode(&self) -> impl Future<Output = Result<ExposureMode, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::ExposureMode;
+            let cmd = ExposureModeInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
@@ -258,7 +258,7 @@ where
 
     fn get_exposure_compensation(&self) -> impl Future<Output = Result<i8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::ExposureCompensation;
+            let cmd = ExposureCompensationInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => {
@@ -272,7 +272,7 @@ where
 
     fn get_exposure_compensation_enabled(&self) -> impl Future<Output = Result<bool, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::ExposureCompensationMode;
+            let cmd = ExposureCompensationModeInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => {
@@ -286,7 +286,7 @@ where
 
     fn get_iris(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Iris;
+            let cmd = IrisInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
@@ -298,7 +298,7 @@ where
 
     fn get_shutter(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Shutter;
+            let cmd = ShutterInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position),
@@ -310,7 +310,7 @@ where
 
     fn get_brightness(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Bright;
+            let cmd = BrightInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Bright { position }) => Ok(position),
@@ -322,7 +322,7 @@ where
 
     fn get_gain(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Gain;
+            let cmd = GainInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Gain { gain }) => Ok(gain),
@@ -334,7 +334,7 @@ where
 
     fn get_gain_limit(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::GainLimit;
+            let cmd = GainLimitInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
@@ -346,7 +346,7 @@ where
 
     fn get_anti_flicker(&self) -> impl Future<Output = Result<AntiFlickerMode, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::AntiFlicker;
+            let cmd = AntiFlickerInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
@@ -358,7 +358,7 @@ where
 
     fn get_backlight(&self) -> impl Future<Output = Result<bool, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Backlight;
+            let cmd = BacklightInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Backlight { status }) => Ok(status),
@@ -370,7 +370,7 @@ where
 
     fn get_dynamic_range(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::DynamicRange;
+            let cmd = DynamicRangeInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::DynamicRange { level }) => Ok(level),
@@ -382,7 +382,7 @@ where
 
     fn get_white_balance_mode(&self) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::WhiteBalanceMode;
+            let cmd = WhiteBalanceModeInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => Ok(mode),
@@ -394,7 +394,7 @@ where
 
     fn get_color_temperature(&self) -> impl Future<Output = Result<u16, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::ColorTemperature;
+            let cmd = ColorTemperatureInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
@@ -408,7 +408,7 @@ where
 
     fn get_red_gain(&self) -> impl Future<Output = Result<i8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::RedGain;
+            let cmd = RedGainInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::RedGain { gain }) => Ok(gain),
@@ -420,7 +420,7 @@ where
 
     fn get_blue_gain(&self) -> impl Future<Output = Result<i8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::BlueGain;
+            let cmd = BlueGainInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::BlueGain { gain }) => Ok(gain),
@@ -432,7 +432,7 @@ where
 
     fn get_luminance(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Luminance;
+            let cmd = LuminanceInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Luminance(level)) => Ok(level),
@@ -444,7 +444,7 @@ where
 
     fn get_contrast(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Contrast;
+            let cmd = ContrastInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Contrast(level)) => Ok(level),
@@ -456,7 +456,7 @@ where
 
     fn get_sharpness(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Sharpness;
+            let cmd = SharpnessInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
@@ -468,7 +468,7 @@ where
 
     fn get_sharpness_mode(&self) -> impl Future<Output = Result<SharpnessMode, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::SharpnessMode;
+            let cmd = SharpnessModeInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
@@ -480,7 +480,7 @@ where
 
     fn get_saturation(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Saturation;
+            let cmd = SaturationInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
@@ -492,7 +492,7 @@ where
 
     fn get_hue(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Hue;
+            let cmd = HueInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
@@ -504,7 +504,7 @@ where
 
     fn get_noise_reduction_2d(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::NoiseReduction2D;
+            let cmd = NoiseReduction2DInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
@@ -516,7 +516,7 @@ where
 
     fn get_noise_reduction_3d(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::NoiseReduction3D;
+            let cmd = NoiseReduction3DInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
@@ -528,7 +528,7 @@ where
 
     fn get_image_flip(&self) -> impl Future<Output = Result<(bool, bool), Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::ImageFlip;
+            let cmd = ImageFlipInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::ImageFlip {
@@ -543,7 +543,7 @@ where
 
     fn get_black_white(&self) -> impl Future<Output = Result<bool, Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::BlackWhite;
+            let cmd = BlackWhiteInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => Ok(on),
@@ -555,7 +555,7 @@ where
 
     fn get_version(&self) -> impl Future<Output = Result<(u16, u16, u32, u8), Error>> + '_ {
         async move {
-            let cmd = InquiryCommand::Version;
+            let cmd = VersionInquiry;
             let response = self.send_command(&cmd).await?;
             match response {
                 Response::InquiryResponse(InquiryResponse::Version {

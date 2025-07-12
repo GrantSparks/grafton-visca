@@ -2,19 +2,19 @@
 #[cfg(test)]
 mod tests {
     use grafton_visca::command::response::{parse_response, Response, ResponseType};
-    use grafton_visca::command::{Command, InquiryCommand};
+    use grafton_visca::command::{Command, PowerInquiry};
     use grafton_visca::InquiryResponse;
 
     #[test]
     fn test_power_inquiry_command_bytes() {
-        let cmd = InquiryCommand::Power;
+        let cmd = PowerInquiry;
         let bytes = cmd.to_bytes().unwrap();
         assert_eq!(bytes, vec![0x81, 0x09, 0x04, 0x00, 0xFF]);
     }
 
     #[test]
     fn test_power_inquiry_response_type() {
-        let cmd = InquiryCommand::Power;
+        let cmd = PowerInquiry;
         assert_eq!(cmd.response_type(), Some(ResponseType::Power));
     }
 

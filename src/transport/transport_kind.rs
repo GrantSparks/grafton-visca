@@ -15,7 +15,7 @@ use crate::transport::blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 /// Enum representing different transport implementations.
 ///
 /// This type allows runtime transport selection with zero-cost abstraction,
-/// avoiding the dynamic dispatch overhead of `AnyTransport`.
+/// avoiding the overhead of dynamic dispatch.
 ///
 /// # Example
 ///

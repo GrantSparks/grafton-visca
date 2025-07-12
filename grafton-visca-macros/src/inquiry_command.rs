@@ -23,9 +23,6 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             let response_type = attrs
                 .response_type
                 .expect("visca attribute must have a 'response' value");
-            let inquiry_variant = attrs
-                .inquiry_variant
-                .expect("visca attribute must have an 'inquiry_variant' value");
 
             // Generate the bytes based on subcategory
             let bytes_expr = if let Some(sub) = attrs.subcategory {
@@ -79,11 +76,6 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                     }
                 }
 
-                impl From<#struct_name> for #crate_path::command::InquiryCommand {
-                    fn from(_: #struct_name) -> Self {
-                        #crate_path::command::InquiryCommand::#inquiry_variant
-                    }
-                }
 
                 #parse_response_impl
             };
@@ -101,7 +93,6 @@ struct ViscaAttributes {
     subcategory: Option<u8>,
     response_type: Option<Ident>,
     parser: Option<ParserInfo>,
-    inquiry_variant: Option<Ident>,
 }
 
 struct ParserInfo {
@@ -151,14 +142,6 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
                         .trim_matches('"');
                     // For struct attributes, response should be a simple string
                     attrs.response_type = Some(format_ident!("{}", value));
-                } else if part.contains("inquiry_variant") {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("inquiry_variant must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    attrs.inquiry_variant = Some(format_ident!("{}", value));
                 } else if part.contains("sub_command") {
                     let value = part
                         .split('=')
