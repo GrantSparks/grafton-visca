@@ -22,7 +22,9 @@ async = []
 tokio = ["async", "dep:tokio"]
 
 [dependencies]
+async-trait = "0.1"
 bytes = "1.5"
+futures = "0.3"
 grafton-visca-macros = { version = "0.4.0", path = "grafton-visca-macros" }
 log = "0.4.22"
 env_logger = "0.11.5"
@@ -33,7 +35,6 @@ tokio = { version = "1.38", features = ["net", "sync", "time", "rt", "rt-multi-t
 
 [dev-dependencies]
 tokio = { version = "1.38", features = ["full", "test-util"] }
-futures = "0.3"
 
 [[example]]
 name = "async_concurrent"
@@ -79,6 +80,9 @@ name = "inquiry_demo"
 
 [[example]]
 name = "unified_client_demo"
+
+[[example]]
+name = "unified_camera_basic"
 
 [[example]]
 name = "new_tokio_transport_demo"

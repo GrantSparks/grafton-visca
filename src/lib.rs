@@ -39,41 +39,59 @@
 //!
 //! ## Quick Start
 //!
-//! ### Blocking API
+//! ### UnifiedCamera - No Generics Required!
 //! ```ignore
-//! use grafton_visca::{
-//!     Camera,
-//!     profiles::PTZOpticsG2,
-//!     units::Degrees,
-//!     transport::blocking::create,
-//! };
+//! use grafton_visca::{UnifiedCamera, ProfileId, Error};
+//! 
+//! // Blocking example
+//! use grafton_visca::transport::blocking::Tcp;
 //!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Create blocking transport - no async runtime needed!
-//!     let transport = create::udp("192.168.1.100:52381")?;
-//!     let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+//! fn main() -> Result<(), Error> {
+//!     // Create camera with default profile (GenericVisca)
+//!     let transport = Tcp::connect("192.168.1.100:52381")?;
+//!     let camera = UnifiedCamera::new_blocking(transport);
 //!
-//!     // Power on and move to home position
-//!     camera.power_on()?;
-//!     camera.home()?;
+//!     // Or specify a profile explicitly
+//!     let transport = Tcp::connect("192.168.1.100:52381")?;
+//!     let camera = UnifiedCamera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
 //!
-//!     // Move to specific position (automatic degree conversion)
-//!     camera.set_position(Degrees(45.0), Degrees(-15.0))?;
+//!     // Check camera info
+//!     println!("Camera: {}", camera.model_name());
+//!     println!("Supports zoom: {}", camera.supports_capability("zoom"));
 //!
-//!     // Control zoom
-//!     camera.zoom_in()?;
-//!     camera.zoom_stop()?;
+//!     // Send commands (extension traits coming soon)
+//!     // camera.power_on_blocking()?;
+//!     // camera.zoom_in_blocking()?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ### Async Example
+//! ```ignore
+//! use grafton_visca::{UnifiedCamera, ProfileId, Error};
+//! use grafton_visca::transport::tokio::Tcp;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Error> {
+//!     // Create camera with specific profile
+//!     let transport = Tcp::connect("192.168.1.100:52381").await?;
+//!     let camera = UnifiedCamera::with_profile(ProfileId::PTZOpticsG2, transport);
+//!
+//!     // Same API, just with .await
+//!     // camera.power_on().await?;
+//!     // camera.zoom_in().await?;
+//!     
 //!     Ok(())
 //! }
 //! ```
 //!
 //! ## Camera Profiles
 //!
-//! The library includes pre-defined profiles for common cameras:
-//! - `PTZOpticsG2` - PTZOptics G2 series cameras
-//! - `PTZOptics30X` - PTZOptics 30X optical zoom cameras
-//! - `SonyEVID70` - Sony EVI-D70 cameras
-//! - `GenericVisca` - Generic VISCA-compatible cameras
+//! The library includes pre-defined profiles accessible via `ProfileId`:
+//! - `ProfileId::PTZOpticsG2` - PTZOptics G2 series cameras  
+//! - `ProfileId::SonyFR7` - Sony FR7 cameras with ND filter support
+//! - `ProfileId::GenericVisca` - Generic VISCA-compatible cameras (default)
 //!
 //! ### Custom Camera Profiles
 //!
@@ -263,8 +281,7 @@ pub mod timeout; // Public for use in macros
 pub mod blocking;
 
 // Core re-exports
-pub use camera::async_facade::CameraAsync as Camera;
-pub use camera::blocking_facade::CameraBlocking;
+pub use camera::{ProfileId, UnifiedCamera};
 pub use command::{Command, InquiryResponse, Response};
 
 // Re-export unit types for convenience
