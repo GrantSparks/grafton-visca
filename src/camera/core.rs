@@ -6,7 +6,7 @@
 use crate::{
     capabilities::ProfileMetadata,
     command::Response,
-    transport::{gat_transport::Transport, visca_protocol::ViscaProtocol},
+    transport::{core::Transport, visca_protocol::ViscaProtocol},
     Command, Error,
 };
 use core::future::Future;

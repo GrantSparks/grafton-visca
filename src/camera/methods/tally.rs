@@ -5,7 +5,7 @@ use crate::{
     camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::ProfileMetadata,
     command::{tally::TallyCommand, Response},
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
@@ -261,7 +261,7 @@ where
 pub trait TallyBlockingExt<P, T>
 where
     P: ProfileMetadata,
-    T: Transport,
+    T: BlockingTransport,
 {
     /// Turn red tally light on.
     fn tally_red_on(&self) -> Result<(), Error>;
@@ -297,7 +297,7 @@ where
 impl<P, T> TallyBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn tally_red_on(&self) -> Result<(), Error> {
         block_on(self.core().tally_red_on())

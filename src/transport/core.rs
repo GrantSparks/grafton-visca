@@ -43,6 +43,13 @@ pub mod blocking {
     }
 }
 
+/// Marker trait for blocking transports.
+///
+/// This trait is implemented by transports that return immediately-ready futures
+/// (using `std::future::Ready`). It's used to enforce at compile time that
+/// `CameraBlocking` can only be used with blocking transports.
+pub trait BlockingTransport: Transport {}
+
 /// Extension trait for timeout operations.
 pub trait TransportExt: Transport {
     /// Receive with timeout (using runtime-specific timeout mechanism).

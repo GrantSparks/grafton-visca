@@ -138,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Helper function demonstrating sequential command patterns
 #[cfg(not(feature = "async"))]
-fn perform_scan_sequence<T: grafton_visca::transport::gat_transport::Transport>(
+fn perform_scan_sequence<T: grafton_visca::transport::core::Transport>(
     camera: &mut CameraBlocking<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Return to home
@@ -259,9 +259,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Async helper function for scan sequence
 #[cfg(feature = "tokio")]
-async fn perform_async_scan_sequence<T: grafton_visca::transport::gat_transport::Transport>(
+async fn perform_async_scan_sequence<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> 
+where
+    T: grafton_visca::transport::core::Transport,
+    Camera<PTZOpticsG2, T>: grafton_visca::camera::methods::PanTiltAsyncExt<PTZOpticsG2>,
+{
     // Return to home
     camera.pan_tilt_home().await?;
     tokio::time::sleep(Duration::from_secs(1)).await;

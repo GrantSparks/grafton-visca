@@ -6,7 +6,7 @@
 
 use bytes::Bytes;
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::gat_transport::Transport;
+use grafton_visca::transport::core::Transport;
 use grafton_visca::{
     camera::{
         methods::{PanTiltAsyncExt, PresetsAsyncExt, ZoomAsyncExt},

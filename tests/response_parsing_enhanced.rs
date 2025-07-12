@@ -10,12 +10,13 @@ use crate::common::{
     ValidationMode,
 };
 use grafton_visca::{
-    camera::{methods::*, Camera},
+    camera::methods::*,
     command::{
         gain::AntiFlickerMode, image_adjustment::SharpnessMode, AutoFocusSensitivity, ExposureMode,
         FocusZone, InquiryResponse, Response, ResponseType, WhiteBalanceMode,
     },
     profiles::PTZOpticsG2,
+    CameraBlocking,
     Error,
 };
 use std::time::Duration;
@@ -31,7 +32,7 @@ fn test_power_inquiry_with_mock_transport() {
         .will_ack(1)
         .will_return_data(&[0x02]); // Power on
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute inquiry
     let result = camera.get_power_state().unwrap();
@@ -57,7 +58,7 @@ fn test_zoom_position_inquiry_with_validation() {
         (0x7000, "maximum zoom"),
     ];
 
-    let mut builder = MockTransportBuilder::new().connected(true);
+    let mut builder = crate::common::MockTransportBuilder::new().connected(true);
 
     for (position, _description) in &zoom_positions {
         builder = builder.expect(
@@ -77,7 +78,7 @@ fn test_zoom_position_inquiry_with_validation() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute inquiries
     for (expected_position, _) in &zoom_positions {
@@ -127,7 +128,7 @@ fn test_pan_tilt_position_inquiry_comprehensive() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Test center position
     let (pan, tilt) = camera.get_position().unwrap();
@@ -145,7 +146,7 @@ fn test_pan_tilt_position_inquiry_comprehensive() {
 #[test]
 fn test_error_response_handling() {
     // Use MockTransportBuilder for error scenarios
-    let mock = MockTransportBuilder::new()
+    let mock = crate::common::MockTransportBuilder::new()
         .connected(true)
         .expect(
             &patterns::inquiry::POWER,
@@ -161,7 +162,7 @@ fn test_error_response_handling() {
         )
         .build();
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Test error handling
     assert!(camera.get_power_state().is_err());
@@ -182,7 +183,7 @@ fn test_exposure_mode_inquiry_all_modes() {
         (0x0D, ExposureMode::Bright, "bright mode"),
     ];
 
-    let mut builder = MockTransportBuilder::new().connected(true);
+    let mut builder = crate::common::MockTransportBuilder::new().connected(true);
 
     for (mode_byte, _expected_mode, _description) in &exposure_modes {
         builder = builder.expect(
@@ -195,7 +196,7 @@ fn test_exposure_mode_inquiry_all_modes() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute inquiries and verify results
     for (_, expected_mode, _) in &exposure_modes {
@@ -219,7 +220,7 @@ fn test_white_balance_inquiry_with_protocol_validation() {
         (0x05, WhiteBalanceMode::Manual),
     ];
 
-    let mut builder = MockTransportBuilder::new().connected(true);
+    let mut builder = crate::common::MockTransportBuilder::new().connected(true);
 
     for (mode_byte, _) in &wb_modes {
         builder = builder.expect(
@@ -232,7 +233,7 @@ fn test_white_balance_inquiry_with_protocol_validation() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     for (_, expected_mode) in &wb_modes {
         let result = camera.get_white_balance_mode().unwrap();
@@ -297,7 +298,7 @@ fn test_complex_inquiry_sequence_with_timing() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute inquiry sequence
     let power_on = camera.get_power_state().unwrap();
@@ -331,7 +332,7 @@ fn test_anti_flicker_mode_parsing() {
             .will_return_data(&[*mode_byte]);
     }
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     for (_, expected_mode) in &modes {
         let result = camera.get_anti_flicker().unwrap();
@@ -359,7 +360,7 @@ fn test_focus_zone_inquiry_comprehensive() {
             .will_return_data(&[*zone_byte]);
     }
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     for (_, expected_zone) in &zones {
         let result = camera.get_focus_zone().unwrap();
@@ -387,7 +388,7 @@ fn test_auto_focus_sensitivity_inquiry() {
             .will_return_data(&[*sens_byte]);
     }
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     for (_, expected_sens) in &sensitivities {
         let result = camera.get_auto_focus_sensitivity().unwrap();
@@ -410,7 +411,7 @@ fn test_malformed_response_handling() {
         .described_as("zoom inquiry - truncated response")
         .will_respond(MockResponse::Immediate(vec![0x90, 0x50, 0x01, 0xFF])); // Incomplete data
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // These should result in errors
     assert!(camera.get_power_state().is_err());
@@ -428,7 +429,7 @@ fn test_timeout_handling() {
         .described_as("power inquiry - timeout")
         .will_respond(MockResponse::Timeout);
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // This should result in a timeout error
     let result = camera.get_power_state();

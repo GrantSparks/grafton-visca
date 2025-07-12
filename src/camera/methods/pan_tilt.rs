@@ -11,7 +11,7 @@ use crate::{
         pan_tilt::{PanTiltCommand, PanTiltDirection},
         Command, Response,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     types::{PanSpeed, TiltSpeed},
     Error,
 };
@@ -404,7 +404,7 @@ pub trait PanTiltBlockingExt<P: ProfileMetadata + PanTilt>: Sized {
 impl<P, T> PanTiltBlockingExt<P> for CameraBlocking<P, T>
 where
     P: ProfileMetadata + PanTilt + Default,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn pan_tilt_stop(&mut self) -> Result<(), Error> {
         block_on(self.core().pan_tilt_stop())

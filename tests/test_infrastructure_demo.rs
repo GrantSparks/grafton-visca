@@ -51,8 +51,8 @@ fn test_with_helpers() {
 #[test]
 fn test_with_mock_transport() {
     use common::MockTransport;
-    use grafton_visca::camera::methods::PowerMethodsExt;
-    use grafton_visca::camera::Camera;
+    use grafton_visca::camera::methods::PowerBlockingExt;
+    use grafton_visca::CameraBlocking;
     use grafton_visca::profiles::PTZOpticsG2;
 
     // Create a mock that returns specific responses
@@ -64,7 +64,7 @@ fn test_with_mock_transport() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Send command and verify response
     assert_ok(camera.power_on(), "Power on command should succeed");
@@ -103,7 +103,7 @@ fn test_preset_commands() {
     let _preset_cmd = TestPresetBuilder::new().with_number(5).build_recall();
 
     // Parameter types are no longer part of public API
-    // Tests should use Camera<P> API instead
+    // Tests should use CameraBlocking<P> API instead
 }
 
 #[test]
@@ -126,8 +126,8 @@ mod integration_style_tests {
     #[test]
     fn test_command_sequence() {
         use common::MockTransport;
-        use grafton_visca::camera::methods::{PanTiltMethodsExt, ZoomMethodsExt};
-        use grafton_visca::camera::Camera;
+        use grafton_visca::camera::methods::{PanTiltBlockingExt, ZoomBlockingExt};
+        use grafton_visca::CameraBlocking;
         use grafton_visca::profiles::PTZOpticsG2;
 
         // Create mock with expected responses
@@ -145,7 +145,7 @@ mod integration_style_tests {
             .will_ack(2)
             .then_complete(2);
 
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+        let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
         // Test multiple commands
         assert_ok(camera.pan_tilt_home(), "Home command should succeed");

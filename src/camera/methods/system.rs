@@ -8,7 +8,7 @@ use crate::{
         system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket},
         Response,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
@@ -114,7 +114,7 @@ where
 pub trait SystemBlockingExt<P, T>
 where
     P: ProfileMetadata,
-    T: Transport,
+    T: BlockingTransport,
 {
     /// Trigger automatic address assignment (broadcast command for serial bus).
     /// Note: This doesn't set a specific address but triggers the auto-addressing process.
@@ -130,7 +130,7 @@ where
 impl<P, T> SystemBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn trigger_address_assignment(&self) -> Result<(), Error> {
         block_on(self.core().trigger_address_assignment())

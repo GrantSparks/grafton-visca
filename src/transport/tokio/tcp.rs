@@ -1,6 +1,6 @@
 //! Tokio TCP transport implementation using GAT.
 
-use crate::transport::gat_transport::Transport;
+use crate::transport::core::Transport;
 use crate::Error;
 use std::future::Future;
 use std::pin::Pin;

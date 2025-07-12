@@ -8,7 +8,7 @@ use crate::{
         inquiry::InquiryCommand, AntiFlickerMode, AutoFocusSensitivity, ExposureMode, FocusZone,
         InquiryResponse, Response, SharpnessMode, WhiteBalanceMode,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     units::{Degrees, ViscaUnits},
     Error,
 };
@@ -578,59 +578,94 @@ where
     T: Transport,
 {
     // Power and Basic State
+    /// Get the current power state of the camera.
+    /// Returns `true` if powered on, `false` if in standby.
     fn get_power_state(&self) -> impl Future<Output = Result<bool, Error>> + Send;
 
     // Position Queries
+    /// Get the current pan and tilt position.
+    /// Returns a tuple of (pan, tilt) positions in VISCA units.
     fn get_position(
         &self,
     ) -> impl Future<Output = Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>> + Send;
 
     // Optics Queries
+    /// Get the current zoom position.
     fn get_zoom_position(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    /// Get the current focus position.
     fn get_focus_position(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    /// Get the focus near limit position.
     fn get_focus_near_limit(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    /// Get the current focus zone.
     fn get_focus_zone(&self) -> impl Future<Output = Result<FocusZone, Error>> + Send;
+    /// Get the auto-focus sensitivity setting.
     fn get_auto_focus_sensitivity(
         &self,
     ) -> impl Future<Output = Result<AutoFocusSensitivity, Error>> + Send;
 
     // Exposure Queries
+    /// Get the current exposure mode.
     fn get_exposure_mode(&self) -> impl Future<Output = Result<ExposureMode, Error>> + Send;
+    /// Get the exposure compensation value.
     fn get_exposure_compensation(&self) -> impl Future<Output = Result<i8, Error>> + Send;
+    /// Check if exposure compensation is enabled.
     fn get_exposure_compensation_enabled(&self)
         -> impl Future<Output = Result<bool, Error>> + Send;
+    /// Get the current iris value.
     fn get_iris(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    /// Get the current shutter speed.
     fn get_shutter(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    /// Get the brightness setting.
     fn get_brightness(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    /// Get the current gain value.
     fn get_gain(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    /// Get the gain limit setting.
     fn get_gain_limit(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    /// Get the anti-flicker mode.
     fn get_anti_flicker(&self) -> impl Future<Output = Result<AntiFlickerMode, Error>> + Send;
+    /// Check if backlight compensation is enabled.
     fn get_backlight(&self) -> impl Future<Output = Result<bool, Error>> + Send;
+    /// Get the dynamic range setting.
     fn get_dynamic_range(&self) -> impl Future<Output = Result<u8, Error>> + Send;
 
     // Color Queries
+    /// Get the current white balance mode.
     fn get_white_balance_mode(
         &self,
     ) -> impl Future<Output = Result<WhiteBalanceMode, Error>> + Send;
+    /// Get the color temperature value.
     fn get_color_temperature(&self) -> impl Future<Output = Result<u16, Error>> + Send;
+    /// Get the red gain value.
     fn get_red_gain(&self) -> impl Future<Output = Result<i8, Error>> + Send;
+    /// Get the blue gain value.
     fn get_blue_gain(&self) -> impl Future<Output = Result<i8, Error>> + Send;
 
     // Image Quality Queries
+    /// Get the luminance level.
     fn get_luminance(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    /// Get the contrast level.
     fn get_contrast(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    /// Get the sharpness level.
     fn get_sharpness(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    /// Get the sharpness mode.
     fn get_sharpness_mode(&self) -> impl Future<Output = Result<SharpnessMode, Error>> + Send;
+    /// Get the saturation level.
     fn get_saturation(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    /// Get the hue setting.
     fn get_hue(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    /// Get the 2D noise reduction level.
     fn get_noise_reduction_2d(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    /// Get the 3D noise reduction level.
     fn get_noise_reduction_3d(&self) -> impl Future<Output = Result<u8, Error>> + Send;
 
     // Special Effects Queries
+    /// Get the image flip status (horizontal, vertical).
     fn get_image_flip(&self) -> impl Future<Output = Result<(bool, bool), Error>> + Send;
+    /// Check if black and white mode is enabled.
     fn get_black_white(&self) -> impl Future<Output = Result<bool, Error>> + Send;
 
     // Camera Information
+    /// Get the camera version information (vendor ID, model ID, ROM version, socket number).
     fn get_version(&self) -> impl Future<Output = Result<(u16, u16, u32, u8), Error>> + Send;
 }
 
@@ -786,62 +821,97 @@ where
 pub trait InquiryBlockingExt<P, T>
 where
     P: ProfileMetadata,
-    T: Transport,
+    T: BlockingTransport,
 {
     // Power and Basic State
+    /// Get the current power state of the camera.
+    /// Returns `true` if powered on, `false` if in standby.
     fn get_power_state(&self) -> Result<bool, Error>;
 
     // Position Queries
+    /// Get the current pan and tilt position.
+    /// Returns a tuple of (pan, tilt) positions in VISCA units.
     fn get_position(&self) -> Result<(ViscaUnits<i16>, ViscaUnits<i16>), Error>;
 
     // Optics Queries
+    /// Get the current zoom position.
     fn get_zoom_position(&self) -> Result<u16, Error>;
+    /// Get the current focus position.
     fn get_focus_position(&self) -> Result<u16, Error>;
+    /// Get the focus near limit position.
     fn get_focus_near_limit(&self) -> Result<u16, Error>;
+    /// Get the current focus zone.
     fn get_focus_zone(&self) -> Result<FocusZone, Error>;
+    /// Get the auto-focus sensitivity setting.
     fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error>;
 
     // Exposure Queries
+    /// Get the current exposure mode.
     fn get_exposure_mode(&self) -> Result<ExposureMode, Error>;
+    /// Get the exposure compensation value.
     fn get_exposure_compensation(&self) -> Result<i8, Error>;
+    /// Check if exposure compensation is enabled.
     fn get_exposure_compensation_enabled(&self) -> Result<bool, Error>;
+    /// Get the current iris value.
     fn get_iris(&self) -> Result<u8, Error>;
+    /// Get the current shutter speed.
     fn get_shutter(&self) -> Result<u16, Error>;
+    /// Get the brightness setting.
     fn get_brightness(&self) -> Result<u16, Error>;
+    /// Get the current gain value.
     fn get_gain(&self) -> Result<u8, Error>;
+    /// Get the gain limit setting.
     fn get_gain_limit(&self) -> Result<u8, Error>;
+    /// Get the anti-flicker mode.
     fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error>;
+    /// Check if backlight compensation is enabled.
     fn get_backlight(&self) -> Result<bool, Error>;
+    /// Get the dynamic range setting.
     fn get_dynamic_range(&self) -> Result<u8, Error>;
 
     // Color Queries
+    /// Get the current white balance mode.
     fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error>;
+    /// Get the color temperature value.
     fn get_color_temperature(&self) -> Result<u16, Error>;
+    /// Get the red gain value.
     fn get_red_gain(&self) -> Result<i8, Error>;
+    /// Get the blue gain value.
     fn get_blue_gain(&self) -> Result<i8, Error>;
 
     // Image Quality Queries
+    /// Get the luminance level.
     fn get_luminance(&self) -> Result<u8, Error>;
+    /// Get the contrast level.
     fn get_contrast(&self) -> Result<u8, Error>;
+    /// Get the sharpness level.
     fn get_sharpness(&self) -> Result<u8, Error>;
+    /// Get the sharpness mode.
     fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error>;
+    /// Get the saturation level.
     fn get_saturation(&self) -> Result<u8, Error>;
+    /// Get the hue setting.
     fn get_hue(&self) -> Result<u8, Error>;
+    /// Get the 2D noise reduction level.
     fn get_noise_reduction_2d(&self) -> Result<u8, Error>;
+    /// Get the 3D noise reduction level.
     fn get_noise_reduction_3d(&self) -> Result<u8, Error>;
 
     // Special Effects Queries
+    /// Get the image flip status (horizontal, vertical).
     fn get_image_flip(&self) -> Result<(bool, bool), Error>;
+    /// Check if black and white mode is enabled.
     fn get_black_white(&self) -> Result<bool, Error>;
 
     // Camera Information
+    /// Get the camera version information (vendor ID, model ID, ROM version, socket number).
     fn get_version(&self) -> Result<(u16, u16, u32, u8), Error>;
 }
 
 impl<P, T> InquiryBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn get_power_state(&self) -> Result<bool, Error> {
         block_on(self.core().get_power_state())
@@ -1033,7 +1103,7 @@ where
 pub trait PanTiltInquiryBlockingExt<P, T>
 where
     P: ProfileMetadata + PanTilt,
-    T: Transport,
+    T: BlockingTransport,
 {
     /// Query the current pan and tilt position in degrees.
     fn get_position_degrees(&self) -> Result<(Degrees, Degrees), Error>;
@@ -1042,7 +1112,7 @@ where
 impl<P, T> PanTiltInquiryBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata + PanTilt,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn get_position_degrees(&self) -> Result<(Degrees, Degrees), Error> {
         block_on(self.core().get_position_degrees())

@@ -9,9 +9,9 @@ mod common;
 
 use crate::common::*;
 use grafton_visca::{
-    camera::{methods::*, Camera},
+    camera::methods::*,
+    CameraBlocking,
     profiles::PTZOpticsG2,
-    transport::blocking::BlockingTransport,
     Error, Result,
 };
 use std::time::Duration;
@@ -28,7 +28,7 @@ fn test_with_mock_transport_basic() {
         .then_complete(1);
 
     // Create camera with mock transport
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute the command
     camera.power_on().unwrap();
@@ -119,7 +119,7 @@ fn test_scenario_builder() -> Result<()> {
     scenario.apply_to(&mut mock).unwrap();
 
     // Create camera and execute commands
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     camera.power_on()?;
     camera.pan_tilt_home()?;

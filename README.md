@@ -245,6 +245,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+The library provides compile-time safety to prevent accidentally using async transports with blocking cameras:
+
+```rust
+// This won't compile - async transport can't be used with CameraBlocking
+// let async_transport = AsyncTcpTransport::new("192.168.1.100:5678").await?;
+// let camera = CameraBlocking::<PTZOpticsG2>::new(async_transport); // ❌ Compile error!
+
+// Use blocking transports with CameraBlocking
+let blocking_transport = TcpTransport::new("192.168.1.100:5678")?;
+let camera = CameraBlocking::<PTZOpticsG2>::new(blocking_transport); // ✅ Works!
+```
+
 #### Async Mode (Optional)
 ```rust
 use grafton_visca::{Camera, transport::create, camera::profiles::PTZOpticsG2};
@@ -538,6 +550,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The client automatically manages VISCA's two-socket limitation, queuing commands as needed.
+
+### Handling Unknown Response Types
+
+The library now provides robust handling for unknown or unimplemented response types:
+
+```rust
+use grafton_visca::{Response, ResponseType};
+
+// When querying camera features, unknown responses are captured
+let response = camera.send(&InquiryCommand::PictureEffect)?;
+match response {
+    Response::InquiryResponse(data) => {
+        // Handle known response type
+    }
+    Response::Unknown { response_type, data } => {
+        // Unknown response type is preserved with raw data
+        if let Some(rt) = response_type {
+            println!("Unknown response for {:?}: {:?}", rt, data);
+        }
+    }
+    _ => {}
+}
+```
+
+This pattern ensures:
+- Forward compatibility with new camera features
+- Safe handling of vendor-specific extensions
+- Debugging information for unimplemented features
+- No silent data loss or misinterpretation
 
 ### Thread-Safe Camera Control
 

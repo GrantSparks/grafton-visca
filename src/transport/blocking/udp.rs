@@ -1,6 +1,6 @@
 //! Blocking UDP transport implementation using GAT.
 
-use crate::transport::gat_transport::{blocking::ready, Transport};
+use crate::transport::core::{blocking::ready, BlockingTransport, Transport};
 use crate::Error;
 use core::future::Ready;
 use std::net::UdpSocket;
@@ -44,6 +44,8 @@ impl Transport for Udp {
         ready(recv_impl(&self.socket))
     }
 }
+
+impl BlockingTransport for Udp {}
 
 fn send_impl(socket: &Mutex<UdpSocket>, data: &[u8]) -> Result<(), Error> {
     let socket = socket

@@ -1,7 +1,7 @@
 //! Async facade for Camera that provides ergonomic async methods.
 
 use crate::{
-    camera::core::CameraCore, capabilities::ProfileMetadata, transport::gat_transport::Transport,
+    camera::core::CameraCore, capabilities::ProfileMetadata, transport::core::Transport,
 };
 
 /// Async camera interface that wraps CameraCore with async methods.

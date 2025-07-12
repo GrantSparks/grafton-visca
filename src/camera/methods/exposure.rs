@@ -8,7 +8,7 @@ use crate::{
         const_encoding::{commands, CommandBuilder},
         Command, Response, ResponseType,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
@@ -360,7 +360,7 @@ where
 pub trait ExposureBlockingExt<P, T>
 where
     P: ProfileMetadata + Exposure,
-    T: Transport,
+    T: BlockingTransport,
 {
     /// Set auto exposure mode.
     fn exposure_auto(&self) -> Result<(), Error>;
@@ -393,7 +393,7 @@ where
 impl<P, T> ExposureBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata + Exposure,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn exposure_auto(&self) -> Result<(), Error> {
         block_on(self.core().exposure_auto())

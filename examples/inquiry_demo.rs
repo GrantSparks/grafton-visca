@@ -39,7 +39,7 @@ fn main() -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "async"))]
-fn run_inquiries<T: grafton_visca::transport::gat_transport::Transport>(
+fn run_inquiries<T: grafton_visca::transport::core::Transport>(
     camera: &mut CameraBlocking<PTZOpticsG2, T>,
 ) -> Result<(), Error> {
     println!(

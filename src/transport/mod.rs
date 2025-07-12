@@ -39,9 +39,9 @@
 
 // Transport trait and utilities
 pub mod any_transport;
-pub mod gat_transport;
+pub mod core;
 pub use any_transport::AnyTransport;
-pub use gat_transport::{Transport, TransportExt};
+pub use core::{BlockingTransport, Transport, TransportExt};
 
 // Blocking transport module (always available)
 pub mod blocking;

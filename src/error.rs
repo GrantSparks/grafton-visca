@@ -207,6 +207,15 @@ pub enum Error {
     /// Validation error from capability traits.
     #[error("Validation error: {0}")]
     ValidationError(#[from] crate::capabilities::ValidationError),
+
+    /// Unknown inquiry response type.
+    #[error("Unknown inquiry response type '{response_type}' with data: {data:?}")]
+    UnknownResponse {
+        /// The response type that was not recognized.
+        response_type: String,
+        /// The raw response data.
+        data: Vec<u8>,
+    },
 }
 
 impl Error {
