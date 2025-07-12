@@ -1,6 +1,6 @@
 //! Blocking TCP transport implementation using GAT.
 
-use crate::transport::gat_transport::{blocking::ready, Transport};
+use crate::transport::core::{blocking::ready, BlockingTransport, Transport};
 use crate::Error;
 use core::future::Ready;
 use std::io::{Read, Write};
@@ -55,6 +55,8 @@ impl Transport for Tcp {
         ready(recv_impl(&self.stream))
     }
 }
+
+impl BlockingTransport for Tcp {}
 
 fn send_impl(stream: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
     let mut stream = stream

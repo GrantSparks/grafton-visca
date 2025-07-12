@@ -8,7 +8,7 @@ use crate::{
         const_encoding::{commands, CommandBuilder},
         Command, Response, ResponseType,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
@@ -148,7 +148,7 @@ where
 pub trait PresetsBlockingExt<P, T>
 where
     P: ProfileMetadata + Presets,
-    T: Transport,
+    T: BlockingTransport,
 {
     /// Recall a preset position.
     fn preset_recall(&self, preset: u8) -> Result<(), Error>;
@@ -160,7 +160,7 @@ where
 impl<P, T> PresetsBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata + Presets,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn preset_recall(&self, preset: u8) -> Result<(), Error> {
         block_on(self.core().preset_recall(preset))

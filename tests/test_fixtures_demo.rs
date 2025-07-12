@@ -12,9 +12,10 @@ use crate::common::{
     ProtocolValidator, ScenarioBuilder, ValidationMode,
 };
 use grafton_visca::{
-    camera::{methods::*, Camera},
+    camera::methods::*,
     command::Command,
     profiles::PTZOpticsG2,
+    CameraBlocking,
     Result,
 };
 use std::time::Duration;
@@ -47,7 +48,7 @@ fn test_all_power_commands_with_fixtures() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute the commands
     camera.power_on().unwrap();
@@ -74,7 +75,7 @@ fn test_zoom_commands_with_fixtures() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute zoom commands
     camera.zoom_stop().unwrap();
@@ -106,7 +107,7 @@ fn test_preset_commands_with_fixtures() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Test preset operations
     camera.preset_set(1.into()).unwrap();
@@ -169,7 +170,7 @@ fn test_zoom_positions_with_generator() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute zoom position commands
     for position in zoom_positions.iter().take(5) {
@@ -208,7 +209,7 @@ fn test_pan_tilt_positions_with_generator() {
     let mut mock = MockTransport::new();
     scenario.build().apply_to(&mut mock).unwrap();
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute movements
     for ((pan, tilt), &speed) in positions.iter().take(3).zip(speeds.iter()) {
@@ -259,7 +260,7 @@ fn test_comprehensive_command_sequence() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Execute the sequence
     camera.power_on().unwrap();

@@ -7,7 +7,7 @@ use bytes::Bytes;
 use grafton_visca::{
     camera::methods::PanTiltAsyncExt,
     profiles::PTZOpticsG2,
-    transport::{gat_transport::Transport, tokio::Tcp},
+    transport::{core::Transport, tokio::Tcp},
     Camera, Error,
 };
 use std::future::{ready, Ready};

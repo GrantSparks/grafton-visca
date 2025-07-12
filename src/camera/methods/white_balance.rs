@@ -8,7 +8,7 @@ use crate::{
         const_encoding::{commands, CommandBuilder},
         Command, Response, ResponseType,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
@@ -89,7 +89,7 @@ where
 pub trait WhiteBalanceBlockingExt<P, T>
 where
     P: ProfileMetadata + WhiteBalance,
-    T: Transport,
+    T: BlockingTransport,
 {
     /// Set auto white balance mode.
     fn white_balance_auto(&self) -> Result<(), Error>;
@@ -98,7 +98,7 @@ where
 impl<P, T> WhiteBalanceBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata + WhiteBalance,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn white_balance_auto(&self) -> Result<(), Error> {
         block_on(self.core().white_balance_auto())

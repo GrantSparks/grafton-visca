@@ -8,7 +8,7 @@ use crate::{
         const_encoding::{commands, encode_speed, CommandBuilder},
         Command, Response, ResponseType,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
@@ -344,7 +344,7 @@ where
 pub trait FocusBlockingExt<P, T>
 where
     P: ProfileMetadata + Focus,
-    T: Transport,
+    T: BlockingTransport,
 {
     /// Set auto focus mode.
     fn focus_auto(&self) -> Result<(), Error>;
@@ -371,7 +371,7 @@ where
 impl<P, T> FocusBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata + Focus,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn focus_auto(&self) -> Result<(), Error> {
         block_on(self.core().focus_auto())

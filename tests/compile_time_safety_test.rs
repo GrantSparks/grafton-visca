@@ -1,8 +1,9 @@
 //! Integration test demonstrating compile-time safety of the new API.
 
 use grafton_visca::{
-    camera::{methods::*, Camera},
+    camera::methods::*,
     profiles::{PTZOpticsG2, SonyFR7},
+    CameraBlocking,
     Error,
 };
 
@@ -10,27 +11,25 @@ use grafton_visca::{
 #[derive(Debug)]
 struct MockTransport;
 
-impl grafton_visca::transport::blocking::BlockingTransport for MockTransport {
-    fn send(&mut self, _data: &[u8]) -> Result<(), Error> {
-        Ok(())
+impl grafton_visca::transport::Transport for MockTransport {
+    type Error = Error;
+    type SendFut<'a> = std::future::Ready<Result<(), Self::Error>> where Self: 'a;
+    type RecvFut<'a> = std::future::Ready<Result<bytes::Bytes, Self::Error>> where Self: 'a;
+
+    fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
+        std::future::ready(Ok(()))
     }
 
-    fn receive(&mut self, _timeout: std::time::Duration) -> Result<Vec<u8>, Error> {
-        Ok(vec![0x90, 0x50, 0xFF]) // Mock completion response
-    }
-
-    fn is_connected(&self) -> bool {
-        true
-    }
-
-    fn description(&self) -> &str {
-        "MockTransport"
+    fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
+        std::future::ready(Ok(bytes::Bytes::from(vec![0x90, 0x50, 0xFF])))
     }
 }
 
+impl grafton_visca::transport::core::BlockingTransport for MockTransport {}
+
 #[test]
 fn test_ptzoptics_g2_capabilities() {
-    let mut camera: Camera<PTZOpticsG2, _> = Camera::new(MockTransport);
+    let mut camera: CameraBlocking<PTZOpticsG2, _> = CameraBlocking::new(MockTransport);
 
     // These methods exist - G2 supports these capabilities
     assert!(camera.power_on().is_ok());
@@ -53,7 +52,7 @@ fn test_ptzoptics_g2_capabilities() {
 
 #[test]
 fn test_sony_fr7_has_nd_filter() {
-    let mut camera: Camera<SonyFR7, _> = Camera::new(MockTransport);
+    let mut camera: CameraBlocking<SonyFR7, _> = CameraBlocking::new(MockTransport);
 
     // FR7 has all standard features
     assert!(camera.power_on().is_ok());
@@ -68,19 +67,19 @@ fn test_sony_fr7_has_nd_filter() {
 #[test]
 fn test_compile_time_method_availability() {
     // This function will only accept cameras with ND filter support
-    fn adjust_nd_filter<P, T>(camera: &mut Camera<P, T>) -> Result<(), Error>
+    fn adjust_nd_filter<P, T>(camera: &mut CameraBlocking<P, T>) -> Result<(), Error>
     where
         P: grafton_visca::capabilities::ProfileMetadata
             + grafton_visca::capabilities::NDFilter
             + Default,
-        T: grafton_visca::transport::blocking::BlockingTransport,
-        Camera<P, T>: NDFilterMethodsExt,
+        T: grafton_visca::transport::core::BlockingTransport,
+        CameraBlocking<P, T>: NDFilterBlockingExt<P, T>,
     {
         camera.set_nd_filter(64)
     }
 
-    let mut fr7: Camera<SonyFR7, _> = Camera::new(MockTransport);
-    let mut _g2: Camera<PTZOpticsG2, _> = Camera::new(MockTransport);
+    let mut fr7: CameraBlocking<SonyFR7, _> = CameraBlocking::new(MockTransport);
+    let mut _g2: CameraBlocking<PTZOpticsG2, _> = CameraBlocking::new(MockTransport);
 
     // This compiles - FR7 has ND filter
     assert!(adjust_nd_filter(&mut fr7).is_ok());

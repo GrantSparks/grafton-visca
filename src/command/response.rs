@@ -31,8 +31,13 @@ pub enum Response {
     Error(Error),
     /// Inquiry command response containing requested data
     InquiryResponse(InquiryResponse),
-    /// Unknown response format (raw bytes provided for debugging)
-    Unknown(Vec<u8>),
+    /// Unknown response format with type information and raw data
+    Unknown {
+        /// The response type that could not be parsed
+        response_type: Option<ResponseType>,
+        /// Raw response data for debugging
+        data: Vec<u8>,
+    },
 }
 
 impl Response {
@@ -47,9 +52,9 @@ impl Response {
             Response::Ack => Err(Error::CommandPending), // ACK means command is queued, not completed
             Response::Error(e) => Err(e),
             Response::InquiryResponse(_) => Ok(()), // Inquiry responses are success
-            Response::Unknown(bytes) => Err(Error::InvalidResponse {
+            Response::Unknown { data, .. } => Err(Error::InvalidResponse {
                 expected: "Known response type".to_string(),
-                actual: bytes,
+                actual: data,
             }),
         }
     }
@@ -99,7 +104,10 @@ impl Response {
         }
 
         // Unknown response format
-        Ok(Response::Unknown(bytes.to_vec()))
+        Ok(Response::Unknown {
+            response_type: None,
+            data: bytes.to_vec(),
+        })
     }
 
     /// Parse an inquiry response with a specific expected type.
@@ -320,7 +328,10 @@ pub fn parse_response(data: &[u8], expected_type: &ResponseType) -> Result<Respo
             }
             Err(Error::from_code(data[2]))
         }
-        _ => Ok(Response::Unknown(data.to_vec())),
+        _ => Ok(Response::Unknown {
+            response_type: None,
+            data: data.to_vec(),
+        }),
     }
 }
 
@@ -610,8 +621,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 on: payload[0] == 0x02,
             }))
         }
-        // For unimplemented response types, return completion
-        _ => Ok(Response::Completion),
+        // For unimplemented response types, return Unknown variant
+        _ => Ok(Response::Unknown {
+            response_type: Some(*expected_type),
+            data: payload.to_vec(),
+        }),
     }
 }
 

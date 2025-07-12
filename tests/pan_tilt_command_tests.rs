@@ -4,7 +4,8 @@ mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
-    camera::{methods::PanTiltMethodsExt, Camera},
+    camera::methods::PanTiltBlockingExt,
+    CameraBlocking,
     command::{
         pan_tilt::{PanTiltCommand, PanTiltDirection},
         Command, ResponseType,
@@ -261,7 +262,7 @@ fn test_pan_tilt_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Test commands
     assert!(camera.pan_tilt_home().is_ok());
@@ -291,7 +292,7 @@ fn test_pan_tilt_absolute_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // Move to center position
     assert!(camera.pan_tilt_absolute(0.0, 0.0, 0x10).is_ok());
@@ -311,7 +312,7 @@ fn test_pan_tilt_with_inquiry_response() {
             0x05, 0x06, 0x07, 0x08, // Tilt position 0x5678
         ]);
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
 
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly

@@ -13,7 +13,7 @@ use crate::{
         },
         Command, Response, ResponseType,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
@@ -139,7 +139,7 @@ where
 pub trait NDFilterBlockingExt<P, T>
 where
     P: ProfileMetadata + NDFilter + Default,
-    T: Transport,
+    T: BlockingTransport,
 {
     /// Set ND filter level.
     fn set_nd_filter(&self, level: u8) -> Result<(), Error>;
@@ -151,7 +151,7 @@ where
 impl<P, T> NDFilterBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata + NDFilter + Default,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn set_nd_filter(&self, level: u8) -> Result<(), Error> {
         block_on(self.core().set_nd_filter(level))

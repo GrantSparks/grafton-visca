@@ -33,6 +33,7 @@ tokio = { version = "1.38", features = ["net", "sync", "time", "rt", "rt-multi-t
 
 [dev-dependencies]
 tokio = { version = "1.38", features = ["full", "test-util"] }
+futures = "0.3"
 
 [[example]]
 name = "async_concurrent"

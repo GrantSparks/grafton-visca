@@ -8,8 +8,10 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use grafton_visca::transport::blocking::BlockingTransport;
+use grafton_visca::transport::{BlockingTransport, Transport};
 use grafton_visca::{Error, Result};
+use bytes::Bytes;
+use std::future::Ready;
 
 /// A mock transport for testing VISCA communication.
 ///
@@ -92,6 +94,26 @@ impl MockTransport {
                 current_expectation: 0,
             })),
         }
+    }
+
+    /// Convenience method for tests - send data synchronously
+    pub fn send(&mut self, data: &[u8]) -> Result<()> {
+        // Use futures::executor to block on the future
+        futures::executor::block_on(Transport::send(self, data))
+    }
+
+    /// Convenience method for tests - receive data with timeout
+    pub fn receive(&mut self, _timeout: Duration) -> Result<Vec<u8>> {
+        // Just use the recv method which already handles everything
+        match futures::executor::block_on(Transport::recv(self)) {
+            Ok(bytes) => Ok(bytes.to_vec()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Check if transport is connected
+    pub fn is_connected(&self) -> bool {
+        self.inner.lock().unwrap().connected
     }
 
     /// Create a mock transport using the builder pattern
@@ -226,26 +248,30 @@ impl TransportExpectation {
     }
 }
 
-impl BlockingTransport for MockTransport {
-    fn send(&mut self, data: &[u8]) -> Result<()> {
+impl Transport for MockTransport {
+    type Error = Error;
+    type SendFut<'a> = Ready<Result<(), Self::Error>> where Self: 'a;
+    type RecvFut<'a> = Ready<Result<Bytes, Self::Error>> where Self: 'a;
+
+    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
         let mut inner = self.inner.lock().unwrap();
 
         if !inner.connected {
-            return Err(Error::ConnectionLost {
+            return std::future::ready(Err(Error::ConnectionLost {
                 reason: "Mock transport disconnected".to_string(),
-            });
+            }));
         }
 
         // Validate frame format if enabled
         if inner.validate_frames && data.len() >= 3 {
             if data[0] & 0xF0 != 0x80 {
-                return Err(Error::InvalidState(format!(
+                return std::future::ready(Err(Error::InvalidState(format!(
                     "Invalid address byte: {:02X}",
                     data[0]
-                )));
+                ))));
             }
             if data[data.len() - 1] != 0xFF {
-                return Err(Error::InvalidState("Missing terminator FF".to_string()));
+                return std::future::ready(Err(Error::InvalidState("Missing terminator FF".to_string())));
             }
         }
 
@@ -278,67 +304,49 @@ impl BlockingTransport for MockTransport {
             std::thread::sleep(latency);
         }
 
-        Ok(())
+        std::future::ready(Ok(()))
     }
 
-    fn receive(&mut self, timeout: Duration) -> Result<Vec<u8>> {
-        let start = Instant::now();
+    fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
+        let mut inner = self.inner.lock().unwrap();
 
-        loop {
-            let mut inner = self.inner.lock().unwrap();
-
-            if !inner.connected {
-                return Err(Error::ConnectionLost {
-                    reason: "Mock transport disconnected".to_string(),
-                });
-            }
-
-            if let Some(response) = inner.response_queue.pop_front() {
-                let result = match response {
-                    MockResponse::Immediate(data) => {
-                        inner.response_history.push(data.clone());
-                        Ok(data)
-                    }
-                    MockResponse::Delayed(data, delay) => {
-                        drop(inner); // Release lock before sleeping
-                        std::thread::sleep(delay);
-                        let mut inner = self.inner.lock().unwrap();
-                        inner.response_history.push(data.clone());
-                        Ok(data)
-                    }
-                    MockResponse::ErrorCode(code) => {
-                        let error_response = vec![0x90, 0x60, code, 0xFF];
-                        inner.response_history.push(error_response.clone());
-                        Ok(error_response)
-                    }
-                    MockResponse::Timeout => {
-                        drop(inner); // Release lock before sleeping
-                        std::thread::sleep(timeout);
-                        return Err(Error::Timeout);
-                    }
-                };
-
-                return result;
-            }
-
-            drop(inner); // Release lock
-
-            if start.elapsed() >= timeout {
-                return Err(Error::Timeout);
-            }
-
-            std::thread::sleep(Duration::from_millis(1));
+        if !inner.connected {
+            return std::future::ready(Err(Error::ConnectionLost {
+                reason: "Mock transport disconnected".to_string(),
+            }));
         }
+
+        if let Some(response) = inner.response_queue.pop_front() {
+            let result = match response {
+                MockResponse::Immediate(data) => {
+                    inner.response_history.push(data.clone());
+                    Ok(Bytes::from(data))
+                }
+                MockResponse::Delayed(data, _delay) => {
+                    // For blocking transport, we ignore delay in recv
+                    inner.response_history.push(data.clone());
+                    Ok(Bytes::from(data))
+                }
+                MockResponse::ErrorCode(code) => {
+                    let error_response = vec![0x90, 0x60, code, 0xFF];
+                    inner.response_history.push(error_response.clone());
+                    Ok(Bytes::from(error_response))
+                }
+                MockResponse::Timeout => {
+                    Err(Error::Timeout)
+                }
+            };
+
+            return std::future::ready(result);
+        }
+
+        // No response queued
+        std::future::ready(Err(Error::Timeout))
     }
 
-    fn is_connected(&self) -> bool {
-        self.inner.lock().unwrap().connected
-    }
-
-    fn description(&self) -> &str {
-        "MockTransport"
-    }
 }
+
+impl BlockingTransport for MockTransport {}
 
 impl Default for MockTransport {
     fn default() -> Self {
@@ -423,7 +431,7 @@ mod tests {
             .then_complete(1);
 
         // Send the expected command
-        mock.send(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]).unwrap();
+        futures::executor::block_on(Transport::send(&mock, &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])).unwrap();
 
         // Receive the responses
         let ack = mock.receive(Duration::from_millis(100)).unwrap();

@@ -9,7 +9,7 @@ use bytes::Bytes;
 use grafton_visca::{
     camera::methods::*,
     profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     CameraBlocking, Error,
 };
 use std::future::{ready, Ready};
@@ -42,6 +42,7 @@ fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
             ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
     }
+    impl BlockingTransport for MockTransport {}
 
     let mut camera: CameraBlocking<PTZOpticsG2, _> = CameraBlocking::new(MockTransport);
 
@@ -80,6 +81,7 @@ fn demonstrate_sony_fr7() -> Result<(), Error> {
             ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
     }
+    impl BlockingTransport for MockTransport {}
 
     let mut camera: CameraBlocking<SonyFR7, _> = CameraBlocking::new(MockTransport);
 
@@ -114,6 +116,7 @@ fn demonstrate_generic_camera() -> Result<(), Error> {
             ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
     }
+    impl BlockingTransport for MockTransport {}
 
     let mut camera: CameraBlocking<GenericVisca, _> = CameraBlocking::new(MockTransport);
 
@@ -178,6 +181,7 @@ fn demonstrate_generic_functions() -> Result<(), Error> {
             ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
     }
+    impl BlockingTransport for MockTransport {}
     
     // Demonstrate center_and_focus with cameras that support both PanTilt and Focus
     let mut g2 = CameraBlocking::<PTZOpticsG2, MockTransport>::new(MockTransport);
@@ -211,7 +215,7 @@ where
         + grafton_visca::capabilities::PanTilt
         + grafton_visca::capabilities::Focus
         + Default,
-    T: Transport,
+    T: BlockingTransport,
 {
     camera.pan_tilt_home()?;
     camera.focus_auto()?;
@@ -225,7 +229,7 @@ where
         + grafton_visca::capabilities::NDFilter
         + grafton_visca::capabilities::Exposure
         + Default,
-    T: Transport,
+    T: BlockingTransport,
 {
     // Note: set_nd_filter is not implemented in the current API
     // camera.set_nd_filter(1)?;
@@ -252,6 +256,7 @@ mod tests {
             ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
         }
     }
+    impl BlockingTransport for MockTransport {}
 
     #[test]
     fn test_compile_time_trait_bounds() {

@@ -11,7 +11,7 @@ use crate::{
         image_adjustment::{ContrastCommand, SharpnessCommand},
         Command, Response,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     types::{
         ContrastLevel, HueLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel,
         SharpnessLevel,
@@ -275,7 +275,7 @@ pub trait ImageProcessingBlockingExt<P: ProfileMetadata + ImageProcessing>: Size
 impl<P, T> ImageProcessingBlockingExt<P> for CameraBlocking<P, T>
 where
     P: ProfileMetadata + ImageProcessing,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn enable_flip(&mut self) -> Result<(), Error> {
         block_on(self.core().enable_flip())

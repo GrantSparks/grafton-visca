@@ -12,7 +12,7 @@ use crate::{
         inquiry::InquiryCommand,
         Response,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     types::{BlueGain, BlueTuning, ColorTemperature, RedGain, RedTuning},
     Error,
 };
@@ -302,7 +302,7 @@ pub trait ColorBlockingExt<P: ProfileMetadata>: Sized {
 impl<P, T> ColorBlockingExt<P> for CameraBlocking<P, T>
 where
     P: ProfileMetadata,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn one_push_trigger(&mut self) -> Result<(), Error> {
         block_on(self.core().one_push_trigger())

@@ -8,7 +8,7 @@ use crate::{
         const_encoding::{commands, CommandBuilder},
         Command, Response, ResponseType,
     },
-    transport::gat_transport::Transport,
+    transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
@@ -142,7 +142,7 @@ where
 pub trait PowerBlockingExt<P, T>
 where
     P: ProfileMetadata + Power,
-    T: Transport,
+    T: BlockingTransport,
 {
     /// Power on the camera.
     fn power_on(&self) -> Result<(), Error>;
@@ -154,7 +154,7 @@ where
 impl<P, T> PowerBlockingExt<P, T> for CameraBlocking<P, T>
 where
     P: ProfileMetadata + Power,
-    T: Transport,
+    T: BlockingTransport,
 {
     fn power_on(&self) -> Result<(), Error> {
         block_on(self.core().power_on())

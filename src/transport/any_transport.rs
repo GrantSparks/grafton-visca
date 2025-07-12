@@ -3,7 +3,7 @@
 //! This module provides `AnyTransport` for rare cases where dynamic dispatch
 //! is needed instead of the zero-cost generic approach.
 
-use crate::{transport::gat_transport::Transport, Error};
+use crate::{transport::core::Transport, Error};
 use bytes::Bytes;
 use core::future::Future;
 use core::pin::Pin;

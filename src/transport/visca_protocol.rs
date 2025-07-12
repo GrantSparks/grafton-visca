@@ -2,7 +2,7 @@
 
 use crate::{
     command::{InquiryResponse, Response, ResponseType},
-    transport::gat_transport::Transport,
+    transport::core::Transport,
     Command, Error,
 };
 use core::future::Future;
