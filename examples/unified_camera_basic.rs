@@ -1,9 +1,9 @@
-//! Basic example of using the UnifiedCamera API.
+//! Basic example of using the Camera API.
 //!
-//! This example demonstrates the simplicity of the new UnifiedCamera API
+//! This example demonstrates the simplicity of the new Camera API
 //! which eliminates the need for generic type parameters.
 
-use grafton_visca::{Error, ProfileId, UnifiedCamera};
+use grafton_visca::{Error, ProfileId, Camera};
 
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::transport::blocking::Tcp;
@@ -15,21 +15,21 @@ use grafton_visca::transport::tokio::Tcp;
 fn main() -> Result<(), Error> {
     env_logger::init();
 
-    println!("=== UnifiedCamera Basic Example (Blocking) ===\n");
+    println!("=== Camera Basic Example (Blocking) ===\n");
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
     let transport = Tcp::connect("192.168.1.100:52381")?;
-    let camera = UnifiedCamera::new_blocking(transport);
-    
+    let camera = Camera::new_blocking(transport);
+
     println!("Connected to: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
-    
+
     // Create a camera with specific profile
     let transport = Tcp::connect("192.168.1.100:52381")?;
-    let camera = UnifiedCamera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
-    
+    let camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
+
     println!("\nUsing specific profile: {}", camera.model_name());
-    
+
     // Check capabilities
     println!("\nCamera capabilities:");
     println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
@@ -41,9 +41,9 @@ fn main() -> Result<(), Error> {
     // TODO: Add command examples once extension traits are implemented
     // camera.power_on_blocking()?;
     // camera.zoom_in_blocking()?;
-    
+
     println!("\n✅ Example complete!");
-    
+
     Ok(())
 }
 
@@ -52,21 +52,21 @@ fn main() -> Result<(), Error> {
 async fn main() -> Result<(), Error> {
     env_logger::init();
 
-    println!("=== UnifiedCamera Basic Example (Async) ===\n");
+    println!("=== Camera Basic Example (Async) ===\n");
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
     let transport = Tcp::connect("192.168.1.100:52381").await?;
-    let camera = UnifiedCamera::new(transport);
-    
+    let camera = Camera::new(transport);
+
     println!("Connected to: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
-    
+
     // Create a camera with specific profile
     let transport = Tcp::connect("192.168.1.100:52381").await?;
-    let camera = UnifiedCamera::with_profile(ProfileId::PTZOpticsG2, transport);
-    
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+
     println!("\nUsing specific profile: {}", camera.model_name());
-    
+
     // Check capabilities
     println!("\nCamera capabilities:");
     println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
@@ -78,8 +78,8 @@ async fn main() -> Result<(), Error> {
     // TODO: Add command examples once extension traits are implemented
     // camera.power_on().await?;
     // camera.zoom_in().await?;
-    
+
     println!("\n✅ Example complete!");
-    
+
     Ok(())
 }

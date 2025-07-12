@@ -3,7 +3,7 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
-        methods::{FocusAsyncExt, PanTiltAsyncExt, PowerAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
+        methods::{FocusOps, PanTiltOps, PowerOps, PresetsOps, ZoomOps},
         profiles::{G2PresetId, PTZOpticsG2},
     },
     capabilities::{PanTilt, Presets, ProfileMetadata},

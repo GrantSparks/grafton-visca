@@ -155,6 +155,15 @@ pub enum Error {
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
 
+    /// Buffer provided is too small for encoding.
+    #[error("Buffer too small: required {required} bytes, but only {actual} available")]
+    BufferTooSmall {
+        /// Required buffer size.
+        required: usize,
+        /// Actual buffer size provided.
+        actual: usize,
+    },
+
     /// Invalid preset number for the camera model.
     #[error("Invalid preset {preset}: must be <= {max}")]
     InvalidPreset {

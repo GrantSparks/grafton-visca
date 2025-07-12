@@ -3,22 +3,31 @@
 //! This shows how inquiry commands are defined as individual structs
 //! that automatically generate Command implementations.
 
-use grafton_visca::command::{Command, PowerInquiry, PanTiltPositionInquiry, ZoomPositionInquiry};
+use grafton_visca::command::{Command, PanTiltPositionInquiry, PowerInquiry, ZoomPositionInquiry};
 
 fn main() {
     // Create inquiry instances directly
     let power_inquiry = PowerInquiry;
     let pan_tilt_inquiry = PanTiltPositionInquiry;
     let zoom_inquiry = ZoomPositionInquiry;
-    
+
     // Use the Command trait to get command bytes
-    println!("Power inquiry bytes: {:?}", power_inquiry.to_bytes().unwrap());
-    println!("Pan/Tilt inquiry bytes: {:?}", pan_tilt_inquiry.to_bytes().unwrap());
-    println!("Zoom inquiry bytes: {:?}", zoom_inquiry.to_bytes().unwrap());
-    
+    println!(
+        "Power inquiry bytes: {:?}",
+        power_inquiry.try_into_vec().unwrap()
+    );
+    println!(
+        "Pan/Tilt inquiry bytes: {:?}",
+        pan_tilt_inquiry.try_into_vec().unwrap()
+    );
+    println!("Zoom inquiry bytes: {:?}", zoom_inquiry.try_into_vec().unwrap());
+
     // Each inquiry has its response type
     println!("Power response type: {:?}", power_inquiry.response_type());
-    println!("Pan/Tilt response type: {:?}", pan_tilt_inquiry.response_type());
+    println!(
+        "Pan/Tilt response type: {:?}",
+        pan_tilt_inquiry.response_type()
+    );
     println!("Zoom response type: {:?}", zoom_inquiry.response_type());
 }
 

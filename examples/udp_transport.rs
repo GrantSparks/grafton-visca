@@ -5,7 +5,7 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::methods::ZoomAsyncExt, profiles::GenericVisca, transport::tokio::Udp, Camera,
+    camera::methods::ZoomOps, profiles::GenericVisca, transport::tokio::Udp, Camera,
 };
 
 #[cfg(not(feature = "tokio"))]

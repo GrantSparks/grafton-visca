@@ -4,25 +4,25 @@ mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
-    camera::methods::PowerBlockingExt,
-    CameraBlocking,
+    camera::methods::PowerOps,
     command::{
         power::{Power, PowerCommand},
-        Command,
+        EncodeVisca,
     },
     profiles::PTZOpticsG2,
     timeout::CommandCategory,
+    Camera,
 };
 
 #[test]
 fn test_power_on_command() {
     let cmd = PowerCommand { power: Power::On };
-    let bytes = cmd.to_bytes().unwrap();
+    let bytes = cmd.try_into_vec().unwrap();
 
     // Verify using pattern constants
     assert_eq!(bytes, patterns::power::ON);
     assert!(cmd.response_type().is_none());
-    assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+    assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
 
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
@@ -34,7 +34,7 @@ fn test_power_standby_command() {
     let cmd = PowerCommand {
         power: Power::Standby,
     };
-    let bytes = cmd.to_bytes().unwrap();
+    let bytes = cmd.try_into_vec().unwrap();
 
     assert_eq!(bytes, patterns::power::STANDBY);
 
@@ -57,17 +57,17 @@ fn test_power_response_type() {
 #[test]
 fn test_command_trait_impl() {
     // Verify PowerCommand implements Command trait
-    let cmd: Box<dyn Command> = Box::new(PowerCommand { power: Power::On });
-    assert!(cmd.to_bytes().is_ok());
+    let cmd: Box<dyn EncodeVisca<Response = ()>> = Box::new(PowerCommand { power: Power::On });
+    assert!(cmd.try_into_vec().is_ok());
     assert!(cmd.response_type().is_none());
-    assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+    assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
 }
 
 #[test]
 fn test_byte_sequence_correctness() {
     // Verify the exact byte sequences match VISCA protocol
     let on_cmd = PowerCommand { power: Power::On };
-    let on_bytes = on_cmd.to_bytes().unwrap();
+    let on_bytes = on_cmd.try_into_vec().unwrap();
 
     // Use pattern constants for verification
     assert_eq!(on_bytes, patterns::power::ON);
@@ -83,7 +83,7 @@ fn test_byte_sequence_correctness() {
     let standby_cmd = PowerCommand {
         power: Power::Standby,
     };
-    let standby_bytes = standby_cmd.to_bytes().unwrap();
+    let standby_bytes = standby_cmd.try_into_vec().unwrap();
 
     // Use pattern constants for verification
     assert_eq!(standby_bytes, patterns::power::STANDBY);
@@ -127,7 +127,7 @@ fn test_power_commands_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::<PTZOpticsG2>::new(mock.clone());
 
     // Test power on
     assert!(camera.power_on().is_ok());

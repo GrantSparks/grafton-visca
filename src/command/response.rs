@@ -24,7 +24,7 @@ use crate::{
 #[derive(Debug)]
 pub enum Response {
     /// Acknowledgment that the command was received and is being processed
-    Ack,
+    CmdAck,
     /// Command completed successfully (no data returned)
     Completion,
     /// Command failed with an error
@@ -49,7 +49,7 @@ impl Response {
     pub fn into_result(self) -> Result<(), Error> {
         match self {
             Response::Completion => Ok(()),
-            Response::Ack => Err(Error::CommandPending), // ACK means command is queued, not completed
+            Response::CmdAck => Err(Error::CommandPending), // ACK means command is queued, not completed
             Response::Error(e) => Err(e),
             Response::InquiryResponse(_) => Ok(()), // Inquiry responses are success
             Response::Unknown { data, .. } => Err(Error::InvalidResponse {
@@ -78,7 +78,7 @@ impl Response {
             && (bytes[1] & 0xF0) == 0x40
             && bytes[2] == 0xFF
         {
-            return Ok(Response::Ack);
+            return Ok(Response::CmdAck);
         }
 
         // Completion: 9x 5y FF (where x = socket, y = completion type)
@@ -162,9 +162,9 @@ pub enum ResponseType {
     /// Color temperature inquiry response.
     ColorTemperature,
     /// Red gain inquiry response.
-    RedGain,
+    RedChannel,
     /// Blue gain inquiry response.
-    BlueGain,
+    BlueChannel,
     /// Luminance inquiry response.
     Luminance,
     /// Contrast inquiry response.
@@ -312,7 +312,7 @@ pub fn parse_response(data: &[u8], expected_type: &ResponseType) -> Result<Respo
 
     // Parse based on second byte
     match second_byte & 0xF0 {
-        0x40 => Ok(Response::Ack), // ACK responses
+        0x40 => Ok(Response::CmdAck), // ACK responses
         0x50 => {
             // Completion or inquiry data response
             if data.len() == 3 {
@@ -526,19 +526,19 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 limit: payload[0],
             }))
         }
-        ResponseType::RedGain => {
+        ResponseType::RedChannel => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::RedGain {
+            Ok(Response::InquiryResponse(InquiryResponse::RedChannel {
                 gain: payload[0] as i8 - 10,
             }))
         }
-        ResponseType::BlueGain => {
+        ResponseType::BlueChannel => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::BlueGain {
+            Ok(Response::InquiryResponse(InquiryResponse::BlueChannel {
                 gain: payload[0] as i8 - 10,
             }))
         }
@@ -661,8 +661,8 @@ mod tests {
 
     #[test]
     fn test_response_debug() {
-        let ack = Response::Ack;
-        assert_eq!(format!("{:?}", ack), "Ack");
+        let ack = Response::CmdAck;
+        assert_eq!(format!("{:?}", ack), "CmdAck");
 
         let completion = Response::Completion;
         assert_eq!(format!("{:?}", completion), "Completion");
@@ -678,7 +678,7 @@ mod tests {
     fn test_basic_ack_parsing() {
         let response = vec![0x90, 0x41, 0xFF];
         let result = parse_response(&response, &ResponseType::Power).unwrap();
-        assert!(matches!(result, Response::Ack));
+        assert!(matches!(result, Response::CmdAck));
     }
 
     #[test]

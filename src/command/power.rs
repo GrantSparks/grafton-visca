@@ -10,7 +10,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{Command, ResponseType},
+    command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
 };
@@ -31,20 +31,38 @@ pub(crate) struct PowerCommand {
     pub power: Power,
 }
 
-impl Command for PowerCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+impl EncodeVisca for PowerCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len(),
+            });
+        }
+
         let power_byte = match self.power {
             Power::On => 0x02,
             Power::Standby => 0x03,
         };
-        Ok(vec![0x81, 0x01, 0x04, 0x00, power_byte, 0xFF])
+        
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x00;
+        buffer[4] = power_byte;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
 
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
 
-    fn command_category(&self) -> CommandCategory {
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }

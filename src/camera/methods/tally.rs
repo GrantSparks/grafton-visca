@@ -1,167 +1,316 @@
-//! Tally light control methods for cameras using the new GAT architecture.
+//! Tally light control methods for cameras.
 
 use crate::{
-    blocking::block_on,
-    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
-    capabilities::ProfileMetadata,
-    command::{tally::TallyCommand, Response},
-    transport::core::{BlockingTransport, Transport},
+    camera::unified::Camera,
+    command::{tally::Tally, Response},
     Error,
 };
+
+#[cfg(feature = "tokio")]
 use core::future::Future;
 
-/// Extension trait for CameraCore - provides future-returning methods.
-pub trait TallyCoreExt<P, T>
-where
-    P: ProfileMetadata,
-    T: Transport,
-{
-    /// Turn red tally light on - returns a future.
-    fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + '_;
+/// Tally light control operations.
+pub trait TallyOps: Sized {
+    /// Turn red tally light on.
+    #[cfg(feature = "tokio")]
+    fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Turn red tally light off - returns a future.
-    fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Turn red tally light on (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn tally_red_on_blocking(&mut self) -> Result<(), Error>;
 
-    /// Set tally brightness to low - returns a future.
-    fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Turn red tally light off.
+    #[cfg(feature = "tokio")]
+    fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Set tally brightness to high - returns a future.
-    fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Turn red tally light off (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn tally_red_off_blocking(&mut self) -> Result<(), Error>;
 
-    /// Turn green tally light on - returns a future.
-    fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set tally brightness to low.
+    #[cfg(feature = "tokio")]
+    fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Turn green tally light off - returns a future.
-    fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set tally brightness to low (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn tally_bright_lo_blocking(&mut self) -> Result<(), Error>;
 
-    /// Flash tally light - returns a future.
-    fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set tally brightness to high.
+    #[cfg(feature = "tokio")]
+    fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Turn tally light on - returns a future.
-    fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set tally brightness to high (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn tally_bright_hi_blocking(&mut self) -> Result<(), Error>;
 
-    /// Turn tally light off - returns a future.
-    fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Turn green tally light on.
+    #[cfg(feature = "tokio")]
+    fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Get tally light status - returns a future.
-    fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + '_;
+    /// Turn green tally light on (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn tally_green_on_blocking(&mut self) -> Result<(), Error>;
+
+    /// Turn green tally light off.
+    #[cfg(feature = "tokio")]
+    fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Turn green tally light off (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn tally_green_off_blocking(&mut self) -> Result<(), Error>;
+
+    /// Flash tally light.
+    #[cfg(feature = "tokio")]
+    fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Flash tally light (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn tally_flash_blocking(&mut self) -> Result<(), Error>;
+
+    /// Turn tally light on.
+    #[cfg(feature = "tokio")]
+    fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Turn tally light on (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn tally_on_blocking(&mut self) -> Result<(), Error>;
+
+    /// Turn tally light off.
+    #[cfg(feature = "tokio")]
+    fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Turn tally light off (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn tally_off_blocking(&mut self) -> Result<(), Error>;
+
+    /// Get tally light status.
+    #[cfg(feature = "tokio")]
+    fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + Send;
+
+    /// Get tally light status (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn get_tally_status_blocking(&mut self) -> Result<bool, Error>;
 }
 
-#[allow(clippy::manual_async_fn)]
-impl<P, T> TallyCoreExt<P, T> for CameraCore<P, T>
-where
-    P: ProfileMetadata,
-    T: Transport,
-{
-    fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+impl TallyOps for Camera {
+    #[cfg(feature = "tokio")]
+    fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            let command = TallyCommand::RedOn;
+            let command = Tally::RedOn;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
 
-    fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn tally_red_on_blocking(&mut self) -> Result<(), Error> {
+        let command = Tally::RedOn;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            let command = TallyCommand::RedOff;
+            let command = Tally::RedOff;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
 
-    fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn tally_red_off_blocking(&mut self) -> Result<(), Error> {
+        let command = Tally::RedOff;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            let command = TallyCommand::BrightLo;
+            let command = Tally::BrightLo;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
 
-    fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn tally_bright_lo_blocking(&mut self) -> Result<(), Error> {
+        let command = Tally::BrightLo;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            let command = TallyCommand::BrightHi;
+            let command = Tally::BrightHi;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
 
-    fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn tally_bright_hi_blocking(&mut self) -> Result<(), Error> {
+        let command = Tally::BrightHi;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            let command = TallyCommand::GreenOn;
+            let command = Tally::GreenOn;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
 
-    fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn tally_green_on_blocking(&mut self) -> Result<(), Error> {
+        let command = Tally::GreenOn;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            let command = TallyCommand::GreenOff;
+            let command = Tally::GreenOff;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
 
-    fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn tally_green_off_blocking(&mut self) -> Result<(), Error> {
+        let command = Tally::GreenOff;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            let command = TallyCommand::Flash;
+            let command = Tally::Flash;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
 
-    fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn tally_flash_blocking(&mut self) -> Result<(), Error> {
+        let command = Tally::Flash;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            let command = TallyCommand::On;
+            let command = Tally::On;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
 
-    fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn tally_on_blocking(&mut self) -> Result<(), Error> {
+        let command = Tally::On;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            let command = TallyCommand::Off;
+            let command = Tally::Off;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
     }
 
-    fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn tally_off_blocking(&mut self) -> Result<(), Error> {
+        let command = Tally::Off;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + Send {
         async move {
             // For now, return a NotImplemented error as there's no tally inquiry command in the protocol
             // This would need to be added to the InquiryCommand enum with the proper VISCA bytes
@@ -170,186 +319,26 @@ where
             })
         }
     }
-}
 
-/// Extension trait for async Camera facade.
-pub trait TallyAsyncExt<P, T>
-where
-    P: ProfileMetadata,
-    T: Transport,
-{
-    /// Turn red tally light on.
-    fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Turn red tally light off.
-    fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set tally brightness to low.
-    fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set tally brightness to high.
-    fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Turn green tally light on.
-    fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Turn green tally light off.
-    fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Flash tally light.
-    fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Turn tally light on.
-    fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Turn tally light off.
-    fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Get tally light status.
-    fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + Send;
-}
-
-impl<P, T> TallyAsyncExt<P, T> for CameraAsync<P, T>
-where
-    P: ProfileMetadata + Sync,
-    T: Transport + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    fn tally_red_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().tally_red_on().await }
-    }
-
-    fn tally_red_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().tally_red_off().await }
-    }
-
-    fn tally_bright_lo(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().tally_bright_lo().await }
-    }
-
-    fn tally_bright_hi(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().tally_bright_hi().await }
-    }
-
-    fn tally_green_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().tally_green_on().await }
-    }
-
-    fn tally_green_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().tally_green_off().await }
-    }
-
-    fn tally_flash(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().tally_flash().await }
-    }
-
-    fn tally_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().tally_on().await }
-    }
-
-    fn tally_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().tally_off().await }
-    }
-
-    fn get_tally_status(&self) -> impl Future<Output = Result<bool, Error>> + Send {
-        async move { self.core().get_tally_status().await }
-    }
-}
-
-/// Extension trait for blocking Camera facade.
-pub trait TallyBlockingExt<P, T>
-where
-    P: ProfileMetadata,
-    T: BlockingTransport,
-{
-    /// Turn red tally light on.
-    fn tally_red_on(&self) -> Result<(), Error>;
-
-    /// Turn red tally light off.
-    fn tally_red_off(&self) -> Result<(), Error>;
-
-    /// Set tally brightness to low.
-    fn tally_bright_lo(&self) -> Result<(), Error>;
-
-    /// Set tally brightness to high.
-    fn tally_bright_hi(&self) -> Result<(), Error>;
-
-    /// Turn green tally light on.
-    fn tally_green_on(&self) -> Result<(), Error>;
-
-    /// Turn green tally light off.
-    fn tally_green_off(&self) -> Result<(), Error>;
-
-    /// Flash tally light.
-    fn tally_flash(&self) -> Result<(), Error>;
-
-    /// Turn tally light on.
-    fn tally_on(&self) -> Result<(), Error>;
-
-    /// Turn tally light off.
-    fn tally_off(&self) -> Result<(), Error>;
-
-    /// Get tally light status.
-    fn get_tally_status(&self) -> Result<bool, Error>;
-}
-
-impl<P, T> TallyBlockingExt<P, T> for CameraBlocking<P, T>
-where
-    P: ProfileMetadata,
-    T: BlockingTransport,
-{
-    fn tally_red_on(&self) -> Result<(), Error> {
-        block_on(self.core().tally_red_on())
-    }
-
-    fn tally_red_off(&self) -> Result<(), Error> {
-        block_on(self.core().tally_red_off())
-    }
-
-    fn tally_bright_lo(&self) -> Result<(), Error> {
-        block_on(self.core().tally_bright_lo())
-    }
-
-    fn tally_bright_hi(&self) -> Result<(), Error> {
-        block_on(self.core().tally_bright_hi())
-    }
-
-    fn tally_green_on(&self) -> Result<(), Error> {
-        block_on(self.core().tally_green_on())
-    }
-
-    fn tally_green_off(&self) -> Result<(), Error> {
-        block_on(self.core().tally_green_off())
-    }
-
-    fn tally_flash(&self) -> Result<(), Error> {
-        block_on(self.core().tally_flash())
-    }
-
-    fn tally_on(&self) -> Result<(), Error> {
-        block_on(self.core().tally_on())
-    }
-
-    fn tally_off(&self) -> Result<(), Error> {
-        block_on(self.core().tally_off())
-    }
-
-    fn get_tally_status(&self) -> Result<bool, Error> {
-        block_on(self.core().get_tally_status())
+    #[cfg(not(feature = "tokio"))]
+    fn get_tally_status_blocking(&mut self) -> Result<bool, Error> {
+        // For now, return a NotImplemented error as there's no tally inquiry command in the protocol
+        // This would need to be added to the InquiryCommand enum with the proper VISCA bytes
+        Err(Error::FeatureNotSupported {
+            feature: "Tally status inquiry".to_string(),
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profiles::PTZOpticsG2;
 
     #[test]
     fn test_tally_methods_compile() {
         // This test demonstrates that tally methods are available for all cameras
-
-        fn _test_tally_methods<T: Transport>(_camera: &CameraAsync<PTZOpticsG2, T>) {
+        
+        fn _test_tally_methods(_camera: &Camera) {
             // All cameras can use tally methods
         }
     }

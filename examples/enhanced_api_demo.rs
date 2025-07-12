@@ -6,8 +6,8 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::methods::{
-        ExposureAsyncExt, ImageProcessingAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
-        WhiteBalanceAsyncExt, ZoomAsyncExt,
+        ExposureOps, ImageProcessingOps, PanTiltOps, PowerOps,
+        WhiteBalanceOps, ZoomOps,
     },
     profiles::PTZOpticsG2,
     transport::tokio::Udp,

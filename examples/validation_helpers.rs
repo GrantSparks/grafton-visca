@@ -1,7 +1,7 @@
 //! Example demonstrating the new validation helper macros
 
 use grafton_visca::{
-    command::{GainCommand, PanTiltCommand, PanTiltDirection},
+    command::{Gain, PanTilt, PanTiltDirection},
     types::{Gain, PanSpeed, TiltSpeed},
     validate_all, Command, Error,
 };
@@ -27,9 +27,9 @@ fn run_examples() -> Result<(), Error> {
     println!("  Valid values include gain levels from 0dB (0x00) to 21dB (0x07)");
 
     // Use in a command
-    let cmd = GainCommand::SetValue(gain);
+    let cmd = Gain::SetValue(gain);
     println!("  Created command: {:?}", cmd);
-    println!("  Command bytes: {:?}", cmd.to_bytes()?);
+    println!("  Command bytes: {:?}", cmd.try_into_vec()?);
 
     println!();
 
@@ -58,14 +58,14 @@ fn run_examples() -> Result<(), Error> {
     );
 
     // Use in a command
-    let move_cmd = PanTiltCommand::Move {
+    let move_cmd = PanTilt::Move {
         direction: PanTiltDirection::Up,
         pan_speed,
         tilt_speed,
     };
 
     println!("  Created command: {:?}", move_cmd);
-    println!("  Command bytes: {:?}", move_cmd.to_bytes()?);
+    println!("  Command bytes: {:?}", move_cmd.try_into_vec()?);
 
     println!();
 

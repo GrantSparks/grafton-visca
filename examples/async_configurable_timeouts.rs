@@ -11,7 +11,7 @@
 
 use grafton_visca::{
     camera::{
-        methods::{PanTiltAsyncExt, PowerAsyncExt, PresetsAsyncExt},
+        methods::{PanTiltOps, PowerOps, PresetsOps},
         profiles::PTZOpticsG2,
     },
     transport::{

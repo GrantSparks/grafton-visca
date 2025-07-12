@@ -1,9 +1,9 @@
 //! VISCA protocol handler using GAT Transport trait.
 
 use crate::{
-    command::{InquiryResponse, Response, ResponseType},
+    command::{encode_visca::EncodeVisca, InquiryResponse, Response, ResponseType},
     transport::core::Transport,
-    Command, Error,
+    Error,
 };
 use core::future::Future;
 use std::time::Duration;
@@ -38,23 +38,23 @@ impl<T: Transport> ViscaProtocol<T> {
     }
 
     /// Send a VISCA command and return a future that resolves to the response.
-    pub fn send_command<'a>(
+    pub fn send_command<'a, C>(
         &'a self,
-        command: &'a dyn Command,
-    ) -> impl Future<Output = Result<Response, Error>> + 'a {
+        command: &'a C,
+    ) -> impl Future<Output = Result<Response, Error>> + 'a
+    where
+        C: EncodeVisca,
+    {
         async move {
-            // Get command bytes
-            let mut cmd_bytes = command.to_bytes()?;
-
-            // Ensure command ends with terminator
-            if cmd_bytes.last() != Some(&VISCA_TERMINATOR) {
-                cmd_bytes.push(VISCA_TERMINATOR);
-            }
+            // Get command bytes using EncodeVisca
+            let mut buffer = [0u8; 64]; // Use a reasonable max size
+            let size = command.encode_into(&mut buffer)?;
+            let cmd_bytes = &buffer[..size];
 
             log::debug!("Sending VISCA command: {:02X?}", cmd_bytes);
 
             // Send command
-            self.transport.send(&cmd_bytes).await.map_err(Into::into)?;
+            self.transport.send(cmd_bytes).await.map_err(Into::into)?;
 
             // Handle response based on command type
             match command.response_type() {
@@ -62,7 +62,7 @@ impl<T: Transport> ViscaProtocol<T> {
                     // Action command - wait for ACK then Completion
                     let ack = self.wait_for_ack(ACK_TIMEOUT).await?;
                     match ack {
-                        Response::Ack => {
+                        Response::CmdAck => {
                             // Now wait for completion
                             self.wait_for_completion(COMPLETION_TIMEOUT).await
                         }
@@ -164,7 +164,7 @@ impl Response {
                 ResponseType::ExposureMode,
             ) => true,
             (Response::InquiryResponse(InquiryResponse::Iris { .. }), ResponseType::Iris) => true,
-            (Response::InquiryResponse(InquiryResponse::Gain { .. }), ResponseType::Gain) => true,
+            (Response::InquiryResponse(InquiryResponse::GainLevel { .. }), ResponseType::Gain) => true,
             (Response::InquiryResponse(InquiryResponse::Shutter { .. }), ResponseType::Shutter) => {
                 true
             }

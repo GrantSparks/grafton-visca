@@ -10,14 +10,14 @@
 //! ```ignore
 //! # #[cfg(not(feature = "async"))]
 //! # {
-//! # use grafton_visca::command::{ZoomCommand, zoom::ZoomSpeed};
+//! # use grafton_visca::command::{Zoom, zoom::ZoomSpeed};
 //! # use grafton_visca::Client;
 //! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //! // Zoom in at standard speed
-//! client.send(&ZoomCommand::TeleStandard).unwrap();
+//! client.send(&Zoom::TeleStd).unwrap();
 //!
 //! // Zoom out at variable speed
-//! client.send(&ZoomCommand::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
+//! client.send(&Zoom::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
 //! # }
 //! ```
 
@@ -29,12 +29,10 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{Command, ResponseType},
-    constants::{CameraConstants, CameraModel},
+    command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{SpeedLevel, ZoomPosition},
-};
+    types::{SpeedLevel, ZoomPosition}};
 
 crate::visca_bounded_param! {
     /// Variable zoom speed.
@@ -57,28 +55,27 @@ impl From<SpeedLevel> for ZoomSpeed {
 ///
 /// Provides various ways to control camera zoom:
 /// - `Stop` - Stop zoom movement
-/// - `TeleStandard` - Zoom in (telephoto) at standard speed
-/// - `WideStandard` - Zoom out (wide) at standard speed
+/// - `TeleStd` - Zoom in (telephoto) at standard speed
+/// - `WideStd` - Zoom out (wide) at standard speed
 /// - `TeleVariable` - Zoom in at specified speed (0-7)
 /// - `WideVariable` - Zoom out at specified speed (0-7)
 /// - `Position` - Set zoom to specific position
 #[derive(Debug, Copy, Clone)]
-pub enum ZoomCommand {
+pub enum Zoom {
     /// Stop zoom movement.
     Stop,
     /// Zoom in at standard speed (telephoto).
-    TeleStandard,
+    TeleStd,
     /// Zoom out at standard speed (wide).
-    WideStandard,
+    WideStd,
     /// Zoom in at variable speed.
     TeleVariable(ZoomSpeed),
     /// Zoom out at variable speed.
     WideVariable(ZoomSpeed),
     /// Set zoom to specific position.
-    Position(ZoomPosition),
-}
+    Position(ZoomPosition)}
 
-impl ZoomCommand {
+impl Zoom {
     // Legacy method - removed in new API
     // pub fn direct<P: crate::camera::CameraProfile>(position: u16) -> Result<Self, Error> {
     //     ...
@@ -86,69 +83,36 @@ impl ZoomCommand {
     // }
 }
 
-impl Command for ZoomCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        match self {
-            // Stop command
-            Self::Stop => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]),
+impl EncodeVisca for Zoom {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
-            // Zoom in standard
-            Self::TeleStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
-
-            // Zoom out standard
-            Self::WideStandard => Ok(vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]),
-
-            // Zoom in variable
-            Self::TeleVariable(speed) => {
-                Ok(vec![0x81, 0x01, 0x04, 0x07, 0x20 | speed.value(), 0xFF])
-            }
-
-            // Zoom out variable
-            Self::WideVariable(speed) => {
-                Ok(vec![0x81, 0x01, 0x04, 0x07, 0x30 | speed.value(), 0xFF])
-            }
-
-            // Direct zoom to a specific position
-            Self::Position(position) => {
-                let nibbles = position_to_nibbles(position.value());
-
-                Ok(vec![
-                    0x81, 0x01, 0x04, 0x47, nibbles[0], nibbles[1], nibbles[2], nibbles[3], 0xFF,
-                ])
-            }
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
         }
-    }
 
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x07;
+        buffer[4] = 0x00;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::TeleStandard => Some(ResponseType::ZoomIn),
-            Self::WideStandard => Some(ResponseType::ZoomOut),
-            _ => None,
-        }
+            Self::TeleStd => Some(ResponseType::ZoomIn),
+            Self::WideStd => Some(ResponseType::ZoomOut),
+            _ => None}
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Movement
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match self {
-            Self::Position(position) => {
-                let (min, max) = model.zoom_range();
-                if position.value() < min || position.value() > max {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "ZoomPosition".to_string(),
-                        reason: format!(
-                            "Position 0x{:04X} out of range [0x{min:04X}, 0x{max:04X}] for {model:?}", position.value()
-                        ),
-                    });
-                }
-                Ok(())
-            }
-            // Other zoom commands are generally supported by all models
-            _ => Ok(()),
-        }
     }
 }
 
@@ -170,8 +134,7 @@ pub enum DigitalZoom {
     /// Enable digital zoom.
     On = 0x02,
     /// Disable digital zoom.
-    Off = 0x03,
-}
+    Off = 0x03}
 
 /// Command to control digital zoom.
 ///
@@ -180,19 +143,34 @@ pub enum DigitalZoom {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct DigitalZoomCommand {
     /// The desired digital zoom state.
-    pub zoom: DigitalZoom,
-}
+    pub zoom: DigitalZoom}
 
-impl Command for DigitalZoomCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![0x81, 0x01, 0x04, 0x06, self.zoom as u8, 0xFF])
+impl EncodeVisca for DigitalZoomCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x06;
+        buffer[4] = self.zoom as u8;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
-
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }

@@ -1,92 +1,146 @@
 //! Zoom methods for cameras using the new GAT architecture.
 
 use crate::{
-    blocking::block_on,
-    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
-    capabilities::{ProfileMetadata, ValidationError, Zoom},
-    command::{
-        zoom::{ZoomCommand, ZoomSpeed},
-        Response,
-    },
-    transport::core::{BlockingTransport, Transport},
+    camera::unified::Camera,
+    capabilities::ValidationError,
+    command::{zoom::{Zoom as ZoomCommand, ZoomSpeed}, Response},
     types::ZoomPosition,
     units::Normalized,
     Error,
 };
+
+#[cfg(feature = "tokio")]
 use core::future::Future;
+/// Zoom operations.
+pub trait ZoomOps: Sized {
 
-/// Extension trait for CameraCore - provides future-returning methods.
-pub trait ZoomCoreExt<P, T>
-where
-    P: ProfileMetadata + Zoom,
-    T: Transport,
-{
-    /// Stop zooming - returns a future.
-    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Stop zooming.
+    #[cfg(feature = "tokio")]
+    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Start zooming in - returns a future.
-    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Stop zooming. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn zoom_stop_blocking(&mut self) -> Result<(), Error>;
 
-    /// Start zooming out - returns a future.
-    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Start zooming in (telephoto).
+    #[cfg(feature = "tokio")]
+    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Set zoom to absolute position - returns a future.
-    fn zoom_absolute(&self, position: Normalized<f32>) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Start zooming in (telephoto). (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn zoom_in_blocking(&mut self) -> Result<(), Error>;
+
+    /// Start zooming out (wide).
+    #[cfg(feature = "tokio")]
+    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Start zooming out (wide). (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn zoom_out_blocking(&mut self) -> Result<(), Error>;
+
+    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
+    #[cfg(feature = "tokio")]
+    fn zoom_absolute(&self, position: Normalized) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele). (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn zoom_absolute_blocking(&mut self, position: Normalized) -> Result<(), Error>;
 }
 
-#[allow(clippy::manual_async_fn)]
-impl<P, T> ZoomCoreExt<P, T> for CameraCore<P, T>
-where
-    P: ProfileMetadata + Zoom,
-    T: Transport,
-{
-    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+impl ZoomOps for Camera {
+    #[cfg(feature = "tokio")]
+    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
             let command = ZoomCommand::Stop;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
+
     }
 
-    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn zoom_stop_blocking(&mut self) -> Result<(), Error> {
+        
+            let command = ZoomCommand::Stop;
+            let response = self.send_command_blocking(&command)?;
+            match response {
+                Response::Completion => Ok(()),
+                Response::Error(e) => Err(e),
+                _ => Err(Error::UnexpectedResponseType),
+            }
+    }
+    #[cfg(feature = "tokio")]
+    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
             // Use medium speed by default
-            let speed = P::ZOOM_SPEED_RANGE.end / 2;
+            let speed = self.zoom_speed_range().end / 2;
             let zoom_speed = ZoomSpeed::new(speed)?;
             let command = ZoomCommand::TeleVariable(zoom_speed);
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
+
     }
 
-    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + '_ {
-        async move {
+    #[cfg(not(feature = "tokio"))]
+    fn zoom_in_blocking(&mut self) -> Result<(), Error> {
+        
             // Use medium speed by default
-            let speed = P::ZOOM_SPEED_RANGE.end / 2;
+            let speed = self.zoom_speed_range().end / 2;
             let zoom_speed = ZoomSpeed::new(speed)?;
-            let command = ZoomCommand::WideVariable(zoom_speed);
-            let response = self.send_command(&command).await?;
+            let command = ZoomCommand::TeleVariable(zoom_speed);
+            let response = self.send_command_blocking(&command)?;
             match response {
                 Response::Completion => Ok(()),
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
+    }
+    #[cfg(feature = "tokio")]
+    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + Send {
+        async move {
+            // Use medium speed by default
+            let speed = self.zoom_speed_range().end / 2;
+            let zoom_speed = ZoomSpeed::new(speed)?;
+            let command = ZoomCommand::WideVariable(zoom_speed);
+            let response = self.send_command(&command).await?;
+            match response {
+                Response::Completion => Ok(()),
+                Response::Error(e) => Err(e.into()),
+                _ => Err(Error::UnexpectedResponseType),
+            }
         }
+
     }
 
-    fn zoom_absolute(&self, position: Normalized<f32>) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn zoom_out_blocking(&mut self) -> Result<(), Error> {
+        
+            // Use medium speed by default
+            let speed = self.zoom_speed_range().end / 2;
+            let zoom_speed = ZoomSpeed::new(speed)?;
+            let command = ZoomCommand::WideVariable(zoom_speed);
+            let response = self.send_command_blocking(&command)?;
+            match response {
+                Response::Completion => Ok(()),
+                Response::Error(e) => Err(e),
+                _ => Err(Error::UnexpectedResponseType),
+            }
+    }
+    #[cfg(feature = "tokio")]
+    fn zoom_absolute(&self, position: Normalized) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
             let normalized = position;
             let position_value = normalized.0;
-            
+
             // Validate position
             if !(0.0..=1.0).contains(&position_value) {
                 return Err(Error::ValidationError(ValidationError::OutOfRange {
@@ -98,100 +152,47 @@ where
             }
 
             // Convert normalized position to VISCA units
-            let max_zoom = P::DIGITAL_ZOOM_MAX.unwrap_or(P::OPTICAL_ZOOM_MAX);
+            let max_zoom = self.digital_zoom_max().unwrap_or(self.optical_zoom_max());
             let zoom_pos = (position_value * max_zoom as f32) as u16;
             let zoom_position = ZoomPosition::new(zoom_pos)?;
             let command = ZoomCommand::Position(zoom_position);
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
+                Response::Error(e) => Err(e.into()),
                 _ => Err(Error::UnexpectedResponseType),
             }
         }
+
+    }
+
+    #[cfg(not(feature = "tokio"))]
+    fn zoom_absolute_blocking(&mut self, position: Normalized) -> Result<(), Error> {
+        
+            let normalized = position;
+            let position_value = normalized.0;
+
+            // Validate position
+            if !(0.0..=1.0).contains(&position_value) {
+                return Err(Error::ValidationError(ValidationError::OutOfRange {
+                    parameter: "zoom position",
+                    value: position_value as f64,
+                    min: 0.0,
+                    max: 1.0,
+                }));
+            }
+
+            // Convert normalized position to VISCA units
+            let max_zoom = self.digital_zoom_max().unwrap_or(self.optical_zoom_max());
+            let zoom_pos = (position_value * max_zoom as f32) as u16;
+            let zoom_position = ZoomPosition::new(zoom_pos)?;
+            let command = ZoomCommand::Position(zoom_position);
+            let response = self.send_command_blocking(&command)?;
+            match response {
+                Response::Completion => Ok(()),
+                Response::Error(e) => Err(e),
+                _ => Err(Error::UnexpectedResponseType),
+            }
     }
 }
 
-/// Extension trait for async Camera facade.
-pub trait ZoomAsyncExt<P, T>
-where
-    P: ProfileMetadata + Zoom,
-    T: Transport,
-{
-    /// Stop zooming.
-    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Start zooming in (telephoto).
-    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Start zooming out (wide).
-    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    fn zoom_absolute(&self, position: Normalized<f32>) -> impl Future<Output = Result<(), Error>> + Send;
-}
-
-impl<P, T> ZoomAsyncExt<P, T> for CameraAsync<P, T>
-where
-    P: ProfileMetadata + Zoom + Sync,
-    T: Transport + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().zoom_stop().await }
-    }
-
-    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().zoom_in().await }
-    }
-
-    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().zoom_out().await }
-    }
-
-    fn zoom_absolute(&self, position: Normalized<f32>) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().zoom_absolute(position).await }
-    }
-}
-
-/// Extension trait for blocking Camera facade.
-pub trait ZoomBlockingExt<P, T>
-where
-    P: ProfileMetadata + Zoom,
-    T: BlockingTransport,
-{
-    /// Stop zooming.
-    fn zoom_stop(&self) -> Result<(), Error>;
-
-    /// Start zooming in (telephoto).
-    fn zoom_in(&self) -> Result<(), Error>;
-
-    /// Start zooming out (wide).
-    fn zoom_out(&self) -> Result<(), Error>;
-
-    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    fn zoom_absolute(&self, position: Normalized<f32>) -> Result<(), Error>;
-}
-
-impl<P, T> ZoomBlockingExt<P, T> for CameraBlocking<P, T>
-where
-    P: ProfileMetadata + Zoom,
-    T: BlockingTransport,
-{
-    fn zoom_stop(&self) -> Result<(), Error> {
-        block_on(self.core().zoom_stop())
-    }
-
-    fn zoom_in(&self) -> Result<(), Error> {
-        block_on(self.core().zoom_in())
-    }
-
-    fn zoom_out(&self) -> Result<(), Error> {
-        block_on(self.core().zoom_out())
-    }
-
-    fn zoom_absolute(&self, position: Normalized<f32>) -> Result<(), Error> {
-        block_on(self.core().zoom_absolute(position))
-    }
-}

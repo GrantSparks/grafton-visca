@@ -5,7 +5,7 @@
 
 use crate::error::Error;
 use crate::types::{
-    ColorTemperature, FocusPosition, IrisLevel, PanSpeed, ShutterSpeed, TiltSpeed, ZoomPosition,
+    ColorTemp, FocusPosition, IrisLevel, PanSpeed, ShutterSpeed, TiltSpeed, ZoomPosition,
 };
 use std::convert::TryFrom;
 
@@ -187,7 +187,6 @@ impl Fraction {
     }
 }
 
-
 // Conversion implementations for ZoomPosition
 impl TryFrom<Percentage<f32>> for ZoomPosition {
     type Error = Error;
@@ -343,8 +342,8 @@ impl TryFrom<Fraction> for ShutterSpeed {
     }
 }
 
-// Conversion implementations for ColorTemperature
-impl TryFrom<Kelvin> for ColorTemperature {
+// Conversion implementations for ColorTemp
+impl TryFrom<Kelvin> for ColorTemp {
     type Error = Error;
 
     fn try_from(kelvin: Kelvin) -> Result<Self, Self::Error> {
@@ -361,7 +360,7 @@ impl TryFrom<Kelvin> for ColorTemperature {
         // This is a simplified linear mapping
         let normalized = (kelvin.0 - 2000) as f32 / 6000.0;
         let value = (normalized * 0x37 as f32) as u16;
-        ColorTemperature::new(value)
+        ColorTemp::new(value)
     }
 }
 
@@ -412,8 +411,8 @@ impl From<Raw<u8>> for TiltSpeed {
     }
 }
 
-// Conversion implementations for Gain
-impl TryFrom<Percentage<f32>> for crate::types::Gain {
+// Conversion implementations for GainLevel
+impl TryFrom<Percentage<f32>> for crate::types::GainLevel {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
@@ -427,13 +426,13 @@ impl TryFrom<Percentage<f32>> for crate::types::Gain {
         }
         // Map percentage to gain levels (0-7)
         let value = (percentage.0 / 100.0 * 7.0).round() as u8;
-        crate::types::Gain::new(value)
+        crate::types::GainLevel::new(value)
     }
 }
 
-impl From<Raw<u8>> for crate::types::Gain {
+impl From<Raw<u8>> for crate::types::GainLevel {
     fn from(raw: Raw<u8>) -> Self {
-        crate::types::Gain::new(raw.0).unwrap_or(crate::types::Gain::MIN)
+        crate::types::GainLevel::new(raw.0).unwrap_or(crate::types::GainLevel::MIN)
     }
 }
 

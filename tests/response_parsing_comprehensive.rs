@@ -17,7 +17,7 @@ use grafton_visca::{
 
 #[test]
 fn test_response_debug() {
-    let ack = Response::Ack;
+    let ack = Response::CmdAck;
     assert_eq!(format!("{:?}", ack), "Ack");
 
     let completion = Response::Completion;
@@ -40,13 +40,13 @@ fn test_response_type_equality() {
 fn test_parse_ack_response() {
     let response = vec![0x90, 0x41, 0xFF];
     let result = parse_response(&response, &ResponseType::Power).unwrap();
-    assert!(matches!(result, Response::Ack));
+    assert!(matches!(result, Response::CmdAck));
 
     // Test all socket variations
     for socket in 0x40..=0x4F {
         let response = vec![0x90, socket, 0xFF];
         let result = parse_response(&response, &ResponseType::Power).unwrap();
-        assert!(matches!(result, Response::Ack));
+        assert!(matches!(result, Response::CmdAck));
     }
 }
 
@@ -550,7 +550,7 @@ fn test_response_builder_integration() {
     // Test that ResponseBuilder produces parseable responses
     let ack = ResponseBuilder::ack(1);
     let result = parse_response(&ack, &ResponseType::Power).unwrap();
-    assert!(matches!(result, Response::Ack));
+    assert!(matches!(result, Response::CmdAck));
 
     let completion = ResponseBuilder::completion(1);
     let result = parse_response(&completion, &ResponseType::Power).unwrap();
@@ -569,7 +569,7 @@ fn test_unknown_inquiry_response_handling() {
     // Test that an unimplemented response type returns Unknown variant
     // Using a response type that's not implemented in parse_inquiry_response
     let response = vec![0x90, 0x50, 0x01, 0x02, 0x03, 0xFF]; // Some inquiry data
-    
+
     // Try parsing with various unimplemented response types
     let unimplemented_types = vec![
         ResponseType::PictureEffect,
@@ -578,15 +578,21 @@ fn test_unknown_inquiry_response_handling() {
         ResponseType::Rtmp,
         ResponseType::AutoTrace,
     ];
-    
+
     for response_type in unimplemented_types {
         let result = parse_response(&response, &response_type).unwrap();
         match result {
-            Response::Unknown { response_type: Some(rt), data } => {
+            Response::Unknown {
+                response_type: Some(rt),
+                data,
+            } => {
                 assert_eq!(rt, response_type);
                 assert_eq!(data, vec![0x01, 0x02, 0x03]); // Payload without header/terminator
             }
-            _ => panic!("Expected Unknown response for unimplemented type {:?}", response_type),
+            _ => panic!(
+                "Expected Unknown response for unimplemented type {:?}",
+                response_type
+            ),
         }
     }
 }
@@ -595,47 +601,83 @@ fn test_unknown_inquiry_response_handling() {
 fn test_exhaustive_response_type_coverage() {
     // This test ensures that we handle ALL ResponseType variants appropriately
     // by checking that each type either parses successfully or returns Unknown
-    
+
     // List of all implemented response types with valid test data
     let implemented_types = vec![
         (ResponseType::Power, vec![0x90, 0x50, 0x02, 0xFF]), // on = true
-        (ResponseType::ZoomPosition, vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF]),
-        (ResponseType::PanTiltPosition, vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF]),
-        (ResponseType::FocusPosition, vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF]),
-        (ResponseType::FocusNearLimit, vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF]),
+        (
+            ResponseType::ZoomPosition,
+            vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF],
+        ),
+        (
+            ResponseType::PanTiltPosition,
+            vec![
+                0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
+            ],
+        ),
+        (
+            ResponseType::FocusPosition,
+            vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF],
+        ),
+        (
+            ResponseType::FocusNearLimit,
+            vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF],
+        ),
         (ResponseType::ExposureMode, vec![0x90, 0x50, 0x00, 0xFF]), // Auto
         (ResponseType::WhiteBalanceMode, vec![0x90, 0x50, 0x00, 0xFF]), // Auto
         (ResponseType::FocusZone, vec![0x90, 0x50, 0x00, 0xFF]),
-        (ResponseType::AutoFocusSensitivity, vec![0x90, 0x50, 0x01, 0xFF]), // Normal
+        (
+            ResponseType::AutoFocusSensitivity,
+            vec![0x90, 0x50, 0x01, 0xFF],
+        ), // Normal
         (ResponseType::AntiFlicker, vec![0x90, 0x50, 0x00, 0xFF]), // Off
-        (ResponseType::ExposureCompensationMode, vec![0x90, 0x50, 0x02, 0xFF]), // on
-        (ResponseType::ExposureCompensation, vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF]),
+        (
+            ResponseType::ExposureCompensationMode,
+            vec![0x90, 0x50, 0x02, 0xFF],
+        ), // on
+        (
+            ResponseType::ExposureCompensation,
+            vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF],
+        ),
         (ResponseType::GainLimit, vec![0x90, 0x50, 0x00, 0xFF]),
         (ResponseType::RedGain, vec![0x90, 0x50, 0x0A, 0xFF]), // 0 after conversion
         (ResponseType::BlueGain, vec![0x90, 0x50, 0x0A, 0xFF]), // 0 after conversion
-        (ResponseType::Sharpness, vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF]),
+        (
+            ResponseType::Sharpness,
+            vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF],
+        ),
         (ResponseType::SharpnessMode, vec![0x90, 0x50, 0x02, 0xFF]), // Auto
-        (ResponseType::Shutter, vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF]),
+        (
+            ResponseType::Shutter,
+            vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF],
+        ),
         (ResponseType::Backlight, vec![0x90, 0x50, 0x02, 0xFF]), // on
         (ResponseType::Luminance, vec![0x90, 0x50, 0x00, 0xFF]),
         (ResponseType::Contrast, vec![0x90, 0x50, 0x00, 0xFF]),
         (ResponseType::ImageFlip, vec![0x90, 0x50, 0x00, 0xFF]),
         (ResponseType::BlackWhite, vec![0x90, 0x50, 0x04, 0xFF]), // on
-        (ResponseType::TallyRed, vec![0x90, 0x50, 0x02, 0xFF]), // on
+        (ResponseType::TallyRed, vec![0x90, 0x50, 0x02, 0xFF]),   // on
         (ResponseType::TallyGreen, vec![0x90, 0x50, 0x02, 0xFF]), // on
     ];
-    
+
     // Verify all implemented types parse successfully
     for (response_type, data) in implemented_types {
         let result = parse_response(&data, &response_type);
-        assert!(result.is_ok(), "Failed to parse {:?}: {:?}", response_type, result);
+        assert!(
+            result.is_ok(),
+            "Failed to parse {:?}: {:?}",
+            response_type,
+            result
+        );
         match result.unwrap() {
-            Response::InquiryResponse(_) => {}, // Good, it parsed
-            Response::Unknown { .. } => panic!("Implemented type {:?} returned Unknown", response_type),
+            Response::InquiryResponse(_) => {} // Good, it parsed
+            Response::Unknown { .. } => {
+                panic!("Implemented type {:?} returned Unknown", response_type)
+            }
             _ => panic!("Unexpected response type for {:?}", response_type),
         }
     }
-    
+
     // List of ALL unimplemented types - these should return Unknown
     let unimplemented_types = vec![
         ResponseType::Gain,
@@ -698,16 +740,22 @@ fn test_exhaustive_response_type_coverage() {
         ResponseType::TallyStatus,
         ResponseType::TallyAutoAdjust,
     ];
-    
+
     // Verify unimplemented types return Unknown
     let test_data = vec![0x90, 0x50, 0x01, 0x02, 0xFF];
     for response_type in unimplemented_types {
         let result = parse_response(&test_data, &response_type).unwrap();
         match result {
-            Response::Unknown { response_type: Some(rt), .. } => {
+            Response::Unknown {
+                response_type: Some(rt),
+                ..
+            } => {
                 assert_eq!(rt, response_type);
             }
-            _ => panic!("Expected Unknown response for unimplemented type {:?}", response_type),
+            _ => panic!(
+                "Expected Unknown response for unimplemented type {:?}",
+                response_type
+            ),
         }
     }
 }

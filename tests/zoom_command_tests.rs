@@ -4,16 +4,15 @@ mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
-    camera::methods::ZoomBlockingExt,
+    camera::methods::ZoomOps,
     command::{
-        zoom::{ZoomCommand, ZoomSpeed},
-        Command, ResponseType,
+        Zoom, zoom::ZoomSpeed,
+        EncodeVisca, ResponseType,
     },
     profiles::PTZOpticsG2,
     timeout::CommandCategory,
     types::ZoomPosition,
-    CameraBlocking,
-    Error,
+    Camera, Error,
 };
 
 #[test]
@@ -53,9 +52,9 @@ fn test_zoom_speed_into_u8() {
 
 #[test]
 fn test_zoom_command_stop() {
-    let cmd = ZoomCommand::Stop;
+    let cmd = Zoom::Stop;
     let bytes = cmd
-        .to_bytes()
+        .try_into_vec()
         .unwrap_or_else(|e| panic!("Failed to convert Stop command to bytes: {e:?}"));
 
     // Verify using pattern constants
@@ -68,10 +67,10 @@ fn test_zoom_command_stop() {
 
 #[test]
 fn test_zoom_command_zoom_in_standard() {
-    let cmd = ZoomCommand::TeleStandard;
+    let cmd = Zoom::TeleStd;
     let bytes = cmd
-        .to_bytes()
-        .unwrap_or_else(|e| panic!("Failed to convert TeleStandard command to bytes: {e:?}"));
+        .try_into_vec()
+        .unwrap_or_else(|e| panic!("Failed to convert TeleStd command to bytes: {e:?}"));
 
     // Verify using pattern constants
     assert_eq!(bytes, patterns::zoom::TELE_STD);
@@ -84,10 +83,10 @@ fn test_zoom_command_zoom_in_standard() {
 
 #[test]
 fn test_zoom_command_zoom_out_standard() {
-    let cmd = ZoomCommand::WideStandard;
+    let cmd = Zoom::WideStd;
     let bytes = cmd
-        .to_bytes()
-        .unwrap_or_else(|e| panic!("Failed to convert WideStandard command to bytes: {e:?}"));
+        .try_into_vec()
+        .unwrap_or_else(|e| panic!("Failed to convert WideStd command to bytes: {e:?}"));
 
     // Verify using pattern constants
     assert_eq!(bytes, patterns::zoom::WIDE_STD);
@@ -100,9 +99,9 @@ fn test_zoom_command_zoom_out_standard() {
 #[test]
 fn test_zoom_command_zoom_in_variable() {
     let speed = ZoomSpeed::new(5).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 5: {e:?}"));
-    let cmd = ZoomCommand::TeleVariable(speed);
+    let cmd = Zoom::TeleVariable(speed);
     let bytes = cmd
-        .to_bytes()
+        .try_into_vec()
         .unwrap_or_else(|e| panic!("Failed to convert TeleVariable command to bytes: {e:?}"));
 
     // Verify command structure
@@ -116,9 +115,9 @@ fn test_zoom_command_zoom_in_variable() {
 #[test]
 fn test_zoom_command_zoom_out_variable() {
     let speed = ZoomSpeed::new(7).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 7: {e:?}"));
-    let cmd = ZoomCommand::WideVariable(speed);
+    let cmd = Zoom::WideVariable(speed);
     let bytes = cmd
-        .to_bytes()
+        .try_into_vec()
         .unwrap_or_else(|e| panic!("Failed to convert WideVariable command to bytes: {e:?}"));
 
     // Verify command structure
@@ -131,11 +130,11 @@ fn test_zoom_command_zoom_out_variable() {
 
 #[test]
 fn test_zoom_command_position() {
-    let cmd = ZoomCommand::Position(
+    let cmd = Zoom::Position(
         ZoomPosition::new(0x1234).unwrap_or_else(|e| panic!("Valid zoom position: {e:?}")),
     );
     let bytes = cmd
-        .to_bytes()
+        .try_into_vec()
         .unwrap_or_else(|e| panic!("Failed to convert Position command to bytes: {e:?}"));
 
     // Verify command structure
@@ -171,29 +170,29 @@ fn test_position_to_nibbles() {
 fn test_zoom_response_type() {
     // Commands that expect ZoomIn response
     assert_eq!(
-        ZoomCommand::TeleStandard.response_type(),
+        Zoom::TeleStd.response_type(),
         Some(ResponseType::ZoomIn)
     );
     let speed = ZoomSpeed::new(5).unwrap();
     assert_eq!(
-        ZoomCommand::TeleVariable(speed).response_type(),
+        Zoom::TeleVariable(speed).response_type(),
         Some(ResponseType::ZoomIn)
     );
 
     // Commands that expect ZoomOut response
     assert_eq!(
-        ZoomCommand::WideStandard.response_type(),
+        Zoom::WideStd.response_type(),
         Some(ResponseType::ZoomOut)
     );
     assert_eq!(
-        ZoomCommand::WideVariable(speed).response_type(),
+        Zoom::WideVariable(speed).response_type(),
         Some(ResponseType::ZoomOut)
     );
 
     // Commands that have no response type
-    assert_eq!(ZoomCommand::Stop.response_type(), None);
+    assert_eq!(Zoom::Stop.response_type(), None);
     let position = ZoomPosition::new(0x1234).unwrap();
-    assert_eq!(ZoomCommand::Position(position).response_type(), None);
+    assert_eq!(Zoom::Position(position).response_type(), None);
 }
 
 #[test]
@@ -216,7 +215,7 @@ fn test_zoom_commands_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
 
     // Test zoom commands
     assert!(camera.zoom_stop().is_ok());
@@ -236,7 +235,7 @@ fn test_zoom_with_inquiry_response() {
         .described_as("zoom position inquiry")
         .will_return_data(&[0x04, 0x00, 0x00, 0x00]); // Position 0x4000
 
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
 
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly

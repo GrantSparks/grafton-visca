@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let camera = Camera::<GenericVisca, _>::new(transport);
 
             // Use camera methods - note we use &camera, not &mut camera
-            use grafton_visca::camera::methods::ZoomAsyncExt;
+            use grafton_visca::camera::methods::ZoomOps;
             match camera.zoom_stop().await {
                 Ok(_) => println!("   ✓ Zoom stop command sent"),
                 Err(e) => println!("   ✗ Error: {e}"),
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let camera = Camera::<GenericVisca, _>::new(transport);
 
             // Use camera methods - using &camera (interior mutability)
-            use grafton_visca::camera::methods::ZoomAsyncExt;
+            use grafton_visca::camera::methods::ZoomOps;
             match camera.zoom_stop().await {
                 Ok(_) => println!("   ✓ Zoom stop command sent"),
                 Err(e) => println!("   ✗ Error: {e}"),

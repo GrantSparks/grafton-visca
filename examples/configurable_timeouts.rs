@@ -17,14 +17,14 @@ fn main() {
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{FocusBlockingExt, PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt},
+        methods::{FocusOps, PanTiltOps, PowerOps, PresetsOps},
         profiles::G2PresetId,
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     transport::blocking::Tcp,
     types::{PanSpeed, TiltSpeed},
-    CameraBlocking, Error,
+    Camera, Error,
 };
 #[cfg(not(feature = "async"))]
 use std::time::{Duration, Instant};
@@ -55,7 +55,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Tcp::connect(camera_addr)?;
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Note: The Camera API doesn't have built-in timeout support.");
     println!("These examples show execution timing patterns.\n");

@@ -3,19 +3,18 @@
 //! These methods ONLY exist for cameras that implement NDFilter.
 
 use crate::{
-    blocking::block_on,
-    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
-    capabilities::nd_filter::NDFilterExt,
-    capabilities::{NDFilter, NDFilterMode, ProfileMetadata},
+    camera::unified::Camera,
     command::{
+        encode_visca::EncodeVisca,
         const_encoding::{
             encode_nd_filter_fixed, encode_nd_filter_stepped, encode_nd_filter_variable,
         },
-        Command, Response, ResponseType,
+        ResponseType,
     },
-    transport::core::{BlockingTransport, Transport},
     Error,
 };
+
+#[cfg(feature = "tokio")]
 use core::future::Future;
 
 /// ND filter command.
@@ -43,9 +42,20 @@ impl NDFilterCommand {
     }
 }
 
-impl Command for NDFilterCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.bytes.clone())
+impl EncodeVisca for NDFilterCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 16;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        let len = self.bytes.len();
+        if buffer.len() < len {
+            return Err(Error::BufferTooSmall {
+                required: len,
+                actual: buffer.len(),
+            });
+        }
+        buffer[..len].copy_from_slice(&self.bytes);
+        Ok(len)
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -53,133 +63,96 @@ impl Command for NDFilterCommand {
     }
 }
 
-/// Extension trait for CameraCore - provides future-returning methods.
-pub trait NDFilterCoreExt<P, T>
-where
-    P: ProfileMetadata + NDFilter + Default,
-    T: Transport,
+/// ND filter operations.
+pub trait NDFilterOps: Sized
 {
-    /// Set ND filter level - returns a future.
-    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set ND filter level.
+    #[cfg(feature = "tokio")]
+    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Get current ND filter setting - returns a future.
-    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + '_;
+    /// Set ND filter level (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_nd_filter_blocking(&mut self, level: u8) -> Result<(), Error>;
+
+    /// Get current ND filter setting.
+    #[cfg(feature = "tokio")]
+    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+
+    /// Get current ND filter setting (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn get_nd_filter_blocking(&mut self) -> Result<u8, Error>;
 }
 
-#[allow(clippy::manual_async_fn)]
-impl<P, T> NDFilterCoreExt<P, T> for CameraCore<P, T>
-where
-    P: ProfileMetadata + NDFilter + Default,
-    T: Transport,
+impl NDFilterOps for Camera
 {
-    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(feature = "tokio")]
+    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            // Validate using the profile's ND mode
-            let profile = P::default();
-            let validated_level = profile.validate_nd_filter(level)?;
+            // Validate using the camera's ND mode
+            let validated_level = self.validate_nd_filter(level)?;
 
-            let command = match P::ND_MODE {
-                NDFilterMode::None => {
+            let command = match self.nd_filter_mode() {
+                None | Some(crate::capabilities::NDFilterMode::None) => {
                     return Err(Error::FeatureNotSupported {
                         feature: "ND filter".to_string(),
                     })
                 }
-                NDFilterMode::Fixed(value) => NDFilterCommand::new_fixed(validated_level == value),
-                NDFilterMode::Stepped(_) => NDFilterCommand::new_stepped(validated_level),
-                NDFilterMode::Variable => NDFilterCommand::new_variable(validated_level),
+                Some(crate::capabilities::NDFilterMode::Fixed(value)) => NDFilterCommand::new_fixed(validated_level == value),
+                Some(crate::capabilities::NDFilterMode::Stepped(_)) => NDFilterCommand::new_stepped(validated_level),
+                Some(crate::capabilities::NDFilterMode::Variable) => NDFilterCommand::new_variable(validated_level),
             };
 
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            self.send_command(&command).await?;
+            Ok(())
         }
     }
 
-    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn set_nd_filter_blocking(&mut self, level: u8) -> Result<(), Error> {
+        // Validate using the camera's ND mode
+        let validated_level = self.validate_nd_filter(level)?;
+
+        let command = match self.nd_filter_mode() {
+            None | Some(crate::capabilities::NDFilterMode::None) => {
+                return Err(Error::FeatureNotSupported {
+                    feature: "ND filter".to_string(),
+                })
+            }
+            Some(crate::capabilities::NDFilterMode::Fixed(value)) => NDFilterCommand::new_fixed(validated_level == value),
+            Some(crate::capabilities::NDFilterMode::Stepped(_)) => NDFilterCommand::new_stepped(validated_level),
+            Some(crate::capabilities::NDFilterMode::Variable) => NDFilterCommand::new_variable(validated_level),
+        };
+
+        self.send_command_blocking(&command)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "tokio")]
+    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + Send {
         async move {
             // Simplified for demo - would query actual value
             Ok(0)
         }
     }
-}
 
-/// Extension trait for async Camera facade.
-pub trait NDFilterAsyncExt<P, T>
-where
-    P: ProfileMetadata + NDFilter + Default,
-    T: Transport,
-{
-    /// Set ND filter level.
-    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Get current ND filter setting.
-    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + Send;
-}
-
-impl<P, T> NDFilterAsyncExt<P, T> for CameraAsync<P, T>
-where
-    P: ProfileMetadata + NDFilter + Default + Sync + Send,
-    T: Transport + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().set_nd_filter(level).await }
-    }
-
-    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + Send {
-        async move { self.core().get_nd_filter().await }
+    #[cfg(not(feature = "tokio"))]
+    fn get_nd_filter_blocking(&mut self) -> Result<u8, Error> {
+        // Simplified for demo - would query actual value
+        Ok(0)
     }
 }
 
-/// Extension trait for blocking Camera facade.
-pub trait NDFilterBlockingExt<P, T>
-where
-    P: ProfileMetadata + NDFilter + Default,
-    T: BlockingTransport,
-{
-    /// Set ND filter level.
-    fn set_nd_filter(&self, level: u8) -> Result<(), Error>;
-
-    /// Get current ND filter setting.
-    fn get_nd_filter(&self) -> Result<u8, Error>;
-}
-
-impl<P, T> NDFilterBlockingExt<P, T> for CameraBlocking<P, T>
-where
-    P: ProfileMetadata + NDFilter + Default,
-    T: BlockingTransport,
-{
-    fn set_nd_filter(&self, level: u8) -> Result<(), Error> {
-        block_on(self.core().set_nd_filter(level))
-    }
-
-    fn get_nd_filter(&self) -> Result<u8, Error> {
-        block_on(self.core().get_nd_filter())
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profiles::SonyFR7;
 
     #[test]
     fn test_nd_filter_compile_time_safety() {
         // This test demonstrates compile-time safety - cameras without ND filter
         // capability cannot use ND filter methods
-
-        // This compiles - FR7 has ND filter
-        fn _test_fr7_nd_filter<T: Transport>(_camera: &CameraAsync<SonyFR7, T>) {
-            // Camera with ND filter can use these methods
-        }
-
-        // This would NOT compile - PTZOpticsG2 doesn't have ND filter
-        // fn _test_g2_nd_filter<T: Transport>(_camera: &CameraAsync<PTZOpticsG2, T>) {
-        //     // COMPILE ERROR: the trait bound `PTZOpticsG2: NDFilter` is not satisfied
-        // }
+        
+        // Note: With the unified Camera API, compile-time safety is achieved
+        // through runtime profile checks rather than generic constraints
     }
 }

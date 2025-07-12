@@ -5,12 +5,10 @@
 
 // Crate imports
 use crate::{
-    command::{const_encoding::CommandBuilder, response::ResponseType, Command},
-    constants::CameraModel,
+    command::{encode_visca::EncodeVisca, const_encoding::CommandBuilder, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{Gain, GainLimit},
-};
+    types::{GainLevel, GainLimit}};
 
 /// Commands for controlling gain values.
 ///
@@ -19,7 +17,7 @@ use crate::{
 /// - Increment/decrement by one step
 /// - Set to a specific value
 #[derive(Debug, Copy, Clone)]
-pub enum GainCommand {
+pub enum Gain {
     /// Reset to default value.
     Reset,
     /// Increase value by one step.
@@ -27,10 +25,9 @@ pub enum GainCommand {
     /// Decrease value by one step.
     Down,
     /// Set gain to specific value.
-    SetValue(Gain),
-}
+    SetValue(GainLevel)}
 
-impl GainCommand {
+impl Gain {
     // Legacy method - removed in new API
     // pub fn direct<P: crate::camera::CameraProfile>(gain: P::Gain) -> Result<Self, Error> {
     //     ...
@@ -38,48 +35,33 @@ impl GainCommand {
 }
 
 // Manual implementation to add model validation
-impl Command for GainCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF],
-            Self::SetValue(value) => {
-                let val = value.value();
-                let high = (val >> 4) & 0x0F;
-                let low = val & 0x0F;
-                vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
-    }
+impl EncodeVisca for Gain {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x0C;
+        buffer[4] = 0x00;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match self {
-            Self::SetValue(gain) => {
-                gain.validate_for_model(model)
-                    .map_err(|_| Error::ModelValidation {
-                        model,
-                        command: "GainDirect".to_string(),
-                        reason: format!(
-                            "Gain value {:#02X} is not valid for {}",
-                            gain.value(),
-                            match model {
-                                CameraModel::PTZOpticsG2 => "G2 (valid values: 0x00-0x07)",
-                                _ => "this camera model",
-                            }
-                        ),
-                    })
-            }
-            _ => Ok(()),
-        }
     }
 }
 
@@ -89,8 +71,7 @@ pub(crate) struct GainLimitCommand {
     /// The maximum gain level allowed in auto mode.
     pub limit: GainLimit,
     /// Internal command bytes.
-    command: [u8; 6],
-}
+    command: [u8; 6]}
 
 impl GainLimitCommand {
     /// Create a new gain limit command.
@@ -100,39 +81,31 @@ impl GainLimitCommand {
         cmd.push(limit.value());
         Self {
             limit,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for GainLimitCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for GainLimitCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        self.limit
-            .validate_for_model(model)
-            .map_err(|_| Error::ModelValidation {
-                model,
-                command: "GainLimit".to_string(),
-                reason: format!(
-                    "Gain limit value {:#02X} is not valid for {}",
-                    self.limit.value(),
-                    match model {
-                        CameraModel::PTZOpticsG2 => "G2 (valid values: 0x0-0xF)",
-                        _ => "this camera model",
-                    }
-                ),
-            })
     }
 }
 
@@ -147,8 +120,7 @@ pub enum AntiFlickerMode {
     /// Enable 50Hz anti-flicker (for regions with 50Hz AC power).
     Hz50 = 0x01,
     /// Enable 60Hz anti-flicker (for regions with 60Hz AC power).
-    Hz60 = 0x02,
-}
+    Hz60 = 0x02}
 
 /// Command to set anti-flicker mode.
 #[derive(Debug, Copy, Clone)]
@@ -156,8 +128,7 @@ pub(crate) struct AntiFlickerCommand {
     /// The anti-flicker mode to apply.
     pub mode: AntiFlickerMode,
     /// Internal command bytes.
-    command: [u8; 6],
-}
+    command: [u8; 6]}
 
 impl AntiFlickerCommand {
     /// Create a new anti-flicker command.
@@ -167,21 +138,30 @@ impl AntiFlickerCommand {
         cmd.push(mode as u8);
         Self {
             mode,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for AntiFlickerCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for AntiFlickerCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
@@ -190,12 +170,13 @@ impl Command for AntiFlickerCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::constants::CameraModel;
 
     #[test]
     fn test_gain_command_reset() {
-        let cmd = GainCommand::Reset;
+        let cmd = Gain::Reset;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF]
         );
@@ -203,9 +184,9 @@ mod tests {
 
     #[test]
     fn test_gain_command_up() {
-        let cmd = GainCommand::Up;
+        let cmd = Gain::Up;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF]
         );
@@ -213,9 +194,9 @@ mod tests {
 
     #[test]
     fn test_gain_command_down() {
-        let cmd = GainCommand::Down;
+        let cmd = Gain::Down;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF]
         );
@@ -226,12 +207,12 @@ mod tests {
         // Test various gain values
         let test_values = vec![0x00, 0x01, 0x03, 0x05, 0x07];
         for value in test_values {
-            let gain = Gain::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = GainCommand::SetValue(gain);
+            let gain = GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+            let cmd = Gain::SetValue(gain);
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
-                cmd.to_bytes()
+                cmd.try_into_vec()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, high, low, 0xFF]
             );
@@ -242,8 +223,8 @@ mod tests {
     fn test_gain_command_g2_validation() {
         // Test valid G2 gain values (0x00-0x07)
         for value in 0x00..=0x07 {
-            let gain = Gain::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = GainCommand::SetValue(gain);
+            let gain = GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+            let cmd = Gain::SetValue(gain);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -251,13 +232,13 @@ mod tests {
         // So all valid Gain instances should pass G2 validation
 
         // Non-direct commands should always be valid
-        assert!(GainCommand::Reset
+        assert!(Gain::Reset
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
-        assert!(GainCommand::Up
+        assert!(Gain::Up
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
-        assert!(GainCommand::Down
+        assert!(Gain::Down
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
     }
@@ -271,7 +252,7 @@ mod tests {
                 GainLimit::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainLimitCommand::new(limit);
             assert_eq!(
-                cmd.to_bytes()
+                cmd.try_into_vec()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x2C, value, 0xFF]
             );
@@ -310,7 +291,7 @@ mod tests {
         // Test Off mode
         let cmd = AntiFlickerCommand::new(AntiFlickerMode::Off);
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x23, 0x00, 0xFF]
         );
@@ -318,7 +299,7 @@ mod tests {
         // Test 50Hz mode
         let cmd = AntiFlickerCommand::new(AntiFlickerMode::Hz50);
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x23, 0x01, 0xFF]
         );
@@ -326,7 +307,7 @@ mod tests {
         // Test 60Hz mode
         let cmd = AntiFlickerCommand::new(AntiFlickerMode::Hz60);
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x23, 0x02, 0xFF]
         );
@@ -336,27 +317,27 @@ mod tests {
     fn test_command_categories() {
         // All gain commands should be Quick category
         assert_eq!(
-            GainCommand::Reset.command_category(),
+            Gain::Reset.timeout_kind(),
             CommandCategory::Quick
         );
-        assert_eq!(GainCommand::Up.command_category(), CommandCategory::Quick);
-        assert_eq!(GainCommand::Down.command_category(), CommandCategory::Quick);
+        assert_eq!(Gain::Up.timeout_kind(), CommandCategory::Quick);
+        assert_eq!(Gain::Down.timeout_kind(), CommandCategory::Quick);
         assert_eq!(
-            GainCommand::SetValue(
-                Gain::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            Gain::SetValue(
+                GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
-            .command_category(),
+            .timeout_kind(),
             CommandCategory::Quick
         );
         assert_eq!(
             GainLimitCommand::new(
                 GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
-            .command_category(),
+            .timeout_kind(),
             CommandCategory::Quick
         );
         assert_eq!(
-            AntiFlickerCommand::new(AntiFlickerMode::Hz50).command_category(),
+            AntiFlickerCommand::new(AntiFlickerMode::Hz50).timeout_kind(),
             CommandCategory::Quick
         );
     }
@@ -364,11 +345,11 @@ mod tests {
     #[test]
     fn test_response_types() {
         // All gain commands should return None for response_type
-        assert!(GainCommand::Reset.response_type().is_none());
-        assert!(GainCommand::Up.response_type().is_none());
-        assert!(GainCommand::Down.response_type().is_none());
-        assert!(GainCommand::SetValue(
-            Gain::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+        assert!(Gain::Reset.response_type().is_none());
+        assert!(Gain::Up.response_type().is_none());
+        assert!(Gain::Down.response_type().is_none());
+        assert!(Gain::SetValue(
+            GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
         .response_type()
         .is_none());
@@ -385,12 +366,12 @@ mod tests {
     #[test]
     fn test_gain_command_debug() {
         // Test Debug trait implementation
-        let cmd = GainCommand::Reset;
+        let cmd = Gain::Reset;
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("Reset"));
 
-        let cmd = GainCommand::SetValue(
-            Gain::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+        let cmd = Gain::SetValue(
+            GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
         );
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("SetValue"));
@@ -404,15 +385,15 @@ mod tests {
         let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
         assert_eq!(
-            cmd1.to_bytes()
+            cmd1.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd2.to_bytes()
+            cmd2.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
         assert_eq!(
-            cmd1.to_bytes()
+            cmd1.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd3.to_bytes()
+            cmd3.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
     }

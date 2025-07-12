@@ -49,12 +49,14 @@ pub enum TransportKind {
 /// Implementation of Transport for TransportKind.
 impl Transport for TransportKind {
     type Error = Error;
-    
-    type SendFut<'a> = core::pin::Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>
+
+    type SendFut<'a>
+        = core::pin::Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>
     where
         Self: 'a;
-        
-    type RecvFut<'a> = core::pin::Pin<Box<dyn Future<Output = Result<Bytes, Self::Error>> + Send + 'a>>
+
+    type RecvFut<'a>
+        = core::pin::Pin<Box<dyn Future<Output = Result<Bytes, Self::Error>> + Send + 'a>>
     where
         Self: 'a;
 

@@ -32,15 +32,15 @@ fn main() -> Result<(), Error> {
     let home = TestCommands::Home;
     let power_on = PowerCommands::On;
 
-    println!("Home bytes: {:02X?}", home.to_bytes()?);
-    println!("Power On bytes: {:02X?}", power_on.to_bytes()?);
-    println!("Home category: {:?}", home.command_category());
-    println!("Power category: {:?}", power_on.command_category());
+    println!("Home bytes: {:02X?}", home.try_into_vec()?);
+    println!("Power On bytes: {:02X?}", power_on.try_into_vec()?);
+    println!("Home category: {:?}", home.timeout_kind());
+    println!("Power category: {:?}", power_on.timeout_kind());
 
     // Verify
-    assert_eq!(home.to_bytes()?, vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
+    assert_eq!(home.try_into_vec()?, vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
     assert_eq!(
-        power_on.to_bytes()?,
+        power_on.try_into_vec()?,
         vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]
     );
 

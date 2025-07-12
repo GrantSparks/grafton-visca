@@ -6,13 +6,13 @@
 // Example usage with blocking transport
 #[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::{profiles::PTZOpticsG2, transport::blocking::Tcp, CameraBlocking};
+    use grafton_visca::{profiles::PTZOpticsG2, transport::blocking::Tcp, Camera};
 
     // Create a blocking TCP transport
     let transport = Tcp::connect("192.168.1.100:5678")?;
 
     // Create camera with blocking interface
-    let _camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
+    let _camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("Camera model: PTZOptics G2");
 

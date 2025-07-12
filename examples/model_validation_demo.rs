@@ -9,7 +9,7 @@ use bytes::Bytes;
 use grafton_visca::transport::core::Transport;
 use grafton_visca::{
     camera::{
-        methods::{PanTiltAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
+        methods::{PanTiltOps, PresetsOps, ZoomOps},
         profiles::{G2PresetId, GenericVisca, PTZOpticsG2, SonyFR7},
     },
     Camera, Error,

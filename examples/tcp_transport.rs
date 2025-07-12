@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let camera = Camera::<GenericVisca, _>::new(transport);
 
             // Send a VISCA command using camera methods
-            use grafton_visca::camera::methods::ZoomAsyncExt;
+            use grafton_visca::camera::methods::ZoomOps;
             match camera.zoom_stop().await {
                 Ok(_) => {
                     println!("✓ Zoom stop command sent successfully!");

@@ -10,10 +10,9 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{const_encoding::CommandBuilder, Command, ResponseType},
+    command::{encode_visca::EncodeVisca, const_encoding::CommandBuilder, ResponseType},
     error::Error,
-    timeout::CommandCategory,
-};
+    timeout::CommandCategory};
 
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -21,8 +20,7 @@ pub enum Flip {
     /// Enable image flip.
     On = 0x02,
     /// Disable image flip.
-    Off = 0x03,
-}
+    Off = 0x03}
 
 /// Command to control image flip.
 ///
@@ -32,8 +30,7 @@ pub(crate) struct ImageFlipCommand {
     /// The desired flip state.
     pub flip: Flip,
     /// Internal command bytes.
-    command: [u8; 6],
-}
+    command: [u8; 6]}
 
 impl ImageFlipCommand {
     /// Create a new image flip command.
@@ -43,33 +40,41 @@ impl ImageFlipCommand {
         cmd.push(flip as u8);
         Self {
             flip,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for ImageFlipCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for ImageFlipCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
 
 /// Horizontal flip (mirror) state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum HFlip {
+pub enum HorizontalFlip {
     /// Enable horizontal flip (mirror).
     On = 0x02,
     /// Disable horizontal flip (mirror).
-    Off = 0x03,
-}
+    Off = 0x03}
 
 /// Command to control horizontal flip (mirror).
 ///
@@ -77,34 +82,42 @@ pub enum HFlip {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct HorizontalFlipCommand {
     /// The desired horizontal flip state.
-    pub flip: HFlip,
+    pub flip: HorizontalFlip,
     /// Internal command bytes.
-    command: [u8; 6],
-}
+    command: [u8; 6]}
 
 impl HorizontalFlipCommand {
     /// Create a new horizontal flip command.
-    pub fn new(flip: HFlip) -> Self {
+    pub fn new(flip: HorizontalFlip) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
         cmd.append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX);
         cmd.push(flip as u8);
         Self {
             flip,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for HorizontalFlipCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for HorizontalFlipCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
@@ -115,8 +128,7 @@ pub enum Freeze {
     /// Enable image freeze.
     On = 0x02,
     /// Disable image freeze.
-    Off = 0x03,
-}
+    Off = 0x03}
 
 /// Command to control image freeze.
 ///
@@ -126,8 +138,7 @@ pub(crate) struct ImageFreezeCommand {
     /// The desired freeze state.
     pub freeze: Freeze,
     /// Internal command bytes.
-    command: [u8; 6],
-}
+    command: [u8; 6]}
 
 impl ImageFreezeCommand {
     /// Create a new image freeze command.
@@ -137,21 +148,30 @@ impl ImageFreezeCommand {
         cmd.push(freeze as u8);
         Self {
             freeze,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for ImageFreezeCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for ImageFreezeCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
@@ -169,22 +189,22 @@ mod tests {
     fn test_flip_on_command() {
         let cmd = ImageFlipCommand::new(Flip::On);
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x66, 0x02, 0xFF]
         );
         assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
     #[test]
     fn test_flip_off_command() {
         let cmd = ImageFlipCommand::new(Flip::Off);
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x66, 0x03, 0xFF]
         );
         assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
     #[test]
@@ -252,18 +272,18 @@ mod tests {
 
     #[test]
     fn test_command_trait_impl() {
-        // Verify ImageFlipCommand implements Command trait
-        let cmd: Box<dyn Command> = Box::new(ImageFlipCommand::new(Flip::On));
-        assert!(cmd.to_bytes().is_ok());
+        // Verify ImageFlipCommand implements EncodeVisca trait
+        let cmd = ImageFlipCommand::new(Flip::On);
+        assert!(cmd.try_into_vec().is_ok());
         assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
     #[test]
     fn test_byte_sequence_correctness() {
         // Verify the exact byte sequences match VISCA protocol
         let on_cmd = ImageFlipCommand::new(Flip::On);
-        let on_bytes = on_cmd.to_bytes().unwrap();
+        let on_bytes = on_cmd.try_into_vec().unwrap();
         assert_eq!(on_bytes[0], 0x81); // Command header
         assert_eq!(on_bytes[1], 0x01); // Command type
         assert_eq!(on_bytes[2], 0x04); // Category
@@ -272,7 +292,7 @@ mod tests {
         assert_eq!(on_bytes[5], 0xFF); // Terminator
 
         let off_cmd = ImageFlipCommand::new(Flip::Off);
-        let off_bytes = off_cmd.to_bytes().unwrap();
+        let off_bytes = off_cmd.try_into_vec().unwrap();
         assert_eq!(off_bytes[0], 0x81); // Command header
         assert_eq!(off_bytes[1], 0x01); // Command type
         assert_eq!(off_bytes[2], 0x04); // Category
@@ -286,10 +306,10 @@ mod tests {
         // Test that creating commands with the same flip state produces identical bytes
         let cmd1 = ImageFlipCommand::new(Flip::On);
         let cmd2 = ImageFlipCommand::new(Flip::On);
-        assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
+        assert_eq!(cmd1.try_into_vec().unwrap(), cmd2.try_into_vec().unwrap());
 
         let cmd1 = ImageFlipCommand::new(Flip::Off);
         let cmd2 = ImageFlipCommand::new(Flip::Off);
-        assert_eq!(cmd1.to_bytes().unwrap(), cmd2.to_bytes().unwrap());
+        assert_eq!(cmd1.try_into_vec().unwrap(), cmd2.try_into_vec().unwrap());
     }
 }
