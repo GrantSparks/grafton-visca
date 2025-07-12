@@ -14,9 +14,9 @@ use common::builders::*;
 use common::helpers::*;
 
 // Import needed types
-use grafton_visca::{Command, Error};
+use grafton_visca::{Error};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 #[test]
 fn test_with_helpers() {
     // Use test speeds helper
@@ -29,7 +29,10 @@ fn test_with_helpers() {
         .build_absolute();
 
     // Assert with context
-    let bytes = assert_ok(cmd.try_into_vec(), "PanTilt command should convert to bytes");
+    use grafton_visca::command::EncodeVisca;
+    let mut buffer = [0u8; 64];
+    let size = assert_ok(cmd.encode_into(&mut buffer), "PanTilt command should encode");
+    let bytes = buffer[..size].to_vec();
     // The expected bytes:
     // - Header: 0x81, 0x01, 0x06, 0x02
     // - Pan speed: 0x0F (15)
@@ -47,13 +50,12 @@ fn test_with_helpers() {
     );
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 #[test]
 fn test_with_mock_transport() {
     use common::MockTransport;
     use grafton_visca::camera::methods::PowerOps;
-    use grafton_visca::profiles::PTZOpticsG2;
-    use grafton_visca::Camera;
+    use grafton_visca::camera::{ProfileId, Camera};
 
     // Create a mock that returns specific responses
     let mut mock = MockTransport::new();
@@ -64,10 +66,10 @@ fn test_with_mock_transport() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
     // Send command and verify response
-    assert_ok(camera.power_on(), "Power on command should succeed");
+    assert_ok(camera.power_on_blocking(), "Power on command should succeed");
 
     // Verify expectations were met
     mock.verify().unwrap();
@@ -78,7 +80,7 @@ fn test_with_mock_transport() {
     assert_eq!(history[0], vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 #[test]
 fn test_error_handling() {
     use grafton_visca::command::zoom::ZoomSpeed;
@@ -96,7 +98,7 @@ fn test_error_handling() {
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 #[test]
 fn test_preset_commands() {
     // Use builders for complex test data
@@ -122,13 +124,12 @@ fn test_response_helpers() {
 mod integration_style_tests {
     use super::*;
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "tokio"))]
     #[test]
     fn test_command_sequence() {
         use common::MockTransport;
         use grafton_visca::camera::methods::{PanTiltOps, ZoomOps};
-        use grafton_visca::profiles::PTZOpticsG2;
-        use grafton_visca::Camera;
+        use grafton_visca::camera::{ProfileId, Camera};
 
         // Create mock with expected responses
         let mut mock = MockTransport::new();
@@ -145,12 +146,12 @@ mod integration_style_tests {
             .will_ack(2)
             .then_complete(2);
 
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
         // Test multiple commands
-        assert_ok(camera.pan_tilt_home(), "Home command should succeed");
+        assert_ok(camera.pan_tilt_home_blocking(), "Home command should succeed");
 
-        assert_ok(camera.zoom_stop(), "Zoom stop command should succeed");
+        assert_ok(camera.zoom_stop_blocking(), "Zoom stop command should succeed");
 
         // Verify expectations were met
         mock.verify().unwrap();

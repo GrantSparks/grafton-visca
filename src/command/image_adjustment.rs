@@ -129,8 +129,6 @@ impl EncodeVisca for Sharpness {
 /// Command to set the luminance (brightness) level.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LuminanceCommand {
-    /// The luminance level.
-    pub value: LuminanceLevel,
     /// Internal command bytes.
     command: [u8; 9]}
 
@@ -141,7 +139,6 @@ impl LuminanceCommand {
         cmd.append(crate::command::const_encoding::constants::image::LUMINANCE_PREFIX);
         cmd.push(value.value());
         Self {
-            value,
             command: cmd.build()}
     }
 }
@@ -173,8 +170,6 @@ impl EncodeVisca for LuminanceCommand {
 /// Command to set the contrast level.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ContrastCommand {
-    /// The contrast level.
-    pub value: ContrastLevel,
     /// Internal command bytes.
     command: [u8; 9]}
 
@@ -185,7 +180,6 @@ impl ContrastCommand {
         cmd.append(crate::command::const_encoding::constants::image::CONTRAST_PREFIX);
         cmd.push(value.value());
         Self {
-            value,
             command: cmd.build()}
     }
 }

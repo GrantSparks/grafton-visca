@@ -14,8 +14,6 @@ use crate::{
     Error,
 };
 
-#[cfg(feature = "tokio")]
-use core::future::Future;
 
 /// ND filter command.
 struct NDFilterCommand {
@@ -68,7 +66,7 @@ pub trait NDFilterOps: Sized
 {
     /// Set ND filter level.
     #[cfg(feature = "tokio")]
-    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_nd_filter(&self, level: u8) -> Result<(), Error>;
 
     /// Set ND filter level (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -76,7 +74,7 @@ pub trait NDFilterOps: Sized
 
     /// Get current ND filter setting.
     #[cfg(feature = "tokio")]
-    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + Send;
+    async fn get_nd_filter(&self) -> Result<u8, Error>;
 
     /// Get current ND filter setting (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -86,25 +84,23 @@ pub trait NDFilterOps: Sized
 impl NDFilterOps for Camera
 {
     #[cfg(feature = "tokio")]
-    fn set_nd_filter(&self, level: u8) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            // Validate using the camera's ND mode
-            let validated_level = self.validate_nd_filter(level)?;
+    async fn set_nd_filter(&self, level: u8) -> Result<(), Error> {
+        // Validate using the camera's ND mode
+        let validated_level = self.validate_nd_filter(level)?;
 
-            let command = match self.nd_filter_mode() {
-                None | Some(crate::capabilities::NDFilterMode::None) => {
-                    return Err(Error::FeatureNotSupported {
-                        feature: "ND filter".to_string(),
-                    })
-                }
-                Some(crate::capabilities::NDFilterMode::Fixed(value)) => NDFilterCommand::new_fixed(validated_level == value),
-                Some(crate::capabilities::NDFilterMode::Stepped(_)) => NDFilterCommand::new_stepped(validated_level),
-                Some(crate::capabilities::NDFilterMode::Variable) => NDFilterCommand::new_variable(validated_level),
-            };
+        let command = match self.nd_filter_mode() {
+            None | Some(crate::capabilities::NDFilterMode::None) => {
+                return Err(Error::FeatureNotSupported {
+                    feature: "ND filter".to_string(),
+                })
+            }
+            Some(crate::capabilities::NDFilterMode::Fixed(value)) => NDFilterCommand::new_fixed(validated_level == value),
+            Some(crate::capabilities::NDFilterMode::Stepped(_)) => NDFilterCommand::new_stepped(validated_level),
+            Some(crate::capabilities::NDFilterMode::Variable) => NDFilterCommand::new_variable(validated_level),
+        };
 
-            self.send_command(&command).await?;
-            Ok(())
-        }
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -128,11 +124,9 @@ impl NDFilterOps for Camera
     }
 
     #[cfg(feature = "tokio")]
-    fn get_nd_filter(&self) -> impl Future<Output = Result<u8, Error>> + Send {
-        async move {
-            // Simplified for demo - would query actual value
-            Ok(0)
-        }
+    async fn get_nd_filter(&self) -> Result<u8, Error> {
+        // Simplified for demo - would query actual value
+        Ok(0)
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -145,8 +139,6 @@ impl NDFilterOps for Camera
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_nd_filter_compile_time_safety() {
         // This test demonstrates compile-time safety - cameras without ND filter

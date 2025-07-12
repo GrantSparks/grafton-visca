@@ -244,6 +244,12 @@ pub mod color {
 
     /// Color hue prefix.
     pub const HUE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00];
+
+    /// Red gain direct prefix (for WB fine-tuning).
+    pub const RED_GAIN_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x43, 0x00, 0x00];
+
+    /// Blue gain direct prefix (for WB fine-tuning).
+    pub const BLUE_GAIN_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x44, 0x00, 0x00];
 }
 
 /// Gain command constants.

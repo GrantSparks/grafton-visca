@@ -37,23 +37,53 @@ impl Gain {
 // Manual implementation to add model validation
 impl EncodeVisca for Gain {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match self {
+            Self::Reset | Self::Up | Self::Down => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x0C;
+                buffer[4] = match self {
+                    Self::Reset => 0x00,
+                    Self::Up => 0x02,
+                    Self::Down => 0x03,
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            Self::SetValue(level) => {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err(Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len()
+                    });
+                }
+                let value = level.value();
+                let high = (value >> 4) & 0x0F;
+                let low = value & 0x0F;
+                
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x4C;
+                buffer[4] = 0x00;
+                buffer[5] = 0x00;
+                buffer[6] = high;
+                buffer[7] = low;
+                buffer[8] = 0xFF;
+                Ok(Self::MAX_SIZE)
+            }
         }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x0C;
-        buffer[4] = 0x00;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
     }
     
     fn response_type(&self) -> Option<ResponseType> {
@@ -68,8 +98,6 @@ impl EncodeVisca for Gain {
 /// Command to set the automatic gain control limit.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GainLimitCommand {
-    /// The maximum gain level allowed in auto mode.
-    pub limit: GainLimit,
     /// Internal command bytes.
     command: [u8; 6]}
 
@@ -80,7 +108,6 @@ impl GainLimitCommand {
         cmd.append(crate::command::const_encoding::constants::gain::GAIN_LIMIT_PREFIX);
         cmd.push(limit.value());
         Self {
-            limit,
             command: cmd.build()}
     }
 }
@@ -125,8 +152,6 @@ pub enum AntiFlickerMode {
 /// Command to set anti-flicker mode.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct AntiFlickerCommand {
-    /// The anti-flicker mode to apply.
-    pub mode: AntiFlickerMode,
     /// Internal command bytes.
     command: [u8; 6]}
 
@@ -137,7 +162,6 @@ impl AntiFlickerCommand {
         cmd.append(crate::command::const_encoding::constants::gain::ANTI_FLICKER_PREFIX);
         cmd.push(mode as u8);
         Self {
-            mode,
             command: cmd.build()}
     }
 }

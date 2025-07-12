@@ -76,12 +76,9 @@ pub trait FocusOps: Sized
 
 impl FocusOps for Camera {
     #[cfg(feature = "tokio")]
-    fn focus_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            self.send_command(&FocusCommand::Auto).await?;
-            Ok(())
-        }
-
+    async fn focus_auto(&self) -> Result<(), Error> {
+        self.send_command(&FocusCommand::Auto).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -91,12 +88,9 @@ impl FocusOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn focus_manual(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            self.send_command(&FocusCommand::Manual).await?;
-            Ok(())
-        }
-
+    async fn focus_manual(&self) -> Result<(), Error> {
+        self.send_command(&FocusCommand::Manual).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -106,14 +100,11 @@ impl FocusOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn focus_near(&self, speed: SpeedLevel) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            let focus_speed_val = speed.to_focus_speed().min(7);
-            let focus_speed = FocusSpeed::new(focus_speed_val)?;
-            self.send_command(&FocusCommand::NearWithSpeed(focus_speed)).await?;
-            Ok(())
-        }
-
+    async fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error> {
+        let focus_speed_val = speed.to_focus_speed().min(7);
+        let focus_speed = FocusSpeed::new(focus_speed_val)?;
+        self.send_command(&FocusCommand::NearWithSpeed(focus_speed)).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -125,14 +116,11 @@ impl FocusOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn focus_far(&self, speed: SpeedLevel) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            let focus_speed_val = speed.to_focus_speed().min(7);
-            let focus_speed = FocusSpeed::new(focus_speed_val)?;
-            self.send_command(&FocusCommand::FarWithSpeed(focus_speed)).await?;
-            Ok(())
-        }
-
+    async fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error> {
+        let focus_speed_val = speed.to_focus_speed().min(7);
+        let focus_speed = FocusSpeed::new(focus_speed_val)?;
+        self.send_command(&FocusCommand::FarWithSpeed(focus_speed)).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -144,12 +132,9 @@ impl FocusOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn focus_stop(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            self.send_command(&FocusCommand::Stop).await?;
-            Ok(())
-        }
-
+    async fn focus_stop(&self) -> Result<(), Error> {
+        self.send_command(&FocusCommand::Stop).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -159,12 +144,9 @@ impl FocusOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn focus_one_push(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            self.send_command(&FocusCommand::OnePushTrigger).await?;
-            Ok(())
-        }
-
+    async fn focus_one_push(&self) -> Result<(), Error> {
+        self.send_command(&FocusCommand::OnePushTrigger).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -174,12 +156,9 @@ impl FocusOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn set_focus(&self, position: FocusPosition) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            self.send_command(&FocusCommand::Position(position)).await?;
-            Ok(())
-        }
-
+    async fn set_focus(&self, position: FocusPosition) -> Result<(), Error> {
+        self.send_command(&FocusCommand::Position(position)).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]

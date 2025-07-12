@@ -40,7 +40,7 @@ impl Transport for Udp {
         ready(send_impl(&self.socket, data))
     }
 
-    fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
+    fn recv(&self) -> Self::RecvFut<'_> {
         ready(recv_impl(&self.socket))
     }
 }

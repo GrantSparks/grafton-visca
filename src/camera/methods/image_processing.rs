@@ -15,14 +15,13 @@ use crate::{
     Error,
 };
 
-#[cfg(feature = "tokio")]
-use core::future::Future;
+
 
 /// Unified trait for image processing operations.
 pub trait ImageProcessingOps: Sized {
     /// Enable image flip.
     #[cfg(feature = "tokio")]
-    fn enable_flip(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn enable_flip(&self) -> Result<(), Error>;
 
     /// Enable image flip (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -30,7 +29,7 @@ pub trait ImageProcessingOps: Sized {
 
     /// Set contrast level.
     #[cfg(feature = "tokio")]
-    fn set_contrast(&self, level: ContrastLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error>;
 
     /// Set contrast level (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -38,10 +37,10 @@ pub trait ImageProcessingOps: Sized {
 
     /// Set sharpness level.
     #[cfg(feature = "tokio")]
-    fn set_sharpness(
+    async fn set_sharpness(
         &self,
         level: SharpnessLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
+    ) -> Result<(), Error>;
 
     /// Set sharpness level (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -49,10 +48,10 @@ pub trait ImageProcessingOps: Sized {
 
     /// Set saturation level.
     #[cfg(feature = "tokio")]
-    fn set_saturation(
+    async fn set_saturation(
         &self,
         level: SaturationLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
+    ) -> Result<(), Error>;
 
     /// Set saturation level (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -60,7 +59,7 @@ pub trait ImageProcessingOps: Sized {
 
     /// Set hue level.
     #[cfg(feature = "tokio")]
-    fn set_hue(&self, level: HueLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_hue(&self, level: HueLevel) -> Result<(), Error>;
 
     /// Set hue level (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -68,10 +67,10 @@ pub trait ImageProcessingOps: Sized {
 
     /// Set noise reduction 2D level.
     #[cfg(feature = "tokio")]
-    fn set_noise_reduction_2d(
+    async fn set_noise_reduction_2d(
         &self,
         level: NoiseReduction2DLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
+    ) -> Result<(), Error>;
 
     /// Set noise reduction 2D level (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -79,10 +78,10 @@ pub trait ImageProcessingOps: Sized {
 
     /// Set noise reduction 3D level.
     #[cfg(feature = "tokio")]
-    fn set_noise_reduction_3d(
+    async fn set_noise_reduction_3d(
         &self,
         level: NoiseReduction3DLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
+    ) -> Result<(), Error>;
 
     /// Set noise reduction 3D level (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -91,12 +90,10 @@ pub trait ImageProcessingOps: Sized {
 
 impl ImageProcessingOps for Camera {
     #[cfg(feature = "tokio")]
-    fn enable_flip(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    async fn enable_flip(&self) -> Result<(), Error> {
             let cmd = ImageFlipCommand::new(Flip::On);
             self.send_command(&cmd).await?;
             Ok(())
-        }
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -107,12 +104,10 @@ impl ImageProcessingOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    fn set_contrast(&self, level: ContrastLevel) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    async fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error> {
             let cmd = ContrastCommand::new(level);
             self.send_command(&cmd).await?;
             Ok(())
-        }
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -123,17 +118,15 @@ impl ImageProcessingOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    fn set_sharpness(
+    async fn set_sharpness(
         &self,
         level: SharpnessLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    ) -> Result<(), Error> {
             let cmd = Sharpness::SetLevel {
                 value: level.value(),
             };
             self.send_command(&cmd).await?;
             Ok(())
-        }
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -146,15 +139,13 @@ impl ImageProcessingOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    fn set_saturation(
+    async fn set_saturation(
         &self,
         level: SaturationLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    ) -> Result<(), Error> {
             let cmd = SaturationCommand::new(level);
             self.send_command(&cmd).await?;
             Ok(())
-        }
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -165,12 +156,10 @@ impl ImageProcessingOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    fn set_hue(&self, level: HueLevel) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    async fn set_hue(&self, level: HueLevel) -> Result<(), Error> {
             let cmd = HueCommand::new(level);
             self.send_command(&cmd).await?;
             Ok(())
-        }
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -181,15 +170,13 @@ impl ImageProcessingOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    fn set_noise_reduction_2d(
+    async fn set_noise_reduction_2d(
         &self,
         level: NoiseReduction2DLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    ) -> Result<(), Error> {
             let cmd = NoiseReduction2D::Level(level);
             self.send_command(&cmd).await?;
             Ok(())
-        }
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -200,15 +187,13 @@ impl ImageProcessingOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    fn set_noise_reduction_3d(
+    async fn set_noise_reduction_3d(
         &self,
         level: NoiseReduction3DLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    ) -> Result<(), Error> {
             let cmd = NoiseReduction3D::Level(level);
             self.send_command(&cmd).await?;
             Ok(())
-        }
     }
 
     #[cfg(not(feature = "tokio"))]

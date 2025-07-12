@@ -163,23 +163,68 @@ pub enum ExposureCompensation {
 
 impl EncodeVisca for ExposureCompensation {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match self {
+            Self::On | Self::Off => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x3E;
+                buffer[4] = match self {
+                    Self::On => 0x02,
+                    Self::Off => 0x03,
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            Self::Reset | Self::Up | Self::Down => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x0E;
+                buffer[4] = match self {
+                    Self::Reset => 0x00,
+                    Self::Up => 0x02,
+                    Self::Down => 0x03,
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            Self::SetLevel(level) => {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err(Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x4E;
+                buffer[4] = 0x00;
+                buffer[5] = 0x00;
+                buffer[6] = 0x00;
+                buffer[7] = level.to_protocol_value();
+                buffer[8] = 0xFF;
+                Ok(Self::MAX_SIZE)
+            }
         }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x3E;
-        buffer[4] = 0x02;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
     }
     
     fn response_type(&self) -> Option<ResponseType> {
@@ -258,23 +303,53 @@ pub enum Iris {
 // Manual implementation to add model validation
 impl EncodeVisca for Iris {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match self {
+            Self::Reset | Self::Up | Self::Down => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x0B;
+                buffer[4] = match self {
+                    Self::Reset => 0x00,
+                    Self::Up => 0x02,
+                    Self::Down => 0x03,
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            Self::SetAperture(level) => {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err(Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len()
+                    });
+                }
+                let value = level.value();
+                let high = (value >> 4) & 0x0F;
+                let low = value & 0x0F;
+                
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x4B;
+                buffer[4] = 0x00;
+                buffer[5] = 0x00;
+                buffer[6] = high;
+                buffer[7] = low;
+                buffer[8] = 0xFF;
+                Ok(Self::MAX_SIZE)
+            }
         }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x0B;
-        buffer[4] = 0x00;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
     }
     
     fn response_type(&self) -> Option<ResponseType> {
@@ -306,23 +381,53 @@ pub enum Shutter {
 // Manual implementation to add model validation
 impl EncodeVisca for Shutter {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match self {
+            Self::Reset | Self::Up | Self::Down => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x0A;
+                buffer[4] = match self {
+                    Self::Reset => 0x00,
+                    Self::Up => 0x02,
+                    Self::Down => 0x03,
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            Self::SetSpeed(speed) => {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err(Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len()
+                    });
+                }
+                let value = speed.value();
+                let high = ((value >> 4) & 0x0F) as u8;
+                let low = (value & 0x0F) as u8;
+                
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x4A;
+                buffer[4] = 0x00;
+                buffer[5] = 0x00;
+                buffer[6] = high;
+                buffer[7] = low;
+                buffer[8] = 0xFF;
+                Ok(Self::MAX_SIZE)
+            }
         }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x0A;
-        buffer[4] = 0x00;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
     }
     
     fn response_type(&self) -> Option<ResponseType> {
@@ -348,23 +453,53 @@ pub enum Bright {
 
 impl EncodeVisca for Bright {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match self {
+            Self::Reset | Self::Up | Self::Down => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x0D;
+                buffer[4] = match self {
+                    Self::Reset => 0x00,
+                    Self::Up => 0x02,
+                    Self::Down => 0x03,
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            Self::SetLevel(level) => {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err(Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len()
+                    });
+                }
+                let value = level.value();
+                let high = ((value >> 4) & 0x0F) as u8;
+                let low = (value & 0x0F) as u8;
+                
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x4D;
+                buffer[4] = 0x00;
+                buffer[5] = 0x00;
+                buffer[6] = high;
+                buffer[7] = low;
+                buffer[8] = 0xFF;
+                Ok(Self::MAX_SIZE)
+            }
         }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x0D;
-        buffer[4] = 0x00;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
     }
     
     fn response_type(&self) -> Option<ResponseType> {
@@ -401,7 +536,10 @@ impl EncodeVisca for Spotlight {
         buffer[1] = 0x01;
         buffer[2] = 0x04;
         buffer[3] = 0x3A;
-        buffer[4] = 0x02;
+        buffer[4] = match self {
+            Self::On => 0x02,
+            Self::Off => 0x03
+        };
         buffer[5] = 0xFF;
         
         Ok(Self::MAX_SIZE)
@@ -442,7 +580,10 @@ impl EncodeVisca for AutoSlowShutter {
         buffer[1] = 0x01;
         buffer[2] = 0x04;
         buffer[3] = 0x5A;
-        buffer[4] = 0x02;
+        buffer[4] = match self {
+            Self::On => 0x02,
+            Self::Off => 0x03
+        };
         buffer[5] = 0xFF;
         
         Ok(Self::MAX_SIZE)
@@ -596,7 +737,7 @@ mod tests {
             vec![0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF]
         );
 
-        // Test Direct command with various values
+        // Test SetLevel command with various values
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -691,7 +832,7 @@ mod tests {
             vec![0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF]
         );
 
-        // Test Direct command with valid values
+        // Test SetAperture command with valid values
         let test_values = vec![0x00, 0x05, 0x0A, 0x0C];
         for value in test_values {
             let level =
@@ -752,7 +893,7 @@ mod tests {
             vec![0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF]
         );
 
-        // Test Direct command with valid values
+        // Test SetSpeed command with valid values
         let test_values = vec![0x01u16, 0x05, 0x0A, 0x10, 0x11];
         for value in test_values {
             let speed =
@@ -813,7 +954,7 @@ mod tests {
             vec![0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF]
         );
 
-        // Test Direct command with valid values
+        // Test SetLevel command with valid values
         let test_values = vec![0x00u16, 0x08, 0x0F, 0x10, 0x11];
         for value in test_values {
             let level = BrightnessLevel::new(value)

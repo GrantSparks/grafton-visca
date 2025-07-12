@@ -4,15 +4,14 @@ mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
-    camera::methods::PanTiltOps,
+    camera::{methods::PanTiltOps, ProfileId, Camera},
     command::{
         pan_tilt::{PanTilt, PanTiltDirection},
-        Command, ResponseType,
+        ResponseType,
     },
-    profiles::PTZOpticsG2,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
-    Camera, Error,
+    Error,
 };
 
 #[test]
@@ -261,13 +260,13 @@ fn test_pan_tilt_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
     // Test commands
-    assert!(camera.pan_tilt_home().is_ok());
-    assert!(camera.pan_tilt_stop().is_ok());
+    assert!(camera.pan_tilt_home_blocking().is_ok());
+    assert!(camera.pan_tilt_stop_blocking().is_ok());
     assert!(camera
-        .pan_tilt_move(PanTiltDirection::Up, 0x18, 0x18)
+        .pan_tilt_move_blocking(PanTiltDirection::Up, 0x18, 0x18)
         .is_ok());
 
     // Verify all expectations were met
@@ -291,10 +290,10 @@ fn test_pan_tilt_absolute_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
     // Move to center position
-    assert!(camera.pan_tilt_absolute(0.0, 0.0, 0x10).is_ok());
+    assert!(camera.pan_tilt_absolute_blocking(0.0, 0.0, 0x10).is_ok());
 
     mock.verify().unwrap();
 }
@@ -311,7 +310,7 @@ fn test_pan_tilt_with_inquiry_response() {
             0x05, 0x06, 0x07, 0x08, // Tilt position 0x5678
         ]);
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly

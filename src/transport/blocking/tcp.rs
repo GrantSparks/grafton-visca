@@ -51,7 +51,7 @@ impl Transport for Tcp {
         ready(send_impl(&self.stream, data))
     }
 
-    fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
+    fn recv(&self) -> Self::RecvFut<'_> {
         ready(recv_impl(&self.stream))
     }
 }
