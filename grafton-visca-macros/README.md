@@ -1,129 +1,73 @@
-# Grafton VISCA Macros
+# grafton-visca-macros
 
-This crate provides procedural macros to reduce boilerplate in the grafton-visca library.
+Procedural macros for the grafton-visca crate.
 
 ## InquiryCommand Derive Macro
 
-The basic `InquiryCommand` derive macro generates implementations for the `Command` trait:
+The `InquiryCommand` derive macro generates implementations for the `Command` trait:
 
 ```rust
 #[derive(InquiryCommand)]
-enum Inquiry {
-    #[visca(0x00, response = Power)]
-    Power,
-    
-    #[visca(0x47, response = ZoomPosition)]
-    ZoomPos,
-    
-    #[visca(0x12, subcategory = 0x06, response = PanTiltPosition)]
-    PanTiltPos,
-}
+#[visca(command = 0x00, response = "Power")]
+struct PowerInquiry;
 ```
 
 This generates:
-- `to_bytes()` method that creates the VISCA command bytes
-- `response_type()` method that maps to the expected ResponseType
+- `Command` trait implementation
+- `to_bytes()` method that returns the VISCA command bytes
+- `response_type()` method that returns the expected `ResponseType`
 - `command_category()` method that returns `CommandCategory::Quick`
 
-## InquiryCommandWithParser Derive Macro
+### Attributes
 
-The enhanced `InquiryCommandWithParser` macro also generates parser functions based on parser categories:
+- `command`: The command byte (required)
+- `sub_command`: Optional sub-command byte for commands that need it
+- `response`: The response type variant name (required)
+
+## Advanced Usage
+
+For inquiry commands with subcategories:
 
 ```rust
-#[derive(InquiryCommandWithParser)]
-enum EnhancedInquiry {
-    #[visca(0x00, response = Power, parser = "bool")]
-    Power,
-    
-    #[visca(0x47, response = ZoomPosition, parser = "position")]
-    ZoomPos,
-    
-    #[visca(0xA1, response = Luminance, parser = "byte", field = "level")]
-    Luminance,
-    
-    #[visca(0x44, response = RedGain, parser = "offset", field = "gain", offset = 10)]
-    RedGain,
-    
-    #[visca(0x66, response = ImageFlip, parser = "flags")]
-    ImageFlip,
-}
+#[derive(InquiryCommand)]
+#[visca(command = 0x12, sub_command = 0x06, response = "PanTiltPosition")]
+struct PanTiltPositionInquiry;
 ```
 
-### Parser Categories
+This generates command bytes: `[0x81, 0x09, 0x06, 0x12, 0xFF]`
 
-1. **`bool`** - Boolean values (0x02 = true, 0x03 = false)
-   ```rust
-   #[visca(0x00, response = Power, parser = "bool")]
-   ```
+## Parser Support
 
-2. **`byte`** - Direct byte value (used as-is)
-   ```rust
-   #[visca(0xA1, response = Luminance, parser = "byte", field = "level")]
-   ```
-
-3. **`position`** - 4-nibble position value combined into u16
-   ```rust
-   #[visca(0x47, response = ZoomPosition, parser = "position")]
-   ```
-
-4. **`nibble`** - Extended nibble value (2 bytes combined)
-   ```rust
-   #[visca(0x42, response = Sharpness, parser = "nibble", field = "value")]
-   ```
-
-5. **`offset`** - Byte value with offset subtraction
-   ```rust
-   #[visca(0x44, response = RedGain, parser = "offset", field = "gain", offset = 10)]
-   ```
-
-6. **`flags`** - Bit flags (for horizontal/vertical flip)
-   ```rust
-   #[visca(0x66, response = ImageFlip, parser = "flags")]
-   ```
-
-7. **`mode`** - Enum mode values
-   ```rust
-   #[visca(0x39, response = ExposureMode, parser = "mode", mode_type = "ExposureMode")]
-   ```
-
-8. **`pan_tilt`** - Special parser for PanTiltPosition (8 bytes -> two i16 values)
-   ```rust
-   #[visca(0x12, subcategory = 0x06, response = PanTiltPosition, parser = "pan_tilt")]
-   ```
-
-9. **`custom`** - Custom parser function
-   ```rust
-   #[visca(0x00, response = Custom, parser = "custom", fn = "parse_custom_response")]
-   ```
-
-## Other Macros
-
-### visca_method
-
-Generates async/sync method pairs:
+The macro can also generate parser functions for specific response types:
 
 ```rust
-#[visca_method]
-pub fn power_on(&self) -> PowerCommand {
-    PowerCommand { power: Power::On }
-}
+#[derive(InquiryCommand)]
+#[visca(command = 0x47, response = "ZoomPosition", parser = "position")]
+struct ZoomPositionInquiry;
 ```
 
-### visca_inquiry_method
+Supported parser types:
+- `bool` - Parses boolean responses
+- `position` - Parses 4-byte position values
+- `byte` - Direct byte value
+- `nibble` - Extended nibble format
+- `offset` - Value with offset applied
+- `mode` - Enum mode parsing
+- `custom` - Custom parser function
 
-Generates inquiry methods that return parsed responses:
+## Usage in Libraries
+
+The generated structs implement the `Command` trait and can be used directly:
 
 ```rust
-#[visca_inquiry_method]
-pub fn power_status(&self) -> InquiryCommand {
-    InquiryCommand::Power
-}
+let inquiry = PowerInquiry;
+let bytes = inquiry.to_bytes()?;
+let response_type = inquiry.response_type();
 ```
 
 ## Benefits
 
-- Reduces boilerplate by ~7 lines per inquiry command
-- Provides compile-time validation
-- Maintains type safety
-- Generates consistent, correct implementations
-- Makes the API more discoverable
+1. **Type Safety**: Each inquiry is a distinct type
+2. **No Boilerplate**: The macro generates all the repetitive code
+3. **Maintainability**: Adding new inquiries only requires defining a struct
+4. **Compile-time Verification**: Invalid attributes are caught at compile time

@@ -33,7 +33,7 @@ use grafton_visca::{
         pan_tilt::PanTiltCommand,
         power::{Power, PowerCommand},
         zoom::ZoomCommand,
-        InquiryCommand,
+        PanTiltPositionInquiry,
     },
     transport::ViscaProtocol,
     Error, Response,
@@ -213,7 +213,7 @@ async fn test_inquiry_async_handling() {
     let transport = ViscaProtocol::new(mock);
 
     let response = transport
-        .send_command(&InquiryCommand::PanTiltPosition)
+        .send_command(&PanTiltPositionInquiry)
         .await
         .unwrap();
 
@@ -280,7 +280,7 @@ async fn test_async_command_sequence() {
     assert!(matches!(home_response, Response::Completion));
 
     let pos_response = transport
-        .send_command(&InquiryCommand::PanTiltPosition)
+        .send_command(&PanTiltPositionInquiry)
         .await
         .unwrap();
     match pos_response {

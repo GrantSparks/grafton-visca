@@ -38,12 +38,9 @@
 //! ```
 
 // Transport trait and utilities
-pub mod any_transport;
 pub mod core;
 pub mod transport_kind;
 
-#[deprecated(since = "0.5.0", note = "Use `TransportKind` instead for zero-cost abstraction")]
-pub use any_transport::AnyTransport;
 pub use core::{BlockingTransport, Transport, TransportExt};
 pub use transport_kind::TransportKind;
 

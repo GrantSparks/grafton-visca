@@ -459,13 +459,13 @@ use grafton_visca::{Client, Response};
 use grafton_visca::command::*;
 
 // Query current zoom position
-let response = camera.send(&InquiryCommand::ZoomPosition)?;
+let response = camera.send(&ZoomPositionInquiry)?;
 if let Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) = response {
     println!("Current zoom position: 0x{:04X}", position);
 }
 
 // Query exposure mode
-let response = camera.send(&InquiryCommand::ExposureMode)?;
+let response = camera.send(&ExposureModeInquiry)?;
 if let Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) = response {
     println!("Exposure mode: {:?}", mode);
 }
@@ -559,7 +559,7 @@ The library now provides robust handling for unknown or unimplemented response t
 use grafton_visca::{Response, ResponseType};
 
 // When querying camera features, unknown responses are captured
-let response = camera.send(&InquiryCommand::PictureEffect)?;
+let response = camera.send(&ColorTemperatureInquiry)?;
 match response {
     Response::InquiryResponse(data) => {
         // Handle known response type
