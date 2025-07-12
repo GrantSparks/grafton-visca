@@ -5,8 +5,7 @@
 // Allow missing docs for macro-generated code
 #![allow(missing_docs)]
 
-use grafton_visca::command::Command;
-use grafton_visca::{visca_command, Error};
+use grafton_visca::{command::encode_visca::EncodeVisca, visca_command, Error};
 
 visca_command! {
     category = "Movement",

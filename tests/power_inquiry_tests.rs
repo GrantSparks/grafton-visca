@@ -2,7 +2,7 @@
 #[cfg(test)]
 mod tests {
     use grafton_visca::command::response::{parse_response, Response, ResponseType};
-    use grafton_visca::command::{Command, PowerInquiry};
+    use grafton_visca::command::{encode_visca::EncodeVisca, PowerInquiry};
     use grafton_visca::InquiryResponse;
 
     #[test]

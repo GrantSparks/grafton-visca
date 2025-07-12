@@ -14,7 +14,8 @@ use crate::{
     command::{encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{BrightnessLevel, DynamicRangeLevel, IrisLevel, ShutterSpeed}};
+    types::{BrightnessLevel, DynamicRangeLevel, IrisLevel, ShutterSpeed},
+};
 
 /// Camera exposure control modes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -28,7 +29,8 @@ pub enum ExposureMode {
     /// Iris priority mode - user controls iris/aperture, camera adjusts other parameters
     Iris = 0x0B,
     /// Brightness priority mode - user controls brightness level, camera adjusts other parameters
-    Bright = 0x0D}
+    Bright = 0x0D,
+}
 
 /// Command to set the camera's exposure mode.
 ///
@@ -37,7 +39,8 @@ pub enum ExposureMode {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct ExposureCommand {
     /// The exposure mode to set.
-    pub mode: ExposureMode}
+    pub mode: ExposureMode,
+}
 
 impl EncodeVisca for ExposureCommand {
     type Response = ();
@@ -47,7 +50,8 @@ impl EncodeVisca for ExposureCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[0] = 0x81;
@@ -56,14 +60,14 @@ impl EncodeVisca for ExposureCommand {
         buffer[3] = 0x39;
         buffer[4] = self.mode as u8;
         buffer[5] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -79,7 +83,8 @@ impl TryFrom<u8> for ExposureMode {
             0x0A => Ok(Self::Shutter),
             0x0B => Ok(Self::Iris),
             0x0D => Ok(Self::Bright),
-            _ => Err(())}
+            _ => Err(()),
+        }
     }
 }
 
@@ -159,7 +164,8 @@ pub enum ExposureCompensation {
     /// Decrease exposure compensation by one step
     Down,
     /// Set exposure compensation to a specific level (-7 to +7)
-    SetLevel(ExposureCompensationLevel)}
+    SetLevel(ExposureCompensationLevel),
+}
 
 impl EncodeVisca for ExposureCompensation {
     type Response = ();
@@ -171,7 +177,7 @@ impl EncodeVisca for ExposureCompensation {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -181,7 +187,7 @@ impl EncodeVisca for ExposureCompensation {
                 buffer[4] = match self {
                     Self::On => 0x02,
                     Self::Off => 0x03,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
@@ -190,7 +196,7 @@ impl EncodeVisca for ExposureCompensation {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -201,7 +207,7 @@ impl EncodeVisca for ExposureCompensation {
                     Self::Reset => 0x00,
                     Self::Up => 0x02,
                     Self::Down => 0x03,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
@@ -210,7 +216,7 @@ impl EncodeVisca for ExposureCompensation {
                 if buffer.len() < Self::MAX_SIZE {
                     return Err(Error::BufferTooSmall {
                         required: Self::MAX_SIZE,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -226,11 +232,11 @@ impl EncodeVisca for ExposureCompensation {
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -245,7 +251,8 @@ impl EncodeVisca for ExposureCompensation {
 #[derive(Debug, Copy, Clone)]
 pub enum DynamicRange {
     /// Set dynamic range to a specific level (0-8).
-    SetLevel(DynamicRangeLevel)}
+    SetLevel(DynamicRangeLevel),
+}
 
 impl EncodeVisca for DynamicRange {
     type Response = ();
@@ -255,12 +262,14 @@ impl EncodeVisca for DynamicRange {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         let level = match self {
-            Self::SetLevel(level) => level};
-        
+            Self::SetLevel(level) => level,
+        };
+
         buffer[0] = 0x81;
         buffer[1] = 0x01;
         buffer[2] = 0x04;
@@ -270,14 +279,14 @@ impl EncodeVisca for DynamicRange {
         buffer[6] = 0x00;
         buffer[7] = level.value();
         buffer[8] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -298,7 +307,8 @@ pub enum Iris {
     /// Decrease value by one step.
     Down,
     /// Set iris to specific aperture value.
-    SetAperture(IrisLevel)}
+    SetAperture(IrisLevel),
+}
 
 // Manual implementation to add model validation
 impl EncodeVisca for Iris {
@@ -311,7 +321,7 @@ impl EncodeVisca for Iris {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -322,7 +332,7 @@ impl EncodeVisca for Iris {
                     Self::Reset => 0x00,
                     Self::Up => 0x02,
                     Self::Down => 0x03,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
@@ -331,13 +341,13 @@ impl EncodeVisca for Iris {
                 if buffer.len() < Self::MAX_SIZE {
                     return Err(Error::BufferTooSmall {
                         required: Self::MAX_SIZE,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 let value = level.value();
                 let high = (value >> 4) & 0x0F;
                 let low = value & 0x0F;
-                
+
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -351,11 +361,11 @@ impl EncodeVisca for Iris {
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -376,7 +386,8 @@ pub enum Shutter {
     /// Decrease value by one step.
     Down,
     /// Set shutter to specific speed value.
-    SetSpeed(ShutterSpeed)}
+    SetSpeed(ShutterSpeed),
+}
 
 // Manual implementation to add model validation
 impl EncodeVisca for Shutter {
@@ -389,7 +400,7 @@ impl EncodeVisca for Shutter {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -400,7 +411,7 @@ impl EncodeVisca for Shutter {
                     Self::Reset => 0x00,
                     Self::Up => 0x02,
                     Self::Down => 0x03,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
@@ -409,13 +420,13 @@ impl EncodeVisca for Shutter {
                 if buffer.len() < Self::MAX_SIZE {
                     return Err(Error::BufferTooSmall {
                         required: Self::MAX_SIZE,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 let value = speed.value();
                 let high = ((value >> 4) & 0x0F) as u8;
                 let low = (value & 0x0F) as u8;
-                
+
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -429,11 +440,11 @@ impl EncodeVisca for Shutter {
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -449,7 +460,8 @@ pub enum Bright {
     /// Decrease brightness.
     Down,
     /// Set brightness to specific level.
-    SetLevel(BrightnessLevel)}
+    SetLevel(BrightnessLevel),
+}
 
 impl EncodeVisca for Bright {
     type Response = ();
@@ -461,7 +473,7 @@ impl EncodeVisca for Bright {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -472,7 +484,7 @@ impl EncodeVisca for Bright {
                     Self::Reset => 0x00,
                     Self::Up => 0x02,
                     Self::Down => 0x03,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
@@ -481,13 +493,13 @@ impl EncodeVisca for Bright {
                 if buffer.len() < Self::MAX_SIZE {
                     return Err(Error::BufferTooSmall {
                         required: Self::MAX_SIZE,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 let value = level.value();
                 let high = ((value >> 4) & 0x0F) as u8;
                 let low = (value & 0x0F) as u8;
-                
+
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -501,100 +513,66 @@ impl EncodeVisca for Bright {
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
 
-/// Spotlight command (Sony models).
-///
-/// Controls the spotlight feature which enhances exposure for specific subjects.
-#[derive(Debug, Copy, Clone)]
-pub enum Spotlight {
-    /// Turn spotlight on
-    On,
-    /// Turn spotlight off
-    Off}
-
-impl EncodeVisca for Spotlight {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
-        }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x3A;
-        buffer[4] = match self {
-            Self::On => 0x02,
-            Self::Off => 0x03
-        };
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_command! {
+    /// Spotlight command (Sony models).
+    ///
+    /// Controls the spotlight feature which enhances exposure for specific subjects.
+    category = "Quick",
+    enum Spotlight {
+        /// Turn spotlight on
+        On => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::exposure::SPOTLIGHT_PREFIX)
+                .append(&[0x02])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Turn spotlight off
+        Off => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::exposure::SPOTLIGHT_PREFIX)
+                .append(&[0x03])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
     }
 }
 
-/// Auto Slow Shutter command.
-///
-/// Controls whether the camera can use slower shutter speeds automatically
-/// in low light conditions.
-#[derive(Debug, Copy, Clone)]
-pub enum AutoSlowShutter {
-    /// Enable auto slow shutter
-    On,
-    /// Disable auto slow shutter
-    Off}
+use crate::visca_command;
 
-impl EncodeVisca for AutoSlowShutter {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
-        }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x5A;
-        buffer[4] = match self {
-            Self::On => 0x02,
-            Self::Off => 0x03
-        };
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_command! {
+    /// Auto Slow Shutter command.
+    ///
+    /// Controls whether the camera can use slower shutter speeds automatically
+    /// in low light conditions.
+    category = "Quick",
+    enum AutoSlowShutter {
+        /// Enable auto slow shutter
+        On => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::exposure::AUTO_SLOW_SHUTTER_PREFIX)
+                .append(&[0x02])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Disable auto slow shutter
+        Off => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::exposure::AUTO_SLOW_SHUTTER_PREFIX)
+                .append(&[0x03])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
     }
 }
 
@@ -608,7 +586,8 @@ mod tests {
     fn test_exposure_mode_command() {
         // Test Auto mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Auto};
+            mode: ExposureMode::Auto,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -617,7 +596,8 @@ mod tests {
 
         // Test Manual mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Manual};
+            mode: ExposureMode::Manual,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -626,7 +606,8 @@ mod tests {
 
         // Test Shutter Priority mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Shutter};
+            mode: ExposureMode::Shutter,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -635,7 +616,8 @@ mod tests {
 
         // Test Iris Priority mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Iris};
+            mode: ExposureMode::Iris,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -644,7 +626,8 @@ mod tests {
 
         // Test Brightness Priority mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Bright};
+            mode: ExposureMode::Bright,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -1011,18 +994,9 @@ mod tests {
             .timeout_kind(),
             CommandCategory::Quick
         );
-        assert_eq!(
-            Iris::Reset.timeout_kind(),
-            CommandCategory::Quick
-        );
-        assert_eq!(
-            Shutter::Reset.timeout_kind(),
-            CommandCategory::Quick
-        );
-        assert_eq!(
-            Bright::Reset.timeout_kind(),
-            CommandCategory::Quick
-        );
+        assert_eq!(Iris::Reset.timeout_kind(), CommandCategory::Quick);
+        assert_eq!(Shutter::Reset.timeout_kind(), CommandCategory::Quick);
+        assert_eq!(Bright::Reset.timeout_kind(), CommandCategory::Quick);
     }
 
     #[test]

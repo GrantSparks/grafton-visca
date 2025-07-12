@@ -15,7 +15,7 @@ async fn main() -> Result<(), Error> {
     let visca_transport = Tcp::connect("192.168.1.100:1259").await?;
 
     // Create camera using the transport
-    let camera = Camera::<PTZOpticsG2, _>::new(visca_transport);
+    let camera = Camera::new(visca_transport);
 
     // Use the camera normally
     println!("Recalling preset 1...");

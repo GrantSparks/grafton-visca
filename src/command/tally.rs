@@ -6,62 +6,89 @@
 use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
-    timeout::CommandCategory};
+    timeout::CommandCategory,
+    visca_command,
+};
 
-/// Tally light control commands.
-///
-/// Controls the tally light indicators on compatible cameras.
-/// Not all cameras support all tally light features.
-#[derive(Debug, Copy, Clone)]
-pub enum Tally {
-    /// Turn red tally light on
-    RedOn,
-    /// Turn red tally light off
-    RedOff,
-    /// Set tally brightness to low
-    BrightLo,
-    /// Set tally brightness to high
-    BrightHi,
-    /// Turn green tally light on (FR7 specific)
-    GreenOn,
-    /// Turn green tally light off (FR7 specific)
-    GreenOff,
-    /// Set tally to flash mode (PTZOptics specific)
-    Flash,
-    /// Set tally to solid on (PTZOptics specific)
-    On,
-    /// Turn tally off (PTZOptics specific)
-    Off}
-
-impl EncodeVisca for Tally {
-    type Response = ();
-    const MAX_SIZE: usize = 8;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
-        }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x01;
-        buffer[4] = 0x0A;
-        buffer[5] = 0x00;
-        buffer[6] = 0x02;
-        buffer[7] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_command! {
+    /// Tally light control commands.
+    ///
+    /// Controls the tally light indicators on compatible cameras.
+    /// Not all cameras support all tally light features.
+    category = "Quick",
+    enum Tally {
+        /// Turn red tally light on
+        RedOn => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+                .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
+                .append(&[0x02])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Turn red tally light off
+        RedOff => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+                .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
+                .append(&[0x03])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Set tally brightness to low
+        BrightLo => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+                .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
+                .append(&[0x04])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Set tally brightness to high
+        BrightHi => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+                .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
+                .append(&[0x05])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Turn green tally light on (FR7 specific)
+        GreenOn => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+                .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
+                .append(&[0x02])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Turn green tally light off (FR7 specific)
+        GreenOff => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+                .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
+                .append(&[0x03])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Set tally to flash mode (PTZOptics specific)
+        Flash => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
+                .append(&[0x01])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Set tally to solid on (PTZOptics specific)
+        On => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
+                .append(&[0x02])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Turn tally off (PTZOptics specific)
+        Off => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
+                .append(&[0x03])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
     }
 }
 
@@ -73,7 +100,8 @@ pub enum TallyInquiry {
     /// Query red tally light state
     Red,
     /// Query green tally light state (FR7 specific)
-    Green}
+    Green,
+}
 
 impl EncodeVisca for TallyInquiry {
     type Response = ();
@@ -83,7 +111,8 @@ impl EncodeVisca for TallyInquiry {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[0] = 0x81;
@@ -93,16 +122,17 @@ impl EncodeVisca for TallyInquiry {
         buffer[4] = 0x0A;
         buffer[5] = 0x00;
         buffer[6] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         Some(match self {
             Self::Red => ResponseType::TallyRed,
-            Self::Green => ResponseType::TallyGreen})
+            Self::Green => ResponseType::TallyGreen,
+        })
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }

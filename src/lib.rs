@@ -305,12 +305,11 @@ pub mod units;
 
 pub mod timeout; // Public for use in macros
 
-
 // Minimal blocking executor
 pub mod blocking;
 
 // Core re-exports
-pub use camera::{ProfileId, Camera};
+pub use camera::{Camera, ProfileId};
 pub use command::{EncodeVisca, InquiryResponse, Response};
 
 // Re-export unit types for convenience

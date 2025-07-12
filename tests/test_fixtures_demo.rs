@@ -12,7 +12,9 @@ use crate::common::{
     ProtocolValidator, ScenarioBuilder, ValidationMode,
 };
 use grafton_visca::{
-    camera::{methods::*, ProfileId, Camera}, command::{preset::PresetNumber}, Result,
+    camera::{methods::*, Camera, ProfileId},
+    command::preset::PresetNumber,
+    Result,
 };
 use std::time::Duration;
 
@@ -106,10 +108,18 @@ fn test_preset_commands_with_fixtures() {
     let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
     // Test preset operations
-    camera.preset_set_blocking(PresetNumber::new(1).unwrap()).unwrap();
-    camera.preset_recall_blocking(PresetNumber::new(1).unwrap()).unwrap();
-    camera.preset_set_blocking(PresetNumber::new(2).unwrap()).unwrap();
-    camera.preset_recall_blocking(PresetNumber::new(2).unwrap()).unwrap();
+    camera
+        .preset_set_blocking(PresetNumber::new(1).unwrap())
+        .unwrap();
+    camera
+        .preset_recall_blocking(PresetNumber::new(1).unwrap())
+        .unwrap();
+    camera
+        .preset_set_blocking(PresetNumber::new(2).unwrap())
+        .unwrap();
+    camera
+        .preset_recall_blocking(PresetNumber::new(2).unwrap())
+        .unwrap();
 
     // MockTransportBuilder automatically verifies expectations when dropped
 }
@@ -263,7 +273,9 @@ fn test_comprehensive_command_sequence() {
     camera.power_on_blocking().unwrap();
     camera.pan_tilt_home_blocking().unwrap();
     camera.zoom_stop_blocking().unwrap();
-    camera.preset_recall_blocking(PresetNumber::new(1).unwrap()).unwrap();
+    camera
+        .preset_recall_blocking(PresetNumber::new(1).unwrap())
+        .unwrap();
     camera.focus_auto_blocking().unwrap();
 
     // MockTransportBuilder automatically verifies expectations when dropped

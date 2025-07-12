@@ -61,7 +61,8 @@ pub enum PanTiltDirection {
     /// Move camera diagonally down and to the right.
     DownRight,
     /// Stop all pan/tilt movement.
-    Stop}
+    Stop,
+}
 
 impl PanTiltDirection {
     /// Converts the direction to its VISCA byte representation.
@@ -78,7 +79,8 @@ impl PanTiltDirection {
             Self::UpRight => (0x02, 0x01),
             Self::DownLeft => (0x01, 0x02),
             Self::DownRight => (0x02, 0x02),
-            Self::Stop => (0x03, 0x03)}
+            Self::Stop => (0x03, 0x03),
+        }
     }
 }
 
@@ -103,7 +105,8 @@ pub enum PanTilt {
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x14).
-        tilt_speed: TiltSpeed},
+        tilt_speed: TiltSpeed,
+    },
     /// Move camera to an absolute pan/tilt position.
     ///
     /// The pan and tilt values specify exact coordinates to move to.
@@ -115,7 +118,8 @@ pub enum PanTilt {
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x14).
-        tilt_speed: TiltSpeed},
+        tilt_speed: TiltSpeed,
+    },
     /// Move camera relative to its current position.
     ///
     /// The pan and tilt values specify the offset from the current position.
@@ -127,7 +131,9 @@ pub enum PanTilt {
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x14).
-        tilt_speed: TiltSpeed}}
+        tilt_speed: TiltSpeed,
+    },
+}
 
 impl PanTilt {
     // Note: The absolute_position_degrees method was removed because it referenced
@@ -147,40 +153,151 @@ impl PanTilt {
     /// Create a stop command.
     pub fn stop() -> Result<Self, Error> {
         let (pan_speed, tilt_speed) = crate::validate_all! {
-            pan_speed: PanSpeed::new(0),
-            tilt_speed: TiltSpeed::new(0)}?;
+        pan_speed: PanSpeed::new(0),
+        tilt_speed: TiltSpeed::new(0)}?;
 
         Ok(Self::Move {
             direction: PanTiltDirection::Stop,
             pan_speed,
-            tilt_speed})
+            tilt_speed,
+        })
     }
 }
 
 impl EncodeVisca for PanTilt {
     type Response = ();
-    const MAX_SIZE: usize = 5;
+    const MAX_SIZE: usize = 15;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
-        }
+        use crate::command::const_encoding::constants::pan_tilt;
+        use crate::command::const_encoding::CommandBuilder;
 
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x06;
-        buffer[3] = 0x04;
-        buffer[4] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
+        match self {
+            Self::Home => {
+                let cmd = CommandBuilder::<4>::new().append(pan_tilt::HOME).build();
+                let bytes = cmd.as_slice();
+                if buffer.len() < bytes.len() {
+                    return Err(Error::BufferTooSmall {
+                        required: bytes.len(),
+                        actual: buffer.len(),
+                    });
+                }
+                buffer[..bytes.len()].copy_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            Self::Reset => {
+                let cmd = CommandBuilder::<4>::new().append(pan_tilt::RESET).build();
+                let bytes = cmd.as_slice();
+                if buffer.len() < bytes.len() {
+                    return Err(Error::BufferTooSmall {
+                        required: bytes.len(),
+                        actual: buffer.len(),
+                    });
+                }
+                buffer[..bytes.len()].copy_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            Self::Move {
+                direction,
+                pan_speed,
+                tilt_speed,
+            } => {
+                // Move command: 81 01 06 01 VV WW XX YY FF
+                // Where VV = pan speed, WW = tilt speed, XX YY = direction
+                let required = 9;
+                if buffer.len() < required {
+                    return Err(Error::BufferTooSmall {
+                        required,
+                        actual: buffer.len(),
+                    });
+                }
+                let (pan_dir, tilt_dir) = direction.to_bytes();
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x06;
+                buffer[3] = 0x01;
+                buffer[4] = pan_speed.value();
+                buffer[5] = tilt_speed.value();
+                buffer[6] = pan_dir;
+                buffer[7] = tilt_dir;
+                buffer[8] = 0xFF;
+                Ok(required)
+            }
+            Self::AbsolutePosition {
+                pan,
+                tilt,
+                pan_speed,
+                tilt_speed,
+            } => {
+                // Absolute position: 81 01 06 02 VV WW PP PP PP PP TT TT TT TT FF
+                let required = 15;
+                if buffer.len() < required {
+                    return Err(Error::BufferTooSmall {
+                        required,
+                        actual: buffer.len(),
+                    });
+                }
+                let pan_bytes = position_to_bytes(pan.value());
+                let tilt_bytes = position_to_bytes(tilt.value());
+
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x06;
+                buffer[3] = 0x02;
+                buffer[4] = pan_speed.value();
+                buffer[5] = tilt_speed.value();
+                buffer[6] = pan_bytes[0];
+                buffer[7] = pan_bytes[1];
+                buffer[8] = pan_bytes[2];
+                buffer[9] = pan_bytes[3];
+                buffer[10] = tilt_bytes[0];
+                buffer[11] = tilt_bytes[1];
+                buffer[12] = tilt_bytes[2];
+                buffer[13] = tilt_bytes[3];
+                buffer[14] = 0xFF;
+                Ok(required)
+            }
+            Self::RelativePosition {
+                pan,
+                tilt,
+                pan_speed,
+                tilt_speed,
+            } => {
+                // Relative position: 81 01 06 03 VV WW PP PP PP PP TT TT TT TT FF
+                let required = 15;
+                if buffer.len() < required {
+                    return Err(Error::BufferTooSmall {
+                        required,
+                        actual: buffer.len(),
+                    });
+                }
+                let pan_bytes = position_to_bytes(pan.value());
+                let tilt_bytes = position_to_bytes(tilt.value());
+
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x06;
+                buffer[3] = 0x03;
+                buffer[4] = pan_speed.value();
+                buffer[5] = tilt_speed.value();
+                buffer[6] = pan_bytes[0];
+                buffer[7] = pan_bytes[1];
+                buffer[8] = pan_bytes[2];
+                buffer[9] = pan_bytes[3];
+                buffer[10] = tilt_bytes[0];
+                buffer[11] = tilt_bytes[1];
+                buffer[12] = tilt_bytes[2];
+                buffer[13] = tilt_bytes[3];
+                buffer[14] = 0xFF;
+                Ok(required)
+            }
+        }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Movement
     }

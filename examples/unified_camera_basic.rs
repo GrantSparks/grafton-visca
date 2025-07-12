@@ -3,7 +3,7 @@
 //! This example demonstrates the simplicity of the new Camera API
 //! which eliminates the need for generic type parameters.
 
-use grafton_visca::{Error, ProfileId, Camera};
+use grafton_visca::{Camera, Error, ProfileId};
 
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::transport::blocking::Tcp;

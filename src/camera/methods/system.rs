@@ -2,13 +2,12 @@
 
 use crate::{
     camera::unified::Camera,
-    command::system::{InterfaceClearCommand, Socket, AddressSetCommand, CommandCancelCommand},
+    command::system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket},
     Error, Response,
 };
 
 /// System operations.
 pub trait SystemOps: Sized {
-
     /// Trigger automatic address assignment (broadcast command for serial bus).
     /// Note: This doesn't set a specific address but triggers the auto-addressing process.
     #[cfg(feature = "tokio")]
@@ -50,14 +49,13 @@ impl SystemOps for Camera {
 
     #[cfg(not(feature = "tokio"))]
     fn trigger_address_assignment_blocking(&mut self) -> Result<(), Error> {
-        
-            let cmd = AddressSetCommand::new();
-            let response = self.send_command_blocking(&cmd)?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+        let cmd = AddressSetCommand::new();
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
     #[cfg(feature = "tokio")]
     async fn interface_clear(&self) -> Result<(), Error> {
@@ -72,14 +70,13 @@ impl SystemOps for Camera {
 
     #[cfg(not(feature = "tokio"))]
     fn interface_clear_blocking(&mut self) -> Result<(), Error> {
-        
-            let cmd = InterfaceClearCommand::new();
-            let response = self.send_command_blocking(&cmd)?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+        let cmd = InterfaceClearCommand::new();
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
     #[cfg(feature = "tokio")]
     async fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
@@ -94,14 +91,13 @@ impl SystemOps for Camera {
 
     #[cfg(not(feature = "tokio"))]
     fn cancel_command_blocking(&mut self, socket: Socket) -> Result<(), Error> {
-        
-            let cmd = CommandCancelCommand::new(socket);
-            let response = self.send_command_blocking(&cmd)?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+        let cmd = CommandCancelCommand::new(socket);
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 }
 
@@ -112,7 +108,7 @@ mod tests {
     #[test]
     fn test_system_methods_compile() {
         // This test demonstrates that system methods are available for all cameras
-        
+
         fn _test_system_methods(_camera: &Camera) {
             // All cameras can use system methods
         }

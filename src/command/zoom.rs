@@ -32,7 +32,9 @@ use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{SpeedLevel, ZoomPosition}};
+    types::{SpeedLevel, ZoomPosition},
+    visca_command,
+};
 
 crate::visca_bounded_param! {
     /// Variable zoom speed.
@@ -73,7 +75,8 @@ pub enum Zoom {
     /// Zoom out at variable speed.
     WideVariable(ZoomSpeed),
     /// Set zoom to specific position.
-    Position(ZoomPosition)}
+    Position(ZoomPosition),
+}
 
 impl Zoom {
     // Legacy method - removed in new API
@@ -85,32 +88,115 @@ impl Zoom {
 
 impl EncodeVisca for Zoom {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 10;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
-        }
+        use crate::command::const_encoding::constants::zoom;
+        use crate::command::const_encoding::CommandBuilder;
 
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x07;
-        buffer[4] = 0x00;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
+        match self {
+            Self::Stop => {
+                let cmd = CommandBuilder::<5>::new().append(zoom::STOP).build();
+                let bytes = cmd.as_slice();
+                if buffer.len() < bytes.len() {
+                    return Err(Error::BufferTooSmall {
+                        required: bytes.len(),
+                        actual: buffer.len(),
+                    });
+                }
+                buffer[..bytes.len()].copy_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            Self::TeleStd => {
+                let cmd = CommandBuilder::<5>::new().append(zoom::TELE_STD).build();
+                let bytes = cmd.as_slice();
+                if buffer.len() < bytes.len() {
+                    return Err(Error::BufferTooSmall {
+                        required: bytes.len(),
+                        actual: buffer.len(),
+                    });
+                }
+                buffer[..bytes.len()].copy_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            Self::WideStd => {
+                let cmd = CommandBuilder::<5>::new().append(zoom::WIDE_STD).build();
+                let bytes = cmd.as_slice();
+                if buffer.len() < bytes.len() {
+                    return Err(Error::BufferTooSmall {
+                        required: bytes.len(),
+                        actual: buffer.len(),
+                    });
+                }
+                buffer[..bytes.len()].copy_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            Self::TeleVariable(speed) => {
+                // Tele variable: 81 01 04 07 2p FF where p is speed
+                let required = 6;
+                if buffer.len() < required {
+                    return Err(Error::BufferTooSmall {
+                        required,
+                        actual: buffer.len(),
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x07;
+                buffer[4] = 0x20 | (speed.0 & 0x0F);
+                buffer[5] = 0xFF;
+                Ok(required)
+            }
+            Self::WideVariable(speed) => {
+                // Wide variable: 81 01 04 07 3p FF where p is speed
+                let required = 6;
+                if buffer.len() < required {
+                    return Err(Error::BufferTooSmall {
+                        required,
+                        actual: buffer.len(),
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x07;
+                buffer[4] = 0x30 | (speed.0 & 0x0F);
+                buffer[5] = 0xFF;
+                Ok(required)
+            }
+            Self::Position(position) => {
+                // Direct position: 81 01 04 47 0p 0q 0r 0s FF
+                let required = 10;
+                if buffer.len() < required {
+                    return Err(Error::BufferTooSmall {
+                        required,
+                        actual: buffer.len(),
+                    });
+                }
+                let nibbles = position_to_nibbles(position.value());
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x47;
+                buffer[4] = nibbles[0];
+                buffer[5] = nibbles[1];
+                buffer[6] = nibbles[2];
+                buffer[7] = nibbles[3];
+                buffer[8] = 0xFF;
+                Ok(required)
+            }
+        }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         match self {
             Self::TeleStd => Some(ResponseType::ZoomIn),
             Self::WideStd => Some(ResponseType::ZoomOut),
-            _ => None}
+            _ => None,
+        }
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Movement
     }
@@ -134,43 +220,41 @@ pub enum DigitalZoom {
     /// Enable digital zoom.
     On = 0x02,
     /// Disable digital zoom.
-    Off = 0x03}
+    Off = 0x03,
+}
 
-/// Command to control digital zoom.
-///
-/// This command enables or disables digital zoom capability.
-/// When enabled, zoom can continue past the optical zoom limit using digital processing.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct DigitalZoomCommand {
-    /// The desired digital zoom state.
-    pub zoom: DigitalZoom}
+visca_command! {
+    /// Command to control digital zoom.
+    ///
+    /// This command enables or disables digital zoom capability.
+    /// When enabled, zoom can continue past the optical zoom limit using digital processing.
+    category = "Quick",
+    enum DigitalZoomCommand {
+        /// Enable digital zoom.
+        On => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::zoom::DIGITAL_ZOOM_PREFIX)
+                .push(0x02)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Disable digital zoom.
+        Off => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::zoom::DIGITAL_ZOOM_PREFIX)
+                .push(0x03)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+    }
+}
 
-impl EncodeVisca for DigitalZoomCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+impl DigitalZoomCommand {
+    /// Create a new digital zoom command.
+    pub fn new(zoom: DigitalZoom) -> Self {
+        match zoom {
+            DigitalZoom::On => Self::On,
+            DigitalZoom::Off => Self::Off,
         }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x06;
-        buffer[4] = self.zoom as u8;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }

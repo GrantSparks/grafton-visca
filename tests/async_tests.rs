@@ -30,8 +30,7 @@ mod async_tests {
         command::{
             pan_tilt::PanTilt,
             power::{Power, PowerCommand},
-            Zoom,
-            PanTiltPositionInquiry,
+            PanTiltPositionInquiry, Zoom,
         },
         transport::ViscaProtocol,
         Error, Response,

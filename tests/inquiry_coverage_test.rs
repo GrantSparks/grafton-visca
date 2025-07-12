@@ -3,13 +3,15 @@
 //! This test provides compile-time verification that every inquiry command
 //! struct can be properly constructed and has valid implementations.
 
-use grafton_visca::command::{Command, *};
+use grafton_visca::command::{encode_visca::EncodeVisca, *};
 
 #[test]
 fn all_inquiry_structs_have_implementations() {
     // Test PowerInquiry
     let cmd = PowerInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "PowerInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -18,7 +20,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test PanTiltPositionInquiry
     let cmd = PanTiltPositionInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "PanTiltPositionInquiry returned empty bytes"
@@ -30,7 +34,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test ZoomPositionInquiry
     let cmd = ZoomPositionInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "ZoomPositionInquiry returned empty bytes"
@@ -42,7 +48,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test FocusPositionInquiry
     let cmd = FocusPositionInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "FocusPositionInquiry returned empty bytes"
@@ -54,7 +62,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test ExposureModeInquiry
     let cmd = ExposureModeInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "ExposureModeInquiry returned empty bytes"
@@ -66,7 +76,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test WhiteBalanceModeInquiry
     let cmd = WhiteBalanceModeInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "WhiteBalanceModeInquiry returned empty bytes"
@@ -78,7 +90,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test LuminanceInquiry
     let cmd = LuminanceInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "LuminanceInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -87,7 +101,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test ContrastInquiry
     let cmd = ContrastInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "ContrastInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -96,7 +112,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test SharpnessInquiry
     let cmd = SharpnessInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "SharpnessInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -105,7 +123,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test ExposureCompensationInquiry
     let cmd = ExposureCompensationInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "ExposureCompensationInquiry returned empty bytes"
@@ -117,7 +137,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test ExposureCompensationModeInquiry
     let cmd = ExposureCompensationModeInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "ExposureCompensationModeInquiry returned empty bytes"
@@ -129,7 +151,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test IrisInquiry
     let cmd = IrisInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "IrisInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -138,7 +162,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test ShutterInquiry
     let cmd = ShutterInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "ShutterInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -147,7 +173,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test BrightInquiry
     let cmd = BrightInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "BrightInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -156,7 +184,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test GainInquiry
     let cmd = GainInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "GainInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -165,7 +195,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test GainLimitInquiry
     let cmd = GainLimitInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "GainLimitInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -174,7 +206,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test AntiFlickerInquiry
     let cmd = AntiFlickerInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "AntiFlickerInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -183,7 +217,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test SaturationInquiry
     let cmd = SaturationInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "SaturationInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -192,7 +228,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test HueInquiry
     let cmd = HueInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "HueInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -201,7 +239,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test RedGainInquiry
     let cmd = RedGainInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "RedGainInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -210,7 +250,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test BlueGainInquiry
     let cmd = BlueGainInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "BlueGainInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -219,7 +261,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test BacklightInquiry
     let cmd = BacklightInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "BacklightInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -228,7 +272,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test ImageFlipInquiry
     let cmd = ImageFlipInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "ImageFlipInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -237,7 +283,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test SharpnessModeInquiry
     let cmd = SharpnessModeInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "SharpnessModeInquiry returned empty bytes"
@@ -249,7 +297,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test ColorTemperatureInquiry
     let cmd = ColorTemperatureInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "ColorTemperatureInquiry returned empty bytes"
@@ -261,7 +311,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test NoiseReduction2DInquiry
     let cmd = NoiseReduction2DInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "NoiseReduction2DInquiry returned empty bytes"
@@ -273,7 +325,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test NoiseReduction3DInquiry
     let cmd = NoiseReduction3DInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "NoiseReduction3DInquiry returned empty bytes"
@@ -285,7 +339,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test BlackWhiteInquiry
     let cmd = BlackWhiteInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "BlackWhiteInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -294,7 +350,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test FocusZoneInquiry
     let cmd = FocusZoneInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "FocusZoneInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),
@@ -303,7 +361,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test AutoFocusSensitivityInquiry
     let cmd = AutoFocusSensitivityInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "AutoFocusSensitivityInquiry returned empty bytes"
@@ -315,7 +375,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test FocusNearLimitInquiry
     let cmd = FocusNearLimitInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "FocusNearLimitInquiry returned empty bytes"
@@ -327,7 +389,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test DynamicRangeInquiry
     let cmd = DynamicRangeInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(
         !bytes.is_empty(),
         "DynamicRangeInquiry returned empty bytes"
@@ -339,7 +403,9 @@ fn all_inquiry_structs_have_implementations() {
 
     // Test VersionInquiry
     let cmd = VersionInquiry;
-    let bytes = cmd.try_into_vec().expect("Should be able to generate bytes");
+    let bytes = cmd
+        .try_into_vec()
+        .expect("Should be able to generate bytes");
     assert!(!bytes.is_empty(), "VersionInquiry returned empty bytes");
     assert!(
         cmd.response_type().is_some(),

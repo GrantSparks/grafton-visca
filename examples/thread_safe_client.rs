@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create UDP transport and Camera with PTZOpticsG2 profile
     let transport = Udp::connect(camera_addr)?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::new(transport);
 
     // Wrap the camera in Arc<Mutex> for thread-safe access
     let camera = Arc::new(Mutex::new(camera));

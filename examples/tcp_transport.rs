@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✓ TCP transport created for {}", addr);
 
             // Create a camera using the transport
-            let camera = Camera::<GenericVisca, _>::new(transport);
+            let camera = Camera::new(transport);
 
             // Send a VISCA command using camera methods
             use grafton_visca::camera::methods::ZoomOps;

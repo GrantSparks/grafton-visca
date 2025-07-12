@@ -4,15 +4,14 @@ use crate::{
     camera::unified::Camera,
     command::{
         color::{
-            BlueGain, BlueTuningCommand, ColorTemperature, OnePushTriggerCommand,
-            RedGain, RedTuningCommand,
+            BlueGain, BlueTuningCommand, ColorTemperature, OnePushTriggerCommand, RedGain,
+            RedTuningCommand,
         },
         inquiry::ColorTemperatureInquiry,
     },
     types::{BlueChannel, BlueTuning, ColorTemp, RedChannel, RedTuning},
     Error,
 };
-
 
 /// Unified trait for Camera that adds color adjustment methods.
 pub trait ColorOps: Sized {
@@ -23,17 +22,11 @@ pub trait ColorOps: Sized {
 
     #[cfg(feature = "tokio")]
     /// Set color temperature.
-    async fn set_color_temperature(
-        &self,
-        temp: ColorTemp,
-    ) -> Result<(), Error>;
+    async fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error>;
 
     #[cfg(feature = "tokio")]
     /// Set or query color temperature.
-    async fn color_temperature(
-        &self,
-        temp: Option<ColorTemp>,
-    ) -> Result<(), Error>;
+    async fn color_temperature(&self, temp: Option<ColorTemp>) -> Result<(), Error>;
 
     #[cfg(feature = "tokio")]
     /// Set red gain.
@@ -111,10 +104,7 @@ impl ColorOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    async fn set_color_temperature(
-        &self,
-        temp: ColorTemp,
-    ) -> Result<(), Error> {
+    async fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error> {
         self.send_command(&ColorTemperature::SetTemperature(temp))
             .await?;
         Ok(())
@@ -127,12 +117,12 @@ impl ColorOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    async fn color_temperature(
-        &self,
-        temp: Option<ColorTemp>,
-    ) -> Result<(), Error> {
+    async fn color_temperature(&self, temp: Option<ColorTemp>) -> Result<(), Error> {
         match temp {
-            Some(t) => self.send_command(&ColorTemperature::SetTemperature(t)).await?,
+            Some(t) => {
+                self.send_command(&ColorTemperature::SetTemperature(t))
+                    .await?
+            }
             None => self.send_command(&ColorTemperatureInquiry).await?,
         };
         Ok(())
@@ -208,10 +198,7 @@ impl ColorOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    async fn set_blue_tuning(
-        &self,
-        tuning: BlueTuning,
-    ) -> Result<(), Error> {
+    async fn set_blue_tuning(&self, tuning: BlueTuning) -> Result<(), Error> {
         self.send_command(&BlueTuningCommand::new(tuning)).await?;
         Ok(())
     }

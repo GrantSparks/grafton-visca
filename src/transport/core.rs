@@ -70,7 +70,7 @@ pub trait TransportExt: Transport {
     }
 
     /// Receive with timeout for runtime-agnostic async.
-    /// 
+    ///
     /// When not using tokio, users should wrap this with their runtime's timeout.
     /// For example, with async-std:
     /// ```ignore
@@ -87,9 +87,7 @@ pub trait TransportExt: Transport {
     {
         // Without a specific runtime, we can't implement timeout.
         // Users should wrap recv() with their runtime's timeout mechanism.
-        async move {
-            self.recv().await.map_err(Into::into)
-        }
+        async move { self.recv().await.map_err(Into::into) }
     }
 
     /// Blocking timeout helper for non-async transports.

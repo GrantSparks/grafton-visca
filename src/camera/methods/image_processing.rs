@@ -5,17 +5,16 @@ use crate::{
     command::{
         color::{HueCommand, SaturationCommand},
         flip::{Flip, ImageFlipCommand},
-        image::{NoiseReduction2D, NoiseReduction3D},
-        image_adjustment::{ContrastCommand, Sharpness},
+        image::{ImageFlipCombinedCommand, NoiseReduction2D, NoiseReduction3D},
+        image_adjustment::{ContrastCommand, LuminanceCommand, Sharpness},
+        ImageFlipMode,
     },
     types::{
-        ContrastLevel, HueLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel,
-        SharpnessLevel,
+        ContrastLevel, HueLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
+        SaturationLevel, SharpnessLevel,
     },
     Error,
 };
-
-
 
 /// Unified trait for image processing operations.
 pub trait ImageProcessingOps: Sized {
@@ -37,10 +36,7 @@ pub trait ImageProcessingOps: Sized {
 
     /// Set sharpness level.
     #[cfg(feature = "tokio")]
-    async fn set_sharpness(
-        &self,
-        level: SharpnessLevel,
-    ) -> Result<(), Error>;
+    async fn set_sharpness(&self, level: SharpnessLevel) -> Result<(), Error>;
 
     /// Set sharpness level (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -48,10 +44,7 @@ pub trait ImageProcessingOps: Sized {
 
     /// Set saturation level.
     #[cfg(feature = "tokio")]
-    async fn set_saturation(
-        &self,
-        level: SaturationLevel,
-    ) -> Result<(), Error>;
+    async fn set_saturation(&self, level: SaturationLevel) -> Result<(), Error>;
 
     /// Set saturation level (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -67,33 +60,49 @@ pub trait ImageProcessingOps: Sized {
 
     /// Set noise reduction 2D level.
     #[cfg(feature = "tokio")]
-    async fn set_noise_reduction_2d(
-        &self,
-        level: NoiseReduction2DLevel,
-    ) -> Result<(), Error>;
+    async fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> Result<(), Error>;
 
     /// Set noise reduction 2D level (blocking).
     #[cfg(not(feature = "tokio"))]
-    fn set_noise_reduction_2d_blocking(&mut self, level: NoiseReduction2DLevel) -> Result<(), Error>;
+    fn set_noise_reduction_2d_blocking(
+        &mut self,
+        level: NoiseReduction2DLevel,
+    ) -> Result<(), Error>;
 
     /// Set noise reduction 3D level.
     #[cfg(feature = "tokio")]
-    async fn set_noise_reduction_3d(
-        &self,
-        level: NoiseReduction3DLevel,
-    ) -> Result<(), Error>;
+    async fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> Result<(), Error>;
 
     /// Set noise reduction 3D level (blocking).
     #[cfg(not(feature = "tokio"))]
-    fn set_noise_reduction_3d_blocking(&mut self, level: NoiseReduction3DLevel) -> Result<(), Error>;
+    fn set_noise_reduction_3d_blocking(
+        &mut self,
+        level: NoiseReduction3DLevel,
+    ) -> Result<(), Error>;
+
+    /// Set image flip mode (combined horizontal and vertical).
+    #[cfg(feature = "tokio")]
+    async fn set_image_flip(&self, mode: ImageFlipMode) -> Result<(), Error>;
+
+    /// Set image flip mode (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_image_flip_blocking(&mut self, mode: ImageFlipMode) -> Result<(), Error>;
+
+    /// Set luminance (brightness) level.
+    #[cfg(feature = "tokio")]
+    async fn set_luminance(&self, level: LuminanceLevel) -> Result<(), Error>;
+
+    /// Set luminance (brightness) level (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_luminance_blocking(&mut self, level: LuminanceLevel) -> Result<(), Error>;
 }
 
 impl ImageProcessingOps for Camera {
     #[cfg(feature = "tokio")]
     async fn enable_flip(&self) -> Result<(), Error> {
-            let cmd = ImageFlipCommand::new(Flip::On);
-            self.send_command(&cmd).await?;
-            Ok(())
+        let cmd = ImageFlipCommand::new(Flip::On);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -105,9 +114,9 @@ impl ImageProcessingOps for Camera {
 
     #[cfg(feature = "tokio")]
     async fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error> {
-            let cmd = ContrastCommand::new(level);
-            self.send_command(&cmd).await?;
-            Ok(())
+        let cmd = ContrastCommand::new(level);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -118,15 +127,12 @@ impl ImageProcessingOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    async fn set_sharpness(
-        &self,
-        level: SharpnessLevel,
-    ) -> Result<(), Error> {
-            let cmd = Sharpness::SetLevel {
-                value: level.value(),
-            };
-            self.send_command(&cmd).await?;
-            Ok(())
+    async fn set_sharpness(&self, level: SharpnessLevel) -> Result<(), Error> {
+        let cmd = Sharpness::SetLevel {
+            value: level.value(),
+        };
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -139,13 +145,10 @@ impl ImageProcessingOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    async fn set_saturation(
-        &self,
-        level: SaturationLevel,
-    ) -> Result<(), Error> {
-            let cmd = SaturationCommand::new(level);
-            self.send_command(&cmd).await?;
-            Ok(())
+    async fn set_saturation(&self, level: SaturationLevel) -> Result<(), Error> {
+        let cmd = SaturationCommand::new(level);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -157,9 +160,9 @@ impl ImageProcessingOps for Camera {
 
     #[cfg(feature = "tokio")]
     async fn set_hue(&self, level: HueLevel) -> Result<(), Error> {
-            let cmd = HueCommand::new(level);
-            self.send_command(&cmd).await?;
-            Ok(())
+        let cmd = HueCommand::new(level);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -170,35 +173,63 @@ impl ImageProcessingOps for Camera {
     }
 
     #[cfg(feature = "tokio")]
-    async fn set_noise_reduction_2d(
-        &self,
-        level: NoiseReduction2DLevel,
-    ) -> Result<(), Error> {
-            let cmd = NoiseReduction2D::Level(level);
-            self.send_command(&cmd).await?;
-            Ok(())
+    async fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> Result<(), Error> {
+        let cmd = NoiseReduction2D::Level(level);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
-    fn set_noise_reduction_2d_blocking(&mut self, level: NoiseReduction2DLevel) -> Result<(), Error> {
+    fn set_noise_reduction_2d_blocking(
+        &mut self,
+        level: NoiseReduction2DLevel,
+    ) -> Result<(), Error> {
         let cmd = NoiseReduction2D::Level(level);
         self.send_command_blocking(&cmd)?;
         Ok(())
     }
 
     #[cfg(feature = "tokio")]
-    async fn set_noise_reduction_3d(
-        &self,
-        level: NoiseReduction3DLevel,
-    ) -> Result<(), Error> {
-            let cmd = NoiseReduction3D::Level(level);
-            self.send_command(&cmd).await?;
-            Ok(())
+    async fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> Result<(), Error> {
+        let cmd = NoiseReduction3D::Level(level);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
-    fn set_noise_reduction_3d_blocking(&mut self, level: NoiseReduction3DLevel) -> Result<(), Error> {
+    fn set_noise_reduction_3d_blocking(
+        &mut self,
+        level: NoiseReduction3DLevel,
+    ) -> Result<(), Error> {
         let cmd = NoiseReduction3D::Level(level);
+        self.send_command_blocking(&cmd)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "tokio")]
+    async fn set_image_flip(&self, mode: ImageFlipMode) -> Result<(), Error> {
+        let cmd = ImageFlipCombinedCommand::new(mode);
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
+
+    #[cfg(not(feature = "tokio"))]
+    fn set_image_flip_blocking(&mut self, mode: ImageFlipMode) -> Result<(), Error> {
+        let cmd = ImageFlipCombinedCommand::new(mode);
+        self.send_command_blocking(&cmd)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "tokio")]
+    async fn set_luminance(&self, level: LuminanceLevel) -> Result<(), Error> {
+        let cmd = LuminanceCommand::new(level);
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
+
+    #[cfg(not(feature = "tokio"))]
+    fn set_luminance_blocking(&mut self, level: LuminanceLevel) -> Result<(), Error> {
+        let cmd = LuminanceCommand::new(level);
         self.send_command_blocking(&cmd)?;
         Ok(())
     }

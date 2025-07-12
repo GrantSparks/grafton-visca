@@ -4,11 +4,7 @@
 //! `Command` and `ViscaCommand` traits into a single interface with zero-allocation
 //! encoding support.
 
-use crate::{
-    constants::CameraModel,
-    error::Error,
-    timeout::CommandCategory,
-};
+use crate::{constants::CameraModel, error::Error, timeout::CommandCategory};
 
 use super::response::ResponseType;
 
@@ -59,10 +55,10 @@ use super::response::ResponseType;
 pub trait EncodeVisca: Send + Sync {
     /// The type of response expected from this command.
     type Response;
-    
+
     /// Maximum size in bytes that this command can encode to.
     const MAX_SIZE: usize;
-    
+
     /// Encodes the command into the provided buffer.
     ///
     /// This is the primary method for zero-allocation encoding. The buffer must
@@ -81,7 +77,7 @@ pub trait EncodeVisca: Send + Sync {
     /// * `Error::BufferTooSmall` if the buffer is smaller than required
     /// * `Error::InvalidParameter` if the command contains invalid parameters
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error>;
-    
+
     /// Encodes the command to a fixed-size array.
     ///
     /// This method provides stack-allocated encoding for compile-time known sizes.
@@ -94,11 +90,14 @@ pub trait EncodeVisca: Send + Sync {
         let mut buffer = [0u8; N];
         let size = self.encode_into(&mut buffer)?;
         if size > N {
-            return Err(Error::BufferTooSmall { required: size, actual: N });
+            return Err(Error::BufferTooSmall {
+                required: size,
+                actual: N,
+            });
         }
         Ok(buffer)
     }
-    
+
     /// Encodes the command to a heap-allocated vector.
     ///
     /// This is a convenience method that allocates a vector for the encoded bytes.
@@ -113,13 +112,13 @@ pub trait EncodeVisca: Send + Sync {
         buffer.truncate(size);
         Ok(buffer)
     }
-    
+
     /// Returns the expected response type for this command.
     ///
     /// - Returns `None` for action commands that only receive ACK/Completion
     /// - Returns `Some(ResponseType::...)` for inquiry commands that receive data
     fn response_type(&self) -> Option<ResponseType>;
-    
+
     /// Returns the command category for timeout configuration.
     ///
     /// This is used to determine the appropriate timeout duration for the command.
@@ -128,7 +127,7 @@ pub trait EncodeVisca: Send + Sync {
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Custom
     }
-    
+
     /// Validate this command for a specific camera model.
     ///
     /// The default implementation returns `Ok(())` for backward compatibility.
@@ -141,4 +140,3 @@ pub trait EncodeVisca: Send + Sync {
         Ok(())
     }
 }
-

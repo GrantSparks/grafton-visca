@@ -9,8 +9,9 @@
 use grafton_visca::{
     command::{
         pan_tilt::{PanTilt, PanTiltDirection},
-        preset::{PresetAction, PresetCommand, PresetNumber},
-        Zoom, zoom::ZoomSpeed,
+        preset::PresetNumber,
+        zoom::ZoomSpeed,
+        Zoom,
     },
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed, ZoomPosition},
 };
@@ -139,29 +140,6 @@ impl TestPresetBuilder {
         self
     }
 
-    /// Build a recall preset command.
-    pub fn build_recall(self) -> PresetCommand {
-        PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: self.number,
-        }
-    }
-
-    /// Build a set preset command.
-    pub fn build_set(self) -> PresetCommand {
-        PresetCommand {
-            action: PresetAction::Set,
-            preset_number: self.number,
-        }
-    }
-
-    /// Build a reset preset command.
-    pub fn build_reset(self) -> PresetCommand {
-        PresetCommand {
-            action: PresetAction::Reset,
-            preset_number: self.number,
-        }
-    }
 }
 
 /// Builder for creating zoom commands in tests.
@@ -256,21 +234,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(feature = "async"))]
-    #[test]
-    fn test_preset_builder() {
-        let cmd = TestPresetBuilder::new().with_number(5).build_recall();
-
-        match cmd {
-            PresetCommand {
-                action: grafton_visca::command::preset::PresetAction::Recall,
-                preset_number,
-            } => {
-                assert_eq!(preset_number.value(), 5);
-            }
-            _ => panic!("Expected Recall command"),
-        }
-    }
 
     // TestParameters test removed since those types are no longer public
 }

@@ -9,10 +9,7 @@
 // (none)
 
 // Workspace / local-crate imports
-use crate::{
-    command::{encode_visca::EncodeVisca, const_encoding::CommandBuilder, ResponseType},
-    error::Error,
-    timeout::CommandCategory};
+use crate::{command::const_encoding::CommandBuilder, error::Error, visca_command};
 
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -20,48 +17,41 @@ pub enum Flip {
     /// Enable image flip.
     On = 0x02,
     /// Disable image flip.
-    Off = 0x03}
+    Off = 0x03,
+}
 
-/// Command to control image flip.
-///
-/// This command flips the image vertically (upside down).
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct ImageFlipCommand {
-    /// Internal command bytes.
-    command: [u8; 6]}
+visca_command! {
+    /// Command to control image flip.
+    ///
+    /// This command flips the image vertically (upside down).
+    category = "Quick",
+    enum ImageFlipCommand {
+        /// Enable image flip.
+        On => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::flip::PREFIX)
+                .push(0x02)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Disable image flip.
+        Off => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::flip::PREFIX)
+                .push(0x03)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+    }
+}
 
 impl ImageFlipCommand {
     /// Create a new image flip command.
     pub fn new(flip: Flip) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::flip::PREFIX);
-        cmd.push(flip as u8);
-        Self {
-            command: cmd.build()}
-    }
-}
-
-impl EncodeVisca for ImageFlipCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match flip {
+            Flip::On => Self::On,
+            Flip::Off => Self::Off,
         }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -71,48 +61,41 @@ pub enum HorizontalFlip {
     /// Enable horizontal flip (mirror).
     On = 0x02,
     /// Disable horizontal flip (mirror).
-    Off = 0x03}
+    Off = 0x03,
+}
 
-/// Command to control horizontal flip (mirror).
-///
-/// This command flips the image horizontally (left-right mirror).
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct HorizontalFlipCommand {
-    /// Internal command bytes.
-    command: [u8; 6]}
+visca_command! {
+    /// Command to control horizontal flip (mirror).
+    ///
+    /// This command flips the image horizontally (left-right mirror).
+    category = "Quick",
+    enum HorizontalFlipCommand {
+        /// Enable horizontal flip (mirror).
+        On => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX)
+                .push(0x02)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Disable horizontal flip (mirror).
+        Off => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX)
+                .push(0x03)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+    }
+}
 
 impl HorizontalFlipCommand {
     /// Create a new horizontal flip command.
     pub fn new(flip: HorizontalFlip) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX);
-        cmd.push(flip as u8);
-        Self {
-            command: cmd.build()}
-    }
-}
-
-impl EncodeVisca for HorizontalFlipCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match flip {
+            HorizontalFlip::On => Self::On,
+            HorizontalFlip::Off => Self::Off,
         }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -122,48 +105,41 @@ pub enum Freeze {
     /// Enable image freeze.
     On = 0x02,
     /// Disable image freeze.
-    Off = 0x03}
+    Off = 0x03,
+}
 
-/// Command to control image freeze.
-///
-/// This command freezes the current image frame.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct ImageFreezeCommand {
-    /// Internal command bytes.
-    command: [u8; 6]}
+visca_command! {
+    /// Command to control image freeze.
+    ///
+    /// This command freezes the current image frame.
+    category = "Quick",
+    enum ImageFreezeCommand {
+        /// Enable image freeze.
+        On => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::flip::FREEZE_PREFIX)
+                .push(0x02)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Disable image freeze.
+        Off => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::flip::FREEZE_PREFIX)
+                .push(0x03)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+    }
+}
 
 impl ImageFreezeCommand {
     /// Create a new image freeze command.
     pub fn new(freeze: Freeze) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::flip::FREEZE_PREFIX);
-        cmd.push(freeze as u8);
-        Self {
-            command: cmd.build()}
-    }
-}
-
-impl EncodeVisca for ImageFreezeCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match freeze {
+            Freeze::On => Self::On,
+            Freeze::Off => Self::Off,
         }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -175,6 +151,7 @@ impl EncodeVisca for ImageFreezeCommand {
 )]
 mod tests {
     use super::*;
+    use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory};
 
     #[test]
     fn test_flip_on_command() {
@@ -232,13 +209,12 @@ mod tests {
     fn test_image_flip_command_debug() {
         let cmd = ImageFlipCommand::new(Flip::On);
         let debug_str = format!("{:?}", cmd);
-        assert!(debug_str.contains("ImageFlipCommand"));
-        // The debug output will show the command bytes, not the enum value
-        assert!(debug_str.contains("command"));
+        // With the macro-generated enum, debug output will be "On" or "Off"
+        assert!(debug_str == "On" || debug_str.contains("On"));
 
         let cmd = ImageFlipCommand::new(Flip::Off);
         let debug_str = format!("{:?}", cmd);
-        assert!(debug_str.contains("ImageFlipCommand"));
+        assert!(debug_str == "Off" || debug_str.contains("Off"));
     }
 
     #[test]
@@ -250,8 +226,11 @@ mod tests {
 
         let cmd1 = ImageFlipCommand::new(Flip::Off);
         let cmd2 = cmd1; // Copy trait
-        // Verify the command was copied correctly
-        assert_eq!(cmd2.try_into_vec().unwrap(), vec![0x81, 0x01, 0x04, 0x66, 0x03, 0xFF]);
+                         // Verify the command was copied correctly
+        assert_eq!(
+            cmd2.try_into_vec().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x66, 0x03, 0xFF]
+        );
     }
 
     #[test]

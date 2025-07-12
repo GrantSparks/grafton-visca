@@ -7,8 +7,8 @@ use grafton_visca::{
     command::{
         focus::{Focus, FocusSpeed},
         pan_tilt::{PanTilt, PanTiltDirection},
-        Zoom, zoom::ZoomSpeed,
-        EncodeVisca,
+        zoom::ZoomSpeed,
+        EncodeVisca, Zoom,
     },
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
 };

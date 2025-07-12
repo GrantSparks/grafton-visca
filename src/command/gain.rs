@@ -5,10 +5,12 @@
 
 // Crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, const_encoding::CommandBuilder, response::ResponseType},
+    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{GainLevel, GainLimit}};
+    types::{GainLevel, GainLimit},
+    visca_command,
+};
 
 /// Commands for controlling gain values.
 ///
@@ -25,7 +27,8 @@ pub enum Gain {
     /// Decrease value by one step.
     Down,
     /// Set gain to specific value.
-    SetValue(GainLevel)}
+    SetValue(GainLevel),
+}
 
 impl Gain {
     // Legacy method - removed in new API
@@ -45,7 +48,7 @@ impl EncodeVisca for Gain {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -56,7 +59,7 @@ impl EncodeVisca for Gain {
                     Self::Reset => 0x00,
                     Self::Up => 0x02,
                     Self::Down => 0x03,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
@@ -65,13 +68,13 @@ impl EncodeVisca for Gain {
                 if buffer.len() < Self::MAX_SIZE {
                     return Err(Error::BufferTooSmall {
                         required: Self::MAX_SIZE,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 let value = level.value();
                 let high = (value >> 4) & 0x0F;
                 let low = value & 0x0F;
-                
+
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -85,11 +88,11 @@ impl EncodeVisca for Gain {
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -99,7 +102,8 @@ impl EncodeVisca for Gain {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GainLimitCommand {
     /// Internal command bytes.
-    command: [u8; 6]}
+    command: [u8; 6],
+}
 
 impl GainLimitCommand {
     /// Create a new gain limit command.
@@ -108,7 +112,8 @@ impl GainLimitCommand {
         cmd.append(crate::command::const_encoding::constants::gain::GAIN_LIMIT_PREFIX);
         cmd.push(limit.value());
         Self {
-            command: cmd.build()}
+            command: cmd.build(),
+        }
     }
 }
 
@@ -120,17 +125,18 @@ impl EncodeVisca for GainLimitCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -147,46 +153,48 @@ pub enum AntiFlickerMode {
     /// Enable 50Hz anti-flicker (for regions with 50Hz AC power).
     Hz50 = 0x01,
     /// Enable 60Hz anti-flicker (for regions with 60Hz AC power).
-    Hz60 = 0x02}
+    Hz60 = 0x02,
+}
 
-/// Command to set anti-flicker mode.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct AntiFlickerCommand {
-    /// Internal command bytes.
-    command: [u8; 6]}
+visca_command! {
+    /// Command to set anti-flicker mode.
+    category = "Quick",
+    enum AntiFlickerCommand {
+        /// Disable anti-flicker processing.
+        Off => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::gain::ANTI_FLICKER_PREFIX)
+                .push(0x00)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Enable 50Hz anti-flicker (for regions with 50Hz AC power).
+        Hz50 => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::gain::ANTI_FLICKER_PREFIX)
+                .push(0x01)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Enable 60Hz anti-flicker (for regions with 60Hz AC power).
+        Hz60 => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::gain::ANTI_FLICKER_PREFIX)
+                .push(0x02)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+    }
+}
 
 impl AntiFlickerCommand {
     /// Create a new anti-flicker command.
     pub fn new(mode: AntiFlickerMode) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::gain::ANTI_FLICKER_PREFIX);
-        cmd.push(mode as u8);
-        Self {
-            command: cmd.build()}
-    }
-}
-
-impl EncodeVisca for AntiFlickerCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match mode {
+            AntiFlickerMode::Off => Self::Off,
+            AntiFlickerMode::Hz50 => Self::Hz50,
+            AntiFlickerMode::Hz60 => Self::Hz60,
         }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -231,7 +239,8 @@ mod tests {
         // Test various gain values
         let test_values = vec![0x00, 0x01, 0x03, 0x05, 0x07];
         for value in test_values {
-            let gain = GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+            let gain =
+                GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Gain::SetValue(gain);
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
@@ -247,7 +256,8 @@ mod tests {
     fn test_gain_command_g2_validation() {
         // Test valid G2 gain values (0x00-0x07)
         for value in 0x00..=0x07 {
-            let gain = GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+            let gain =
+                GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Gain::SetValue(gain);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
@@ -340,10 +350,7 @@ mod tests {
     #[test]
     fn test_command_categories() {
         // All gain commands should be Quick category
-        assert_eq!(
-            Gain::Reset.timeout_kind(),
-            CommandCategory::Quick
-        );
+        assert_eq!(Gain::Reset.timeout_kind(), CommandCategory::Quick);
         assert_eq!(Gain::Up.timeout_kind(), CommandCategory::Quick);
         assert_eq!(Gain::Down.timeout_kind(), CommandCategory::Quick);
         assert_eq!(

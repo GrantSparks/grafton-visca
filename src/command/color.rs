@@ -5,10 +5,11 @@
 
 // Crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, const_encoding::CommandBuilder, response::ResponseType},
+    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{BlueTuning, HueLevel, RedTuning, SaturationLevel}};
+    types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
+};
 
 /// One-Push White Balance Trigger command.
 ///
@@ -18,7 +19,8 @@ use crate::{
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct OnePushTriggerCommand {
     /// Internal command bytes.
-    command: [u8; 6]}
+    command: [u8; 6],
+}
 
 impl OnePushTriggerCommand {
     /// Create a new one-push white balance trigger command.
@@ -26,7 +28,8 @@ impl OnePushTriggerCommand {
         let mut cmd = CommandBuilder::<6>::new();
         cmd.append(crate::command::const_encoding::constants::color::WB_ONE_PUSH_TRIGGER);
         Self {
-            command: cmd.build()}
+            command: cmd.build(),
+        }
     }
 }
 
@@ -44,17 +47,18 @@ impl EncodeVisca for OnePushTriggerCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -68,7 +72,8 @@ impl EncodeVisca for OnePushTriggerCommand {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct RedTuningCommand {
     /// Internal command bytes.
-    command: [u8; 9]}
+    command: [u8; 9],
+}
 
 impl RedTuningCommand {
     /// Create a new red tuning command.
@@ -83,10 +88,11 @@ impl RedTuningCommand {
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
         // Split into two nibbles for 0p 0q format
-        cmd.push(0x00);  // High nibble always 0 for range 0x00-0x14
+        cmd.push(0x00); // High nibble always 0 for range 0x00-0x14
         cmd.push(encoded);
         Self {
-            command: cmd.build()}
+            command: cmd.build(),
+        }
     }
 }
 
@@ -98,17 +104,18 @@ impl EncodeVisca for RedTuningCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -122,7 +129,8 @@ impl EncodeVisca for RedTuningCommand {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct BlueTuningCommand {
     /// Internal command bytes.
-    command: [u8; 9]}
+    command: [u8; 9],
+}
 
 impl BlueTuningCommand {
     /// Create a new blue tuning command.
@@ -137,10 +145,11 @@ impl BlueTuningCommand {
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
         // Split into two nibbles for 0p 0q format
-        cmd.push(0x00);  // High nibble always 0 for range 0x00-0x14
+        cmd.push(0x00); // High nibble always 0 for range 0x00-0x14
         cmd.push(encoded);
         Self {
-            command: cmd.build()}
+            command: cmd.build(),
+        }
     }
 }
 
@@ -152,17 +161,18 @@ impl EncodeVisca for BlueTuningCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -176,7 +186,8 @@ impl EncodeVisca for BlueTuningCommand {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct SaturationCommand {
     /// Internal command bytes.
-    command: [u8; 9]}
+    command: [u8; 9],
+}
 
 impl SaturationCommand {
     /// Create a new saturation command.
@@ -185,7 +196,8 @@ impl SaturationCommand {
         cmd.append(crate::command::const_encoding::constants::color::SATURATION_PREFIX);
         cmd.push(level.value());
         Self {
-            command: cmd.build()}
+            command: cmd.build(),
+        }
     }
 }
 
@@ -197,17 +209,18 @@ impl EncodeVisca for SaturationCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -221,7 +234,8 @@ impl EncodeVisca for SaturationCommand {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct HueCommand {
     /// Internal command bytes.
-    command: [u8; 9]}
+    command: [u8; 9],
+}
 
 impl HueCommand {
     /// Create a new hue command.
@@ -230,7 +244,8 @@ impl HueCommand {
         cmd.append(crate::command::const_encoding::constants::color::HUE_PREFIX);
         cmd.push(level.value());
         Self {
-            command: cmd.build()}
+            command: cmd.build(),
+        }
     }
 }
 
@@ -242,17 +257,18 @@ impl EncodeVisca for HueCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -274,7 +290,8 @@ pub enum ColorTemperature {
     ///
     /// Lower values produce warmer (more orange/red) colors,
     /// higher values produce cooler (more blue) colors.
-    SetTemperature(crate::types::ColorTemp)}
+    SetTemperature(crate::types::ColorTemp),
+}
 
 impl EncodeVisca for ColorTemperature {
     type Response = ();
@@ -284,7 +301,8 @@ impl EncodeVisca for ColorTemperature {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         match self {
@@ -328,11 +346,11 @@ impl EncodeVisca for ColorTemperature {
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -353,7 +371,8 @@ pub enum RedGain {
     /// Set red gain to a specific value.
     ///
     /// Higher values increase the intensity of red in the image.
-    SetValue(crate::types::RedChannel)}
+    SetValue(crate::types::RedChannel),
+}
 
 impl EncodeVisca for RedGain {
     type Response = ();
@@ -363,7 +382,8 @@ impl EncodeVisca for RedGain {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         match self {
@@ -409,11 +429,11 @@ impl EncodeVisca for RedGain {
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -434,7 +454,8 @@ pub enum BlueGain {
     /// Set blue gain to a specific value.
     ///
     /// Higher values increase the intensity of blue in the image.
-    SetValue(crate::types::BlueChannel)}
+    SetValue(crate::types::BlueChannel),
+}
 
 impl EncodeVisca for BlueGain {
     type Response = ();
@@ -444,7 +465,8 @@ impl EncodeVisca for BlueGain {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         match self {
@@ -490,11 +512,11 @@ impl EncodeVisca for BlueGain {
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -786,7 +808,10 @@ mod tests {
         // Test Clone
         let red_cmd1 = RedTuningCommand::new(RedTuning::new(5).unwrap());
         let red_cmd2 = red_cmd1;
-        assert_eq!(red_cmd1.try_into_vec().unwrap(), red_cmd2.try_into_vec().unwrap());
+        assert_eq!(
+            red_cmd1.try_into_vec().unwrap(),
+            red_cmd2.try_into_vec().unwrap()
+        );
     }
 
     #[test]
@@ -822,23 +847,19 @@ mod tests {
         assert!(hue_max.try_into_vec().is_ok());
 
         // Test boundary value for color temperature
-        let temp_min = ColorTemperature::SetTemperature(
-            crate::types::ColorTemp::new(0x00).unwrap(),
-        );
+        let temp_min =
+            ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x00).unwrap());
         assert!(temp_min.try_into_vec().is_ok());
 
-        let temp_max = ColorTemperature::SetTemperature(
-            crate::types::ColorTemp::new(0x37).unwrap(),
-        );
+        let temp_max =
+            ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x37).unwrap());
         assert!(temp_max.try_into_vec().is_ok());
     }
 
     #[test]
     fn test_nibble_encoding() {
         // Test that Direct commands properly encode values as nibbles
-        let cmd = ColorTemperature::SetTemperature(
-            crate::types::ColorTemp::new(0x25).unwrap(),
-        );
+        let cmd = ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x25).unwrap());
         let bytes = cmd.try_into_vec().unwrap();
         assert_eq!(bytes[4], 0x02); // High nibble (ColorTemp has no padding)
         assert_eq!(bytes[5], 0x05); // Low nibble
