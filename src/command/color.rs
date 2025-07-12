@@ -67,33 +67,32 @@ impl EncodeVisca for OnePushTriggerCommand {
 /// to make small corrections.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct RedTuningCommand {
-    /// Red tuning level.
-    pub level: RedTuning,
     /// Internal command bytes.
-    command: [u8; 6]}
+    command: [u8; 9]}
 
 impl RedTuningCommand {
     /// Create a new red tuning command.
     pub fn new(level: RedTuning) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::color::COLOR_TEMP_QUERY);
-        // Convert -10..+10 to 0x00..0x14
+        let mut cmd = CommandBuilder::<9>::new();
+        cmd.append(crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX);
+        // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
         debug_assert!((0..=20).contains(&level_offset));
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
+        // Split into two nibbles for 0p 0q format
+        cmd.push(0x00);  // High nibble always 0 for range 0x00-0x14
         cmd.push(encoded);
         Self {
-            level,
             command: cmd.build()}
     }
 }
 
 impl EncodeVisca for RedTuningCommand {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -122,33 +121,32 @@ impl EncodeVisca for RedTuningCommand {
 /// to make small corrections.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct BlueTuningCommand {
-    /// Blue tuning level.
-    pub level: BlueTuning,
     /// Internal command bytes.
-    command: [u8; 6]}
+    command: [u8; 9]}
 
 impl BlueTuningCommand {
     /// Create a new blue tuning command.
     pub fn new(level: BlueTuning) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::color::COLOR_TEMP_VALUE_QUERY);
-        // Convert -10..+10 to 0x00..0x14
+        let mut cmd = CommandBuilder::<9>::new();
+        cmd.append(crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX);
+        // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
         debug_assert!((0..=20).contains(&level_offset));
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
+        // Split into two nibbles for 0p 0q format
+        cmd.push(0x00);  // High nibble always 0 for range 0x00-0x14
         cmd.push(encoded);
         Self {
-            level,
             command: cmd.build()}
     }
 }
 
 impl EncodeVisca for BlueTuningCommand {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -177,8 +175,6 @@ impl EncodeVisca for BlueTuningCommand {
 /// produce more vivid colors.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct SaturationCommand {
-    /// Saturation level.
-    pub level: SaturationLevel,
     /// Internal command bytes.
     command: [u8; 9]}
 
@@ -189,14 +185,13 @@ impl SaturationCommand {
         cmd.append(crate::command::const_encoding::constants::color::SATURATION_PREFIX);
         cmd.push(level.value());
         Self {
-            level,
             command: cmd.build()}
     }
 }
 
 impl EncodeVisca for SaturationCommand {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -225,8 +220,6 @@ impl EncodeVisca for SaturationCommand {
 /// or create artistic effects.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct HueCommand {
-    /// Hue level.
-    pub level: HueLevel,
     /// Internal command bytes.
     command: [u8; 9]}
 
@@ -237,14 +230,13 @@ impl HueCommand {
         cmd.append(crate::command::const_encoding::constants::color::HUE_PREFIX);
         cmd.push(level.value());
         Self {
-            level,
             command: cmd.build()}
     }
 }
 
 impl EncodeVisca for HueCommand {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -286,7 +278,7 @@ pub enum ColorTemperature {
 
 impl EncodeVisca for ColorTemperature {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 8;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -295,14 +287,46 @@ impl EncodeVisca for ColorTemperature {
                 actual: buffer.len()});
         }
 
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x20;
-        buffer[4] = 0x00;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
+        match self {
+            ColorTemperature::Reset => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x20;
+                buffer[4] = 0x00;
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            ColorTemperature::Up => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x20;
+                buffer[4] = 0x02;
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            ColorTemperature::Down => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x20;
+                buffer[4] = 0x03;
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            ColorTemperature::SetTemperature(temp) => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x20;
+                let value = temp.value();
+                buffer[4] = ((value >> 4) & 0x0F) as u8; // High nibble (0p)
+                buffer[5] = (value & 0x0F) as u8; // Low nibble (0q)
+                buffer[6] = 0xFF;
+                Ok(7)
+            }
+        }
     }
     
     fn response_type(&self) -> Option<ResponseType> {
@@ -333,7 +357,7 @@ pub enum RedGain {
 
 impl EncodeVisca for RedGain {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -342,14 +366,48 @@ impl EncodeVisca for RedGain {
                 actual: buffer.len()});
         }
 
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x03;
-        buffer[4] = 0x00;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
+        match self {
+            RedGain::Reset => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x03;
+                buffer[4] = 0x00;
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            RedGain::Up => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x03;
+                buffer[4] = 0x02;
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            RedGain::Down => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x03;
+                buffer[4] = 0x03;
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            RedGain::SetValue(value) => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x43; // Note: different command byte for direct setting
+                buffer[4] = 0x00;
+                buffer[5] = 0x00;
+                let val = value.value();
+                buffer[6] = (val >> 4) & 0x0F; // High nibble
+                buffer[7] = val & 0x0F; // Low nibble
+                buffer[8] = 0xFF;
+                Ok(9)
+            }
+        }
     }
     
     fn response_type(&self) -> Option<ResponseType> {
@@ -380,7 +438,7 @@ pub enum BlueGain {
 
 impl EncodeVisca for BlueGain {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -389,14 +447,48 @@ impl EncodeVisca for BlueGain {
                 actual: buffer.len()});
         }
 
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x04;
-        buffer[4] = 0x00;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
+        match self {
+            BlueGain::Reset => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x04;
+                buffer[4] = 0x00;
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            BlueGain::Up => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x04;
+                buffer[4] = 0x02;
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            BlueGain::Down => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x04;
+                buffer[4] = 0x03;
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            BlueGain::SetValue(value) => {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x44; // Note: different command byte for direct setting
+                buffer[4] = 0x00;
+                buffer[5] = 0x00;
+                let val = value.value();
+                buffer[6] = (val >> 4) & 0x0F; // High nibble
+                buffer[7] = val & 0x0F; // Low nibble
+                buffer[8] = 0xFF;
+                Ok(9)
+            }
+        }
     }
     
     fn response_type(&self) -> Option<ResponseType> {
@@ -436,10 +528,11 @@ mod tests {
             let tuning = RedTuning::new(level).unwrap();
             let cmd = RedTuningCommand::new(tuning);
             let bytes = cmd.try_into_vec().unwrap();
-            assert_eq!(bytes.len(), 6);
-            assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x12]);
-            assert_eq!(bytes[4], (level + 10) as u8);
-            assert_eq!(bytes[5], 0xFF);
+            assert_eq!(bytes.len(), 9);
+            assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x43, 0x00, 0x00]);
+            assert_eq!(bytes[6], 0x00); // High nibble (0p)
+            assert_eq!(bytes[7], (level + 10) as u8); // Low nibble (0q)
+            assert_eq!(bytes[8], 0xFF); // Terminator
             assert!(cmd.response_type().is_none());
             assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
         }
@@ -468,10 +561,11 @@ mod tests {
             let tuning = BlueTuning::new(level).unwrap();
             let cmd = BlueTuningCommand::new(tuning);
             let bytes = cmd.try_into_vec().unwrap();
-            assert_eq!(bytes.len(), 6);
-            assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x13]);
-            assert_eq!(bytes[4], (level + 10) as u8);
-            assert_eq!(bytes[5], 0xFF);
+            assert_eq!(bytes.len(), 9);
+            assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x44, 0x00, 0x00]);
+            assert_eq!(bytes[6], 0x00); // High nibble (0p)
+            assert_eq!(bytes[7], (level + 10) as u8); // Low nibble (0q)
+            assert_eq!(bytes[8], 0xFF); // Terminator
             assert!(cmd.response_type().is_none());
             assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
         }
@@ -584,12 +678,11 @@ mod tests {
             let color_temp = crate::types::ColorTemp::new(temp).unwrap();
             let cmd = ColorTemperature::SetTemperature(color_temp);
             let bytes = cmd.try_into_vec().unwrap();
-            assert_eq!(bytes.len(), 9);
-            assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x20, 0x00]);
-            assert_eq!(bytes[5], 0x00);
-            assert_eq!(bytes[6], ((temp >> 4) & 0x0F) as u8);
-            assert_eq!(bytes[7], (temp & 0x0F) as u8);
-            assert_eq!(bytes[8], 0xFF);
+            assert_eq!(bytes.len(), 7);
+            assert_eq!(bytes[0..4], [0x81, 0x01, 0x04, 0x20]);
+            assert_eq!(bytes[4], ((temp >> 4) & 0x0F) as u8);
+            assert_eq!(bytes[5], (temp & 0x0F) as u8);
+            assert_eq!(bytes[6], 0xFF);
         }
 
         // Test Direct with invalid value - can't create invalid ColorTemperature
@@ -693,7 +786,7 @@ mod tests {
         // Test Clone
         let red_cmd1 = RedTuningCommand::new(RedTuning::new(5).unwrap());
         let red_cmd2 = red_cmd1;
-        assert_eq!(red_cmd1.level.value(), red_cmd2.level.value());
+        assert_eq!(red_cmd1.try_into_vec().unwrap(), red_cmd2.try_into_vec().unwrap());
     }
 
     #[test]
@@ -701,19 +794,19 @@ mod tests {
         // Test boundary values for tuning commands
         let red_min = RedTuningCommand::new(RedTuning::new(-10).unwrap());
         assert!(red_min.try_into_vec().is_ok());
-        assert_eq!(red_min.try_into_vec().unwrap()[4], 0x00);
+        assert_eq!(red_min.try_into_vec().unwrap()[7], 0x00); // Value at index 7 after padding
 
         let red_max = RedTuningCommand::new(RedTuning::new(10).unwrap());
         assert!(red_max.try_into_vec().is_ok());
-        assert_eq!(red_max.try_into_vec().unwrap()[4], 0x14);
+        assert_eq!(red_max.try_into_vec().unwrap()[7], 0x14); // Value at index 7 after padding
 
         let blue_min = BlueTuningCommand::new(BlueTuning::new(-10).unwrap());
         assert!(blue_min.try_into_vec().is_ok());
-        assert_eq!(blue_min.try_into_vec().unwrap()[4], 0x00);
+        assert_eq!(blue_min.try_into_vec().unwrap()[7], 0x00); // Value at index 7 after padding
 
         let blue_max = BlueTuningCommand::new(BlueTuning::new(10).unwrap());
         assert!(blue_max.try_into_vec().is_ok());
-        assert_eq!(blue_max.try_into_vec().unwrap()[4], 0x14);
+        assert_eq!(blue_max.try_into_vec().unwrap()[7], 0x14); // Value at index 7 after padding
 
         // Test boundary values for saturation and hue
         let sat_min = SaturationCommand::new(SaturationLevel::new(0x00).unwrap());
@@ -747,17 +840,17 @@ mod tests {
             crate::types::ColorTemp::new(0x25).unwrap(),
         );
         let bytes = cmd.try_into_vec().unwrap();
-        assert_eq!(bytes[6], 0x02); // High nibble
-        assert_eq!(bytes[7], 0x05); // Low nibble
+        assert_eq!(bytes[4], 0x02); // High nibble (ColorTemp has no padding)
+        assert_eq!(bytes[5], 0x05); // Low nibble
 
         let cmd = RedGain::SetValue(crate::types::RedChannel::new(0xAB).unwrap());
         let bytes = cmd.try_into_vec().unwrap();
-        assert_eq!(bytes[6], 0x0A); // High nibble
+        assert_eq!(bytes[6], 0x0A); // High nibble (RedGain has 00 00 padding)
         assert_eq!(bytes[7], 0x0B); // Low nibble
 
         let cmd = BlueGain::SetValue(crate::types::BlueChannel::new(0xF0).unwrap());
         let bytes = cmd.try_into_vec().unwrap();
-        assert_eq!(bytes[6], 0x0F); // High nibble
+        assert_eq!(bytes[6], 0x0F); // High nibble (BlueGain has 00 00 padding)
         assert_eq!(bytes[7], 0x00); // Low nibble
     }
 
@@ -770,11 +863,11 @@ mod tests {
 
             let red_cmd = RedTuningCommand::new(RedTuning::new(level).unwrap());
             let red_bytes = red_cmd.try_into_vec().unwrap();
-            assert_eq!(red_bytes[4], expected);
+            assert_eq!(red_bytes[7], expected); // Value is at index 7 after 00 00 padding
 
             let blue_cmd = BlueTuningCommand::new(BlueTuning::new(level).unwrap());
             let blue_bytes = blue_cmd.try_into_vec().unwrap();
-            assert_eq!(blue_bytes[4], expected);
+            assert_eq!(blue_bytes[7], expected); // Value is at index 7 after 00 00 padding
         }
     }
 }

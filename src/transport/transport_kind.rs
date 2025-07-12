@@ -63,25 +63,25 @@ impl Transport for TransportKind {
     fn send<'a>(&'a self, bytes: &'a [u8]) -> Self::SendFut<'a> {
         Box::pin(async move {
             match self {
-                TransportKind::BlockingTcp(t) => t.send(bytes).await.map_err(Into::into),
-                TransportKind::BlockingUdp(t) => t.send(bytes).await.map_err(Into::into),
+                TransportKind::BlockingTcp(t) => t.send(bytes).await,
+                TransportKind::BlockingUdp(t) => t.send(bytes).await,
                 #[cfg(feature = "tokio")]
-                TransportKind::TokioTcp(t) => t.send(bytes).await.map_err(Into::into),
+                TransportKind::TokioTcp(t) => t.send(bytes).await,
                 #[cfg(feature = "tokio")]
-                TransportKind::TokioUdp(t) => t.send(bytes).await.map_err(Into::into),
+                TransportKind::TokioUdp(t) => t.send(bytes).await,
             }
         })
     }
 
-    fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
+    fn recv(&self) -> Self::RecvFut<'_> {
         Box::pin(async move {
             match self {
-                TransportKind::BlockingTcp(t) => t.recv().await.map_err(Into::into),
-                TransportKind::BlockingUdp(t) => t.recv().await.map_err(Into::into),
+                TransportKind::BlockingTcp(t) => t.recv().await,
+                TransportKind::BlockingUdp(t) => t.recv().await,
                 #[cfg(feature = "tokio")]
-                TransportKind::TokioTcp(t) => t.recv().await.map_err(Into::into),
+                TransportKind::TokioTcp(t) => t.recv().await,
                 #[cfg(feature = "tokio")]
-                TransportKind::TokioUdp(t) => t.recv().await.map_err(Into::into),
+                TransportKind::TokioUdp(t) => t.recv().await,
             }
         })
     }
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn test_transport_kind_size() {
         // Ensure the enum doesn't get too large
-        let size = std::mem::size_of::<TransportKind>();
+        let size = size_of::<TransportKind>();
         // This will vary based on the largest variant, but should be reasonable
         assert!(size < 256, "TransportKind size is {} bytes", size);
     }

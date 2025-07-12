@@ -42,7 +42,7 @@ impl Default for AddressSetCommand {
 
 impl EncodeVisca for AddressSetCommand {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 4;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -91,7 +91,7 @@ impl Default for InterfaceClearCommand {
 
 impl EncodeVisca for InterfaceClearCommand {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 5;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -126,8 +126,6 @@ pub enum Socket {
 /// This cancels any in-progress commands on the specified socket.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct CommandCancelCommand {
-    /// The socket to cancel commands on.
-    pub socket: Socket,
     /// Internal command bytes.
     command: [u8; 3]}
 
@@ -140,14 +138,13 @@ impl CommandCancelCommand {
             Socket::Socket1 => 0x21,
             Socket::Socket2 => 0x22});
         Self {
-            socket,
             command: cmd.build()}
     }
 }
 
 impl EncodeVisca for CommandCancelCommand {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 3;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {

@@ -2,22 +2,16 @@
 
 use crate::{
     camera::unified::Camera,
-    command::{
-        power::{Power as PowerState, PowerCommand},
-        Response,
-    },
-    Error,
+    command::{power::{PowerCommand, Power}},
+    Error, Response,
 };
-
-#[cfg(feature = "tokio")]
-use core::future::Future;
 
 /// Power operations.
 pub trait PowerOps: Sized {
 
     /// Power on the camera.
     #[cfg(feature = "tokio")]
-    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn power_on(&self) -> Result<(), Error>;
 
     /// Power on the camera. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -25,7 +19,7 @@ pub trait PowerOps: Sized {
 
     /// Power off the camera.
     #[cfg(feature = "tokio")]
-    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn power_off(&self) -> Result<(), Error>;
 
     /// Power off the camera. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -34,30 +28,27 @@ pub trait PowerOps: Sized {
 
 impl PowerOps for Camera {
     #[cfg(feature = "tokio")]
-    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            let command = PowerCommand {
-                power: PowerState::On,
-            };
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => {
-                    // Wait for camera to be ready
-                    std::thread::sleep(self.power_on_time());
-                    Ok(())
-                }
-                Response::Error(e) => Err(e.into()),
-                _ => Err(Error::UnexpectedResponseType),
+    async fn power_on(&self) -> Result<(), Error> {
+        let command = PowerCommand {
+            power: Power::On,
+        };
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Completion => {
+                // Wait for camera to be ready
+                tokio::time::sleep(self.power_on_time()).await;
+                Ok(())
             }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
-
     }
 
     #[cfg(not(feature = "tokio"))]
     fn power_on_blocking(&mut self) -> Result<(), Error> {
         
             let command = PowerCommand {
-                power: PowerState::On,
+                power: Power::On,
             };
             let response = self.send_command_blocking(&command)?;
             match response {
@@ -71,30 +62,27 @@ impl PowerOps for Camera {
             }
     }
     #[cfg(feature = "tokio")]
-    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            let command = PowerCommand {
-                power: PowerState::Standby,
-            };
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => {
-                    // Wait for standby/off
-                    std::thread::sleep(self.standby_time());
-                    Ok(())
-                }
-                Response::Error(e) => Err(e.into()),
-                _ => Err(Error::UnexpectedResponseType),
+    async fn power_off(&self) -> Result<(), Error> {
+        let command = PowerCommand {
+            power: Power::Standby,
+        };
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Completion => {
+                // Wait for standby/off
+                tokio::time::sleep(self.standby_time()).await;
+                Ok(())
             }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
-
     }
 
     #[cfg(not(feature = "tokio"))]
     fn power_off_blocking(&mut self) -> Result<(), Error> {
         
             let command = PowerCommand {
-                power: PowerState::Standby,
+                power: Power::Standby,
             };
             let response = self.send_command_blocking(&command)?;
             match response {

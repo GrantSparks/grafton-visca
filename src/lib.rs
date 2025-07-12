@@ -145,63 +145,91 @@
 //!
 //! The library provides optional async support with a runtime-agnostic design:
 //!
+//! ### Feature Flags
+//!
+//! - `async` - Enables async support without any specific runtime. You bring your own runtime.
+//! - `tokio` - Enables async with built-in tokio implementations (implies `async`).
+//!
 //! ### With Tokio (built-in implementations)
+//!
+//! When using the `tokio` feature, the library provides ready-to-use TCP and UDP transports:
+//!
 //! ```ignore
-//! use grafton_visca::{Camera, profiles::PTZOpticsG2, transport::create};
+//! # // Cargo.toml: features = ["tokio"]
+//! use grafton_visca::{Camera, ProfileId};
+//! use grafton_visca::transport::tokio::Tcp;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let transport = create::tcp("192.168.1.100:5678").await?;
-//!     let camera = Camera::<PTZOpticsG2, _>::new(transport);
+//!     let transport = Tcp::connect("192.168.1.100:5678").await?;
+//!     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
 //!
-//!     // All methods are naturally concurrent with &self
 //!     camera.power_on().await?;
-//!     camera.home().await?;
+//!     camera.pan_tilt_home().await?;
 //!     Ok(())
 //! }
 //! ```
 //!
-//! ### Custom Runtime Support
-//! Implement `AsyncTransport` for any async runtime:
+//! ### Runtime-Agnostic Async (bring your own runtime)
+//!
+//! When using only the `async` feature, the library provides the async traits and protocol
+//! handling, but you must provide your own transport implementation and handle timeouts
+//! using your runtime's facilities:
 //!
 //! ```ignore
-//! use grafton_visca::transport::AsyncTransport;
-//! use grafton_visca::Error;
-//! use std::future::Future;
-//! use std::pin::Pin;
+//! # // Cargo.toml: features = ["async"]
+//! use grafton_visca::{Camera, ProfileId};
+//! use grafton_visca::transport::Transport;
+//! use async_std::net::TcpStream; // or any runtime's stream
+//! use async_std::io::{ReadExt, WriteExt};
+//! use async_std::future::timeout;
+//! use std::time::Duration;
 //!
-//! # struct MyRuntimeStream;
-//! # impl MyRuntimeStream {
-//! #     async fn write_all(&mut self, _: &[u8]) -> Result<(), std::io::Error> { Ok(()) }
-//! #     async fn flush(&mut self) -> Result<(), std::io::Error> { Ok(()) }
-//! #     async fn read(&mut self, _: &mut [u8]) -> Result<usize, std::io::Error> { Ok(0) }
-//! # }
-//! #[derive(Debug)]
-//! struct MyTransport {
-//!     stream: std::sync::Arc<std::sync::Mutex<MyRuntimeStream>>
+//! // Implement Transport for your runtime's types
+//! struct AsyncStdTcp {
+//!     stream: TcpStream,
 //! }
 //!
-//! impl AsyncTransport for MyTransport {
-//!     type SendFuture<'a> = Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>;
-//!     type ReceiveFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, Error>> + Send + 'a>>;
+//! impl Transport for AsyncStdTcp {
+//!     type Error = std::io::Error;
+//!     type SendFut<'a> = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
+//!     type RecvFut<'a> = Pin<Box<dyn Future<Output = Result<bytes::Bytes, Self::Error>> + Send + 'a>>;
 //!
-//!     fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFuture<'a> {
+//!     fn send<'a>(&'a self, bytes: &'a [u8]) -> Self::SendFut<'a> {
 //!         Box::pin(async move {
-//!             // Your async send implementation
-//!             Ok(())
+//!             self.stream.write_all(bytes).await?;
+//!             self.stream.flush().await
 //!         })
 //!     }
 //!
-//!     fn receive(&self) -> Self::ReceiveFuture<'_> {
+//!     fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
 //!         Box::pin(async move {
-//!             // Your async receive implementation
-//!             Ok(vec![])
+//!             // Read VISCA frame (implementation details omitted)
+//!             let mut buffer = vec![0u8; 1024];
+//!             let n = self.stream.read(&mut buffer).await?;
+//!             Ok(bytes::Bytes::from(buffer[..n].to_vec()))
 //!         })
 //!     }
+//! }
+//!
+//! // Use with your runtime's timeout facilities
+//! async fn send_with_timeout(camera: &Camera, duration: Duration) -> Result<(), Box<dyn std::error::Error>> {
+//!     timeout(duration, camera.power_on()).await??;
+//!     Ok(())
 //! }
 //! ```
 //!
-//! See the examples directory for complete implementations with async-std, smol, and other runtimes.
+//! ### Important Notes on Timeouts
+//!
+//! When using the `async` feature without `tokio`, the library cannot provide built-in timeout
+//! functionality. You must wrap operations with your runtime's timeout mechanism:
+//!
+//! - **async-std**: Use `async_std::future::timeout`
+//! - **smol**: Use `smol::future::or` with `smol::Timer`
+//! - **futures-timer**: Use `futures_timer::Delay`
+//!
+//! The library will log when timeouts are requested but not available. This is not an error,
+//! just a reminder to handle timeouts at the application level.
 //!
 //! ## Supported Commands
 //!
@@ -276,6 +304,7 @@ pub mod types;
 pub mod units;
 
 pub mod timeout; // Public for use in macros
+
 
 // Minimal blocking executor
 pub mod blocking;

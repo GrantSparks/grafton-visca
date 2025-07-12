@@ -23,7 +23,7 @@ Make sure to check out our blog article introducing this library: [Controlling P
 
 - ✅ **VISCA Command Coverage** - Many PTZOptics G2 commands implemented
 - ✅ **Protocol Handling** - ACK/Completion state machine implementation
-- ✅ **Async/Await Support** - Async API with Tokio
+- ✅ **Async/Await Support** - Runtime-agnostic async with optional Tokio integration
 - ✅ **Thread Safety** - Safe concurrent access from multiple tasks
 - ⚠️ **Testing** - Test infrastructure in place, coverage being expanded
 - ✅ **Documentation** - Core APIs documented
@@ -206,14 +206,14 @@ All set commands have corresponding inquiry commands to read current values:
 Add the following to `Cargo.toml` under `[dependencies]`:
 
 ```toml
-# Default: blocking client (most users want this)
+# Default: no features (blocking-only support)
 grafton-visca = "0.4"
 
-# For async-only client
-grafton-visca = { version = "0.4", default-features = false, features = ["async"] }
-
-# For both blocking and async support
+# For runtime-agnostic async (bring your own runtime)
 grafton-visca = { version = "0.4", features = ["async"] }
+
+# For async with built-in tokio support
+grafton-visca = { version = "0.4", features = ["tokio"] }
 ```
 
 Connection pooling is now built-in for managing multiple cameras!
@@ -508,7 +508,68 @@ loop {
 
 ### Async Usage
 
-The same `Client` works well in async contexts:
+#### With Tokio (built-in support)
+
+When using the `tokio` feature, you get ready-to-use async transports:
+
+```rust
+use grafton_visca::{Camera, ProfileId};
+use grafton_visca::transport::tokio::Tcp;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Built-in TCP transport for tokio
+    let transport = Tcp::connect("192.168.1.100:5678").await?;
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    
+    // All operations are async
+    camera.power_on().await?;
+    camera.pan_tilt_home().await?;
+    camera.zoom_to_magnification(5.0).await?;
+    
+    Ok(())
+}
+```
+
+#### Runtime-Agnostic Async (bring your own runtime)
+
+With just the `async` feature, you can use any async runtime:
+
+```rust
+use grafton_visca::{Camera, ProfileId, transport::Transport};
+use async_std::net::TcpStream;  // or smol, embassy, etc.
+
+// Implement Transport for your runtime's types
+struct MyTransport {
+    stream: TcpStream,
+}
+
+impl Transport for MyTransport {
+    // ... implementation details ...
+}
+
+// Use with your runtime's timeout facilities
+use async_std::future::timeout;
+use std::time::Duration;
+
+#[async_std::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let stream = TcpStream::connect("192.168.1.100:5678").await?;
+    let transport = MyTransport { stream };
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    
+    // Wrap operations with your runtime's timeout
+    timeout(Duration::from_secs(5), camera.power_on()).await??;
+    
+    Ok(())
+}
+```
+
+See `examples/runtime_agnostic_async.rs` for a complete example.
+
+#### Unified Client (deprecated API)
+
+The unified `Client` API from v0.4.0 is still available but deprecated:
 
 ```rust
 use grafton_visca::prelude::*;

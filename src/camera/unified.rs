@@ -425,7 +425,7 @@ impl Camera {
         // For now, just receive without timeout
 
         match self.transport.recv().await {
-            Ok(bytes) => Response::parse(&bytes.to_vec()),
+            Ok(bytes) => Response::parse(&bytes),
             Err(e) => Err(Error::Io(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Receive error: {}", e),

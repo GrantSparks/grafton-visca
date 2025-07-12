@@ -3,22 +3,16 @@
 use crate::{
     camera::unified::Camera,
     capabilities::ValidationError,
-    command::{
-        preset::{PresetAction, PresetCommand, PresetNumber},
-        Response,
-    },
-    Error,
+    command::preset::{PresetCommand, PresetNumber, PresetAction},
+    Error, Response,
 };
-
-#[cfg(feature = "tokio")]
-use core::future::Future;
 
 /// Presets operations.
 pub trait PresetsOps: Sized {
 
     /// Recall a preset position.
     #[cfg(feature = "tokio")]
-    fn preset_recall(&self, preset: PresetNumber) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
 
     /// Recall a preset position. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -26,7 +20,7 @@ pub trait PresetsOps: Sized {
 
     /// Set current position as a preset.
     #[cfg(feature = "tokio")]
-    fn preset_set(&self, preset: PresetNumber) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;
 
     /// Set current position as a preset. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -35,32 +29,29 @@ pub trait PresetsOps: Sized {
 
 impl PresetsOps for Camera {
     #[cfg(feature = "tokio")]
-    fn preset_recall(&self, preset: PresetNumber) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            // Validate preset number (0 is valid - it's the home position)
-            if preset.value() > self.max_presets() {
-                return Err(Error::ValidationError(ValidationError::InvalidValue {
-                    parameter: "preset",
-                    message: format!(
-                        "Preset {} is invalid, must be 0-{}",
-                        preset.value(),
-                        self.max_presets()
-                    ),
-                }));
-            }
-
-            let command = PresetCommand {
-                action: PresetAction::Recall,
-                preset_number: preset,
-            };
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e.into()),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+    async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
+        // Validate preset number (0 is valid - it's the home position)
+        if preset.value() > self.max_presets() {
+            return Err(Error::ValidationError(ValidationError::InvalidValue {
+                parameter: "preset",
+                message: format!(
+                    "Preset {} is invalid, must be 0-{}",
+                    preset.value(),
+                    self.max_presets()
+                ),
+            }));
         }
 
+        let command = PresetCommand {
+            action: PresetAction::Recall,
+            preset_number: preset,
+        };
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -90,32 +81,29 @@ impl PresetsOps for Camera {
             }
     }
     #[cfg(feature = "tokio")]
-    fn preset_set(&self, preset: PresetNumber) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            // Validate preset number (0 is valid - it's the home position)
-            if preset.value() > self.max_presets() {
-                return Err(Error::ValidationError(ValidationError::InvalidValue {
-                    parameter: "preset",
-                    message: format!(
-                        "Preset {} is invalid, must be 0-{}",
-                        preset.value(),
-                        self.max_presets()
-                    ),
-                }));
-            }
-
-            let command = PresetCommand {
-                action: PresetAction::Set,
-                preset_number: preset,
-            };
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e.into()),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+    async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
+        // Validate preset number (0 is valid - it's the home position)
+        if preset.value() > self.max_presets() {
+            return Err(Error::ValidationError(ValidationError::InvalidValue {
+                parameter: "preset",
+                message: format!(
+                    "Preset {} is invalid, must be 0-{}",
+                    preset.value(),
+                    self.max_presets()
+                ),
+            }));
         }
 
+        let command = PresetCommand {
+            action: PresetAction::Set,
+            preset_number: preset,
+        };
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     #[cfg(not(feature = "tokio"))]

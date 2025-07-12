@@ -68,23 +68,112 @@ impl Focus {
 
 impl EncodeVisca for Focus {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = 9;
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+        match self {
+            Self::Stop | Self::Far | Self::Near => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x08;
+                buffer[4] = match self {
+                    Self::Stop => 0x00,
+                    Self::Far => 0x02,
+                    Self::Near => 0x03,
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            Self::FarWithSpeed(_) | Self::NearWithSpeed(_) => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x08;
+                buffer[4] = match self {
+                    Self::FarWithSpeed(s) => 0x20 | s.value(),
+                    Self::NearWithSpeed(s) => 0x30 | s.value(),
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            Self::Position(position) => {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err(Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len()
+                    });
+                }
+                let pos_val = position.value();
+                let p0 = ((pos_val >> 12) & 0x0F) as u8;
+                let p1 = ((pos_val >> 8) & 0x0F) as u8;
+                let p2 = ((pos_val >> 4) & 0x0F) as u8;
+                let p3 = (pos_val & 0x0F) as u8;
+                
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x48;
+                buffer[4] = p0;
+                buffer[5] = p1;
+                buffer[6] = p2;
+                buffer[7] = p3;
+                buffer[8] = 0xFF;
+                Ok(Self::MAX_SIZE)
+            }
+            Self::Auto | Self::Manual => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x38;
+                buffer[4] = match self {
+                    Self::Auto => 0x02,
+                    Self::Manual => 0x03,
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
+            Self::OnePushTrigger | Self::Infinity => {
+                if buffer.len() < 6 {
+                    return Err(Error::BufferTooSmall {
+                        required: 6,
+                        actual: buffer.len()
+                    });
+                }
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x18;
+                buffer[4] = match self {
+                    Self::OnePushTrigger => 0x01,
+                    Self::Infinity => 0x02,
+                    _ => unreachable!()
+                };
+                buffer[5] = 0xFF;
+                Ok(6)
+            }
         }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x08;
-        buffer[4] = 0x00;
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
     }
     
     fn response_type(&self) -> Option<ResponseType> {
@@ -132,9 +221,9 @@ impl EncodeVisca for FocusZoneCommand {
         
         buffer[0] = 0x81;
         buffer[1] = 0x01;
-        buffer[2] = 0x50;
-        buffer[3] = zone_byte;
-        buffer[4] = 0xFF;
+        buffer[2] = 0x04;
+        buffer[3] = 0xAA;
+        buffer[4] = zone_byte;
         buffer[5] = 0xFF;
         
         Ok(Self::MAX_SIZE)
@@ -275,7 +364,10 @@ impl EncodeVisca for FocusLock {
         buffer[1] = 0x0A;
         buffer[2] = 0x04;
         buffer[3] = 0x68;
-        buffer[4] = 0x02;
+        buffer[4] = match self {
+            Self::On => 0x02,
+            Self::Off => 0x03
+        };
         buffer[5] = 0xFF;
         
         Ok(Self::MAX_SIZE)
@@ -318,7 +410,10 @@ impl EncodeVisca for PushAF {
         buffer[3] = 0x01;
         buffer[4] = 0x0A;
         buffer[5] = 0x00;
-        buffer[6] = 0x01;
+        buffer[6] = match self {
+            Self::Press => 0x01,
+            Self::Release => 0x00
+        };
         buffer[7] = 0xFF;
         
         Ok(Self::MAX_SIZE)

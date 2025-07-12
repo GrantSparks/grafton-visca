@@ -11,16 +11,15 @@ use crate::common::{
 };
 use std::time::Duration;
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "tokio"))]
 mod blocking_tests {
     use super::*;
     use grafton_visca::{
         camera::{
             methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-            profiles::G2PresetId,
+            ProfileId, Camera,
         },
-        profiles::PTZOpticsG2,
-        Camera, Error,
+        Error,
     };
 
     #[test]
@@ -35,10 +34,10 @@ mod blocking_tests {
             .then_complete(1);
 
         // Create camera with mock transport
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
         // Send power on command
-        let result = camera.power_on();
+        let result = camera.power_on_blocking();
         assert!(result.is_ok(), "Power on command should succeed");
 
         // Verify all expectations were met
@@ -60,10 +59,10 @@ mod blocking_tests {
             .will_ack(1)
             .then_complete(1);
 
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
         // Send home command
-        let result = camera.pan_tilt_home();
+        let result = camera.pan_tilt_home_blocking();
         assert!(result.is_ok(), "Home command should succeed");
 
         // Verify expectations
@@ -103,12 +102,12 @@ mod blocking_tests {
             )
             .build();
 
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
         // Test zoom commands
-        assert!(camera.zoom_stop().is_ok());
-        assert!(camera.zoom_in().is_ok());
-        assert!(camera.zoom_out().is_ok());
+        assert!(camera.zoom_stop_blocking().is_ok());
+        assert!(camera.zoom_in_blocking().is_ok());
+        assert!(camera.zoom_out_blocking().is_ok());
 
         // MockTransportBuilder automatically verifies expectations when dropped
 
@@ -141,12 +140,13 @@ mod blocking_tests {
             )
             .build();
 
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
         // Set and recall preset 5
-        let preset_id = G2PresetId::new(5).unwrap();
-        assert!(camera.preset_set(preset_id.into()).is_ok());
-        assert!(camera.preset_recall(preset_id.into()).is_ok());
+        use grafton_visca::command::preset::PresetNumber;
+        let preset_id = PresetNumber::new(5).unwrap();
+        assert!(camera.preset_set_blocking(preset_id).is_ok());
+        assert!(camera.preset_recall_blocking(preset_id).is_ok());
 
         // MockTransportBuilder automatically verifies expectations when dropped
     }
@@ -162,10 +162,10 @@ mod blocking_tests {
             )
             .build();
 
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
         // Send a command that will get an error response
-        let result = camera.power_on();
+        let result = camera.power_on_blocking();
         assert!(result.is_err(), "Should get an error");
 
         match result {
@@ -184,9 +184,9 @@ mod blocking_tests {
         let mock = MockTransport::new();
         // Don't set up any expectations - this will cause a timeout
 
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock);
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock);
 
-        let result = camera.pan_tilt_home();
+        let result = camera.pan_tilt_home_blocking();
         assert!(result.is_err(), "Should timeout");
 
         match result {
@@ -228,12 +228,12 @@ mod blocking_tests {
         let mut mock = MockTransport::new();
         scenario.apply_to(&mut mock).unwrap();
 
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
         // Execute the sequence
-        assert!(camera.pan_tilt_home().is_ok());
-        assert!(camera.zoom_stop().is_ok());
-        assert!(camera.power_off().is_ok());
+        assert!(camera.pan_tilt_home_blocking().is_ok());
+        assert!(camera.zoom_stop_blocking().is_ok());
+        assert!(camera.power_off_blocking().is_ok());
 
         // Verify all expectations were met
         mock.verify().unwrap();
@@ -261,13 +261,13 @@ mod blocking_tests {
             .build();
 
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
         // Validate command before sending
         validator.validate_command(&patterns::power::ON).unwrap();
 
         // Send command
-        camera.power_on().unwrap();
+        camera.power_on_blocking().unwrap();
 
         // Get responses for validation
         let history = mock.response_history();
@@ -311,11 +311,11 @@ mod blocking_tests {
             )
             .build();
 
-        let mut camera = Camera::<PTZOpticsG2, _>::new(mock);
+        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock);
 
         // Execute commands
-        assert!(camera.power_on().is_ok());
-        assert!(camera.pan_tilt_home().is_ok());
+        assert!(camera.power_on_blocking().is_ok());
+        assert!(camera.pan_tilt_home_blocking().is_ok());
     }
 }
 

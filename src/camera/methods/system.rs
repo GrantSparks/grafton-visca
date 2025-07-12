@@ -2,22 +2,17 @@
 
 use crate::{
     camera::unified::Camera,
-    command::{
-        system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket},
-        Response,
-    },
-    Error,
+    command::system::{InterfaceClearCommand, Socket, AddressSetCommand, CommandCancelCommand},
+    Error, Response,
 };
 
-#[cfg(feature = "tokio")]
-use core::future::Future;
 /// System operations.
 pub trait SystemOps: Sized {
 
     /// Trigger automatic address assignment (broadcast command for serial bus).
     /// Note: This doesn't set a specific address but triggers the auto-addressing process.
     #[cfg(feature = "tokio")]
-    fn trigger_address_assignment(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn trigger_address_assignment(&self) -> Result<(), Error>;
 
     /// Trigger automatic address assignment (broadcast command for serial bus).
     /// Note: This doesn't set a specific address but triggers the auto-addressing process. (blocking).
@@ -26,7 +21,7 @@ pub trait SystemOps: Sized {
 
     /// Clear interface (reset communication).
     #[cfg(feature = "tokio")]
-    fn interface_clear(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn interface_clear(&self) -> Result<(), Error>;
 
     /// Clear interface (reset communication). (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -34,7 +29,7 @@ pub trait SystemOps: Sized {
 
     /// Cancel command on specific socket.
     #[cfg(feature = "tokio")]
-    fn cancel_command(&self, socket: Socket) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn cancel_command(&self, socket: Socket) -> Result<(), Error>;
 
     /// Cancel command on specific socket. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -43,17 +38,14 @@ pub trait SystemOps: Sized {
 
 impl SystemOps for Camera {
     #[cfg(feature = "tokio")]
-    fn trigger_address_assignment(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            let cmd = AddressSetCommand::new();
-            let response = self.send_command(&cmd).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e.into()),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+    async fn trigger_address_assignment(&self) -> Result<(), Error> {
+        let cmd = AddressSetCommand::new();
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
-
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -68,17 +60,14 @@ impl SystemOps for Camera {
             }
     }
     #[cfg(feature = "tokio")]
-    fn interface_clear(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            let cmd = InterfaceClearCommand::new();
-            let response = self.send_command(&cmd).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e.into()),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+    async fn interface_clear(&self) -> Result<(), Error> {
+        let cmd = InterfaceClearCommand::new();
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
-
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -93,17 +82,14 @@ impl SystemOps for Camera {
             }
     }
     #[cfg(feature = "tokio")]
-    fn cancel_command(&self, socket: Socket) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            let cmd = CommandCancelCommand::new(socket);
-            let response = self.send_command(&cmd).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e.into()),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+    async fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
+        let cmd = CommandCancelCommand::new(socket);
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
-
     }
 
     #[cfg(not(feature = "tokio"))]

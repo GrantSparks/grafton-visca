@@ -16,8 +16,6 @@ use crate::{
 /// subjects that are backlit (have a bright light source behind them).
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct BacklightCommand {
-    /// Enable (true) or disable (false) backlight compensation.
-    pub status: bool,
     /// Internal command bytes.
     command: [u8; 6]}
 
@@ -28,7 +26,6 @@ impl BacklightCommand {
         cmd.append(crate::command::const_encoding::constants::image::BACKLIGHT_PREFIX);
         cmd.push(if status { 0x02 } else { 0x03 });
         Self {
-            status,
             command: cmd.build()}
     }
 }
@@ -150,8 +147,6 @@ impl EncodeVisca for NoiseReduction3D {
 /// Switches the camera output between color and monochrome (black and white) modes.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct BlackWhiteCommand {
-    /// Enable (true) for black and white mode, disable (false) for color mode.
-    pub on: bool,
     /// Internal command bytes.
     command: [u8; 6]}
 
@@ -162,7 +157,6 @@ impl BlackWhiteCommand {
         cmd.append(crate::command::const_encoding::constants::image::BLACK_WHITE_PREFIX);
         cmd.push(if on { 0x04 } else { 0x00 });
         Self {
-            on,
             command: cmd.build()}
     }
 }
@@ -209,8 +203,6 @@ pub enum ImageFlipMode {
 /// Command to set the combined image flip mode.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct ImageFlipCombinedCommand {
-    /// The flip mode to apply.
-    pub mode: ImageFlipMode,
     /// Internal command bytes.
     command: [u8; 6]}
 
@@ -226,7 +218,6 @@ impl ImageFlipCombinedCommand {
             ImageFlipMode::Both => 0x03};
         cmd.push(mode_byte);
         Self {
-            mode,
             command: cmd.build()}
     }
 }
@@ -406,13 +397,13 @@ mod tests {
         // Test Clone
         let backlight_cmd1 = BacklightCommand::new(true);
         let backlight_cmd2 = backlight_cmd1;
-        assert_eq!(backlight_cmd1.status, backlight_cmd2.status);
+        // Verify commands produce same bytes
+        assert_eq!(backlight_cmd1.try_into_vec().unwrap(), backlight_cmd2.try_into_vec().unwrap());
 
         let flip_cmd1 = ImageFlipCombinedCommand::new(ImageFlipMode::Horizontal);
         let flip_cmd2 = flip_cmd1;
-        match (flip_cmd1.mode, flip_cmd2.mode) {
-            (ImageFlipMode::Horizontal, ImageFlipMode::Horizontal) => {}
-            _ => panic!("Clone didn't preserve mode")}
+        // Verify the command was copied correctly
+        assert_eq!(flip_cmd2.try_into_vec().unwrap(), vec![0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]);
     }
 
     #[test]
@@ -506,11 +497,12 @@ mod tests {
         let cmd = BacklightCommand::new(true);
         let debug_str = format!("{:?}", cmd);
         assert!(debug_str.contains("BacklightCommand"));
-        assert!(debug_str.contains("true"));
+        // The debug output will show the command bytes, not the boolean value
+        assert!(debug_str.contains("command"));
 
         let cmd = BacklightCommand::new(false);
         let debug_str = format!("{:?}", cmd);
-        assert!(debug_str.contains("false"));
+        assert!(debug_str.contains("BacklightCommand"));
     }
 
     #[test]
@@ -518,10 +510,11 @@ mod tests {
         let cmd = BlackWhiteCommand::new(true);
         let debug_str = format!("{:?}", cmd);
         assert!(debug_str.contains("BlackWhiteCommand"));
-        assert!(debug_str.contains("true"));
+        // The debug output will show the command bytes, not the boolean value
+        assert!(debug_str.contains("command"));
 
         let cmd = BlackWhiteCommand::new(false);
         let debug_str = format!("{:?}", cmd);
-        assert!(debug_str.contains("false"));
+        assert!(debug_str.contains("BlackWhiteCommand"));
     }
 }

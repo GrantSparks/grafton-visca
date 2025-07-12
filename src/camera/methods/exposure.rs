@@ -5,14 +5,12 @@ use crate::{
     Error,
 };
 
-#[cfg(feature = "tokio")]
-use core::future::Future;
 /// Exposure operations.
 pub trait ExposureOps: Sized {
 
     /// Set auto exposure mode.
     #[cfg(feature = "tokio")]
-    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn exposure_auto(&self) -> Result<(), Error>;
 
     /// Set auto exposure mode. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -20,7 +18,7 @@ pub trait ExposureOps: Sized {
 
     /// Set manual exposure mode.
     #[cfg(feature = "tokio")]
-    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn exposure_manual(&self) -> Result<(), Error>;
 
     /// Set manual exposure mode. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -28,7 +26,7 @@ pub trait ExposureOps: Sized {
 
     /// Set iris level.
     #[cfg(feature = "tokio")]
-    fn set_iris(&self, level: crate::types::IrisLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error>;
 
     /// Set iris level. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -36,7 +34,7 @@ pub trait ExposureOps: Sized {
 
     /// Set brightness level.
     #[cfg(feature = "tokio")]
-    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>;
 
     /// Set brightness level. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -44,7 +42,7 @@ pub trait ExposureOps: Sized {
 
     /// Set backlight compensation.
     #[cfg(feature = "tokio")]
-    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_backlight(&self, enabled: bool) -> Result<(), Error>;
 
     /// Set backlight compensation. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -52,7 +50,7 @@ pub trait ExposureOps: Sized {
 
     /// Set gain value.
     #[cfg(feature = "tokio")]
-    fn set_gain(&self, gain: crate::types::GainLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_gain(&self, gain: crate::types::GainLevel) -> Result<(), Error>;
 
     /// Set gain value. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -60,7 +58,7 @@ pub trait ExposureOps: Sized {
 
     /// Set gain limit.
     #[cfg(feature = "tokio")]
-    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error>;
 
     /// Set gain limit. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -68,7 +66,7 @@ pub trait ExposureOps: Sized {
 
     /// Set dynamic range level.
     #[cfg(feature = "tokio")]
-    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error>;
 
     /// Set dynamic range level. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -76,7 +74,7 @@ pub trait ExposureOps: Sized {
 
     /// Set color temperature.
     #[cfg(feature = "tokio")]
-    fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> Result<(), Error>;
 
     /// Set color temperature. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -85,17 +83,14 @@ pub trait ExposureOps: Sized {
 
 impl ExposureOps for Camera {
     #[cfg(feature = "tokio")]
-    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            use crate::command::exposure::{ExposureCommand, ExposureMode};
-            
-            let command = ExposureCommand {
-                mode: ExposureMode::Auto,
-            };
-            self.send_command(&command).await?;
-            Ok(())
-        }
-
+    async fn exposure_auto(&self) -> Result<(), Error> {
+        use crate::command::exposure::{ExposureCommand, ExposureMode};
+        
+        let command = ExposureCommand {
+            mode: ExposureMode::Auto,
+        };
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -110,17 +105,14 @@ impl ExposureOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            use crate::command::exposure::{ExposureCommand, ExposureMode};
-            
-            let command = ExposureCommand {
-                mode: ExposureMode::Manual,
-            };
-            self.send_command(&command).await?;
-            Ok(())
-        }
-
+    async fn exposure_manual(&self) -> Result<(), Error> {
+        use crate::command::exposure::{ExposureCommand, ExposureMode};
+        
+        let command = ExposureCommand {
+            mode: ExposureMode::Manual,
+        };
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -135,15 +127,12 @@ impl ExposureOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn set_iris(&self, level: crate::types::IrisLevel) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            use crate::command::exposure::Iris;
-            
-            let command = Iris::SetAperture(level);
-            self.send_command(&command).await?;
-            Ok(())
-        }
-
+    async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {
+        use crate::command::exposure::Iris;
+        
+        let command = Iris::SetAperture(level);
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -156,15 +145,12 @@ impl ExposureOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            use crate::command::exposure::Bright;
-            
-            let command = Bright::SetLevel(level);
-            self.send_command(&command).await?;
-            Ok(())
-        }
-
+    async fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        
+        let command = Bright::SetLevel(level);
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -177,15 +163,12 @@ impl ExposureOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            use crate::command::image::BacklightCommand;
-            
-            let command = BacklightCommand::new(enabled);
-            self.send_command(&command).await?;
-            Ok(())
-        }
-
+    async fn set_backlight(&self, enabled: bool) -> Result<(), Error> {
+        use crate::command::image::BacklightCommand;
+        
+        let command = BacklightCommand::new(enabled);
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -198,15 +181,12 @@ impl ExposureOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn set_gain(&self, gain: crate::types::GainLevel) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            use crate::command::gain::Gain;
-            
-            let command = Gain::SetValue(gain);
-            self.send_command(&command).await?;
-            Ok(())
-        }
-
+    async fn set_gain(&self, gain: crate::types::GainLevel) -> Result<(), Error> {
+        use crate::command::gain::Gain;
+        
+        let command = Gain::SetValue(gain);
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -219,15 +199,12 @@ impl ExposureOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            use crate::command::gain::GainLimitCommand;
-            
-            let command = GainLimitCommand::new(limit);
-            self.send_command(&command).await?;
-            Ok(())
-        }
-
+    async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
+        use crate::command::gain::GainLimitCommand;
+        
+        let command = GainLimitCommand::new(limit);
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -240,15 +217,12 @@ impl ExposureOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            use crate::command::exposure::DynamicRange;
-            
-            let command = DynamicRange::SetLevel(level);
-            self.send_command(&command).await?;
-            Ok(())
-        }
-
+    async fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error> {
+        use crate::command::exposure::DynamicRange;
+        
+        let command = DynamicRange::SetLevel(level);
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -261,15 +235,12 @@ impl ExposureOps for Camera {
             Ok(())
     }
     #[cfg(feature = "tokio")]
-    fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
-            use crate::command::color::ColorTemperature;
-            
-            let command = ColorTemperature::SetTemperature(temp);
-            self.send_command(&command).await?;
-            Ok(())
-        }
-
+    async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> Result<(), Error> {
+        use crate::command::color::ColorTemperature;
+        
+        let command = ColorTemperature::SetTemperature(temp);
+        self.send_command(&command).await?;
+        Ok(())
     }
 
     #[cfg(not(feature = "tokio"))]

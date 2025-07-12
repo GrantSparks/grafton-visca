@@ -27,8 +27,6 @@ pub enum Flip {
 /// This command flips the image vertically (upside down).
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct ImageFlipCommand {
-    /// The desired flip state.
-    pub flip: Flip,
     /// Internal command bytes.
     command: [u8; 6]}
 
@@ -39,7 +37,6 @@ impl ImageFlipCommand {
         cmd.append(crate::command::const_encoding::constants::flip::PREFIX);
         cmd.push(flip as u8);
         Self {
-            flip,
             command: cmd.build()}
     }
 }
@@ -81,8 +78,6 @@ pub enum HorizontalFlip {
 /// This command flips the image horizontally (left-right mirror).
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct HorizontalFlipCommand {
-    /// The desired horizontal flip state.
-    pub flip: HorizontalFlip,
     /// Internal command bytes.
     command: [u8; 6]}
 
@@ -93,7 +88,6 @@ impl HorizontalFlipCommand {
         cmd.append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX);
         cmd.push(flip as u8);
         Self {
-            flip,
             command: cmd.build()}
     }
 }
@@ -135,8 +129,6 @@ pub enum Freeze {
 /// This command freezes the current image frame.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct ImageFreezeCommand {
-    /// The desired freeze state.
-    pub freeze: Freeze,
     /// Internal command bytes.
     command: [u8; 6]}
 
@@ -147,7 +139,6 @@ impl ImageFreezeCommand {
         cmd.append(crate::command::const_encoding::constants::flip::FREEZE_PREFIX);
         cmd.push(freeze as u8);
         Self {
-            freeze,
             command: cmd.build()}
     }
 }
@@ -242,22 +233,25 @@ mod tests {
         let cmd = ImageFlipCommand::new(Flip::On);
         let debug_str = format!("{:?}", cmd);
         assert!(debug_str.contains("ImageFlipCommand"));
-        assert!(debug_str.contains("On"));
+        // The debug output will show the command bytes, not the enum value
+        assert!(debug_str.contains("command"));
 
         let cmd = ImageFlipCommand::new(Flip::Off);
         let debug_str = format!("{:?}", cmd);
-        assert!(debug_str.contains("Off"));
+        assert!(debug_str.contains("ImageFlipCommand"));
     }
 
     #[test]
     fn test_image_flip_command_clone() {
         let cmd1 = ImageFlipCommand::new(Flip::On);
         let cmd2 = cmd1.clone();
-        assert_eq!(cmd1.flip, cmd2.flip);
+        // Verify commands produce same bytes
+        assert_eq!(cmd1.try_into_vec().unwrap(), cmd2.try_into_vec().unwrap());
 
         let cmd1 = ImageFlipCommand::new(Flip::Off);
         let cmd2 = cmd1; // Copy trait
-        assert_eq!(cmd2.flip, Flip::Off);
+        // Verify the command was copied correctly
+        assert_eq!(cmd2.try_into_vec().unwrap(), vec![0x81, 0x01, 0x04, 0x66, 0x03, 0xFF]);
     }
 
     #[test]

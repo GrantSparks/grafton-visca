@@ -5,7 +5,6 @@ use crate::{
     transport::core::Transport,
     Error,
 };
-use core::future::Future;
 use std::time::Duration;
 
 /// VISCA protocol constants.
@@ -38,45 +37,43 @@ impl<T: Transport> ViscaProtocol<T> {
     }
 
     /// Send a VISCA command and return a future that resolves to the response.
-    pub fn send_command<'a, C>(
+    pub async fn send_command<'a, C>(
         &'a self,
         command: &'a C,
-    ) -> impl Future<Output = Result<Response, Error>> + 'a
+    ) -> Result<Response, Error>
     where
         C: EncodeVisca,
     {
-        async move {
-            // Get command bytes using EncodeVisca
-            let mut buffer = [0u8; 64]; // Use a reasonable max size
-            let size = command.encode_into(&mut buffer)?;
-            let cmd_bytes = &buffer[..size];
+        // Get command bytes using EncodeVisca
+        let mut buffer = [0u8; 64]; // Use a reasonable max size
+        let size = command.encode_into(&mut buffer)?;
+        let cmd_bytes = &buffer[..size];
 
-            log::debug!("Sending VISCA command: {:02X?}", cmd_bytes);
+        log::debug!("Sending VISCA command: {:02X?}", cmd_bytes);
 
-            // Send command
-            self.transport.send(cmd_bytes).await.map_err(Into::into)?;
+        // Send command
+        self.transport.send(cmd_bytes).await.map_err(Into::into)?;
 
-            // Handle response based on command type
-            match command.response_type() {
-                None => {
-                    // Action command - wait for ACK then Completion
-                    let ack = self.wait_for_ack(ACK_TIMEOUT).await?;
-                    match ack {
-                        Response::CmdAck => {
-                            // Now wait for completion
-                            self.wait_for_completion(COMPLETION_TIMEOUT).await
-                        }
-                        Response::Completion => {
-                            // Some cameras send completion directly
-                            Ok(Response::Completion)
-                        }
-                        _ => Err(Error::ParseError(format!("{:?}", ack))),
+        // Handle response based on command type
+        match command.response_type() {
+            None => {
+                // Action command - wait for ACK then Completion
+                let ack = self.wait_for_ack(ACK_TIMEOUT).await?;
+                match ack {
+                    Response::CmdAck => {
+                        // Now wait for completion
+                        self.wait_for_completion(COMPLETION_TIMEOUT).await
                     }
+                    Response::Completion => {
+                        // Some cameras send completion directly
+                        Ok(Response::Completion)
+                    }
+                    _ => Err(Error::ParseError(format!("{:?}", ack))),
                 }
-                Some(response_type) => {
-                    // Inquiry command - wait for specific response
-                    self.wait_for_response(response_type, DEFAULT_TIMEOUT).await
-                }
+            }
+            Some(response_type) => {
+                // Inquiry command - wait for specific response
+                self.wait_for_response(response_type, DEFAULT_TIMEOUT).await
             }
         }
     }
@@ -84,13 +81,13 @@ impl<T: Transport> ViscaProtocol<T> {
     /// Wait for an ACK response.
     async fn wait_for_ack(&self, timeout: Duration) -> Result<Response, Error> {
         let bytes = self.recv_with_timeout(timeout).await?;
-        Response::parse(&bytes.to_vec())
+        Response::parse(&bytes)
     }
 
     /// Wait for a completion response.
     async fn wait_for_completion(&self, timeout: Duration) -> Result<Response, Error> {
         let bytes = self.recv_with_timeout(timeout).await?;
-        let response = Response::parse(&bytes.to_vec())?;
+        let response = Response::parse(&bytes)?;
 
         match response {
             Response::Completion => Ok(response),
@@ -106,7 +103,7 @@ impl<T: Transport> ViscaProtocol<T> {
         timeout: Duration,
     ) -> Result<Response, Error> {
         let bytes = self.recv_with_timeout(timeout).await?;
-        let response = Response::parse(&bytes.to_vec())?;
+        let response = Response::parse(&bytes)?;
 
         // Verify we got the expected response type
         if response.matches_type(expected_type) {
@@ -129,10 +126,19 @@ impl<T: Transport> ViscaProtocol<T> {
                 .map_err(Into::into)
         }
 
-        #[cfg(not(feature = "tokio"))]
+        #[cfg(all(feature = "async", not(feature = "tokio")))]
         {
-            // For blocking transports, timeout is handled in the transport itself
-            let _ = duration; // Unused in blocking mode
+            // For runtime-agnostic async, we can't implement timeout internally.
+            // Users should wrap the entire send_command operation with their runtime's timeout.
+            // We document this limitation and provide the duration for informational purposes.
+            log::debug!("Timeout of {:?} requested, but no runtime-specific timeout available. Users should wrap operations with their runtime's timeout mechanism.", duration);
+            self.transport.recv().await.map_err(Into::into)
+        }
+        
+        #[cfg(not(feature = "async"))]
+        {
+            // This shouldn't be reachable in blocking mode as ViscaProtocol is async-only
+            let _ = duration;
             self.transport.recv().await.map_err(Into::into)
         }
     }
@@ -141,34 +147,21 @@ impl<T: Transport> ViscaProtocol<T> {
 // Helper to check if a Response matches a ResponseType
 impl Response {
     fn matches_type(&self, expected: ResponseType) -> bool {
-        match (self, expected) {
-            (
+        matches!((self, expected), (
                 Response::InquiryResponse(InquiryResponse::ZoomPosition { .. }),
                 ResponseType::ZoomPosition,
-            ) => true,
-            (
+            ) | (
                 Response::InquiryResponse(InquiryResponse::FocusPosition { .. }),
                 ResponseType::FocusPosition,
-            ) => true,
-            (
+            ) | (
                 Response::InquiryResponse(InquiryResponse::PanTiltPosition { .. }),
                 ResponseType::PanTiltPosition,
-            ) => true,
-            (Response::InquiryResponse(InquiryResponse::Power { .. }), ResponseType::Power) => true,
-            (
+            ) | (Response::InquiryResponse(InquiryResponse::Power { .. }), ResponseType::Power) | (
                 Response::InquiryResponse(InquiryResponse::WhiteBalance { .. }),
                 ResponseType::WhiteBalanceMode,
-            ) => true,
-            (
+            ) | (
                 Response::InquiryResponse(InquiryResponse::ExposureMode { .. }),
                 ResponseType::ExposureMode,
-            ) => true,
-            (Response::InquiryResponse(InquiryResponse::Iris { .. }), ResponseType::Iris) => true,
-            (Response::InquiryResponse(InquiryResponse::GainLevel { .. }), ResponseType::Gain) => true,
-            (Response::InquiryResponse(InquiryResponse::Shutter { .. }), ResponseType::Shutter) => {
-                true
-            }
-            _ => false,
-        }
+            ) | (Response::InquiryResponse(InquiryResponse::Iris { .. }), ResponseType::Iris) | (Response::InquiryResponse(InquiryResponse::GainLevel { .. }), ResponseType::Gain) | (Response::InquiryResponse(InquiryResponse::Shutter { .. }), ResponseType::Shutter))
     }
 }

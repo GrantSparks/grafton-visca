@@ -30,7 +30,7 @@ pub trait Transport {
 
     /// Receive raw bytes from the device.
     /// Returns exactly one VISCA frame.
-    fn recv<'a>(&'a self) -> Self::RecvFut<'a>;
+    fn recv(&self) -> Self::RecvFut<'_>;
 }
 
 /// Helper module for blocking implementations.
@@ -52,7 +52,7 @@ pub trait BlockingTransport: Transport {}
 
 /// Extension trait for timeout operations.
 pub trait TransportExt: Transport {
-    /// Receive with timeout (using runtime-specific timeout mechanism).
+    /// Receive with timeout when using tokio runtime.
     #[cfg(feature = "tokio")]
     fn recv_with_timeout<'a>(
         &'a self,
@@ -69,8 +69,31 @@ pub trait TransportExt: Transport {
         }
     }
 
-    /// Blocking timeout helper for non-async runtimes.
-    #[cfg(not(feature = "tokio"))]
+    /// Receive with timeout for runtime-agnostic async.
+    /// 
+    /// When not using tokio, users should wrap this with their runtime's timeout.
+    /// For example, with async-std:
+    /// ```ignore
+    /// use async_std::future::timeout;
+    /// let result = timeout(duration, transport.recv()).await?;
+    /// ```
+    #[cfg(all(feature = "async", not(feature = "tokio")))]
+    fn recv_with_timeout<'a>(
+        &'a self,
+        _duration: core::time::Duration,
+    ) -> impl Future<Output = Result<bytes::Bytes, Error>> + 'a
+    where
+        Self: 'a,
+    {
+        // Without a specific runtime, we can't implement timeout.
+        // Users should wrap recv() with their runtime's timeout mechanism.
+        async move {
+            self.recv().await.map_err(Into::into)
+        }
+    }
+
+    /// Blocking timeout helper for non-async transports.
+    #[cfg(not(feature = "async"))]
     fn recv_with_timeout_blocking(
         &self,
         duration: core::time::Duration,

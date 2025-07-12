@@ -9,14 +9,13 @@ use crate::{
     Error,
 };
 
-#[cfg(feature = "tokio")]
-use core::future::Future;
+
 /// Zoom operations.
 pub trait ZoomOps: Sized {
 
     /// Stop zooming.
     #[cfg(feature = "tokio")]
-    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn zoom_stop(&self) -> Result<(), Error>;
 
     /// Stop zooming. (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -24,7 +23,7 @@ pub trait ZoomOps: Sized {
 
     /// Start zooming in (telephoto).
     #[cfg(feature = "tokio")]
-    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn zoom_in(&self) -> Result<(), Error>;
 
     /// Start zooming in (telephoto). (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -32,7 +31,7 @@ pub trait ZoomOps: Sized {
 
     /// Start zooming out (wide).
     #[cfg(feature = "tokio")]
-    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn zoom_out(&self) -> Result<(), Error>;
 
     /// Start zooming out (wide). (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -40,7 +39,7 @@ pub trait ZoomOps: Sized {
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
     #[cfg(feature = "tokio")]
-    fn zoom_absolute(&self, position: Normalized) -> impl Future<Output = Result<(), Error>> + Send;
+    async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele). (blocking).
     #[cfg(not(feature = "tokio"))]
@@ -49,17 +48,14 @@ pub trait ZoomOps: Sized {
 
 impl ZoomOps for Camera {
     #[cfg(feature = "tokio")]
-    fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    async fn zoom_stop(&self) -> Result<(), Error> {
             let command = ZoomCommand::Stop;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e.into()),
+                Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
-        }
-
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -74,8 +70,7 @@ impl ZoomOps for Camera {
             }
     }
     #[cfg(feature = "tokio")]
-    fn zoom_in(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    async fn zoom_in(&self) -> Result<(), Error> {
             // Use medium speed by default
             let speed = self.zoom_speed_range().end / 2;
             let zoom_speed = ZoomSpeed::new(speed)?;
@@ -83,11 +78,9 @@ impl ZoomOps for Camera {
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e.into()),
+                Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
-        }
-
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -105,8 +98,7 @@ impl ZoomOps for Camera {
             }
     }
     #[cfg(feature = "tokio")]
-    fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    async fn zoom_out(&self) -> Result<(), Error> {
             // Use medium speed by default
             let speed = self.zoom_speed_range().end / 2;
             let zoom_speed = ZoomSpeed::new(speed)?;
@@ -114,11 +106,9 @@ impl ZoomOps for Camera {
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e.into()),
+                Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
-        }
-
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -136,8 +126,7 @@ impl ZoomOps for Camera {
             }
     }
     #[cfg(feature = "tokio")]
-    fn zoom_absolute(&self, position: Normalized) -> impl Future<Output = Result<(), Error>> + Send {
-        async move {
+    async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
             let normalized = position;
             let position_value = normalized.0;
 
@@ -159,11 +148,9 @@ impl ZoomOps for Camera {
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
-                Response::Error(e) => Err(e.into()),
+                Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
-        }
-
     }
 
     #[cfg(not(feature = "tokio"))]
