@@ -178,7 +178,7 @@ pub enum DigitalZoom {
 /// This command enables or disables digital zoom capability.
 /// When enabled, zoom can continue past the optical zoom limit using digital processing.
 #[derive(Debug, Copy, Clone)]
-pub struct DigitalZoomCommand {
+pub(crate) struct DigitalZoomCommand {
     /// The desired digital zoom state.
     pub zoom: DigitalZoom,
 }

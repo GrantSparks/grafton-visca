@@ -38,7 +38,7 @@ pub enum ExposureMode {
 /// This command allows switching between different exposure modes such as
 /// auto, manual, shutter priority, iris priority, or brightness priority.
 #[derive(Debug, Copy, Clone)]
-pub struct ExposureCommand {
+pub(crate) struct ExposureCommand {
     /// The exposure mode to set.
     pub mode: ExposureMode,
 }

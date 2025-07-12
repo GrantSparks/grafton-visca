@@ -47,6 +47,8 @@ where
 /// This type allows runtime transport selection at the cost of dynamic dispatch.
 /// For most use cases, the generic Transport trait should be preferred.
 ///
+/// **⚠️ Deprecated**: Use `TransportKind` instead for zero-cost abstraction.
+///
 /// # Example
 ///
 /// ```no_run
@@ -56,13 +58,14 @@ where
 /// # let use_tcp = true;
 /// // Can store different transport types in the same variable
 /// let transport: AnyTransport = if use_tcp {
-///     AnyTransport::new(TcpGat::connect("192.168.1.100:5678")?)
+///     AnyTransport::new(Tcp::connect("192.168.1.100:5678")?)
 /// } else {
-///     AnyTransport::new(UdpGat::connect("192.168.1.100:5678")?)
+///     AnyTransport::new(Udp::connect("192.168.1.100:5678")?)
 /// };
 /// # Ok(())
 /// # }
 /// ```
+#[deprecated(since = "0.5.0", note = "Use `TransportKind` instead for zero-cost abstraction")]
 pub struct AnyTransport(Box<dyn ErasedTransport>);
 
 impl AnyTransport {

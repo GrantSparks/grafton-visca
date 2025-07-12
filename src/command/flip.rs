@@ -28,7 +28,7 @@ pub enum Flip {
 ///
 /// This command flips the image vertically (upside down).
 #[derive(Debug, Copy, Clone)]
-pub struct ImageFlipCommand {
+pub(crate) struct ImageFlipCommand {
     /// The desired flip state.
     pub flip: Flip,
     /// Internal command bytes.
@@ -39,7 +39,7 @@ impl ImageFlipCommand {
     /// Create a new image flip command.
     pub fn new(flip: Flip) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x66]);
+        cmd.append(crate::command::const_encoding::constants::flip::PREFIX);
         cmd.push(flip as u8);
         Self {
             flip,
@@ -75,7 +75,7 @@ pub enum HFlip {
 ///
 /// This command flips the image horizontally (left-right mirror).
 #[derive(Debug, Copy, Clone)]
-pub struct HorizontalFlipCommand {
+pub(crate) struct HorizontalFlipCommand {
     /// The desired horizontal flip state.
     pub flip: HFlip,
     /// Internal command bytes.
@@ -86,7 +86,7 @@ impl HorizontalFlipCommand {
     /// Create a new horizontal flip command.
     pub fn new(flip: HFlip) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x61]);
+        cmd.append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX);
         cmd.push(flip as u8);
         Self {
             flip,
@@ -122,7 +122,7 @@ pub enum Freeze {
 ///
 /// This command freezes the current image frame.
 #[derive(Debug, Copy, Clone)]
-pub struct ImageFreezeCommand {
+pub(crate) struct ImageFreezeCommand {
     /// The desired freeze state.
     pub freeze: Freeze,
     /// Internal command bytes.
@@ -133,7 +133,7 @@ impl ImageFreezeCommand {
     /// Create a new image freeze command.
     pub fn new(freeze: Freeze) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x62]);
+        cmd.append(crate::command::const_encoding::constants::flip::FREEZE_PREFIX);
         cmd.push(freeze as u8);
         Self {
             freeze,

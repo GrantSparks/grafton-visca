@@ -108,7 +108,7 @@ impl Command for SharpnessCommand {
 
 /// Command to set the luminance (brightness) level.
 #[derive(Debug, Clone, Copy)]
-pub struct LuminanceCommand {
+pub(crate) struct LuminanceCommand {
     /// The luminance level.
     pub value: LuminanceLevel,
     /// Internal command bytes.
@@ -119,7 +119,7 @@ impl LuminanceCommand {
     /// Create a new luminance command.
     pub fn new(value: LuminanceLevel) -> Self {
         let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00]);
+        cmd.append(crate::command::const_encoding::constants::image::LUMINANCE_PREFIX);
         cmd.push(value.value());
         Self {
             value,
@@ -161,7 +161,7 @@ impl Command for LuminanceCommand {
 
 /// Command to set the contrast level.
 #[derive(Debug, Clone, Copy)]
-pub struct ContrastCommand {
+pub(crate) struct ContrastCommand {
     /// The contrast level.
     pub value: ContrastLevel,
     /// Internal command bytes.
@@ -172,7 +172,7 @@ impl ContrastCommand {
     /// Create a new contrast command.
     pub fn new(value: ContrastLevel) -> Self {
         let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00]);
+        cmd.append(crate::command::const_encoding::constants::image::CONTRAST_PREFIX);
         cmd.push(value.value());
         Self {
             value,

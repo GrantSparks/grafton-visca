@@ -140,7 +140,7 @@ pub enum FocusZone {
 
 /// Command to set the focus zone.
 #[derive(Debug, Copy, Clone)]
-pub struct FocusZoneCommand {
+pub(crate) struct FocusZoneCommand {
     /// The focus zone to select.
     pub zone: FocusZone,
 }
@@ -179,7 +179,7 @@ pub enum AutoFocusSensitivity {
 
 /// Command to set auto focus sensitivity.
 #[derive(Debug, Copy, Clone)]
-pub struct AutoFocusSensitivityCommand {
+pub(crate) struct AutoFocusSensitivityCommand {
     /// The sensitivity level to set.
     pub sensitivity: AutoFocusSensitivity,
 }
@@ -208,7 +208,7 @@ impl Command for AutoFocusSensitivityCommand {
 /// Sets the minimum focus distance to prevent the camera from
 /// focusing on objects too close to the lens.
 #[derive(Debug, Clone, Copy)]
-pub struct FocusNearLimitCommand {
+pub(crate) struct FocusNearLimitCommand {
     /// The focus position limit.
     pub position: FocusPosition,
 }

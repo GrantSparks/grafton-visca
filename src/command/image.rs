@@ -16,7 +16,7 @@ use crate::{
 /// Enables or disables backlight compensation, which helps properly expose
 /// subjects that are backlit (have a bright light source behind them).
 #[derive(Debug, Copy, Clone)]
-pub struct BacklightCommand {
+pub(crate) struct BacklightCommand {
     /// Enable (true) or disable (false) backlight compensation.
     pub status: bool,
     /// Internal command bytes.
@@ -27,7 +27,7 @@ impl BacklightCommand {
     /// Create a new backlight command.
     pub fn new(status: bool) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x33]);
+        cmd.append(crate::command::const_encoding::constants::image::BACKLIGHT_PREFIX);
         cmd.push(if status { 0x02 } else { 0x03 });
         Self {
             status,
@@ -66,7 +66,7 @@ pub enum NoiseReduction2DCommand {
 impl Command for NoiseReduction2DCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x53]);
+        cmd.append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_2D_PREFIX);
         match self {
             Self::Off => cmd.push(0x00),
             Self::Level(level) => cmd.push(level.value()),
@@ -99,7 +99,7 @@ pub enum NoiseReduction3DCommand {
 impl Command for NoiseReduction3DCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x54]);
+        cmd.append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_3D_PREFIX);
         match self {
             Self::Off => cmd.push(0x00),
             Self::Level(level) => cmd.push(level.value()),
@@ -120,7 +120,7 @@ impl Command for NoiseReduction3DCommand {
 ///
 /// Switches the camera output between color and monochrome (black and white) modes.
 #[derive(Debug, Copy, Clone)]
-pub struct BlackWhiteCommand {
+pub(crate) struct BlackWhiteCommand {
     /// Enable (true) for black and white mode, disable (false) for color mode.
     pub on: bool,
     /// Internal command bytes.
@@ -131,7 +131,7 @@ impl BlackWhiteCommand {
     /// Create a new black and white command.
     pub fn new(on: bool) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x01]);
+        cmd.append(crate::command::const_encoding::constants::image::BLACK_WHITE_PREFIX);
         cmd.push(if on { 0x04 } else { 0x00 });
         Self {
             on,
@@ -172,7 +172,7 @@ pub enum ImageFlipMode {
 
 /// Command to set the combined image flip mode.
 #[derive(Debug, Copy, Clone)]
-pub struct ImageFlipCombinedCommand {
+pub(crate) struct ImageFlipCombinedCommand {
     /// The flip mode to apply.
     pub mode: ImageFlipMode,
     /// Internal command bytes.
@@ -183,7 +183,7 @@ impl ImageFlipCombinedCommand {
     /// Create a new image flip combined command.
     pub fn new(mode: ImageFlipMode) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x61]);
+        cmd.append(crate::command::const_encoding::constants::image::FLIP_COMBINED_PREFIX);
         let mode_byte = match mode {
             ImageFlipMode::Off => 0x00,
             ImageFlipMode::Horizontal => 0x01,

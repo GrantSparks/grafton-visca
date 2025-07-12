@@ -204,4 +204,58 @@ pub mod image {
 
     /// Combined image flip prefix (same as horizontal flip).
     pub const FLIP_COMBINED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x61];
+
+    /// Luminance/brightness adjustment prefix.
+    pub const LUMINANCE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00];
+
+    /// Contrast adjustment prefix.
+    pub const CONTRAST_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00];
+}
+
+/// System command constants.
+pub mod system {
+    use super::*;
+
+    /// Address set command (broadcast, serial only).
+    pub const ADDRESS_SET: &[u8] = visca_bytes![0x88, 0x30, 0x01];
+
+    /// Interface clear command (broadcast, serial only).
+    pub const INTERFACE_CLEAR: &[u8] = visca_bytes![0x88, 0x01, 0x00, 0x01];
+
+    /// Command cancel prefix (needs socket number).
+    pub const COMMAND_CANCEL_PREFIX: &[u8] = visca_prefix![0x81];
+}
+
+/// Color adjustment command constants.
+pub mod color {
+    use super::*;
+
+    /// One push white balance trigger.
+    pub const WB_ONE_PUSH_TRIGGER: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x10, 0x05];
+
+    /// Color temperature query.
+    pub const COLOR_TEMP_QUERY: &[u8] = visca_bytes![0x81, 0x0A, 0x01, 0x12];
+
+    /// Color temperature value query.
+    pub const COLOR_TEMP_VALUE_QUERY: &[u8] = visca_bytes![0x81, 0x0A, 0x01, 0x13];
+
+    /// Color saturation prefix.
+    pub const SATURATION_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00];
+
+    /// Color hue prefix.
+    pub const HUE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00];
+}
+
+/// Gain command constants.
+pub mod gain {
+    use super::*;
+
+    /// Gain limit prefix.
+    pub const GAIN_LIMIT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x2C];
+
+    /// Red gain prefix.
+    pub const RED_GAIN_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x23];
+
+    /// Anti-flicker mode prefix.
+    pub const ANTI_FLICKER_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x23];
 }

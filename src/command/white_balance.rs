@@ -37,7 +37,7 @@ pub enum WhiteBalanceMode {
 
 /// Command to set the white balance mode.
 #[derive(Debug, Copy, Clone)]
-pub struct WhiteBalanceCommand {
+pub(crate) struct WhiteBalanceCommand {
     /// The white balance mode to set.
     pub mode: WhiteBalanceMode,
 }
@@ -83,7 +83,7 @@ pub enum AWBSensitivity {
 
 /// Command to set AWB sensitivity.
 #[derive(Debug, Copy, Clone)]
-pub struct AWBSensitivityCommand {
+pub(crate) struct AWBSensitivityCommand {
     /// The sensitivity level to set.
     pub sensitivity: AWBSensitivity,
 }

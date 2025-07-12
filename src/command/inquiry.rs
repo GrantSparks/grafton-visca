@@ -87,86 +87,17 @@ pub enum InquiryCommand {
     Version,
 }
 
+// Use the inquiry_structs module
+use super::inquiry_structs;
+
+// Implementation of Command trait for InquiryCommand enum using the macro-generated structs
 impl Command for InquiryCommand {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let bytes = match self {
-            Self::Power => vec![0x81, 0x09, 0x04, 0x00, 0xFF],
-            Self::PanTiltPosition => vec![0x81, 0x09, 0x06, 0x12, 0xFF],
-            Self::ZoomPosition => vec![0x81, 0x09, 0x04, 0x47, 0xFF],
-            Self::FocusPosition => vec![0x81, 0x09, 0x04, 0x48, 0xFF],
-            Self::ExposureMode => vec![0x81, 0x09, 0x04, 0x39, 0xFF],
-            Self::WhiteBalanceMode => vec![0x81, 0x09, 0x04, 0x35, 0xFF],
-            Self::Luminance => vec![0x81, 0x09, 0x04, 0xA1, 0xFF],
-            Self::Contrast => vec![0x81, 0x09, 0x04, 0xA2, 0xFF],
-            // New inquiry commands
-            Self::Sharpness => vec![0x81, 0x09, 0x04, 0x42, 0xFF],
-            Self::ExposureCompensation => vec![0x81, 0x09, 0x04, 0x4E, 0xFF],
-            Self::ExposureCompensationMode => vec![0x81, 0x09, 0x04, 0x3E, 0xFF],
-            Self::Iris => vec![0x81, 0x09, 0x04, 0x4B, 0xFF],
-            Self::Shutter => vec![0x81, 0x09, 0x04, 0x4A, 0xFF],
-            Self::Bright => vec![0x81, 0x09, 0x04, 0x4D, 0xFF],
-            Self::Gain => vec![0x81, 0x09, 0x04, 0x4C, 0xFF],
-            Self::GainLimit => vec![0x81, 0x09, 0x04, 0x2C, 0xFF],
-            Self::AntiFlicker => vec![0x81, 0x09, 0x04, 0x23, 0xFF],
-            Self::Saturation => vec![0x81, 0x09, 0x04, 0x49, 0xFF],
-            Self::Hue => vec![0x81, 0x09, 0x04, 0x4F, 0xFF],
-            Self::RedGain => vec![0x81, 0x09, 0x0A, 0x12, 0xFF],
-            Self::BlueGain => vec![0x81, 0x09, 0x0A, 0x13, 0xFF],
-            Self::Backlight => vec![0x81, 0x09, 0x04, 0x33, 0xFF],
-            Self::ImageFlip => vec![0x81, 0x09, 0x04, 0x61, 0xFF],
-            // Additional inquiry commands
-            Self::SharpnessMode => vec![0x81, 0x09, 0x04, 0x05, 0xFF],
-            Self::ColorTemperature => vec![0x81, 0x09, 0x04, 0x20, 0xFF],
-            Self::NoiseReduction2D => vec![0x81, 0x09, 0x04, 0x53, 0xFF],
-            Self::NoiseReduction3D => vec![0x81, 0x09, 0x04, 0x54, 0xFF],
-            Self::BlackWhite => vec![0x81, 0x09, 0x04, 0x01, 0xFF],
-            Self::FocusZone => vec![0x81, 0x09, 0x04, 0x3C, 0xFF],
-            Self::AutoFocusSensitivity => vec![0x81, 0x09, 0x04, 0x58, 0xFF],
-            Self::FocusNearLimit => vec![0x81, 0x09, 0x04, 0x28, 0xFF],
-            Self::DynamicRange => vec![0x81, 0x09, 0x04, 0x25, 0xFF],
-            Self::Version => vec![0x81, 0x09, 0x00, 0x02, 0xFF],
-        };
-        Ok(bytes)
+        inquiry_structs::create_inquiry_command(*self).to_bytes()
     }
 
     fn response_type(&self) -> Option<ResponseType> {
-        match self {
-            Self::Power => Some(ResponseType::Power),
-            Self::PanTiltPosition => Some(ResponseType::PanTiltPosition),
-            Self::ZoomPosition => Some(ResponseType::ZoomPosition),
-            Self::FocusPosition => Some(ResponseType::FocusPosition),
-            Self::ExposureMode => Some(ResponseType::ExposureMode),
-            Self::WhiteBalanceMode => Some(ResponseType::WhiteBalanceMode),
-            Self::Luminance => Some(ResponseType::Luminance),
-            Self::Contrast => Some(ResponseType::Contrast),
-            // New response types
-            Self::Sharpness => Some(ResponseType::Sharpness),
-            Self::ExposureCompensation => Some(ResponseType::ExposureCompensation),
-            Self::ExposureCompensationMode => Some(ResponseType::ExposureCompensationMode),
-            Self::Iris => Some(ResponseType::Iris),
-            Self::Shutter => Some(ResponseType::Shutter),
-            Self::Bright => Some(ResponseType::Bright),
-            Self::Gain => Some(ResponseType::Gain),
-            Self::GainLimit => Some(ResponseType::GainLimit),
-            Self::AntiFlicker => Some(ResponseType::AntiFlicker),
-            Self::Saturation => Some(ResponseType::Saturation),
-            Self::Hue => Some(ResponseType::Hue),
-            Self::RedGain => Some(ResponseType::RedGain),
-            Self::BlueGain => Some(ResponseType::BlueGain),
-            Self::Backlight => Some(ResponseType::Backlight),
-            Self::ImageFlip => Some(ResponseType::ImageFlip),
-            // Additional response types
-            Self::SharpnessMode => Some(ResponseType::SharpnessMode),
-            Self::ColorTemperature => Some(ResponseType::ColorTemperature),
-            Self::NoiseReduction2D => Some(ResponseType::NoiseReduction2D),
-            Self::NoiseReduction3D => Some(ResponseType::NoiseReduction3D),
-            Self::BlackWhite => Some(ResponseType::BlackWhite),
-            Self::FocusZone => Some(ResponseType::FocusZone),
-            Self::AutoFocusSensitivity => Some(ResponseType::AutoFocusSensitivity),
-            Self::FocusNearLimit => Some(ResponseType::FocusNearLimit),
-            Self::DynamicRange => Some(ResponseType::DynamicRange),
-            Self::Version => Some(ResponseType::Version),
-        }
+        inquiry_structs::create_inquiry_command(*self).response_type()
     }
 
     fn command_category(&self) -> CommandCategory {

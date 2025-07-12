@@ -39,9 +39,10 @@ crate::visca_bounded_param! {
     }
 }
 
+
 /// Command to manage camera presets.
 #[derive(Debug, Copy, Clone)]
-pub struct PresetCommand {
+pub(crate) struct PresetCommand {
     /// The action to perform.
     pub action: PresetAction,
     /// The preset number to operate on.

@@ -63,6 +63,18 @@ impl<T> Degrees<T> {
     }
 }
 
+impl From<f32> for Degrees<f32> {
+    fn from(value: f32) -> Self {
+        Self(value)
+    }
+}
+
+impl From<f64> for Degrees<f64> {
+    fn from(value: f64) -> Self {
+        Self(value)
+    }
+}
+
 impl<T> ViscaUnits<T> {
     /// Create a new position in VISCA units.
     pub fn new(value: T) -> Self {
@@ -94,6 +106,18 @@ impl<T> Normalized<T> {
     /// Consume and return the inner value.
     pub fn into_inner(self) -> T {
         self.0
+    }
+}
+
+impl From<f32> for Normalized<f32> {
+    fn from(value: f32) -> Self {
+        Self(value)
+    }
+}
+
+impl From<f64> for Normalized<f64> {
+    fn from(value: f64) -> Self {
+        Self(value)
     }
 }
 
@@ -163,12 +187,6 @@ impl Fraction {
     }
 }
 
-// Conversion implementations for degrees/radians
-impl From<f32> for Degrees<f32> {
-    fn from(value: f32) -> Self {
-        Degrees(value)
-    }
-}
 
 // Conversion implementations for ZoomPosition
 impl TryFrom<Percentage<f32>> for ZoomPosition {

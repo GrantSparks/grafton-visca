@@ -85,7 +85,7 @@ impl Command for GainCommand {
 
 /// Command to set the automatic gain control limit.
 #[derive(Debug, Clone, Copy)]
-pub struct GainLimitCommand {
+pub(crate) struct GainLimitCommand {
     /// The maximum gain level allowed in auto mode.
     pub limit: GainLimit,
     /// Internal command bytes.
@@ -96,7 +96,7 @@ impl GainLimitCommand {
     /// Create a new gain limit command.
     pub fn new(limit: GainLimit) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x2C]);
+        cmd.append(crate::command::const_encoding::constants::gain::GAIN_LIMIT_PREFIX);
         cmd.push(limit.value());
         Self {
             limit,
@@ -152,7 +152,7 @@ pub enum AntiFlickerMode {
 
 /// Command to set anti-flicker mode.
 #[derive(Debug, Copy, Clone)]
-pub struct AntiFlickerCommand {
+pub(crate) struct AntiFlickerCommand {
     /// The anti-flicker mode to apply.
     pub mode: AntiFlickerMode,
     /// Internal command bytes.
@@ -163,7 +163,7 @@ impl AntiFlickerCommand {
     /// Create a new anti-flicker command.
     pub fn new(mode: AntiFlickerMode) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x23]);
+        cmd.append(crate::command::const_encoding::constants::gain::ANTI_FLICKER_PREFIX);
         cmd.push(mode as u8);
         Self {
             mode,

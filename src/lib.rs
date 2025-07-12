@@ -274,8 +274,9 @@ pub use units::{
 // Re-export FStop from types
 pub use types::{FStop, IntoIrisLevel};
 
-// Re-export procedural macros
-pub use grafton_visca_macros::{InquiryCommand, ViscaValue};
+// Re-export only the ViscaValue macro publicly
+// InquiryCommand macro is now used internally only
+pub use grafton_visca_macros::ViscaValue;
 
 // Macros are already exported with #[macro_export] so we don't need to re-export them
 

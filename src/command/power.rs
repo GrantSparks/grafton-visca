@@ -26,7 +26,7 @@ pub enum Power {
 
 /// Command to control camera power state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct PowerCommand {
+pub(crate) struct PowerCommand {
     /// The desired power state.
     pub power: Power,
 }

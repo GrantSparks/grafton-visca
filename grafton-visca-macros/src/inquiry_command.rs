@@ -37,12 +37,17 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             // Generate parser implementation if parser info is provided
             let parse_response_impl = if let Some(parser_info) = &attrs.parser {
                 let parser_body = generate_parser_body(&response_type, parser_info);
+                let crate_path_for_parser = if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
+                    quote! { crate }
+                } else {
+                    quote! { ::grafton_visca }
+                };
                 quote! {
                     impl #struct_name {
                         /// Parse the response data for this inquiry command
-                        pub fn parse_response(&self, data: &[u8]) -> Result<::grafton_visca::command::InquiryResponse, ::grafton_visca::Error> {
+                        pub fn parse_response(&self, data: &[u8]) -> Result<#crate_path_for_parser::command::InquiryResponse, #crate_path_for_parser::Error> {
                             if data.is_empty() {
-                                return Err(::grafton_visca::Error::InvalidResponseLength);
+                                return Err(#crate_path_for_parser::Error::InvalidResponseLength);
                             }
                             Ok(#parser_body)
                         }
@@ -52,24 +57,31 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                 quote! {}
             };
 
+            // Use $crate when available (internal usage), otherwise use ::grafton_visca
+            let crate_path = if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
+                quote! { crate }
+            } else {
+                quote! { ::grafton_visca }
+            };
+
             let expanded = quote! {
-                impl ::grafton_visca::command::Command for #struct_name {
-                    fn to_bytes(&self) -> Result<Vec<u8>, ::grafton_visca::Error> {
+                impl #crate_path::command::Command for #struct_name {
+                    fn to_bytes(&self) -> Result<Vec<u8>, #crate_path::Error> {
                         Ok(#bytes_expr)
                     }
 
-                    fn response_type(&self) -> Option<::grafton_visca::command::ResponseType> {
-                        Some(::grafton_visca::command::ResponseType::#response_type)
+                    fn response_type(&self) -> Option<#crate_path::command::ResponseType> {
+                        Some(#crate_path::command::ResponseType::#response_type)
                     }
 
-                    fn command_category(&self) -> ::grafton_visca::timeout::CommandCategory {
-                        ::grafton_visca::timeout::CommandCategory::Quick
+                    fn command_category(&self) -> #crate_path::timeout::CommandCategory {
+                        #crate_path::timeout::CommandCategory::Quick
                     }
                 }
 
-                impl From<#struct_name> for ::grafton_visca::command::InquiryCommand {
+                impl From<#struct_name> for #crate_path::command::InquiryCommand {
                     fn from(_: #struct_name) -> Self {
-                        ::grafton_visca::command::InquiryCommand::#inquiry_variant
+                        #crate_path::command::InquiryCommand::#inquiry_variant
                     }
                 }
 

@@ -5,34 +5,15 @@ use crate::{
     camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{ProfileMetadata, ValidationError, Zoom},
     command::{
-        const_encoding::{commands, encode_speed, encode_u16_visca, CommandBuilder},
-        Command, Response, ResponseType,
+        zoom::{ZoomCommand, ZoomSpeed},
+        Response,
     },
     transport::core::{BlockingTransport, Transport},
+    types::ZoomPosition,
+    units::Normalized,
     Error,
 };
 use core::future::Future;
-
-/// Zoom stop command.
-struct ZoomStopCommand([u8; 7]);
-
-impl ZoomStopCommand {
-    fn new() -> Self {
-        let mut cmd = CommandBuilder::<7>::new();
-        cmd.append(commands::ZOOM_STOP);
-        Self(cmd.build())
-    }
-}
-
-impl Command for ZoomStopCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.0.to_vec())
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None // Action command
-    }
-}
 
 /// Extension trait for CameraCore - provides future-returning methods.
 pub trait ZoomCoreExt<P, T>
@@ -50,7 +31,7 @@ where
     fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + '_;
 
     /// Set zoom to absolute position - returns a future.
-    fn zoom_absolute(&self, position: f32) -> impl Future<Output = Result<(), Error>> + '_;
+    fn zoom_absolute(&self, position: Normalized<f32>) -> impl Future<Output = Result<(), Error>> + '_;
 }
 
 #[allow(clippy::manual_async_fn)]
@@ -61,7 +42,7 @@ where
 {
     fn zoom_stop(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            let command = ZoomStopCommand::new();
+            let command = ZoomCommand::Stop;
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
@@ -75,22 +56,8 @@ where
         async move {
             // Use medium speed by default
             let speed = P::ZOOM_SPEED_RANGE.end / 2;
-
-            let mut cmd = CommandBuilder::<7>::new();
-            cmd.append(commands::ZOOM_TELE_PREFIX)
-                .push(encode_speed(speed));
-
-            struct ZoomInCommand([u8; 7]);
-            impl Command for ZoomInCommand {
-                fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-                    Ok(self.0.to_vec())
-                }
-                fn response_type(&self) -> Option<ResponseType> {
-                    None
-                }
-            }
-
-            let command = ZoomInCommand(cmd.build());
+            let zoom_speed = ZoomSpeed::new(speed)?;
+            let command = ZoomCommand::TeleVariable(zoom_speed);
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
@@ -104,22 +71,8 @@ where
         async move {
             // Use medium speed by default
             let speed = P::ZOOM_SPEED_RANGE.end / 2;
-
-            let mut cmd = CommandBuilder::<7>::new();
-            cmd.append(commands::ZOOM_WIDE_PREFIX)
-                .push(encode_speed(speed));
-
-            struct ZoomOutCommand([u8; 7]);
-            impl Command for ZoomOutCommand {
-                fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-                    Ok(self.0.to_vec())
-                }
-                fn response_type(&self) -> Option<ResponseType> {
-                    None
-                }
-            }
-
-            let command = ZoomOutCommand(cmd.build());
+            let zoom_speed = ZoomSpeed::new(speed)?;
+            let command = ZoomCommand::WideVariable(zoom_speed);
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
@@ -129,13 +82,16 @@ where
         }
     }
 
-    fn zoom_absolute(&self, position: f32) -> impl Future<Output = Result<(), Error>> + '_ {
+    fn zoom_absolute(&self, position: Normalized<f32>) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
+            let normalized = position;
+            let position_value = normalized.0;
+            
             // Validate position
-            if !(0.0..=1.0).contains(&position) {
+            if !(0.0..=1.0).contains(&position_value) {
                 return Err(Error::ValidationError(ValidationError::OutOfRange {
                     parameter: "zoom position",
-                    value: position as f64,
+                    value: position_value as f64,
                     min: 0.0,
                     max: 1.0,
                 }));
@@ -143,23 +99,9 @@ where
 
             // Convert normalized position to VISCA units
             let max_zoom = P::DIGITAL_ZOOM_MAX.unwrap_or(P::OPTICAL_ZOOM_MAX);
-            let zoom_pos = (position * max_zoom as f32) as u16;
-
-            let mut cmd = CommandBuilder::<10>::new();
-            cmd.append(commands::ZOOM_ABSOLUTE_PREFIX);
-            encode_u16_visca(zoom_pos, &mut cmd);
-
-            struct ZoomAbsoluteCommand([u8; 10]);
-            impl Command for ZoomAbsoluteCommand {
-                fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-                    Ok(self.0.to_vec())
-                }
-                fn response_type(&self) -> Option<ResponseType> {
-                    None
-                }
-            }
-
-            let command = ZoomAbsoluteCommand(cmd.build());
+            let zoom_pos = (position_value * max_zoom as f32) as u16;
+            let zoom_position = ZoomPosition::new(zoom_pos)?;
+            let command = ZoomCommand::Position(zoom_position);
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
@@ -186,7 +128,7 @@ where
     fn zoom_out(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    fn zoom_absolute(&self, position: f32) -> impl Future<Output = Result<(), Error>> + Send;
+    fn zoom_absolute(&self, position: Normalized<f32>) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl<P, T> ZoomAsyncExt<P, T> for CameraAsync<P, T>
@@ -208,7 +150,7 @@ where
         async move { self.core().zoom_out().await }
     }
 
-    fn zoom_absolute(&self, position: f32) -> impl Future<Output = Result<(), Error>> + Send {
+    fn zoom_absolute(&self, position: Normalized<f32>) -> impl Future<Output = Result<(), Error>> + Send {
         async move { self.core().zoom_absolute(position).await }
     }
 }
@@ -229,7 +171,7 @@ where
     fn zoom_out(&self) -> Result<(), Error>;
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    fn zoom_absolute(&self, position: f32) -> Result<(), Error>;
+    fn zoom_absolute(&self, position: Normalized<f32>) -> Result<(), Error>;
 }
 
 impl<P, T> ZoomBlockingExt<P, T> for CameraBlocking<P, T>
@@ -249,7 +191,7 @@ where
         block_on(self.core().zoom_out())
     }
 
-    fn zoom_absolute(&self, position: f32) -> Result<(), Error> {
+    fn zoom_absolute(&self, position: Normalized<f32>) -> Result<(), Error> {
         block_on(self.core().zoom_absolute(position))
     }
 }
