@@ -312,6 +312,18 @@ impl Default for SpeedLevel {
     }
 }
 
+impl From<u8> for SpeedLevel {
+    fn from(value: u8) -> Self {
+        match value {
+            0..=5 => Self::Slowest,
+            6..=10 => Self::Slow,
+            11..=15 => Self::Medium,
+            16..=20 => Self::Fast,
+            _ => Self::Fastest,
+        }
+    }
+}
+
 /// F-stop values for iris control.
 ///
 /// Provides named constants for common F-stop values used in camera iris control.

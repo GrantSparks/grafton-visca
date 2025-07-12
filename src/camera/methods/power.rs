@@ -5,55 +5,13 @@ use crate::{
     camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{Power, ProfileMetadata},
     command::{
-        const_encoding::{commands, CommandBuilder},
-        Command, Response, ResponseType,
+        power::{Power as PowerState, PowerCommand},
+        Response,
     },
     transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
-
-/// Power on command.
-struct PowerOnCommand([u8; 6]);
-
-impl PowerOnCommand {
-    fn new() -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(commands::POWER_ON);
-        Self(cmd.build())
-    }
-}
-
-impl Command for PowerOnCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.0.to_vec())
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None // Action command
-    }
-}
-
-/// Power off command.
-struct PowerOffCommand([u8; 6]);
-
-impl PowerOffCommand {
-    fn new() -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(commands::POWER_OFF);
-        Self(cmd.build())
-    }
-}
-
-impl Command for PowerOffCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.0.to_vec())
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None // Action command
-    }
-}
 
 /// Extension trait for CameraCore - provides future-returning methods.
 pub trait PowerCoreExt<P, T>
@@ -76,7 +34,9 @@ where
 {
     fn power_on(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            let command = PowerOnCommand::new();
+            let command = PowerCommand {
+                power: PowerState::On,
+            };
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => {
@@ -93,7 +53,9 @@ where
 
     fn power_off(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            let command = PowerOffCommand::new();
+            let command = PowerCommand {
+                power: PowerState::Standby,
+            };
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => {

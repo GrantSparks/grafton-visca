@@ -4,56 +4,11 @@ use crate::{
     blocking::block_on,
     camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{Exposure, ProfileMetadata},
-    command::{
-        const_encoding::{commands, CommandBuilder},
-        Command, Response, ResponseType,
-    },
+    command::{Response},
     transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
-
-/// Exposure auto command.
-struct ExposureAutoCommand([u8; 6]);
-
-impl ExposureAutoCommand {
-    fn new() -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(commands::EXPOSURE_AUTO);
-        Self(cmd.build())
-    }
-}
-
-impl Command for ExposureAutoCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.0.to_vec())
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None // Action command
-    }
-}
-
-/// Exposure manual command.
-struct ExposureManualCommand([u8; 6]);
-
-impl ExposureManualCommand {
-    fn new() -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(commands::EXPOSURE_MANUAL);
-        Self(cmd.build())
-    }
-}
-
-impl Command for ExposureManualCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.0.to_vec())
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None // Action command
-    }
-}
 
 /// Extension trait for CameraCore - provides future-returning methods.
 pub trait ExposureCoreExt<P, T>
@@ -112,7 +67,11 @@ where
 {
     fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            let command = ExposureAutoCommand::new();
+            use crate::command::exposure::{ExposureCommand, ExposureMode};
+
+            let command = ExposureCommand {
+                mode: ExposureMode::Auto,
+            };
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),
@@ -124,7 +83,11 @@ where
 
     fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            let command = ExposureManualCommand::new();
+            use crate::command::exposure::{ExposureCommand, ExposureMode};
+
+            let command = ExposureCommand {
+                mode: ExposureMode::Manual,
+            };
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),

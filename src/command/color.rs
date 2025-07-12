@@ -18,7 +18,7 @@ use crate::{
 /// the current scene. The camera will analyze the image and set the
 /// white balance to achieve neutral colors.
 #[derive(Debug, Copy, Clone)]
-pub struct OnePushTriggerCommand {
+pub(crate) struct OnePushTriggerCommand {
     /// Internal command bytes.
     command: [u8; 6],
 }
@@ -27,7 +27,7 @@ impl OnePushTriggerCommand {
     /// Create a new one-push white balance trigger command.
     pub fn new() -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x10, 0x05]);
+        cmd.append(crate::command::const_encoding::constants::color::WB_ONE_PUSH_TRIGGER);
         Self {
             command: cmd.build(),
         }
@@ -60,7 +60,7 @@ impl Command for OnePushTriggerCommand {
 /// This is typically used after setting a base white balance mode
 /// to make small corrections.
 #[derive(Debug, Copy, Clone)]
-pub struct RedTuningCommand {
+pub(crate) struct RedTuningCommand {
     /// Red tuning level.
     pub level: RedTuning,
     /// Internal command bytes.
@@ -71,7 +71,7 @@ impl RedTuningCommand {
     /// Create a new red tuning command.
     pub fn new(level: RedTuning) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x0A, 0x01, 0x12]);
+        cmd.append(crate::command::const_encoding::constants::color::COLOR_TEMP_QUERY);
         // Convert -10..+10 to 0x00..0x14
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -118,7 +118,7 @@ impl Command for RedTuningCommand {
 /// This is typically used after setting a base white balance mode
 /// to make small corrections.
 #[derive(Debug, Copy, Clone)]
-pub struct BlueTuningCommand {
+pub(crate) struct BlueTuningCommand {
     /// Blue tuning level.
     pub level: BlueTuning,
     /// Internal command bytes.
@@ -129,7 +129,7 @@ impl BlueTuningCommand {
     /// Create a new blue tuning command.
     pub fn new(level: BlueTuning) -> Self {
         let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(&[0x81, 0x0A, 0x01, 0x13]);
+        cmd.append(crate::command::const_encoding::constants::color::COLOR_TEMP_VALUE_QUERY);
         // Convert -10..+10 to 0x00..0x14
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -176,7 +176,7 @@ impl Command for BlueTuningCommand {
 /// Lower values produce more muted colors, while higher values
 /// produce more vivid colors.
 #[derive(Debug, Copy, Clone)]
-pub struct SaturationCommand {
+pub(crate) struct SaturationCommand {
     /// Saturation level.
     pub level: SaturationLevel,
     /// Internal command bytes.
@@ -187,7 +187,7 @@ impl SaturationCommand {
     /// Create a new saturation command.
     pub fn new(level: SaturationLevel) -> Self {
         let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00]);
+        cmd.append(crate::command::const_encoding::constants::color::SATURATION_PREFIX);
         cmd.push(level.value());
         Self {
             level,
@@ -227,7 +227,7 @@ impl Command for SaturationCommand {
 /// around the color wheel. This can be used to correct color casts
 /// or create artistic effects.
 #[derive(Debug, Copy, Clone)]
-pub struct HueCommand {
+pub(crate) struct HueCommand {
     /// Hue level.
     pub level: HueLevel,
     /// Internal command bytes.
@@ -238,7 +238,7 @@ impl HueCommand {
     /// Create a new hue command.
     pub fn new(level: HueLevel) -> Self {
         let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(&[0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00]);
+        cmd.append(crate::command::const_encoding::constants::color::HUE_PREFIX);
         cmd.push(level.value());
         Self {
             level,

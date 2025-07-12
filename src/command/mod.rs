@@ -18,6 +18,7 @@ pub mod gain;
 pub mod image;
 pub mod image_adjustment;
 pub mod inquiry;
+mod inquiry_structs;  // Internal module for macro-generated inquiry commands
 pub mod pan_tilt;
 pub mod power;
 pub mod preset;

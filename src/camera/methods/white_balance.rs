@@ -5,34 +5,13 @@ use crate::{
     camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
     capabilities::{ProfileMetadata, WhiteBalance},
     command::{
-        const_encoding::{commands, CommandBuilder},
-        Command, Response, ResponseType,
+        white_balance::{WhiteBalanceCommand, WhiteBalanceMode},
+        Response,
     },
     transport::core::{BlockingTransport, Transport},
     Error,
 };
 use core::future::Future;
-
-/// White balance auto command.
-struct WhiteBalanceAutoCommand([u8; 6]);
-
-impl WhiteBalanceAutoCommand {
-    fn new() -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(commands::WHITE_BALANCE_AUTO);
-        Self(cmd.build())
-    }
-}
-
-impl Command for WhiteBalanceAutoCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.0.to_vec())
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None // Action command
-    }
-}
 
 /// Extension trait for CameraCore - provides future-returning methods.
 pub trait WhiteBalanceCoreExt<P, T>
@@ -52,7 +31,9 @@ where
 {
     fn white_balance_auto(&self) -> impl Future<Output = Result<(), Error>> + '_ {
         async move {
-            let command = WhiteBalanceAutoCommand::new();
+            let command = WhiteBalanceCommand {
+                mode: WhiteBalanceMode::Auto,
+            };
             let response = self.send_command(&command).await?;
             match response {
                 Response::Completion => Ok(()),

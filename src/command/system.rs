@@ -21,7 +21,7 @@ use crate::{
 /// This is used during initial setup of VISCA cameras on a serial bus.
 /// Note: This is a broadcast command that affects all cameras on the bus.
 #[derive(Debug, Copy, Clone)]
-pub struct AddressSetCommand {
+pub(crate) struct AddressSetCommand {
     /// Internal command bytes.
     command: [u8; 4],
 }
@@ -30,7 +30,7 @@ impl AddressSetCommand {
     /// Create a new address set command.
     pub fn new() -> Self {
         let mut cmd = CommandBuilder::<4>::new();
-        cmd.append(&[0x88, 0x30, 0x01]);
+        cmd.append(crate::command::const_encoding::constants::system::ADDRESS_SET);
         Self {
             command: cmd.build(),
         }
@@ -62,7 +62,7 @@ impl Command for AddressSetCommand {
 /// This resets the command buffer and clears any pending commands.
 /// Note: This is a broadcast command that affects all cameras on the bus.
 #[derive(Debug, Copy, Clone)]
-pub struct InterfaceClearCommand {
+pub(crate) struct InterfaceClearCommand {
     /// Internal command bytes.
     command: [u8; 5],
 }
@@ -71,7 +71,7 @@ impl InterfaceClearCommand {
     /// Create a new interface clear command.
     pub fn new() -> Self {
         let mut cmd = CommandBuilder::<5>::new();
-        cmd.append(&[0x88, 0x01, 0x00, 0x01]);
+        cmd.append(crate::command::const_encoding::constants::system::INTERFACE_CLEAR);
         Self {
             command: cmd.build(),
         }
@@ -111,7 +111,7 @@ pub enum Socket {
 ///
 /// This cancels any in-progress commands on the specified socket.
 #[derive(Debug, Copy, Clone)]
-pub struct CommandCancelCommand {
+pub(crate) struct CommandCancelCommand {
     /// The socket to cancel commands on.
     pub socket: Socket,
     /// Internal command bytes.
@@ -122,7 +122,7 @@ impl CommandCancelCommand {
     /// Create a new command cancel command.
     pub fn new(socket: Socket) -> Self {
         let mut cmd = CommandBuilder::<3>::new();
-        cmd.append(&[0x81]);
+        cmd.append(crate::command::const_encoding::constants::system::COMMAND_CANCEL_PREFIX);
         cmd.push(match socket {
             Socket::Socket1 => 0x21,
             Socket::Socket2 => 0x22,

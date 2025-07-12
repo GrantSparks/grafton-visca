@@ -6,10 +6,10 @@ use crate::{
     capabilities::{ImageProcessing, ProfileMetadata},
     command::{
         color::{HueCommand, SaturationCommand},
-        const_encoding::{commands, CommandBuilder},
+        flip::{Flip, ImageFlipCommand},
         image::{NoiseReduction2DCommand, NoiseReduction3DCommand},
         image_adjustment::{ContrastCommand, SharpnessCommand},
-        Command, Response,
+        Response,
     },
     transport::core::{BlockingTransport, Transport},
     types::{
@@ -19,28 +19,6 @@ use crate::{
     Error,
 };
 use core::future::Future;
-
-/// Enable flip command.
-struct EnableFlipCommand([u8; 6]);
-
-impl EnableFlipCommand {
-    fn new() -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(commands::FLIP_PREFIX);
-        cmd.push(0x02); // On value
-        Self(cmd.build())
-    }
-}
-
-impl Command for EnableFlipCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.0.to_vec())
-    }
-
-    fn response_type(&self) -> Option<crate::command::ResponseType> {
-        None // Action command
-    }
-}
 
 /// Extension trait for CameraCore that adds image processing methods.
 pub trait ImageProcessingCoreExt<P: ProfileMetadata + ImageProcessing> {
@@ -80,7 +58,7 @@ where
 {
     fn enable_flip(&self) -> impl Future<Output = Result<(), Error>> {
         async move {
-            let cmd = EnableFlipCommand::new();
+            let cmd = ImageFlipCommand::new(Flip::On);
             match self.send_command(&cmd).await? {
                 Response::Ack => Ok(()),
                 Response::Error(e) => Err(e.into()),
