@@ -10,11 +10,11 @@
 use grafton_visca::transport::blocking::Udp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{PanTiltBlockingExt, PowerBlockingExt, ZoomBlockingExt},
+    camera::methods::{PanTiltOps, PowerOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     types::{PanSpeed, TiltSpeed},
-    CameraBlocking, Error,
+    Camera, Error,
 };
 #[cfg(not(feature = "async"))]
 use std::sync::{Arc, Mutex};
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create UDP transport and Camera with PTZOpticsG2 profile
     let transport = Udp::connect(camera_addr)?;
-    let camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Wrap the camera in Arc<Mutex> for thread-safe access
     let camera = Arc::new(Mutex::new(camera));

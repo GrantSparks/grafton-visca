@@ -11,10 +11,9 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{const_encoding::CommandBuilder, Command, ResponseType},
+    command::{encode_visca::EncodeVisca, const_encoding::CommandBuilder, ResponseType},
     error::Error,
-    timeout::CommandCategory,
-};
+    timeout::CommandCategory};
 
 /// Command to set camera address (broadcast, serial only).
 ///
@@ -23,8 +22,7 @@ use crate::{
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct AddressSetCommand {
     /// Internal command bytes.
-    command: [u8; 4],
-}
+    command: [u8; 4]}
 
 impl AddressSetCommand {
     /// Create a new address set command.
@@ -32,8 +30,7 @@ impl AddressSetCommand {
         let mut cmd = CommandBuilder::<4>::new();
         cmd.append(crate::command::const_encoding::constants::system::ADDRESS_SET);
         Self {
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
@@ -43,16 +40,26 @@ impl Default for AddressSetCommand {
     }
 }
 
-impl Command for AddressSetCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for AddressSetCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
@@ -64,8 +71,7 @@ impl Command for AddressSetCommand {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct InterfaceClearCommand {
     /// Internal command bytes.
-    command: [u8; 5],
-}
+    command: [u8; 5]}
 
 impl InterfaceClearCommand {
     /// Create a new interface clear command.
@@ -73,8 +79,7 @@ impl InterfaceClearCommand {
         let mut cmd = CommandBuilder::<5>::new();
         cmd.append(crate::command::const_encoding::constants::system::INTERFACE_CLEAR);
         Self {
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
@@ -84,16 +89,26 @@ impl Default for InterfaceClearCommand {
     }
 }
 
-impl Command for InterfaceClearCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for InterfaceClearCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
@@ -104,8 +119,7 @@ pub enum Socket {
     /// Socket 1
     Socket1,
     /// Socket 2
-    Socket2,
-}
+    Socket2}
 
 /// Command to cancel pending commands on a specific socket.
 ///
@@ -115,8 +129,7 @@ pub(crate) struct CommandCancelCommand {
     /// The socket to cancel commands on.
     pub socket: Socket,
     /// Internal command bytes.
-    command: [u8; 3],
-}
+    command: [u8; 3]}
 
 impl CommandCancelCommand {
     /// Create a new command cancel command.
@@ -125,25 +138,33 @@ impl CommandCancelCommand {
         cmd.append(crate::command::const_encoding::constants::system::COMMAND_CANCEL_PREFIX);
         cmd.push(match socket {
             Socket::Socket1 => 0x21,
-            Socket::Socket2 => 0x22,
-        });
+            Socket::Socket2 => 0x22});
         Self {
             socket,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for CommandCancelCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for CommandCancelCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
@@ -155,33 +176,33 @@ mod tests {
     #[test]
     fn test_address_set_command() {
         let cmd = AddressSetCommand::new();
-        assert_eq!(cmd.to_bytes().unwrap(), vec![0x88, 0x30, 0x01, 0xFF]);
+        assert_eq!(cmd.try_into_vec().unwrap(), vec![0x88, 0x30, 0x01, 0xFF]);
         assert!(cmd.response_type().is_none());
-        assert_eq!(cmd.command_category(), CommandCategory::Quick);
+        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }
 
     #[test]
     fn test_interface_clear_command() {
         let cmd = InterfaceClearCommand::new();
-        assert_eq!(cmd.to_bytes().unwrap(), vec![0x88, 0x01, 0x00, 0x01, 0xFF]);
+        assert_eq!(cmd.try_into_vec().unwrap(), vec![0x88, 0x01, 0x00, 0x01, 0xFF]);
         assert!(cmd.response_type().is_none());
-        assert_eq!(cmd.command_category(), CommandCategory::Quick);
+        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }
 
     #[test]
     fn test_command_cancel_socket1() {
         let cmd = CommandCancelCommand::new(Socket::Socket1);
-        assert_eq!(cmd.to_bytes().unwrap(), vec![0x81, 0x21, 0xFF]);
+        assert_eq!(cmd.try_into_vec().unwrap(), vec![0x81, 0x21, 0xFF]);
         assert!(cmd.response_type().is_none());
-        assert_eq!(cmd.command_category(), CommandCategory::Quick);
+        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }
 
     #[test]
     fn test_command_cancel_socket2() {
         let cmd = CommandCancelCommand::new(Socket::Socket2);
-        assert_eq!(cmd.to_bytes().unwrap(), vec![0x81, 0x22, 0xFF]);
+        assert_eq!(cmd.try_into_vec().unwrap(), vec![0x81, 0x22, 0xFF]);
         assert!(cmd.response_type().is_none());
-        assert_eq!(cmd.command_category(), CommandCategory::Quick);
+        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }
 
     #[test]

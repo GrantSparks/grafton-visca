@@ -8,7 +8,7 @@ mod tests {
     #[test]
     fn test_power_inquiry_command_bytes() {
         let cmd = PowerInquiry;
-        let bytes = cmd.to_bytes().unwrap();
+        let bytes = cmd.try_into_vec().unwrap();
         assert_eq!(bytes, vec![0x81, 0x09, 0x04, 0x00, 0xFF]);
     }
 
@@ -57,7 +57,7 @@ mod tests {
         let parsed = parse_response(&response, &ResponseType::Power).unwrap();
 
         match parsed {
-            Response::Ack => (),
+            Response::CmdAck => (),
             _ => panic!("Expected ACK response"),
         }
     }

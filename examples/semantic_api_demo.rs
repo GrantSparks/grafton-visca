@@ -6,16 +6,16 @@
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
-        camera::methods::{FocusBlockingExt, PanTiltBlockingExt, ZoomBlockingExt},
+        camera::methods::{FocusOps, PanTiltOps, ZoomOps},
         command::pan_tilt::PanTiltDirection,
         profiles::PTZOpticsG2,
         transport::blocking::Udp,
-        CameraBlocking,
+        Camera,
     };
 
     // Connect to camera
     let transport = Udp::connect("192.168.1.100:52381")?;
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     println!("=== Semantic API Demo ===\n");
 
@@ -85,7 +85,7 @@ fn main() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
-        camera::methods::{FocusAsyncExt, PanTiltAsyncExt, ZoomAsyncExt},
+        camera::methods::{FocusOps, PanTiltOps, ZoomOps},
         command::pan_tilt::PanTiltDirection,
         profiles::PTZOpticsG2,
         transport::tokio::Udp,

@@ -8,10 +8,7 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::methods::InquiryAsyncExt,
-    profiles::PTZOpticsG2,
-    transport::tokio::Tcp,
-    Camera, Error,
+    camera::methods::InquiryOps, profiles::PTZOpticsG2, transport::tokio::Tcp, Camera, Error,
 };
 
 // Include the transport implementation from the example file

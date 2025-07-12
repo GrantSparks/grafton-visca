@@ -1,396 +1,285 @@
 //! Exposure methods for cameras using the new GAT architecture.
 
 use crate::{
-    blocking::block_on,
-    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
-    capabilities::{Exposure, ProfileMetadata},
-    command::{Response},
-    transport::core::{BlockingTransport, Transport},
+    camera::unified::Camera,
     Error,
 };
+
+#[cfg(feature = "tokio")]
 use core::future::Future;
+/// Exposure operations.
+pub trait ExposureOps: Sized {
 
-/// Extension trait for CameraCore - provides future-returning methods.
-pub trait ExposureCoreExt<P, T>
-where
-    P: ProfileMetadata + Exposure,
-    T: Transport,
-{
-    /// Set auto exposure mode - returns a future.
-    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set auto exposure mode.
+    #[cfg(feature = "tokio")]
+    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Set manual exposure mode - returns a future.
-    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set auto exposure mode. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn exposure_auto_blocking(&mut self) -> Result<(), Error>;
 
-    /// Set iris level - returns a future.
-    fn set_iris(
-        &self,
-        level: crate::types::IrisLevel,
-    ) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set manual exposure mode.
+    #[cfg(feature = "tokio")]
+    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Set brightness level - returns a future.
-    fn set_brightness(
-        &self,
-        level: crate::types::BrightnessLevel,
-    ) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set manual exposure mode. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn exposure_manual_blocking(&mut self) -> Result<(), Error>;
 
-    /// Set backlight compensation - returns a future.
-    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set iris level.
+    #[cfg(feature = "tokio")]
+    fn set_iris(&self, level: crate::types::IrisLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Set gain value - returns a future.
-    fn set_gain(&self, gain: crate::types::Gain) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set iris level. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_iris_blocking(&mut self, level: crate::types::IrisLevel) -> Result<(), Error>;
 
-    /// Set gain limit - returns a future.
-    fn set_gain_limit(
-        &self,
-        limit: crate::types::GainLimit,
-    ) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set brightness level.
+    #[cfg(feature = "tokio")]
+    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Set dynamic range level - returns a future.
-    fn set_dynamic_range(
-        &self,
-        level: crate::types::DynamicRangeLevel,
-    ) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set brightness level. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_brightness_blocking(&mut self, level: crate::types::BrightnessLevel) -> Result<(), Error>;
 
-    /// Set color temperature - returns a future.
-    fn set_color_temperature(
-        &self,
-        temp: crate::types::ColorTemperature,
-    ) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Set backlight compensation.
+    #[cfg(feature = "tokio")]
+    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Set backlight compensation. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_backlight_blocking(&mut self, enabled: bool) -> Result<(), Error>;
+
+    /// Set gain value.
+    #[cfg(feature = "tokio")]
+    fn set_gain(&self, gain: crate::types::GainLevel) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Set gain value. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_gain_blocking(&mut self, gain: crate::types::GainLevel) -> Result<(), Error>;
+
+    /// Set gain limit.
+    #[cfg(feature = "tokio")]
+    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Set gain limit. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_gain_limit_blocking(&mut self, limit: crate::types::GainLimit) -> Result<(), Error>;
+
+    /// Set dynamic range level.
+    #[cfg(feature = "tokio")]
+    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Set dynamic range level. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_dynamic_range_blocking(&mut self, level: crate::types::DynamicRangeLevel) -> Result<(), Error>;
+
+    /// Set color temperature.
+    #[cfg(feature = "tokio")]
+    fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Set color temperature. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn set_color_temperature_blocking(&mut self, temp: crate::types::ColorTemp) -> Result<(), Error>;
 }
 
-#[allow(clippy::manual_async_fn)]
-impl<P, T> ExposureCoreExt<P, T> for CameraCore<P, T>
-where
-    P: ProfileMetadata + Exposure,
-    T: Transport,
-{
-    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+impl ExposureOps for Camera {
+    #[cfg(feature = "tokio")]
+    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
             use crate::command::exposure::{ExposureCommand, ExposureMode};
-
+            
             let command = ExposureCommand {
                 mode: ExposureMode::Auto,
             };
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            self.send_command(&command).await?;
+            Ok(())
         }
+
     }
 
-    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn exposure_auto_blocking(&mut self) -> Result<(), Error> {
+        
+            use crate::command::exposure::{ExposureCommand, ExposureMode};
+            
+            let command = ExposureCommand {
+                mode: ExposureMode::Auto,
+            };
+            self.send_command_blocking(&command)?;
+            Ok(())
+    }
+    #[cfg(feature = "tokio")]
+    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
             use crate::command::exposure::{ExposureCommand, ExposureMode};
-
+            
             let command = ExposureCommand {
                 mode: ExposureMode::Manual,
             };
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            self.send_command(&command).await?;
+            Ok(())
         }
+
     }
 
-    fn set_iris(
-        &self,
-        level: crate::types::IrisLevel,
-    ) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn exposure_manual_blocking(&mut self) -> Result<(), Error> {
+        
+            use crate::command::exposure::{ExposureCommand, ExposureMode};
+            
+            let command = ExposureCommand {
+                mode: ExposureMode::Manual,
+            };
+            self.send_command_blocking(&command)?;
+            Ok(())
+    }
+    #[cfg(feature = "tokio")]
+    fn set_iris(&self, level: crate::types::IrisLevel) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            use crate::command::exposure::IrisCommand;
-
-            let command = IrisCommand::SetAperture(level);
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            use crate::command::exposure::Iris;
+            
+            let command = Iris::SetAperture(level);
+            self.send_command(&command).await?;
+            Ok(())
         }
+
     }
 
-    fn set_brightness(
-        &self,
-        level: crate::types::BrightnessLevel,
-    ) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn set_iris_blocking(&mut self, level: crate::types::IrisLevel) -> Result<(), Error> {
+        
+            use crate::command::exposure::Iris;
+            
+            let command = Iris::SetAperture(level);
+            self.send_command_blocking(&command)?;
+            Ok(())
+    }
+    #[cfg(feature = "tokio")]
+    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            use crate::command::exposure::BrightCommand;
-
-            let command = BrightCommand::SetLevel(level);
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            use crate::command::exposure::Bright;
+            
+            let command = Bright::SetLevel(level);
+            self.send_command(&command).await?;
+            Ok(())
         }
+
     }
 
-    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn set_brightness_blocking(&mut self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
+        
+            use crate::command::exposure::Bright;
+            
+            let command = Bright::SetLevel(level);
+            self.send_command_blocking(&command)?;
+            Ok(())
+    }
+    #[cfg(feature = "tokio")]
+    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
             use crate::command::image::BacklightCommand;
-
+            
             let command = BacklightCommand::new(enabled);
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            self.send_command(&command).await?;
+            Ok(())
         }
+
     }
 
-    fn set_gain(&self, gain: crate::types::Gain) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn set_backlight_blocking(&mut self, enabled: bool) -> Result<(), Error> {
+        
+            use crate::command::image::BacklightCommand;
+            
+            let command = BacklightCommand::new(enabled);
+            self.send_command_blocking(&command)?;
+            Ok(())
+    }
+    #[cfg(feature = "tokio")]
+    fn set_gain(&self, gain: crate::types::GainLevel) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            use crate::command::gain::GainCommand;
-
-            let command = GainCommand::SetValue(gain);
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            use crate::command::gain::Gain;
+            
+            let command = Gain::SetValue(gain);
+            self.send_command(&command).await?;
+            Ok(())
         }
+
     }
 
-    fn set_gain_limit(
-        &self,
-        limit: crate::types::GainLimit,
-    ) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn set_gain_blocking(&mut self, gain: crate::types::GainLevel) -> Result<(), Error> {
+        
+            use crate::command::gain::Gain;
+            
+            let command = Gain::SetValue(gain);
+            self.send_command_blocking(&command)?;
+            Ok(())
+    }
+    #[cfg(feature = "tokio")]
+    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
             use crate::command::gain::GainLimitCommand;
-
+            
             let command = GainLimitCommand::new(limit);
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            self.send_command(&command).await?;
+            Ok(())
         }
+
     }
 
-    fn set_dynamic_range(
-        &self,
-        level: crate::types::DynamicRangeLevel,
-    ) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn set_gain_limit_blocking(&mut self, limit: crate::types::GainLimit) -> Result<(), Error> {
+        
+            use crate::command::gain::GainLimitCommand;
+            
+            let command = GainLimitCommand::new(limit);
+            self.send_command_blocking(&command)?;
+            Ok(())
+    }
+    #[cfg(feature = "tokio")]
+    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            use crate::command::exposure::DynamicRangeCommand;
-
-            let command = DynamicRangeCommand::SetLevel(level);
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            use crate::command::exposure::DynamicRange;
+            
+            let command = DynamicRange::SetLevel(level);
+            self.send_command(&command).await?;
+            Ok(())
         }
+
     }
 
-    fn set_color_temperature(
-        &self,
-        temp: crate::types::ColorTemperature,
-    ) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(not(feature = "tokio"))]
+    fn set_dynamic_range_blocking(&mut self, level: crate::types::DynamicRangeLevel) -> Result<(), Error> {
+        
+            use crate::command::exposure::DynamicRange;
+            
+            let command = DynamicRange::SetLevel(level);
+            self.send_command_blocking(&command)?;
+            Ok(())
+    }
+    #[cfg(feature = "tokio")]
+    fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            use crate::command::color::ColorTemperatureCommand;
-
-            let command = ColorTemperatureCommand::SetTemperature(temp);
-            let response = self.send_command(&command).await?;
-            match response {
-                Response::Completion => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+            use crate::command::color::ColorTemperature;
+            
+            let command = ColorTemperature::SetTemperature(temp);
+            self.send_command(&command).await?;
+            Ok(())
         }
+
+    }
+
+    #[cfg(not(feature = "tokio"))]
+    fn set_color_temperature_blocking(&mut self, temp: crate::types::ColorTemp) -> Result<(), Error> {
+        
+            use crate::command::color::ColorTemperature;
+            
+            let command = ColorTemperature::SetTemperature(temp);
+            self.send_command_blocking(&command)?;
+            Ok(())
     }
 }
 
-/// Extension trait for async Camera facade.
-pub trait ExposureAsyncExt<P, T>
-where
-    P: ProfileMetadata + Exposure,
-    T: Transport,
-{
-    /// Set auto exposure mode.
-    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set manual exposure mode.
-    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set iris level.
-    fn set_iris(
-        &self,
-        level: crate::types::IrisLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set brightness level.
-    fn set_brightness(
-        &self,
-        level: crate::types::BrightnessLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set backlight compensation.
-    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set gain value.
-    fn set_gain(&self, gain: crate::types::Gain) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set gain limit.
-    fn set_gain_limit(
-        &self,
-        limit: crate::types::GainLimit,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set dynamic range level.
-    fn set_dynamic_range(
-        &self,
-        level: crate::types::DynamicRangeLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set color temperature.
-    fn set_color_temperature(
-        &self,
-        temp: crate::types::ColorTemperature,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
-}
-
-impl<P, T> ExposureAsyncExt<P, T> for CameraAsync<P, T>
-where
-    P: ProfileMetadata + Exposure + Sync,
-    T: Transport + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    fn exposure_auto(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().exposure_auto().await }
-    }
-
-    fn exposure_manual(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().exposure_manual().await }
-    }
-
-    fn set_iris(
-        &self,
-        level: crate::types::IrisLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().set_iris(level).await }
-    }
-
-    fn set_brightness(
-        &self,
-        level: crate::types::BrightnessLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().set_brightness(level).await }
-    }
-
-    fn set_backlight(&self, enabled: bool) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().set_backlight(enabled).await }
-    }
-
-    fn set_gain(&self, gain: crate::types::Gain) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().set_gain(gain).await }
-    }
-
-    fn set_gain_limit(
-        &self,
-        limit: crate::types::GainLimit,
-    ) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().set_gain_limit(limit).await }
-    }
-
-    fn set_dynamic_range(
-        &self,
-        level: crate::types::DynamicRangeLevel,
-    ) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().set_dynamic_range(level).await }
-    }
-
-    fn set_color_temperature(
-        &self,
-        temp: crate::types::ColorTemperature,
-    ) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().set_color_temperature(temp).await }
-    }
-}
-
-/// Extension trait for blocking Camera facade.
-pub trait ExposureBlockingExt<P, T>
-where
-    P: ProfileMetadata + Exposure,
-    T: BlockingTransport,
-{
-    /// Set auto exposure mode.
-    fn exposure_auto(&self) -> Result<(), Error>;
-
-    /// Set manual exposure mode.
-    fn exposure_manual(&self) -> Result<(), Error>;
-
-    /// Set iris level.
-    fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error>;
-
-    /// Set brightness level.
-    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>;
-
-    /// Set backlight compensation.
-    fn set_backlight(&self, enabled: bool) -> Result<(), Error>;
-
-    /// Set gain value.
-    fn set_gain(&self, gain: crate::types::Gain) -> Result<(), Error>;
-
-    /// Set gain limit.
-    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error>;
-
-    /// Set dynamic range level.
-    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error>;
-
-    /// Set color temperature.
-    fn set_color_temperature(&self, temp: crate::types::ColorTemperature) -> Result<(), Error>;
-}
-
-impl<P, T> ExposureBlockingExt<P, T> for CameraBlocking<P, T>
-where
-    P: ProfileMetadata + Exposure,
-    T: BlockingTransport,
-{
-    fn exposure_auto(&self) -> Result<(), Error> {
-        block_on(self.core().exposure_auto())
-    }
-
-    fn exposure_manual(&self) -> Result<(), Error> {
-        block_on(self.core().exposure_manual())
-    }
-
-    fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {
-        block_on(self.core().set_iris(level))
-    }
-
-    fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
-        block_on(self.core().set_brightness(level))
-    }
-
-    fn set_backlight(&self, enabled: bool) -> Result<(), Error> {
-        block_on(self.core().set_backlight(enabled))
-    }
-
-    fn set_gain(&self, gain: crate::types::Gain) -> Result<(), Error> {
-        block_on(self.core().set_gain(gain))
-    }
-
-    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
-        block_on(self.core().set_gain_limit(limit))
-    }
-
-    fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error> {
-        block_on(self.core().set_dynamic_range(level))
-    }
-
-    fn set_color_temperature(&self, temp: crate::types::ColorTemperature) -> Result<(), Error> {
-        block_on(self.core().set_color_temperature(temp))
-    }
-}

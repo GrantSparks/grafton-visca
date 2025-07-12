@@ -21,13 +21,13 @@ mod response_parsing_tests {
         // ACK for socket 0
         let ack_bytes = patterns::responses::ACK_1;
         let response = parse_response(ack_bytes, &ResponseType::PanTiltPosition);
-        assert!(matches!(response, Ok(Response::Ack)));
+        assert!(matches!(response, Ok(Response::CmdAck)));
         assert!(validator.validate_response(ack_bytes).is_ok());
 
         // ACK for socket 1
         let ack_bytes = patterns::responses::ACK_2;
         let response = parse_response(ack_bytes, &ResponseType::ZoomPosition);
-        assert!(matches!(response, Ok(Response::Ack)));
+        assert!(matches!(response, Ok(Response::CmdAck)));
         assert!(validator.validate_response(ack_bytes).is_ok());
     }
 
@@ -261,7 +261,7 @@ mod response_parsing_tests {
         let ack_bytes = vec![0x90, 0x40, 0xFF];
         let response = parse_response(&ack_bytes, &ResponseType::PanTiltPosition);
         // ACK is still recognized regardless of expected response type
-        assert!(matches!(response, Ok(Response::Ack)));
+        assert!(matches!(response, Ok(Response::CmdAck)));
     }
 
     #[test]

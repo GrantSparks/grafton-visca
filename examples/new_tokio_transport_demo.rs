@@ -5,7 +5,7 @@
 
 use bytes::Bytes;
 use grafton_visca::{
-    camera::methods::PanTiltAsyncExt,
+    camera::methods::PanTiltOps,
     profiles::PTZOpticsG2,
     transport::{core::Transport, tokio::Tcp},
     Camera, Error,

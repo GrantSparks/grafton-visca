@@ -1,38 +1,40 @@
 //! Power methods for cameras using the new GAT architecture.
 
 use crate::{
-    blocking::block_on,
-    camera::{async_facade::CameraAsync, blocking_facade::CameraBlocking, core::CameraCore},
-    capabilities::{Power, ProfileMetadata},
+    camera::unified::Camera,
     command::{
         power::{Power as PowerState, PowerCommand},
         Response,
     },
-    transport::core::{BlockingTransport, Transport},
     Error,
 };
+
+#[cfg(feature = "tokio")]
 use core::future::Future;
 
-/// Extension trait for CameraCore - provides future-returning methods.
-pub trait PowerCoreExt<P, T>
-where
-    P: ProfileMetadata + Power,
-    T: Transport,
-{
-    /// Power on the camera - returns a future.
-    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + '_;
+/// Power operations.
+pub trait PowerOps: Sized {
 
-    /// Power off the camera - returns a future.
-    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + '_;
+    /// Power on the camera.
+    #[cfg(feature = "tokio")]
+    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Power on the camera. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn power_on_blocking(&mut self) -> Result<(), Error>;
+
+    /// Power off the camera.
+    #[cfg(feature = "tokio")]
+    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
+
+    /// Power off the camera. (blocking).
+    #[cfg(not(feature = "tokio"))]
+    fn power_off_blocking(&mut self) -> Result<(), Error>;
 }
 
-#[allow(clippy::manual_async_fn)]
-impl<P, T> PowerCoreExt<P, T> for CameraCore<P, T>
-where
-    P: ProfileMetadata + Power,
-    T: Transport,
-{
-    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+impl PowerOps for Camera {
+    #[cfg(feature = "tokio")]
+    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
             let command = PowerCommand {
                 power: PowerState::On,
@@ -41,17 +43,35 @@ where
             match response {
                 Response::Completion => {
                     // Wait for camera to be ready
-                    #[cfg(feature = "tokio")]
-                    tokio::time::sleep(P::POWER_ON_TIME).await;
+                    std::thread::sleep(self.power_on_time());
+                    Ok(())
+                }
+                Response::Error(e) => Err(e.into()),
+                _ => Err(Error::UnexpectedResponseType),
+            }
+        }
+
+    }
+
+    #[cfg(not(feature = "tokio"))]
+    fn power_on_blocking(&mut self) -> Result<(), Error> {
+        
+            let command = PowerCommand {
+                power: PowerState::On,
+            };
+            let response = self.send_command_blocking(&command)?;
+            match response {
+                Response::Completion => {
+                    // Wait for camera to be ready
+                    std::thread::sleep(self.power_on_time());
                     Ok(())
                 }
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
-        }
     }
-
-    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + '_ {
+    #[cfg(feature = "tokio")]
+    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
             let command = PowerCommand {
                 power: PowerState::Standby,
@@ -60,69 +80,32 @@ where
             match response {
                 Response::Completion => {
                     // Wait for standby/off
-                    #[cfg(feature = "tokio")]
-                    tokio::time::sleep(P::STANDBY_TIME).await;
+                    std::thread::sleep(self.standby_time());
+                    Ok(())
+                }
+                Response::Error(e) => Err(e.into()),
+                _ => Err(Error::UnexpectedResponseType),
+            }
+        }
+
+    }
+
+    #[cfg(not(feature = "tokio"))]
+    fn power_off_blocking(&mut self) -> Result<(), Error> {
+        
+            let command = PowerCommand {
+                power: PowerState::Standby,
+            };
+            let response = self.send_command_blocking(&command)?;
+            match response {
+                Response::Completion => {
+                    // Wait for standby/off
+                    std::thread::sleep(self.standby_time());
                     Ok(())
                 }
                 Response::Error(e) => Err(e),
                 _ => Err(Error::UnexpectedResponseType),
             }
-        }
     }
 }
 
-/// Extension trait for async Camera facade.
-pub trait PowerAsyncExt<P, T>
-where
-    P: ProfileMetadata + Power,
-    T: Transport,
-{
-    /// Power on the camera.
-    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Power off the camera.
-    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + Send;
-}
-
-impl<P, T> PowerAsyncExt<P, T> for CameraAsync<P, T>
-where
-    P: ProfileMetadata + Power + Sync,
-    T: Transport + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    fn power_on(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().power_on().await }
-    }
-
-    fn power_off(&self) -> impl Future<Output = Result<(), Error>> + Send {
-        async move { self.core().power_off().await }
-    }
-}
-
-/// Extension trait for blocking Camera facade.
-pub trait PowerBlockingExt<P, T>
-where
-    P: ProfileMetadata + Power,
-    T: BlockingTransport,
-{
-    /// Power on the camera.
-    fn power_on(&self) -> Result<(), Error>;
-
-    /// Power off the camera.
-    fn power_off(&self) -> Result<(), Error>;
-}
-
-impl<P, T> PowerBlockingExt<P, T> for CameraBlocking<P, T>
-where
-    P: ProfileMetadata + Power,
-    T: BlockingTransport,
-{
-    fn power_on(&self) -> Result<(), Error> {
-        block_on(self.core().power_on())
-    }
-
-    fn power_off(&self) -> Result<(), Error> {
-        block_on(self.core().power_off())
-    }
-}

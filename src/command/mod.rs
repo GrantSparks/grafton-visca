@@ -3,11 +3,7 @@
 //! This module provides all command types for controlling VISCA cameras,
 //! organized by functionality.
 
-// Crate imports
-use crate::timeout::CommandCategory;
-
-// For backward compatibility during migration
-use crate::error::Error;
+// Crate imports removed - no longer needed
 
 // Command modules
 pub mod color;
@@ -18,7 +14,7 @@ pub mod gain;
 pub mod image;
 pub mod image_adjustment;
 pub mod inquiry;
-mod inquiry_structs;  // Internal module for macro-generated inquiry commands
+mod inquiry_structs; // Internal module for macro-generated inquiry commands
 pub mod pan_tilt;
 pub mod power;
 pub mod preset;
@@ -31,12 +27,13 @@ pub mod zoom;
 // New const encoding module
 pub mod const_encoding;
 
-// Updated ViscaCommand trait
-pub mod visca_command;
+// New unified EncodeVisca trait
+pub mod encode_visca;
 
 // Re-export command types
 pub use self::{
     color::*,
+    encode_visca::EncodeVisca,
     exposure::*,
     flip::*,
     focus::*,
@@ -56,75 +53,7 @@ pub use self::{
 
 // Note: Complex tests moved to tests/ directory for enhanced testing infrastructure
 
-/// Trait for all VISCA commands.
-///
-/// This trait must be implemented by all command types to provide:
-/// - Serialization to VISCA protocol bytes
-/// - Response type information for inquiry commands
-/// - Command category for timeout configuration
-///
-/// # Example Implementation
-/// ```no_run
-/// # use grafton_visca::command::{Command, ResponseType};
-/// # use grafton_visca::timeout::CommandCategory;
-/// # use grafton_visca::Error;
-/// struct MyCommand;
-///
-/// impl Command for MyCommand {
-///     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-///         // Return VISCA command bytes
-///         Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
-///     }
-///     
-///     fn response_type(&self) -> Option<ResponseType> {
-///         // Return None for action commands, Some(...) for inquiries
-///         None
-///     }
-///     
-///     fn command_category(&self) -> CommandCategory {
-///         // Return appropriate category for timeout configuration
-///         CommandCategory::Quick
-///     }
-/// }
-/// ```
-pub trait Command: Send + Sync {
-    /// Converts the command to VISCA protocol bytes.
-    ///
-    /// The returned bytes should be a complete VISCA command packet,
-    /// typically starting with 0x81 and ending with 0xFF.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::InvalidParameter` if the command contains invalid parameters
-    fn to_bytes(&self) -> Result<Vec<u8>, Error>;
-
-    /// Returns the expected response type for this command.
-    ///
-    /// - Returns `None` for action commands that only receive ACK/Completion
-    /// - Returns `Some(ResponseType::...)` for inquiry commands that receive data
-    fn response_type(&self) -> Option<ResponseType>;
-
-    /// Returns the command category for timeout configuration.
-    ///
-    /// This is used to determine the appropriate timeout duration for the command.
-    /// The default implementation returns `CommandCategory::Custom` which uses
-    /// the default timeout.
-    fn command_category(&self) -> CommandCategory {
-        CommandCategory::Custom
-    }
-
-    /// Validate this command for a specific camera model.
-    ///
-    /// The default implementation returns `Ok(())` for backward compatibility.
-    /// Commands should override this method to implement model-specific validation.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::ModelValidation` if the command is not valid for the specified model.
-    fn validate_for_model(&self, _model: crate::constants::CameraModel) -> Result<(), Error> {
-        Ok(())
-    }
-}
+// Command trait has been replaced by EncodeVisca trait
 
 /// Response data from VISCA inquiry commands.
 ///
@@ -211,9 +140,9 @@ pub enum InquiryResponse {
         /// Whether exposure compensation is enabled.
         on: bool,
     },
-    /// Gain inquiry response.
-    Gain {
-        /// Gain value (0x00=0 to 0x07=7).
+    /// Gain level inquiry response.
+    GainLevel {
+        /// Gain level value (0x00=0 to 0x07=7).
         gain: u8,
     },
     /// Gain limit inquiry response.
@@ -257,14 +186,14 @@ pub enum InquiryResponse {
         /// Color temperature in Kelvin.
         temperature: u16,
     },
-    /// Red gain tuning inquiry response.
-    RedGain {
-        /// Red gain adjustment value (-10 to +10).
+    /// Red channel tuning inquiry response.
+    RedChannel {
+        /// Red channel adjustment value (-10 to +10).
         gain: i8,
     },
-    /// Blue gain tuning inquiry response.
-    BlueGain {
-        /// Blue gain adjustment value (-10 to +10).
+    /// Blue channel tuning inquiry response.
+    BlueChannel {
+        /// Blue channel adjustment value (-10 to +10).
         gain: i8,
     },
 

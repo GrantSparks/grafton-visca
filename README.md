@@ -646,7 +646,7 @@ let client = AsyncViscaClient::new(...); // Async only
 let client = Client::new("192.168.1.100:52381")?;
 
 // Old: Manual VISCA units
-camera.send(&PanTiltCommand::AbsolutePosition { 
+camera.send(&PanTilt::AbsolutePosition { 
     pan: 0x1000, tilt: 0x0500, pan_speed: 0x10, tilt_speed: 0x10 
 })?;
 

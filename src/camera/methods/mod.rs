@@ -18,21 +18,16 @@ pub mod white_balance;
 pub mod zoom;
 
 // Re-export extension traits
-pub use color::{ColorAsyncExt, ColorBlockingExt, ColorCoreExt};
-pub use exposure::{ExposureAsyncExt, ExposureBlockingExt, ExposureCoreExt};
-pub use focus::{FocusAsyncExt, FocusBlockingExt, FocusCoreExt};
-pub use image_processing::{
-    ImageProcessingAsyncExt, ImageProcessingBlockingExt, ImageProcessingCoreExt,
-};
-pub use inquiry::{
-    InquiryAsyncExt, InquiryBlockingExt, InquiryCoreExt, PanTiltInquiryAsyncExt,
-    PanTiltInquiryBlockingExt, PanTiltInquiryCoreExt,
-};
-pub use nd_filter::{NDFilterAsyncExt, NDFilterBlockingExt, NDFilterCoreExt};
-pub use pan_tilt::{PanTiltAsyncExt, PanTiltBlockingExt, PanTiltCoreExt};
-pub use power::{PowerAsyncExt, PowerBlockingExt, PowerCoreExt};
-pub use presets::{PresetsAsyncExt, PresetsBlockingExt, PresetsCoreExt};
-pub use system::{SystemAsyncExt, SystemBlockingExt, SystemCoreExt};
-pub use tally::{TallyAsyncExt, TallyBlockingExt, TallyCoreExt};
-pub use white_balance::{WhiteBalanceAsyncExt, WhiteBalanceBlockingExt, WhiteBalanceCoreExt};
-pub use zoom::{ZoomAsyncExt, ZoomBlockingExt, ZoomCoreExt};
+pub use color::ColorOps;
+pub use exposure::ExposureOps;
+pub use focus::FocusOps;
+pub use image_processing::ImageProcessingOps;
+pub use inquiry::{InquiryOps, PanTiltInquiryOps};
+pub use nd_filter::NDFilterOps;
+pub use pan_tilt::PanTiltOps;
+pub use power::PowerOps;
+pub use presets::PresetsOps;
+pub use system::SystemOps;
+pub use tally::TallyOps;
+pub use white_balance::WhiteBalanceOps;
+pub use zoom::ZoomOps;

@@ -17,12 +17,12 @@ use grafton_visca::transport::blocking::Udp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{FocusBlockingExt, PanTiltBlockingExt, PresetsBlockingExt, ZoomBlockingExt},
+        methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    CameraBlocking,
+    Camera,
 };
 
 #[cfg(not(feature = "async"))]
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a type-safe camera instance with PTZOpticsG2 profile
     let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
     let transport = Udp::connect(&camera_ip)?;
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
     println!("Connected to PTZOptics G2 camera");
 
     // Demonstrate sequential command execution with type-safe units
@@ -139,7 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Helper function demonstrating sequential command patterns
 #[cfg(not(feature = "async"))]
 fn perform_scan_sequence<T: grafton_visca::transport::core::Transport>(
-    camera: &mut CameraBlocking<PTZOpticsG2, T>,
+    camera: &mut Camera<PTZOpticsG2, T>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Return to home
     camera.pan_tilt_home()?;
@@ -164,7 +164,7 @@ fn perform_scan_sequence<T: grafton_visca::transport::core::Transport>(
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
-        methods::{FocusAsyncExt, PanTiltAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
+        methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
     command::pan_tilt::PanTiltDirection,
@@ -261,10 +261,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "tokio")]
 async fn perform_async_scan_sequence<T>(
     camera: &Camera<PTZOpticsG2, T>,
-) -> Result<(), Box<dyn std::error::Error>> 
+) -> Result<(), Box<dyn std::error::Error>>
 where
     T: grafton_visca::transport::core::Transport,
-    Camera<PTZOpticsG2, T>: grafton_visca::camera::methods::PanTiltAsyncExt<PTZOpticsG2>,
+    Camera<PTZOpticsG2, T>: grafton_visca::camera::methods::PanTiltOps<PTZOpticsG2>,
 {
     // Return to home
     camera.pan_tilt_home().await?;

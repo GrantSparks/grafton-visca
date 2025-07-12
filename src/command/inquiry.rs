@@ -6,11 +6,11 @@
 // Re-export all inquiry command structs from the internal module
 pub use super::inquiry_structs::{
     AntiFlickerInquiry, AutoFocusSensitivityInquiry, BacklightInquiry, BlackWhiteInquiry,
-    BlueGainInquiry, BrightInquiry, ColorTemperatureInquiry, ContrastInquiry,
-    DynamicRangeInquiry, ExposureCompensationInquiry, ExposureCompensationModeInquiry,
-    ExposureModeInquiry, FocusNearLimitInquiry, FocusPositionInquiry, FocusZoneInquiry,
-    GainInquiry, GainLimitInquiry, HueInquiry, ImageFlipInquiry, IrisInquiry, LuminanceInquiry,
-    NoiseReduction2DInquiry, NoiseReduction3DInquiry, PanTiltPositionInquiry, PowerInquiry,
-    RedGainInquiry, SaturationInquiry, SharpnessInquiry, SharpnessModeInquiry, ShutterInquiry,
-    VersionInquiry, WhiteBalanceModeInquiry, ZoomPositionInquiry,
+    BlueGainInquiry, BrightInquiry, ColorTemperatureInquiry, ContrastInquiry, DynamicRangeInquiry,
+    ExposureCompensationInquiry, ExposureCompensationModeInquiry, ExposureModeInquiry,
+    FocusNearLimitInquiry, FocusPositionInquiry, FocusZoneInquiry, GainInquiry, GainLimitInquiry,
+    HueInquiry, ImageFlipInquiry, IrisInquiry, LuminanceInquiry, NoiseReduction2DInquiry,
+    NoiseReduction3DInquiry, PanTiltPositionInquiry, PowerInquiry, RedGainInquiry,
+    SaturationInquiry, SharpnessInquiry, SharpnessModeInquiry, ShutterInquiry, VersionInquiry,
+    WhiteBalanceModeInquiry, ZoomPositionInquiry,
 };

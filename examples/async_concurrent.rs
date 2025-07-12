@@ -8,7 +8,7 @@
 //! - Maximize throughput with concurrent operations
 
 use grafton_visca::{
-    camera::methods::{FocusAsyncExt, PanTiltAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
+    camera::methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     transport::tokio::Udp,

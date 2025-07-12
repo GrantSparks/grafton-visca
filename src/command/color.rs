@@ -5,12 +5,10 @@
 
 // Crate imports
 use crate::{
-    command::{const_encoding::CommandBuilder, response::ResponseType, Command},
-    constants::CameraModel,
+    command::{encode_visca::EncodeVisca, const_encoding::CommandBuilder, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
-};
+    types::{BlueTuning, HueLevel, RedTuning, SaturationLevel}};
 
 /// One-Push White Balance Trigger command.
 ///
@@ -20,8 +18,7 @@ use crate::{
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct OnePushTriggerCommand {
     /// Internal command bytes.
-    command: [u8; 6],
-}
+    command: [u8; 6]}
 
 impl OnePushTriggerCommand {
     /// Create a new one-push white balance trigger command.
@@ -29,8 +26,7 @@ impl OnePushTriggerCommand {
         let mut cmd = CommandBuilder::<6>::new();
         cmd.append(crate::command::const_encoding::constants::color::WB_ONE_PUSH_TRIGGER);
         Self {
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
@@ -40,21 +36,31 @@ impl Default for OnePushTriggerCommand {
     }
 }
 
-impl Command for OnePushTriggerCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for OnePushTriggerCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
 
-/// Red Gain Tuning command.
+/// Red Channel Tuning command.
 ///
 /// Fine-tunes the red channel gain for white balance adjustment.
 /// This is typically used after setting a base white balance mode
@@ -64,8 +70,7 @@ pub(crate) struct RedTuningCommand {
     /// Red tuning level.
     pub level: RedTuning,
     /// Internal command bytes.
-    command: [u8; 6],
-}
+    command: [u8; 6]}
 
 impl RedTuningCommand {
     /// Create a new red tuning command.
@@ -82,37 +87,35 @@ impl RedTuningCommand {
         cmd.push(encoded);
         Self {
             level,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for RedTuningCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for RedTuningCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match model {
-            CameraModel::PTZOpticsG2 => {
-                // G2 supports values -10 to +10 (protocol values 0x00 to 0x14)
-                // RedTuning type already enforces this constraint
-                Ok(())
-            }
-            _ => Ok(()),
-        }
     }
 }
 
-/// Blue Gain Tuning command.
+/// Blue Channel Tuning command.
 ///
 /// Fine-tunes the blue channel gain for white balance adjustment.
 /// This is typically used after setting a base white balance mode
@@ -122,8 +125,7 @@ pub(crate) struct BlueTuningCommand {
     /// Blue tuning level.
     pub level: BlueTuning,
     /// Internal command bytes.
-    command: [u8; 6],
-}
+    command: [u8; 6]}
 
 impl BlueTuningCommand {
     /// Create a new blue tuning command.
@@ -140,33 +142,31 @@ impl BlueTuningCommand {
         cmd.push(encoded);
         Self {
             level,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for BlueTuningCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for BlueTuningCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match model {
-            CameraModel::PTZOpticsG2 => {
-                // G2 supports values -10 to +10 (protocol values 0x00 to 0x14)
-                // BlueTuning type already enforces this constraint
-                Ok(())
-            }
-            _ => Ok(()),
-        }
     }
 }
 
@@ -180,8 +180,7 @@ pub(crate) struct SaturationCommand {
     /// Saturation level.
     pub level: SaturationLevel,
     /// Internal command bytes.
-    command: [u8; 9],
-}
+    command: [u8; 9]}
 
 impl SaturationCommand {
     /// Create a new saturation command.
@@ -191,33 +190,31 @@ impl SaturationCommand {
         cmd.push(level.value());
         Self {
             level,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for SaturationCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for SaturationCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match model {
-            CameraModel::PTZOpticsG2 => {
-                // G2 supports values 0x0 to 0xE (15 values)
-                // SaturationLevel type already enforces this constraint
-                Ok(())
-            }
-            _ => Ok(()),
-        }
     }
 }
 
@@ -231,8 +228,7 @@ pub(crate) struct HueCommand {
     /// Hue level.
     pub level: HueLevel,
     /// Internal command bytes.
-    command: [u8; 9],
-}
+    command: [u8; 9]}
 
 impl HueCommand {
     /// Create a new hue command.
@@ -242,33 +238,31 @@ impl HueCommand {
         cmd.push(level.value());
         Self {
             level,
-            command: cmd.build(),
-        }
+            command: cmd.build()}
     }
 }
 
-impl Command for HueCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.command.to_vec())
-    }
+impl EncodeVisca for HueCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match model {
-            CameraModel::PTZOpticsG2 => {
-                // G2 supports values 0x0 to 0xE (15 values)
-                // HueLevel type already enforces this constraint
-                Ok(())
-            }
-            _ => Ok(()),
-        }
     }
 }
 
@@ -277,7 +271,7 @@ impl Command for HueCommand {
 /// Controls the color temperature setting when white balance is in color temperature mode.
 /// Color temperature is measured in Kelvin (K) and affects the warmth/coolness of the image.
 #[derive(Debug, Copy, Clone)]
-pub enum ColorTemperatureCommand {
+pub enum ColorTemperature {
     /// Reset color temperature to default value.
     Reset,
     /// Increase color temperature (makes image cooler/bluer).
@@ -288,39 +282,44 @@ pub enum ColorTemperatureCommand {
     ///
     /// Lower values produce warmer (more orange/red) colors,
     /// higher values produce cooler (more blue) colors.
-    SetTemperature(crate::types::ColorTemperature),
-}
+    SetTemperature(crate::types::ColorTemp)}
 
-impl Command for ColorTemperatureCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x20, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x20, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x20, 0x03, 0xFF],
-            Self::SetTemperature(temp) => {
-                let value = temp.value();
-                let high = ((value >> 4) & 0x0F) as u8;
-                let low = (value & 0x0F) as u8;
-                vec![0x81, 0x01, 0x04, 0x20, high, low, 0xFF]
-            }
-        })
+impl EncodeVisca for ColorTemperature {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x20;
+        buffer[4] = 0x00;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
-
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
 
-/// Red Gain Direct command (different from tuning).
+/// Red Channel Direct command (different from tuning).
 ///
 /// Controls the red channel gain in manual white balance mode.
 /// This provides direct control over the red color channel intensity.
 #[derive(Debug, Copy, Clone)]
-pub enum RedGainCommand {
+pub enum RedGain {
     /// Reset red gain to default value.
     Reset,
     /// Increment red gain value by one step.
@@ -330,39 +329,44 @@ pub enum RedGainCommand {
     /// Set red gain to a specific value.
     ///
     /// Higher values increase the intensity of red in the image.
-    SetValue(crate::types::RedGain),
-}
+    SetValue(crate::types::RedChannel)}
 
-impl Command for RedGainCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x03, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x03, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x03, 0x03, 0xFF],
-            Self::SetValue(gain) => {
-                let value = gain.value();
-                let high = (value >> 4) & 0x0F;
-                let low = value & 0x0F;
-                vec![0x81, 0x01, 0x04, 0x43, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
+impl EncodeVisca for RedGain {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x03;
+        buffer[4] = 0x00;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
-
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
 
-/// Blue Gain Direct command (different from tuning).
+/// Blue Channel Direct command (different from tuning).
 ///
 /// Controls the blue channel gain in manual white balance mode.
 /// This provides direct control over the blue color channel intensity.
 #[derive(Debug, Copy, Clone)]
-pub enum BlueGainCommand {
+pub enum BlueGain {
     /// Reset blue gain to default value.
     Reset,
     /// Increment blue gain value by one step.
@@ -372,29 +376,34 @@ pub enum BlueGainCommand {
     /// Set blue gain to a specific value.
     ///
     /// Higher values increase the intensity of blue in the image.
-    SetValue(crate::types::BlueGain),
-}
+    SetValue(crate::types::BlueChannel)}
 
-impl Command for BlueGainCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x04, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x04, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x04, 0x03, 0xFF],
-            Self::SetValue(gain) => {
-                let value = gain.value();
-                let high = (value >> 4) & 0x0F;
-                let low = value & 0x0F;
-                vec![0x81, 0x01, 0x04, 0x44, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
+impl EncodeVisca for BlueGain {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x04;
+        buffer[4] = 0x00;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
-
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
@@ -407,16 +416,17 @@ impl Command for BlueGainCommand {
 )]
 mod tests {
     use super::*;
+    use crate::constants::CameraModel;
 
     #[test]
     fn test_one_push_trigger_command() {
         let cmd = OnePushTriggerCommand::new();
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x10, 0x05, 0xFF]
         );
         assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
     #[test]
@@ -425,13 +435,13 @@ mod tests {
         for level in -10..=10 {
             let tuning = RedTuning::new(level).unwrap();
             let cmd = RedTuningCommand::new(tuning);
-            let bytes = cmd.to_bytes().unwrap();
+            let bytes = cmd.try_into_vec().unwrap();
             assert_eq!(bytes.len(), 6);
             assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x12]);
             assert_eq!(bytes[4], (level + 10) as u8);
             assert_eq!(bytes[5], 0xFF);
             assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
         }
 
         // Test invalid values - can't create invalid RedTuning
@@ -457,13 +467,13 @@ mod tests {
         for level in -10..=10 {
             let tuning = BlueTuning::new(level).unwrap();
             let cmd = BlueTuningCommand::new(tuning);
-            let bytes = cmd.to_bytes().unwrap();
+            let bytes = cmd.try_into_vec().unwrap();
             assert_eq!(bytes.len(), 6);
             assert_eq!(bytes[0..4], [0x81, 0x0A, 0x01, 0x13]);
             assert_eq!(bytes[4], (level + 10) as u8);
             assert_eq!(bytes[5], 0xFF);
             assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
         }
 
         // Test invalid values - can't create invalid BlueTuning
@@ -489,13 +499,13 @@ mod tests {
         for level in 0x00..=0x0E {
             let sat_level = SaturationLevel::new(level).unwrap();
             let cmd = SaturationCommand::new(sat_level);
-            let bytes = cmd.to_bytes().unwrap();
+            let bytes = cmd.try_into_vec().unwrap();
             assert_eq!(
                 bytes,
                 vec![0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00, level, 0xFF]
             );
             assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
         }
 
         // Test invalid value - can't create invalid SaturationLevel
@@ -520,13 +530,13 @@ mod tests {
         for level in 0x00..=0x0E {
             let hue_level = HueLevel::new(level).unwrap();
             let cmd = HueCommand::new(hue_level);
-            let bytes = cmd.to_bytes().unwrap();
+            let bytes = cmd.try_into_vec().unwrap();
             assert_eq!(
                 bytes,
                 vec![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00, level, 0xFF]
             );
             assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.command_category(), CommandCategory::Quick));
+            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
         }
 
         // Test invalid value - can't create invalid HueLevel
@@ -548,32 +558,32 @@ mod tests {
     #[test]
     fn test_color_temperature_command() {
         // Test Reset
-        let cmd = ColorTemperatureCommand::Reset;
+        let cmd = ColorTemperature::Reset;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x00, 0xFF]
         );
 
         // Test Up
-        let cmd = ColorTemperatureCommand::Up;
+        let cmd = ColorTemperature::Up;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x02, 0xFF]
         );
 
         // Test Down
-        let cmd = ColorTemperatureCommand::Down;
+        let cmd = ColorTemperature::Down;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x03, 0xFF]
         );
 
         // Test Direct with valid values
         let test_values = vec![0x00, 0x10, 0x20, 0x37];
         for temp in test_values {
-            let color_temp = crate::types::ColorTemperature::new(temp).unwrap();
-            let cmd = ColorTemperatureCommand::SetTemperature(color_temp);
-            let bytes = cmd.to_bytes().unwrap();
+            let color_temp = crate::types::ColorTemp::new(temp).unwrap();
+            let cmd = ColorTemperature::SetTemperature(color_temp);
+            let bytes = cmd.try_into_vec().unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x20, 0x00]);
             assert_eq!(bytes[5], 0x00);
@@ -583,38 +593,38 @@ mod tests {
         }
 
         // Test Direct with invalid value - can't create invalid ColorTemperature
-        assert!(crate::types::ColorTemperature::new(0x38).is_err());
+        assert!(crate::types::ColorTemp::new(0x38).is_err());
     }
 
     #[test]
     fn test_red_gain_command() {
         // Test Reset
-        let cmd = RedGainCommand::Reset;
+        let cmd = RedGain::Reset;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x03, 0x00, 0xFF]
         );
 
         // Test Up
-        let cmd = RedGainCommand::Up;
+        let cmd = RedGain::Up;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x03, 0x02, 0xFF]
         );
 
         // Test Down
-        let cmd = RedGainCommand::Down;
+        let cmd = RedGain::Down;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x03, 0x03, 0xFF]
         );
 
         // Test Direct with various values
         let test_values = vec![0x00, 0x55, 0xAA, 0xFF];
         for gain in test_values {
-            let red_gain = crate::types::RedGain::new(gain).unwrap();
-            let cmd = RedGainCommand::SetValue(red_gain);
-            let bytes = cmd.to_bytes().unwrap();
+            let red_gain = crate::types::RedChannel::new(gain).unwrap();
+            let cmd = RedGain::SetValue(red_gain);
+            let bytes = cmd.try_into_vec().unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x43, 0x00]);
             assert_eq!(bytes[5], 0x00);
@@ -627,32 +637,32 @@ mod tests {
     #[test]
     fn test_blue_gain_command() {
         // Test Reset
-        let cmd = BlueGainCommand::Reset;
+        let cmd = BlueGain::Reset;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x04, 0x00, 0xFF]
         );
 
         // Test Up
-        let cmd = BlueGainCommand::Up;
+        let cmd = BlueGain::Up;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x04, 0x02, 0xFF]
         );
 
         // Test Down
-        let cmd = BlueGainCommand::Down;
+        let cmd = BlueGain::Down;
         assert_eq!(
-            cmd.to_bytes().unwrap(),
+            cmd.try_into_vec().unwrap(),
             vec![0x81, 0x01, 0x04, 0x04, 0x03, 0xFF]
         );
 
         // Test Direct with various values
         let test_values = vec![0x00, 0x55, 0xAA, 0xFF];
         for gain in test_values {
-            let blue_gain = crate::types::BlueGain::new(gain).unwrap();
-            let cmd = BlueGainCommand::SetValue(blue_gain);
-            let bytes = cmd.to_bytes().unwrap();
+            let blue_gain = crate::types::BlueChannel::new(gain).unwrap();
+            let cmd = BlueGain::SetValue(blue_gain);
+            let bytes = cmd.try_into_vec().unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x44, 0x00]);
             assert_eq!(bytes[5], 0x00);
@@ -671,9 +681,9 @@ mod tests {
             Box::new(BlueTuningCommand::new(BlueTuning::new(0).unwrap())),
             Box::new(SaturationCommand::new(SaturationLevel::new(0).unwrap())),
             Box::new(HueCommand::new(HueLevel::new(0).unwrap())),
-            Box::new(ColorTemperatureCommand::Reset),
-            Box::new(RedGainCommand::Reset),
-            Box::new(BlueGainCommand::Reset),
+            Box::new(ColorTemperature::Reset),
+            Box::new(RedGain::Reset),
+            Box::new(BlueGain::Reset),
         ];
 
         for cmd in cmds {
@@ -690,63 +700,63 @@ mod tests {
     fn test_edge_cases() {
         // Test boundary values for tuning commands
         let red_min = RedTuningCommand::new(RedTuning::new(-10).unwrap());
-        assert!(red_min.to_bytes().is_ok());
-        assert_eq!(red_min.to_bytes().unwrap()[4], 0x00);
+        assert!(red_min.try_into_vec().is_ok());
+        assert_eq!(red_min.try_into_vec().unwrap()[4], 0x00);
 
         let red_max = RedTuningCommand::new(RedTuning::new(10).unwrap());
-        assert!(red_max.to_bytes().is_ok());
-        assert_eq!(red_max.to_bytes().unwrap()[4], 0x14);
+        assert!(red_max.try_into_vec().is_ok());
+        assert_eq!(red_max.try_into_vec().unwrap()[4], 0x14);
 
         let blue_min = BlueTuningCommand::new(BlueTuning::new(-10).unwrap());
-        assert!(blue_min.to_bytes().is_ok());
-        assert_eq!(blue_min.to_bytes().unwrap()[4], 0x00);
+        assert!(blue_min.try_into_vec().is_ok());
+        assert_eq!(blue_min.try_into_vec().unwrap()[4], 0x00);
 
         let blue_max = BlueTuningCommand::new(BlueTuning::new(10).unwrap());
-        assert!(blue_max.to_bytes().is_ok());
-        assert_eq!(blue_max.to_bytes().unwrap()[4], 0x14);
+        assert!(blue_max.try_into_vec().is_ok());
+        assert_eq!(blue_max.try_into_vec().unwrap()[4], 0x14);
 
         // Test boundary values for saturation and hue
         let sat_min = SaturationCommand::new(SaturationLevel::new(0x00).unwrap());
-        assert!(sat_min.to_bytes().is_ok());
+        assert!(sat_min.try_into_vec().is_ok());
 
         let sat_max = SaturationCommand::new(SaturationLevel::new(0x0E).unwrap());
-        assert!(sat_max.to_bytes().is_ok());
+        assert!(sat_max.try_into_vec().is_ok());
 
         let hue_min = HueCommand::new(HueLevel::new(0x00).unwrap());
-        assert!(hue_min.to_bytes().is_ok());
+        assert!(hue_min.try_into_vec().is_ok());
 
         let hue_max = HueCommand::new(HueLevel::new(0x0E).unwrap());
-        assert!(hue_max.to_bytes().is_ok());
+        assert!(hue_max.try_into_vec().is_ok());
 
         // Test boundary value for color temperature
-        let temp_min = ColorTemperatureCommand::SetTemperature(
-            crate::types::ColorTemperature::new(0x00).unwrap(),
+        let temp_min = ColorTemperature::SetTemperature(
+            crate::types::ColorTemp::new(0x00).unwrap(),
         );
-        assert!(temp_min.to_bytes().is_ok());
+        assert!(temp_min.try_into_vec().is_ok());
 
-        let temp_max = ColorTemperatureCommand::SetTemperature(
-            crate::types::ColorTemperature::new(0x37).unwrap(),
+        let temp_max = ColorTemperature::SetTemperature(
+            crate::types::ColorTemp::new(0x37).unwrap(),
         );
-        assert!(temp_max.to_bytes().is_ok());
+        assert!(temp_max.try_into_vec().is_ok());
     }
 
     #[test]
     fn test_nibble_encoding() {
         // Test that Direct commands properly encode values as nibbles
-        let cmd = ColorTemperatureCommand::SetTemperature(
-            crate::types::ColorTemperature::new(0x25).unwrap(),
+        let cmd = ColorTemperature::SetTemperature(
+            crate::types::ColorTemp::new(0x25).unwrap(),
         );
-        let bytes = cmd.to_bytes().unwrap();
+        let bytes = cmd.try_into_vec().unwrap();
         assert_eq!(bytes[6], 0x02); // High nibble
         assert_eq!(bytes[7], 0x05); // Low nibble
 
-        let cmd = RedGainCommand::SetValue(crate::types::RedGain::new(0xAB).unwrap());
-        let bytes = cmd.to_bytes().unwrap();
+        let cmd = RedGain::SetValue(crate::types::RedChannel::new(0xAB).unwrap());
+        let bytes = cmd.try_into_vec().unwrap();
         assert_eq!(bytes[6], 0x0A); // High nibble
         assert_eq!(bytes[7], 0x0B); // Low nibble
 
-        let cmd = BlueGainCommand::SetValue(crate::types::BlueGain::new(0xF0).unwrap());
-        let bytes = cmd.to_bytes().unwrap();
+        let cmd = BlueGain::SetValue(crate::types::BlueChannel::new(0xF0).unwrap());
+        let bytes = cmd.try_into_vec().unwrap();
         assert_eq!(bytes[6], 0x0F); // High nibble
         assert_eq!(bytes[7], 0x00); // Low nibble
     }
@@ -759,11 +769,11 @@ mod tests {
             let expected = (level + 10) as u8;
 
             let red_cmd = RedTuningCommand::new(RedTuning::new(level).unwrap());
-            let red_bytes = red_cmd.to_bytes().unwrap();
+            let red_bytes = red_cmd.try_into_vec().unwrap();
             assert_eq!(red_bytes[4], expected);
 
             let blue_cmd = BlueTuningCommand::new(BlueTuning::new(level).unwrap());
-            let blue_bytes = blue_cmd.to_bytes().unwrap();
+            let blue_bytes = blue_cmd.try_into_vec().unwrap();
             assert_eq!(blue_bytes[4], expected);
         }
     }

@@ -34,11 +34,12 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             // Generate parser implementation if parser info is provided
             let parse_response_impl = if let Some(parser_info) = &attrs.parser {
                 let parser_body = generate_parser_body(&response_type, parser_info);
-                let crate_path_for_parser = if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
-                    quote! { crate }
-                } else {
-                    quote! { ::grafton_visca }
-                };
+                let crate_path_for_parser =
+                    if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
+                        quote! { crate }
+                    } else {
+                        quote! { ::grafton_visca }
+                    };
                 quote! {
                     impl #struct_name {
                         /// Parse the response data for this inquiry command
@@ -55,23 +56,36 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             };
 
             // Use $crate when available (internal usage), otherwise use ::grafton_visca
-            let crate_path = if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
-                quote! { crate }
-            } else {
-                quote! { ::grafton_visca }
-            };
+            let crate_path =
+                if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
+                    quote! { crate }
+                } else {
+                    quote! { ::grafton_visca }
+                };
 
             let expanded = quote! {
-                impl #crate_path::command::Command for #struct_name {
-                    fn to_bytes(&self) -> Result<Vec<u8>, #crate_path::Error> {
-                        Ok(#bytes_expr)
+                impl #crate_path::command::EncodeVisca for #struct_name {
+                    type Response = #crate_path::command::InquiryResponse;
+                    const MAX_SIZE: usize = 5;
+
+                    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
+                        let bytes = #bytes_expr;
+                        let len = bytes.len();
+                        if buffer.len() < len {
+                            return Err(#crate_path::Error::BufferTooSmall {
+                                required: len,
+                                actual: buffer.len(),
+                            });
+                        }
+                        buffer[..len].copy_from_slice(&bytes);
+                        Ok(len)
                     }
 
                     fn response_type(&self) -> Option<#crate_path::command::ResponseType> {
                         Some(#crate_path::command::ResponseType::#response_type)
                     }
 
-                    fn command_category(&self) -> #crate_path::timeout::CommandCategory {
+                    fn timeout_kind(&self) -> #crate_path::timeout::CommandCategory {
                         #crate_path::timeout::CommandCategory::Quick
                     }
                 }

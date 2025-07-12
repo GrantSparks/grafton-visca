@@ -12,7 +12,7 @@ use grafton_visca::Error;
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltAsyncExt, PowerAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
+        methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
     command::pan_tilt::PanTiltDirection,
@@ -22,12 +22,12 @@ use grafton_visca::{
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt, ZoomBlockingExt},
+        methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
-    CameraBlocking,
+    Camera,
 };
 use std::time::Duration;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
@@ -181,7 +181,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

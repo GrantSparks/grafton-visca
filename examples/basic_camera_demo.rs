@@ -4,8 +4,8 @@
 
 use grafton_visca::{
     camera::methods::{
-        ExposureAsyncExt, FocusAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
-        WhiteBalanceAsyncExt, ZoomAsyncExt,
+        ExposureOps, FocusOps, PanTiltOps, PowerOps, WhiteBalanceOps,
+        ZoomOps,
     },
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,

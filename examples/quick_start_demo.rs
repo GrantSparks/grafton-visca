@@ -7,12 +7,12 @@ use grafton_visca::transport::blocking::{Tcp, Udp};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{PanTiltBlockingExt, PowerBlockingExt, PresetsBlockingExt, ZoomBlockingExt},
+        methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
         profiles::{G2PresetId, PTZOpticsG2},
     },
     command::pan_tilt::PanTiltDirection,
     types::{PanSpeed, TiltSpeed},
-    CameraBlocking, Error,
+    Camera, Error,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -24,12 +24,12 @@ fn main() -> Result<(), Error> {
 
     // Connect to camera using UDP
     let udp_transport = Udp::connect("192.168.1.100:1259")?;
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(udp_transport);
+    let mut camera = Camera::<PTZOpticsG2, _>::new(udp_transport);
     println!("Connected to camera via UDP");
 
     // Or connect using TCP
     // let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
-    // let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(tcp_transport);
+    // let mut camera = Camera::<PTZOpticsG2, _>::new(tcp_transport);
 
     // Camera capabilities are now checked at compile time through the PTZOpticsG2 profile
     println!("\nUsing PTZOpticsG2 camera profile");

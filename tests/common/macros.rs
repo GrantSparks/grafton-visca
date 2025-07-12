@@ -10,7 +10,7 @@
 ///
 /// # Example
 /// ```no_run
-/// # use grafton_visca::command::Command;
+/// # use grafton_visca::command::EncodeVisca;
 /// # let command = unimplemented!();
 /// assert_command_bytes!(command, [0x81, 0x01, 0x06, 0x04, 0xFF]);
 /// ```
@@ -19,7 +19,7 @@ macro_rules! assert_command_bytes {
     ($cmd:expr, $expected:expr) => {{
         let cmd = $cmd;
         let bytes = cmd
-            .to_bytes()
+            .try_into_vec()
             .unwrap_or_else(|e| panic!("Failed to convert command to bytes: {:?}", e));
         let expected = &$expected[..];
         if bytes != expected {
@@ -38,8 +38,8 @@ macro_rules! assert_command_bytes {
 /// # Example
 /// ```no_run
 /// # use grafton_visca::Response;
-/// # let result: Result<Response, grafton_visca::Error> = Ok(Response::Ack);
-/// assert_response_ok!(result, Response::Ack);
+/// # let result: Result<Response, grafton_visca::Error> = Ok(Response::CmdAck);
+/// assert_response_ok!(result, Response::CmdAck);
 /// ```
 #[macro_export]
 macro_rules! assert_response_ok {
@@ -198,14 +198,20 @@ macro_rules! assert_send_ok {
 #[cfg(test)]
 mod tests {
     use crate::assert_command_bytes;
-    use grafton_visca::Command;
+    use grafton_visca::command::EncodeVisca;
+    use grafton_visca::Error;
 
     #[test]
     fn test_assert_command_bytes_macro() {
         struct TestCommand;
-        impl Command for TestCommand {
-            fn to_bytes(&self) -> Result<Vec<u8>, grafton_visca::Error> {
-                Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF])
+        impl EncodeVisca for TestCommand {
+            type Response = ();
+            const MAX_SIZE: usize = 5;
+
+            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+                let bytes = [0x81, 0x01, 0x06, 0x04, 0xFF];
+                buffer[..5].copy_from_slice(&bytes);
+                Ok(5)
             }
 
             fn response_type(&self) -> Option<grafton_visca::command::ResponseType> {
@@ -221,9 +227,14 @@ mod tests {
     #[should_panic(expected = "Command bytes mismatch")]
     fn test_assert_command_bytes_failure() {
         struct TestCommand;
-        impl Command for TestCommand {
-            fn to_bytes(&self) -> Result<Vec<u8>, grafton_visca::Error> {
-                Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF])
+        impl EncodeVisca for TestCommand {
+            type Response = ();
+            const MAX_SIZE: usize = 5;
+
+            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+                let bytes = [0x81, 0x01, 0x06, 0x05, 0xFF];
+                buffer[..5].copy_from_slice(&bytes);
+                Ok(5)
             }
 
             fn response_type(&self) -> Option<grafton_visca::command::ResponseType> {

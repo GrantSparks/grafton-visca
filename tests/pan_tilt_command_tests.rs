@@ -4,29 +4,28 @@ mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
-    camera::methods::PanTiltBlockingExt,
-    CameraBlocking,
+    camera::methods::PanTiltOps,
     command::{
-        pan_tilt::{PanTiltCommand, PanTiltDirection},
+        pan_tilt::{PanTilt, PanTiltDirection},
         Command, ResponseType,
     },
     profiles::PTZOpticsG2,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
-    Error,
+    Camera, Error,
 };
 
 #[test]
 fn test_pan_tilt_direction_to_bytes() {
-    assert_eq!(PanTiltDirection::Up.to_bytes(), (0x03, 0x01));
-    assert_eq!(PanTiltDirection::Down.to_bytes(), (0x03, 0x02));
-    assert_eq!(PanTiltDirection::Left.to_bytes(), (0x01, 0x03));
-    assert_eq!(PanTiltDirection::Right.to_bytes(), (0x02, 0x03));
-    assert_eq!(PanTiltDirection::UpLeft.to_bytes(), (0x01, 0x01));
-    assert_eq!(PanTiltDirection::UpRight.to_bytes(), (0x02, 0x01));
-    assert_eq!(PanTiltDirection::DownLeft.to_bytes(), (0x01, 0x02));
-    assert_eq!(PanTiltDirection::DownRight.to_bytes(), (0x02, 0x02));
-    assert_eq!(PanTiltDirection::Stop.to_bytes(), (0x03, 0x03));
+    assert_eq!(PanTiltDirection::Up.try_into_vec(), (0x03, 0x01));
+    assert_eq!(PanTiltDirection::Down.try_into_vec(), (0x03, 0x02));
+    assert_eq!(PanTiltDirection::Left.try_into_vec(), (0x01, 0x03));
+    assert_eq!(PanTiltDirection::Right.try_into_vec(), (0x02, 0x03));
+    assert_eq!(PanTiltDirection::UpLeft.try_into_vec(), (0x01, 0x01));
+    assert_eq!(PanTiltDirection::UpRight.try_into_vec(), (0x02, 0x01));
+    assert_eq!(PanTiltDirection::DownLeft.try_into_vec(), (0x01, 0x02));
+    assert_eq!(PanTiltDirection::DownRight.try_into_vec(), (0x02, 0x02));
+    assert_eq!(PanTiltDirection::Stop.try_into_vec(), (0x03, 0x03));
 }
 
 #[test]
@@ -100,9 +99,9 @@ fn test_position_to_bytes() {
 #[test]
 fn test_pan_tilt_command_to_bytes() {
     // Test Home command
-    let home = PanTiltCommand::Home;
+    let home = PanTilt::Home;
     let bytes = home
-        .to_bytes()
+        .try_into_vec()
         .unwrap_or_else(|e| panic!("Valid command: {e:?}"));
 
     // Verify using pattern constants
@@ -113,21 +112,21 @@ fn test_pan_tilt_command_to_bytes() {
     assert!(validator.validate_command(&bytes).is_ok());
 
     // Test Reset command
-    let reset = PanTiltCommand::Reset;
+    let reset = PanTilt::Reset;
     let bytes = reset
-        .to_bytes()
+        .try_into_vec()
         .unwrap_or_else(|e| panic!("Valid command: {e:?}"));
     assert_eq!(bytes, patterns::pan_tilt::RESET);
 
     // Test Stop command
     let pan_speed = PanSpeed::new(0x10).unwrap();
     let tilt_speed = TiltSpeed::new(0x10).unwrap();
-    let stop = PanTiltCommand::Move {
+    let stop = PanTilt::Move {
         direction: PanTiltDirection::Stop,
         pan_speed,
         tilt_speed,
     };
-    let bytes = stop.to_bytes().unwrap();
+    let bytes = stop.try_into_vec().unwrap();
     assert_eq!(
         bytes,
         vec![0x81, 0x01, 0x06, 0x01, 0x10, 0x10, 0x03, 0x03, 0xFF]
@@ -140,24 +139,24 @@ fn test_pan_tilt_directional_commands() {
     let tilt_speed = TiltSpeed::new(0x14).unwrap();
 
     // Test Up command
-    let up = PanTiltCommand::Move {
+    let up = PanTilt::Move {
         direction: PanTiltDirection::Up,
         pan_speed,
         tilt_speed,
     };
-    let bytes = up.to_bytes().unwrap();
+    let bytes = up.try_into_vec().unwrap();
     assert_eq!(
         bytes,
         vec![0x81, 0x01, 0x06, 0x01, 0x18, 0x14, 0x03, 0x01, 0xFF]
     );
 
     // Test UpRight command
-    let up_right = PanTiltCommand::Move {
+    let up_right = PanTilt::Move {
         direction: PanTiltDirection::UpRight,
         pan_speed,
         tilt_speed,
     };
-    let bytes = up_right.to_bytes().unwrap();
+    let bytes = up_right.try_into_vec().unwrap();
     assert_eq!(
         bytes,
         vec![0x81, 0x01, 0x06, 0x01, 0x18, 0x14, 0x02, 0x01, 0xFF]
@@ -168,14 +167,14 @@ fn test_pan_tilt_directional_commands() {
 fn test_pan_tilt_absolute_position() {
     let pan_speed = PanSpeed::new(0x10).unwrap();
     let tilt_speed = TiltSpeed::new(0x10).unwrap();
-    let absolute = PanTiltCommand::AbsolutePosition {
+    let absolute = PanTilt::AbsolutePosition {
         pan_speed,
         tilt_speed,
         pan: PanPosition::new(0x1234).unwrap(),
         tilt: TiltPosition::new(-0x0567).unwrap(),
     };
 
-    let bytes = absolute.to_bytes().unwrap();
+    let bytes = absolute.try_into_vec().unwrap();
     assert_eq!(
         bytes,
         vec![
@@ -189,14 +188,14 @@ fn test_pan_tilt_absolute_position() {
 fn test_pan_tilt_relative_position() {
     let pan_speed = PanSpeed::new(0x10).unwrap();
     let tilt_speed = TiltSpeed::new(0x10).unwrap();
-    let relative = PanTiltCommand::RelativePosition {
+    let relative = PanTilt::RelativePosition {
         pan_speed,
         tilt_speed,
         pan: PanPosition::new(-100).unwrap(),
         tilt: TiltPosition::new(200).unwrap(),
     };
 
-    let bytes = relative.to_bytes().unwrap();
+    let bytes = relative.try_into_vec().unwrap();
     // Format: 81 01 06 03 PS TS 0p 0p 0p 0p 0t 0t 0t 0t FF
     // -100 = 0xFF9C, 200 = 0x00C8
     assert_eq!(
@@ -210,10 +209,10 @@ fn test_pan_tilt_relative_position() {
 
 #[test]
 fn test_response_type() {
-    assert_eq!(PanTiltCommand::Home.response_type(), None);
-    assert_eq!(PanTiltCommand::Reset.response_type(), None);
+    assert_eq!(PanTilt::Home.response_type(), None);
+    assert_eq!(PanTilt::Reset.response_type(), None);
 
-    let cmd = PanTiltCommand::Move {
+    let cmd = PanTilt::Move {
         direction: PanTiltDirection::Stop,
         pan_speed: PanSpeed::new(1).unwrap(),
         tilt_speed: TiltSpeed::new(1).unwrap(),
@@ -225,21 +224,21 @@ fn test_response_type() {
 fn test_command_category() {
     // Home and Reset are movement commands that may take time
     assert_eq!(
-        PanTiltCommand::Home.command_category(),
+        PanTilt::Home.timeout_kind(),
         CommandCategory::Movement
     );
     assert_eq!(
-        PanTiltCommand::Reset.command_category(),
+        PanTilt::Reset.timeout_kind(),
         CommandCategory::Movement
     );
 
     // Other commands are standard
-    let cmd = PanTiltCommand::Move {
+    let cmd = PanTilt::Move {
         direction: PanTiltDirection::Up,
         pan_speed: PanSpeed::new(1).unwrap(),
         tilt_speed: TiltSpeed::new(1).unwrap(),
     };
-    assert_eq!(cmd.command_category(), CommandCategory::Movement);
+    assert_eq!(cmd.timeout_kind(), CommandCategory::Movement);
 }
 
 #[test]
@@ -262,7 +261,7 @@ fn test_pan_tilt_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
 
     // Test commands
     assert!(camera.pan_tilt_home().is_ok());
@@ -292,7 +291,7 @@ fn test_pan_tilt_absolute_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
 
     // Move to center position
     assert!(camera.pan_tilt_absolute(0.0, 0.0, 0x10).is_ok());
@@ -312,7 +311,7 @@ fn test_pan_tilt_with_inquiry_response() {
             0x05, 0x06, 0x07, 0x08, // Tilt position 0x5678
         ]);
 
-    let mut camera = CameraBlocking::<PTZOpticsG2, _>::new(mock.clone());
+    let mut camera = Camera::<PTZOpticsG2, _>::new(mock.clone());
 
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly

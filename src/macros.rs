@@ -21,7 +21,7 @@
 ///
 /// visca_command! {
 ///     category = "Movement",
-///     enum PanTiltCommand {
+///     enum PanTilt {
 ///         Home => [0x81, 0x01, 0x06, 0x04, 0xFF],
 ///         Reset => [0x81, 0x01, 0x06, 0x05, 0xFF],
 ///     }

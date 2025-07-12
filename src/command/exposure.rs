@@ -11,12 +11,10 @@ use std::convert::TryFrom;
 
 // Workspace / local-crate imports
 use crate::{
-    command::{response::ResponseType, Command},
-    constants::CameraModel,
+    command::{encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{BrightnessLevel, DynamicRangeLevel, IrisLevel, ShutterSpeed},
-};
+    types::{BrightnessLevel, DynamicRangeLevel, IrisLevel, ShutterSpeed}};
 
 /// Camera exposure control modes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -30,8 +28,7 @@ pub enum ExposureMode {
     /// Iris priority mode - user controls iris/aperture, camera adjusts other parameters
     Iris = 0x0B,
     /// Brightness priority mode - user controls brightness level, camera adjusts other parameters
-    Bright = 0x0D,
-}
+    Bright = 0x0D}
 
 /// Command to set the camera's exposure mode.
 ///
@@ -40,19 +37,34 @@ pub enum ExposureMode {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct ExposureCommand {
     /// The exposure mode to set.
-    pub mode: ExposureMode,
-}
+    pub mode: ExposureMode}
 
-impl Command for ExposureCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![0x81, 0x01, 0x04, 0x39, self.mode as u8, 0xFF])
+impl EncodeVisca for ExposureCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x39;
+        buffer[4] = self.mode as u8;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
-
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
@@ -67,8 +79,7 @@ impl TryFrom<u8> for ExposureMode {
             0x0A => Ok(Self::Shutter),
             0x0B => Ok(Self::Iris),
             0x0D => Ok(Self::Bright),
-            _ => Err(()),
-        }
+            _ => Err(())}
     }
 }
 
@@ -126,17 +137,17 @@ impl TryFrom<i8> for ExposureCompensationLevel {
 ///
 /// # Example
 /// ```no_run
-/// use grafton_visca::command::{ExposureCompensationCommand, exposure::ExposureCompensationLevel};
+/// use grafton_visca::command::{ExposureCompensation, exposure::ExposureCompensationLevel};
 /// use grafton_visca::Command;
 ///
 /// // Enable exposure compensation
-/// let enable = ExposureCompensationCommand::On;
+/// let enable = ExposureCompensation::On;
 ///
 /// // Set exposure compensation to +3
-/// let set_value = ExposureCompensationCommand::SetLevel(ExposureCompensationLevel::new(3).unwrap());
+/// let set_value = ExposureCompensation::SetLevel(ExposureCompensationLevel::new(3).unwrap());
 /// ```
 #[derive(Debug, Copy, Clone)]
-pub enum ExposureCompensationCommand {
+pub enum ExposureCompensation {
     /// Enable exposure compensation
     On,
     /// Disable exposure compensation
@@ -148,53 +159,35 @@ pub enum ExposureCompensationCommand {
     /// Decrease exposure compensation by one step
     Down,
     /// Set exposure compensation to a specific level (-7 to +7)
-    SetLevel(ExposureCompensationLevel),
-}
+    SetLevel(ExposureCompensationLevel)}
 
-impl Command for ExposureCompensationCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::On => vec![0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF],
-            Self::Off => vec![0x81, 0x01, 0x04, 0x3E, 0x03, 0xFF],
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x0E, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x0E, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF],
-            Self::SetLevel(level) => {
-                let value = level.to_protocol_value();
-                // Split value into two nibbles (0p and 0q format)
-                let p = (value >> 4) & 0x0F;
-                let q = value & 0x0F;
-                vec![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, p, q, 0xFF]
-            }
-        })
+impl EncodeVisca for ExposureCompensation {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x3E;
+        buffer[4] = 0x02;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
-
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match (self, model) {
-            (Self::SetLevel(level), CameraModel::PTZOpticsG2) => {
-                // G2 supports values -7 to +7 (protocol values 0x0 to 0xE)
-                let value = level.value();
-                if !(-7..=7).contains(&value) {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "ExposureCompensationDirect".to_string(),
-                        reason: format!(
-                            "Value {value} not supported on G2 cameras (range is -7 to +7)"
-                        ),
-                    });
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        }
     }
 }
 
@@ -205,52 +198,43 @@ impl Command for ExposureCompensationCommand {
 /// increase the dynamic range, allowing better detail retention in scenes
 /// with high contrast.
 #[derive(Debug, Copy, Clone)]
-pub enum DynamicRangeCommand {
+pub enum DynamicRange {
     /// Set dynamic range to a specific level (0-8).
-    SetLevel(DynamicRangeLevel),
-}
+    SetLevel(DynamicRangeLevel)}
 
-impl Command for DynamicRangeCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        match self {
-            Self::SetLevel(level) => Ok(vec![
-                0x81,
-                0x01,
-                0x04,
-                0x25,
-                0x00,
-                0x00,
-                0x00,
-                level.value(),
-                0xFF,
-            ]),
+impl EncodeVisca for DynamicRange {
+    type Response = ();
+    const MAX_SIZE: usize = 9;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
         }
-    }
 
+        let level = match self {
+            Self::SetLevel(level) => level};
+        
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x25;
+        buffer[4] = 0x00;
+        buffer[5] = 0x00;
+        buffer[6] = 0x00;
+        buffer[7] = level.value();
+        buffer[8] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match (self, model) {
-            (Self::SetLevel(level), CameraModel::PTZOpticsG2) => {
-                // G2 supports values 0-8
-                let value = level.value();
-                if value > 8 {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "DynamicRangeDirect".to_string(),
-                        reason: format!("Value {value} not supported on G2 cameras (max is 8)"),
-                    });
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        }
     }
 }
 
@@ -261,7 +245,7 @@ impl Command for DynamicRangeCommand {
 /// - Increment/decrement by one step
 /// - Set to a specific value
 #[derive(Debug, Copy, Clone)]
-pub enum IrisCommand {
+pub enum Iris {
     /// Reset to default value.
     Reset,
     /// Increase value by one step.
@@ -269,53 +253,36 @@ pub enum IrisCommand {
     /// Decrease value by one step.
     Down,
     /// Set iris to specific aperture value.
-    SetAperture(IrisLevel),
-}
+    SetAperture(IrisLevel)}
 
 // Manual implementation to add model validation
-impl Command for IrisCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF],
-            Self::SetAperture(level) => {
-                let val = level.value();
-                let high = (val >> 4) & 0x0F;
-                let low = val & 0x0F;
-                vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
-    }
+impl EncodeVisca for Iris {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x0B;
+        buffer[4] = 0x00;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match self {
-            Self::SetAperture(level) => {
-                level
-                    .validate_for_model(model)
-                    .map_err(|_| Error::ModelValidation {
-                        model,
-                        command: "IrisLevel".to_string(),
-                        reason: format!(
-                            "Iris level value {:#02X} is not valid for {}",
-                            level.value(),
-                            match model {
-                                CameraModel::PTZOpticsG2 => "G2 (valid values: 0x00-0x0C)",
-                                _ => "this camera model",
-                            }
-                        ),
-                    })
-            }
-            _ => Ok(()),
-        }
     }
 }
 
@@ -326,7 +293,7 @@ impl Command for IrisCommand {
 /// - Increment/decrement by one step
 /// - Set to a specific value
 #[derive(Debug, Copy, Clone)]
-pub enum ShutterCommand {
+pub enum Shutter {
     /// Reset to default value.
     Reset,
     /// Increase value by one step.
@@ -334,61 +301,42 @@ pub enum ShutterCommand {
     /// Decrease value by one step.
     Down,
     /// Set shutter to specific speed value.
-    SetSpeed(ShutterSpeed),
-}
+    SetSpeed(ShutterSpeed)}
 
 // Manual implementation to add model validation
-impl Command for ShutterCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF],
-            Self::SetSpeed(value) => {
-                let val = value.value();
-                #[allow(clippy::cast_possible_truncation)]
-                let byte_val = val as u8;
-                let high = (byte_val >> 4) & 0x0F;
-                let low = byte_val & 0x0F;
-                vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
-    }
+impl EncodeVisca for Shutter {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x0A;
+        buffer[4] = 0x00;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match self {
-            Self::SetSpeed(speed) => {
-                speed
-                    .validate_for_model(model)
-                    .map_err(|_| Error::ModelValidation {
-                        model,
-                        command: "ShutterSpeed".to_string(),
-                        reason: format!(
-                            "Shutter speed value {:#04X} is not valid for {}",
-                            speed.value(),
-                            match model {
-                                CameraModel::PTZOpticsG2 => "G2 (valid values: 0x01-0x11)",
-                                _ => "this camera model",
-                            }
-                        ),
-                    })
-            }
-            _ => Ok(()),
-        }
     }
 }
 
 /// Brightness control command.
 #[derive(Debug, Clone, Copy)]
-pub enum BrightCommand {
+pub enum Bright {
     /// Reset brightness to default.
     Reset,
     /// Increase brightness.
@@ -396,52 +344,35 @@ pub enum BrightCommand {
     /// Decrease brightness.
     Down,
     /// Set brightness to specific level.
-    SetLevel(BrightnessLevel),
-}
+    SetLevel(BrightnessLevel)}
 
-impl Command for BrightCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::Reset => vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF],
-            Self::Up => vec![0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF],
-            Self::Down => vec![0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF],
-            Self::SetLevel(level) => {
-                let value = level.value();
-                let high = ((value >> 4) & 0x0F) as u8;
-                let low = (value & 0x0F) as u8;
-                vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, high, low, 0xFF]
-            }
-        })
+impl EncodeVisca for Bright {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x0D;
+        buffer[4] = 0x00;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
-
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match self {
-            Self::SetLevel(level) => {
-                level
-                    .validate_for_model(model)
-                    .map_err(|_| Error::ModelValidation {
-                        model,
-                        command: "BrightDirect".to_string(),
-                        reason: format!(
-                            "Brightness value {:#04X} is not valid for {}",
-                            level.value(),
-                            match model {
-                                CameraModel::PTZOpticsG2 => "G2 (valid values: 0x00-0x11)",
-                                _ => "this camera model",
-                            }
-                        ),
-                    })
-            }
-            _ => Ok(()),
-        }
     }
 }
 
@@ -449,38 +380,39 @@ impl Command for BrightCommand {
 ///
 /// Controls the spotlight feature which enhances exposure for specific subjects.
 #[derive(Debug, Copy, Clone)]
-pub enum SpotlightCommand {
+pub enum Spotlight {
     /// Turn spotlight on
     On,
     /// Turn spotlight off
-    Off,
-}
+    Off}
 
-impl Command for SpotlightCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::On => vec![0x81, 0x01, 0x04, 0x3A, 0x02, 0xFF],
-            Self::Off => vec![0x81, 0x01, 0x04, 0x3A, 0x03, 0xFF],
-        })
+impl EncodeVisca for Spotlight {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x3A;
+        buffer[4] = 0x02;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
-
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match model {
-            CameraModel::SonyFR7 => Ok(()), // Supported on Sony models
-            _ => Err(Error::ModelValidation {
-                model,
-                command: "Spotlight".to_string(),
-                reason: "Spotlight is only supported on Sony cameras".to_string(),
-            }),
-        }
     }
 }
 
@@ -489,26 +421,38 @@ impl Command for SpotlightCommand {
 /// Controls whether the camera can use slower shutter speeds automatically
 /// in low light conditions.
 #[derive(Debug, Copy, Clone)]
-pub enum AutoSlowShutterCommand {
+pub enum AutoSlowShutter {
     /// Enable auto slow shutter
     On,
     /// Disable auto slow shutter
-    Off,
-}
+    Off}
 
-impl Command for AutoSlowShutterCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(match self {
-            Self::On => vec![0x81, 0x01, 0x04, 0x5A, 0x02, 0xFF],
-            Self::Off => vec![0x81, 0x01, 0x04, 0x5A, 0x03, 0xFF],
-        })
+impl EncodeVisca for AutoSlowShutter {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x5A;
+        buffer[4] = 0x02;
+        buffer[5] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
     }
-
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
@@ -517,55 +461,51 @@ impl Command for AutoSlowShutterCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::constants::CameraModel;
 
     #[test]
     fn test_exposure_mode_command() {
         // Test Auto mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Auto,
-        };
+            mode: ExposureMode::Auto};
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x00, 0xFF]
         );
 
         // Test Manual mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Manual,
-        };
+            mode: ExposureMode::Manual};
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x03, 0xFF]
         );
 
         // Test Shutter Priority mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Shutter,
-        };
+            mode: ExposureMode::Shutter};
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x0A, 0xFF]
         );
 
         // Test Iris Priority mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Iris,
-        };
+            mode: ExposureMode::Iris};
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x0B, 0xFF]
         );
 
         // Test Brightness Priority mode
         let cmd = ExposureCommand {
-            mode: ExposureMode::Bright,
-        };
+            mode: ExposureMode::Bright};
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x0D, 0xFF]
         );
@@ -617,41 +557,41 @@ mod tests {
     #[test]
     fn test_exposure_compensation_commands() {
         // Test On command
-        let cmd = ExposureCompensationCommand::On;
+        let cmd = ExposureCompensation::On;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF]
         );
 
         // Test Off command
-        let cmd = ExposureCompensationCommand::Off;
+        let cmd = ExposureCompensation::Off;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3E, 0x03, 0xFF]
         );
 
         // Test Reset command
-        let cmd = ExposureCompensationCommand::Reset;
+        let cmd = ExposureCompensation::Reset;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0E, 0x00, 0xFF]
         );
 
         // Test Up command
-        let cmd = ExposureCompensationCommand::Up;
+        let cmd = ExposureCompensation::Up;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0E, 0x02, 0xFF]
         );
 
         // Test Down command
-        let cmd = ExposureCompensationCommand::Down;
+        let cmd = ExposureCompensation::Down;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF]
         );
@@ -660,7 +600,7 @@ mod tests {
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ExposureCompensationCommand::SetLevel(level);
+            let cmd = ExposureCompensation::SetLevel(level);
             let expected = vec![
                 0x81,
                 0x01,
@@ -673,7 +613,7 @@ mod tests {
                 0xFF,
             ];
             assert_eq!(
-                cmd.to_bytes()
+                cmd.try_into_vec()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 expected
             );
@@ -686,15 +626,15 @@ mod tests {
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ExposureCompensationCommand::SetLevel(level);
+            let cmd = ExposureCompensation::SetLevel(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
         // Other command types should always be valid
-        assert!(ExposureCompensationCommand::On
+        assert!(ExposureCompensation::On
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
-        assert!(ExposureCompensationCommand::Off
+        assert!(ExposureCompensation::Off
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
     }
@@ -705,9 +645,9 @@ mod tests {
         for value in 0..=8 {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = DynamicRangeCommand::SetLevel(level);
+            let cmd = DynamicRange::SetLevel(level);
             assert_eq!(
-                cmd.to_bytes()
+                cmd.try_into_vec()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, value, 0xFF]
             );
@@ -720,7 +660,7 @@ mod tests {
         for value in 0..=8 {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = DynamicRangeCommand::SetLevel(level);
+            let cmd = DynamicRange::SetLevel(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
     }
@@ -728,25 +668,25 @@ mod tests {
     #[test]
     fn test_iris_commands() {
         // Test Reset command
-        let cmd = IrisCommand::Reset;
+        let cmd = Iris::Reset;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF]
         );
 
         // Test Up command
-        let cmd = IrisCommand::Up;
+        let cmd = Iris::Up;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF]
         );
 
         // Test Down command
-        let cmd = IrisCommand::Down;
+        let cmd = Iris::Down;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF]
         );
@@ -756,11 +696,11 @@ mod tests {
         for value in test_values {
             let level =
                 IrisLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = IrisCommand::SetAperture(level);
+            let cmd = Iris::SetAperture(level);
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
-                cmd.to_bytes()
+                cmd.try_into_vec()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, high, low, 0xFF]
             );
@@ -773,7 +713,7 @@ mod tests {
         for value in 0x00..=0x0C {
             let level =
                 IrisLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = IrisCommand::SetAperture(level);
+            let cmd = Iris::SetAperture(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -781,7 +721,7 @@ mod tests {
         // The general IrisLevel accepts values up to 0x0C, which are all valid for G2
 
         // Non-direct commands should always be valid
-        assert!(IrisCommand::Reset
+        assert!(Iris::Reset
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
     }
@@ -789,25 +729,25 @@ mod tests {
     #[test]
     fn test_shutter_commands() {
         // Test Reset command
-        let cmd = ShutterCommand::Reset;
+        let cmd = Shutter::Reset;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF]
         );
 
         // Test Up command
-        let cmd = ShutterCommand::Up;
+        let cmd = Shutter::Up;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF]
         );
 
         // Test Down command
-        let cmd = ShutterCommand::Down;
+        let cmd = Shutter::Down;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF]
         );
@@ -817,11 +757,11 @@ mod tests {
         for value in test_values {
             let speed =
                 ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ShutterCommand::SetSpeed(speed);
+            let cmd = Shutter::SetSpeed(speed);
             let high = ((value >> 4) & 0x0F) as u8;
             let low = (value & 0x0F) as u8;
             assert_eq!(
-                cmd.to_bytes()
+                cmd.try_into_vec()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
             );
@@ -834,7 +774,7 @@ mod tests {
         for value in 0x01..=0x11 {
             let speed =
                 ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ShutterCommand::SetSpeed(speed);
+            let cmd = Shutter::SetSpeed(speed);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -842,7 +782,7 @@ mod tests {
         // The general ShutterSpeed accepts values up to 0x11, which are all valid for G2
 
         // Non-direct commands should always be valid
-        assert!(ShutterCommand::Reset
+        assert!(Shutter::Reset
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
     }
@@ -850,25 +790,25 @@ mod tests {
     #[test]
     fn test_bright_commands() {
         // Test Reset command
-        let cmd = BrightCommand::Reset;
+        let cmd = Bright::Reset;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF]
         );
 
         // Test Up command
-        let cmd = BrightCommand::Up;
+        let cmd = Bright::Up;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF]
         );
 
         // Test Down command
-        let cmd = BrightCommand::Down;
+        let cmd = Bright::Down;
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF]
         );
@@ -878,11 +818,11 @@ mod tests {
         for value in test_values {
             let level = BrightnessLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = BrightCommand::SetLevel(level);
+            let cmd = Bright::SetLevel(level);
             let high = ((value >> 4) & 0x0F) as u8;
             let low = (value & 0x0F) as u8;
             assert_eq!(
-                cmd.to_bytes()
+                cmd.try_into_vec()
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, high, low, 0xFF]
             );
@@ -895,7 +835,7 @@ mod tests {
         for value in 0x00..=0x11 {
             let level = BrightnessLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = BrightCommand::SetLevel(level);
+            let cmd = Bright::SetLevel(level);
             assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
         }
 
@@ -903,7 +843,7 @@ mod tests {
         // The general BrightnessLevel accepts values up to 0x11, which are all valid for G2
 
         // Non-direct commands should always be valid
-        assert!(BrightCommand::Reset
+        assert!(Bright::Reset
             .validate_for_model(CameraModel::PTZOpticsG2)
             .is_ok());
     }
@@ -915,31 +855,31 @@ mod tests {
             ExposureCommand {
                 mode: ExposureMode::Auto
             }
-            .command_category(),
+            .timeout_kind(),
             CommandCategory::Quick
         );
         assert_eq!(
-            ExposureCompensationCommand::On.command_category(),
+            ExposureCompensation::On.timeout_kind(),
             CommandCategory::Quick
         );
         assert_eq!(
-            DynamicRangeCommand::SetLevel(
+            DynamicRange::SetLevel(
                 DynamicRangeLevel::new(5)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
-            .command_category(),
+            .timeout_kind(),
             CommandCategory::Quick
         );
         assert_eq!(
-            IrisCommand::Reset.command_category(),
+            Iris::Reset.timeout_kind(),
             CommandCategory::Quick
         );
         assert_eq!(
-            ShutterCommand::Reset.command_category(),
+            Shutter::Reset.timeout_kind(),
             CommandCategory::Quick
         );
         assert_eq!(
-            BrightCommand::Reset.command_category(),
+            Bright::Reset.timeout_kind(),
             CommandCategory::Quick
         );
     }
@@ -952,14 +892,14 @@ mod tests {
         }
         .response_type()
         .is_none());
-        assert!(ExposureCompensationCommand::On.response_type().is_none());
-        assert!(DynamicRangeCommand::SetLevel(
+        assert!(ExposureCompensation::On.response_type().is_none());
+        assert!(DynamicRange::SetLevel(
             DynamicRangeLevel::new(5).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
         .response_type()
         .is_none());
-        assert!(IrisCommand::Reset.response_type().is_none());
-        assert!(ShutterCommand::Reset.response_type().is_none());
-        assert!(BrightCommand::Reset.response_type().is_none());
+        assert!(Iris::Reset.response_type().is_none());
+        assert!(Shutter::Reset.response_type().is_none());
+        assert!(Bright::Reset.response_type().is_none());
     }
 }

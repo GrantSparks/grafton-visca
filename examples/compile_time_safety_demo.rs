@@ -10,7 +10,7 @@ use grafton_visca::{
     camera::methods::*,
     profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
     transport::core::{BlockingTransport, Transport},
-    CameraBlocking, Error,
+    Camera, Error,
 };
 use std::future::{ready, Ready};
 
@@ -44,7 +44,7 @@ fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     }
     impl BlockingTransport for MockTransport {}
 
-    let mut camera: CameraBlocking<PTZOpticsG2, _> = CameraBlocking::new(MockTransport);
+    let mut camera: Camera<PTZOpticsG2, _> = Camera::new(MockTransport);
 
     // ✅ These methods exist - G2 supports these capabilities
     camera.power_on()?;
@@ -83,7 +83,7 @@ fn demonstrate_sony_fr7() -> Result<(), Error> {
     }
     impl BlockingTransport for MockTransport {}
 
-    let mut camera: CameraBlocking<SonyFR7, _> = CameraBlocking::new(MockTransport);
+    let mut camera: Camera<SonyFR7, _> = Camera::new(MockTransport);
 
     // ✅ FR7 has all standard features
     camera.power_on()?;
@@ -118,7 +118,7 @@ fn demonstrate_generic_camera() -> Result<(), Error> {
     }
     impl BlockingTransport for MockTransport {}
 
-    let mut camera: CameraBlocking<GenericVisca, _> = CameraBlocking::new(MockTransport);
+    let mut camera: Camera<GenericVisca, _> = Camera::new(MockTransport);
 
     // ✅ Generic camera only has basic features
     camera.power_on()?;
@@ -142,21 +142,21 @@ fn demonstrate_compile_time_errors() {
 
     /*
     // Example 1: PTZOptics G2 doesn't have ND filter
-    let mut g2_camera: CameraBlocking<PTZOpticsG2, MockTransport> = CameraBlocking::new(MockTransport);
+    let mut g2_camera: Camera<PTZOpticsG2, MockTransport> = Camera::new(MockTransport);
     g2_camera.set_nd_filter(2)?;
 
     // Compile error:
-    // error[E0599]: no method named `set_nd_filter` found for struct `CameraBlocking<PTZOpticsG2, MockTransport>`
+    // error[E0599]: no method named `set_nd_filter` found for struct `Camera<PTZOpticsG2, MockTransport>`
     // note: the method `set_nd_filter` exists but the trait bound `PTZOpticsG2: NDFilter` is not satisfied
     */
 
     /*
     // Example 2: Generic camera doesn't have focus control
-    let mut generic: CameraBlocking<GenericVisca, MockTransport> = CameraBlocking::new(MockTransport);
+    let mut generic: Camera<GenericVisca, MockTransport> = Camera::new(MockTransport);
     generic.focus_auto()?;
 
     // Compile error:
-    // error[E0599]: no method named `focus_auto` found for struct `CameraBlocking<GenericVisca, MockTransport>`
+    // error[E0599]: no method named `focus_auto` found for struct `Camera<GenericVisca, MockTransport>`
     // note: the method `focus_auto` exists but the trait bound `GenericVisca: Focus` is not satisfied
     */
 
@@ -165,7 +165,7 @@ fn demonstrate_compile_time_errors() {
 
 fn demonstrate_generic_functions() -> Result<(), Error> {
     println!("\n=== Generic Functions Demo ===");
-    
+
     #[derive(Debug, Clone)]
     struct MockTransport;
     impl Transport for MockTransport {
@@ -182,34 +182,34 @@ fn demonstrate_generic_functions() -> Result<(), Error> {
         }
     }
     impl BlockingTransport for MockTransport {}
-    
+
     // Demonstrate center_and_focus with cameras that support both PanTilt and Focus
-    let mut g2 = CameraBlocking::<PTZOpticsG2, MockTransport>::new(MockTransport);
-    let mut fr7 = CameraBlocking::<SonyFR7, MockTransport>::new(MockTransport);
-    
+    let mut g2 = Camera::<PTZOpticsG2, MockTransport>::new(MockTransport);
+    let mut fr7 = Camera::<SonyFR7, MockTransport>::new(MockTransport);
+
     println!("Centering and focusing PTZOptics G2...");
     center_and_focus(&mut g2)?;
-    
+
     println!("Centering and focusing Sony FR7...");
     center_and_focus(&mut fr7)?;
-    
+
     // Generic camera cannot use center_and_focus because it lacks Focus capability
-    // let mut generic = CameraBlocking::<GenericVisca, MockTransport>::new(MockTransport);
+    // let mut generic = Camera::<GenericVisca, MockTransport>::new(MockTransport);
     // center_and_focus(&mut generic)?; // COMPILE ERROR!
-    
+
     // Demonstrate set_neutral_exposure - only works with cameras that have ND filters
     println!("Setting neutral exposure on Sony FR7 (has ND filter)...");
     set_neutral_exposure(&mut fr7)?;
-    
+
     // PTZOptics G2 cannot use set_neutral_exposure because it lacks NDFilter capability
     // set_neutral_exposure(&mut g2)?; // COMPILE ERROR!
-    
+
     println!("Generic functions demonstrated successfully!");
     Ok(())
 }
 
 // Generic function that requires specific capabilities
-fn center_and_focus<P, T>(camera: &mut CameraBlocking<P, T>) -> Result<(), Error>
+fn center_and_focus<P, T>(camera: &mut Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::ProfileMetadata
         + grafton_visca::capabilities::PanTilt
@@ -223,7 +223,7 @@ where
 }
 
 // This function can only be called with cameras that have ND filters
-fn set_neutral_exposure<P, T>(_camera: &mut CameraBlocking<P, T>) -> Result<(), Error>
+fn set_neutral_exposure<P, T>(_camera: &mut Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::ProfileMetadata
         + grafton_visca::capabilities::NDFilter
@@ -260,8 +260,8 @@ mod tests {
 
     #[test]
     fn test_compile_time_trait_bounds() {
-        let mut g2 = CameraBlocking::<PTZOpticsG2, MockTransport>::new(MockTransport);
-        let mut fr7 = CameraBlocking::<SonyFR7, MockTransport>::new(MockTransport);
+        let mut g2 = Camera::<PTZOpticsG2, MockTransport>::new(MockTransport);
+        let mut fr7 = Camera::<SonyFR7, MockTransport>::new(MockTransport);
 
         // ✅ Both cameras can use center_and_focus
         center_and_focus(&mut g2).unwrap();

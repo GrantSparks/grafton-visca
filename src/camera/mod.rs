@@ -3,12 +3,7 @@
 //! This module implements the new Camera API where methods only exist
 //! for cameras that support the corresponding capabilities.
 
-// Core camera implementation (internal)
-pub(crate) mod core;
-
-// Facade implementations (internal)
-pub(crate) mod async_facade;
-pub(crate) mod blocking_facade;
+// Core camera implementation removed - using unified Camera directly
 
 // Unified camera implementation
 pub mod unified;
@@ -17,4 +12,4 @@ pub mod methods;
 pub mod profiles;
 
 // Re-export only the unified camera types
-pub use unified::{ProfileId, UnifiedCamera};
+pub use unified::{ProfileId, Camera};

@@ -80,12 +80,12 @@ pub struct ColorTemperatureInquiry;
 
 /// Inquiry command to get the current red gain value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x12, sub_command = 0x0A, response = "RedGain")]
+#[visca(command = 0x12, sub_command = 0x0A, response = "RedChannel")]
 pub struct RedGainInquiry;
 
 /// Inquiry command to get the current blue gain value.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x13, sub_command = 0x0A, response = "BlueGain")]
+#[visca(command = 0x13, sub_command = 0x0A, response = "BlueChannel")]
 pub struct BlueGainInquiry;
 
 // Image Adjustment Inquiries
@@ -185,5 +185,3 @@ pub struct AutoFocusSensitivityInquiry;
 #[derive(InquiryCommand, Debug, Copy, Clone)]
 #[visca(command = 0x28, response = "FocusNearLimit")]
 pub struct FocusNearLimitInquiry;
-
-

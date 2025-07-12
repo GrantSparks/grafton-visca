@@ -3,15 +3,15 @@
 #[cfg(not(feature = "async"))]
 fn blocking_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
-        camera::methods::PowerBlockingExt, profiles::GenericVisca, transport::blocking::Tcp,
-        CameraBlocking,
+        camera::methods::PowerOps, profiles::GenericVisca, transport::blocking::Tcp,
+        Camera,
     };
 
     println!("=== Blocking Transport Example ===");
 
     // Create a blocking TCP transport with VISCA protocol handling
     let transport = Tcp::connect("192.168.1.100:5678")?;
-    let mut camera = CameraBlocking::<GenericVisca, _>::new(transport);
+    let mut camera = Camera::<GenericVisca, _>::new(transport);
 
     // Use the high-level camera API
     camera.power_on()?;
@@ -23,7 +23,7 @@ fn blocking_example() -> Result<(), grafton_visca::Error> {
 #[cfg(feature = "tokio")]
 async fn async_example() -> Result<(), grafton_visca::Error> {
     use grafton_visca::{
-        camera::methods::PowerAsyncExt, profiles::GenericVisca, transport::tokio::Tcp, Camera,
+        camera::methods::PowerOps, profiles::GenericVisca, transport::tokio::Tcp, Camera,
     };
     use std::time::Duration;
 

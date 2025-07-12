@@ -11,11 +11,11 @@
 //! ```ignore
 //! # #[cfg(not(feature = "async"))]
 //! # {
-//! # use grafton_visca::command::pan_tilt::{PanTiltCommand, PanTiltDirection, PanSpeed, TiltSpeed};
+//! # use grafton_visca::command::pan_tilt::{PanTilt, PanTiltDirection, PanSpeed, TiltSpeed};
 //! # use grafton_visca::Client;
 //! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
 //! // Move camera diagonally up-right
-//! let command = PanTiltCommand::Move {
+//! let command = PanTilt::Move {
 //!     direction: PanTiltDirection::UpRight,
 //!     pan_speed: PanSpeed::new(0x10).unwrap(),
 //!     tilt_speed: TiltSpeed::new(0x10).unwrap(),
@@ -32,8 +32,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{Command, ResponseType},
-    constants::{CameraConstants, CameraModel},
+    command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
@@ -62,8 +61,7 @@ pub enum PanTiltDirection {
     /// Move camera diagonally down and to the right.
     DownRight,
     /// Stop all pan/tilt movement.
-    Stop,
-}
+    Stop}
 
 impl PanTiltDirection {
     /// Converts the direction to its VISCA byte representation.
@@ -80,8 +78,7 @@ impl PanTiltDirection {
             Self::UpRight => (0x02, 0x01),
             Self::DownLeft => (0x01, 0x02),
             Self::DownRight => (0x02, 0x02),
-            Self::Stop => (0x03, 0x03),
-        }
+            Self::Stop => (0x03, 0x03)}
     }
 }
 
@@ -94,7 +91,7 @@ impl PanTiltDirection {
 /// - `AbsolutePosition` - Move to exact coordinates
 /// - `RelativePosition` - Move relative to current position
 #[derive(Debug, Copy, Clone)]
-pub enum PanTiltCommand {
+pub enum PanTilt {
     /// Return camera to home position.
     Home,
     /// Reset pan/tilt mechanism.
@@ -106,8 +103,7 @@ pub enum PanTiltCommand {
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x14).
-        tilt_speed: TiltSpeed,
-    },
+        tilt_speed: TiltSpeed},
     /// Move camera to an absolute pan/tilt position.
     ///
     /// The pan and tilt values specify exact coordinates to move to.
@@ -119,8 +115,7 @@ pub enum PanTiltCommand {
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x14).
-        tilt_speed: TiltSpeed,
-    },
+        tilt_speed: TiltSpeed},
     /// Move camera relative to its current position.
     ///
     /// The pan and tilt values specify the offset from the current position.
@@ -132,20 +127,18 @@ pub enum PanTiltCommand {
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x14).
-        tilt_speed: TiltSpeed,
-    },
-}
+        tilt_speed: TiltSpeed}}
 
-impl PanTiltCommand {
+impl PanTilt {
     // Note: The absolute_position_degrees method was removed because it referenced
     // an out-of-scope generic parameter. Use the camera facade methods instead:
     //
     // ```compile_fail
-    // use grafton_visca::command::pan_tilt::PanTiltCommand;
+    // use grafton_visca::command::pan_tilt::PanTilt;
     // use grafton_visca::units::Degrees;
-    // 
+    //
     // // This would not compile - P is not in scope
-    // let cmd = PanTiltCommand::absolute_position_degrees(
+    // let cmd = PanTilt::absolute_position_degrees(
     //     Degrees(45.0),
     //     Degrees(30.0)
     // );
@@ -155,144 +148,41 @@ impl PanTiltCommand {
     pub fn stop() -> Result<Self, Error> {
         let (pan_speed, tilt_speed) = crate::validate_all! {
             pan_speed: PanSpeed::new(0),
-            tilt_speed: TiltSpeed::new(0),
-        }?;
+            tilt_speed: TiltSpeed::new(0)}?;
 
         Ok(Self::Move {
             direction: PanTiltDirection::Stop,
             pan_speed,
-            tilt_speed,
-        })
+            tilt_speed})
     }
 }
 
-impl Command for PanTiltCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        match self {
-            Self::Home => Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]),
-            Self::Reset => Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF]),
-            Self::Move {
-                direction,
-                pan_speed,
-                tilt_speed,
-            } => {
-                let (dir_byte1, dir_byte2) = direction.to_bytes();
-                Ok(vec![
-                    0x81,
-                    0x01,
-                    0x06,
-                    0x01,
-                    pan_speed.value(),
-                    tilt_speed.value(),
-                    dir_byte1,
-                    dir_byte2,
-                    0xFF,
-                ])
-            }
-            Self::AbsolutePosition {
-                pan,
-                tilt,
-                pan_speed,
-                tilt_speed,
-            } => {
-                let pan_bytes = position_to_bytes(pan.value());
-                let tilt_bytes = position_to_bytes(tilt.value());
+impl EncodeVisca for PanTilt {
+    type Response = ();
+    const MAX_SIZE: usize = 5;
 
-                Ok(vec![
-                    0x81,
-                    0x01,
-                    0x06,
-                    0x02,
-                    pan_speed.value(),
-                    tilt_speed.value(),
-                    pan_bytes[0],
-                    pan_bytes[1],
-                    pan_bytes[2],
-                    pan_bytes[3],
-                    tilt_bytes[0],
-                    tilt_bytes[1],
-                    tilt_bytes[2],
-                    tilt_bytes[3],
-                    0xFF,
-                ])
-            }
-            Self::RelativePosition {
-                pan,
-                tilt,
-                pan_speed,
-                tilt_speed,
-            } => {
-                let pan_bytes = position_to_bytes(pan.value());
-                let tilt_bytes = position_to_bytes(tilt.value());
-
-                Ok(vec![
-                    0x81,
-                    0x01,
-                    0x06,
-                    0x03,
-                    pan_speed.value(),
-                    tilt_speed.value(),
-                    pan_bytes[0],
-                    pan_bytes[1],
-                    pan_bytes[2],
-                    pan_bytes[3],
-                    tilt_bytes[0],
-                    tilt_bytes[1],
-                    tilt_bytes[2],
-                    tilt_bytes[3],
-                    0xFF,
-                ])
-            }
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
         }
-    }
 
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x06;
+        buffer[3] = 0x04;
+        buffer[4] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Movement
-    }
-
-    fn validate_for_model(&self, model: CameraModel) -> Result<(), Error> {
-        match self {
-            Self::AbsolutePosition { pan, tilt, .. } => {
-                let (pan_min, pan_max) = model.pan_range();
-                let (tilt_min, tilt_max) = model.tilt_range();
-
-                if pan.value() < pan_min || pan.value() > pan_max {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "PanTiltAbsolutePosition".to_string(),
-                        reason: format!(
-                            "Pan position {} out of range [{}, {}] for {:?}",
-                            pan.value(),
-                            pan_min,
-                            pan_max,
-                            model
-                        ),
-                    });
-                }
-
-                if tilt.value() < tilt_min || tilt.value() > tilt_max {
-                    return Err(Error::ModelValidation {
-                        model,
-                        command: "PanTiltAbsolutePosition".to_string(),
-                        reason: format!(
-                            "Tilt position {} out of range [{}, {}] for {:?}",
-                            tilt.value(),
-                            tilt_min,
-                            tilt_max,
-                            model
-                        ),
-                    });
-                }
-
-                Ok(())
-            }
-            // Other pan/tilt commands are generally supported by all models
-            _ => Ok(()),
-        }
     }
 }
 

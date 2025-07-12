@@ -39,21 +39,21 @@
 //!
 //! ## Quick Start
 //!
-//! ### UnifiedCamera - No Generics Required!
+//! ### Camera - No Generics Required!
 //! ```ignore
-//! use grafton_visca::{UnifiedCamera, ProfileId, Error};
-//! 
+//! use grafton_visca::{Camera, ProfileId, Error};
+//!
 //! // Blocking example
 //! use grafton_visca::transport::blocking::Tcp;
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera with default profile (GenericVisca)
 //!     let transport = Tcp::connect("192.168.1.100:52381")?;
-//!     let camera = UnifiedCamera::new_blocking(transport);
+//!     let camera = Camera::new_blocking(transport);
 //!
 //!     // Or specify a profile explicitly
 //!     let transport = Tcp::connect("192.168.1.100:52381")?;
-//!     let camera = UnifiedCamera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
+//!     let camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
 //!
 //!     // Check camera info
 //!     println!("Camera: {}", camera.model_name());
@@ -69,14 +69,14 @@
 //!
 //! ### Async Example
 //! ```ignore
-//! use grafton_visca::{UnifiedCamera, ProfileId, Error};
+//! use grafton_visca::{Camera, ProfileId, Error};
 //! use grafton_visca::transport::tokio::Tcp;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
 //!     // Create camera with specific profile
 //!     let transport = Tcp::connect("192.168.1.100:52381").await?;
-//!     let camera = UnifiedCamera::with_profile(ProfileId::PTZOpticsG2, transport);
+//!     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
 //!
 //!     // Same API, just with .await
 //!     // camera.power_on().await?;
@@ -281,8 +281,8 @@ pub mod timeout; // Public for use in macros
 pub mod blocking;
 
 // Core re-exports
-pub use camera::{ProfileId, UnifiedCamera};
-pub use command::{Command, InquiryResponse, Response};
+pub use camera::{ProfileId, Camera};
+pub use command::{EncodeVisca, InquiryResponse, Response};
 
 // Re-export unit types for convenience
 pub use units::{

@@ -4,7 +4,7 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::methods::WhiteBalanceAsyncExt, profiles::PTZOpticsG2, transport::tokio::Udp, Camera,
+    camera::methods::WhiteBalanceOps, profiles::PTZOpticsG2, transport::tokio::Udp, Camera,
 };
 
 #[cfg(feature = "tokio")]

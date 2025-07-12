@@ -10,7 +10,7 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
-        methods::{FocusAsyncExt, PanTiltAsyncExt, PresetsAsyncExt, ZoomAsyncExt},
+        methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
     command::pan_tilt::PanTiltDirection,

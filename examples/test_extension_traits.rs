@@ -6,8 +6,8 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::methods::{
-        ExposureAsyncExt, FocusAsyncExt, ImageProcessingAsyncExt, PanTiltAsyncExt, PowerAsyncExt,
-        PresetsAsyncExt, WhiteBalanceAsyncExt, ZoomAsyncExt,
+        ExposureOps, FocusOps, ImageProcessingOps, PanTiltOps, PowerOps,
+        PresetsOps, WhiteBalanceOps, ZoomOps,
     },
     command::{
         // exposure::{DynamicRangeLevel, ExposureMode}, // not used

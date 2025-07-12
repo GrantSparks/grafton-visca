@@ -8,9 +8,9 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use grafton_visca::transport::{BlockingTransport, Transport};
 use grafton_visca::{Error, Result};
-use bytes::Bytes;
 use std::future::Ready;
 
 /// A mock transport for testing VISCA communication.
@@ -250,8 +250,14 @@ impl TransportExpectation {
 
 impl Transport for MockTransport {
     type Error = Error;
-    type SendFut<'a> = Ready<Result<(), Self::Error>> where Self: 'a;
-    type RecvFut<'a> = Ready<Result<Bytes, Self::Error>> where Self: 'a;
+    type SendFut<'a>
+        = Ready<Result<(), Self::Error>>
+    where
+        Self: 'a;
+    type RecvFut<'a>
+        = Ready<Result<Bytes, Self::Error>>
+    where
+        Self: 'a;
 
     fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
         let mut inner = self.inner.lock().unwrap();
@@ -271,7 +277,9 @@ impl Transport for MockTransport {
                 ))));
             }
             if data[data.len() - 1] != 0xFF {
-                return std::future::ready(Err(Error::InvalidState("Missing terminator FF".to_string())));
+                return std::future::ready(Err(Error::InvalidState(
+                    "Missing terminator FF".to_string(),
+                )));
             }
         }
 
@@ -332,9 +340,7 @@ impl Transport for MockTransport {
                     inner.response_history.push(error_response.clone());
                     Ok(Bytes::from(error_response))
                 }
-                MockResponse::Timeout => {
-                    Err(Error::Timeout)
-                }
+                MockResponse::Timeout => Err(Error::Timeout),
             };
 
             return std::future::ready(result);
@@ -343,7 +349,6 @@ impl Transport for MockTransport {
         // No response queued
         std::future::ready(Err(Error::Timeout))
     }
-
 }
 
 impl BlockingTransport for MockTransport {}
@@ -431,7 +436,11 @@ mod tests {
             .then_complete(1);
 
         // Send the expected command
-        futures::executor::block_on(Transport::send(&mock, &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])).unwrap();
+        futures::executor::block_on(Transport::send(
+            &mock,
+            &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
+        ))
+        .unwrap();
 
         // Receive the responses
         let ack = mock.receive(Duration::from_millis(100)).unwrap();

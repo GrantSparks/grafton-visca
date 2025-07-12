@@ -8,14 +8,14 @@
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     command::{
-        pan_tilt::{PanTiltCommand, PanTiltDirection},
+        pan_tilt::{PanTilt, PanTiltDirection},
         preset::{PresetAction, PresetCommand, PresetNumber},
-        zoom::{ZoomCommand, ZoomSpeed},
+        Zoom, zoom::ZoomSpeed,
     },
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed, ZoomPosition},
 };
 
-/// Builder for creating `PanTiltCommand` instances in tests.
+/// Builder for creating `PanTilt` instances in tests.
 #[cfg(not(feature = "async"))]
 pub struct TestPanTiltBuilder {
     pan: i16,
@@ -67,8 +67,8 @@ impl TestPanTiltBuilder {
     }
 
     /// Build an absolute position command.
-    pub fn build_absolute(self) -> PanTiltCommand {
-        PanTiltCommand::AbsolutePosition {
+    pub fn build_absolute(self) -> PanTilt {
+        PanTilt::AbsolutePosition {
             pan: PanPosition::new(self.pan).expect("Valid pan position"),
             tilt: TiltPosition::new(self.tilt).expect("Valid tilt position"),
             pan_speed: self.pan_speed,
@@ -77,8 +77,8 @@ impl TestPanTiltBuilder {
     }
 
     /// Build a relative position command.
-    pub fn build_relative(self) -> PanTiltCommand {
-        PanTiltCommand::RelativePosition {
+    pub fn build_relative(self) -> PanTilt {
+        PanTilt::RelativePosition {
             pan: PanPosition::new(self.pan).expect("Valid pan position"),
             tilt: TiltPosition::new(self.tilt).expect("Valid tilt position"),
             pan_speed: self.pan_speed,
@@ -87,8 +87,8 @@ impl TestPanTiltBuilder {
     }
 
     /// Build a move command with a direction.
-    pub fn build_move(self, direction: PanTiltDirection) -> PanTiltCommand {
-        PanTiltCommand::Move {
+    pub fn build_move(self, direction: PanTiltDirection) -> PanTilt {
+        PanTilt::Move {
             direction,
             pan_speed: self.pan_speed,
             tilt_speed: self.tilt_speed,
@@ -96,13 +96,13 @@ impl TestPanTiltBuilder {
     }
 
     /// Build a home command.
-    pub fn build_home() -> PanTiltCommand {
-        PanTiltCommand::Home
+    pub fn build_home() -> PanTilt {
+        PanTilt::Home
     }
 
     /// Build a stop command using Move with Stop direction.
-    pub fn build_stop() -> PanTiltCommand {
-        PanTiltCommand::Move {
+    pub fn build_stop() -> PanTilt {
+        PanTilt::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::new(0).expect("Speed 0 should be valid"),
             tilt_speed: TiltSpeed::new(0).expect("Speed 0 should be valid"),
@@ -197,31 +197,31 @@ impl TestZoomBuilder {
     }
 
     /// Build a zoom position command.
-    pub fn build_position(self) -> ZoomCommand {
-        ZoomCommand::Position(ZoomPosition::new(self.position).expect("Valid zoom position"))
+    pub fn build_position(self) -> Zoom {
+        Zoom::Position(ZoomPosition::new(self.position).expect("Valid zoom position"))
     }
 
     /// Build a zoom in command.
-    pub fn build_zoom_in(self) -> ZoomCommand {
+    pub fn build_zoom_in(self) -> Zoom {
         if let Some(speed) = self.speed {
-            ZoomCommand::TeleVariable(speed)
+            Zoom::TeleVariable(speed)
         } else {
-            ZoomCommand::TeleStandard
+            Zoom::TeleStd
         }
     }
 
     /// Build a zoom out command.
-    pub fn build_zoom_out(self) -> ZoomCommand {
+    pub fn build_zoom_out(self) -> Zoom {
         if let Some(speed) = self.speed {
-            ZoomCommand::WideVariable(speed)
+            Zoom::WideVariable(speed)
         } else {
-            ZoomCommand::WideStandard
+            Zoom::WideStd
         }
     }
 
     /// Build a stop command.
-    pub fn build_stop() -> ZoomCommand {
-        ZoomCommand::Stop
+    pub fn build_stop() -> Zoom {
+        Zoom::Stop
     }
 }
 
@@ -241,7 +241,7 @@ mod tests {
             .build_absolute();
 
         match cmd {
-            PanTiltCommand::AbsolutePosition {
+            PanTilt::AbsolutePosition {
                 pan,
                 tilt,
                 pan_speed,

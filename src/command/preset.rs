@@ -11,11 +11,9 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{Command, ResponseType},
-    constants::CameraConstants,
+    command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
-    timeout::CommandCategory,
-};
+    timeout::CommandCategory};
 
 /// Action to perform on a preset.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -25,8 +23,7 @@ pub enum PresetAction {
     /// Store current position to preset.
     Set = 0x01,
     /// Move camera to preset position.
-    Recall = 0x02,
-}
+    Recall = 0x02}
 
 crate::visca_bounded_param! {
     /// Preset number with validation.
@@ -39,55 +36,47 @@ crate::visca_bounded_param! {
     }
 }
 
-
 /// Command to manage camera presets.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct PresetCommand {
     /// The action to perform.
     pub action: PresetAction,
     /// The preset number to operate on.
-    pub preset_number: PresetNumber,
-}
+    pub preset_number: PresetNumber}
 
 impl PresetCommand {
     // Legacy method - removed in new API
     // pub fn new<P: crate::camera::CameraProfile>(...) { ... }
 }
 
-impl Command for PresetCommand {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![
-            0x81,
-            0x01,
-            0x04,
-            0x3F,
-            self.action as u8,
-            self.preset_number.value(),
-            0xFF,
-        ])
-    }
+impl EncodeVisca for PresetCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 7;
 
+    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len()});
+        }
+
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0x3F;
+        buffer[4] = self.action as u8;
+        buffer[5] = self.preset_number.value();
+        buffer[6] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
+    }
+    
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn command_category(&self) -> CommandCategory {
+    
+    fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Preset
-    }
-
-    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
-        let max_preset = model.max_preset_id();
-        if self.preset_number.value() > max_preset {
-            return Err(Error::ModelValidation {
-                model,
-                command: "Preset".to_string(),
-                reason: format!(
-                    "Preset number {} exceeds maximum {max_preset} for {model:?}",
-                    self.preset_number.value()
-                ),
-            });
-        }
-        Ok(())
     }
 }
 
@@ -137,10 +126,9 @@ mod tests {
         let cmd = PresetCommand {
             action: PresetAction::Reset,
             preset_number: PresetNumber::new(10)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3F, 0x00, 0x0A, 0xFF]
         );
@@ -151,10 +139,9 @@ mod tests {
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: PresetNumber::new(45)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x2D, 0xFF]
         );
@@ -165,23 +152,21 @@ mod tests {
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: PresetNumber::new(89)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
         assert_eq!(
-            cmd.to_bytes()
+            cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, 0xFF]
         );
     }
 
     #[test]
-    fn test_preset_command_category() {
+    fn test_preset_timeout_kind() {
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: PresetNumber::new(0)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert_eq!(cmd.command_category(), CommandCategory::Preset);
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
+        assert_eq!(cmd.timeout_kind(), CommandCategory::Preset);
     }
 
     #[test]
@@ -189,8 +174,7 @@ mod tests {
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: PresetNumber::new(0)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
         assert!(cmd.response_type().is_none());
     }
 }
