@@ -10,7 +10,8 @@ use std::convert::TryFrom;
 use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
-    timeout::CommandCategory};
+    timeout::CommandCategory,
+};
 
 /// White balance modes.
 ///
@@ -31,13 +32,15 @@ pub enum WhiteBalanceMode {
     /// Manual white balance control.
     Manual = 0x05,
     /// Color temperature mode (specify exact color temperature).
-    ColorTemperature = 0x20}
+    ColorTemperature = 0x20,
+}
 
 /// Command to set the white balance mode.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct WhiteBalanceCommand {
     /// The white balance mode to set.
-    pub mode: WhiteBalanceMode}
+    pub mode: WhiteBalanceMode,
+}
 
 impl EncodeVisca for WhiteBalanceCommand {
     type Response = ();
@@ -47,7 +50,8 @@ impl EncodeVisca for WhiteBalanceCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[0] = 0x81;
@@ -56,16 +60,35 @@ impl EncodeVisca for WhiteBalanceCommand {
         buffer[3] = 0x35;
         buffer[4] = self.mode as u8;
         buffer[5] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+        use crate::constants::CameraModel;
+        
+        match self.mode {
+            WhiteBalanceMode::ATW => {
+                // ATW is only supported on Sony models
+                match model {
+                    CameraModel::SonyFR7 => Ok(()),
+                    _ => Err(Error::ModelValidation {
+                        model,
+                        command: "WhiteBalanceCommand(ATW)".to_string(),
+                        reason: "ATW mode is only supported on Sony models".to_string(),
+                    }),
+                }
+            }
+            _ => Ok(()), // Other modes are supported by all models
+        }
     }
 }
 
@@ -77,13 +100,15 @@ pub enum AWBSensitivity {
     /// Normal sensitivity (default).
     Normal,
     /// Low sensitivity.
-    Low}
+    Low,
+}
 
 /// Command to set AWB sensitivity.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct AWBSensitivityCommand {
     /// The sensitivity level to set.
-    pub sensitivity: AWBSensitivity}
+    pub sensitivity: AWBSensitivity,
+}
 
 impl EncodeVisca for AWBSensitivityCommand {
     type Response = ();
@@ -93,30 +118,46 @@ impl EncodeVisca for AWBSensitivityCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         let level = match self.sensitivity {
             AWBSensitivity::High => 0x00,
             AWBSensitivity::Normal => 0x01,
-            AWBSensitivity::Low => 0x02};
-        
+            AWBSensitivity::Low => 0x02,
+        };
+
         buffer[0] = 0x81;
         buffer[1] = 0x01;
         buffer[2] = 0x04;
         buffer[3] = 0xA9;
         buffer[4] = level;
         buffer[5] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
+        use crate::constants::CameraModel;
+        
+        // AWB Sensitivity is only supported on PTZOptics models
+        match model {
+            CameraModel::PTZOpticsG2 => Ok(()),
+            _ => Err(Error::ModelValidation {
+                model,
+                command: "AWBSensitivityCommand".to_string(),
+                reason: "AWB Sensitivity is only supported on PTZOptics models".to_string(),
+            }),
+        }
     }
 }
 
@@ -132,7 +173,8 @@ impl TryFrom<u8> for WhiteBalanceMode {
             0x04 => Ok(Self::ATW),
             0x05 => Ok(Self::Manual),
             0x20 => Ok(Self::ColorTemperature),
-            _ => Err(())}
+            _ => Err(()),
+        }
     }
 }
 
@@ -155,7 +197,8 @@ mod tests {
     #[test]
     fn test_white_balance_command_auto() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Auto};
+            mode: WhiteBalanceMode::Auto,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -166,7 +209,8 @@ mod tests {
     #[test]
     fn test_white_balance_command_indoor() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Indoor};
+            mode: WhiteBalanceMode::Indoor,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -177,7 +221,8 @@ mod tests {
     #[test]
     fn test_white_balance_command_outdoor() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Outdoor};
+            mode: WhiteBalanceMode::Outdoor,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -188,7 +233,8 @@ mod tests {
     #[test]
     fn test_white_balance_command_one_push() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::OnePush};
+            mode: WhiteBalanceMode::OnePush,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -199,7 +245,8 @@ mod tests {
     #[test]
     fn test_white_balance_command_atw() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::ATW};
+            mode: WhiteBalanceMode::ATW,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -210,7 +257,8 @@ mod tests {
     #[test]
     fn test_white_balance_command_manual() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Manual};
+            mode: WhiteBalanceMode::Manual,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -221,7 +269,8 @@ mod tests {
     #[test]
     fn test_white_balance_command_color_temperature() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::ColorTemperature};
+            mode: WhiteBalanceMode::ColorTemperature,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -270,31 +319,36 @@ mod tests {
     #[test]
     fn test_timeout_kind() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Auto};
+            mode: WhiteBalanceMode::Auto,
+        };
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
 
         // Test with different modes
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Manual};
+            mode: WhiteBalanceMode::Manual,
+        };
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }
 
     #[test]
     fn test_response_type() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Auto};
+            mode: WhiteBalanceMode::Auto,
+        };
         assert!(cmd.response_type().is_none());
 
         // Test with different modes
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::ColorTemperature};
+            mode: WhiteBalanceMode::ColorTemperature,
+        };
         assert!(cmd.response_type().is_none());
     }
 
     #[test]
     fn test_white_balance_command_debug() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Auto};
+            mode: WhiteBalanceMode::Auto,
+        };
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("WhiteBalanceCommand"));
         assert!(debug_str.contains("Auto"));
@@ -310,7 +364,8 @@ mod tests {
     #[test]
     fn test_white_balance_command_clone() {
         let cmd1 = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::OnePush};
+            mode: WhiteBalanceMode::OnePush,
+        };
         let cmd2 = cmd1; // Copy
         let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
@@ -361,7 +416,8 @@ mod tests {
     fn test_awb_sensitivity_commands() {
         // Test High sensitivity
         let cmd = AWBSensitivityCommand {
-            sensitivity: AWBSensitivity::High};
+            sensitivity: AWBSensitivity::High,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -370,7 +426,8 @@ mod tests {
 
         // Test Normal sensitivity
         let cmd = AWBSensitivityCommand {
-            sensitivity: AWBSensitivity::Normal};
+            sensitivity: AWBSensitivity::Normal,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -379,7 +436,8 @@ mod tests {
 
         // Test Low sensitivity
         let cmd = AWBSensitivityCommand {
-            sensitivity: AWBSensitivity::Low};
+            sensitivity: AWBSensitivity::Low,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -390,7 +448,8 @@ mod tests {
     #[test]
     fn test_awb_sensitivity_model_validation() {
         let cmd = AWBSensitivityCommand {
-            sensitivity: AWBSensitivity::Normal};
+            sensitivity: AWBSensitivity::Normal,
+        };
 
         // Should pass for PTZOpticsG2
         assert!(cmd
@@ -406,7 +465,8 @@ mod tests {
     #[test]
     fn test_atw_model_validation() {
         let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::ATW};
+            mode: WhiteBalanceMode::ATW,
+        };
 
         // Should pass for SonyFR7
         assert!(cmd

@@ -367,9 +367,9 @@ impl Camera {
         let mut cmd_bytes = buffer[..size].to_vec();
 
         // Add VISCA terminator if not present
-        const VISCA_TERMINATOR: u8 = 0xFF;
-        if cmd_bytes.last() != Some(&VISCA_TERMINATOR) {
-            cmd_bytes.push(VISCA_TERMINATOR);
+        // Use VISCA_TERMINATOR from const_encoding module
+        if cmd_bytes.last() != Some(&crate::command::const_encoding::VISCA_TERMINATOR) {
+            cmd_bytes.push(crate::command::const_encoding::VISCA_TERMINATOR);
         }
 
         // Apply protocol-specific framing if needed
@@ -516,7 +516,7 @@ impl Camera {
     }
 
     // Profile-specific accessor methods
-    
+
     /// Get the power on time for the camera.
     pub fn power_on_time(&self) -> Duration {
         use crate::capabilities::Power;
@@ -578,33 +578,65 @@ impl Camera {
     }
 
     /// Convert degrees to pan/tilt units.
-    pub fn degrees_to_units(&self, pan_deg: crate::units::Degrees, tilt_deg: crate::units::Degrees) -> (crate::units::ViscaUnits<i16>, crate::units::ViscaUnits<i16>) {
+    pub fn degrees_to_units(
+        &self,
+        pan_deg: crate::units::Degrees,
+        tilt_deg: crate::units::Degrees,
+    ) -> (crate::units::ViscaUnits<i16>, crate::units::ViscaUnits<i16>) {
         use crate::capabilities::PanTilt;
         let (pan_conv, tilt_conv) = match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => (PTZOpticsG2::PAN_DEGREES_TO_UNITS, PTZOpticsG2::TILT_DEGREES_TO_UNITS),
-            DynamicProfile::SonyFR7(_) => (SonyFR7::PAN_DEGREES_TO_UNITS, SonyFR7::TILT_DEGREES_TO_UNITS),
-            DynamicProfile::GenericVisca(_) => (GenericVisca::PAN_DEGREES_TO_UNITS, GenericVisca::TILT_DEGREES_TO_UNITS),
+            DynamicProfile::PTZOpticsG2(_) => (
+                PTZOpticsG2::PAN_DEGREES_TO_UNITS,
+                PTZOpticsG2::TILT_DEGREES_TO_UNITS,
+            ),
+            DynamicProfile::SonyFR7(_) => (
+                SonyFR7::PAN_DEGREES_TO_UNITS,
+                SonyFR7::TILT_DEGREES_TO_UNITS,
+            ),
+            DynamicProfile::GenericVisca(_) => (
+                GenericVisca::PAN_DEGREES_TO_UNITS,
+                GenericVisca::TILT_DEGREES_TO_UNITS,
+            ),
         };
-        
+
         let pan_units = (pan_deg.0 * pan_conv) as i16;
         let tilt_units = (tilt_deg.0 * tilt_conv) as i16;
-        
-        (crate::units::ViscaUnits(pan_units), crate::units::ViscaUnits(tilt_units))
+
+        (
+            crate::units::ViscaUnits(pan_units),
+            crate::units::ViscaUnits(tilt_units),
+        )
     }
 
     /// Convert pan/tilt units to degrees.
-    pub fn units_to_degrees(&self, pan_units: i16, tilt_units: i16) -> (crate::units::Degrees, crate::units::Degrees) {
+    pub fn units_to_degrees(
+        &self,
+        pan_units: i16,
+        tilt_units: i16,
+    ) -> (crate::units::Degrees, crate::units::Degrees) {
         use crate::capabilities::PanTilt;
         let (pan_conv, tilt_conv) = match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => (PTZOpticsG2::PAN_DEGREES_TO_UNITS, PTZOpticsG2::TILT_DEGREES_TO_UNITS),
-            DynamicProfile::SonyFR7(_) => (SonyFR7::PAN_DEGREES_TO_UNITS, SonyFR7::TILT_DEGREES_TO_UNITS),
-            DynamicProfile::GenericVisca(_) => (GenericVisca::PAN_DEGREES_TO_UNITS, GenericVisca::TILT_DEGREES_TO_UNITS),
+            DynamicProfile::PTZOpticsG2(_) => (
+                PTZOpticsG2::PAN_DEGREES_TO_UNITS,
+                PTZOpticsG2::TILT_DEGREES_TO_UNITS,
+            ),
+            DynamicProfile::SonyFR7(_) => (
+                SonyFR7::PAN_DEGREES_TO_UNITS,
+                SonyFR7::TILT_DEGREES_TO_UNITS,
+            ),
+            DynamicProfile::GenericVisca(_) => (
+                GenericVisca::PAN_DEGREES_TO_UNITS,
+                GenericVisca::TILT_DEGREES_TO_UNITS,
+            ),
         };
-        
+
         let pan_deg = pan_units as f32 / pan_conv;
         let tilt_deg = tilt_units as f32 / tilt_conv;
-        
-        (crate::units::Degrees(pan_deg), crate::units::Degrees(tilt_deg))
+
+        (
+            crate::units::Degrees(pan_deg),
+            crate::units::Degrees(tilt_deg),
+        )
     }
 
     /// Validate pan position.
@@ -615,7 +647,7 @@ impl Camera {
             DynamicProfile::SonyFR7(_) => SonyFR7::PAN_RANGE,
             DynamicProfile::GenericVisca(_) => GenericVisca::PAN_RANGE,
         };
-        
+
         if range.contains(&pan_units) {
             Ok(pan_units)
         } else {
@@ -636,7 +668,7 @@ impl Camera {
             DynamicProfile::SonyFR7(_) => SonyFR7::TILT_RANGE,
             DynamicProfile::GenericVisca(_) => GenericVisca::TILT_RANGE,
         };
-        
+
         if range.contains(&tilt_units) {
             Ok(tilt_units)
         } else {
@@ -662,23 +694,19 @@ impl Camera {
     /// Validate ND filter level.
     pub fn validate_nd_filter(&self, level: u8) -> Result<u8, Error> {
         use crate::capabilities::nd_filter::NDFilterExt;
-        
+
         // Check if camera supports ND filters
         match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => {
-                Err(Error::FeatureNotSupported {
-                    feature: "ND filter".to_string(),
-                })
-            }
+            DynamicProfile::PTZOpticsG2(_) => Err(Error::FeatureNotSupported {
+                feature: "ND filter".to_string(),
+            }),
             DynamicProfile::SonyFR7(p) => {
                 // Use the NDFilterExt trait method for validation
                 p.validate_nd_filter(level).map_err(Into::into)
             }
-            DynamicProfile::GenericVisca(_) => {
-                Err(Error::FeatureNotSupported {
-                    feature: "ND filter".to_string(),
-                })
-            }
+            DynamicProfile::GenericVisca(_) => Err(Error::FeatureNotSupported {
+                feature: "ND filter".to_string(),
+            }),
         }
     }
 }
@@ -702,14 +730,4 @@ mod tests {
         assert_eq!(profile.model_name(), "Generic VISCA Camera");
     }
 
-    #[test]
-    fn test_capability_detection() {
-        // This is a compile-time test to ensure Camera doesn't expose generics
-        fn accepts_unified_camera(_camera: &Camera) {
-            // This function should compile without any generic parameters
-        }
-
-        // Note: We can't actually create a Camera in tests without a real transport
-        // but the type signature test above proves the API design works
-    }
 }

@@ -12,4 +12,4 @@ pub mod methods;
 pub mod profiles;
 
 // Re-export only the unified camera types
-pub use unified::{ProfileId, Camera};
+pub use unified::{Camera, ProfileId};

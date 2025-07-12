@@ -4,11 +4,8 @@ mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
-    camera::{methods::ZoomOps, ProfileId, Camera},
-    command::{
-        Zoom, zoom::ZoomSpeed,
-        EncodeVisca, ResponseType,
-    },
+    camera::{methods::ZoomOps, Camera, ProfileId},
+    command::{zoom::ZoomSpeed, EncodeVisca, ResponseType, Zoom},
     timeout::CommandCategory,
     types::ZoomPosition,
     Error,
@@ -168,10 +165,7 @@ fn test_position_to_nibbles() {
 #[test]
 fn test_zoom_response_type() {
     // Commands that expect ZoomIn response
-    assert_eq!(
-        Zoom::TeleStd.response_type(),
-        Some(ResponseType::ZoomIn)
-    );
+    assert_eq!(Zoom::TeleStd.response_type(), Some(ResponseType::ZoomIn));
     let speed = ZoomSpeed::new(5).unwrap();
     assert_eq!(
         Zoom::TeleVariable(speed).response_type(),
@@ -179,10 +173,7 @@ fn test_zoom_response_type() {
     );
 
     // Commands that expect ZoomOut response
-    assert_eq!(
-        Zoom::WideStd.response_type(),
-        Some(ResponseType::ZoomOut)
-    );
+    assert_eq!(Zoom::WideStd.response_type(), Some(ResponseType::ZoomOut));
     assert_eq!(
         Zoom::WideVariable(speed).response_type(),
         Some(ResponseType::ZoomOut)

@@ -3,9 +3,7 @@
 mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
-use grafton_visca::{
-    camera::{methods::PowerOps, ProfileId, Camera},
-};
+use grafton_visca::camera::{methods::PowerOps, Camera, ProfileId};
 
 #[test]
 fn test_power_on_command_bytes() {
@@ -15,7 +13,7 @@ fn test_power_on_command_bytes() {
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
     assert!(validator.validate_command(&bytes).is_ok());
-    
+
     // Verify the expected command bytes
     assert_eq!(bytes, vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
 }
@@ -28,7 +26,7 @@ fn test_power_standby_command_bytes() {
     // Validate with different modes
     let mut lenient_validator = ProtocolValidator::new(ValidationMode::Lenient);
     assert!(lenient_validator.validate_command(&bytes).is_ok());
-    
+
     // Verify the expected command bytes
     assert_eq!(bytes, vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]);
 }
@@ -38,7 +36,7 @@ fn test_power_command_patterns() {
     // Test that power command patterns are valid
     assert_eq!(patterns::power::ON.len(), 6);
     assert_eq!(patterns::power::STANDBY.len(), 6);
-    
+
     // Check header and terminator
     assert_eq!(patterns::power::ON[0], 0x81); // Header
     assert_eq!(patterns::power::ON[5], 0xFF); // Terminator
@@ -50,7 +48,7 @@ fn test_power_command_patterns() {
 fn test_power_patterns_distinct() {
     // Ensure power commands have distinct patterns
     assert_ne!(patterns::power::ON, patterns::power::STANDBY);
-    
+
     // Check the specific command bytes that differ
     assert_eq!(patterns::power::ON[4], 0x02); // ON command
     assert_eq!(patterns::power::STANDBY[4], 0x03); // STANDBY command
@@ -60,7 +58,7 @@ fn test_power_patterns_distinct() {
 fn test_byte_sequence_correctness() {
     // Verify the exact byte sequences match VISCA protocol
     let on_bytes = patterns::power::ON;
-    
+
     // Detailed byte-by-byte verification
     assert_eq!(on_bytes[0], 0x81); // Command header
     assert_eq!(on_bytes[1], 0x01); // Command type

@@ -47,7 +47,7 @@ async fn main() -> Result<(), Error> {
     // Create camera with async transport
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Udp::connect(&camera_addr).await?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::new(transport);
 
     // Demonstrate different timeout scenarios
     demonstrate_quick_timeout(&camera).await?;
@@ -59,7 +59,7 @@ async fn main() -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_quick_timeout<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
+async fn demonstrate_quick_timeout(camera: &Camera) -> Result<(), Error>
 where
     T: Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -101,7 +101,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_movement_timeout<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
+async fn demonstrate_movement_timeout(camera: &Camera) -> Result<(), Error>
 where
     T: Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -152,7 +152,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_preset_timeout<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
+async fn demonstrate_preset_timeout(camera: &Camera) -> Result<(), Error>
 where
     T: Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -187,7 +187,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_timeout_recovery<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
+async fn demonstrate_timeout_recovery(camera: &Camera) -> Result<(), Error>
 where
     T: Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -252,7 +252,7 @@ where
         match Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(10)).await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");
-                let tcp_camera = Camera::<PTZOpticsG2, _>::new(transport);
+                let tcp_camera = Camera::new(transport);
 
                 // For custom timeout, wrap the operation
                 let custom_timeout = Duration::from_secs(30);

@@ -1,9 +1,16 @@
-//! Example demonstrating the new validation helper macros
+//! Example demonstrating validation helpers and type-safe value creation
+//!
+//! This example shows how to use the library's type-safe value types
+//! and validation helpers.
 
 use grafton_visca::{
-    command::{Gain, PanTilt, PanTiltDirection},
-    types::{Gain, PanSpeed, TiltSpeed},
-    validate_all, Command, Error,
+    command::{
+        encode_visca::EncodeVisca,
+        gain::Gain as GainCommand,
+        pan_tilt::{PanTilt, PanTiltDirection},
+    },
+    types::{GainLevel, PanSpeed, TiltSpeed},
+    validate_all, Error,
 };
 
 fn main() {
@@ -13,23 +20,19 @@ fn main() {
 }
 
 fn run_examples() -> Result<(), Error> {
-    println!("Validation Helper Examples\n");
+    println!("=== Validation Helper Examples ===\n");
 
-    // Example 1: ViscaValue macro with model constraints
-    println!("1. ViscaValue macro with model_constraints attribute:");
+    // Example 1: Type-safe value creation
+    println!("1. Type-safe value creation:");
 
-    // Gain now has model_constraints = "PTZOpticsG2" in its derive
-    let gain = Gain::new(0x05)?;
-    println!("  Created Gain: {}", gain);
-
-    // The macro generates G2_VALID_VALUES constant for backwards compatibility
-    println!("  G2 valid values: {:?}", Gain::G2_VALID_VALUES);
-    println!("  Valid values include gain levels from 0dB (0x00) to 21dB (0x07)");
+    // Create a gain level (0-15 for most cameras)
+    let gain_level = GainLevel::new(5)?;
+    println!("  Created GainLevel: {}", gain_level.value());
 
     // Use in a command
-    let cmd = Gain::SetValue(gain);
-    println!("  Created command: {:?}", cmd);
-    println!("  Command bytes: {:?}", cmd.try_into_vec()?);
+    let gain_cmd = GainCommand::SetValue(gain_level);
+    println!("  Created command: {:?}", gain_cmd);
+    println!("  Command bytes: {:?}", gain_cmd.try_into_vec()?);
 
     println!();
 
@@ -89,10 +92,29 @@ fn run_examples() -> Result<(), Error> {
 
     println!();
 
-    // Example 4: MIN/MAX constants generated for valid_values
-    println!("4. MIN/MAX constants auto-generated from valid_values:");
-    println!("  Gain::MIN = {:#02X}", Gain::MIN.value());
-    println!("  Gain::MAX = {:#02X}", Gain::MAX.value());
+    // Example 4: Direct type construction with validation
+    println!("4. Direct type construction with validation:");
+
+    // Valid values
+    match GainLevel::new(10) {
+        Ok(gain) => println!("  ✓ Created valid GainLevel({})", gain.value()),
+        Err(e) => println!("  Error: {}", e),
+    }
+
+    // Invalid values
+    match GainLevel::new(20) {
+        Ok(_) => println!("  Unexpected success"),
+        Err(e) => println!("  ✓ Got expected error for GainLevel(20): {}", e),
+    }
+
+    println!();
+
+    // Example 5: Using constants
+    println!("5. Using type constants:");
+    println!("  PanSpeed::MIN = {}", PanSpeed::MIN.value());
+    println!("  PanSpeed::MAX = {}", PanSpeed::MAX.value());
+    println!("  TiltSpeed::MIN = {}", TiltSpeed::MIN.value());
+    println!("  TiltSpeed::MAX = {}", TiltSpeed::MAX.value());
 
     Ok(())
 }

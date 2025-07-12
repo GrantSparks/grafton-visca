@@ -14,7 +14,9 @@ use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{FocusPosition, SpeedLevel}};
+    types::{FocusPosition, SpeedLevel},
+    visca_command,
+};
 
 crate::visca_bounded_param! {
     /// Variable focus speed.
@@ -57,7 +59,8 @@ pub enum Focus {
     /// Trigger one-push auto focus (focus once then return to manual).
     OnePushTrigger,
     /// Set focus to infinity.
-    Infinity}
+    Infinity,
+}
 
 impl Focus {
     // Legacy method - removed in new API
@@ -76,7 +79,7 @@ impl EncodeVisca for Focus {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -87,7 +90,7 @@ impl EncodeVisca for Focus {
                     Self::Stop => 0x00,
                     Self::Far => 0x02,
                     Self::Near => 0x03,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
@@ -96,7 +99,7 @@ impl EncodeVisca for Focus {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -106,7 +109,7 @@ impl EncodeVisca for Focus {
                 buffer[4] = match self {
                     Self::FarWithSpeed(s) => 0x20 | s.value(),
                     Self::NearWithSpeed(s) => 0x30 | s.value(),
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
@@ -115,7 +118,7 @@ impl EncodeVisca for Focus {
                 if buffer.len() < Self::MAX_SIZE {
                     return Err(Error::BufferTooSmall {
                         required: Self::MAX_SIZE,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 let pos_val = position.value();
@@ -123,7 +126,7 @@ impl EncodeVisca for Focus {
                 let p1 = ((pos_val >> 8) & 0x0F) as u8;
                 let p2 = ((pos_val >> 4) & 0x0F) as u8;
                 let p3 = (pos_val & 0x0F) as u8;
-                
+
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -139,7 +142,7 @@ impl EncodeVisca for Focus {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -149,7 +152,7 @@ impl EncodeVisca for Focus {
                 buffer[4] = match self {
                     Self::Auto => 0x02,
                     Self::Manual => 0x03,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
@@ -158,7 +161,7 @@ impl EncodeVisca for Focus {
                 if buffer.len() < 6 {
                     return Err(Error::BufferTooSmall {
                         required: 6,
-                        actual: buffer.len()
+                        actual: buffer.len(),
                     });
                 }
                 buffer[0] = 0x81;
@@ -168,18 +171,18 @@ impl EncodeVisca for Focus {
                 buffer[4] = match self {
                     Self::OnePushTrigger => 0x01,
                     Self::Infinity => 0x02,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 buffer[5] = 0xFF;
                 Ok(6)
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Movement
     }
@@ -195,13 +198,15 @@ pub enum FocusZone {
     /// Focus on the center area of the image (default).
     Center,
     /// Focus on the bottom area of the image.
-    Bottom}
+    Bottom,
+}
 
 /// Command to set the focus zone.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct FocusZoneCommand {
     /// The focus zone to select.
-    pub zone: FocusZone}
+    pub zone: FocusZone,
+}
 
 impl EncodeVisca for FocusZoneCommand {
     type Response = ();
@@ -211,28 +216,30 @@ impl EncodeVisca for FocusZoneCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         let zone_byte = match self.zone {
             FocusZone::Top => 0x00,
             FocusZone::Center => 0x01,
-            FocusZone::Bottom => 0x02};
-        
+            FocusZone::Bottom => 0x02,
+        };
+
         buffer[0] = 0x81;
         buffer[1] = 0x01;
         buffer[2] = 0x04;
         buffer[3] = 0xAA;
         buffer[4] = zone_byte;
         buffer[5] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -248,13 +255,15 @@ pub enum AutoFocusSensitivity {
     /// Normal sensitivity - balanced focus response (default).
     Normal,
     /// Low sensitivity - slower focus response, more stable in changing scenes.
-    Low}
+    Low,
+}
 
 /// Command to set auto focus sensitivity.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct AutoFocusSensitivityCommand {
     /// The sensitivity level to set.
-    pub sensitivity: AutoFocusSensitivity}
+    pub sensitivity: AutoFocusSensitivity,
+}
 
 impl EncodeVisca for AutoFocusSensitivityCommand {
     type Response = ();
@@ -264,28 +273,30 @@ impl EncodeVisca for AutoFocusSensitivityCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         let sens_byte = match self.sensitivity {
             AutoFocusSensitivity::High => 0x02,
             AutoFocusSensitivity::Normal => 0x01,
-            AutoFocusSensitivity::Low => 0x00};
-        
+            AutoFocusSensitivity::Low => 0x00,
+        };
+
         buffer[0] = 0x81;
         buffer[1] = 0x01;
         buffer[2] = 0x04;
         buffer[3] = 0x58;
         buffer[4] = sens_byte;
         buffer[5] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -298,7 +309,8 @@ impl EncodeVisca for AutoFocusSensitivityCommand {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FocusNearLimitCommand {
     /// The focus position limit.
-    pub position: FocusPosition}
+    pub position: FocusPosition,
+}
 
 impl EncodeVisca for FocusNearLimitCommand {
     type Response = ();
@@ -308,7 +320,8 @@ impl EncodeVisca for FocusNearLimitCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         let pos_val = self.position.value();
@@ -316,7 +329,7 @@ impl EncodeVisca for FocusNearLimitCommand {
         let p1 = ((pos_val >> 8) & 0x0F) as u8;
         let p2 = ((pos_val >> 4) & 0x0F) as u8;
         let p3 = (pos_val & 0x0F) as u8;
-        
+
         buffer[0] = 0x81;
         buffer[1] = 0x01;
         buffer[2] = 0x04;
@@ -326,59 +339,41 @@ impl EncodeVisca for FocusNearLimitCommand {
         buffer[6] = p2;
         buffer[7] = p3;
         buffer[8] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
 }
 
-/// Focus Lock command (PTZOptics specific).
-///
-/// Controls whether the camera locks focus at the current position.
-#[derive(Debug, Copy, Clone)]
-pub enum FocusLock {
-    /// Enable focus lock
-    On,
-    /// Disable focus lock
-    Off}
-
-impl EncodeVisca for FocusLock {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
-        }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x0A;
-        buffer[2] = 0x04;
-        buffer[3] = 0x68;
-        buffer[4] = match self {
-            Self::On => 0x02,
-            Self::Off => 0x03
-        };
-        buffer[5] = 0xFF;
-        
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_command! {
+    /// Focus Lock command (PTZOptics specific).
+    ///
+    /// Controls whether the camera locks focus at the current position.
+    category = "Quick",
+    enum FocusLock {
+        /// Enable focus lock
+        On => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::focus::LOCK_PREFIX)
+                .push(0x02)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Disable focus lock
+        Off => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::focus::LOCK_PREFIX)
+                .push(0x03)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
     }
 }
 
@@ -391,7 +386,8 @@ pub enum PushAF {
     /// Press Push AF button (activate temporary auto focus)
     Press,
     /// Release Push AF button
-    Release}
+    Release,
+}
 
 impl EncodeVisca for PushAF {
     type Response = ();
@@ -401,7 +397,8 @@ impl EncodeVisca for PushAF {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[0] = 0x81;
@@ -412,17 +409,17 @@ impl EncodeVisca for PushAF {
         buffer[5] = 0x00;
         buffer[6] = match self {
             Self::Press => 0x01,
-            Self::Release => 0x00
+            Self::Release => 0x00,
         };
         buffer[7] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -570,7 +567,8 @@ mod tests {
     #[test]
     fn test_focus_zone_command() {
         let cmd = FocusZoneCommand {
-            zone: FocusZone::Top};
+            zone: FocusZone::Top,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -578,7 +576,8 @@ mod tests {
         );
 
         let cmd = FocusZoneCommand {
-            zone: FocusZone::Center};
+            zone: FocusZone::Center,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -586,7 +585,8 @@ mod tests {
         );
 
         let cmd = FocusZoneCommand {
-            zone: FocusZone::Bottom};
+            zone: FocusZone::Bottom,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -597,7 +597,8 @@ mod tests {
     #[test]
     fn test_auto_focus_sensitivity_command() {
         let cmd = AutoFocusSensitivityCommand {
-            sensitivity: AutoFocusSensitivity::High};
+            sensitivity: AutoFocusSensitivity::High,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -605,7 +606,8 @@ mod tests {
         );
 
         let cmd = AutoFocusSensitivityCommand {
-            sensitivity: AutoFocusSensitivity::Normal};
+            sensitivity: AutoFocusSensitivity::Normal,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -613,7 +615,8 @@ mod tests {
         );
 
         let cmd = AutoFocusSensitivityCommand {
-            sensitivity: AutoFocusSensitivity::Low};
+            sensitivity: AutoFocusSensitivity::Low,
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -625,7 +628,8 @@ mod tests {
     fn test_focus_near_limit_command() {
         let cmd = FocusNearLimitCommand {
             position: FocusPosition::new(0x1234)
-                .unwrap_or_else(|e| panic!("Valid focus position: {e:?}"))};
+                .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -634,7 +638,8 @@ mod tests {
 
         let cmd = FocusNearLimitCommand {
             position: FocusPosition::new(0x1000)
-                .unwrap_or_else(|e| panic!("Valid focus position: {e:?}"))};
+                .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -644,14 +649,8 @@ mod tests {
 
     #[test]
     fn test_command_categories() {
-        assert_eq!(
-            Focus::Stop.timeout_kind(),
-            CommandCategory::Movement
-        );
-        assert_eq!(
-            Focus::Auto.timeout_kind(),
-            CommandCategory::Movement
-        );
+        assert_eq!(Focus::Stop.timeout_kind(), CommandCategory::Movement);
+        assert_eq!(Focus::Auto.timeout_kind(), CommandCategory::Movement);
         assert_eq!(
             FocusZoneCommand {
                 zone: FocusZone::Top

@@ -6,7 +6,6 @@ use crate::{
     Error,
 };
 
-
 /// Tally light control operations.
 pub trait TallyOps: Sized {
     /// Turn red tally light on.
@@ -315,7 +314,7 @@ mod tests {
     #[test]
     fn test_tally_methods_compile() {
         // This test demonstrates that tally methods are available for all cameras
-        
+
         fn _test_tally_methods(_camera: &Camera) {
             // All cameras can use tally methods
         }

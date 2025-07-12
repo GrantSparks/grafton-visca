@@ -17,7 +17,7 @@ mod blocking_tests {
     use grafton_visca::{
         camera::{
             methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-            ProfileId, Camera,
+            Camera, ProfileId,
         },
         Error,
     };

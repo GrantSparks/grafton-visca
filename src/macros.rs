@@ -48,20 +48,33 @@ macro_rules! visca_command {
             )+
         }
 
-        impl $crate::command::Command for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
-                match self {
+        impl $crate::command::encode_visca::EncodeVisca for $name {
+            type Response = ();
+            const MAX_SIZE: usize = 16; // Conservative size for enum variants
+
+            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+                let bytes = match self {
                     $(
                         Self::$variant $( ($($param),*) )? => $crate::visca_command!(@expand_body $body, $($($param),*)?),
                     )+
+                }?;
+
+                if buffer.len() < bytes.len() {
+                    return Err($crate::Error::BufferTooSmall {
+                        required: bytes.len(),
+                        actual: buffer.len(),
+                    });
                 }
+
+                buffer[..bytes.len()].copy_from_slice(&bytes);
+                Ok(bytes.len())
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
                 None
             }
 
-            fn command_category(&self) -> $crate::timeout::CommandCategory {
+            fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
                 match $category {
                     "Quick" => $crate::timeout::CommandCategory::Quick,
                     "Movement" => $crate::timeout::CommandCategory::Movement,
@@ -83,6 +96,14 @@ macro_rules! visca_command {
     (@expand_body $block:block, $($params:ident)*) => {
         $block
     };
+
+    // Expand builder pattern - creates CommandBuilder and builds with terminator
+    (@expand_body builder ( $const_path:path ), $($params:ident)*) => {{
+        let cmd = $crate::command::const_encoding::CommandBuilder::<6>::new()
+            .append($const_path)
+            .build();
+        Ok(cmd.to_vec())
+    }};
 }
 
 /// Create a validated newtype wrapper for numeric parameters.
@@ -234,20 +255,33 @@ macro_rules! visca_bool_command {
             pub $field: bool,
         }
 
-        impl $crate::command::Command for $name {
-            fn to_bytes(&self) -> Result<Vec<u8>, $crate::Error> {
+        impl $crate::command::encode_visca::EncodeVisca for $name {
+            type Response = ();
+            const MAX_SIZE: usize = 6; // Most VISCA commands are 6 bytes
+
+            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err($crate::Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len(),
+                    });
+                }
+
                 let $v = self.$field;
                 let encoded = $encode;
-                let mut bytes = Vec::with_capacity(16);
+                let mut bytes = Vec::with_capacity(Self::MAX_SIZE);
                 $crate::visca_bool_command!(@encode bytes, encoded, [$($byte)*]);
-                Ok(bytes)
+
+                let len = bytes.len();
+                buffer[..len].copy_from_slice(&bytes);
+                Ok(len)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
                 None
             }
 
-            fn command_category(&self) -> $crate::timeout::CommandCategory {
+            fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
                 $crate::timeout::CommandCategory::Quick
             }
         }
@@ -272,5 +306,144 @@ macro_rules! visca_bool_command {
 
     (@encode $bytes:ident, $encoded:ident, [{$field:ident}]) => {
         $bytes.push($encoded);
+    };
+}
+
+/// Create a VISCA command from a static byte array.
+///
+/// This macro generates a complete implementation of the `EncodeVisca` trait
+/// for commands that always encode to the same byte sequence.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::static_visca_cmd;
+///
+/// static_visca_cmd! {
+///     /// Power on command.
+///     struct PowerOn = [0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
+///     timeout = Quick;
+/// }
+/// ```
+#[macro_export]
+macro_rules! static_visca_cmd {
+    (
+        $(#[$meta:meta])*
+        struct $name:ident = [$($byte:expr),+ $(,)?];
+        timeout = $category:ident;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name;
+
+        impl $crate::command::encode_visca::EncodeVisca for $name {
+            type Response = ();
+            const MAX_SIZE: usize = { 0 $(+ { let _ = $byte; 1 })+ };
+
+            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+                const BYTES: &[u8] = &[$($byte),+];
+
+                if buffer.len() < BYTES.len() {
+                    return Err($crate::Error::BufferTooSmall {
+                        required: BYTES.len(),
+                        actual: buffer.len(),
+                    });
+                }
+
+                buffer[..BYTES.len()].copy_from_slice(BYTES);
+                Ok(BYTES.len())
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
+                None
+            }
+
+            fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
+                $crate::timeout::CommandCategory::$category
+            }
+        }
+    };
+}
+
+/// Create a VISCA command using a builder pattern.
+///
+/// This macro generates commands that have a common prefix followed by
+/// variable data, using the CommandBuilder pattern internally.
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::visca_builder;
+///
+/// visca_builder! {
+///     /// Zoom to a specific position.
+///     struct ZoomDirect {
+///         position: ZoomPosition,
+///     }
+///     builder<6> {
+///         append([0x81, 0x01, 0x04, 0x47]);
+///         encode_u16(position.value());
+///     }
+///     timeout = Movement;
+/// }
+/// ```
+#[macro_export]
+macro_rules! visca_builder {
+    // Version with fields
+    (
+        $(#[$meta:meta])*
+        struct $name:ident {
+            $(
+                $(#[$field_meta:meta])*
+                $field:ident: $ftype:ty
+            ),+ $(,)?
+        }
+        builder<$size:literal> {
+            $($stmt:stmt);+ $(;)?
+        }
+        timeout = $category:ident;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name {
+            $(
+                $(#[$field_meta])*
+                pub $field: $ftype,
+            )+
+        }
+
+        impl $crate::command::encode_visca::EncodeVisca for $name {
+            type Response = ();
+            const MAX_SIZE: usize = $size;
+
+            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err($crate::Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len(),
+                    });
+                }
+
+                let mut builder = $crate::command::const_encoding::CommandBuilder::<$size>::new();
+
+                // Extract fields for use in the builder block
+                $(
+                    let $field = &self.$field;
+                )+
+
+                // Execute the builder statements
+                $($stmt);+
+
+                let bytes = builder.build();
+                buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
+                Ok(Self::MAX_SIZE)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
+                None
+            }
+
+            fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
+                $crate::timeout::CommandCategory::$category
+            }
+        }
     };
 }

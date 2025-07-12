@@ -8,7 +8,10 @@
 mod common;
 
 use crate::common::*;
-use grafton_visca::{camera::{methods::*, ProfileId, Camera}, Error, Result};
+use grafton_visca::{
+    camera::{methods::*, Camera, ProfileId},
+    Error, Result,
+};
 use std::time::Duration;
 
 #[test]

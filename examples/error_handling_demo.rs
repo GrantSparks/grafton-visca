@@ -181,7 +181,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let mut camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let mut camera = Camera::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -329,7 +329,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

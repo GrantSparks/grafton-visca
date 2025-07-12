@@ -5,15 +5,14 @@
 use crate::{
     camera::unified::Camera,
     command::{
-        encode_visca::EncodeVisca,
         const_encoding::{
             encode_nd_filter_fixed, encode_nd_filter_stepped, encode_nd_filter_variable,
         },
+        encode_visca::EncodeVisca,
         ResponseType,
     },
     Error,
 };
-
 
 /// ND filter command.
 struct NDFilterCommand {
@@ -62,8 +61,7 @@ impl EncodeVisca for NDFilterCommand {
 }
 
 /// ND filter operations.
-pub trait NDFilterOps: Sized
-{
+pub trait NDFilterOps: Sized {
     /// Set ND filter level.
     #[cfg(feature = "tokio")]
     async fn set_nd_filter(&self, level: u8) -> Result<(), Error>;
@@ -81,8 +79,7 @@ pub trait NDFilterOps: Sized
     fn get_nd_filter_blocking(&mut self) -> Result<u8, Error>;
 }
 
-impl NDFilterOps for Camera
-{
+impl NDFilterOps for Camera {
     #[cfg(feature = "tokio")]
     async fn set_nd_filter(&self, level: u8) -> Result<(), Error> {
         // Validate using the camera's ND mode
@@ -94,9 +91,15 @@ impl NDFilterOps for Camera
                     feature: "ND filter".to_string(),
                 })
             }
-            Some(crate::capabilities::NDFilterMode::Fixed(value)) => NDFilterCommand::new_fixed(validated_level == value),
-            Some(crate::capabilities::NDFilterMode::Stepped(_)) => NDFilterCommand::new_stepped(validated_level),
-            Some(crate::capabilities::NDFilterMode::Variable) => NDFilterCommand::new_variable(validated_level),
+            Some(crate::capabilities::NDFilterMode::Fixed(value)) => {
+                NDFilterCommand::new_fixed(validated_level == value)
+            }
+            Some(crate::capabilities::NDFilterMode::Stepped(_)) => {
+                NDFilterCommand::new_stepped(validated_level)
+            }
+            Some(crate::capabilities::NDFilterMode::Variable) => {
+                NDFilterCommand::new_variable(validated_level)
+            }
         };
 
         self.send_command(&command).await?;
@@ -114,9 +117,15 @@ impl NDFilterOps for Camera
                     feature: "ND filter".to_string(),
                 })
             }
-            Some(crate::capabilities::NDFilterMode::Fixed(value)) => NDFilterCommand::new_fixed(validated_level == value),
-            Some(crate::capabilities::NDFilterMode::Stepped(_)) => NDFilterCommand::new_stepped(validated_level),
-            Some(crate::capabilities::NDFilterMode::Variable) => NDFilterCommand::new_variable(validated_level),
+            Some(crate::capabilities::NDFilterMode::Fixed(value)) => {
+                NDFilterCommand::new_fixed(validated_level == value)
+            }
+            Some(crate::capabilities::NDFilterMode::Stepped(_)) => {
+                NDFilterCommand::new_stepped(validated_level)
+            }
+            Some(crate::capabilities::NDFilterMode::Variable) => {
+                NDFilterCommand::new_variable(validated_level)
+            }
         };
 
         self.send_command_blocking(&command)?;
@@ -136,14 +145,13 @@ impl NDFilterOps for Camera
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     #[test]
     fn test_nd_filter_compile_time_safety() {
         // This test demonstrates compile-time safety - cameras without ND filter
         // capability cannot use ND filter methods
-        
+
         // Note: With the unified Camera API, compile-time safety is achieved
         // through runtime profile checks rather than generic constraints
     }

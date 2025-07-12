@@ -63,6 +63,9 @@ pub mod zoom {
 
     /// Query zoom position.
     pub const QUERY_POSITION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x47];
+
+    /// Digital zoom control prefix.
+    pub const DIGITAL_ZOOM_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x06];
 }
 
 /// Focus command constants.
@@ -101,6 +104,9 @@ pub mod focus {
 
     /// Query focus mode.
     pub const QUERY_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x38];
+
+    /// Focus lock control prefix.
+    pub const LOCK_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x04, 0x68];
 }
 
 /// Preset command constants.
@@ -136,6 +142,10 @@ pub mod exposure {
     /// Bright mode.
     pub const BRIGHT: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x39, 0x0D];
 
+    /// Auto slow shutter prefix.
+    pub const AUTO_SLOW_SHUTTER_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x5A];
+    /// Spotlight prefix (Sony models).
+    pub const SPOTLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x3A];
     /// Iris direct prefix.
     pub const IRIS_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4B];
 
@@ -264,4 +274,20 @@ pub mod gain {
 
     /// Anti-flicker mode prefix.
     pub const ANTI_FLICKER_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x23];
+}
+/// Tally command constants.
+pub mod tally {
+    use super::*;
+
+    /// Tally control prefix.
+    pub const TALLY_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00];
+
+    /// Tally brightness prefix (Sony BRC models).
+    pub const TALLY_BRIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x01, 0x0A, 0x01];
+
+    /// Green tally prefix (Sony FR7).
+    pub const TALLY_GREEN_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x1A, 0x00];
+
+    /// PTZOptics tally prefix.
+    pub const TALLY_PTZO_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x02, 0x02];
 }

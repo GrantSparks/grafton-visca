@@ -14,7 +14,7 @@ use common::builders::*;
 use common::helpers::*;
 
 // Import needed types
-use grafton_visca::{Error};
+use grafton_visca::Error;
 
 #[cfg(not(feature = "tokio"))]
 #[test]
@@ -29,9 +29,12 @@ fn test_with_helpers() {
         .build_absolute();
 
     // Assert with context
-    use grafton_visca::command::EncodeVisca;
+    use grafton_visca::EncodeVisca;
     let mut buffer = [0u8; 64];
-    let size = assert_ok(cmd.encode_into(&mut buffer), "PanTilt command should encode");
+    let size = assert_ok(
+        cmd.encode_into(&mut buffer),
+        "PanTilt command should encode",
+    );
     let bytes = buffer[..size].to_vec();
     // The expected bytes:
     // - Header: 0x81, 0x01, 0x06, 0x02
@@ -55,7 +58,7 @@ fn test_with_helpers() {
 fn test_with_mock_transport() {
     use common::MockTransport;
     use grafton_visca::camera::methods::PowerOps;
-    use grafton_visca::camera::{ProfileId, Camera};
+    use grafton_visca::camera::{Camera, ProfileId};
 
     // Create a mock that returns specific responses
     let mut mock = MockTransport::new();
@@ -69,7 +72,10 @@ fn test_with_mock_transport() {
     let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
     // Send command and verify response
-    assert_ok(camera.power_on_blocking(), "Power on command should succeed");
+    assert_ok(
+        camera.power_on_blocking(),
+        "Power on command should succeed",
+    );
 
     // Verify expectations were met
     mock.verify().unwrap();
@@ -129,7 +135,7 @@ mod integration_style_tests {
     fn test_command_sequence() {
         use common::MockTransport;
         use grafton_visca::camera::methods::{PanTiltOps, ZoomOps};
-        use grafton_visca::camera::{ProfileId, Camera};
+        use grafton_visca::camera::{Camera, ProfileId};
 
         // Create mock with expected responses
         let mut mock = MockTransport::new();
@@ -149,9 +155,15 @@ mod integration_style_tests {
         let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
 
         // Test multiple commands
-        assert_ok(camera.pan_tilt_home_blocking(), "Home command should succeed");
+        assert_ok(
+            camera.pan_tilt_home_blocking(),
+            "Home command should succeed",
+        );
 
-        assert_ok(camera.zoom_stop_blocking(), "Zoom stop command should succeed");
+        assert_ok(
+            camera.zoom_stop_blocking(),
+            "Zoom stop command should succeed",
+        );
 
         // Verify expectations were met
         mock.verify().unwrap();

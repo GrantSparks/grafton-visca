@@ -2,14 +2,11 @@
 
 use crate::{
     camera::unified::Camera,
-    command::{
-        pan_tilt::{PanTilt, PanTiltDirection},
-    },
+    command::pan_tilt::{PanTilt, PanTiltDirection},
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
     units::Degrees,
     Error,
 };
-
 
 /// Unified trait for Camera that adds both async and blocking pan/tilt methods.
 pub trait PanTiltOps: Sized {
@@ -106,14 +103,13 @@ impl PanTiltOps for Camera {
 
     #[cfg(not(feature = "tokio"))]
     fn pan_tilt_stop_blocking(&mut self) -> Result<(), Error> {
-        
-            let cmd = PanTilt::Move {
-                direction: PanTiltDirection::Stop,
-                pan_speed: PanSpeed::new(0).unwrap(),
-                tilt_speed: TiltSpeed::new(0).unwrap(),
-            };
-            self.send_command_blocking(&cmd)?;
-            Ok(())
+        let cmd = PanTilt::Move {
+            direction: PanTiltDirection::Stop,
+            pan_speed: PanSpeed::new(0).unwrap(),
+            tilt_speed: TiltSpeed::new(0).unwrap(),
+        };
+        self.send_command_blocking(&cmd)?;
+        Ok(())
     }
     #[cfg(feature = "tokio")]
     async fn pan_tilt_home(&self) -> Result<(), Error> {
@@ -124,10 +120,9 @@ impl PanTiltOps for Camera {
 
     #[cfg(not(feature = "tokio"))]
     fn pan_tilt_home_blocking(&mut self) -> Result<(), Error> {
-        
-            let cmd = PanTilt::Home;
-            self.send_command_blocking(&cmd)?;
-            Ok(())
+        let cmd = PanTilt::Home;
+        self.send_command_blocking(&cmd)?;
+        Ok(())
     }
     #[cfg(feature = "tokio")]
     async fn pan_tilt_absolute(
@@ -138,7 +133,7 @@ impl PanTiltOps for Camera {
     ) -> Result<(), Error> {
         // Convert degrees to units using Camera's methods
         let (pan_units, tilt_units) = self.degrees_to_units(pan, tilt);
-        
+
         // Validate using camera's profile
         let pan_validated = self.validate_pan(pan_units.0)?;
         let tilt_validated = self.validate_tilt(tilt_units.0)?;
@@ -171,7 +166,7 @@ impl PanTiltOps for Camera {
     ) -> Result<(), Error> {
         // Convert degrees to units using Camera's methods
         let (pan_units, tilt_units) = self.degrees_to_units(pan, tilt);
-        
+
         // Validate using camera's profile
         let pan_validated = self.validate_pan(pan_units.0)?;
         let tilt_validated = self.validate_tilt(tilt_units.0)?;

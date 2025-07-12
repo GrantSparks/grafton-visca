@@ -3,7 +3,9 @@
 //! This shows how inquiry commands are defined as individual structs
 //! that automatically generate Command implementations.
 
-use grafton_visca::command::{Command, PanTiltPositionInquiry, PowerInquiry, ZoomPositionInquiry};
+use grafton_visca::command::{
+    encode_visca::EncodeVisca, PanTiltPositionInquiry, PowerInquiry, ZoomPositionInquiry,
+};
 
 fn main() {
     // Create inquiry instances directly
@@ -20,7 +22,10 @@ fn main() {
         "Pan/Tilt inquiry bytes: {:?}",
         pan_tilt_inquiry.try_into_vec().unwrap()
     );
-    println!("Zoom inquiry bytes: {:?}", zoom_inquiry.try_into_vec().unwrap());
+    println!(
+        "Zoom inquiry bytes: {:?}",
+        zoom_inquiry.try_into_vec().unwrap()
+    );
 
     // Each inquiry has its response type
     println!("Power response type: {:?}", power_inquiry.response_type());
@@ -33,7 +38,6 @@ fn main() {
 
 // Example showing how to define new inquiry commands using the derive macro:
 //
-// use grafton_visca_macros::InquiryCommand;
 //
 // #[derive(InquiryCommand, Debug, Copy, Clone)]
 // #[visca(command = 0x00, response = "Power")]

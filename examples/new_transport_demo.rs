@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("   ✓ TCP transport created");
 
             // Create camera with the transport
-            let camera = Camera::<GenericVisca, _>::new(transport);
+            let camera = Camera::new(transport);
 
             // Use camera methods - note we use &camera, not &mut camera
             use grafton_visca::camera::methods::ZoomOps;
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("   ✓ UDP transport created");
 
             // Create camera with the transport
-            let camera = Camera::<GenericVisca, _>::new(transport);
+            let camera = Camera::new(transport);
 
             // Use camera methods - using &camera (interior mutability)
             use grafton_visca::camera::methods::ZoomOps;

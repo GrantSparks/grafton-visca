@@ -453,8 +453,7 @@ fn test_exposure_compensation_commands_encoding() {
     validator.validate_command(expected).unwrap();
 
     // Exposure Compensation Direct -7
-    let exp_comp_neg7 =
-        ExposureCompensation::SetLevel(ExposureCompensationLevel::new(-7).unwrap());
+    let exp_comp_neg7 = ExposureCompensation::SetLevel(ExposureCompensationLevel::new(-7).unwrap());
     let expected = &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x00, 0xFF];
     assert_eq!(
         exp_comp_neg7.try_into_vec().unwrap(),
@@ -464,8 +463,7 @@ fn test_exposure_compensation_commands_encoding() {
     validator.validate_command(expected).unwrap();
 
     // Exposure Compensation Direct +7
-    let exp_comp_pos7 =
-        ExposureCompensation::SetLevel(ExposureCompensationLevel::new(7).unwrap());
+    let exp_comp_pos7 = ExposureCompensation::SetLevel(ExposureCompensationLevel::new(7).unwrap());
     let expected = &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x0E, 0xFF];
     assert_eq!(
         exp_comp_pos7.try_into_vec().unwrap(),

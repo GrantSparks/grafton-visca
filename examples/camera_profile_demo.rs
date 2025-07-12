@@ -27,7 +27,7 @@ async fn main() -> Result<(), Error> {
 
     // Create a G2 camera with TCP transport
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::new(transport);
 
     // Display camera capabilities
     println!("Camera Model: {}", PTZOpticsG2::MODEL_NAME);

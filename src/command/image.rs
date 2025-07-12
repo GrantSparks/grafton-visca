@@ -5,183 +5,101 @@
 
 // Crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, const_encoding::CommandBuilder, ResponseType},
+    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{NoiseReduction2DLevel, NoiseReduction3DLevel}};
+    types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
+    visca_bool_command, visca_command,
+};
 
-/// Backlight compensation command.
-///
-/// Enables or disables backlight compensation, which helps properly expose
-/// subjects that are backlit (have a bright light source behind them).
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct BacklightCommand {
-    /// Internal command bytes.
-    command: [u8; 6]}
+visca_bool_command! {
+    /// Backlight compensation command.
+    ///
+    /// Enables or disables backlight compensation, which helps properly expose
+    /// subjects that are backlit (have a bright light source behind them).
+    struct BacklightCommand {
+        /// Enable (true) or disable (false) backlight compensation.
+        status: bool => |v| if v { 0x02 } else { 0x03 }
+    }
+    bytes = [0x81, 0x01, 0x04, 0x33, {status}, 0xFF]
+}
 
 impl BacklightCommand {
     /// Create a new backlight command.
     pub fn new(status: bool) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::image::BACKLIGHT_PREFIX);
-        cmd.push(if status { 0x02 } else { 0x03 });
-        Self {
-            command: cmd.build()}
+        Self { status }
     }
 }
 
-impl EncodeVisca for BacklightCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+visca_command! {
+    /// 2D Noise Reduction command.
+    ///
+    /// Reduces spatial noise in individual frames by analyzing and smoothing
+    /// pixel variations. Higher levels provide more noise reduction but may
+    /// reduce fine detail.
+    category = "Custom",
+    enum NoiseReduction2D {
+        /// Disable 2D noise reduction.
+        Off => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_2D_PREFIX)
+                .push(0x00)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Set 2D noise reduction level.
+        Level(level: NoiseReduction2DLevel) => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_2D_PREFIX)
+                .push(level.value())
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
         }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
-/// 2D Noise Reduction command.
-///
-/// Reduces spatial noise in individual frames by analyzing and smoothing
-/// pixel variations. Higher levels provide more noise reduction but may
-/// reduce fine detail.
-#[derive(Debug, Copy, Clone)]
-pub enum NoiseReduction2D {
-    /// Disable 2D noise reduction.
-    Off,
-    /// Set 2D noise reduction level.
-    Level(NoiseReduction2DLevel)}
-
-impl EncodeVisca for NoiseReduction2D {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
+visca_command! {
+    /// 3D Noise Reduction command.
+    ///
+    /// Reduces temporal noise by analyzing multiple frames over time.
+    /// This is effective for reducing noise in video streams while preserving
+    /// motion detail. Higher levels provide more noise reduction.
+    category = "Custom",
+    enum NoiseReduction3D {
+        /// Disable 3D noise reduction.
+        Off => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_3D_PREFIX)
+                .push(0x00)
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Set 3D noise reduction level.
+        Level(level: NoiseReduction3DLevel) => {
+            let cmd = CommandBuilder::<6>::new()
+                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_3D_PREFIX)
+                .push(level.value())
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
         }
-
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_2D_PREFIX);
-        match self {
-            Self::Off => cmd.push(0x00),
-            Self::Level(level) => cmd.push(level.value()),
-        };
-        
-        let bytes = cmd.build();
-        buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Custom
     }
 }
 
-/// 3D Noise Reduction command.
-///
-/// Reduces temporal noise by analyzing multiple frames over time.
-/// This is effective for reducing noise in video streams while preserving
-/// motion detail. Higher levels provide more noise reduction.
-#[derive(Debug, Copy, Clone)]
-pub enum NoiseReduction3D {
-    /// Disable 3D noise reduction.
-    Off,
-    /// Set 3D noise reduction level.
-    Level(NoiseReduction3DLevel)}
-
-impl EncodeVisca for NoiseReduction3D {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
-        }
-
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_3D_PREFIX);
-        match self {
-            Self::Off => cmd.push(0x00),
-            Self::Level(level) => cmd.push(level.value()),
-        };
-        
-        let bytes = cmd.build();
-        buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
-        Ok(Self::MAX_SIZE)
+visca_bool_command! {
+    /// Black and White Mode command.
+    ///
+    /// Switches the camera output between color and monochrome (black and white) modes.
+    struct BlackWhiteCommand {
+        /// Enable black and white mode (true) or color mode (false).
+        on: bool => |v| if v { 0x04 } else { 0x00 }
     }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Custom
-    }
+    bytes = [0x81, 0x01, 0x04, 0x01, {on}, 0xFF]
 }
-
-/// Black and White Mode command.
-///
-/// Switches the camera output between color and monochrome (black and white) modes.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct BlackWhiteCommand {
-    /// Internal command bytes.
-    command: [u8; 6]}
 
 impl BlackWhiteCommand {
     /// Create a new black and white command.
     pub fn new(on: bool) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::image::BLACK_WHITE_PREFIX);
-        cmd.push(if on { 0x04 } else { 0x00 });
-        Self {
-            command: cmd.build()}
-    }
-}
-
-impl EncodeVisca for BlackWhiteCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len()});
-        }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-    
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-    
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+        Self { on }
     }
 }
 
@@ -198,13 +116,15 @@ pub enum ImageFlipMode {
     /// Flip image vertically (upside down).
     Vertical,
     /// Flip image both horizontally and vertically (180° rotation).
-    Both}
+    Both,
+}
 
 /// Command to set the combined image flip mode.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct ImageFlipCombinedCommand {
     /// Internal command bytes.
-    command: [u8; 6]}
+    command: [u8; 6],
+}
 
 impl ImageFlipCombinedCommand {
     /// Create a new image flip combined command.
@@ -215,10 +135,12 @@ impl ImageFlipCombinedCommand {
             ImageFlipMode::Off => 0x00,
             ImageFlipMode::Horizontal => 0x01,
             ImageFlipMode::Vertical => 0x02,
-            ImageFlipMode::Both => 0x03};
+            ImageFlipMode::Both => 0x03,
+        };
         cmd.push(mode_byte);
         Self {
-            command: cmd.build()}
+            command: cmd.build(),
+        }
     }
 }
 
@@ -230,17 +152,18 @@ impl EncodeVisca for ImageFlipCombinedCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Custom
     }
@@ -398,12 +321,18 @@ mod tests {
         let backlight_cmd1 = BacklightCommand::new(true);
         let backlight_cmd2 = backlight_cmd1;
         // Verify commands produce same bytes
-        assert_eq!(backlight_cmd1.try_into_vec().unwrap(), backlight_cmd2.try_into_vec().unwrap());
+        assert_eq!(
+            backlight_cmd1.try_into_vec().unwrap(),
+            backlight_cmd2.try_into_vec().unwrap()
+        );
 
         let flip_cmd1 = ImageFlipCombinedCommand::new(ImageFlipMode::Horizontal);
         let flip_cmd2 = flip_cmd1;
         // Verify the command was copied correctly
-        assert_eq!(flip_cmd2.try_into_vec().unwrap(), vec![0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]);
+        assert_eq!(
+            flip_cmd2.try_into_vec().unwrap(),
+            vec![0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]
+        );
     }
 
     #[test]
@@ -413,7 +342,9 @@ mod tests {
         assert!(NoiseReduction2D::Off.response_type().is_none());
         assert!(NoiseReduction3D::Off.response_type().is_none());
         assert!(BlackWhiteCommand::new(true).response_type().is_none());
-        assert!(ImageFlipCombinedCommand::new(ImageFlipMode::Off).response_type().is_none());
+        assert!(ImageFlipCombinedCommand::new(ImageFlipMode::Off)
+            .response_type()
+            .is_none());
     }
 
     #[test]
@@ -430,7 +361,8 @@ mod tests {
         let mode2 = mode1;
         match (mode1, mode2) {
             (ImageFlipMode::Horizontal, ImageFlipMode::Horizontal) => {}
-            _ => panic!("Copy didn't preserve mode")}
+            _ => panic!("Copy didn't preserve mode"),
+        }
     }
 
     #[test]
@@ -451,12 +383,14 @@ mod tests {
         // Test that enum variants work correctly
         match NoiseReduction2D::Off {
             NoiseReduction2D::Off => {}
-            NoiseReduction2D::Level(_) => panic!("Expected Off variant")}
+            NoiseReduction2D::Level(_) => panic!("Expected Off variant"),
+        }
 
         let level = NoiseReduction2DLevel::new(3).unwrap();
         match NoiseReduction2D::Level(level) {
             NoiseReduction2D::Level(l) => assert_eq!(l.value(), 3),
-            NoiseReduction2D::Off => panic!("Expected Level variant")}
+            NoiseReduction2D::Off => panic!("Expected Level variant"),
+        }
     }
 
     #[test]
@@ -464,12 +398,14 @@ mod tests {
         // Test that enum variants work correctly
         match NoiseReduction3D::Off {
             NoiseReduction3D::Off => {}
-            NoiseReduction3D::Level(_) => panic!("Expected Off variant")}
+            NoiseReduction3D::Level(_) => panic!("Expected Off variant"),
+        }
 
         let level = NoiseReduction3DLevel::new(5).unwrap();
         match NoiseReduction3D::Level(level) {
             NoiseReduction3D::Level(l) => assert_eq!(l.value(), 5),
-            NoiseReduction3D::Off => panic!("Expected Level variant")}
+            NoiseReduction3D::Off => panic!("Expected Level variant"),
+        }
     }
 
     #[test]
@@ -497,8 +433,8 @@ mod tests {
         let cmd = BacklightCommand::new(true);
         let debug_str = format!("{:?}", cmd);
         assert!(debug_str.contains("BacklightCommand"));
-        // The debug output will show the command bytes, not the boolean value
-        assert!(debug_str.contains("command"));
+        // The debug output will show the field name
+        assert!(debug_str.contains("status"));
 
         let cmd = BacklightCommand::new(false);
         let debug_str = format!("{:?}", cmd);
@@ -510,8 +446,8 @@ mod tests {
         let cmd = BlackWhiteCommand::new(true);
         let debug_str = format!("{:?}", cmd);
         assert!(debug_str.contains("BlackWhiteCommand"));
-        // The debug output will show the command bytes, not the boolean value
-        assert!(debug_str.contains("command"));
+        // The debug output will show the field name
+        assert!(debug_str.contains("on"));
 
         let cmd = BlackWhiteCommand::new(false);
         let debug_str = format!("{:?}", cmd);

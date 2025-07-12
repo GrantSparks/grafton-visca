@@ -6,8 +6,8 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::methods::{
-        ExposureOps, FocusOps, ImageProcessingOps, PanTiltOps, PowerOps,
-        PresetsOps, WhiteBalanceOps, ZoomOps,
+        ExposureOps, FocusOps, ImageProcessingOps, PanTiltOps, PowerOps, PresetsOps,
+        WhiteBalanceOps, ZoomOps,
     },
     command::{
         // exposure::{DynamicRangeLevel, ExposureMode}, // not used
@@ -15,13 +15,15 @@ use grafton_visca::{
         pan_tilt::PanTiltDirection,
         // white_balance::WhiteBalanceMode, // not used
     },
-    profiles::PTZOpticsG2,
+    
     transport::tokio::Udp,
+    command::preset::PresetNumber,
     types::{
-        BrightnessLevel, ColorTemperature, ContrastLevel, DynamicRangeLevel, GainLimit, HueLevel,
+        BrightnessLevel, ColorTemp, ContrastLevel, DynamicRangeLevel, GainLevel, GainLimit, HueLevel,
         IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
+        PanSpeed, TiltSpeed,
     },
-    Camera, Error,
+    Camera, Error, Normalized, Degrees,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -35,7 +37,7 @@ async fn main() -> Result<(), Error> {
 
     // Create a camera with the new API
     let transport = Udp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::new(transport);
 
     println!("=== Testing Comprehensive Camera API ===\n");
 
@@ -49,14 +51,14 @@ async fn main() -> Result<(), Error> {
     camera.pan_tilt_home().await?;
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.pan_tilt_move(PanTiltDirection::Right, 10, 0).await?;
+    camera.pan_tilt_move(PanTiltDirection::Right, PanSpeed::new(10)?, TiltSpeed::new(0)?).await?;
     time::sleep(Duration::from_millis(500)).await;
     camera.pan_tilt_stop().await?;
 
     // Zoom control
     println!("\nTesting zoom control...");
     // Use zoom_absolute with normalized position (0x2000 / 0x4000 = 0.5)
-    camera.zoom_absolute(0.5).await?;
+    camera.zoom_absolute(Normalized(0.5)).await?;
     time::sleep(Duration::from_secs(1)).await;
 
     camera.zoom_in().await?;
@@ -65,15 +67,14 @@ async fn main() -> Result<(), Error> {
 
     // Preset management
     println!("\nTesting preset management...");
-    use grafton_visca::camera::profiles::G2PresetId;
-    let preset = G2PresetId::new(1)?;
-    camera.preset_set(preset.into()).await?;
+    // Note: preset operations may use different API in new version
+    camera.preset_set(PresetNumber::new(1)?).await?;
     time::sleep(Duration::from_millis(500)).await;
 
     camera.pan_tilt_home().await?;
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.preset_recall(preset.into()).await?;
+    camera.preset_recall(PresetNumber::new(1)?).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Focus control
@@ -140,32 +141,32 @@ async fn main() -> Result<(), Error> {
     println!("\nTesting position control with different units...");
 
     // Using degrees
-    camera.pan_tilt_absolute(45.0, 15.0, 10).await?;
+    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), 10.into()).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Using VISCA units
     // Set position using raw VISCA units (convert to appropriate units)
     // This would require using ViscaUnits or converting to degrees
-    camera.pan_tilt_absolute(10.0, 5.0, 10).await?;
+    camera.pan_tilt_absolute(Degrees(10.0), Degrees(5.0), 10.into()).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Using normalized coordinates - convert to degrees
-    camera.pan_tilt_absolute(0.0, 0.0, 10).await?;
+    camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0), 10.into()).await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Gain control with profile-specific values
     println!("\nTesting gain control...");
 
     // Set gain value
-    camera.set_gain(grafton_visca::types::Gain::new(0)?).await?; // 0dB gain
-    camera.set_gain(grafton_visca::types::Gain::new(4)?).await?; // 12dB gain
+    camera.set_gain(GainLevel::new(0)?).await?; // 0dB gain
+    camera.set_gain(GainLevel::new(4)?).await?; // 12dB gain
     camera.set_gain_limit(GainLimit::new(4)?).await?; // 12dB limit
 
     // Dynamic range and color temperature
     println!("\nTesting dynamic range and color temperature...");
     camera.set_dynamic_range(DynamicRangeLevel::new(5)?).await?;
     camera
-        .set_color_temperature(ColorTemperature::new(0x20)?)
+        .set_color_temperature(ColorTemp::new(0x20)?)
         .await?;
 
     println!("\n=== All Camera API Methods Tested Successfully! ===");

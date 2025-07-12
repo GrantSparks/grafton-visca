@@ -10,7 +10,7 @@ use crate::common::{
     ValidationMode,
 };
 use grafton_visca::{
-    camera::{methods::*, ProfileId, Camera},
+    camera::{methods::*, Camera, ProfileId},
     command::{
         gain::AntiFlickerMode, image_adjustment::SharpnessMode, AutoFocusSensitivity, ExposureMode,
         FocusZone, InquiryResponse, Response, ResponseType, WhiteBalanceMode,

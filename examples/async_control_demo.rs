@@ -46,7 +46,7 @@ async fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Udp::connect(camera_addr).await?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::new(transport);
 
     println!("\n=== Async Camera Control Demo ===\n");
 

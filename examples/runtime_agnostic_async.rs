@@ -17,7 +17,8 @@ fn main() {
     println!();
     println!("Example with async-std:");
     println!();
-    println!(r#"
+    println!(
+        r#"
 use grafton_visca::{{Camera, ProfileId, transport::Transport}};
 use async_std::net::TcpStream;
 use async_std::io::{{ReadExt, WriteExt}};
@@ -81,7 +82,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {{
     
     Ok(())
 }}
-"#);
+"#
+    );
 
     println!();
     println!("Key differences from tokio mode:");

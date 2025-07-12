@@ -3,14 +3,11 @@
 //! This example demonstrates common camera operations using the async API.
 
 use grafton_visca::{
-    camera::methods::{
-        ExposureOps, FocusOps, PanTiltOps, PowerOps, WhiteBalanceOps,
-        ZoomOps,
-    },
+    camera::methods::{ExposureOps, FocusOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
-    profiles::PTZOpticsG2,
+    
     transport::tokio::Tcp,
-    Camera, Error,
+    Camera, Error, ProfileId,
 };
 use std::time::Duration;
 use tokio::time::sleep;
@@ -29,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create async transport
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::new(transport);
 
     // Demo 1: Power Control
     demo_power_control(&camera).await?;
@@ -57,11 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_power_control<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
-where
-    T: grafton_visca::transport::Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+async fn demo_power_control(camera: &Camera) -> Result<(), Error>
 {
     println!("📍 Demo 1: Power Control");
     println!("Powering on camera...");
@@ -72,11 +65,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_pan_tilt_movement<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
-where
-    T: grafton_visca::transport::Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+async fn demo_pan_tilt_movement(camera: &Camera) -> Result<(), Error>
 {
     println!("\n📍 Demo 2: Pan/Tilt Movement");
 
@@ -96,11 +85,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_zoom_control<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
-where
-    T: grafton_visca::transport::Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+async fn demo_zoom_control(camera: &Camera) -> Result<(), Error>
 {
     println!("\n📍 Demo 3: Zoom Control");
 
@@ -121,11 +106,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_focus_control<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
-where
-    T: grafton_visca::transport::Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+async fn demo_focus_control(camera: &Camera) -> Result<(), Error>
 {
     println!("\n📍 Demo 4: Focus Control");
 
@@ -139,11 +120,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_exposure_settings<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
-where
-    T: grafton_visca::transport::Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+async fn demo_exposure_settings(camera: &Camera) -> Result<(), Error>
 {
     println!("\n📍 Demo 5: Exposure Settings");
 
@@ -157,11 +134,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_white_balance<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
-where
-    T: grafton_visca::transport::Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+async fn demo_white_balance(camera: &Camera) -> Result<(), Error>
 {
     println!("\n📍 Demo 6: White Balance");
 
@@ -174,11 +147,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_position_control<T>(camera: &Camera<PTZOpticsG2, T>) -> Result<(), Error>
-where
-    T: grafton_visca::transport::Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+async fn demo_position_control(camera: &Camera) -> Result<(), Error>
 {
     println!("\n📍 Demo 7: Position Control");
 

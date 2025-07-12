@@ -5,10 +5,11 @@
 
 // Crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, const_encoding::CommandBuilder, ResponseType},
+    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{ContrastLevel, LuminanceLevel}};
+    types::{ContrastLevel, LuminanceLevel},
+};
 
 /// Sharpness control modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,7 +17,8 @@ pub enum SharpnessMode {
     /// Automatic sharpness adjustment based on scene content.
     Auto,
     /// Manual sharpness control.
-    Manual}
+    Manual,
+}
 
 /// Sharpness control commands.
 ///
@@ -35,7 +37,9 @@ pub enum Sharpness {
     /// Set sharpness to specific value (0-11).
     SetLevel {
         /// Sharpness value (0 = minimum, 11 = maximum).
-        value: u8}}
+        value: u8,
+    },
+}
 
 impl EncodeVisca for Sharpness {
     type Response = ();
@@ -45,14 +49,16 @@ impl EncodeVisca for Sharpness {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         match self {
             Self::Mode(mode) => {
                 let mode_byte = match mode {
                     SharpnessMode::Auto => 0x02,
-                    SharpnessMode::Manual => 0x03};
+                    SharpnessMode::Manual => 0x03,
+                };
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -96,13 +102,14 @@ impl EncodeVisca for Sharpness {
                 }
                 let high = (*value >> 4) & 0x0F;
                 let low = *value & 0x0F;
-                
+
                 if buffer.len() < 9 {
                     return Err(Error::BufferTooSmall {
                         required: 9,
-                        actual: buffer.len()});
+                        actual: buffer.len(),
+                    });
                 }
-                
+
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -116,11 +123,11 @@ impl EncodeVisca for Sharpness {
             }
         }
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Custom
     }
@@ -130,7 +137,8 @@ impl EncodeVisca for Sharpness {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LuminanceCommand {
     /// Internal command bytes.
-    command: [u8; 9]}
+    command: [u8; 9],
+}
 
 impl LuminanceCommand {
     /// Create a new luminance command.
@@ -139,7 +147,8 @@ impl LuminanceCommand {
         cmd.append(crate::command::const_encoding::constants::image::LUMINANCE_PREFIX);
         cmd.push(value.value());
         Self {
-            command: cmd.build()}
+            command: cmd.build(),
+        }
     }
 }
 
@@ -151,17 +160,18 @@ impl EncodeVisca for LuminanceCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -171,7 +181,8 @@ impl EncodeVisca for LuminanceCommand {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ContrastCommand {
     /// Internal command bytes.
-    command: [u8; 9]}
+    command: [u8; 9],
+}
 
 impl ContrastCommand {
     /// Create a new contrast command.
@@ -180,7 +191,8 @@ impl ContrastCommand {
         cmd.append(crate::command::const_encoding::constants::image::CONTRAST_PREFIX);
         cmd.push(value.value());
         Self {
-            command: cmd.build()}
+            command: cmd.build(),
+        }
     }
 }
 
@@ -192,17 +204,18 @@ impl EncodeVisca for ContrastCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
@@ -405,13 +418,11 @@ mod tests {
         let sharp_cmd1 = Sharpness::SetLevel { value: 5 };
         let sharp_cmd2 = sharp_cmd1;
         match (sharp_cmd1, sharp_cmd2) {
-            (
-                Sharpness::SetLevel { value: v1 },
-                Sharpness::SetLevel { value: v2 },
-            ) => {
+            (Sharpness::SetLevel { value: v1 }, Sharpness::SetLevel { value: v2 }) => {
                 assert_eq!(v1, v2);
             }
-            _ => panic!("Clone didn't preserve variant")}
+            _ => panic!("Clone didn't preserve variant"),
+        }
     }
 
     #[test]
@@ -468,16 +479,22 @@ mod tests {
     fn test_response_type_none() {
         // Verify all commands return None for response_type
         assert!(Sharpness::Reset.response_type().is_none());
-        assert!(Sharpness::Mode(SharpnessMode::Auto).response_type().is_none());
+        assert!(Sharpness::Mode(SharpnessMode::Auto)
+            .response_type()
+            .is_none());
         assert!(Sharpness::Up.response_type().is_none());
         assert!(Sharpness::Down.response_type().is_none());
         assert!(Sharpness::SetLevel { value: 5 }.response_type().is_none());
         assert!(LuminanceCommand::new(
             LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        ).response_type().is_none());
+        )
+        .response_type()
+        .is_none());
         assert!(ContrastCommand::new(
             ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        ).response_type().is_none());
+        )
+        .response_type()
+        .is_none());
     }
 
     #[test]

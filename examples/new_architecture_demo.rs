@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = Tcp::connect("192.168.1.100:5678")?;
 
     // Create camera with blocking interface
-    let _camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let _camera = Camera::new(transport);
 
     println!("Camera model: PTZOptics G2");
 
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = Tcp::connect("192.168.1.100:5678").await?;
 
     // Create camera with async interface
-    let _camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let _camera = Camera::new(transport);
 
     println!("Camera model: PTZOptics G2");
 

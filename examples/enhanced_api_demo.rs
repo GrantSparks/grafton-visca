@@ -6,12 +6,11 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::methods::{
-        ExposureOps, ImageProcessingOps, PanTiltOps, PowerOps,
-        WhiteBalanceOps, ZoomOps,
+        ExposureOps, ImageProcessingOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps,
     },
-    profiles::PTZOpticsG2,
+    
     transport::tokio::Udp,
-    Camera, Error,
+    Camera, Error, Normalized, Degrees,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -25,7 +24,7 @@ async fn main() -> Result<(), Error> {
 
     // Connect to camera using new Camera API with UDP transport
     let transport = Udp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::new(transport);
 
     println!("=== Enhanced Camera API Demo ===\n");
 
@@ -61,15 +60,15 @@ async fn main() -> Result<(), Error> {
 
     // Demonstrate zoom control
     println!("\n--- Zoom Control ---");
-    camera.zoom_absolute(0.0).await?; // Minimum zoom
+    camera.zoom_absolute(Normalized(0.0)).await?; // Minimum zoom
     println!("Set zoom to minimum (1x)");
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.zoom_absolute(0.42).await?; // Approximately 5x for 12x camera
+    camera.zoom_absolute(Normalized(0.42)).await?; // Approximately 5x for 12x camera
     println!("Set zoom to approximately 5x");
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.zoom_absolute(0.25).await?; // 25% of max zoom
+    camera.zoom_absolute(Normalized(0.25)).await?; // 25% of max zoom
     println!("Set zoom to 25% of maximum");
     time::sleep(Duration::from_secs(2)).await;
 
@@ -79,19 +78,19 @@ async fn main() -> Result<(), Error> {
     println!("Moved to home position");
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.pan_tilt_absolute(45.0, 15.0, 10).await?;
+    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), 10.into()).await?;
     println!("Moved to 45° pan, 15° tilt");
     time::sleep(Duration::from_secs(3)).await;
 
     // Using absolute position with degrees (assuming ±170° pan, -30° to +90° tilt for PTZOpticsG2)
-    camera.pan_tilt_absolute(-85.0, 15.0, 10).await?;
+    camera.pan_tilt_absolute(Degrees(-85.0), Degrees(15.0), 10.into()).await?;
     println!("Moved to position (-85° pan, +15° tilt)");
     time::sleep(Duration::from_secs(3)).await;
 
     // Demonstrate relative movement
     println!("\n--- Relative Movement ---");
     // Use relative movement to move the camera
-    camera.pan_tilt_relative(10.0, 5.0, 10).await?;
+    camera.pan_tilt_relative(Degrees(10.0), Degrees(5.0), 10.into()).await?;
     println!("Moved camera relative: +10° pan, +5° tilt");
     time::sleep(Duration::from_secs(2)).await;
 
@@ -101,7 +100,7 @@ async fn main() -> Result<(), Error> {
     camera.white_balance_auto().await?;
     // Note: Cannot reset image settings as they're not implemented
     camera.pan_tilt_home().await?;
-    camera.zoom_absolute(0.0).await?; // Minimum zoom
+    camera.zoom_absolute(Normalized(0.0)).await?; // Minimum zoom
     println!("Returned camera to default settings");
 
     println!("\n=== Demo Complete ===");

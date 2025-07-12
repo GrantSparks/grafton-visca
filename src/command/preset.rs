@@ -13,7 +13,8 @@
 use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
-    timeout::CommandCategory};
+    timeout::CommandCategory,
+};
 
 /// Action to perform on a preset.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -23,7 +24,8 @@ pub enum PresetAction {
     /// Store current position to preset.
     Set = 0x01,
     /// Move camera to preset position.
-    Recall = 0x02}
+    Recall = 0x02,
+}
 
 crate::visca_bounded_param! {
     /// Preset number with validation.
@@ -42,7 +44,8 @@ pub(crate) struct PresetCommand {
     /// The action to perform.
     pub action: PresetAction,
     /// The preset number to operate on.
-    pub preset_number: PresetNumber}
+    pub preset_number: PresetNumber,
+}
 
 impl PresetCommand {
     // Legacy method - removed in new API
@@ -57,7 +60,8 @@ impl EncodeVisca for PresetCommand {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
-                actual: buffer.len()});
+                actual: buffer.len(),
+            });
         }
 
         buffer[0] = 0x81;
@@ -67,14 +71,14 @@ impl EncodeVisca for PresetCommand {
         buffer[4] = self.action as u8;
         buffer[5] = self.preset_number.value();
         buffer[6] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
-    
+
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-    
+
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Preset
     }
@@ -126,7 +130,8 @@ mod tests {
         let cmd = PresetCommand {
             action: PresetAction::Reset,
             preset_number: PresetNumber::new(10)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
@@ -139,7 +144,8 @@ mod tests {
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: PresetNumber::new(45)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
@@ -152,7 +158,8 @@ mod tests {
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: PresetNumber::new(89)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
+        };
         assert_eq!(
             cmd.try_into_vec()
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
@@ -165,7 +172,8 @@ mod tests {
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: PresetNumber::new(0)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
+        };
         assert_eq!(cmd.timeout_kind(), CommandCategory::Preset);
     }
 
@@ -174,7 +182,8 @@ mod tests {
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: PresetNumber::new(0)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}"))};
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
+        };
         assert!(cmd.response_type().is_none());
     }
 }

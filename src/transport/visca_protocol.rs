@@ -8,7 +8,7 @@ use crate::{
 use std::time::Duration;
 
 /// VISCA protocol constants.
-const VISCA_TERMINATOR: u8 = 0xFF;
+// Removed duplicate - use from const_encoding module
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const ACK_TIMEOUT: Duration = Duration::from_millis(500);
 const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
@@ -37,10 +37,7 @@ impl<T: Transport> ViscaProtocol<T> {
     }
 
     /// Send a VISCA command and return a future that resolves to the response.
-    pub async fn send_command<'a, C>(
-        &'a self,
-        command: &'a C,
-    ) -> Result<Response, Error>
+    pub async fn send_command<'a, C>(&'a self, command: &'a C) -> Result<Response, Error>
     where
         C: EncodeVisca,
     {
@@ -134,7 +131,7 @@ impl<T: Transport> ViscaProtocol<T> {
             log::debug!("Timeout of {:?} requested, but no runtime-specific timeout available. Users should wrap operations with their runtime's timeout mechanism.", duration);
             self.transport.recv().await.map_err(Into::into)
         }
-        
+
         #[cfg(not(feature = "async"))]
         {
             // This shouldn't be reachable in blocking mode as ViscaProtocol is async-only
@@ -147,7 +144,9 @@ impl<T: Transport> ViscaProtocol<T> {
 // Helper to check if a Response matches a ResponseType
 impl Response {
     fn matches_type(&self, expected: ResponseType) -> bool {
-        matches!((self, expected), (
+        matches!(
+            (self, expected),
+            (
                 Response::InquiryResponse(InquiryResponse::ZoomPosition { .. }),
                 ResponseType::ZoomPosition,
             ) | (
@@ -156,12 +155,25 @@ impl Response {
             ) | (
                 Response::InquiryResponse(InquiryResponse::PanTiltPosition { .. }),
                 ResponseType::PanTiltPosition,
-            ) | (Response::InquiryResponse(InquiryResponse::Power { .. }), ResponseType::Power) | (
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Power { .. }),
+                ResponseType::Power
+            ) | (
                 Response::InquiryResponse(InquiryResponse::WhiteBalance { .. }),
                 ResponseType::WhiteBalanceMode,
             ) | (
                 Response::InquiryResponse(InquiryResponse::ExposureMode { .. }),
                 ResponseType::ExposureMode,
-            ) | (Response::InquiryResponse(InquiryResponse::Iris { .. }), ResponseType::Iris) | (Response::InquiryResponse(InquiryResponse::GainLevel { .. }), ResponseType::Gain) | (Response::InquiryResponse(InquiryResponse::Shutter { .. }), ResponseType::Shutter))
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Iris { .. }),
+                ResponseType::Iris
+            ) | (
+                Response::InquiryResponse(InquiryResponse::GainLevel { .. }),
+                ResponseType::Gain
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Shutter { .. }),
+                ResponseType::Shutter
+            )
+        )
     }
 }

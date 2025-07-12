@@ -64,7 +64,7 @@ async fn demo_ptzoptics_g2() -> Result<(), Error> {
     println!("----------------------");
 
     let transport = MockTransport;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = Camera::new(transport);
 
     // Get profile information
     println!("Model: PTZOptics G2");
@@ -97,7 +97,7 @@ async fn demo_sony_fr7() -> Result<(), Error> {
     println!("------------------");
 
     let transport = MockTransport;
-    let camera = Camera::<SonyFR7, _>::new(transport);
+    let camera = Camera::new(transport);
 
     println!("Model: Sony FR7");
     println!("Using Sony FR7 profile");
@@ -121,7 +121,7 @@ async fn demo_generic_visca() -> Result<(), Error> {
     println!("-----------------------");
 
     let transport = MockTransport;
-    let camera = Camera::<GenericVisca, _>::new(transport);
+    let camera = Camera::new(transport);
 
     println!("Model: Generic VISCA");
     println!("Using generic VISCA defaults for unknown camera models");
