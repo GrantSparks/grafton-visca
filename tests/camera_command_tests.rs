@@ -7,7 +7,7 @@ mod common;
 
 use crate::common::{
     patterns, MockResponse, MockTransport, MockTransportBuilder, ProtocolValidator,
-    ResponseBuilder, ScenarioBuilder, ValidationMode,
+    ScenarioBuilder, ValidationMode,
 };
 use std::time::Duration;
 

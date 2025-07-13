@@ -8,15 +8,10 @@
 //! - Maximize throughput with concurrent operations
 
 use grafton_visca::{
-    camera::{
-        methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
-        profiles::G2PresetId,
-    },
+    camera::methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
     command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
-    profiles::PTZOpticsG2,
     transport::tokio::Udp,
-    types::{PanSpeed, SpeedLevel, TiltSpeed},
-    units::{Degrees, Normalized},
+    types::{PanSpeed, TiltSpeed},
     Camera, Error,
 };
 use std::sync::Arc;

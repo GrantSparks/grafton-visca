@@ -4,7 +4,7 @@
 //! For most use cases, prefer using the Camera API instead.
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{profiles::GenericVisca, transport::tokio::Tcp, Camera};
+use grafton_visca::{transport::tokio::Tcp, Camera};
 #[cfg(feature = "tokio")]
 use std::time::Duration;
 

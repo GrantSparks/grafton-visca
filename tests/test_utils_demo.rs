@@ -299,8 +299,8 @@ fn test_data_generators() {
     let positions = generators::pan_tilt_positions();
     for (pan, tilt) in positions {
         println!("Testing position: pan={}, tilt={}", pan, tilt);
-        assert!(pan >= -170 && pan <= 170);
-        assert!(tilt >= -30 && tilt <= 90);
+        assert!((-170..=170).contains(&pan));
+        assert!((-30..=90).contains(&tilt));
     }
 
     // Test preset numbers

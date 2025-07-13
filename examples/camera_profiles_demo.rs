@@ -1,5 +1,3 @@
-#![cfg(feature = "tokio")]
-
 //! Camera profiles demonstration.
 //!
 //! This example shows how to use different camera profiles with the unified Camera API
@@ -7,13 +5,19 @@
 //!
 //! Run with: cargo run --example camera_profiles_demo --features tokio
 
+use grafton_visca::ProfileId;
+
+#[cfg(feature = "tokio")]
 use grafton_visca::{
-    command::preset::PresetNumber, types::SpeedLevel, Camera, Degrees, Error, Normalized, ProfileId,
+    command::preset::PresetNumber, types::SpeedLevel, Camera, Degrees, Error, Normalized,
 };
 
+#[cfg(feature = "tokio")]
 use grafton_visca::r#async::{FocusOps, PanTiltOps, PowerOps, PresetsOps, ZoomOps};
+#[cfg(feature = "tokio")]
 use grafton_visca::transport::tokio::Tcp;
 
+#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     env_logger::init();
@@ -28,6 +32,7 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(feature = "tokio")]
 async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     println!("=== PTZOptics G2 Demo ===");
 
@@ -37,8 +42,6 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
 
     println!("Connected to: {}", unified_camera.model_name());
     println!("Profile info: {}", unified_camera.profile_info());
-
-    let mut camera = unified_camera.r#async();
 
     // Check capabilities at runtime (from unified camera)
     println!("\nCapabilities:");
@@ -57,6 +60,8 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
         "  ✗ ND Filter: {}",
         unified_camera.supports_capability("nd_filter")
     );
+
+    let camera = unified_camera.r#async();
 
     // Use the camera with high-level API
     println!("\nPerforming operations:");
@@ -98,6 +103,7 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(feature = "tokio")]
 async fn demonstrate_sony_fr7() -> Result<(), Error> {
     println!("=== Sony FR7 Demo ===");
 
@@ -107,8 +113,6 @@ async fn demonstrate_sony_fr7() -> Result<(), Error> {
     println!("Connected to: {}", unified_camera.model_name());
     println!("Profile info: {}", unified_camera.profile_info());
 
-    let mut camera = unified_camera.r#async();
-
     // FR7 has additional capabilities
     println!("\nCapabilities:");
     println!("  ✓ All standard features");
@@ -117,6 +121,8 @@ async fn demonstrate_sony_fr7() -> Result<(), Error> {
         unified_camera.supports_capability("nd_filter"),
         unified_camera.nd_filter_mode()
     );
+
+    let camera = unified_camera.r#async();
 
     println!("\nPerforming FR7-specific operations:");
 
@@ -135,6 +141,7 @@ async fn demonstrate_sony_fr7() -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(feature = "tokio")]
 async fn demonstrate_generic_visca() -> Result<(), Error> {
     println!("=== Generic VISCA Demo ===");
 
@@ -144,7 +151,7 @@ async fn demonstrate_generic_visca() -> Result<(), Error> {
     println!("Connected to: {}", unified_camera.model_name());
     println!("Profile info: {}", unified_camera.profile_info());
 
-    let mut camera = unified_camera.r#async();
+    let camera = unified_camera.r#async();
 
     // Generic profile only guarantees basic VISCA operations
     println!("\nCapabilities (minimal guarantee):");
@@ -195,4 +202,10 @@ async fn capture_preset(
     println!("  - Saved position as preset {}", preset_id);
 
     Ok(())
+}
+
+#[cfg(not(feature = "tokio"))]
+fn main() {
+    eprintln!("This example requires the 'tokio' feature to be enabled.");
+    eprintln!("Run with: cargo run --example camera_profiles_demo --features tokio");
 }

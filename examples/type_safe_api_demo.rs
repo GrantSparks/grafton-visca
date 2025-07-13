@@ -11,7 +11,7 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{Camera, ExposureOps, PanTiltOps, PresetsOps},
+    blocking::{ExposureOps, PanTiltOps, PresetsOps},
 
     transport::blocking::Udp,
     types::SpeedLevel,
@@ -29,13 +29,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to camera using the new Camera API
     let transport = Udp::connect("192.168.1.100:5678")?;
-    let mut camera = Camera::new(transport);
+    let camera = grafton_visca::Camera::new(transport).blocking();
 
     println!("=== Type-Safe Camera API Demo ===\n");
 
     // 1. Camera profile provides compile-time type safety
     println!("1. Camera profile information:");
-    println!("   Model: {}", camera.model_name());
     println!("   Camera profile implements capability traits at compile-time");
     println!("   Available methods are determined by profile capabilities");
     println!("   ✓ All capabilities are type-safe and model-specific");
@@ -76,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.pan_tilt_home()?;
     thread::sleep(Duration::from_secs(2));
 
-    camera.preset_recall(preset.into())?;
+    camera.preset_recall(preset)?;
     println!("   ✓ Recalled preset");
 
     // 4. Profile-specific gain values

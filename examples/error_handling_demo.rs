@@ -9,18 +9,15 @@ use grafton_visca::transport::blocking::Tcp;
 use grafton_visca::transport::tokio::Tcp;
 
 use grafton_visca::Error;
-#[cfg(feature = "tokio")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{
-        methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-        profiles::G2PresetId,
-    },
+    blocking::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
+    camera::profiles::G2PresetId,
     command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
-    types::{PanSpeed, SpeedLevel, TiltSpeed},
-    units::{Degrees, Normalized},
+    types::{PanSpeed, TiltSpeed},
     Camera,
 };
-#[cfg(not(feature = "async"))]
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
@@ -178,11 +175,11 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Err(e) => {
             println!("   ✗ Failed to create transport: {}", e);
             println!("   💡 This is expected if the address is invalid");
-            return Err(e.into());
+            return Err(e);
         }
     };
 
-    let mut camera = Camera::new(transport);
+    let camera = Camera::new(transport).blocking();
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -330,7 +327,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Err(e) => {
             println!("   ✗ Failed to create transport: {}", e);
             println!("   💡 This is expected if the address is invalid");
-            return Err(e.into());
+            return Err(e);
         }
     };
 

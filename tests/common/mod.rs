@@ -22,6 +22,7 @@ pub mod test_fixtures;
 #[allow(unused_imports)]
 pub use mock_transport_enhanced::MockTransportBuilder;
 pub use mock_transport_enhanced::{MockResponse, MockTransport};
+#[allow(unused_imports)]
 pub use protocol_validator::{ProtocolValidator, ValidationMode};
 pub use response_builder::ResponseBuilder;
 #[allow(unused_imports)]

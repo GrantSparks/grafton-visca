@@ -50,7 +50,7 @@ fn main() -> Result<(), Error> {
 fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Tcp::connect(camera_addr)?;
-    let mut camera = grafton_visca::Camera::new(transport).blocking();
+    let camera = grafton_visca::Camera::new(transport).blocking();
 
     println!("Note: The Camera API doesn't have built-in timeout support.");
     println!("These examples show execution timing patterns.\n");
@@ -62,7 +62,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     // Note: Direct power inquiry method not available in Camera API
     // Power on command (will succeed if already on)
     let start = Instant::now();
-    match (|| camera.power_on())() {
+    match camera.power_on() {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Power on command completed in {:?}", elapsed);
@@ -100,7 +100,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
             // Stop movement
             let stop_start = Instant::now();
-            match (|| camera.pan_tilt_stop())() {
+            match camera.pan_tilt_stop() {
                 Ok(_) => {
                     let stop_elapsed = stop_start.elapsed();
                     println!("   ✓ Stop movement completed in {:?}", stop_elapsed);
@@ -133,7 +133,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     // Recall preset
     let start = Instant::now();
-    match camera.preset_recall(PresetNumber::Preset1) {
+    match camera.preset_recall(PresetNumber::new(1)?) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Recall preset completed in {:?}", elapsed);

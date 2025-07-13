@@ -17,7 +17,6 @@ use grafton_visca::{
     blocking::*,
     camera::{Camera, ProfileId},
     command::preset::PresetNumber,
-    Result,
 };
 use std::time::Duration;
 
@@ -65,7 +64,7 @@ fn test_zoom_commands_with_fixtures() {
     // Use MockTransportBuilder for zoom command expectations
     let mut builder = MockTransportBuilder::new().connected(true);
 
-    for (_name, cmd_bytes) in &zoom_cmds {
+    for cmd_bytes in zoom_cmds.values() {
         builder = builder.expect(
             cmd_bytes,
             vec![
@@ -97,7 +96,7 @@ fn test_preset_commands_with_fixtures() {
     // Use MockTransportBuilder for preset command expectations
     let mut builder = MockTransportBuilder::new().connected(true);
 
-    for (_name, cmd_bytes) in &preset_cmds {
+    for cmd_bytes in preset_cmds.values() {
         builder = builder.expect(
             cmd_bytes,
             vec![

@@ -18,6 +18,7 @@ use grafton_visca::{
         tokio::{Tcp, Udp},
         Transport,
     },
+    types::SpeedLevel,
     units::Degrees,
     Camera, Error,
 };
@@ -59,12 +60,7 @@ async fn main() -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_quick_timeout(camera: &Camera) -> Result<(), Error>
-where
-    T: Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
+async fn demonstrate_quick_timeout(camera: &Camera) -> Result<(), Error> {
     println!("1. Quick Commands with Short Timeout:");
     println!("   Using 1 second timeout for status checks\n");
 
@@ -101,12 +97,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_movement_timeout(camera: &Camera) -> Result<(), Error>
-where
-    T: Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
+async fn demonstrate_movement_timeout(camera: &Camera) -> Result<(), Error> {
     println!("2. Movement Commands with Medium Timeout:");
     println!("   Using 5 second timeout for movement commands\n");
 
@@ -152,12 +143,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_preset_timeout(camera: &Camera) -> Result<(), Error>
-where
-    T: Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
+async fn demonstrate_preset_timeout(camera: &Camera) -> Result<(), Error> {
     println!("3. Preset Commands with Long Timeout:");
     println!("   Using 30 second timeout for preset operations\n");
 
@@ -187,12 +173,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_timeout_recovery(camera: &Camera) -> Result<(), Error>
-where
-    T: Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
+async fn demonstrate_timeout_recovery(camera: &Camera) -> Result<(), Error> {
     println!("4. Timeout Recovery Strategies:");
     println!("   Demonstrating retry logic with exponential backoff\n");
 
@@ -213,7 +194,7 @@ where
 
         match timeout(
             current_timeout,
-            camera.pan_tilt_absolute(target_pan.0, target_tilt.0, 18), // Using speed 18
+            camera.pan_tilt_absolute(target_pan, target_tilt, SpeedLevel::from(18)),
         )
         .await
         {

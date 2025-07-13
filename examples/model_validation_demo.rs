@@ -10,11 +10,11 @@ use grafton_visca::transport::core::Transport;
 use grafton_visca::{
     camera::{
         methods::{PanTiltOps, PresetsOps, ZoomOps},
-        profiles::{G2PresetId, GenericVisca, PTZOpticsG2, SonyFR7},
+        profiles::G2PresetId,
     },
     command::preset::PresetNumber,
-    types::{PanSpeed, SpeedLevel, TiltSpeed},
-    units::{Degrees, Normalized},
+    types::SpeedLevel,
+    units::Degrees,
     Camera, Error,
 };
 use std::future::{ready, Ready};
