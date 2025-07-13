@@ -92,8 +92,8 @@ fn test_pan_tilt_move_directions_encoding() {
     // Test Stop
     let stop = PanTilt::Move {
         direction: PanTiltDirection::Stop,
-        pan_speed: PanSpeed::new(0).unwrap(),
-        tilt_speed: TiltSpeed::new(0).unwrap(),
+        pan_speed: PanSpeed::ZERO,
+        tilt_speed: TiltSpeed::ZERO,
     };
     let expected = &[0x81, 0x01, 0x06, 0x01, 0x00, 0x00, 0x03, 0x03, 0xFF];
     assert_eq!(
@@ -164,7 +164,7 @@ fn test_zoom_commands_encoding() {
     validator.validate_command(expected).unwrap();
 
     // Zoom Out WithSpeed with max speed
-    let zoom_out_var = Zoom::WideVariable(ZoomSpeed::new(7).unwrap());
+    let zoom_out_var = Zoom::WideVariable(ZoomSpeed::MAX);
     let expected = &[0x81, 0x01, 0x04, 0x07, 0x37, 0xFF]; // 0x30 | 7 = 0x37
     assert_eq!(
         zoom_out_var.try_into_vec().unwrap(),
@@ -216,7 +216,7 @@ fn test_preset_commands_encoding() {
     // Preset Reset
     let preset_reset = PresetCommand {
         action: PresetAction::Reset,
-        preset_number: PresetNumber::new(0).unwrap(),
+        preset_number: PresetNumber::MIN,
     };
     let expected = &[0x81, 0x01, 0x04, 0x3F, 0x00, 0x00, 0xFF];
     assert_eq!(
@@ -463,7 +463,7 @@ fn test_exposure_compensation_commands_encoding() {
     validator.validate_command(expected).unwrap();
 
     // Exposure Compensation Direct +7
-    let exp_comp_pos7 = ExposureCompensation::SetLevel(ExposureCompensationLevel::new(7).unwrap());
+    let exp_comp_pos7 = ExposureCompensation::SetLevel(ExposureCompensationLevel::MAX);
     let expected = &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x0E, 0xFF];
     assert_eq!(
         exp_comp_pos7.try_into_vec().unwrap(),
@@ -478,7 +478,7 @@ fn test_dynamic_range_command_encoding() {
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
 
     // Dynamic Range level 0
-    let dr_0 = DynamicRange::SetLevel(DynamicRangeLevel::new(0).unwrap());
+    let dr_0 = DynamicRange::SetLevel(DynamicRangeLevel::MIN);
     let expected = &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0xFF];
     assert_eq!(
         dr_0.try_into_vec().unwrap(),

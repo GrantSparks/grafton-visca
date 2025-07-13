@@ -9,7 +9,7 @@ use grafton_visca::transport::blocking::Tcp;
 use grafton_visca::transport::tokio::Tcp;
 
 use grafton_visca::Error;
-#[cfg(feature = "tokio")]
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
         methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
@@ -19,14 +19,16 @@ use grafton_visca::{
     profiles::PTZOpticsG2,
     Camera,
 };
-#[cfg(not(feature = "async"))]
+#[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
         methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
-    command::pan_tilt::PanTiltDirection,
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     profiles::PTZOpticsG2,
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    units::{Degrees, Normalized},
     Camera,
 };
 use std::time::Duration;
@@ -249,7 +251,11 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("\n   a) Handling CameraBusy during movement:");
 
     // Start a movement
-    match camera.pan_tilt_move(PanTiltDirection::Right, 10, 0) {
+    match camera.pan_tilt_move(
+        PanTiltDirection::Right,
+        PanSpeed::new(10)?,
+        TiltSpeed::new(0)?,
+    ) {
         Ok(_) => {
             println!("   ✓ Started movement");
 
@@ -281,7 +287,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
-        Ok(preset_id) => match camera.preset_recall(preset_id.into()) {
+        Ok(preset_id) => match camera.preset_recall(PresetNumber::new(preset_id.into())?) {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
                 println!("   ⚠️  Preset {} not found (expected)", id);
@@ -386,7 +392,14 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   a) Camera busy while moving:");
 
     // Start a movement
-    match camera.pan_tilt_move(PanTiltDirection::Right, 10, 0).await {
+    match camera
+        .pan_tilt_move(
+            PanTiltDirection::Right,
+            PanSpeed::new(10)?,
+            TiltSpeed::new(0)?,
+        )
+        .await
+    {
         Ok(_) => {
             println!("   ✓ Started continuous movement");
 
@@ -418,7 +431,10 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
-        Ok(preset_id) => match camera.preset_recall(preset_id.into()).await {
+        Ok(preset_id) => match camera
+            .preset_recall(PresetNumber::new(preset_id.into())?)
+            .await
+        {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
                 println!("   ⚠️  Preset {} not found (expected)", id);

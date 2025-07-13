@@ -7,91 +7,66 @@ use crate::{
     Error,
 };
 
-#[cfg(feature = "tokio")]
-use core::future::Future;
-/// Extension trait for Camera that adds focus methods.
+/// Focus operations (async).
 pub trait FocusOps: Sized {
     /// Set auto focus mode.
-    #[cfg(feature = "tokio")]
-    fn focus_auto(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set auto focus mode (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn focus_auto_blocking(&mut self) -> Result<(), Error>;
+    async fn focus_auto(&self) -> Result<(), Error>;
 
     /// Set manual focus mode.
-    #[cfg(feature = "tokio")]
-    fn focus_manual(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set manual focus mode (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn focus_manual_blocking(&mut self) -> Result<(), Error>;
+    async fn focus_manual(&self) -> Result<(), Error>;
 
     /// Focus near at specified speed.
-    #[cfg(feature = "tokio")]
-    fn focus_near(&self, speed: SpeedLevel) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Focus near at specified speed (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn focus_near_blocking(&mut self, speed: SpeedLevel) -> Result<(), Error>;
+    async fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error>;
 
     /// Focus far at specified speed.
-    #[cfg(feature = "tokio")]
-    fn focus_far(&self, speed: SpeedLevel) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Focus far at specified speed (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn focus_far_blocking(&mut self, speed: SpeedLevel) -> Result<(), Error>;
+    async fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error>;
 
     /// Stop focus movement.
-    #[cfg(feature = "tokio")]
-    fn focus_stop(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Stop focus movement (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn focus_stop_blocking(&mut self) -> Result<(), Error>;
+    async fn focus_stop(&self) -> Result<(), Error>;
 
     /// Trigger one-push auto focus.
-    #[cfg(feature = "tokio")]
-    fn focus_one_push(&self) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Trigger one-push auto focus (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn focus_one_push_blocking(&mut self) -> Result<(), Error>;
+    async fn focus_one_push(&self) -> Result<(), Error>;
 
     /// Set focus to a specific position.
-    #[cfg(feature = "tokio")]
-    fn set_focus(&self, position: FocusPosition) -> impl Future<Output = Result<(), Error>> + Send;
-
-    /// Set focus to a specific position (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn set_focus_blocking(&mut self, position: FocusPosition) -> Result<(), Error>;
+    async fn set_focus(&self, position: FocusPosition) -> Result<(), Error>;
 }
 
+/// Focus operations (blocking).
+pub trait FocusOpsBlocking: Sized {
+    /// Set auto focus mode.
+    fn focus_auto(&self) -> Result<(), Error>;
+
+    /// Set manual focus mode.
+    fn focus_manual(&self) -> Result<(), Error>;
+
+    /// Focus near at specified speed.
+    fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error>;
+
+    /// Focus far at specified speed.
+    fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error>;
+
+    /// Stop focus movement.
+    fn focus_stop(&self) -> Result<(), Error>;
+
+    /// Trigger one-push auto focus.
+    fn focus_one_push(&self) -> Result<(), Error>;
+
+    /// Set focus to a specific position.
+    fn set_focus(&self, position: FocusPosition) -> Result<(), Error>;
+}
+
+// Async implementation
 impl FocusOps for Camera {
-    #[cfg(feature = "tokio")]
     async fn focus_auto(&self) -> Result<(), Error> {
         self.send_command(&FocusCommand::Auto).await?;
         Ok(())
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn focus_auto_blocking(&mut self) -> Result<(), Error> {
-        self.send_command_blocking(&FocusCommand::Auto)?;
-        Ok(())
-    }
-    #[cfg(feature = "tokio")]
     async fn focus_manual(&self) -> Result<(), Error> {
         self.send_command(&FocusCommand::Manual).await?;
         Ok(())
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn focus_manual_blocking(&mut self) -> Result<(), Error> {
-        self.send_command_blocking(&FocusCommand::Manual)?;
-        Ok(())
-    }
-    #[cfg(feature = "tokio")]
     async fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error> {
         let focus_speed_val = speed.to_focus_speed().min(7);
         let focus_speed = FocusSpeed::new(focus_speed_val)?;
@@ -100,14 +75,6 @@ impl FocusOps for Camera {
         Ok(())
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn focus_near_blocking(&mut self, speed: SpeedLevel) -> Result<(), Error> {
-        let focus_speed_val = speed.to_focus_speed().min(7);
-        let focus_speed = FocusSpeed::new(focus_speed_val)?;
-        self.send_command_blocking(&FocusCommand::NearWithSpeed(focus_speed))?;
-        Ok(())
-    }
-    #[cfg(feature = "tokio")]
     async fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error> {
         let focus_speed_val = speed.to_focus_speed().min(7);
         let focus_speed = FocusSpeed::new(focus_speed_val)?;
@@ -116,43 +83,59 @@ impl FocusOps for Camera {
         Ok(())
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn focus_far_blocking(&mut self, speed: SpeedLevel) -> Result<(), Error> {
-        let focus_speed_val = speed.to_focus_speed().min(7);
-        let focus_speed = FocusSpeed::new(focus_speed_val)?;
-        self.send_command_blocking(&FocusCommand::FarWithSpeed(focus_speed))?;
-        Ok(())
-    }
-    #[cfg(feature = "tokio")]
     async fn focus_stop(&self) -> Result<(), Error> {
         self.send_command(&FocusCommand::Stop).await?;
         Ok(())
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn focus_stop_blocking(&mut self) -> Result<(), Error> {
-        self.send_command_blocking(&FocusCommand::Stop)?;
-        Ok(())
-    }
-    #[cfg(feature = "tokio")]
     async fn focus_one_push(&self) -> Result<(), Error> {
         self.send_command(&FocusCommand::OnePushTrigger).await?;
         Ok(())
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn focus_one_push_blocking(&mut self) -> Result<(), Error> {
-        self.send_command_blocking(&FocusCommand::OnePushTrigger)?;
-        Ok(())
-    }
-    #[cfg(feature = "tokio")]
     async fn set_focus(&self, position: FocusPosition) -> Result<(), Error> {
         self.send_command(&FocusCommand::Position(position)).await?;
         Ok(())
     }
+}
 
-    #[cfg(not(feature = "tokio"))]
-    fn set_focus_blocking(&mut self, position: FocusPosition) -> Result<(), Error> {
+// Blocking implementation
+impl FocusOpsBlocking for Camera {
+    fn focus_auto(&self) -> Result<(), Error> {
+        self.send_command_blocking(&FocusCommand::Auto)?;
+        Ok(())
+    }
+
+    fn focus_manual(&self) -> Result<(), Error> {
+        self.send_command_blocking(&FocusCommand::Manual)?;
+        Ok(())
+    }
+
+    fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error> {
+        let focus_speed_val = speed.to_focus_speed().min(7);
+        let focus_speed = FocusSpeed::new(focus_speed_val)?;
+        self.send_command_blocking(&FocusCommand::NearWithSpeed(focus_speed))?;
+        Ok(())
+    }
+
+    fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error> {
+        let focus_speed_val = speed.to_focus_speed().min(7);
+        let focus_speed = FocusSpeed::new(focus_speed_val)?;
+        self.send_command_blocking(&FocusCommand::FarWithSpeed(focus_speed))?;
+        Ok(())
+    }
+
+    fn focus_stop(&self) -> Result<(), Error> {
+        self.send_command_blocking(&FocusCommand::Stop)?;
+        Ok(())
+    }
+
+    fn focus_one_push(&self) -> Result<(), Error> {
+        self.send_command_blocking(&FocusCommand::OnePushTrigger)?;
+        Ok(())
+    }
+
+    fn set_focus(&self, position: FocusPosition) -> Result<(), Error> {
         self.send_command_blocking(&FocusCommand::Position(position))?;
         Ok(())
     }

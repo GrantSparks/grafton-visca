@@ -137,8 +137,18 @@ mod tests {
     fn test_normalized_conversion() {
         let camera = TestCamera;
 
-        assert_eq!(camera.normalized_to_zoom_units(0.0).unwrap(), 0);
-        assert_eq!(camera.normalized_to_zoom_units(1.0).unwrap(), 0x7000);
+        assert_eq!(
+            camera
+                .normalized_to_zoom_units(0.0)
+                .expect("0.0 is valid normalized value"),
+            0
+        );
+        assert_eq!(
+            camera
+                .normalized_to_zoom_units(1.0)
+                .expect("1.0 is valid normalized value"),
+            0x7000
+        );
         assert!(camera.normalized_to_zoom_units(1.1).is_err());
     }
 
@@ -147,10 +157,17 @@ mod tests {
         let camera = TestCamera;
 
         // 1x = minimum zoom
-        assert_eq!(camera.magnification_to_zoom_units(1.0).unwrap(), 0);
+        assert_eq!(
+            camera
+                .magnification_to_zoom_units(1.0)
+                .expect("1.0x is valid magnification"),
+            0
+        );
 
         // 20x = full optical zoom (0x4000)
-        let units = camera.magnification_to_zoom_units(20.0).unwrap();
+        let units = camera
+            .magnification_to_zoom_units(20.0)
+            .expect("20.0x is valid magnification");
         assert!((units as i32 - 0x3FFF).abs() <= 20); // Allow small rounding error
     }
 }

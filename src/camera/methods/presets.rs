@@ -7,27 +7,26 @@ use crate::{
     Error, Response,
 };
 
-/// Presets operations.
+/// Presets operations (async).
 pub trait PresetsOps: Sized {
     /// Recall a preset position.
-    #[cfg(feature = "tokio")]
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
 
-    /// Recall a preset position. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn preset_recall_blocking(&mut self, preset: PresetNumber) -> Result<(), Error>;
-
     /// Set current position as a preset.
-    #[cfg(feature = "tokio")]
     async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;
-
-    /// Set current position as a preset. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn preset_set_blocking(&mut self, preset: PresetNumber) -> Result<(), Error>;
 }
 
+/// Presets operations (blocking).
+pub trait PresetsOpsBlocking: Sized {
+    /// Recall a preset position.
+    fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
+
+    /// Set current position as a preset.
+    fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;
+}
+
+// Async implementation
 impl PresetsOps for Camera {
-    #[cfg(feature = "tokio")]
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
         // Validate preset number (0 is valid - it's the home position)
         if preset.value() > self.max_presets() {
@@ -53,32 +52,6 @@ impl PresetsOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn preset_recall_blocking(&mut self, preset: PresetNumber) -> Result<(), Error> {
-        // Validate preset number (0 is valid - it's the home position)
-        if preset.value() > self.max_presets() {
-            return Err(Error::ValidationError(ValidationError::InvalidValue {
-                parameter: "preset",
-                message: format!(
-                    "Preset {} is invalid, must be 0-{}",
-                    preset.value(),
-                    self.max_presets()
-                ),
-            }));
-        }
-
-        let command = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: preset,
-        };
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
         // Validate preset number (0 is valid - it's the home position)
         if preset.value() > self.max_presets() {
@@ -103,9 +76,36 @@ impl PresetsOps for Camera {
             _ => Err(Error::UnexpectedResponseType),
         }
     }
+}
 
-    #[cfg(not(feature = "tokio"))]
-    fn preset_set_blocking(&mut self, preset: PresetNumber) -> Result<(), Error> {
+// Blocking implementation
+impl PresetsOpsBlocking for Camera {
+    fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
+        // Validate preset number (0 is valid - it's the home position)
+        if preset.value() > self.max_presets() {
+            return Err(Error::ValidationError(ValidationError::InvalidValue {
+                parameter: "preset",
+                message: format!(
+                    "Preset {} is invalid, must be 0-{}",
+                    preset.value(),
+                    self.max_presets()
+                ),
+            }));
+        }
+
+        let command = PresetCommand {
+            action: PresetAction::Recall,
+            preset_number: preset,
+        };
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
         // Validate preset number (0 is valid - it's the home position)
         if preset.value() > self.max_presets() {
             return Err(Error::ValidationError(ValidationError::InvalidValue {

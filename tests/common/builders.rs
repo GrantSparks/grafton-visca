@@ -139,7 +139,6 @@ impl TestPresetBuilder {
             .unwrap_or_else(|_| panic!("Preset {} should be valid", number));
         self
     }
-
 }
 
 /// Builder for creating zoom commands in tests.
@@ -233,7 +232,6 @@ mod tests {
             _ => panic!("Expected AbsolutePosition command"),
         }
     }
-
 
     // TestParameters test removed since those types are no longer public
 }

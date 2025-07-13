@@ -12,43 +12,38 @@ use crate::{
     Error,
 };
 
-/// Zoom operations.
+/// Zoom operations (async).
 pub trait ZoomOps: Sized {
     /// Stop zooming.
-    #[cfg(feature = "tokio")]
     async fn zoom_stop(&self) -> Result<(), Error>;
 
-    /// Stop zooming. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn zoom_stop_blocking(&mut self) -> Result<(), Error>;
-
     /// Start zooming in (telephoto).
-    #[cfg(feature = "tokio")]
     async fn zoom_in(&self) -> Result<(), Error>;
 
-    /// Start zooming in (telephoto). (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn zoom_in_blocking(&mut self) -> Result<(), Error>;
-
     /// Start zooming out (wide).
-    #[cfg(feature = "tokio")]
     async fn zoom_out(&self) -> Result<(), Error>;
 
-    /// Start zooming out (wide). (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn zoom_out_blocking(&mut self) -> Result<(), Error>;
-
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    #[cfg(feature = "tokio")]
     async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
-
-    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele). (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn zoom_absolute_blocking(&mut self, position: Normalized) -> Result<(), Error>;
 }
 
+/// Zoom operations (blocking).
+pub trait ZoomOpsBlocking: Sized {
+    /// Stop zooming.
+    fn zoom_stop(&self) -> Result<(), Error>;
+
+    /// Start zooming in (telephoto).
+    fn zoom_in(&self) -> Result<(), Error>;
+
+    /// Start zooming out (wide).
+    fn zoom_out(&self) -> Result<(), Error>;
+
+    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
+    fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
+}
+
+// Async implementation
 impl ZoomOps for Camera {
-    #[cfg(feature = "tokio")]
     async fn zoom_stop(&self) -> Result<(), Error> {
         let command = ZoomCommand::Stop;
         let response = self.send_command(&command).await?;
@@ -59,17 +54,6 @@ impl ZoomOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn zoom_stop_blocking(&mut self) -> Result<(), Error> {
-        let command = ZoomCommand::Stop;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn zoom_in(&self) -> Result<(), Error> {
         // Use medium speed by default
         let speed = self.zoom_speed_range().end / 2;
@@ -83,20 +67,6 @@ impl ZoomOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn zoom_in_blocking(&mut self) -> Result<(), Error> {
-        // Use medium speed by default
-        let speed = self.zoom_speed_range().end / 2;
-        let zoom_speed = ZoomSpeed::new(speed)?;
-        let command = ZoomCommand::TeleVariable(zoom_speed);
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn zoom_out(&self) -> Result<(), Error> {
         // Use medium speed by default
         let speed = self.zoom_speed_range().end / 2;
@@ -110,20 +80,6 @@ impl ZoomOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn zoom_out_blocking(&mut self) -> Result<(), Error> {
-        // Use medium speed by default
-        let speed = self.zoom_speed_range().end / 2;
-        let zoom_speed = ZoomSpeed::new(speed)?;
-        let command = ZoomCommand::WideVariable(zoom_speed);
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
         let normalized = position;
         let position_value = normalized.0;
@@ -150,9 +106,47 @@ impl ZoomOps for Camera {
             _ => Err(Error::UnexpectedResponseType),
         }
     }
+}
 
-    #[cfg(not(feature = "tokio"))]
-    fn zoom_absolute_blocking(&mut self, position: Normalized) -> Result<(), Error> {
+// Blocking implementation
+impl ZoomOpsBlocking for Camera {
+    fn zoom_stop(&self) -> Result<(), Error> {
+        let command = ZoomCommand::Stop;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn zoom_in(&self) -> Result<(), Error> {
+        // Use medium speed by default
+        let speed = self.zoom_speed_range().end / 2;
+        let zoom_speed = ZoomSpeed::new(speed)?;
+        let command = ZoomCommand::TeleVariable(zoom_speed);
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn zoom_out(&self) -> Result<(), Error> {
+        // Use medium speed by default
+        let speed = self.zoom_speed_range().end / 2;
+        let zoom_speed = ZoomSpeed::new(speed)?;
+        let command = ZoomCommand::WideVariable(zoom_speed);
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
         let normalized = position;
         let position_value = normalized.0;
 

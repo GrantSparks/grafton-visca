@@ -8,9 +8,8 @@ use grafton_visca::{
     camera::methods::{
         ExposureOps, ImageProcessingOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps,
     },
-    
     transport::tokio::Udp,
-    Camera, Error, Normalized, Degrees,
+    Camera, Degrees, Error, Normalized,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -78,19 +77,25 @@ async fn main() -> Result<(), Error> {
     println!("Moved to home position");
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), 10.into()).await?;
+    camera
+        .pan_tilt_absolute(Degrees(45.0), Degrees(15.0), 10.into())
+        .await?;
     println!("Moved to 45° pan, 15° tilt");
     time::sleep(Duration::from_secs(3)).await;
 
     // Using absolute position with degrees (assuming ±170° pan, -30° to +90° tilt for PTZOpticsG2)
-    camera.pan_tilt_absolute(Degrees(-85.0), Degrees(15.0), 10.into()).await?;
+    camera
+        .pan_tilt_absolute(Degrees(-85.0), Degrees(15.0), 10.into())
+        .await?;
     println!("Moved to position (-85° pan, +15° tilt)");
     time::sleep(Duration::from_secs(3)).await;
 
     // Demonstrate relative movement
     println!("\n--- Relative Movement ---");
     // Use relative movement to move the camera
-    camera.pan_tilt_relative(Degrees(10.0), Degrees(5.0), 10.into()).await?;
+    camera
+        .pan_tilt_relative(Degrees(10.0), Degrees(5.0), 10.into())
+        .await?;
     println!("Moved camera relative: +10° pan, +5° tilt");
     time::sleep(Duration::from_secs(2)).await;
 

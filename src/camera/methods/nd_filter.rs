@@ -60,27 +60,26 @@ impl EncodeVisca for NDFilterCommand {
     }
 }
 
-/// ND filter operations.
+/// ND filter operations (async).
 pub trait NDFilterOps: Sized {
     /// Set ND filter level.
-    #[cfg(feature = "tokio")]
     async fn set_nd_filter(&self, level: u8) -> Result<(), Error>;
 
-    /// Set ND filter level (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn set_nd_filter_blocking(&mut self, level: u8) -> Result<(), Error>;
-
     /// Get current ND filter setting.
-    #[cfg(feature = "tokio")]
     async fn get_nd_filter(&self) -> Result<u8, Error>;
-
-    /// Get current ND filter setting (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_nd_filter_blocking(&mut self) -> Result<u8, Error>;
 }
 
+/// ND filter operations (blocking).
+pub trait NDFilterOpsBlocking: Sized {
+    /// Set ND filter level.
+    fn set_nd_filter(&self, level: u8) -> Result<(), Error>;
+
+    /// Get current ND filter setting.
+    fn get_nd_filter(&self) -> Result<u8, Error>;
+}
+
+// Async implementation
 impl NDFilterOps for Camera {
-    #[cfg(feature = "tokio")]
     async fn set_nd_filter(&self, level: u8) -> Result<(), Error> {
         // Validate using the camera's ND mode
         let validated_level = self.validate_nd_filter(level)?;
@@ -106,8 +105,15 @@ impl NDFilterOps for Camera {
         Ok(())
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn set_nd_filter_blocking(&mut self, level: u8) -> Result<(), Error> {
+    async fn get_nd_filter(&self) -> Result<u8, Error> {
+        // Simplified for demo - would query actual value
+        Ok(0)
+    }
+}
+
+// Blocking implementation
+impl NDFilterOpsBlocking for Camera {
+    fn set_nd_filter(&self, level: u8) -> Result<(), Error> {
         // Validate using the camera's ND mode
         let validated_level = self.validate_nd_filter(level)?;
 
@@ -132,14 +138,7 @@ impl NDFilterOps for Camera {
         Ok(())
     }
 
-    #[cfg(feature = "tokio")]
-    async fn get_nd_filter(&self) -> Result<u8, Error> {
-        // Simplified for demo - would query actual value
-        Ok(0)
-    }
-
-    #[cfg(not(feature = "tokio"))]
-    fn get_nd_filter_blocking(&mut self) -> Result<u8, Error> {
+    fn get_nd_filter(&self) -> Result<u8, Error> {
         // Simplified for demo - would query actual value
         Ok(0)
     }

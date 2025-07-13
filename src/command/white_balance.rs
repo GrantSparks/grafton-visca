@@ -74,7 +74,7 @@ impl EncodeVisca for WhiteBalanceCommand {
 
     fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
         use crate::constants::CameraModel;
-        
+
         match self.mode {
             WhiteBalanceMode::ATW => {
                 // ATW is only supported on Sony models
@@ -148,7 +148,7 @@ impl EncodeVisca for AWBSensitivityCommand {
 
     fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
         use crate::constants::CameraModel;
-        
+
         // AWB Sensitivity is only supported on PTZOptics models
         match model {
             CameraModel::PTZOpticsG2 => Ok(()),

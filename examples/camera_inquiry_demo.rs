@@ -8,7 +8,10 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::methods::InquiryOps, profiles::PTZOpticsG2, transport::tokio::Tcp, Camera, Error,
+    camera::methods::{InquiryOps, PanTiltInquiryOps},
+    profiles::PTZOpticsG2,
+    transport::tokio::Tcp,
+    Camera, Error,
 };
 
 // Include the transport implementation from the example file
@@ -45,7 +48,7 @@ async fn main() -> Result<(), Error> {
 
     // Query position in VISCA units (available for all cameras)
     println!("\n--- Position (VISCA Units) ---");
-    match camera.get_position().await {
+    match camera.get_position_degrees().await {
         Ok((pan, tilt)) => {
             println!("Pan: {} units", pan.0);
             println!("Tilt: {} units", tilt.0);

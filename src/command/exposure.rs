@@ -149,7 +149,7 @@ impl TryFrom<i8> for ExposureCompensationLevel {
 /// let enable = ExposureCompensation::On;
 ///
 /// // Set exposure compensation to +3
-/// let set_value = ExposureCompensation::SetLevel(ExposureCompensationLevel::new(3).unwrap());
+/// let set_value = ExposureCompensation::SetLevel(ExposureCompensationLevel::new(3).expect("valid compensation level"));
 /// ```
 #[derive(Debug, Copy, Clone)]
 pub enum ExposureCompensation {

@@ -20,6 +20,7 @@
     clippy::unimplemented,
     clippy::todo
 )]
+#![allow(async_fn_in_trait)]
 
 //! ## What is VISCA?
 //!
@@ -42,26 +43,25 @@
 //! ### Camera - No Generics Required!
 //! ```ignore
 //! use grafton_visca::{Camera, ProfileId, Error};
-//!
-//! // Blocking example
+//! use grafton_visca::blocking::{Camera as BlockingCamera, PowerOps, ZoomOps};
 //! use grafton_visca::transport::blocking::Tcp;
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera with default profile (GenericVisca)
 //!     let transport = Tcp::connect("192.168.1.100:52381")?;
-//!     let camera = Camera::new_blocking(transport);
+//!     let camera = Camera::new(transport).blocking();
 //!
 //!     // Or specify a profile explicitly
 //!     let transport = Tcp::connect("192.168.1.100:52381")?;
-//!     let camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
+//!     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
 //!
 //!     // Check camera info
 //!     println!("Camera: {}", camera.model_name());
 //!     println!("Supports zoom: {}", camera.supports_capability("zoom"));
 //!
-//!     // Send commands (extension traits coming soon)
-//!     // camera.power_on_blocking()?;
-//!     // camera.zoom_in_blocking()?;
+//!     // Send commands with clean API
+//!     camera.power_on()?;
+//!     camera.zoom_in()?;
 //!     
 //!     Ok(())
 //! }
@@ -70,17 +70,18 @@
 //! ### Async Example
 //! ```ignore
 //! use grafton_visca::{Camera, ProfileId, Error};
+//! use grafton_visca::r#async::{Camera as AsyncCamera, PowerOps, ZoomOps};
 //! use grafton_visca::transport::tokio::Tcp;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
 //!     // Create camera with specific profile
 //!     let transport = Tcp::connect("192.168.1.100:52381").await?;
-//!     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+//!     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).r#async();
 //!
 //!     // Same API, just with .await
-//!     // camera.power_on().await?;
-//!     // camera.zoom_in().await?;
+//!     camera.power_on().await?;
+//!     camera.zoom_in().await?;
 //!     
 //!     Ok(())
 //! }
@@ -306,9 +307,13 @@ pub mod units;
 pub mod timeout; // Public for use in macros
 
 // Minimal blocking executor
+pub mod executor;
+
+// Wrapper modules for clean API
 pub mod blocking;
 
-// Core re-exports
+// Note: r#async is a reserved keyword, so we use the raw identifier syntax
+pub mod r#async;
 pub use camera::{Camera, ProfileId};
 pub use command::{EncodeVisca, InquiryResponse, Response};
 

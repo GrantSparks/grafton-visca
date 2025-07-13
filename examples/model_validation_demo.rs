@@ -12,6 +12,9 @@ use grafton_visca::{
         methods::{PanTiltOps, PresetsOps, ZoomOps},
         profiles::{G2PresetId, GenericVisca, PTZOpticsG2, SonyFR7},
     },
+    command::preset::PresetNumber,
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    units::{Degrees, Normalized},
     Camera, Error,
 };
 use std::future::{ready, Ready};
@@ -76,16 +79,20 @@ async fn demo_ptzoptics_g2() -> Result<(), Error> {
 
     // Zoom within G2 range (0x0000 - 0x7000)
     println!("  - Setting zoom to 0x4000 (within G2 range)");
-    camera.zoom_absolute(0x4000 as f32 / 0x7000 as f32).await?; // Normalize for G2 range
+    camera
+        .zoom_absolute(Normalized::new(0x4000 as f32 / 0x7000 as f32))
+        .await?; // Normalize for G2 range
 
     // Position within G2 range (-170° to +170° pan, -90° to +90° tilt)
     println!("  - Moving to position (100°, 45°)");
-    camera.pan_tilt_absolute(100.0, 45.0, 10).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(100.0), Degrees::new(45.0), SpeedLevel::Medium)
+        .await?;
 
     // G2-specific preset (0-89)
     println!("  - Using G2-specific preset 15");
     let preset = G2PresetId::new(15)?;
-    camera.preset_set(preset.into()).await?;
+    camera.preset_set(PresetNumber::new(preset.into())?).await?;
 
     println!();
     Ok(())
@@ -105,11 +112,15 @@ async fn demo_sony_fr7() -> Result<(), Error> {
     // Sony FR7 operations
     println!("\n✅ Valid operations:");
     println!("  - Setting zoom");
-    camera.zoom_absolute(0x5000 as f32 / 0xFFFF as f32).await?; // Normalize for generic range
+    camera
+        .zoom_absolute(Normalized::new(0x5000 as f32 / 0xFFFF as f32))
+        .await?; // Normalize for generic range
 
     // Position control
     println!("  - Moving to position (90°, 25°)");
-    camera.pan_tilt_absolute(90.0, 25.0, 10).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(90.0), Degrees::new(25.0), SpeedLevel::Medium)
+        .await?;
 
     println!();
     Ok(())
@@ -128,8 +139,12 @@ async fn demo_generic_visca() -> Result<(), Error> {
 
     // Generic operations
     println!("\n✅ Generic operations:");
-    camera.zoom_absolute(0x4000 as f32 / 0x7000 as f32).await?; // Normalize for G2 range
-    camera.pan_tilt_absolute(45.0, 30.0, 10).await?;
+    camera
+        .zoom_absolute(Normalized::new(0x4000 as f32 / 0x7000 as f32))
+        .await?; // Normalize for G2 range
+    camera
+        .pan_tilt_absolute(Degrees::new(45.0), Degrees::new(30.0), SpeedLevel::Medium)
+        .await?;
 
     // Note: GenericVisca doesn't support presets in the current implementation
     println!("  - Generic cameras may not support all features");

@@ -31,7 +31,7 @@ fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(camera_addr)?;
-    let mut camera = Camera::new_blocking(transport);
+    let camera = Camera::new(transport).blocking();
 
     // Run inquiries using blocking methods
     run_inquiries(&mut camera)?;
@@ -53,7 +53,7 @@ fn run_inquiries(camera: &mut Camera) -> Result<(), Error> {
 
     // Example 1: Query power state
     println!("1. Querying power state...");
-    let power_on = camera.get_power_state_blocking()?;
+    let power_on = camera.get_$1()?;
     println!("   Power is: {}", if power_on { "ON" } else { "OFF" });
 
     if !power_on {
@@ -61,63 +61,63 @@ fn run_inquiries(camera: &mut Camera) -> Result<(), Error> {
     }
 
     // Position in degrees
-    let (pan_deg, tilt_deg) = camera.get_position_degrees_blocking()?;
+    let (pan_deg, tilt_deg) = camera.get_$1()?;
     println!(
         "Position (degrees): pan={:.1}°, tilt={:.1}°",
         pan_deg.0, tilt_deg.0
     );
 
     // Zoom
-    let zoom = camera.get_zoom_position_blocking()?;
+    let zoom = camera.get_$1()?;
     println!("Zoom Position: 0x{zoom:04X}");
 
     // Focus
-    let focus = camera.get_focus_position_blocking()?;
+    let focus = camera.get_$1()?;
     println!("Focus Position: 0x{focus:04X}");
 
     // Exposure
-    let exposure_mode = camera.get_exposure_mode_blocking()?;
+    let exposure_mode = camera.get_$1()?;
     println!("Exposure Mode: {exposure_mode:?}");
 
-    if camera.get_exposure_compensation_enabled_blocking()? {
-        let compensation = camera.get_exposure_compensation_blocking()?;
+    if camera.get_$1()? {
+        let compensation = camera.get_$1()?;
         println!("Exposure Compensation: {compensation:+} EV");
     } else {
         println!("Exposure Compensation: Disabled");
     }
 
     // White Balance
-    let wb_mode = camera.get_white_balance_mode_blocking()?;
+    let wb_mode = camera.get_$1()?;
     println!("White Balance Mode: {wb_mode:?}");
 
     // Image Settings
     println!("\n=== Image Settings ===");
-    let luminance = camera.get_luminance_blocking()?;
+    let luminance = camera.get_$1()?;
     println!("Luminance: {luminance}");
 
-    let contrast = camera.get_contrast_blocking()?;
+    let contrast = camera.get_$1()?;
     println!("Contrast: {contrast}");
 
-    let sharpness = camera.get_sharpness_blocking()?;
+    let sharpness = camera.get_$1()?;
     println!("Sharpness: {sharpness}");
 
-    let saturation = camera.get_saturation_blocking()?;
+    let saturation = camera.get_$1()?;
     println!("Saturation: {saturation}");
 
-    let hue = camera.get_hue_blocking()?;
+    let hue = camera.get_$1()?;
     println!("Hue: {hue}");
 
     // Advanced Settings
     println!("\n=== Advanced Settings ===");
     // Note: Image flip inquiry not implemented in current API
 
-    let backlight = camera.get_backlight_blocking()?;
+    let backlight = camera.get_$1()?;
     println!(
         "Backlight Compensation: {}",
         if backlight { "ON" } else { "OFF" }
     );
 
-    let bw_mode = camera.get_black_white_blocking()?;
+    let bw_mode = camera.get_$1()?;
     println!("Black & White Mode: {}", if bw_mode { "ON" } else { "OFF" });
 
     println!("\nInquiry demo completed successfully!");

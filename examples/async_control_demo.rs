@@ -13,9 +13,11 @@ use grafton_visca::{
         methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
-    command::pan_tilt::PanTiltDirection,
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     profiles::PTZOpticsG2,
     transport::tokio::Udp,
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    units::{Degrees, Normalized},
     Camera, Error,
 };
 use std::env;
@@ -65,38 +67,56 @@ async fn main() -> Result<(), Error> {
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Setting up shot 1...");
-    camera.pan_tilt_absolute(16.0, -4.0, 10).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(16.0), Degrees::new(-4.0), SpeedLevel::Medium)
+        .await?;
     // Zoom to about 37.5% position (0x1800 / 0x4000)
-    camera.zoom_absolute(0.375).await?;
+    camera.zoom_absolute(Normalized::new(0.375)).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 10...");
     let preset10 = G2PresetId::new(10)?;
-    camera.preset_set(preset10.into()).await?;
+    camera
+        .preset_set(PresetNumber::new(preset10.into())?)
+        .await?;
     sleep(Duration::from_millis(500)).await;
 
     println!("   - Setting up shot 2...");
-    camera.pan_tilt_absolute(-12.0, 8.0, 10).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(-12.0), Degrees::new(8.0), SpeedLevel::Medium)
+        .await?;
     // Zoom to 75% position (0x3000 / 0x4000)
-    camera.zoom_absolute(0.75).await?;
+    camera.zoom_absolute(Normalized::new(0.75)).await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Saving as preset 11...");
     let preset11 = G2PresetId::new(11)?;
-    camera.preset_set(preset11.into()).await?;
+    camera
+        .preset_set(PresetNumber::new(preset11.into())?)
+        .await?;
     sleep(Duration::from_millis(500)).await;
 
     // Smooth Movement Example
     println!("\n2. Smooth Movement Sequence");
 
     println!("   - Starting smooth pan...");
-    camera.pan_tilt_move(PanTiltDirection::Right, 8, 0).await?;
+    camera
+        .pan_tilt_move(
+            PanTiltDirection::Right,
+            PanSpeed::new(8)?,
+            TiltSpeed::new(0)?,
+        )
+        .await?;
 
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Starting diagonal movement...");
     camera
-        .pan_tilt_move(PanTiltDirection::UpRight, 8, 5)
+        .pan_tilt_move(
+            PanTiltDirection::UpRight,
+            PanSpeed::new(8)?,
+            TiltSpeed::new(5)?,
+        )
         .await?;
 
     sleep(Duration::from_secs(2)).await;
@@ -123,11 +143,15 @@ async fn main() -> Result<(), Error> {
     println!("\n4. Preset Recall Demo");
 
     println!("   - Recalling preset 10...");
-    camera.preset_recall(preset10.into()).await?;
+    camera
+        .preset_recall(PresetNumber::new(preset10.into())?)
+        .await?;
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Recalling preset 11...");
-    camera.preset_recall(preset11.into()).await?;
+    camera
+        .preset_recall(PresetNumber::new(preset11.into())?)
+        .await?;
     sleep(Duration::from_secs(3)).await;
 
     println!("   - Returning to home...");

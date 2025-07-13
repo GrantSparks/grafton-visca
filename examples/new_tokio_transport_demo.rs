@@ -8,6 +8,8 @@ use grafton_visca::{
     camera::methods::PanTiltOps,
     profiles::PTZOpticsG2,
     transport::{core::Transport, tokio::Tcp},
+    types::SpeedLevel,
+    units::Degrees,
     Camera, Error,
 };
 use std::future::{ready, Ready};
@@ -32,7 +34,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Move to center position
     println!("Moving to center position...");
-    camera.pan_tilt_absolute(0.0, 0.0, 10).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Medium)
+        .await?;
 
     // Move camera to home position
     println!("Moving to home position...");

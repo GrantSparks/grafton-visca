@@ -8,6 +8,9 @@
 // Unified camera implementation
 pub mod unified;
 
+// Internal trait for camera wrapper access
+pub(crate) mod camera_like;
+
 pub mod methods;
 pub mod profiles;
 

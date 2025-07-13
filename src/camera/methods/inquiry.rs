@@ -10,253 +10,196 @@ use crate::{
     Error,
 };
 
-/// Inquiry operations.
+/// Inquiry operations (async).
 pub trait InquiryOps: Sized {
     /// Get the current power state of the camera.
     /// Returns `true` if powered on, `false` if in standby.
-    #[cfg(feature = "tokio")]
     async fn get_power_state(&self) -> Result<bool, Error>;
 
-    /// Get the current power state of the camera.
-    /// Returns `true` if powered on, `false` if in standby. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_power_state_blocking(&mut self) -> Result<bool, Error>;
-
     /// Get the current zoom position.
-    #[cfg(feature = "tokio")]
     async fn get_zoom_position(&self) -> Result<u16, Error>;
 
-    /// Get the current zoom position. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_zoom_position_blocking(&mut self) -> Result<u16, Error>;
-
     /// Get the current focus position.
-    #[cfg(feature = "tokio")]
     async fn get_focus_position(&self) -> Result<u16, Error>;
 
-    /// Get the current focus position. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_focus_position_blocking(&mut self) -> Result<u16, Error>;
-
     /// Get the focus near limit position.
-    #[cfg(feature = "tokio")]
     async fn get_focus_near_limit(&self) -> Result<u16, Error>;
 
-    /// Get the focus near limit position. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_focus_near_limit_blocking(&mut self) -> Result<u16, Error>;
-
     /// Get the current focus zone.
-    #[cfg(feature = "tokio")]
     async fn get_focus_zone(&self) -> Result<FocusZone, Error>;
 
-    /// Get the current focus zone. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_focus_zone_blocking(&mut self) -> Result<FocusZone, Error>;
-
     /// Get the auto-focus sensitivity setting.
-    #[cfg(feature = "tokio")]
     async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error>;
 
-    /// Get the auto-focus sensitivity setting. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_auto_focus_sensitivity_blocking(&mut self) -> Result<AutoFocusSensitivity, Error>;
-
     /// Get the current exposure mode.
-    #[cfg(feature = "tokio")]
     async fn get_exposure_mode(&self) -> Result<ExposureMode, Error>;
 
-    /// Get the current exposure mode. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_exposure_mode_blocking(&mut self) -> Result<ExposureMode, Error>;
-
     /// Get the exposure compensation value.
-    #[cfg(feature = "tokio")]
     async fn get_exposure_compensation(&self) -> Result<i8, Error>;
 
-    /// Get the exposure compensation value. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_exposure_compensation_blocking(&mut self) -> Result<i8, Error>;
-
     /// Check if exposure compensation is enabled.
-    #[cfg(feature = "tokio")]
     async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error>;
 
-    /// Check if exposure compensation is enabled. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_exposure_compensation_enabled_blocking(&mut self) -> Result<bool, Error>;
-
     /// Get the current iris value.
-    #[cfg(feature = "tokio")]
     async fn get_iris(&self) -> Result<u8, Error>;
 
-    /// Get the current iris value. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_iris_blocking(&mut self) -> Result<u8, Error>;
-
     /// Get the current shutter speed.
-    #[cfg(feature = "tokio")]
     async fn get_shutter(&self) -> Result<u16, Error>;
 
-    /// Get the current shutter speed. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_shutter_blocking(&mut self) -> Result<u16, Error>;
-
-    /// Get the brightness setting.
-    #[cfg(feature = "tokio")]
-    async fn get_brightness(&self) -> Result<u16, Error>;
-
-    /// Get the brightness setting. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_brightness_blocking(&mut self) -> Result<u16, Error>;
-
     /// Get the current gain value.
-    #[cfg(feature = "tokio")]
     async fn get_gain(&self) -> Result<u8, Error>;
 
-    /// Get the current gain value. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_gain_blocking(&mut self) -> Result<u8, Error>;
-
-    /// Get the gain limit setting.
-    #[cfg(feature = "tokio")]
+    /// Get the gain limit value.
     async fn get_gain_limit(&self) -> Result<u8, Error>;
 
-    /// Get the gain limit setting. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_gain_limit_blocking(&mut self) -> Result<u8, Error>;
-
-    /// Get the anti-flicker mode.
-    #[cfg(feature = "tokio")]
-    async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error>;
-
-    /// Get the anti-flicker mode. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_anti_flicker_blocking(&mut self) -> Result<AntiFlickerMode, Error>;
-
-    /// Check if backlight compensation is enabled.
-    #[cfg(feature = "tokio")]
-    async fn get_backlight(&self) -> Result<bool, Error>;
-
-    /// Check if backlight compensation is enabled. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_backlight_blocking(&mut self) -> Result<bool, Error>;
-
-    /// Get the dynamic range setting.
-    #[cfg(feature = "tokio")]
-    async fn get_dynamic_range(&self) -> Result<u8, Error>;
-
-    /// Get the dynamic range setting. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_dynamic_range_blocking(&mut self) -> Result<u8, Error>;
-
-    /// Get the current white balance mode.
-    #[cfg(feature = "tokio")]
+    /// Get the white balance mode.
     async fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error>;
 
-    /// Get the current white balance mode. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_white_balance_mode_blocking(&mut self) -> Result<WhiteBalanceMode, Error>;
+    /// Get the current red gain.
+    async fn get_red_gain(&self) -> Result<u8, Error>;
 
-    /// Get the color temperature value.
-    #[cfg(feature = "tokio")]
+    /// Get the current blue gain.
+    async fn get_blue_gain(&self) -> Result<u8, Error>;
+
+    /// Get the red tuning value.
+    async fn get_red_tuning(&self) -> Result<u8, Error>;
+
+    /// Get the blue tuning value.
+    async fn get_blue_tuning(&self) -> Result<u8, Error>;
+
+    /// Get the current color temperature in Kelvin.
     async fn get_color_temperature(&self) -> Result<u16, Error>;
 
-    /// Get the color temperature value. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_color_temperature_blocking(&mut self) -> Result<u16, Error>;
+    /// Get the anti-flicker mode.
+    async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error>;
 
-    /// Get the red gain value.
-    #[cfg(feature = "tokio")]
-    async fn get_red_gain(&self) -> Result<i8, Error>;
-
-    /// Get the red gain value. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_red_gain_blocking(&mut self) -> Result<i8, Error>;
-
-    /// Get the blue gain value.
-    #[cfg(feature = "tokio")]
-    async fn get_blue_gain(&self) -> Result<i8, Error>;
-
-    /// Get the blue gain value. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_blue_gain_blocking(&mut self) -> Result<i8, Error>;
-
-    /// Get the luminance level.
-    #[cfg(feature = "tokio")]
-    async fn get_luminance(&self) -> Result<u8, Error>;
-
-    /// Get the luminance level. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_luminance_blocking(&mut self) -> Result<u8, Error>;
+    /// Get the gamma level.
+    async fn get_gamma(&self) -> Result<u8, Error>;
 
     /// Get the contrast level.
-    #[cfg(feature = "tokio")]
     async fn get_contrast(&self) -> Result<u8, Error>;
 
-    /// Get the contrast level. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_contrast_blocking(&mut self) -> Result<u8, Error>;
+    /// Get the brightness level.
+    async fn get_brightness(&self) -> Result<u8, Error>;
 
     /// Get the sharpness level.
-    #[cfg(feature = "tokio")]
     async fn get_sharpness(&self) -> Result<u8, Error>;
 
-    /// Get the sharpness level. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_sharpness_blocking(&mut self) -> Result<u8, Error>;
-
     /// Get the sharpness mode.
-    #[cfg(feature = "tokio")]
     async fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error>;
 
-    /// Get the sharpness mode. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_sharpness_mode_blocking(&mut self) -> Result<SharpnessMode, Error>;
-
     /// Get the saturation level.
-    #[cfg(feature = "tokio")]
     async fn get_saturation(&self) -> Result<u8, Error>;
 
-    /// Get the saturation level. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_saturation_blocking(&mut self) -> Result<u8, Error>;
-
     /// Get the hue setting.
-    #[cfg(feature = "tokio")]
     async fn get_hue(&self) -> Result<u8, Error>;
 
-    /// Get the hue setting. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_hue_blocking(&mut self) -> Result<u8, Error>;
-
     /// Get the 2D noise reduction level.
-    #[cfg(feature = "tokio")]
     async fn get_noise_reduction_2d(&self) -> Result<u8, Error>;
 
-    /// Get the 2D noise reduction level. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_noise_reduction_2d_blocking(&mut self) -> Result<u8, Error>;
-
     /// Get the 3D noise reduction level.
-    #[cfg(feature = "tokio")]
     async fn get_noise_reduction_3d(&self) -> Result<u8, Error>;
 
-    /// Get the 3D noise reduction level. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_noise_reduction_3d_blocking(&mut self) -> Result<u8, Error>;
-
     /// Check if black and white mode is enabled.
-    #[cfg(feature = "tokio")]
     async fn get_black_white(&self) -> Result<bool, Error>;
-
-    /// Check if black and white mode is enabled. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_black_white_blocking(&mut self) -> Result<bool, Error>;
 }
 
+/// Inquiry operations (blocking).
+pub trait InquiryOpsBlocking: Sized {
+    /// Get the current power state of the camera.
+    /// Returns `true` if powered on, `false` if in standby.
+    fn get_power_state(&self) -> Result<bool, Error>;
+
+    /// Get the current zoom position.
+    fn get_zoom_position(&self) -> Result<u16, Error>;
+
+    /// Get the current focus position.
+    fn get_focus_position(&self) -> Result<u16, Error>;
+
+    /// Get the focus near limit position.
+    fn get_focus_near_limit(&self) -> Result<u16, Error>;
+
+    /// Get the current focus zone.
+    fn get_focus_zone(&self) -> Result<FocusZone, Error>;
+
+    /// Get the auto-focus sensitivity setting.
+    fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error>;
+
+    /// Get the current exposure mode.
+    fn get_exposure_mode(&self) -> Result<ExposureMode, Error>;
+
+    /// Get the exposure compensation value.
+    fn get_exposure_compensation(&self) -> Result<i8, Error>;
+
+    /// Check if exposure compensation is enabled.
+    fn get_exposure_compensation_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the current iris value.
+    fn get_iris(&self) -> Result<u8, Error>;
+
+    /// Get the current shutter speed.
+    fn get_shutter(&self) -> Result<u16, Error>;
+
+    /// Get the current gain value.
+    fn get_gain(&self) -> Result<u8, Error>;
+
+    /// Get the gain limit value.
+    fn get_gain_limit(&self) -> Result<u8, Error>;
+
+    /// Get the white balance mode.
+    fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error>;
+
+    /// Get the current red gain.
+    fn get_red_gain(&self) -> Result<u8, Error>;
+
+    /// Get the current blue gain.
+    fn get_blue_gain(&self) -> Result<u8, Error>;
+
+    /// Get the red tuning value.
+    fn get_red_tuning(&self) -> Result<u8, Error>;
+
+    /// Get the blue tuning value.
+    fn get_blue_tuning(&self) -> Result<u8, Error>;
+
+    /// Get the current color temperature in Kelvin.
+    fn get_color_temperature(&self) -> Result<u16, Error>;
+
+    /// Get the anti-flicker mode.
+    fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error>;
+
+    /// Get the gamma level.
+    fn get_gamma(&self) -> Result<u8, Error>;
+
+    /// Get the contrast level.
+    fn get_contrast(&self) -> Result<u8, Error>;
+
+    /// Get the brightness level.
+    fn get_brightness(&self) -> Result<u8, Error>;
+
+    /// Get the sharpness level.
+    fn get_sharpness(&self) -> Result<u8, Error>;
+
+    /// Get the sharpness mode.
+    fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error>;
+
+    /// Get the saturation level.
+    fn get_saturation(&self) -> Result<u8, Error>;
+
+    /// Get the hue setting.
+    fn get_hue(&self) -> Result<u8, Error>;
+
+    /// Get the 2D noise reduction level.
+    fn get_noise_reduction_2d(&self) -> Result<u8, Error>;
+
+    /// Get the 3D noise reduction level.
+    fn get_noise_reduction_3d(&self) -> Result<u8, Error>;
+
+    /// Check if black and white mode is enabled.
+    fn get_black_white(&self) -> Result<bool, Error>;
+}
+
+// Async implementation
 impl InquiryOps for Camera {
-    #[cfg(feature = "tokio")]
     async fn get_power_state(&self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
         let response = self.send_command(&cmd).await?;
@@ -267,17 +210,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_power_state_blocking(&mut self) -> Result<bool, Error> {
-        let cmd = PowerInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_zoom_position(&self) -> Result<u16, Error> {
         let cmd = ZoomPositionInquiry;
         let response = self.send_command(&cmd).await?;
@@ -288,17 +220,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_zoom_position_blocking(&mut self) -> Result<u16, Error> {
-        let cmd = ZoomPositionInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_focus_position(&self) -> Result<u16, Error> {
         let cmd = FocusPositionInquiry;
         let response = self.send_command(&cmd).await?;
@@ -309,17 +230,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_focus_position_blocking(&mut self) -> Result<u16, Error> {
-        let cmd = FocusPositionInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_focus_near_limit(&self) -> Result<u16, Error> {
         let cmd = FocusNearLimitInquiry;
         let response = self.send_command(&cmd).await?;
@@ -330,63 +240,32 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_focus_near_limit_blocking(&mut self) -> Result<u16, Error> {
-        let cmd = FocusNearLimitInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_focus_zone(&self) -> Result<FocusZone, Error> {
-        let cmd = FocusZoneInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        // TODO: AFZoneInquiry struct needs to be defined
+        // let cmd = AFZoneInquiry;
+        // let response = self.send_command(&cmd).await?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::AFZone { zone }) => Ok(zone),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_focus_zone_blocking(&mut self) -> Result<FocusZone, Error> {
-        let cmd = FocusZoneInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
-        let cmd = AutoFocusSensitivityInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
-                Ok(sensitivity)
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        // TODO: AFSensitivityInquiry struct needs to be defined
+        // let cmd = AFSensitivityInquiry;
+        // let response = self.send_command(&cmd).await?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::AFSensitivity { sensitivity }) => {
+        //         Ok(sensitivity)
+        //     }
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_auto_focus_sensitivity_blocking(&mut self) -> Result<AutoFocusSensitivity, Error> {
-        let cmd = AutoFocusSensitivityInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
-                Ok(sensitivity)
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {
         let cmd = ExposureModeInquiry;
         let response = self.send_command(&cmd).await?;
@@ -397,17 +276,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_exposure_mode_blocking(&mut self) -> Result<ExposureMode, Error> {
-        let cmd = ExposureModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_exposure_compensation(&self) -> Result<i8, Error> {
         let cmd = ExposureCompensationInquiry;
         let response = self.send_command(&cmd).await?;
@@ -418,38 +286,20 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_exposure_compensation_blocking(&mut self) -> Result<i8, Error> {
-        let cmd = ExposureCompensationInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
-        let cmd = ExposureCompensationModeInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        // TODO: ExposureCompensationEnabledInquiry struct needs to be defined
+        // let cmd = ExposureCompensationEnabledInquiry;
+        // let response = self.send_command(&cmd).await?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::ExposureCompensationEnabled { enabled }) => {
+        //         Ok(enabled)
+        //     }
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_exposure_compensation_enabled_blocking(&mut self) -> Result<bool, Error> {
-        let cmd = ExposureCompensationModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_iris(&self) -> Result<u8, Error> {
         let cmd = IrisInquiry;
         let response = self.send_command(&cmd).await?;
@@ -460,17 +310,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_iris_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = IrisInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_shutter(&self) -> Result<u16, Error> {
         let cmd = ShutterInquiry;
         let response = self.send_command(&cmd).await?;
@@ -481,38 +320,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_shutter_blocking(&mut self) -> Result<u16, Error> {
-        let cmd = ShutterInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
-    async fn get_brightness(&self) -> Result<u16, Error> {
-        let cmd = BrightInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Bright { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    #[cfg(not(feature = "tokio"))]
-    fn get_brightness_blocking(&mut self) -> Result<u16, Error> {
-        let cmd = BrightInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Bright { position }) => Ok(position),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_gain(&self) -> Result<u8, Error> {
         let cmd = GainInquiry;
         let response = self.send_command(&cmd).await?;
@@ -523,17 +330,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_gain_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = GainInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::GainLevel { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_gain_limit(&self) -> Result<u8, Error> {
         let cmd = GainLimitInquiry;
         let response = self.send_command(&cmd).await?;
@@ -544,80 +340,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_gain_limit_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = GainLimitInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
-    async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
-        let cmd = AntiFlickerInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    #[cfg(not(feature = "tokio"))]
-    fn get_anti_flicker_blocking(&mut self) -> Result<AntiFlickerMode, Error> {
-        let cmd = AntiFlickerInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
-    async fn get_backlight(&self) -> Result<bool, Error> {
-        let cmd = BacklightInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Backlight { status }) => Ok(status),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    #[cfg(not(feature = "tokio"))]
-    fn get_backlight_blocking(&mut self) -> Result<bool, Error> {
-        let cmd = BacklightInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Backlight { status }) => Ok(status),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
-    async fn get_dynamic_range(&self) -> Result<u8, Error> {
-        let cmd = DynamicRangeInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::DynamicRange { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    #[cfg(not(feature = "tokio"))]
-    fn get_dynamic_range_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = DynamicRangeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::DynamicRange { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error> {
         let cmd = WhiteBalanceModeInquiry;
         let response = self.send_command(&cmd).await?;
@@ -628,126 +350,104 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_white_balance_mode_blocking(&mut self) -> Result<WhiteBalanceMode, Error> {
-        let cmd = WhiteBalanceModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+    async fn get_red_gain(&self) -> Result<u8, Error> {
+        let cmd = RedGainInquiry;
+        let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => Ok(mode),
+            Response::InquiryResponse(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
-    #[cfg(feature = "tokio")]
+
+    async fn get_blue_gain(&self) -> Result<u8, Error> {
+        let cmd = BlueGainInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_red_tuning(&self) -> Result<u8, Error> {
+        // TODO: RedTuningInquiry struct needs to be defined
+        // let cmd = RedTuningInquiry;
+        // let response = self.send_command(&cmd).await?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::RedTuning { value }) => Ok(value),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
+    }
+
+    async fn get_blue_tuning(&self) -> Result<u8, Error> {
+        // TODO: BlueTuningInquiry struct needs to be defined
+        // let cmd = BlueTuningInquiry;
+        // let response = self.send_command(&cmd).await?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::BlueTuning { value }) => Ok(value),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
+    }
+
     async fn get_color_temperature(&self) -> Result<u16, Error> {
         let cmd = ColorTemperatureInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
-                Ok(temperature)
-            }
+            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => Ok(temperature),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_color_temperature_blocking(&mut self) -> Result<u16, Error> {
-        let cmd = ColorTemperatureInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
-                Ok(temperature)
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
-    async fn get_red_gain(&self) -> Result<i8, Error> {
-        let cmd = RedGainInquiry;
+    async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
+        let cmd = AntiFlickerInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::RedChannel { gain }) => Ok(gain),
+            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_red_gain_blocking(&mut self) -> Result<i8, Error> {
-        let cmd = RedGainInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::RedChannel { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
-    async fn get_blue_gain(&self) -> Result<i8, Error> {
-        let cmd = BlueGainInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::BlueChannel { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+    async fn get_gamma(&self) -> Result<u8, Error> {
+        // TODO: GammaInquiry struct needs to be defined
+        // let cmd = GammaInquiry;
+        // let response = self.send_command(&cmd).await?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::Gamma { value }) => Ok(value),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_blue_gain_blocking(&mut self) -> Result<i8, Error> {
-        let cmd = BlueGainInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::BlueChannel { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
-    async fn get_luminance(&self) -> Result<u8, Error> {
-        let cmd = LuminanceInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Luminance(level)) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    #[cfg(not(feature = "tokio"))]
-    fn get_luminance_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = LuminanceInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Luminance(level)) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_contrast(&self) -> Result<u8, Error> {
         let cmd = ContrastInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Contrast(level)) => Ok(level),
+            Response::InquiryResponse(InquiryResponse::Contrast(value)) => Ok(value),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_contrast_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = ContrastInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Contrast(level)) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+    async fn get_brightness(&self) -> Result<u8, Error> {
+        // TODO: BrightnessInquiry struct needs to be defined
+        // let cmd = BrightnessInquiry;
+        // let response = self.send_command(&cmd).await?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::Brightness { value }) => Ok(value),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
     }
-    #[cfg(feature = "tokio")]
+
     async fn get_sharpness(&self) -> Result<u8, Error> {
         let cmd = SharpnessInquiry;
         let response = self.send_command(&cmd).await?;
@@ -758,17 +458,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_sharpness_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = SharpnessInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error> {
         let cmd = SharpnessModeInquiry;
         let response = self.send_command(&cmd).await?;
@@ -779,17 +468,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_sharpness_mode_blocking(&mut self) -> Result<SharpnessMode, Error> {
-        let cmd = SharpnessModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_saturation(&self) -> Result<u8, Error> {
         let cmd = SaturationInquiry;
         let response = self.send_command(&cmd).await?;
@@ -800,17 +478,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_saturation_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = SaturationInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_hue(&self) -> Result<u8, Error> {
         let cmd = HueInquiry;
         let response = self.send_command(&cmd).await?;
@@ -821,17 +488,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_hue_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = HueInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_noise_reduction_2d(&self) -> Result<u8, Error> {
         let cmd = NoiseReduction2DInquiry;
         let response = self.send_command(&cmd).await?;
@@ -842,17 +498,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_noise_reduction_2d_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = NoiseReduction2DInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_noise_reduction_3d(&self) -> Result<u8, Error> {
         let cmd = NoiseReduction3DInquiry;
         let response = self.send_command(&cmd).await?;
@@ -863,17 +508,6 @@ impl InquiryOps for Camera {
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_noise_reduction_3d_blocking(&mut self) -> Result<u8, Error> {
-        let cmd = NoiseReduction3DInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-    #[cfg(feature = "tokio")]
     async fn get_black_white(&self) -> Result<bool, Error> {
         let cmd = BlackWhiteInquiry;
         let response = self.send_command(&cmd).await?;
@@ -883,9 +517,319 @@ impl InquiryOps for Camera {
             _ => Err(Error::UnexpectedResponseType),
         }
     }
+}
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_black_white_blocking(&mut self) -> Result<bool, Error> {
+// Blocking implementation
+impl InquiryOpsBlocking for Camera {
+    fn get_power_state(&self) -> Result<bool, Error> {
+        let cmd = PowerInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_zoom_position(&self) -> Result<u16, Error> {
+        let cmd = ZoomPositionInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_focus_position(&self) -> Result<u16, Error> {
+        let cmd = FocusPositionInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_focus_near_limit(&self) -> Result<u16, Error> {
+        let cmd = FocusNearLimitInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_focus_zone(&self) -> Result<FocusZone, Error> {
+        // TODO: AFZoneInquiry struct needs to be defined
+        // let cmd = AFZoneInquiry;
+        // let response = self.send_command_blocking(&cmd)?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::AFZone { zone }) => Ok(zone),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
+    }
+
+    fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
+        // TODO: AFSensitivityInquiry struct needs to be defined
+        // let cmd = AFSensitivityInquiry;
+        // let response = self.send_command_blocking(&cmd)?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::AFSensitivity { sensitivity }) => {
+        //         Ok(sensitivity)
+        //     }
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
+    }
+
+    fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {
+        let cmd = ExposureModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_exposure_compensation(&self) -> Result<i8, Error> {
+        let cmd = ExposureCompensationInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
+        // TODO: ExposureCompensationEnabledInquiry struct needs to be defined
+        // let cmd = ExposureCompensationEnabledInquiry;
+        // let response = self.send_command_blocking(&cmd)?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::ExposureCompensationEnabled { enabled }) => {
+        //         Ok(enabled)
+        //     }
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
+    }
+
+    fn get_iris(&self) -> Result<u8, Error> {
+        let cmd = IrisInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_shutter(&self) -> Result<u16, Error> {
+        let cmd = ShutterInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_gain(&self) -> Result<u8, Error> {
+        let cmd = GainInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::GainLevel { gain }) => Ok(gain),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_gain_limit(&self) -> Result<u8, Error> {
+        let cmd = GainLimitInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error> {
+        let cmd = WhiteBalanceModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_red_gain(&self) -> Result<u8, Error> {
+        let cmd = RedGainInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_blue_gain(&self) -> Result<u8, Error> {
+        let cmd = BlueGainInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_red_tuning(&self) -> Result<u8, Error> {
+        // TODO: RedTuningInquiry struct needs to be defined
+        // let cmd = RedTuningInquiry;
+        // let response = self.send_command_blocking(&cmd)?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::RedTuning { value }) => Ok(value),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
+    }
+
+    fn get_blue_tuning(&self) -> Result<u8, Error> {
+        // TODO: BlueTuningInquiry struct needs to be defined
+        // let cmd = BlueTuningInquiry;
+        // let response = self.send_command_blocking(&cmd)?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::BlueTuning { value }) => Ok(value),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
+    }
+
+    fn get_color_temperature(&self) -> Result<u16, Error> {
+        let cmd = ColorTemperatureInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => Ok(temperature),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
+        let cmd = AntiFlickerInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_gamma(&self) -> Result<u8, Error> {
+        // TODO: GammaInquiry struct needs to be defined
+        // let cmd = GammaInquiry;
+        // let response = self.send_command_blocking(&cmd)?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::Gamma { value }) => Ok(value),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
+    }
+
+    fn get_contrast(&self) -> Result<u8, Error> {
+        let cmd = ContrastInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::Contrast(value)) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_brightness(&self) -> Result<u8, Error> {
+        // TODO: BrightnessInquiry struct needs to be defined
+        // let cmd = BrightnessInquiry;
+        // let response = self.send_command_blocking(&cmd)?;
+        // match response {
+        //     Response::InquiryResponse(InquiryResponse::Brightness { value }) => Ok(value),
+        //     Response::Error(e) => Err(e),
+        //     _ => Err(Error::UnexpectedResponseType),
+        // }
+        Err(Error::UnexpectedResponseType)
+    }
+
+    fn get_sharpness(&self) -> Result<u8, Error> {
+        let cmd = SharpnessInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error> {
+        let cmd = SharpnessModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_saturation(&self) -> Result<u8, Error> {
+        let cmd = SaturationInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_hue(&self) -> Result<u8, Error> {
+        let cmd = HueInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_noise_reduction_2d(&self) -> Result<u8, Error> {
+        let cmd = NoiseReduction2DInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_noise_reduction_3d(&self) -> Result<u8, Error> {
+        let cmd = NoiseReduction3DInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_black_white(&self) -> Result<bool, Error> {
         let cmd = BlackWhiteInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
@@ -896,43 +840,62 @@ impl InquiryOps for Camera {
     }
 }
 
-/// Pan/Tilt inquiry operations.
+/// Pan/Tilt-specific inquiry operations (async).
 pub trait PanTiltInquiryOps: Sized {
-    /// Query the current pan and tilt position in degrees.
-    #[cfg(feature = "tokio")]
-    async fn get_position_degrees(&self) -> Result<(Degrees, Degrees), Error>;
+    /// Get the current pan and tilt position.
+    async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
 
-    /// Query the current pan and tilt position in degrees (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn get_position_degrees_blocking(&mut self) -> Result<(Degrees, Degrees), Error>;
+    /// Get the current pan and tilt position in degrees.
+    async fn get_pan_tilt_degrees(&self) -> Result<(Degrees, Degrees), Error>;
 }
 
+/// Pan/Tilt-specific inquiry operations (blocking).
+pub trait PanTiltInquiryOpsBlocking: Sized {
+    /// Get the current pan and tilt position.
+    fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
+
+    /// Get the current pan and tilt position in degrees.
+    fn get_pan_tilt_degrees(&self) -> Result<(Degrees, Degrees), Error>;
+}
+
+// Async implementation
 impl PanTiltInquiryOps for Camera {
-    #[cfg(feature = "tokio")]
-    async fn get_position_degrees(&self) -> Result<(Degrees, Degrees), Error> {
+    async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
             Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
-                let (pan_deg, tilt_deg) = self.units_to_degrees(pan, tilt);
-                Ok((pan_deg, tilt_deg))
+                Ok((pan, tilt))
             }
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
-    #[cfg(not(feature = "tokio"))]
-    fn get_position_degrees_blocking(&mut self) -> Result<(Degrees, Degrees), Error> {
+    async fn get_pan_tilt_degrees(&self) -> Result<(Degrees, Degrees), Error> {
+        let (pan_units, tilt_units) = PanTiltInquiryOps::get_pan_tilt_position(self).await?;
+        let (pan_deg, tilt_deg) = self.units_to_degrees(pan_units, tilt_units);
+        Ok((pan_deg, tilt_deg))
+    }
+}
+
+// Blocking implementation
+impl PanTiltInquiryOpsBlocking for Camera {
+    fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
             Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
-                let (pan_deg, tilt_deg) = self.units_to_degrees(pan, tilt);
-                Ok((pan_deg, tilt_deg))
+                Ok((pan, tilt))
             }
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
+    }
+
+    fn get_pan_tilt_degrees(&self) -> Result<(Degrees, Degrees), Error> {
+        let (pan_units, tilt_units) = PanTiltInquiryOpsBlocking::get_pan_tilt_position(self)?;
+        let (pan_deg, tilt_deg) = self.units_to_degrees(pan_units, tilt_units);
+        Ok((pan_deg, tilt_deg))
     }
 }

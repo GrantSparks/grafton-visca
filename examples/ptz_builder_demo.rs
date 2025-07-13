@@ -20,8 +20,10 @@ use grafton_visca::{
         methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
-    command::pan_tilt::PanTiltDirection,
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     profiles::PTZOpticsG2,
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    units::{Degrees, Normalized},
     Camera,
 };
 
@@ -55,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(2));
 
     // Set position using degrees - compiler enforces correct units
-    camera.pan_tilt_absolute(45.0, -15.0, 5)?;
+    camera.pan_tilt_absolute(Degrees::new(45.0), Degrees::new(-15.0), SpeedLevel::Medium)?;
     println!("   ✓ Set position to pan=45°, tilt=-15°");
     thread::sleep(Duration::from_secs(2));
 
@@ -89,7 +91,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pan_degrees = 90.0; // PTZOpticsG2 supports ±170°
     let tilt_degrees = 30.0; // PTZOpticsG2 supports -30° to +90°
 
-    match camera.pan_tilt_absolute(pan_degrees, tilt_degrees, 5) {
+    match camera.pan_tilt_absolute(
+        Degrees::new(pan_degrees),
+        Degrees::new(tilt_degrees),
+        SpeedLevel::Medium,
+    ) {
         Ok(_) => println!(
             "   ✓ Set position to pan={}°, tilt={}°",
             pan_degrees, tilt_degrees
@@ -107,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✓ Saved current position to preset {}", preset_id);
 
     // Move to a different position
-    camera.pan_tilt_absolute(-45.0, 0.0, 5)?;
+    camera.pan_tilt_absolute(Degrees::new(-45.0), Degrees::new(0.0), SpeedLevel::Medium)?;
     thread::sleep(Duration::from_secs(2));
 
     // Recall the saved preset
@@ -146,17 +152,25 @@ fn perform_scan_sequence<T: grafton_visca::transport::core::Transport>(
     thread::sleep(Duration::from_secs(1));
 
     // Scan left
-    camera.pan_tilt_move(PanTiltDirection::Left, 8, 0)?;
+    camera.pan_tilt_move(
+        PanTiltDirection::Left,
+        PanSpeed::new(8)?,
+        TiltSpeed::new(0)?,
+    )?;
     thread::sleep(Duration::from_secs(2));
     camera.pan_tilt_stop()?;
 
     // Scan right
-    camera.pan_tilt_move(PanTiltDirection::Right, 8, 0)?;
+    camera.pan_tilt_move(
+        PanTiltDirection::Right,
+        PanSpeed::new(8)?,
+        TiltSpeed::new(0)?,
+    )?;
     thread::sleep(Duration::from_secs(4));
     camera.pan_tilt_stop()?;
 
     // Return to center
-    camera.pan_tilt_absolute(0.0, 0.0, 5)?;
+    camera.pan_tilt_absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Medium)?;
 
     Ok(())
 }
@@ -167,9 +181,11 @@ use grafton_visca::{
         methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
-    command::pan_tilt::PanTiltDirection,
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     profiles::PTZOpticsG2,
     transport::tokio::Udp,
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    units::{Degrees, Normalized},
     Camera,
 };
 
@@ -195,7 +211,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Async position control with degrees
-    camera.pan_tilt_absolute(45.0, -15.0, 5).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(45.0), Degrees::new(-15.0), SpeedLevel::Medium)
+        .await?;
     println!("   ✓ Set position to pan=45°, tilt=-15°");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -209,7 +227,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Sequential operations that would typically be concurrent
     // Start moving and zooming (simulating concurrent behavior)
-    camera.pan_tilt_move(PanTiltDirection::Right, 8, 0).await?;
+    camera
+        .pan_tilt_move(
+            PanTiltDirection::Right,
+            PanSpeed::new(8)?,
+            TiltSpeed::new(0)?,
+        )
+        .await?;
     camera.zoom_in().await?;
     println!("   → Started movement and zoom");
 
@@ -225,22 +249,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n4. Async preset patrol");
 
     // Save positions with G2-specific preset IDs
-    camera.pan_tilt_absolute(-80.0, 0.0, 5).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(-80.0), Degrees::new(0.0), SpeedLevel::Medium)
+        .await?;
     let preset1 = G2PresetId::new(1)?;
-    camera.preset_set(preset1.into()).await?;
+    camera
+        .preset_set(PresetNumber::new(preset1.into())?)
+        .await?;
 
-    camera.pan_tilt_absolute(0.0, 45.0, 5).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(0.0), Degrees::new(45.0), SpeedLevel::Medium)
+        .await?;
     let preset2 = G2PresetId::new(2)?;
-    camera.preset_set(preset2.into()).await?;
+    camera
+        .preset_set(PresetNumber::new(preset2.into())?)
+        .await?;
 
-    camera.pan_tilt_absolute(80.0, 0.0, 5).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(80.0), Degrees::new(0.0), SpeedLevel::Medium)
+        .await?;
     let preset3 = G2PresetId::new(3)?;
-    camera.preset_set(preset3.into()).await?;
+    camera
+        .preset_set(PresetNumber::new(preset3.into())?)
+        .await?;
 
     // Patrol between presets
     for _ in 0..2 {
         for preset in &[preset1, preset2, preset3] {
-            camera.preset_recall((*preset).into()).await?;
+            camera
+                .preset_recall(PresetNumber::new((*preset).into())?)
+                .await?;
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
@@ -249,7 +287,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Reset to neutral
     println!("\n5. Reset to neutral position");
     camera.pan_tilt_home().await?;
-    camera.zoom_absolute(0.0).await?;
+    camera.zoom_absolute(Normalized::new(0.0)).await?;
     camera.focus_auto().await?;
     println!("   ✓ Reset camera to neutral state");
 
@@ -268,7 +306,9 @@ async fn perform_async_scan_sequence(camera: &Camera) -> Result<(), Box<dyn std:
     let scan_positions = vec![-90.0, -45.0, 0.0, 45.0, 90.0, 0.0];
 
     for pan_pos in scan_positions {
-        camera.pan_tilt_absolute(pan_pos, 0.0, 5).await?;
+        camera
+            .pan_tilt_absolute(Degrees::new(pan_pos), Degrees::new(0.0), SpeedLevel::Medium)
+            .await?;
         println!("      → Scanning at pan={}°", pan_pos);
         tokio::time::sleep(Duration::from_millis(800)).await;
     }

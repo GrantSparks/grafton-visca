@@ -39,7 +39,7 @@ impl Transport for Udp {
         })
     }
 
-    fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
+    fn recv(&self) -> Self::RecvFut<'_> {
         Box::pin(async move {
             let mut buffer = vec![0u8; 1024];
             let n = self.socket.recv(&mut buffer).await?;

@@ -53,7 +53,7 @@ impl Transport for Tcp {
         })
     }
 
-    fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
+    fn recv(&self) -> Self::RecvFut<'_> {
         Box::pin(async move {
             let mut stream = self.stream.lock().await;
             let mut buffer = vec![0u8; 1024];

@@ -792,10 +792,10 @@ mod tests {
         // Test that all commands implement Debug and Clone
         let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
             Box::new(OnePushTriggerCommand::new()),
-            Box::new(RedTuningCommand::new(RedTuning::new(0).unwrap())),
-            Box::new(BlueTuningCommand::new(BlueTuning::new(0).unwrap())),
-            Box::new(SaturationCommand::new(SaturationLevel::new(0).unwrap())),
-            Box::new(HueCommand::new(HueLevel::new(0).unwrap())),
+            Box::new(RedTuningCommand::new(RedTuning::NEUTRAL)),
+            Box::new(BlueTuningCommand::new(BlueTuning::NEUTRAL)),
+            Box::new(SaturationCommand::new(SaturationLevel::MIN)),
+            Box::new(HueCommand::new(HueLevel::MIN)),
             Box::new(ColorTemperature::Reset),
             Box::new(RedGain::Reset),
             Box::new(BlueGain::Reset),
@@ -821,7 +821,7 @@ mod tests {
         assert!(red_min.try_into_vec().is_ok());
         assert_eq!(red_min.try_into_vec().unwrap()[7], 0x00); // Value at index 7 after padding
 
-        let red_max = RedTuningCommand::new(RedTuning::new(10).unwrap());
+        let red_max = RedTuningCommand::new(RedTuning::MAX);
         assert!(red_max.try_into_vec().is_ok());
         assert_eq!(red_max.try_into_vec().unwrap()[7], 0x14); // Value at index 7 after padding
 
@@ -829,7 +829,7 @@ mod tests {
         assert!(blue_min.try_into_vec().is_ok());
         assert_eq!(blue_min.try_into_vec().unwrap()[7], 0x00); // Value at index 7 after padding
 
-        let blue_max = BlueTuningCommand::new(BlueTuning::new(10).unwrap());
+        let blue_max = BlueTuningCommand::new(BlueTuning::MAX);
         assert!(blue_max.try_into_vec().is_ok());
         assert_eq!(blue_max.try_into_vec().unwrap()[7], 0x14); // Value at index 7 after padding
 

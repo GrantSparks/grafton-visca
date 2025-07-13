@@ -7,7 +7,10 @@ use grafton_visca::{
         profiles::{G2PresetId, PTZOpticsG2},
     },
     capabilities::{PanTilt, Presets, ProfileMetadata},
+    command::preset::PresetNumber,
     transport::tokio::Tcp,
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    units::{Degrees, Normalized},
     Camera, Error,
 };
 #[cfg(feature = "tokio")]
@@ -53,30 +56,38 @@ async fn main() -> Result<(), Error> {
 
     // Move to specific position in degrees
     println!("Moving to 45° pan, 30° tilt...");
-    camera.pan_tilt_absolute(45.0, 30.0, 18).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(45.0), Degrees::new(30.0), SpeedLevel::Fastest)
+        .await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Move using normalized coordinates
     println!("Moving to normalized position (0.5, -0.25)...");
     // Convert normalized coordinates to degrees
     // 0.5 * 180° = 90 degrees pan, -0.25 * 90° = -22.5 degrees tilt
-    camera.pan_tilt_absolute(90.0, -22.5, 18).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(90.0), Degrees::new(-22.5), SpeedLevel::Fastest)
+        .await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Set and recall a preset (G2 supports presets 0-89)
     println!("Setting preset 10...");
     let preset = G2PresetId::new(10)?;
-    camera.preset_set(preset.into()).await?;
+    camera.preset_set(PresetNumber::new(preset.into())?).await?;
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Move somewhere else
     println!("Moving to different position...");
-    camera.pan_tilt_absolute(-30.0, 15.0, 18).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(-30.0), Degrees::new(15.0), SpeedLevel::Fastest)
+        .await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Recall the preset
     println!("Recalling preset 10...");
-    camera.preset_recall(preset.into()).await?;
+    camera
+        .preset_recall(PresetNumber::new(preset.into())?)
+        .await?;
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Zoom operations
@@ -89,7 +100,7 @@ async fn main() -> Result<(), Error> {
 
     // Set specific zoom position
     println!("Setting zoom to 50%...");
-    camera.zoom_absolute(0.5).await?; // 50% zoom
+    camera.zoom_absolute(Normalized::new(0.5)).await?; // 50% zoom
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Focus control

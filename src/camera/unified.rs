@@ -279,7 +279,7 @@ impl Camera {
     }
 
     /// Create with a blocking transport.
-    pub fn new_blocking<T>(transport: T) -> Self
+    pub(crate) fn new_blocking<T>(transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
         for<'a> T::SendFut<'a>: Send,
@@ -289,7 +289,7 @@ impl Camera {
     }
 
     /// Create with a specific profile and blocking transport.
-    pub fn with_profile_blocking<T>(profile: ProfileId, transport: T) -> Self
+    pub(crate) fn with_profile_blocking<T>(profile: ProfileId, transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
         for<'a> T::SendFut<'a>: Send,
@@ -453,7 +453,7 @@ impl Camera {
     ///
     /// This method blocks the current thread until the command completes.
     /// It's provided for convenience when using blocking transports.
-    pub fn send_command_blocking<C>(&self, command: &C) -> Result<Response, Error>
+    pub(crate) fn send_command_blocking<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca,
     {
@@ -709,6 +709,51 @@ impl Camera {
             }),
         }
     }
+
+    /// Get a blocking wrapper for this camera.
+    ///
+    /// This provides a synchronous API that hides the async nature of the underlying transport.
+    /// All trait methods will block until completion.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use grafton_visca::{Camera, ProfileId, transport::blocking::Mock};
+    /// use grafton_visca::blocking::ZoomOps;
+    ///
+    /// let transport = Mock::new();
+    /// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    /// let blocking_camera = camera.blocking();
+    /// 
+    /// // Use blocking API
+    /// blocking_camera.zoom_stop().unwrap();
+    /// ```
+    pub fn blocking(self) -> crate::blocking::Camera {
+        crate::blocking::Camera::new(self)
+    }
+
+    /// Get an async wrapper for this camera.
+    ///
+    /// This provides an async API that exposes the async nature of the underlying transport.
+    /// All trait methods are async and must be awaited.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async {
+    /// use grafton_visca::{Camera, ProfileId, transport::Tokio};
+    /// use grafton_visca::transport::tokio::Mock;
+    /// use grafton_visca::r#async::ZoomOps;
+    ///
+    /// let transport = Mock::new();
+    /// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, Tokio(transport));
+    /// let async_camera = camera.r#async();
+    /// 
+    /// // Use async API
+    /// async_camera.zoom_stop().await.unwrap();
+    /// # };
+    /// ```
+    pub fn r#async(self) -> crate::r#async::Camera {
+        crate::r#async::Camera::new(self)
+    }
 }
 
 // Note: The implementation of specific camera methods (zoom, pan_tilt, etc.) will be added
@@ -729,5 +774,4 @@ mod tests {
         let profile = ProfileId::default().to_profile();
         assert_eq!(profile.model_name(), "Generic VISCA Camera");
     }
-
 }

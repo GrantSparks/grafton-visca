@@ -136,8 +136,8 @@ fn test_pan_tilt_command_consistency() {
     // Pan/Tilt Stop
     let pt_stop = PanTilt::Move {
         direction: PanTiltDirection::Stop,
-        pan_speed: PanSpeed::new(0).unwrap(),
-        tilt_speed: TiltSpeed::new(0).unwrap(),
+        pan_speed: PanSpeed::ZERO,
+        tilt_speed: TiltSpeed::ZERO,
     };
     assert_eq!(
         pt_stop.try_into_vec().unwrap(),
@@ -168,8 +168,8 @@ fn test_pan_tilt_command_consistency() {
 
     // Pan/Tilt Absolute Position
     let pt_absolute = PanTilt::AbsolutePosition {
-        pan: PanPosition::new(0).unwrap(),
-        tilt: TiltPosition::new(0).unwrap(),
+        pan: PanPosition::CENTER,
+        tilt: TiltPosition::CENTER,
         pan_speed: PanSpeed::new(0x10).unwrap(),
         tilt_speed: TiltSpeed::new(0x10).unwrap(),
     };
@@ -220,8 +220,8 @@ fn test_response_type_consistency() {
     assert!(PanTilt::Reset.response_type().is_none());
     assert!(PanTilt::Move {
         direction: PanTiltDirection::Stop,
-        pan_speed: PanSpeed::new(0).unwrap(),
-        tilt_speed: TiltSpeed::new(0).unwrap(),
+        pan_speed: PanSpeed::ZERO,
+        tilt_speed: TiltSpeed::ZERO,
     }
     .response_type()
     .is_none());
