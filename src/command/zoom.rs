@@ -42,8 +42,7 @@ crate::visca_bounded_param! {
     /// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
     ZoomSpeed: u8 {
         min: 0,
-        max: 7,
-        error_msg: "Zoom speed must be in the range 0..=7"
+        max: 7
     }
 }
 

@@ -108,11 +108,11 @@ impl ExposureCompensationLevel {
         if (Self::MIN..=Self::MAX).contains(&value) {
             Ok(Self(value))
         } else {
-            Err(Error::InvalidParameter(format!(
-                "Exposure compensation level must be between {} and {}",
-                Self::MIN,
-                Self::MAX
-            )))
+            Err(Error::InvalidParameter {
+                parameter: "value",
+                value: value.to_string(),
+                reason: format!("Exposure compensation level must be between {} and {}", Self::MIN, Self::MAX),
+            })
         }
     }
 

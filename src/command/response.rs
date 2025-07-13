@@ -393,10 +393,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x0B => ExposureMode::Iris,
                 0x0D => ExposureMode::Bright,
                 _ => {
-                    return Err(Error::InvalidParameter(format!(
-                        "Unknown exposure mode: {:02X}",
-                        payload[0]
-                    )))
+                    return Err(Error::InvalidParameter {
+                        parameter: "exposure_mode",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Unknown exposure mode value".to_string(),
+                    })
                 }
             };
             Ok(Response::InquiryResponse(InquiryResponse::ExposureMode {
@@ -415,10 +416,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x05 => WhiteBalanceMode::Manual,
                 0x20 => WhiteBalanceMode::ColorTemperature,
                 _ => {
-                    return Err(Error::InvalidParameter(format!(
-                        "Unknown white balance mode: {:02X}",
-                        payload[0]
-                    )))
+                    return Err(Error::InvalidParameter {
+                        parameter: "white_balance_mode",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Unknown white balance mode value".to_string(),
+                    })
                 }
             };
             Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance {
@@ -434,10 +436,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x01 => AntiFlickerMode::Hz50,
                 0x02 => AntiFlickerMode::Hz60,
                 _ => {
-                    return Err(Error::InvalidParameter(format!(
-                        "Unknown anti-flicker mode: {:02X}",
-                        payload[0]
-                    )))
+                    return Err(Error::InvalidParameter {
+                        parameter: "anti_flicker_mode",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Unknown anti-flicker mode value".to_string(),
+                    })
                 }
             };
             Ok(Response::InquiryResponse(InquiryResponse::AntiFlicker {
@@ -453,10 +456,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x01 => FocusZone::Center,
                 0x02 => FocusZone::Bottom,
                 _ => {
-                    return Err(Error::InvalidParameter(format!(
-                        "Unknown focus zone: {:02X}",
-                        payload[0]
-                    )))
+                    return Err(Error::InvalidParameter {
+                        parameter: "focus_zone",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Unknown focus zone value".to_string(),
+                    })
                 }
             };
             Ok(Response::InquiryResponse(InquiryResponse::FocusZone {
@@ -472,10 +476,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x01 => AutoFocusSensitivity::Normal,
                 0x02 => AutoFocusSensitivity::High,
                 _ => {
-                    return Err(Error::InvalidParameter(format!(
-                        "Unknown auto focus sensitivity: {:02X}",
-                        payload[0]
-                    )))
+                    return Err(Error::InvalidParameter {
+                        parameter: "auto_focus_sensitivity",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Unknown auto focus sensitivity value".to_string(),
+                    })
                 }
             };
             Ok(Response::InquiryResponse(
@@ -500,10 +505,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 0x02 => SharpnessMode::Auto,
                 0x03 => SharpnessMode::Manual,
                 _ => {
-                    return Err(Error::InvalidParameter(format!(
-                        "Unknown sharpness mode: {:02X}",
-                        payload[0]
-                    )))
+                    return Err(Error::InvalidParameter {
+                        parameter: "sharpness_mode",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Unknown sharpness mode value".to_string(),
+                    })
                 }
             };
             Ok(Response::InquiryResponse(InquiryResponse::SharpnessMode {

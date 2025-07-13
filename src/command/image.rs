@@ -18,16 +18,9 @@ visca_bool_command! {
     /// Enables or disables backlight compensation, which helps properly expose
     /// subjects that are backlit (have a bright light source behind them).
     struct BacklightCommand {
-        /// Enable (true) or disable (false) backlight compensation.
-        status: bool => |v| if v { 0x02 } else { 0x03 }
-    }
-    bytes = [0x81, 0x01, 0x04, 0x33, {status}, 0xFF]
-}
-
-impl BacklightCommand {
-    /// Create a new backlight command.
-    pub fn new(status: bool) -> Self {
-        Self { status }
+        prefix: [0x81, 0x01, 0x04, 0x33],
+        on: 0x02,
+        off: 0x03,
     }
 }
 
@@ -90,16 +83,9 @@ visca_bool_command! {
     ///
     /// Switches the camera output between color and monochrome (black and white) modes.
     struct BlackWhiteCommand {
-        /// Enable black and white mode (true) or color mode (false).
-        on: bool => |v| if v { 0x04 } else { 0x00 }
-    }
-    bytes = [0x81, 0x01, 0x04, 0x01, {on}, 0xFF]
-}
-
-impl BlackWhiteCommand {
-    /// Create a new black and white command.
-    pub fn new(on: bool) -> Self {
-        Self { on }
+        prefix: [0x81, 0x01, 0x04, 0x01],
+        on: 0x04,
+        off: 0x00,
     }
 }
 
@@ -434,7 +420,7 @@ mod tests {
         let debug_str = format!("{:?}", cmd);
         assert!(debug_str.contains("BacklightCommand"));
         // The debug output will show the field name
-        assert!(debug_str.contains("status"));
+        assert!(debug_str.contains("enabled"));
 
         let cmd = BacklightCommand::new(false);
         let debug_str = format!("{:?}", cmd);
@@ -447,7 +433,7 @@ mod tests {
         let debug_str = format!("{:?}", cmd);
         assert!(debug_str.contains("BlackWhiteCommand"));
         // The debug output will show the field name
-        assert!(debug_str.contains("on"));
+        assert!(debug_str.contains("enabled"));
 
         let cmd = BlackWhiteCommand::new(false);
         let debug_str = format!("{:?}", cmd);

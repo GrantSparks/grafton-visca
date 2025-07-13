@@ -96,9 +96,11 @@ impl EncodeVisca for Sharpness {
             }
             Self::SetLevel { value } => {
                 if *value > 11 {
-                    return Err(Error::InvalidParameter(
-                        "Sharpness value must be in the range 0..=11".into(),
-                    ));
+                    return Err(Error::InvalidParameter {
+                        parameter: "value",
+                        value: value.to_string(),
+                        reason: "Sharpness value must be in the range 0..=11".to_string(),
+                    });
                 }
                 let high = (*value >> 4) & 0x0F;
                 let low = *value & 0x0F;

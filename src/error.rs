@@ -100,7 +100,7 @@ pub enum Error {
     #[error("Feature '{feature}' not supported by this camera model")]
     FeatureNotSupported {
         /// Name of the unsupported feature.
-        feature: String,
+        feature: &'static str,
     },
 
     /// Underlying IO error from network operations.
@@ -152,8 +152,15 @@ pub enum Error {
     TransportError(String),
 
     /// Invalid parameter provided to a command.
-    #[error("Invalid parameter: {0}")]
-    InvalidParameter(String),
+    #[error("Invalid parameter '{parameter}': {reason} (value: {value})")]
+    InvalidParameter {
+        /// The parameter name that was invalid.
+        parameter: &'static str,
+        /// The value that was provided.
+        value: String,
+        /// The reason why it's invalid.
+        reason: String,
+    },
 
     /// Buffer provided is too small for encoding.
     #[error("Buffer too small: required {required} bytes, but only {actual} available")]
@@ -177,7 +184,7 @@ pub enum Error {
     #[error("Parameter out of range: {parameter} = {value} (valid range: {min}..{max})")]
     ParameterOutOfRange {
         /// Name of the parameter.
-        parameter: String,
+        parameter: &'static str,
         /// Value that was provided.
         value: i32,
         /// Minimum valid value.
@@ -319,8 +326,12 @@ mod tests {
         );
         assert_eq!(Error::Unknown(0x99).to_string(), "Unknown error code: 0x99");
         assert_eq!(
-            Error::InvalidParameter("test".to_string()).to_string(),
-            "Invalid parameter: test"
+            Error::InvalidParameter {
+                parameter: "test",
+                value: "invalid".to_string(),
+                reason: "test reason".to_string(),
+            }.to_string(),
+            "Invalid parameter 'test': test reason (value: invalid)"
         );
         assert_eq!(Error::Timeout.to_string(), "Operation timed out");
     }
@@ -354,7 +365,11 @@ mod tests {
 
         assert!(!Error::SyntaxError.is_retryable());
         assert!(!Error::CommandNotExecutable.is_retryable());
-        assert!(!Error::InvalidParameter("test".to_string()).is_retryable());
+        assert!(!Error::InvalidParameter {
+            parameter: "test",
+            value: "invalid".to_string(),
+            reason: "test reason".to_string(),
+        }.is_retryable());
         assert!(!Error::PresetNotFound { id: 1 }.is_retryable());
     }
 
@@ -387,7 +402,11 @@ mod tests {
 
         assert_eq!(Error::SyntaxError.suggested_retry_delay(), None);
         assert_eq!(
-            Error::InvalidParameter("test".to_string()).suggested_retry_delay(),
+            Error::InvalidParameter {
+                parameter: "test",
+                value: "invalid".to_string(),
+                reason: "test reason".to_string(),
+            }.suggested_retry_delay(),
             None
         );
     }
@@ -420,9 +439,13 @@ mod tests {
             Error::CommandNotExecutable,
             Error::PresetNotFound { id: 1 },
             Error::FeatureNotSupported {
-                feature: "test".to_string(),
+                feature: "test",
             },
-            Error::InvalidParameter("test".to_string()),
+            Error::InvalidParameter {
+                parameter: "test",
+                value: "invalid".to_string(),
+                reason: "test reason".to_string(),
+            },
         ];
 
         for error in non_retryable_errors {

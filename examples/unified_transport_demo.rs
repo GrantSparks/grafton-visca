@@ -2,7 +2,7 @@
 
 #[cfg(not(feature = "async"))]
 fn blocking_example() -> Result<(), grafton_visca::Error> {
-    use grafton_visca::{camera::methods::PowerOps, transport::blocking::Tcp, Camera};
+    use grafton_visca::{camera::methods::PowerOpsBlocking, transport::blocking::Tcp, Camera};
 
     println!("=== Blocking Transport Example ===");
 

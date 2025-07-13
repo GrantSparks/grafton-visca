@@ -11,11 +11,12 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{ExposureOps, PanTiltOps, PresetOps},
+    blocking::{Camera, ExposureOps, PanTiltOps, PresetsOps},
     profiles::PTZOpticsG2,
     transport::blocking::Udp,
-    types::{Gain, GainLimit},
-    Camera,
+    types::SpeedLevel,
+    units::Degrees,
+    // Note: Gain and GainLimit types are not exported in types module
 };
 #[cfg(not(feature = "async"))]
 use std::thread;
@@ -46,17 +47,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Move using degrees
-    camera.pan_tilt_absolute(45.0, 15.0, 5)?;
+    camera.pan_tilt_absolute(Degrees::new(45.0), Degrees::new(15.0), SpeedLevel::from(5))?;
     println!("   ✓ Moved to 45° pan, 15° tilt");
     thread::sleep(Duration::from_secs(2));
 
     // Move using pan_tilt method with normalized coordinates (0.0 to 1.0)
-    camera.pan_tilt_absolute(0.5, -0.25, 5)?;
+    camera.pan_tilt_absolute(Degrees::new(0.5), Degrees::new(-0.25), SpeedLevel::from(5))?;
     println!("   ✓ Moved using normalized coordinates");
     thread::sleep(Duration::from_secs(2));
 
     // Move using pan_tilt_degrees method
-    camera.pan_tilt_absolute(90.0, -15.0, 5)?;
+    camera.pan_tilt_absolute(Degrees::new(90.0), Degrees::new(-15.0), SpeedLevel::from(5))?;
     println!("   ✓ Moved using degrees via pan_tilt_degrees");
     thread::sleep(Duration::from_secs(2));
 
@@ -65,8 +66,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::camera::profiles::G2PresetId;
 
     // PTZOpticsG2 has specific preset constraints (0-89)
-    let preset = G2PresetId::new(5)?;
-    camera.preset_set(preset.into())?;
+    // Note: G2PresetId doesn't convert to PresetNumber directly
+    // Use PresetNumber instead
+    use grafton_visca::command::preset::PresetNumber;
+    let preset = PresetNumber::new(5)?;
+    camera.preset_set(preset)?;
     println!("   ✓ Saved position to preset");
 
     thread::sleep(Duration::from_secs(1));

@@ -11,12 +11,11 @@ fn main() {
 #[cfg(not(feature = "async"))]
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
+    blocking::{Camera, PanTiltOps, PowerOps, PresetsOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     transport::blocking::Tcp,
     types::{PanSpeed, TiltSpeed},
-    Camera,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -34,7 +33,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = Tcp::connect(&camera_ip)?;
 
     // Create camera with PTZOpticsG2 profile
-    let mut camera = Camera::new(transport);
+    // Create camera using the base Camera type, then convert to blocking
+    let mut camera = grafton_visca::Camera::new(transport).blocking();
 
     println!("Camera created successfully with blocking transport API!");
 

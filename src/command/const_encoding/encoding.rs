@@ -219,6 +219,7 @@ pub const fn encode_nd_filter_variable(value: u8) -> [u8; 9] {
 // Helper functions for encoding
 
 /// Encode a speed value for zoom/focus commands.
+#[must_use]
 pub const fn encode_speed(speed: u8) -> u8 {
     let speed = if speed > 7 { 7 } else { speed };
     0x20 | (speed & 0x0F)

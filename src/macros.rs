@@ -50,14 +50,23 @@ macro_rules! visca_command {
 
         impl $crate::command::encode_visca::EncodeVisca for $name {
             type Response = ();
-            const MAX_SIZE: usize = 16; // Conservative size for enum variants
+            const MAX_SIZE: usize = 32; // Conservative default
 
             fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+                // Create a helper function for each variant
+                $(
+                    #[allow(non_snake_case)]
+                    fn $variant($($($param: &$ptype),*)?) -> Result<Vec<u8>, $crate::Error> {
+                        $body
+                    }
+                )+
+
+                // Match on self and call the appropriate helper
                 let bytes = match self {
                     $(
-                        Self::$variant $( ($($param),*) )? => $crate::visca_command!(@expand_body $body, $($($param),*)?),
+                        Self::$variant$( ($($param),*) )? => $variant($($($param),*)?)?,
                     )+
-                }?;
+                };
 
                 if buffer.len() < bytes.len() {
                     return Err($crate::Error::BufferTooSmall {
@@ -75,52 +84,33 @@ macro_rules! visca_command {
             }
 
             fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
+                use $crate::timeout::CommandCategory;
                 match $category {
-                    "Quick" => $crate::timeout::CommandCategory::Quick,
-                    "Movement" => $crate::timeout::CommandCategory::Movement,
-                    "Preset" => $crate::timeout::CommandCategory::Preset,
-                    "LongRunning" => $crate::timeout::CommandCategory::LongRunning,
-                    "Custom" => $crate::timeout::CommandCategory::Custom,
-                    _ => $crate::timeout::CommandCategory::Custom,
+                    "Quick" => CommandCategory::Quick,
+                    "Movement" => CommandCategory::Movement,
+                    "Preset" => CommandCategory::Preset,
+                    "Custom" => CommandCategory::Custom,
+                    _ => CommandCategory::Custom,
                 }
             }
         }
     };
-
-    // Expand simple byte arrays
-    (@expand_body [$($byte:expr),+ $(,)?], $($params:ident)*) => {
-        Ok(vec![$($byte),+])
-    };
-
-    // Expand code blocks
-    (@expand_body $block:block, $($params:ident)*) => {
-        $block
-    };
-
-    // Expand builder pattern - creates CommandBuilder and builds with terminator
-    (@expand_body builder ( $const_path:path ), $($params:ident)*) => {{
-        let cmd = $crate::command::const_encoding::CommandBuilder::<6>::new()
-            .append($const_path)
-            .build();
-        Ok(cmd.to_vec())
-    }};
 }
 
-/// Create a validated newtype wrapper for numeric parameters.
+/// Create a bounded parameter type with validation.
 ///
-/// This macro generates a newtype struct with validation, conversion traits,
-/// and common methods for VISCA parameter types that have min/max bounds.
+/// This macro generates a newtype wrapper that enforces value constraints
+/// at the type level.
 ///
 /// # Example
-/// ```ignore
+/// ```
 /// use grafton_visca::visca_bounded_param;
 ///
 /// visca_bounded_param! {
-///     /// Variable zoom speed (0-7).
-///     ZoomSpeed: u8 {
+///     /// Zoom speed level from 0 (slow) to 7 (fast)
+///     struct ZoomSpeed: u8 {
 ///         min: 0,
 ///         max: 7,
-///         error_msg: "Zoom speed must be in the range 0..=7"
 ///     }
 /// }
 /// ```
@@ -128,50 +118,49 @@ macro_rules! visca_command {
 macro_rules! visca_bounded_param {
     (
         $(#[$meta:meta])*
-        $name:ident: $type:ty {
+        $name:ident : $inner:ty {
             min: $min:expr,
-            max: $max:expr,
-            error_msg: $error_msg:expr
+            max: $max:expr
         }
     ) => {
         $(#[$meta])*
         #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-        pub struct $name($type);
+        pub struct $name($inner);
 
         impl $name {
-            /// Minimum allowed value.
-            pub const MIN: $type = $min;
-            /// Maximum allowed value.
-            pub const MAX: $type = $max;
+            /// Minimum allowed value
+            pub const MIN: $inner = $min;
+            /// Maximum allowed value
+            pub const MAX: $inner = $max;
 
-            /// Creates a new instance with validation.
-            ///
-            /// # Errors
-            /// Returns `Error::InvalidParameter` if value is out of range.
-            pub fn new(value: $type) -> Result<Self, $crate::Error> {
-                if (Self::MIN..=Self::MAX).contains(&value) {
-                    Ok(Self(value))
-                } else {
-                    Err($crate::Error::InvalidParameter($error_msg.into()))
+            /// Create a new instance with validation
+            pub fn new(value: $inner) -> Result<Self, $crate::Error> {
+                if value < Self::MIN || value > Self::MAX {
+                    return Err($crate::Error::InvalidParameter {
+                        parameter: stringify!($name),
+                        value: format!("{}", value),
+                        reason: format!("must be between {} and {}", Self::MIN, Self::MAX),
+                    });
                 }
+                Ok(Self(value))
             }
 
-            /// Get the raw value.
+            /// Get the inner value
             #[must_use]
-            pub const fn value(self) -> $type {
+            pub fn value(&self) -> $inner {
                 self.0
             }
         }
 
-        impl std::convert::TryFrom<$type> for $name {
+        impl TryFrom<$inner> for $name {
             type Error = $crate::Error;
 
-            fn try_from(value: $type) -> Result<Self, Self::Error> {
+            fn try_from(value: $inner) -> Result<Self, Self::Error> {
                 Self::new(value)
             }
         }
 
-        impl From<$name> for $type {
+        impl From<$name> for $inner {
             fn from(val: $name) -> Self {
                 val.0
             }
@@ -181,61 +170,45 @@ macro_rules! visca_bounded_param {
 
 /// Validate multiple parameters in a single expression.
 ///
-/// This macro simplifies the common pattern of validating multiple parameters
-/// with consistent error handling. It converts validation errors to InvalidParameter
-/// errors with descriptive messages.
+/// Returns early with an error if any validation fails.
 ///
 /// # Example
 /// ```ignore
-/// use grafton_visca::validate_all;
-///
-/// fn continuous_move(pan_speed: u8, tilt_speed: u8) -> Result<Self, Error> {
-///     let (pan_speed, tilt_speed) = validate_all! {
-///         pan_speed: PanSpeed::new(pan_speed),
-///         tilt_speed: TiltSpeed::new(tilt_speed),
-///     }?;
-///     
-///     Ok(Self::Move {
-///         direction: PanTiltDirection::Up,
-///         pan_speed,
-///         tilt_speed,
-///     })
+/// validate_all! {
+///     "pan_speed" => pan_speed <= 0x18,
+///     "tilt_speed" => tilt_speed <= 0x18,
 /// }
 /// ```
 #[macro_export]
 macro_rules! validate_all {
-    (
-        $($field:ident : $constructor:expr),+ $(,)?
-    ) => {{
-        {
-            $(
-                let $field = $constructor.map_err(|_| {
-                    $crate::Error::InvalidParameter(
-                        concat!("Invalid ", stringify!($field)).to_string()
-                    )
-                })?;
-            )+
-            Ok::<_, $crate::Error>(($($field),+))
-        }
-    }};
+    ($($name:literal => $condition:expr),+ $(,)?) => {
+        $(
+            if !($condition) {
+                return Err($crate::Error::InvalidParameter {
+                    parameter: $name,
+                    value: format!("{:?}", $name),
+                    reason: concat!("failed condition: ", stringify!($condition)).to_string(),
+                });
+            }
+        )+
+    };
 }
 
-/// Create VISCA commands with boolean on/off parameters.
+/// Create a boolean command with on/off states.
 ///
-/// This macro generates commands that have a simple boolean parameter
-/// for enabling/disabling features.
+/// This macro simplifies creating commands that toggle features.
 ///
 /// # Example
 /// ```
 /// use grafton_visca::visca_bool_command;
 ///
 /// visca_bool_command! {
-///     /// Enable or disable backlight compensation.
+///     /// Control camera backlight compensation
 ///     struct BacklightCommand {
-///         /// Enable (true) or disable (false) backlight compensation.
-///         status: bool => |v| if v { 0x02 } else { 0x03 }
+///         prefix: [0x81, 0x01, 0x04, 0x33],
+///         on: 0x02,
+///         off: 0x03,
 ///     }
-///     bytes = [0x81, 0x01, 0x04, 0x33, {status}, 0xFF]
 /// }
 /// ```
 #[macro_export]
@@ -243,21 +216,37 @@ macro_rules! visca_bool_command {
     (
         $(#[$meta:meta])*
         struct $name:ident {
-            $(#[$field_meta:meta])*
-            $field:ident: bool => |$v:ident| $encode:expr
+            prefix: [$($prefix:expr),+],
+            on: $on:expr,
+            off: $off:expr,
         }
-        bytes = [$($byte:tt)*]
     ) => {
         $(#[$meta])*
         #[derive(Debug, Copy, Clone)]
         pub struct $name {
-            $(#[$field_meta])*
-            pub $field: bool,
+            enabled: bool,
+        }
+
+        impl $name {
+            /// Creates a new instance with the specified enabled state.
+            pub fn new(enabled: bool) -> Self {
+                Self { enabled }
+            }
+
+            /// Creates a new instance with enabled state set to true.
+            pub fn on() -> Self {
+                Self { enabled: true }
+            }
+
+            /// Creates a new instance with enabled state set to false.
+            pub fn off() -> Self {
+                Self { enabled: false }
+            }
         }
 
         impl $crate::command::encode_visca::EncodeVisca for $name {
             type Response = ();
-            const MAX_SIZE: usize = 6; // Most VISCA commands are 6 bytes
+            const MAX_SIZE: usize = [$($prefix),+].len() + 2; // prefix + state + 0xFF
 
             fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 if buffer.len() < Self::MAX_SIZE {
@@ -267,14 +256,12 @@ macro_rules! visca_bool_command {
                     });
                 }
 
-                let $v = self.$field;
-                let encoded = $encode;
-                let mut bytes = Vec::with_capacity(Self::MAX_SIZE);
-                $crate::visca_bool_command!(@encode bytes, encoded, [$($byte)*]);
+                let prefix = [$($prefix),+];
+                buffer[..prefix.len()].copy_from_slice(&prefix);
+                buffer[prefix.len()] = if self.enabled { $on } else { $off };
+                buffer[prefix.len() + 1] = 0xFF;
 
-                let len = bytes.len();
-                buffer[..len].copy_from_slice(&bytes);
-                Ok(len)
+                Ok(Self::MAX_SIZE)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -286,71 +273,37 @@ macro_rules! visca_bool_command {
             }
         }
     };
-
-    // Internal encoding rules
-    (@encode $bytes:ident, $encoded:ident, []) => {};
-
-    (@encode $bytes:ident, $encoded:ident, [$byte:literal, $($rest:tt)*]) => {
-        $bytes.push($byte);
-        $crate::visca_bool_command!(@encode $bytes, $encoded, [$($rest)*]);
-    };
-
-    (@encode $bytes:ident, $encoded:ident, [$byte:literal]) => {
-        $bytes.push($byte);
-    };
-
-    (@encode $bytes:ident, $encoded:ident, [{$field:ident}, $($rest:tt)*]) => {
-        $bytes.push($encoded);
-        $crate::visca_bool_command!(@encode $bytes, $encoded, [$($rest)*]);
-    };
-
-    (@encode $bytes:ident, $encoded:ident, [{$field:ident}]) => {
-        $bytes.push($encoded);
-    };
 }
 
-/// Create a VISCA command from a static byte array.
-///
-/// This macro generates a complete implementation of the `EncodeVisca` trait
-/// for commands that always encode to the same byte sequence.
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::static_visca_cmd;
-///
-/// static_visca_cmd! {
-///     /// Power on command.
-///     struct PowerOn = [0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
-///     timeout = Quick;
-/// }
-/// ```
+// Internal macro for creating codec implementations
+#[doc(hidden)]
 #[macro_export]
-macro_rules! static_visca_cmd {
-    (
-        $(#[$meta:meta])*
-        struct $name:ident = [$($byte:expr),+ $(,)?];
-        timeout = $category:ident;
-    ) => {
-        $(#[$meta])*
-        #[derive(Debug, Copy, Clone)]
-        pub struct $name;
-
+macro_rules! visca_encode_impl {
+    // Standard encode implementation
+    (standard $name:ty, $size:literal, $encode_body:expr) => {
         impl $crate::command::encode_visca::EncodeVisca for $name {
             type Response = ();
-            const MAX_SIZE: usize = { 0 $(+ { let _ = $byte; 1 })+ };
+            const MAX_SIZE: usize = $size;
 
             fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                const BYTES: &[u8] = &[$($byte),+];
-
-                if buffer.len() < BYTES.len() {
+                if buffer.len() < Self::MAX_SIZE {
                     return Err($crate::Error::BufferTooSmall {
-                        required: BYTES.len(),
+                        required: Self::MAX_SIZE,
                         actual: buffer.len(),
                     });
                 }
 
-                buffer[..BYTES.len()].copy_from_slice(BYTES);
-                Ok(BYTES.len())
+                let bytes: Vec<u8> = $encode_body(self)?;
+
+                if bytes.len() > Self::MAX_SIZE {
+                    return Err($crate::Error::BufferTooSmall {
+                        required: bytes.len(),
+                        actual: Self::MAX_SIZE,
+                    });
+                }
+
+                buffer[..bytes.len()].copy_from_slice(&bytes);
+                Ok(bytes.len())
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -358,25 +311,38 @@ macro_rules! static_visca_cmd {
             }
 
             fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
-                $crate::timeout::CommandCategory::$category
+                $crate::timeout::CommandCategory::Quick
             }
         }
     };
 }
 
-/// Create a VISCA command using a builder pattern.
+/// Internal macro for test generation
+#[doc(hidden)]
+#[macro_export]
+macro_rules! visca_test {
+    ($name:ident, $test_name:ident, $cmd:expr, $expected:expr) => {
+        #[test]
+        fn $test_name() {
+            let cmd = $cmd;
+            let mut buffer = vec![0u8; 32];
+            let len = cmd.encode_into(&mut buffer).expect("encode failed");
+            assert_eq!(&buffer[..len], $expected);
+        }
+    };
+}
+
+/// Create a builder-style command with dynamic byte sequences.
 ///
-/// This macro generates commands that have a common prefix followed by
-/// variable data, using the CommandBuilder pattern internally.
+/// This macro is for commands that need runtime construction of byte sequences
+/// based on their parameters.
 ///
 /// # Example
 /// ```ignore
-/// use grafton_visca::visca_builder;
-///
 /// visca_builder! {
-///     /// Zoom to a specific position.
-///     struct ZoomDirect {
-///         position: ZoomPosition,
+///     /// Set absolute zoom position
+///     struct ZoomPosition {
+///         position: u16,
 ///     }
 ///     builder<6> {
 ///         append([0x81, 0x01, 0x04, 0x47]);
@@ -429,8 +395,8 @@ macro_rules! visca_builder {
                     let $field = &self.$field;
                 )+
 
-                // Execute the builder statements
-                $($stmt);+
+                // Execute builder statements
+                $($stmt)+
 
                 let bytes = builder.build();
                 buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
@@ -445,5 +411,52 @@ macro_rules! visca_builder {
                 $crate::timeout::CommandCategory::$category
             }
         }
+    };
+}
+
+/// Macro to forward method calls from wrapper types to the inner camera instance.
+///
+/// This macro reduces boilerplate when implementing trait forwarding for the
+/// `blocking::Camera` and `async::Camera` wrapper types.
+///
+/// # Example
+/// ```ignore
+/// forward_facade!(Camera, blocking,
+///     ZoomOps: 
+///         zoom_stop() -> crate::Result<()>,
+///         zoom_in() -> crate::Result<()>,
+///         zoom_out() -> crate::Result<()>,
+///         zoom_absolute(position: crate::units::Normalized) -> crate::Result<()>;
+///     InquiryOps:
+///         get_power_state() -> crate::Result<bool>,
+///         get_zoom_position() -> crate::Result<u16>;
+/// );
+/// ```
+#[macro_export]
+macro_rules! forward_facade {
+    // Blocking variant
+    ($wrapper:ident, blocking, $($trait_name:ident : $($method:ident $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
+        $(
+            impl $trait_name for $wrapper {
+                $(
+                    fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
+                        self.0.$method($($($param),*)?)
+                    }
+                )+
+            }
+        )+
+    };
+    
+    // Async variant
+    ($wrapper:ident, async, $($trait_name:ident : $($method:ident $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
+        $(
+            impl $trait_name for $wrapper {
+                $(
+                    async fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
+                        self.0.$method($($($param),*)?).await
+                    }
+                )+
+            }
+        )+
     };
 }

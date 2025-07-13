@@ -6,13 +6,12 @@
 use grafton_visca::transport::blocking::{Tcp, Udp};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{
-        methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-        profiles::{G2PresetId, PTZOpticsG2},
-    },
-    command::pan_tilt::PanTiltDirection,
-    types::{PanSpeed, TiltSpeed},
-    Camera, Error,
+    blocking::{Camera, PanTiltOps, PowerOps, PresetsOps, ZoomOps},
+    camera::profiles::{G2PresetId, PTZOpticsG2},
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
+    types::{PanSpeed, TiltSpeed, SpeedLevel},
+    units::{Degrees, Normalized},
+    Error,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -24,12 +23,12 @@ fn main() -> Result<(), Error> {
 
     // Connect to camera using UDP
     let udp_transport = Udp::connect("192.168.1.100:1259")?;
-    let mut camera = Camera::new(udp_transport);
+    let mut camera = grafton_visca::Camera::new(udp_transport).blocking();
     println!("Connected to camera via UDP");
 
     // Or connect using TCP
     // let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
-    // let mut camera = Camera::new(tcp_transport);
+    // let mut camera = grafton_visca::Camera::new(tcp_transport).blocking();
 
     // Camera capabilities are now checked at compile time through the PTZOpticsG2 profile
     println!("\nUsing PTZOpticsG2 camera profile");
@@ -50,12 +49,12 @@ fn main() -> Result<(), Error> {
     println!("Moved to home position");
 
     // Save current position as preset 1
-    let preset1 = G2PresetId::new(1)?;
-    camera.preset_set(preset1.into())?;
+    // Use PresetNumber directly instead of G2PresetId
+    camera.preset_set(PresetNumber::new(1)?)?;
     println!("Saved preset 1");
 
     // Move camera to specific position
-    camera.pan_tilt_absolute(45.0, -15.0, 5)?;
+    camera.pan_tilt_absolute(Degrees::new(45.0), Degrees::new(-15.0), SpeedLevel::from(5))?;
     println!("Moved to 45° pan, -15° tilt");
 
     // Zoom control
@@ -65,7 +64,7 @@ fn main() -> Result<(), Error> {
     camera.zoom_stop()?;
 
     // Set specific zoom position (50% of max)
-    camera.zoom_absolute(0.5)?;
+    camera.zoom_absolute(Normalized::new(0.5))?;
     println!("Set zoom to 50%");
 
     // Move camera continuously

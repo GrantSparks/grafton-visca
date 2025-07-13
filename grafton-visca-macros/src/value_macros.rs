@@ -126,12 +126,11 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         quote! {
             const VALID_VALUES: &[#inner_type] = &#values_tokens;
             if !VALID_VALUES.contains(&value) {
-                return Err(crate::Error::InvalidParameter(format!(
-                    "{} must be one of {:?}, got {}",
-                    stringify!(#name),
-                    VALID_VALUES,
-                    value
-                )));
+                return Err(crate::Error::InvalidParameter {
+                    parameter: stringify!(#name),
+                    value: format!("{}", value),
+                    reason: format!("must be one of {:?}", VALID_VALUES),
+                });
             }
         }
     } else if let (Some(min), Some(max)) = (&min_value, &max_value) {
@@ -140,7 +139,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         quote! {
             if !(#min_tokens..=#max_tokens).contains(&value) {
                 return Err(crate::Error::ParameterOutOfRange {
-                    parameter: stringify!(#name).to_string(),
+                    parameter: stringify!(#name),
                     value: value as i32,
                     min: #min_tokens as i32,
                     max: #max_tokens as i32,

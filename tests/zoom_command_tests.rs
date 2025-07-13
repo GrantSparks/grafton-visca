@@ -4,7 +4,8 @@ mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
-    camera::{methods::ZoomOps, Camera, ProfileId},
+    blocking::ZoomOps,
+    camera::{Camera, ProfileId},
     command::{zoom::ZoomSpeed, EncodeVisca, ResponseType, Zoom},
     timeout::CommandCategory,
     types::ZoomPosition,
@@ -21,10 +22,10 @@ fn test_zoom_speed_new() {
     }
 
     // Invalid speed
-    assert!(matches!(ZoomSpeed::new(8), Err(Error::InvalidParameter(_))));
+    assert!(matches!(ZoomSpeed::new(8), Err(Error::InvalidParameter { .. })));
     assert!(matches!(
         ZoomSpeed::new(255),
-        Err(Error::InvalidParameter(_))
+        Err(Error::InvalidParameter { .. })
     ));
 }
 
@@ -110,7 +111,7 @@ fn test_zoom_command_zoom_in_variable() {
 
 #[test]
 fn test_zoom_command_zoom_out_variable() {
-    let speed = ZoomSpeed::MAX;
+    let speed = ZoomSpeed::new(ZoomSpeed::MAX).unwrap();
     let cmd = Zoom::WideVariable(speed);
     let bytes = cmd
         .try_into_vec()
@@ -205,12 +206,12 @@ fn test_zoom_commands_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Test zoom commands
-    assert!(camera.zoom_stop_blocking().is_ok());
-    assert!(camera.zoom_in_blocking().is_ok());
-    assert!(camera.zoom_out_blocking().is_ok());
+    assert!(camera.zoom_stop().is_ok());
+    assert!(camera.zoom_in().is_ok());
+    assert!(camera.zoom_out().is_ok());
 
     // Verify all expectations were met
     mock.verify().unwrap();
@@ -225,7 +226,7 @@ fn test_zoom_with_inquiry_response() {
         .described_as("zoom position inquiry")
         .will_return_data(&[0x04, 0x00, 0x00, 0x00]); // Position 0x4000
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly

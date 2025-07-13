@@ -53,6 +53,7 @@ impl<T> Degrees<T> {
     }
 
     /// Get the inner value.
+    #[must_use]
     pub fn value(&self) -> &T {
         &self.0
     }
@@ -82,6 +83,7 @@ impl<T> ViscaUnits<T> {
     }
 
     /// Get the inner value.
+    #[must_use]
     pub fn value(&self) -> &T {
         &self.0
     }
@@ -99,6 +101,7 @@ impl<T> Normalized<T> {
     }
 
     /// Get the inner value.
+    #[must_use]
     pub fn value(&self) -> &T {
         &self.0
     }
@@ -128,6 +131,7 @@ impl<T> Percentage<T> {
     }
 
     /// Get the inner value.
+    #[must_use]
     pub fn value(&self) -> &T {
         &self.0
     }
@@ -145,6 +149,7 @@ impl<T> Raw<T> {
     }
 
     /// Get the inner value.
+    #[must_use]
     pub fn value(&self) -> &T {
         &self.0
     }
@@ -162,6 +167,7 @@ impl<T> Magnification<T> {
     }
 
     /// Get the inner value.
+    #[must_use]
     pub fn value(&self) -> &T {
         &self.0
     }
@@ -182,6 +188,7 @@ impl Fraction {
     }
 
     /// Get the decimal value of the fraction.
+    #[must_use]
     pub fn as_decimal(&self) -> f64 {
         self.numerator as f64 / self.denominator as f64
     }
@@ -194,7 +201,7 @@ impl TryFrom<Percentage<f32>> for ZoomPosition {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "zoom percentage".to_string(),
+                parameter: "zoom percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -212,7 +219,7 @@ impl TryFrom<Normalized<f32>> for ZoomPosition {
     fn try_from(normalized: Normalized<f32>) -> Result<Self, Self::Error> {
         if normalized.0 < 0.0 || normalized.0 > 1.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "zoom normalized".to_string(),
+                parameter: "zoom normalized",
                 value: (normalized.0 * 100.0) as i32,
                 min: 0,
                 max: 100,
@@ -231,7 +238,7 @@ impl TryFrom<Magnification<f32>> for ZoomPosition {
         // This would need to be adjusted based on camera profile
         if magnification.0 < 1.0 || magnification.0 > 30.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "zoom magnification".to_string(),
+                parameter: "zoom magnification",
                 value: magnification.0 as i32,
                 min: 1,
                 max: 30,
@@ -257,7 +264,7 @@ impl TryFrom<Percentage<f32>> for FocusPosition {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "focus percentage".to_string(),
+                parameter: "focus percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -276,7 +283,7 @@ impl TryFrom<Normalized<f32>> for FocusPosition {
     fn try_from(normalized: Normalized<f32>) -> Result<Self, Self::Error> {
         if normalized.0 < 0.0 || normalized.0 > 1.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "focus normalized".to_string(),
+                parameter: "focus normalized",
                 value: (normalized.0 * 100.0) as i32,
                 min: 0,
                 max: 100,
@@ -302,7 +309,7 @@ impl TryFrom<Percentage<f32>> for IrisLevel {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "iris percentage".to_string(),
+                parameter: "iris percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -332,10 +339,11 @@ impl TryFrom<Fraction> for ShutterSpeed {
             (1, 4000) => 0x0E,  // Actual 1/4000
             (1, 10000) => 0x11, // Actual 1/10000
             _ => {
-                return Err(Error::InvalidParameter(format!(
-                    "Unsupported shutter speed: {}/{}",
-                    fraction.numerator, fraction.denominator
-                )))
+                return Err(Error::InvalidParameter {
+                    parameter: "shutter_speed",
+                    value: format!("{}/{}", fraction.numerator, fraction.denominator),
+                    reason: "Unsupported shutter speed value".to_string(),
+                })
             }
         };
         ShutterSpeed::new(value as u16)
@@ -350,7 +358,7 @@ impl TryFrom<Kelvin> for ColorTemp {
         // PTZOptics G2 supports 2000K to 8000K
         if kelvin.0 < 2000 || kelvin.0 > 8000 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "color temperature".to_string(),
+                parameter: "color temperature",
                 value: kelvin.0 as i32,
                 min: 2000,
                 max: 8000,
@@ -371,7 +379,7 @@ impl TryFrom<Percentage<f32>> for PanSpeed {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "pan speed percentage".to_string(),
+                parameter: "pan speed percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -388,7 +396,7 @@ impl TryFrom<Percentage<f32>> for TiltSpeed {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "tilt speed percentage".to_string(),
+                parameter: "tilt speed percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -418,7 +426,7 @@ impl TryFrom<Percentage<f32>> for crate::types::GainLevel {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "gain percentage".to_string(),
+                parameter: "gain percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -443,7 +451,7 @@ impl TryFrom<Percentage<f32>> for crate::types::SharpnessLevel {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "sharpness percentage".to_string(),
+                parameter: "sharpness percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -468,7 +476,7 @@ impl TryFrom<Percentage<f32>> for crate::types::BrightnessLevel {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "brightness percentage".to_string(),
+                parameter: "brightness percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -493,7 +501,7 @@ impl TryFrom<Percentage<f32>> for crate::types::ContrastLevel {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "contrast percentage".to_string(),
+                parameter: "contrast percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -518,7 +526,7 @@ impl TryFrom<Percentage<f32>> for crate::types::SaturationLevel {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "saturation percentage".to_string(),
+                parameter: "saturation percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,
@@ -543,7 +551,7 @@ impl TryFrom<Percentage<f32>> for crate::types::HueLevel {
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         if percentage.0 < 0.0 || percentage.0 > 100.0 {
             return Err(Error::ParameterOutOfRange {
-                parameter: "hue percentage".to_string(),
+                parameter: "hue percentage",
                 value: percentage.0 as i32,
                 min: 0,
                 max: 100,

@@ -152,9 +152,8 @@ impl PanTilt {
 
     /// Create a stop command.
     pub fn stop() -> Result<Self, Error> {
-        let (pan_speed, tilt_speed) = crate::validate_all! {
-        pan_speed: PanSpeed::new(0),
-        tilt_speed: TiltSpeed::new(0)}?;
+        let pan_speed = PanSpeed::new(0)?;
+        let tilt_speed = TiltSpeed::new(0)?;
 
         Ok(Self::Move {
             direction: PanTiltDirection::Stop,

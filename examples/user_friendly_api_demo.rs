@@ -7,8 +7,9 @@
 use grafton_visca::transport::blocking::create;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
+    blocking::*,
     camera::{
-        methods::{ExposureMethodsExt, PanTiltMethodsExt},
+        methods::{ExposureMethodsExt, PanTiltMethodsExt, inquiry::InquiryOpsBlocking},
         Camera,
     },
     command::pan_tilt::PanTiltDirection,
@@ -94,15 +95,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 5: Reading back F-stop values
     println!("\n=== Reading F-Stop Value ===");
 
-    let state = camera.get_camera_state()?;
-    if let Some(iris) = state.exposure.iris {
-        if let Some(iris_level) = FStop::from_iris_level(iris) {
-            println!("Current iris setting: {}", iris_level);
-        } else {
-            println!("Current iris level: {}", iris);
-        }
+    let iris = camera.get_iris()?;
+    if let Some(iris_level) = FStop::from_iris_level(iris) {
+        println!("Current iris setting: {}", iris_level);
     } else {
-        println!("Iris level not available");
+        println!("Current iris level: {}", iris);
     }
 
     println!("\nDemo completed successfully!");

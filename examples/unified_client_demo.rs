@@ -20,28 +20,28 @@ fn blocking_examples() -> Result<(), Error> {
     // Example 1: Create camera with default profile (GenericVisca)
     println!("Example 1: Default profile with UDP");
     let udp_transport = Udp::connect("192.168.1.100:52381")?;
-    let camera = Camera::new_blocking(udp_transport);
+    let camera = Camera::new(udp_transport);
     println!("Created camera: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
 
     // Example 2: Create camera with specific profile
     println!("\nExample 2: PTZOptics G2 profile with TCP");
     let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
-    let camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, tcp_transport);
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, tcp_transport);
     println!("Created camera: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
 
     // Example 3: Create Sony FR7 camera
     println!("\nExample 3: Sony FR7 profile");
     let transport = Udp::connect("192.168.1.200:52381")?;
-    let camera = Camera::with_profile_blocking(ProfileId::SonyFR7, transport);
+    let camera = Camera::with_profile(ProfileId::SonyFR7, transport);
     println!("Created camera: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
 
     // Example 4: Check capabilities at runtime
     println!("\nExample 4: Runtime capability checking");
     let transport = Tcp::connect("192.168.1.100:5678")?;
-    let camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
 
     println!("Capabilities for {}:", camera.model_name());
     println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));

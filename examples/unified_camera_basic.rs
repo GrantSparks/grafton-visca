@@ -21,7 +21,8 @@ fn main() -> Result<(), Error> {
     let transport = Tcp::connect("192.168.1.100:52381")?;
     let camera = Camera::new(transport).blocking();
 
-    println!("Connected to: {}", camera.model_name());
+    // Note: model_name() method not available on blocking camera
+    // Use profile_info() instead
     println!("Profile info: {}", camera.profile_info());
 
     // Create a camera with specific profile
@@ -58,7 +59,8 @@ async fn main() -> Result<(), Error> {
     let transport = Tcp::connect("192.168.1.100:52381").await?;
     let camera = Camera::new(transport);
 
-    println!("Connected to: {}", camera.model_name());
+    // Note: model_name() method not available on blocking camera
+    // Use profile_info() instead
     println!("Profile info: {}", camera.profile_info());
 
     // Create a camera with specific profile

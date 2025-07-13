@@ -46,24 +46,16 @@ pub use crate::camera::methods::{
     ZoomOpsBlocking as ZoomOps,
 };
 
-// Implement all blocking traits for the wrapper type
-impl ZoomOps for Camera {
-    fn zoom_stop(&self) -> crate::Result<()> {
-        self.0.zoom_stop()
-    }
+// Implement all blocking traits for the wrapper type using the forward_facade! macro
+use crate::forward_facade;
 
-    fn zoom_in(&self) -> crate::Result<()> {
-        self.0.zoom_in()
-    }
-
-    fn zoom_out(&self) -> crate::Result<()> {
-        self.0.zoom_out()
-    }
-
-    fn zoom_absolute(&self, position: crate::units::Normalized) -> crate::Result<()> {
-        self.0.zoom_absolute(position)
-    }
-}
+forward_facade!(Camera, blocking,
+    ZoomOps: 
+        zoom_stop() -> crate::Result<()>,
+        zoom_in() -> crate::Result<()>,
+        zoom_out() -> crate::Result<()>,
+        zoom_absolute(position: crate::units::Normalized) -> crate::Result<()>;
+);
 
 impl ColorOps for Camera {
     fn one_push_trigger(&self) -> crate::Result<()> {

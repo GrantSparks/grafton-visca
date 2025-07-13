@@ -442,9 +442,11 @@ impl NoiseReductionStrength {
     /// Convert to 2D noise reduction level (1-5).
     pub fn to_2d_level(self) -> Result<u8, Error> {
         match self {
-            Self::Off => Err(Error::InvalidParameter(
-                "2D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
-            )),
+            Self::Off => Err(Error::InvalidParameter {
+                parameter: "strength",
+                value: "Off".to_string(),
+                reason: "2D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
+            }),
             Self::Minimal => Ok(1),
             Self::Light => Ok(2),
             Self::Medium => Ok(3),
@@ -456,9 +458,11 @@ impl NoiseReductionStrength {
     /// Convert to 3D noise reduction level (1-8).
     pub fn to_3d_level(self) -> Result<u8, Error> {
         match self {
-            Self::Off => Err(Error::InvalidParameter(
-                "3D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
-            )),
+            Self::Off => Err(Error::InvalidParameter {
+                parameter: "strength",
+                value: "Off".to_string(),
+                reason: "3D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
+            }),
             Self::Minimal => Ok(1),
             Self::Light => Ok(2),
             Self::Medium => Ok(4),
@@ -632,9 +636,11 @@ impl TryFrom<f32> for ZoomPosition {
     /// 0.0 = wide, 1.0 = maximum digital zoom.
     fn try_from(normalized: f32) -> Result<Self, Self::Error> {
         if !(0.0..=1.0).contains(&normalized) {
-            return Err(Error::InvalidParameter(
-                "Normalized zoom must be between 0.0 and 1.0".to_string(),
-            ));
+            return Err(Error::InvalidParameter {
+                parameter: "normalized",
+                value: normalized.to_string(),
+                reason: "Normalized zoom must be between 0.0 and 1.0".to_string(),
+            });
         }
         let value = (normalized * f32::from(Self::MAX_DIGITAL.value())).round() as u16;
         Self::new(value)
@@ -671,9 +677,11 @@ impl TryFrom<f32> for FocusPosition {
     /// 0.0 = infinity, 1.0 = near focus.
     fn try_from(normalized: f32) -> Result<Self, Self::Error> {
         if !(0.0..=1.0).contains(&normalized) {
-            return Err(Error::InvalidParameter(
-                "Normalized focus must be between 0.0 and 1.0".to_string(),
-            ));
+            return Err(Error::InvalidParameter {
+                parameter: "normalized",
+                value: normalized.to_string(),
+                reason: "Normalized focus must be between 0.0 and 1.0".to_string(),
+            });
         }
         let range = Self::MAX.value() - Self::MIN.value();
         let value = Self::MIN.value() + (normalized * f32::from(range)).round() as u16;
@@ -720,9 +728,11 @@ impl ColorTemp {
             let value = (kelvin - 2500) / 100;
             Self::new(value)
         } else {
-            Err(Error::InvalidParameter(
-                "Color temperature must be between 2500K and 8000K".to_string(),
-            ))
+            Err(Error::InvalidParameter {
+                parameter: "kelvin",
+                value: kelvin.to_string(),
+                reason: "Color temperature must be between 2500K and 8000K".to_string(),
+            })
         }
     }
 }
@@ -822,7 +832,7 @@ impl RedTuning {
             Ok(Self(value))
         } else {
             Err(Error::ParameterOutOfRange {
-                parameter: "red_tuning".to_string(),
+                parameter: "red_tuning",
                 value: i32::from(value),
                 min: -10,
                 max: 10,
@@ -874,7 +884,7 @@ impl BlueTuning {
             Ok(Self(value))
         } else {
             Err(Error::ParameterOutOfRange {
-                parameter: "blue_tuning".to_string(),
+                parameter: "blue_tuning",
                 value: i32::from(value),
                 min: -10,
                 max: 10,
@@ -926,7 +936,7 @@ impl PanPosition {
             Ok(Self(value))
         } else {
             Err(Error::ParameterOutOfRange {
-                parameter: "pan_position".to_string(),
+                parameter: "pan_position",
                 value: i32::from(value),
                 min: -2448,
                 max: 2448,
@@ -954,9 +964,11 @@ impl PanPosition {
     /// Returns `Error::ParameterOutOfRange` if degrees exceed ±170°.
     pub fn from_degrees(degrees: f32) -> Result<Self, Error> {
         if !(-170.0..=170.0).contains(&degrees) {
-            return Err(Error::InvalidParameter(
-                "Pan degrees must be between -170° and +170°".to_string(),
-            ));
+            return Err(Error::InvalidParameter {
+                parameter: "degrees",
+                value: degrees.to_string(),
+                reason: "Pan degrees must be between -170° and +170°".to_string(),
+            });
         }
         let value = (degrees * 2448.0 / 170.0).round() as i16;
         Self::new(value)
@@ -1008,7 +1020,7 @@ impl TiltPosition {
             Ok(Self(value))
         } else {
             Err(Error::ParameterOutOfRange {
-                parameter: "tilt_position".to_string(),
+                parameter: "tilt_position",
                 value: i32::from(value),
                 min: -432,
                 max: 1296,
@@ -1041,9 +1053,11 @@ impl TiltPosition {
     /// Returns `Error::ParameterOutOfRange` if degrees exceed -30° to +90°.
     pub fn from_degrees(degrees: f32) -> Result<Self, Error> {
         if !(-30.0..=90.0).contains(&degrees) {
-            return Err(Error::InvalidParameter(
-                "Tilt degrees must be between -30° and +90°".to_string(),
-            ));
+            return Err(Error::InvalidParameter {
+                parameter: "degrees",
+                value: degrees.to_string(),
+                reason: "Tilt degrees must be between -30° and +90°".to_string(),
+            });
         }
         let value = if degrees >= 0.0 {
             (degrees * 1296.0 / 90.0).round() as i16

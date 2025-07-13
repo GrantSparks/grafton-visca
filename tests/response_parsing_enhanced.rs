@@ -10,7 +10,8 @@ use crate::common::{
     ValidationMode,
 };
 use grafton_visca::{
-    camera::{methods::*, Camera, ProfileId},
+    blocking::*,
+    camera::{Camera, ProfileId},
     command::{
         gain::AntiFlickerMode, image_adjustment::SharpnessMode, AutoFocusSensitivity, ExposureMode,
         FocusZone, InquiryResponse, Response, ResponseType, WhiteBalanceMode,
@@ -30,10 +31,10 @@ fn test_power_inquiry_with_mock_transport() {
         .will_ack(1)
         .will_return_data(&[0x02]); // Power on
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute inquiry
-    let result = camera.get_power_state_blocking().unwrap();
+    let result = camera.get_power_state().unwrap();
     assert!(result);
 
     // Validate protocol compliance
@@ -76,11 +77,11 @@ fn test_zoom_position_inquiry_with_validation() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute inquiries
     for (expected_position, _) in &zoom_positions {
-        let result = camera.get_zoom_position_blocking().unwrap();
+        let result = camera.get_zoom_position().unwrap();
         assert_eq!(result, *expected_position);
     }
 
@@ -126,17 +127,17 @@ fn test_pan_tilt_position_inquiry_comprehensive() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Test center position
-    let (pan, tilt) = camera.get_position_blocking().unwrap();
-    assert_eq!(*pan.value(), 0);
-    assert_eq!(*tilt.value(), 0);
+    let (pan, tilt) = camera.get_pan_tilt_position().unwrap();
+    assert_eq!(pan, 0);
+    assert_eq!(tilt, 0);
 
     // Test offset position
-    let (pan, tilt) = camera.get_position_blocking().unwrap();
-    assert_eq!(*pan.value(), 0x1000);
-    assert_eq!(*tilt.value(), 0x0800);
+    let (pan, tilt) = camera.get_pan_tilt_position().unwrap();
+    assert_eq!(pan, 0x1000);
+    assert_eq!(tilt, 0x0800);
 
     mock.verify().unwrap();
 }
@@ -160,12 +161,12 @@ fn test_error_response_handling() {
         )
         .build();
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Test error handling
-    assert!(camera.get_power_state_blocking().is_err());
-    assert!(camera.get_zoom_position_blocking().is_err());
-    assert!(camera.get_position_blocking().is_err());
+    assert!(camera.get_power_state().is_err());
+    assert!(camera.get_zoom_position().is_err());
+    assert!(camera.get_pan_tilt_position().is_err());
 
     // MockTransportBuilder automatically verifies expectations when dropped
 }
@@ -194,11 +195,11 @@ fn test_exposure_mode_inquiry_all_modes() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute inquiries and verify results
     for (_, expected_mode, _) in &exposure_modes {
-        let result = camera.get_exposure_mode_blocking().unwrap();
+        let result = camera.get_exposure_mode().unwrap();
         assert_eq!(result, *expected_mode);
     }
 
@@ -231,10 +232,10 @@ fn test_white_balance_inquiry_with_protocol_validation() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     for (_, expected_mode) in &wb_modes {
-        let result = camera.get_white_balance_mode_blocking().unwrap();
+        let result = camera.get_white_balance_mode().unwrap();
         assert_eq!(result, *expected_mode);
     }
 
@@ -296,18 +297,18 @@ fn test_complex_inquiry_sequence_with_timing() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute inquiry sequence
-    let power_on = camera.get_power_state_blocking().unwrap();
+    let power_on = camera.get_power_state().unwrap();
     assert!(power_on);
 
-    let zoom_pos = camera.get_zoom_position_blocking().unwrap();
+    let zoom_pos = camera.get_zoom_position().unwrap();
     assert_eq!(zoom_pos, 0x4000);
 
-    let (pan, tilt) = camera.get_position_blocking().unwrap();
-    assert_eq!(*pan.value(), 0);
-    assert_eq!(*tilt.value(), 0);
+    let (pan, tilt) = camera.get_pan_tilt_position().unwrap();
+    assert_eq!(pan, 0);
+    assert_eq!(tilt, 0);
 
     mock.verify().unwrap();
 }
@@ -330,10 +331,10 @@ fn test_anti_flicker_mode_parsing() {
             .will_return_data(&[*mode_byte]);
     }
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     for (_, expected_mode) in &modes {
-        let result = camera.get_anti_flicker_blocking().unwrap();
+        let result = camera.get_anti_flicker().unwrap();
         assert_eq!(result, *expected_mode);
     }
 
@@ -358,10 +359,10 @@ fn test_focus_zone_inquiry_comprehensive() {
             .will_return_data(&[*zone_byte]);
     }
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     for (_, expected_zone) in &zones {
-        let result = camera.get_focus_zone_blocking().unwrap();
+        let result = camera.get_focus_zone().unwrap();
         assert_eq!(result, *expected_zone);
     }
 
@@ -386,10 +387,10 @@ fn test_auto_focus_sensitivity_inquiry() {
             .will_return_data(&[*sens_byte]);
     }
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     for (_, expected_sens) in &sensitivities {
-        let result = camera.get_auto_focus_sensitivity_blocking().unwrap();
+        let result = camera.get_auto_focus_sensitivity().unwrap();
         assert_eq!(result, *expected_sens);
     }
 
@@ -409,11 +410,11 @@ fn test_malformed_response_handling() {
         .described_as("zoom inquiry - truncated response")
         .will_respond(MockResponse::Immediate(vec![0x90, 0x50, 0x01, 0xFF])); // Incomplete data
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // These should result in errors
-    assert!(camera.get_power_state_blocking().is_err());
-    assert!(camera.get_zoom_position_blocking().is_err());
+    assert!(camera.get_power_state().is_err());
+    assert!(camera.get_zoom_position().is_err());
 
     mock.verify().unwrap();
 }
@@ -427,10 +428,10 @@ fn test_timeout_handling() {
         .described_as("power inquiry - timeout")
         .will_respond(MockResponse::Timeout);
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // This should result in a timeout error
-    let result = camera.get_power_state_blocking();
+    let result = camera.get_power_state();
     assert!(result.is_err());
 
     mock.verify().unwrap();
