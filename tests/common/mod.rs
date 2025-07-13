@@ -19,8 +19,10 @@ pub mod scenario_builder;
 pub mod test_fixtures;
 
 // Re-export commonly used items
-pub use mock_transport_enhanced::{MockResponse, MockTransport, MockTransportBuilder};
+#[allow(unused_imports)]
+pub use mock_transport_enhanced::MockTransportBuilder;
+pub use mock_transport_enhanced::{MockResponse, MockTransport};
 pub use protocol_validator::{ProtocolValidator, ValidationMode};
 pub use response_builder::ResponseBuilder;
-pub use scenario_builder::{ScenarioBuilder, ScenarioStep, TestScenario};
-pub use test_fixtures::CommandFixtures;
+#[allow(unused_imports)]
+pub use scenario_builder::ScenarioBuilder;

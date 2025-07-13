@@ -3,7 +3,7 @@
 // This test simply verifies that the code compiles.
 // The unified Camera API performs runtime capability checks instead of compile-time checks.
 
-use grafton_visca::{Camera, ProfileId};
+// Removed unused imports
 
 #[test]
 fn test_compilation_succeeds() {

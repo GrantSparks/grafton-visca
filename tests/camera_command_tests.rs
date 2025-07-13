@@ -26,7 +26,7 @@ mod blocking_tests {
         let mut mock = MockTransport::new();
 
         // Set up expectation for power on command
-        mock.expect_command(&patterns::power::ON)
+        mock.expect_command(patterns::power::ON)
             .described_as("power on command")
             .will_ack(1)
             .then_complete(1);
@@ -52,7 +52,7 @@ mod blocking_tests {
         let mut mock = MockTransport::new();
 
         // Set up expectation for home command
-        mock.expect_command(&patterns::pan_tilt::HOME)
+        mock.expect_command(patterns::pan_tilt::HOME)
             .described_as("pan/tilt home")
             .will_ack(1)
             .then_complete(1);
@@ -78,21 +78,21 @@ mod blocking_tests {
         let mock = MockTransportBuilder::new()
             .connected(true)
             .expect(
-                &patterns::zoom::STOP,
+                patterns::zoom::STOP,
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                     MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
                 ],
             )
             .expect(
-                &patterns::zoom::TELE_STD,
+                patterns::zoom::TELE_STD,
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_2.to_vec()),
                     MockResponse::Immediate(patterns::responses::COMPLETE_2.to_vec()),
                 ],
             )
             .expect(
-                &patterns::zoom::WIDE_STD,
+                patterns::zoom::WIDE_STD,
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                     MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
@@ -155,7 +155,7 @@ mod blocking_tests {
         let mock = MockTransportBuilder::new()
             .connected(true)
             .expect(
-                &patterns::power::ON,
+                patterns::power::ON,
                 vec![MockResponse::ErrorCode(0x02)], // Syntax error
             )
             .build();
@@ -202,7 +202,7 @@ mod blocking_tests {
             .description("Test home, zoom stop, and power off sequence")
             .expect_home()
             .expect_command(
-                &patterns::zoom::STOP,
+                patterns::zoom::STOP,
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_2.to_vec()),
                     MockResponse::Delayed(
@@ -212,7 +212,7 @@ mod blocking_tests {
                 ],
             )
             .expect_command(
-                &patterns::power::STANDBY,
+                patterns::power::STANDBY,
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                     MockResponse::Delayed(
@@ -250,7 +250,7 @@ mod blocking_tests {
         let mock = MockTransportBuilder::new()
             .connected(true)
             .expect(
-                &patterns::power::ON,
+                patterns::power::ON,
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                     MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
@@ -262,7 +262,7 @@ mod blocking_tests {
         let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
         // Validate command before sending
-        validator.validate_command(&patterns::power::ON).unwrap();
+        validator.validate_command(patterns::power::ON).unwrap();
 
         // Send command
         camera.power_on().unwrap();
@@ -288,7 +288,7 @@ mod blocking_tests {
             .connected(true)
             .with_latency(Duration::from_millis(10))
             .expect(
-                &patterns::power::ON,
+                patterns::power::ON,
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                     MockResponse::Delayed(
@@ -298,7 +298,7 @@ mod blocking_tests {
                 ],
             )
             .expect(
-                &patterns::pan_tilt::HOME,
+                patterns::pan_tilt::HOME,
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_2.to_vec()),
                     MockResponse::Delayed(

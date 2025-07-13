@@ -17,7 +17,7 @@
 //! client.send(&Zoom::TeleStd).unwrap();
 //!
 //! // Zoom out at variable speed
-//! client.send(&Zoom::WideVariable(ZoomSpeed::new(5).expect("valid speed"))).unwrap();
+//! client.send(&Zoom::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
 //! # }
 //! ```
 

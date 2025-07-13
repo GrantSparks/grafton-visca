@@ -2,12 +2,11 @@
 
 mod common;
 
-use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
+use crate::common::{patterns, MockTransport, ProtocolValidator, ValidationMode};
 use grafton_visca::{
     blocking::ZoomOps,
     camera::{Camera, ProfileId},
     command::{zoom::ZoomSpeed, EncodeVisca, ResponseType, Zoom},
-    timeout::CommandCategory,
     types::ZoomPosition,
     Error,
 };
@@ -194,17 +193,17 @@ fn test_zoom_commands_with_camera() {
     let mut mock = MockTransport::new();
 
     // Set up expectations for zoom commands
-    mock.expect_command(&patterns::zoom::STOP)
+    mock.expect_command(patterns::zoom::STOP)
         .described_as("zoom stop")
         .will_ack(1)
         .then_complete(1);
 
-    mock.expect_command(&patterns::zoom::TELE_STD)
+    mock.expect_command(patterns::zoom::TELE_STD)
         .described_as("zoom in standard")
         .will_ack(1)
         .then_complete(1);
 
-    mock.expect_command(&patterns::zoom::WIDE_STD)
+    mock.expect_command(patterns::zoom::WIDE_STD)
         .described_as("zoom out standard")
         .will_ack(1)
         .then_complete(1);
@@ -225,7 +224,7 @@ fn test_zoom_with_inquiry_response() {
     let mut mock = MockTransport::new();
 
     // Set up zoom position inquiry
-    mock.expect_command(&patterns::zoom::POSITION_INQ)
+    mock.expect_command(patterns::zoom::POSITION_INQ)
         .described_as("zoom position inquiry")
         .will_return_data(&[0x04, 0x00, 0x00, 0x00]); // Position 0x4000
 

@@ -9,12 +9,10 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{
-        methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
-        profiles::G2PresetId,
-    },
+    camera::profiles::G2PresetId,
     command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     profiles::PTZOpticsG2,
+    r#async::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
     transport::tokio::Udp,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
@@ -48,7 +46,7 @@ async fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Udp::connect(camera_addr).await?;
-    let camera = Camera::new(transport);
+    let camera = Camera::new(transport).r#async();
 
     println!("\n=== Async Camera Control Demo ===\n");
 

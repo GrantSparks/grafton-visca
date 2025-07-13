@@ -21,7 +21,7 @@ impl grafton_visca::transport::Transport for MockTransport {
         std::future::ready(Ok(()))
     }
 
-    fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
+    fn recv(&self) -> Self::RecvFut<'_> {
         std::future::ready(Ok(bytes::Bytes::from(vec![0x90, 0x50, 0xFF])))
     }
 }

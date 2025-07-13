@@ -42,6 +42,7 @@ fn test_wrapper_creation() {
     // This would normally use a real transport
     // Here we just test the type system
 
+    #[allow(dead_code)]
     fn create_blocking_wrapper<
         T: grafton_visca::transport::core::BlockingTransport + Send + Sync + 'static,
     >(
@@ -56,6 +57,7 @@ fn test_wrapper_creation() {
         let _blocking = camera.blocking();
     }
 
+    #[allow(dead_code)]
     fn create_async_wrapper<T: grafton_visca::transport::core::Transport + Send + Sync + 'static>(
         transport: T,
     ) where

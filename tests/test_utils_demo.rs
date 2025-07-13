@@ -7,7 +7,7 @@
 
 mod common;
 
-use crate::common::test_fixtures::generators;
+use crate::common::test_fixtures::{generators, CommandFixtures};
 use crate::common::*;
 use grafton_visca::{
     blocking::*,
@@ -22,7 +22,7 @@ fn test_with_mock_transport_basic() {
     let mut mock = MockTransport::new();
 
     // Set up expectations for power on command
-    mock.expect_command(&patterns::power::ON)
+    mock.expect_command(patterns::power::ON)
         .described_as("power on command")
         .will_ack(1)
         .then_complete(1);
@@ -187,7 +187,7 @@ fn test_mock_transport_builder() {
         .connected(true)
         .with_latency(Duration::from_millis(10))
         .expect(
-            &patterns::power::ON,
+            patterns::power::ON,
             vec![
                 MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                 MockResponse::Delayed(

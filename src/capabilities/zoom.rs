@@ -103,6 +103,7 @@ pub trait ZoomExt: Zoom {
 impl<T: Zoom> ZoomExt for T {}
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 

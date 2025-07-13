@@ -12,7 +12,7 @@ fn main() {
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     blocking::{Camera, ExposureOps, PanTiltOps, PresetsOps},
-    profiles::PTZOpticsG2,
+
     transport::blocking::Udp,
     types::SpeedLevel,
     units::Degrees,
@@ -63,7 +63,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 3. Profile-specific preset types
     println!("\n3. Profile-specific preset operations:");
-    use grafton_visca::camera::profiles::G2PresetId;
 
     // PTZOpticsG2 has specific preset constraints (0-89)
     // Note: G2PresetId doesn't convert to PresetNumber directly
