@@ -3,8 +3,8 @@
 //! This example demonstrates common camera operations using the async API.
 
 use grafton_visca::{
-    r#async::{Camera, ExposureOps, FocusOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
+    r#async::{ExposureOps, FocusOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps},
     transport::tokio::Tcp,
     types::{PanSpeed, TiltSpeed},
     Degrees, Error, Normalized,
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create async transport
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = grafton_visca::Camera::new(transport).r#async();
+    let camera = grafton_visca::Camera::new(transport);
 
     // Demo 1: Power Control
     demo_power_control(&camera).await?;

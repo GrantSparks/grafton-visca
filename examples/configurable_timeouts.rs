@@ -16,12 +16,11 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{Camera, FocusOps, PanTiltOps, PowerOps, PresetsOps},
-    camera::profiles::G2PresetId,
+    blocking::{FocusOps, PanTiltOps, PowerOps, PresetsOps},
     command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
-    profiles::PTZOpticsG2,
     transport::blocking::Tcp,
-    types::{PanSpeed, TiltSpeed},
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    units::Degrees,
     Error,
 };
 #[cfg(not(feature = "async"))]
@@ -87,11 +86,13 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     println!("   These commands may take longer to acknowledge\n");
 
     let start = Instant::now();
-    match (|| camera.pan_tilt_move(
-        PanTiltDirection::Left,
-        PanSpeed::try_from(15)?,
-        TiltSpeed::try_from(0)?,
-    ))() {
+    match (|| {
+        camera.pan_tilt_move(
+            PanTiltDirection::Left,
+            PanSpeed::try_from(15)?,
+            TiltSpeed::try_from(0)?,
+        )
+    })() {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Start movement completed in {:?}", elapsed);
@@ -116,8 +117,6 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     println!("\n3. Preset Operations:");
     println!("   These commands may take significant time\n");
 
-    let preset_id = G2PresetId::new(2)?;
-
     // Save preset
     let start = Instant::now();
     // Note: PresetNumber doesn't have From<G2PresetId> implementation
@@ -131,12 +130,12 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     }
 
     // Move away
-    camera.pan_tilt_absolute(0.0, 0.0, 5)?;
+    camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::from(5))?;
     std::thread::sleep(Duration::from_secs(1));
 
     // Recall preset
     let start = Instant::now();
-    match camera.preset_recall(preset_id.into()) {
+    match camera.preset_recall(PresetNumber::Preset1) {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Recall preset completed in {:?}", elapsed);

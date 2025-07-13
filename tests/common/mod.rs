@@ -20,8 +20,7 @@ pub mod test_fixtures;
 
 // Re-export commonly used items
 pub use mock_transport_enhanced::{MockResponse, MockTransport, MockTransportBuilder};
-pub use patterns::*;
-pub use protocol_validator::{ProtocolValidator, ValidationError, ValidationMode};
-pub use response_builder::{patterns as response_patterns, ResponseBuilder};
-pub use scenario_builder::{ScenarioBuilder, TestScenario};
-pub use test_fixtures::{generators, CommandFixtures};
+pub use protocol_validator::{ProtocolValidator, ValidationMode};
+pub use response_builder::ResponseBuilder;
+pub use scenario_builder::{ScenarioBuilder, ScenarioStep, TestScenario};
+pub use test_fixtures::CommandFixtures;

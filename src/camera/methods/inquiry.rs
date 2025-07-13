@@ -398,7 +398,9 @@ impl InquiryOps for Camera {
         let cmd = ColorTemperatureInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => Ok(temperature),
+            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
+                Ok(temperature)
+            }
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -719,7 +721,9 @@ impl InquiryOpsBlocking for Camera {
         let cmd = ColorTemperatureInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => Ok(temperature),
+            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
+                Ok(temperature)
+            }
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }

@@ -188,21 +188,6 @@ impl MockTransport {
 
         Ok(())
     }
-
-    /// Get the number of commands sent
-    pub fn command_count(&self) -> usize {
-        self.inner.lock().unwrap().sent_history.len()
-    }
-
-    /// Clear all expectations and history
-    pub fn reset(&mut self) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.expectations.clear();
-        inner.sent_history.clear();
-        inner.response_history.clear();
-        inner.response_queue.clear();
-        inner.current_expectation = 0;
-    }
 }
 
 impl TransportExpectation {

@@ -4,16 +4,10 @@
 //! enums for more intuitive camera control.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::create;
-#[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::*,
-    camera::{
-        methods::{ExposureMethodsExt, PanTiltMethodsExt, inquiry::InquiryOpsBlocking},
-        Camera,
-    },
+    blocking::{Camera, ExposureOps, ImageProcessingOps, InquiryOps, PanTiltOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
-    profiles::PTZOpticsG2,
+    transport::blocking::Udp,
     types::{
         FStop, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength,
         PanSpeed, SpeedLevel, TiltSpeed,
@@ -27,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Create camera with default address
-    let transport = create::udp("192.168.1.100:1259")?;
+    let transport = Udp::connect("192.168.1.100:1259")?;
     let mut camera = Camera::new(transport);
 
     // Example 1: Using SpeedLevel for intuitive movement control

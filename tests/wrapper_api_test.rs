@@ -3,10 +3,10 @@
 #[test]
 fn test_blocking_wrapper_api() {
     use grafton_visca::blocking::{Camera, ZoomOps};
-    
+
     // This test just verifies the API compiles correctly
     // In a real test, you'd use a mock transport
-    
+
     // The blocking wrapper should expose methods without _blocking suffix
     let _example = |camera: &Camera| -> Result<(), grafton_visca::Error> {
         camera.zoom_stop()?;
@@ -21,16 +21,18 @@ fn test_blocking_wrapper_api() {
 #[tokio::test]
 async fn test_async_wrapper_api() {
     use grafton_visca::r#async::{Camera, ZoomOps};
-    
+
     // This test just verifies the API compiles correctly
     // In a real test, you'd use a mock transport
-    
+
     // The async wrapper should expose async methods
     async fn example(camera: &Camera) -> Result<(), grafton_visca::Error> {
         camera.zoom_stop().await?;
         camera.zoom_in().await?;
         camera.zoom_out().await?;
-        camera.zoom_absolute(grafton_visca::units::Normalized(0.5)).await?;
+        camera
+            .zoom_absolute(grafton_visca::units::Normalized(0.5))
+            .await?;
         Ok(())
     }
 }
@@ -39,19 +41,21 @@ async fn test_async_wrapper_api() {
 fn test_wrapper_creation() {
     // This would normally use a real transport
     // Here we just test the type system
-    
-    fn create_blocking_wrapper<T: grafton_visca::transport::core::BlockingTransport + Send + Sync + 'static>(
+
+    fn create_blocking_wrapper<
+        T: grafton_visca::transport::core::BlockingTransport + Send + Sync + 'static,
+    >(
         transport: T,
     ) where
         for<'a> T::SendFut<'a>: Send,
         for<'a> T::RecvFut<'a>: Send,
     {
         let camera = grafton_visca::Camera::new(transport);
-        
+
         // Create blocking wrapper
         let _blocking = camera.blocking();
     }
-    
+
     fn create_async_wrapper<T: grafton_visca::transport::core::Transport + Send + Sync + 'static>(
         transport: T,
     ) where
@@ -59,8 +63,8 @@ fn test_wrapper_creation() {
         for<'a> T::RecvFut<'a>: Send,
     {
         let camera = grafton_visca::Camera::new(transport);
-        
-        // Create async wrapper  
+
+        // Create async wrapper
         let _async = camera.r#async();
     }
 }

@@ -3,13 +3,12 @@
 //! This example demonstrates basic camera control using the new Camera API.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::{Tcp, Udp};
+use grafton_visca::transport::blocking::Udp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{Camera, PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-    camera::profiles::{G2PresetId, PTZOpticsG2},
+    blocking::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
     command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
-    types::{PanSpeed, TiltSpeed, SpeedLevel},
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Error,
 };
@@ -23,7 +22,7 @@ fn main() -> Result<(), Error> {
 
     // Connect to camera using UDP
     let udp_transport = Udp::connect("192.168.1.100:1259")?;
-    let mut camera = grafton_visca::Camera::new(udp_transport).blocking();
+    let camera = grafton_visca::Camera::new(udp_transport).blocking();
     println!("Connected to camera via UDP");
 
     // Or connect using TCP
@@ -79,11 +78,11 @@ fn main() -> Result<(), Error> {
     println!("Continuous movement demo completed");
 
     // Return to preset 1 (home)
-    camera.preset_recall(preset1.into())?;
+    camera.preset_recall(PresetNumber::new(1)?)?;
     println!("Returned to preset 1");
 
     // Reset zoom
-    camera.zoom_absolute(0.0)?;
+    camera.zoom_absolute(Normalized::new(0.0))?;
     println!("Reset zoom to minimum");
 
     println!("\nDemo completed successfully!");

@@ -72,10 +72,7 @@ fn test_with_mock_transport() {
     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Send command and verify response
-    assert_ok(
-        camera.power_on(),
-        "Power on command should succeed",
-    );
+    assert_ok(camera.power_on(), "Power on command should succeed");
 
     // Verify expectations were met
     mock.verify().unwrap();
@@ -89,11 +86,12 @@ fn test_with_mock_transport() {
 #[cfg(not(feature = "tokio"))]
 #[test]
 fn test_error_handling() {
-    use grafton_visca::command::zoom::ZoomSpeed;
-
     // Test invalid parameter with context
-    let result = ZoomSpeed::new(10);
-    let error = assert_err(result, "ZoomSpeed 10 should be invalid");
+    use grafton_visca::types::PanSpeed;
+
+    // PanSpeed has a valid range of 0-24
+    let result = PanSpeed::new(30);
+    let error = assert_err(result, "PanSpeed 30 should be invalid");
 
     // Error::InvalidParameter is a struct variant
     match error {
@@ -156,15 +154,9 @@ mod integration_style_tests {
         let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
         // Test multiple commands
-        assert_ok(
-            camera.pan_tilt_home(),
-            "Home command should succeed",
-        );
+        assert_ok(camera.pan_tilt_home(), "Home command should succeed");
 
-        assert_ok(
-            camera.zoom_stop(),
-            "Zoom stop command should succeed",
-        );
+        assert_ok(camera.zoom_stop(), "Zoom stop command should succeed");
 
         // Verify expectations were met
         mock.verify().unwrap();

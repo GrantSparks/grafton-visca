@@ -29,12 +29,6 @@ pub mod zoom {
     /// Zoom wide (out) standard speed
     pub const WIDE_STD: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x03, 0xFF];
 
-    /// Zoom tele variable speed (speed = 7, fastest)
-    pub const TELE_VAR_7: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x27, 0xFF];
-
-    /// Zoom wide variable speed (speed = 7, fastest)
-    pub const WIDE_VAR_7: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x37, 0xFF];
-
     /// Zoom position inquiry
     pub const POSITION_INQ: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xFF];
 }

@@ -10,7 +10,7 @@
 use grafton_visca::transport::blocking::Udp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{Camera, PanTiltOps, PowerOps, ZoomOps},
+    blocking::{PanTiltOps, PowerOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     types::{PanSpeed, TiltSpeed},
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Power on the camera
     println!("Powering on camera...");
     {
-        let mut cam = camera.lock().unwrap();
+        let cam = camera.lock().unwrap();
         cam.power_on()?;
     }
     thread::sleep(Duration::from_secs(2));
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Move up-right
         {
-            let mut cam = camera1.lock().unwrap();
+            let cam = camera1.lock().unwrap();
             cam.pan_tilt_move(
                 PanTiltDirection::UpRight,
                 PanSpeed::try_from(16)?,
@@ -71,14 +71,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Stop movement
         {
-            let mut cam = camera1.lock().unwrap();
+            let cam = camera1.lock().unwrap();
             cam.pan_tilt_stop()?;
         }
         thread::sleep(Duration::from_millis(500));
 
         // Move down-left
         {
-            let mut cam = camera1.lock().unwrap();
+            let cam = camera1.lock().unwrap();
             cam.pan_tilt_move(
                 PanTiltDirection::DownLeft,
                 PanSpeed::try_from(16)?,
@@ -89,12 +89,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Stop and return home
         {
-            let mut cam = camera1.lock().unwrap();
+            let cam = camera1.lock().unwrap();
             cam.pan_tilt_stop()?;
         }
         thread::sleep(Duration::from_millis(500));
         {
-            let mut cam = camera1.lock().unwrap();
+            let cam = camera1.lock().unwrap();
             cam.pan_tilt_home()?;
         }
 
@@ -112,27 +112,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Zoom in
         {
-            let mut cam = camera2.lock().unwrap();
+            let cam = camera2.lock().unwrap();
             cam.zoom_in()?;
         }
         thread::sleep(Duration::from_secs(2));
 
         // Stop zoom
         {
-            let mut cam = camera2.lock().unwrap();
+            let cam = camera2.lock().unwrap();
             cam.zoom_stop()?;
         }
 
         // Zoom out
         {
-            let mut cam = camera2.lock().unwrap();
+            let cam = camera2.lock().unwrap();
             cam.zoom_out()?;
         }
         thread::sleep(Duration::from_secs(2));
 
         // Stop zoom
         {
-            let mut cam = camera2.lock().unwrap();
+            let cam = camera2.lock().unwrap();
             cam.zoom_stop()?;
         }
 
@@ -146,7 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Try to access the camera from the main thread
     {
-        let mut cam = camera.lock().unwrap();
+        let cam = camera.lock().unwrap();
         match cam.zoom_in() {
             Ok(_) => println!("[Main] Successfully sent command"),
             Err(e) => println!("[Main] Error: {:?}", e),
@@ -174,7 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Power off
     println!("\nPowering off camera...");
     {
-        let mut cam = camera.lock().unwrap();
+        let cam = camera.lock().unwrap();
         cam.power_off()?;
     }
 

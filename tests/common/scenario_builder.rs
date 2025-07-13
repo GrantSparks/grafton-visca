@@ -139,7 +139,7 @@ impl ScenarioBuilder {
 impl TestScenario {
     /// Apply this scenario to a mock transport
     pub fn apply_to(&self, transport: &mut MockTransport) -> Result<(), String> {
-        for (i, step) in self.steps.iter().enumerate() {
+        for (_i, step) in self.steps.iter().enumerate() {
             match step {
                 ScenarioStep::ExpectCommand {
                     command,

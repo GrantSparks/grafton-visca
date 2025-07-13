@@ -6,9 +6,13 @@
 //! Run with: cargo run --example camera_profiles_demo --features tokio
 
 use grafton_visca::{
-    camera::methods::*, command::preset::PresetNumber, transport::tokio::Tcp, types::SpeedLevel,
-    Camera, Degrees, Error, Normalized, ProfileId,
+    command::preset::PresetNumber, types::SpeedLevel, Camera, Degrees, Error, Normalized, ProfileId,
 };
+
+#[cfg(feature = "tokio")]
+use grafton_visca::r#async::{PanTiltOps, PowerOps, PresetsOps, ZoomOps};
+#[cfg(feature = "tokio")]
+use grafton_visca::transport::tokio::Tcp;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

@@ -330,7 +330,8 @@ mod tests {
                 parameter: "test",
                 value: "invalid".to_string(),
                 reason: "test reason".to_string(),
-            }.to_string(),
+            }
+            .to_string(),
             "Invalid parameter 'test': test reason (value: invalid)"
         );
         assert_eq!(Error::Timeout.to_string(), "Operation timed out");
@@ -369,7 +370,8 @@ mod tests {
             parameter: "test",
             value: "invalid".to_string(),
             reason: "test reason".to_string(),
-        }.is_retryable());
+        }
+        .is_retryable());
         assert!(!Error::PresetNotFound { id: 1 }.is_retryable());
     }
 
@@ -406,7 +408,8 @@ mod tests {
                 parameter: "test",
                 value: "invalid".to_string(),
                 reason: "test reason".to_string(),
-            }.suggested_retry_delay(),
+            }
+            .suggested_retry_delay(),
             None
         );
     }
@@ -438,9 +441,7 @@ mod tests {
             Error::SyntaxError,
             Error::CommandNotExecutable,
             Error::PresetNotFound { id: 1 },
-            Error::FeatureNotSupported {
-                feature: "test",
-            },
+            Error::FeatureNotSupported { feature: "test" },
             Error::InvalidParameter {
                 parameter: "test",
                 value: "invalid".to_string(),

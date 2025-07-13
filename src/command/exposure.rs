@@ -111,7 +111,11 @@ impl ExposureCompensationLevel {
             Err(Error::InvalidParameter {
                 parameter: "value",
                 value: value.to_string(),
-                reason: format!("Exposure compensation level must be between {} and {}", Self::MIN, Self::MAX),
+                reason: format!(
+                    "Exposure compensation level must be between {} and {}",
+                    Self::MIN,
+                    Self::MAX
+                ),
             })
         }
     }

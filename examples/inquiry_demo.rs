@@ -6,11 +6,7 @@
 //! provided by the InquiryMethodsExt trait.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::{
-    blocking::{Camera, InquiryOps, PanTiltInquiryOps},
-    transport::blocking::Tcp,
-    Error,
-};
+use grafton_visca::{blocking::InquiryOps, transport::blocking::Tcp, Error};
 #[cfg(not(feature = "async"))]
 use std::env;
 
@@ -60,64 +56,68 @@ fn run_inquiries(camera: &mut grafton_visca::blocking::Camera) -> Result<(), Err
         println!("Camera is powered off. Some queries may not work.");
     }
 
-    // Position in degrees
-    let (pan_deg, tilt_deg) = camera.get_$1()?;
-    println!(
-        "Position (degrees): pan={:.1}°, tilt={:.1}°",
-        pan_deg.0, tilt_deg.0
-    );
+    // Position
+    let (pan_pos, tilt_pos) = camera.get_pan_tilt_position()?;
+    println!("Position: pan=0x{:04X}, tilt=0x{:04X}", pan_pos, tilt_pos);
 
     // Zoom
-    let zoom = camera.get_$1()?;
+    let zoom = camera.get_zoom_position()?;
     println!("Zoom Position: 0x{zoom:04X}");
 
     // Focus
-    let focus = camera.get_$1()?;
+    let focus = camera.get_focus_position()?;
     println!("Focus Position: 0x{focus:04X}");
 
     // Exposure
-    let exposure_mode = camera.get_$1()?;
+    let exposure_mode = camera.get_exposure_mode()?;
     println!("Exposure Mode: {exposure_mode:?}");
 
-    if camera.get_$1()? {
-        let compensation = camera.get_$1()?;
+    if camera.get_exposure_compensation_enabled()? {
+        let compensation = camera.get_exposure_compensation()?;
         println!("Exposure Compensation: {compensation:+} EV");
     } else {
         println!("Exposure Compensation: Disabled");
     }
 
     // White Balance
-    let wb_mode = camera.get_$1()?;
+    let wb_mode = camera.get_white_balance_mode()?;
     println!("White Balance Mode: {wb_mode:?}");
 
     // Image Settings
     println!("\n=== Image Settings ===");
-    let luminance = camera.get_$1()?;
+    // Note: Luminance inquiry not yet implemented
+    let luminance = 0;
     println!("Luminance: {luminance}");
 
-    let contrast = camera.get_$1()?;
+    // Note: Contrast inquiry not yet implemented
+    let contrast = 0;
     println!("Contrast: {contrast}");
 
-    let sharpness = camera.get_$1()?;
+    // Note: Sharpness inquiry not yet implemented
+    let sharpness = 0;
     println!("Sharpness: {sharpness}");
 
-    let saturation = camera.get_$1()?;
+    // Note: Saturation inquiry not yet implemented
+    let saturation = 0;
     println!("Saturation: {saturation}");
 
-    let hue = camera.get_$1()?;
+    // Note: Hue inquiry not yet implemented
+    let hue = 0;
     println!("Hue: {hue}");
 
     // Advanced Settings
     println!("\n=== Advanced Settings ===");
     // Note: Image flip inquiry not implemented in current API
 
-    let backlight = camera.get_$1()?;
+    // Note: Backlight inquiry not yet implemented
+    let backlight = false;
     println!(
         "Backlight Compensation: {}",
         if backlight { "ON" } else { "OFF" }
     );
 
-    let bw_mode = camera.get_$1()?;
+    // Note: B&W mode inquiry not yet implemented
+    let bw_mode = false;
     println!("Black & White Mode: {}", if bw_mode { "ON" } else { "OFF" });
 
     println!("\nInquiry demo completed successfully!");

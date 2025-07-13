@@ -62,7 +62,6 @@ fn test_sony_fr7_has_nd_filter() {
 
     // PLUS ND filter support! (but in the unified API, this is checked at runtime)
     // The method exists but might return an error based on the profile
-    use grafton_visca::camera::methods::NDFilterOps;
     let _ = camera.set_nd_filter(128); // This may succeed or fail at runtime
 }
 

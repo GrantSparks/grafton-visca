@@ -34,19 +34,8 @@ impl Camera {
 
 // Re-export async traits with unsuffixed names
 pub use crate::camera::methods::{
-    ColorOps,
-    ExposureOps,
-    FocusOps,
-    ImageProcessingOps,
-    InquiryOps,
-    NDFilterOps,
-    PanTiltOps,
-    PanTiltInquiryOps,
-    PowerOps,
-    PresetsOps,
-    SystemOps,
-    TallyOps,
-    WhiteBalanceOps,
+    ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,
+    PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps, WhiteBalanceOps,
     ZoomOps,
 };
 
@@ -196,11 +185,17 @@ impl ImageProcessingOps for Camera {
         self.0.set_hue(level).await
     }
 
-    async fn set_noise_reduction_2d(&self, level: crate::types::NoiseReduction2DLevel) -> crate::Result<()> {
+    async fn set_noise_reduction_2d(
+        &self,
+        level: crate::types::NoiseReduction2DLevel,
+    ) -> crate::Result<()> {
         self.0.set_noise_reduction_2d(level).await
     }
 
-    async fn set_noise_reduction_3d(&self, level: crate::types::NoiseReduction3DLevel) -> crate::Result<()> {
+    async fn set_noise_reduction_3d(
+        &self,
+        level: crate::types::NoiseReduction3DLevel,
+    ) -> crate::Result<()> {
         self.0.set_noise_reduction_3d(level).await
     }
 
@@ -234,7 +229,9 @@ impl InquiryOps for Camera {
         self.0.get_focus_zone().await
     }
 
-    async fn get_auto_focus_sensitivity(&self) -> crate::Result<crate::command::AutoFocusSensitivity> {
+    async fn get_auto_focus_sensitivity(
+        &self,
+    ) -> crate::Result<crate::command::AutoFocusSensitivity> {
         self.0.get_auto_focus_sensitivity().await
     }
 
@@ -391,7 +388,9 @@ impl PanTiltInquiryOps for Camera {
         self.0.get_pan_tilt_position().await
     }
 
-    async fn get_pan_tilt_degrees(&self) -> crate::Result<(crate::units::Degrees, crate::units::Degrees)> {
+    async fn get_pan_tilt_degrees(
+        &self,
+    ) -> crate::Result<(crate::units::Degrees, crate::units::Degrees)> {
         self.0.get_pan_tilt_degrees().await
     }
 }

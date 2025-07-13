@@ -30,27 +30,19 @@ impl Camera {
 
 // Re-export blocking traits with unsuffixed names
 pub use crate::camera::methods::{
-    ColorOpsBlocking as ColorOps,
-    ExposureOpsBlocking as ExposureOps,
-    FocusOpsBlocking as FocusOps,
-    ImageProcessingOpsBlocking as ImageProcessingOps,
-    InquiryOpsBlocking as InquiryOps,
-    NDFilterOpsBlocking as NDFilterOps,
-    PanTiltOpsBlocking as PanTiltOps,
-    PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
-    PowerOpsBlocking as PowerOps,
-    PresetsOpsBlocking as PresetsOps,
-    SystemOpsBlocking as SystemOps,
-    TallyOpsBlocking as TallyOps,
-    WhiteBalanceOpsBlocking as WhiteBalanceOps,
-    ZoomOpsBlocking as ZoomOps,
+    ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
+    ImageProcessingOpsBlocking as ImageProcessingOps, InquiryOpsBlocking as InquiryOps,
+    NDFilterOpsBlocking as NDFilterOps, PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
+    PanTiltOpsBlocking as PanTiltOps, PowerOpsBlocking as PowerOps,
+    PresetsOpsBlocking as PresetsOps, SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
+    WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
 };
 
 // Implement all blocking traits for the wrapper type using the forward_facade! macro
 use crate::forward_facade;
 
 forward_facade!(Camera, blocking,
-    ZoomOps: 
+    ZoomOps:
         zoom_stop() -> crate::Result<()>,
         zoom_in() -> crate::Result<()>,
         zoom_out() -> crate::Result<()>,
@@ -184,11 +176,17 @@ impl ImageProcessingOps for Camera {
         self.0.set_hue(level)
     }
 
-    fn set_noise_reduction_2d(&self, level: crate::types::NoiseReduction2DLevel) -> crate::Result<()> {
+    fn set_noise_reduction_2d(
+        &self,
+        level: crate::types::NoiseReduction2DLevel,
+    ) -> crate::Result<()> {
         self.0.set_noise_reduction_2d(level)
     }
 
-    fn set_noise_reduction_3d(&self, level: crate::types::NoiseReduction3DLevel) -> crate::Result<()> {
+    fn set_noise_reduction_3d(
+        &self,
+        level: crate::types::NoiseReduction3DLevel,
+    ) -> crate::Result<()> {
         self.0.set_noise_reduction_3d(level)
     }
 
@@ -379,7 +377,9 @@ impl PanTiltInquiryOps for Camera {
         self.0.get_pan_tilt_position()
     }
 
-    fn get_pan_tilt_degrees(&self) -> crate::Result<(crate::units::Degrees, crate::units::Degrees)> {
+    fn get_pan_tilt_degrees(
+        &self,
+    ) -> crate::Result<(crate::units::Degrees, crate::units::Degrees)> {
         self.0.get_pan_tilt_degrees()
     }
 }

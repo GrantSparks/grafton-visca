@@ -9,13 +9,12 @@ fn main() {
 }
 
 #[cfg(not(feature = "async"))]
-#[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{Camera, PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-    command::pan_tilt::PanTiltDirection,
-    profiles::PTZOpticsG2,
+    blocking::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     transport::blocking::Tcp,
-    types::{PanSpeed, TiltSpeed},
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    Degrees,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -34,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create camera with PTZOpticsG2 profile
     // Create camera using the base Camera type, then convert to blocking
-    let mut camera = grafton_visca::Camera::new(transport).blocking();
+    let camera = grafton_visca::Camera::new(transport).blocking();
 
     println!("Camera created successfully with blocking transport API!");
 
@@ -63,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Move to specific position using degrees
     println!("Moving to position (30°, -10°)...");
-    camera.pan_tilt_absolute(30.0, -10.0, 5)?;
+    camera.pan_tilt_absolute(Degrees::new(30.0), Degrees::new(-10.0), SpeedLevel::from(5))?;
     std::thread::sleep(Duration::from_secs(3));
 
     // Test continuous movement
@@ -78,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test preset operations
     println!("Saving position to preset 1...");
-    camera.preset_set(1)?;
+    camera.preset_set(PresetNumber::new(1)?)?;
 
     // Move away
     println!("Moving to home...");
@@ -87,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Recall preset
     println!("Recalling preset 1...");
-    camera.preset_recall(1)?;
+    camera.preset_recall(PresetNumber::new(1)?)?;
     std::thread::sleep(Duration::from_secs(3));
 
     println!("\nAll operations completed successfully!");

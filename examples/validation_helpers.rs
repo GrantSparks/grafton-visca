@@ -10,7 +10,7 @@ use grafton_visca::{
         pan_tilt::{PanTilt, PanTiltDirection},
     },
     types::{GainLevel, PanSpeed, TiltSpeed},
-    validate_all, Error,
+    Error,
 };
 
 fn main() {
@@ -43,14 +43,14 @@ fn run_examples() -> Result<(), Error> {
     let tilt_speed_raw = 8;
 
     // Old way (verbose):
-    let _pan_speed_old = PanSpeed::try_from(pan_speed_raw)
-        .map_err(|_| Error::InvalidParameter {
+    let _pan_speed_old =
+        PanSpeed::try_from(pan_speed_raw).map_err(|_| Error::InvalidParameter {
             parameter: "pan_speed",
             value: pan_speed_raw.to_string(),
             reason: format!("Invalid pan speed: {}", pan_speed_raw),
         })?;
-    let _tilt_speed_old = TiltSpeed::try_from(tilt_speed_raw)
-        .map_err(|_| Error::InvalidParameter {
+    let _tilt_speed_old =
+        TiltSpeed::try_from(tilt_speed_raw).map_err(|_| Error::InvalidParameter {
             parameter: "tilt_speed",
             value: tilt_speed_raw.to_string(),
             reason: format!("Invalid tilt speed: {}", tilt_speed_raw),
@@ -58,18 +58,16 @@ fn run_examples() -> Result<(), Error> {
 
     // New way with validate_all!:
     // validate_all! macro is not available, use individual validation
-    let pan_speed = PanSpeed::try_from(pan_speed_raw)
-        .map_err(|_| Error::InvalidParameter {
-            parameter: "pan_speed",
-            value: pan_speed_raw.to_string(),
-            reason: format!("Invalid pan speed: {}", pan_speed_raw),
-        })?;
-    let tilt_speed = TiltSpeed::try_from(tilt_speed_raw)
-        .map_err(|_| Error::InvalidParameter {
-            parameter: "tilt_speed",
-            value: tilt_speed_raw.to_string(),
-            reason: format!("Invalid tilt speed: {}", tilt_speed_raw),
-        })?;
+    let pan_speed = PanSpeed::try_from(pan_speed_raw).map_err(|_| Error::InvalidParameter {
+        parameter: "pan_speed",
+        value: pan_speed_raw.to_string(),
+        reason: format!("Invalid pan speed: {}", pan_speed_raw),
+    })?;
+    let tilt_speed = TiltSpeed::try_from(tilt_speed_raw).map_err(|_| Error::InvalidParameter {
+        parameter: "tilt_speed",
+        value: tilt_speed_raw.to_string(),
+        reason: format!("Invalid tilt speed: {}", tilt_speed_raw),
+    })?;
 
     println!(
         "  Created PanSpeed({}) and TiltSpeed({})",
@@ -101,21 +99,19 @@ fn run_examples() -> Result<(), Error> {
     );
     // Try to create both speeds and handle the error
     let result = (|| {
-        let _pan = PanSpeed::try_from(invalid_pan)
-            .map_err(|_| Error::InvalidParameter {
-                parameter: "pan_speed",
-                value: invalid_pan.to_string(),
-                reason: format!("Invalid pan speed: {}", invalid_pan),
-            })?;
-        let _tilt = TiltSpeed::try_from(invalid_tilt)
-            .map_err(|_| Error::InvalidParameter {
-                parameter: "tilt_speed",
-                value: invalid_tilt.to_string(),
-                reason: format!("Invalid tilt speed: {}", invalid_tilt),
-            })?;
+        let _pan = PanSpeed::try_from(invalid_pan).map_err(|_| Error::InvalidParameter {
+            parameter: "pan_speed",
+            value: invalid_pan.to_string(),
+            reason: format!("Invalid pan speed: {}", invalid_pan),
+        })?;
+        let _tilt = TiltSpeed::try_from(invalid_tilt).map_err(|_| Error::InvalidParameter {
+            parameter: "tilt_speed",
+            value: invalid_tilt.to_string(),
+            reason: format!("Invalid tilt speed: {}", invalid_tilt),
+        })?;
         Ok::<_, Error>(())
     })();
-    
+
     match result {
         Ok(_) => println!("  Unexpected success"),
         Err(e) => println!("  ✓ Got expected error: {}", e),

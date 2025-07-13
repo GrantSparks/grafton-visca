@@ -135,7 +135,7 @@ macro_rules! visca_bounded_param {
 
             /// Create a new instance with validation
             pub fn new(value: $inner) -> Result<Self, $crate::Error> {
-                if value < Self::MIN || value > Self::MAX {
+                if !(Self::MIN..=Self::MAX).contains(&value) {
                     return Err($crate::Error::InvalidParameter {
                         parameter: stringify!($name),
                         value: format!("{}", value),
@@ -422,7 +422,7 @@ macro_rules! visca_builder {
 /// # Example
 /// ```ignore
 /// forward_facade!(Camera, blocking,
-///     ZoomOps: 
+///     ZoomOps:
 ///         zoom_stop() -> crate::Result<()>,
 ///         zoom_in() -> crate::Result<()>,
 ///         zoom_out() -> crate::Result<()>,
@@ -446,7 +446,7 @@ macro_rules! forward_facade {
             }
         )+
     };
-    
+
     // Async variant
     ($wrapper:ident, async, $($trait_name:ident : $($method:ident $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(

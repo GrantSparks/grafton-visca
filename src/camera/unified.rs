@@ -183,6 +183,7 @@ where
 }
 
 /// Wrapper for blocking transports.
+#[allow(dead_code)]
 struct BlockingTransportWrapper<T: BlockingTransport> {
     transport: T,
 }
@@ -257,7 +258,7 @@ pub struct Camera {
 impl Clone for Camera {
     fn clone(&self) -> Self {
         Self {
-            profile: self.profile.clone(),
+            profile: self.profile,
             transport: Arc::clone(&self.transport),
             address: self.address,
         }
@@ -299,6 +300,7 @@ impl Camera {
     }
 
     /// Create with a blocking transport.
+    #[allow(dead_code)]
     pub(crate) fn new_blocking<T>(transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
@@ -309,6 +311,7 @@ impl Camera {
     }
 
     /// Create with a specific profile and blocking transport.
+    #[allow(dead_code)]
     pub(crate) fn with_profile_blocking<T>(profile: ProfileId, transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
@@ -337,6 +340,7 @@ impl Camera {
     }
 
     /// Internal constructor for blocking transports.
+    #[allow(dead_code)]
     fn with_profile_and_blocking_transport<T>(profile: ProfileId, transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
@@ -754,7 +758,7 @@ impl Camera {
     /// let transport = Mock::new();
     /// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
     /// let blocking_camera = camera.blocking();
-    /// 
+    ///
     /// // Use blocking API
     /// blocking_camera.zoom_stop().unwrap();
     /// ```
@@ -793,7 +797,7 @@ impl Camera {
     /// let transport = Mock::new();
     /// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, Tokio(transport));
     /// let async_camera = camera.r#async();
-    /// 
+    ///
     /// // Use async API
     /// async_camera.zoom_stop().await.unwrap();
     /// # };

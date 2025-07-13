@@ -7,6 +7,7 @@
 
 mod common;
 
+use crate::common::test_fixtures::generators;
 use crate::common::*;
 use grafton_visca::{
     blocking::*,
@@ -82,7 +83,7 @@ fn test_response_builder() {
     let zoom_pos = ResponseBuilder::inquiry().add_u16_nibbles(0x4000).build();
     assert_eq!(zoom_pos, vec![0x90, 0x50, 0x04, 0x00, 0x00, 0x00, 0xFF]);
 
-    let pan_tilt_pos = response_patterns::pan_tilt_position_response(1000, 500); // Note: changed to u16
+    let pan_tilt_pos = response_builder::patterns::pan_tilt_position_response(1000, 500); // Note: changed to u16
     assert_eq!(pan_tilt_pos.len(), 11); // 0x90 0x50 + 8 nibbles + 0xFF
 }
 

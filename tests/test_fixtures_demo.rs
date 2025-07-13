@@ -8,8 +8,8 @@
 mod common;
 
 use crate::common::{
-    generators, patterns, CommandFixtures, MockResponse, MockTransport, MockTransportBuilder,
-    ProtocolValidator, ScenarioBuilder, ValidationMode,
+    patterns, test_fixtures::generators, CommandFixtures, MockResponse, MockTransport,
+    MockTransportBuilder, ProtocolValidator, ScenarioBuilder, ValidationMode,
 };
 use grafton_visca::{
     blocking::*,
@@ -109,18 +109,10 @@ fn test_preset_commands_with_fixtures() {
     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Test preset operations
-    camera
-        .preset_set(PresetNumber::new(1).unwrap())
-        .unwrap();
-    camera
-        .preset_recall(PresetNumber::new(1).unwrap())
-        .unwrap();
-    camera
-        .preset_set(PresetNumber::new(2).unwrap())
-        .unwrap();
-    camera
-        .preset_recall(PresetNumber::new(2).unwrap())
-        .unwrap();
+    camera.preset_set(PresetNumber::new(1).unwrap()).unwrap();
+    camera.preset_recall(PresetNumber::new(1).unwrap()).unwrap();
+    camera.preset_set(PresetNumber::new(2).unwrap()).unwrap();
+    camera.preset_recall(PresetNumber::new(2).unwrap()).unwrap();
 
     // MockTransportBuilder automatically verifies expectations when dropped
 }
@@ -225,7 +217,7 @@ fn test_pan_tilt_positions_with_generator() {
             .pan_tilt_absolute(
                 grafton_visca::units::Degrees::new(*pan as f32),
                 grafton_visca::units::Degrees::new(*tilt as f32),
-                grafton_visca::types::SpeedLevel::from(speed)
+                grafton_visca::types::SpeedLevel::from(speed),
             )
             .unwrap();
     }
@@ -278,9 +270,7 @@ fn test_comprehensive_command_sequence() {
     camera.power_on().unwrap();
     camera.pan_tilt_home().unwrap();
     camera.zoom_stop().unwrap();
-    camera
-        .preset_recall(PresetNumber::new(1).unwrap())
-        .unwrap();
+    camera.preset_recall(PresetNumber::new(1).unwrap()).unwrap();
     camera.focus_auto().unwrap();
 
     // MockTransportBuilder automatically verifies expectations when dropped
