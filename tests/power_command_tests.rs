@@ -3,7 +3,10 @@
 mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
-use grafton_visca::{blocking::PowerOps, camera::{Camera, ProfileId}};
+use grafton_visca::{
+    blocking::PowerOps,
+    camera::{Camera, ProfileId},
+};
 
 #[test]
 fn test_power_on_command_bytes() {

@@ -295,11 +295,7 @@ fn test_pan_tilt_absolute_with_camera() {
 
     // Move to center position
     assert!(camera
-        .pan_tilt_absolute(
-            Degrees::new(0.0),
-            Degrees::new(0.0),
-            SpeedLevel::from(0x10)
-        )
+        .pan_tilt_absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::from(0x10))
         .is_ok());
 
     mock.verify().unwrap();

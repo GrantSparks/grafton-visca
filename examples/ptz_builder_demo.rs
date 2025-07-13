@@ -18,10 +18,9 @@ use grafton_visca::transport::blocking::Udp;
 use grafton_visca::{
     blocking::{Camera, FocusOps, PanTiltOps, PresetsOps, ZoomOps},
     camera::profiles::G2PresetId,
-    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
-    profiles::PTZOpticsG2,
+    command::pan_tilt::PanTiltDirection,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
-    units::{Degrees, Normalized},
+    units::Degrees,
 };
 
 #[cfg(not(feature = "async"))]

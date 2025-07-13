@@ -445,7 +445,8 @@ impl NoiseReductionStrength {
             Self::Off => Err(Error::InvalidParameter {
                 parameter: "strength",
                 value: "Off".to_string(),
-                reason: "2D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
+                reason: "2D noise reduction cannot be turned off, use level 1 for minimal"
+                    .to_string(),
             }),
             Self::Minimal => Ok(1),
             Self::Light => Ok(2),
@@ -461,7 +462,8 @@ impl NoiseReductionStrength {
             Self::Off => Err(Error::InvalidParameter {
                 parameter: "strength",
                 value: "Off".to_string(),
-                reason: "3D noise reduction cannot be turned off, use level 1 for minimal".to_string(),
+                reason: "3D noise reduction cannot be turned off, use level 1 for minimal"
+                    .to_string(),
             }),
             Self::Minimal => Ok(1),
             Self::Light => Ok(2),

@@ -7,15 +7,18 @@
 
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::{
-    blocking::{Camera, PanTiltOps, PowerOps, PresetsOps, ZoomOps, FocusOps},
-    command::preset::PresetNumber, types::SpeedLevel, Degrees, Error,
-    Normalized, ProfileId,
+    blocking::{Camera, FocusOps, PanTiltOps, PresetsOps, ZoomOps},
+    command::preset::PresetNumber,
+    types::SpeedLevel,
+    Degrees, Error, Normalized, ProfileId,
 };
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::methods::*, command::preset::PresetNumber, types::SpeedLevel, Camera, Degrees, Error,
-    Normalized, ProfileId,
+    command::preset::PresetNumber,
+    r#async::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
+    types::SpeedLevel,
+    Camera, Degrees, Error, Normalized, ProfileId,
 };
 use std::env;
 
@@ -41,22 +44,22 @@ fn main() -> Result<(), Error> {
     println!("Connecting to camera at {} (blocking mode)...", camera_addr);
 
     let transport = Udp::connect(camera_addr)?;
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
+    let camera = grafton_visca::Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
 
     println!("\n=== Camera Control Demo (Blocking) ===");
-    println!("Using profile: {}\n", camera.profile_info());
+    println!("Using profile: PTZOpticsG2\n");
 
     // Pan/Tilt Control
-    demonstrate_$1(&mut camera)?;
+    demonstrate_pan_tilt(&mut camera)?;
 
     // Zoom Control
-    demonstrate_$1(&mut camera)?;
+    demonstrate_zoom(&mut camera)?;
 
     // Focus Control
-    demonstrate_$1(&mut camera)?;
+    demonstrate_focus(&mut camera)?;
 
     // Preset Control
-    demonstrate_$1(&mut camera)?;
+    demonstrate_presets(&mut camera)?;
 
     println!("\n✅ Demo complete!");
     Ok(())
@@ -82,7 +85,7 @@ async fn main() -> Result<(), Error> {
     let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
 
     println!("\n=== Camera Control Demo (Async) ===");
-    println!("Using profile: {}\n", camera.profile_info());
+    println!("Using profile: PTZOpticsG2\n");
 
     // Pan/Tilt Control
     demonstrate_pan_tilt(&mut camera).await?;

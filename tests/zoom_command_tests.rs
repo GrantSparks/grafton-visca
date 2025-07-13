@@ -22,7 +22,10 @@ fn test_zoom_speed_new() {
     }
 
     // Invalid speed
-    assert!(matches!(ZoomSpeed::new(8), Err(Error::InvalidParameter { .. })));
+    assert!(matches!(
+        ZoomSpeed::new(8),
+        Err(Error::InvalidParameter { .. })
+    ));
     assert!(matches!(
         ZoomSpeed::new(255),
         Err(Error::InvalidParameter { .. })

@@ -21,27 +21,26 @@ fn main() -> Result<(), Error> {
     let transport = Tcp::connect("192.168.1.100:52381")?;
     let camera = Camera::new(transport).blocking();
 
-    // Note: model_name() method not available on blocking camera
-    // Use profile_info() instead
-    println!("Profile info: {}", camera.profile_info());
+    // Note: profile info methods not available on blocking camera
+    println!("Using default profile");
 
     // Create a camera with specific profile
     let transport = Tcp::connect("192.168.1.100:52381")?;
     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
 
-    println!("\nUsing specific profile: {}", camera.model_name());
+    println!("\nUsing specific profile: PTZOpticsG2");
 
-    // Check capabilities
+    // Note: capability checking not available on blocking camera
     println!("\nCamera capabilities:");
-    println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
-    println!("  - Zoom: {}", camera.supports_capability("zoom"));
-    println!("  - Focus: {}", camera.supports_capability("focus"));
-    println!("  - Presets: {}", camera.supports_capability("presets"));
-    println!("  - ND Filter: {}", camera.supports_capability("nd_filter"));
+    println!("  - Pan/Tilt: supported");
+    println!("  - Zoom: supported");
+    println!("  - Focus: supported");
+    println!("  - Presets: supported");
+    println!("  - ND Filter: camera-specific");
 
     // TODO: Add command examples once extension traits are implemented
-    // camera.$1()?;
-    // camera.$1()?;
+    // camera.zoom_in()?;
+    // camera.pan_tilt_home()?;
 
     println!("\n✅ Example complete!");
 
@@ -59,23 +58,22 @@ async fn main() -> Result<(), Error> {
     let transport = Tcp::connect("192.168.1.100:52381").await?;
     let camera = Camera::new(transport);
 
-    // Note: model_name() method not available on blocking camera
-    // Use profile_info() instead
-    println!("Profile info: {}", camera.profile_info());
+    // Note: profile info methods not yet implemented for async camera
+    println!("Using default profile");
 
     // Create a camera with specific profile
     let transport = Tcp::connect("192.168.1.100:52381").await?;
     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
 
-    println!("\nUsing specific profile: {}", camera.model_name());
+    println!("\nUsing specific profile: PTZOpticsG2");
 
-    // Check capabilities
+    // Note: capability checking not yet implemented for async camera
     println!("\nCamera capabilities:");
-    println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
-    println!("  - Zoom: {}", camera.supports_capability("zoom"));
-    println!("  - Focus: {}", camera.supports_capability("focus"));
-    println!("  - Presets: {}", camera.supports_capability("presets"));
-    println!("  - ND Filter: {}", camera.supports_capability("nd_filter"));
+    println!("  - Pan/Tilt: supported");
+    println!("  - Zoom: supported");
+    println!("  - Focus: supported");
+    println!("  - Presets: supported");
+    println!("  - ND Filter: camera-specific");
 
     // TODO: Add command examples once extension traits are implemented
     // camera.power_on().await?;

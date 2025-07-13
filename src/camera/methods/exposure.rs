@@ -176,7 +176,7 @@ impl ExposureOpsBlocking for Camera {
 
         let command = Bright::SetLevel(level);
         self.send_command_blocking(&command)?;
-        Ok(())        
+        Ok(())
     }
 
     fn set_backlight(&self, enabled: bool) -> Result<(), Error> {
