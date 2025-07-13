@@ -109,7 +109,7 @@ async fn demonstrate_movement_timeout(camera: &Camera) -> Result<(), Error> {
     match timeout(movement_timeout, async {
         // Placeholder - the actual implementation would use the correct movement method
         Err::<(), Error>(Error::FeatureNotSupported {
-            feature: "move_continuous".to_string(),
+            feature: "move_continuous",
         })
     })
     .await
@@ -150,12 +150,12 @@ async fn demonstrate_preset_timeout(camera: &Camera) -> Result<(), Error> {
     let preset_timeout = Duration::from_secs(30);
 
     // Create a preset ID
-    use grafton_visca::camera::profiles::G2PresetId;
-    let preset = G2PresetId::new(1)?;
+    use grafton_visca::command::preset::PresetNumber;
+    let preset = PresetNumber::new(1)?;
 
     // Recall preset (which may take time to complete movement)
     let start = std::time::Instant::now();
-    match timeout(preset_timeout, camera.preset_recall(preset.into())).await {
+    match timeout(preset_timeout, camera.preset_recall(preset)).await {
         Ok(Ok(_)) => {
             let elapsed = start.elapsed();
             println!("   ✓ Preset recalled successfully in {:?}", elapsed);

@@ -312,7 +312,7 @@ fn test_pan_tilt_with_inquiry_response() {
             0x05, 0x06, 0x07, 0x08, // Tilt position 0x5678
         ]);
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let _camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly

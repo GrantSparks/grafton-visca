@@ -7,12 +7,7 @@
 //! - Use profile-aware unit conversions
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{
-    camera::methods::{InquiryOps, PanTiltInquiryOps},
-    profiles::PTZOpticsG2,
-    transport::tokio::Tcp,
-    Camera, Error,
-};
+use grafton_visca::{r#async::InquiryOps, transport::tokio::Tcp, Camera, Error};
 
 // Include the transport implementation from the example file
 
@@ -37,7 +32,7 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Tcp::connect(&camera_addr).await?;
-    let camera = Camera::new(transport);
+    let camera = Camera::new(transport).r#async();
 
     // Query power state
     println!("\n--- Power State ---");
@@ -48,10 +43,10 @@ async fn main() -> Result<(), Error> {
 
     // Query position in VISCA units (available for all cameras)
     println!("\n--- Position (VISCA Units) ---");
-    match camera.get_position_degrees().await {
+    match camera.get_position().await {
         Ok((pan, tilt)) => {
-            println!("Pan: {} units", pan.0);
-            println!("Tilt: {} units", tilt.0);
+            println!("Pan: {} units", pan);
+            println!("Tilt: {} units", tilt);
         }
         Err(e) => println!("Failed to get position: {}", e),
     }
@@ -91,9 +86,9 @@ async fn main() -> Result<(), Error> {
 
     // Query image quality settings
     println!("\n--- Image Quality ---");
-    match camera.get_luminance().await {
-        Ok(level) => println!("Luminance: {}", level),
-        Err(e) => println!("Failed to get luminance: {}", e),
+    match camera.get_brightness().await {
+        Ok(level) => println!("Brightness: {}", level),
+        Err(e) => println!("Failed to get brightness: {}", e),
     }
 
     match camera.get_contrast().await {

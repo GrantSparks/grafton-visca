@@ -1,9 +1,15 @@
 #![allow(missing_docs)]
+
+mod common;
+
 #[cfg(test)]
 mod tests {
     use grafton_visca::command::response::{parse_response, Response, ResponseType};
     use grafton_visca::command::{encode_visca::EncodeVisca, PowerInquiry};
     use grafton_visca::InquiryResponse;
+
+    // Import the test patterns
+    use crate::common::patterns;
 
     #[test]
     fn test_power_inquiry_command_bytes() {
@@ -20,7 +26,7 @@ mod tests {
 
     #[test]
     fn test_power_response_parsing_on() {
-        let response = vec![0x90, 0x50, 0x02, 0xFF];
+        let response = patterns::power_on_response();
         let parsed = parse_response(&response, &ResponseType::Power).unwrap();
 
         match parsed {

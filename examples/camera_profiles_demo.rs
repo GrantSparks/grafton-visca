@@ -5,11 +5,9 @@
 //!
 //! Run with: cargo run --example camera_profiles_demo --features tokio
 
-use grafton_visca::ProfileId;
-
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    command::preset::PresetNumber, types::SpeedLevel, Camera, Degrees, Error, Normalized,
+    command::preset::PresetNumber, types::SpeedLevel, Camera, Degrees, Error, Normalized, ProfileId,
 };
 
 #[cfg(feature = "tokio")]
@@ -151,8 +149,6 @@ async fn demonstrate_generic_visca() -> Result<(), Error> {
     println!("Connected to: {}", unified_camera.model_name());
     println!("Profile info: {}", unified_camera.profile_info());
 
-    let camera = unified_camera.r#async();
-
     // Generic profile only guarantees basic VISCA operations
     println!("\nCapabilities (minimal guarantee):");
     println!("  ✓ Power: {}", unified_camera.supports_capability("power"));
@@ -162,6 +158,8 @@ async fn demonstrate_generic_visca() -> Result<(), Error> {
     );
     println!("  ✓ Zoom: {}", unified_camera.supports_capability("zoom"));
     println!("  ? Other features: implementation-dependent");
+
+    let camera = unified_camera.r#async();
 
     // Safe to use basic operations
     camera.power_on().await?;
@@ -182,10 +180,12 @@ async fn demonstrate_generic_visca() -> Result<(), Error> {
 // Example of writing code that works with any camera
 // The unified Camera API means we don't need generics -
 // just check capabilities at runtime if needed
+#[cfg(feature = "tokio")]
 async fn capture_preset(
     camera: &mut grafton_visca::r#async::Camera,
     preset_id: u8,
-) -> Result<(), Error> {
+) -> Result<(), grafton_visca::Error> {
+    use grafton_visca::r#async::{PanTiltOps, PowerOps, PresetsOps};
     // Power on if needed
     camera.power_on().await?;
     // Note: power_on_time() is only available on unified Camera
@@ -198,7 +198,9 @@ async fn capture_preset(
     // Save preset
     // Note: supports_capability() is only available on unified Camera
     // For async Camera, we just try the operation
-    camera.preset_set(PresetNumber::new(preset_id)?).await?;
+    camera
+        .preset_set(grafton_visca::command::PresetNumber::new(preset_id)?)
+        .await?;
     println!("  - Saved position as preset {}", preset_id);
 
     Ok(())

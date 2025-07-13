@@ -91,12 +91,10 @@ impl EncodeVisca for Zoom {
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         use crate::command::const_encoding::constants::zoom;
-        use crate::command::const_encoding::CommandBuilder;
 
         match self {
             Self::Stop => {
-                let cmd = CommandBuilder::<5>::new().append(zoom::STOP).build();
-                let bytes = cmd.as_slice();
+                let bytes = zoom::STOP;
                 if buffer.len() < bytes.len() {
                     return Err(Error::BufferTooSmall {
                         required: bytes.len(),
@@ -107,8 +105,7 @@ impl EncodeVisca for Zoom {
                 Ok(bytes.len())
             }
             Self::TeleStd => {
-                let cmd = CommandBuilder::<5>::new().append(zoom::TELE_STD).build();
-                let bytes = cmd.as_slice();
+                let bytes = zoom::TELE_STD;
                 if buffer.len() < bytes.len() {
                     return Err(Error::BufferTooSmall {
                         required: bytes.len(),
@@ -119,8 +116,7 @@ impl EncodeVisca for Zoom {
                 Ok(bytes.len())
             }
             Self::WideStd => {
-                let cmd = CommandBuilder::<5>::new().append(zoom::WIDE_STD).build();
-                let bytes = cmd.as_slice();
+                let bytes = zoom::WIDE_STD;
                 if buffer.len() < bytes.len() {
                     return Err(Error::BufferTooSmall {
                         required: bytes.len(),
@@ -166,7 +162,7 @@ impl EncodeVisca for Zoom {
             }
             Self::Position(position) => {
                 // Direct position: 81 01 04 47 0p 0q 0r 0s FF
-                let required = 10;
+                let required = 9;
                 if buffer.len() < required {
                     return Err(Error::BufferTooSmall {
                         required,
