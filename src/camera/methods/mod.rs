@@ -17,7 +17,7 @@ pub mod tally;
 pub mod white_balance;
 pub mod zoom;
 
-// Re-export extension traits
+// Re-export extension traits (async)
 pub use color::ColorOps;
 pub use exposure::ExposureOps;
 pub use focus::FocusOps;
@@ -31,3 +31,18 @@ pub use system::SystemOps;
 pub use tally::TallyOps;
 pub use white_balance::WhiteBalanceOps;
 pub use zoom::ZoomOps;
+
+// Re-export blocking traits
+pub use color::ColorOpsBlocking;
+pub use exposure::ExposureOpsBlocking;
+pub use focus::FocusOpsBlocking;
+pub use image_processing::ImageProcessingOpsBlocking;
+pub use inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking};
+pub use nd_filter::NDFilterOpsBlocking;
+pub use pan_tilt::PanTiltOpsBlocking;
+pub use power::PowerOpsBlocking;
+pub use presets::PresetsOpsBlocking;
+pub use system::SystemOpsBlocking;
+pub use tally::TallyOpsBlocking;
+pub use white_balance::WhiteBalanceOpsBlocking;
+pub use zoom::ZoomOpsBlocking;

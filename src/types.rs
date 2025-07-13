@@ -810,6 +810,9 @@ impl RedTuning {
     /// Maximum red tuning.
     pub const MAX: Self = Self(10);
 
+    /// Neutral red tuning (no adjustment).
+    pub const NEUTRAL: Self = Self(0);
+
     /// Create a new red tuning value.
     ///
     /// # Errors
@@ -858,6 +861,9 @@ impl BlueTuning {
 
     /// Maximum blue tuning.
     pub const MAX: Self = Self(10);
+
+    /// Neutral blue tuning (no adjustment).
+    pub const NEUTRAL: Self = Self(0);
 
     /// Create a new blue tuning value.
     ///

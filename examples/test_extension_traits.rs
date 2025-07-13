@@ -9,21 +9,20 @@ use grafton_visca::{
         ExposureOps, FocusOps, ImageProcessingOps, PanTiltOps, PowerOps, PresetsOps,
         WhiteBalanceOps, ZoomOps,
     },
+    command::preset::PresetNumber,
     command::{
         // exposure::{DynamicRangeLevel, ExposureMode}, // not used
         // image::ImageFlipMode, // unused import
         pan_tilt::PanTiltDirection,
         // white_balance::WhiteBalanceMode, // not used
     },
-    
     transport::tokio::Udp,
-    command::preset::PresetNumber,
     types::{
-        BrightnessLevel, ColorTemp, ContrastLevel, DynamicRangeLevel, GainLevel, GainLimit, HueLevel,
-        IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
-        PanSpeed, TiltSpeed,
+        BrightnessLevel, ColorTemp, ContrastLevel, DynamicRangeLevel, GainLevel, GainLimit,
+        HueLevel, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed,
+        SaturationLevel, SharpnessLevel, TiltSpeed,
     },
-    Camera, Error, Normalized, Degrees,
+    Camera, Degrees, Error, Normalized,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -51,7 +50,13 @@ async fn main() -> Result<(), Error> {
     camera.pan_tilt_home().await?;
     time::sleep(Duration::from_secs(2)).await;
 
-    camera.pan_tilt_move(PanTiltDirection::Right, PanSpeed::new(10)?, TiltSpeed::new(0)?).await?;
+    camera
+        .pan_tilt_move(
+            PanTiltDirection::Right,
+            PanSpeed::new(10)?,
+            TiltSpeed::new(0)?,
+        )
+        .await?;
     time::sleep(Duration::from_millis(500)).await;
     camera.pan_tilt_stop().await?;
 
@@ -141,17 +146,23 @@ async fn main() -> Result<(), Error> {
     println!("\nTesting position control with different units...");
 
     // Using degrees
-    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), 10.into()).await?;
+    camera
+        .pan_tilt_absolute(Degrees(45.0), Degrees(15.0), 10.into())
+        .await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Using VISCA units
     // Set position using raw VISCA units (convert to appropriate units)
     // This would require using ViscaUnits or converting to degrees
-    camera.pan_tilt_absolute(Degrees(10.0), Degrees(5.0), 10.into()).await?;
+    camera
+        .pan_tilt_absolute(Degrees(10.0), Degrees(5.0), 10.into())
+        .await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Using normalized coordinates - convert to degrees
-    camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0), 10.into()).await?;
+    camera
+        .pan_tilt_absolute(Degrees(0.0), Degrees(0.0), 10.into())
+        .await?;
     time::sleep(Duration::from_secs(2)).await;
 
     // Gain control with profile-specific values
@@ -165,9 +176,7 @@ async fn main() -> Result<(), Error> {
     // Dynamic range and color temperature
     println!("\nTesting dynamic range and color temperature...");
     camera.set_dynamic_range(DynamicRangeLevel::new(5)?).await?;
-    camera
-        .set_color_temperature(ColorTemp::new(0x20)?)
-        .await?;
+    camera.set_color_temperature(ColorTemp::new(0x20)?).await?;
 
     println!("\n=== All Camera API Methods Tested Successfully! ===");
     println!("\nKey advantages over extension traits:");

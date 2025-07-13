@@ -8,10 +8,15 @@
 //! - Maximize throughput with concurrent operations
 
 use grafton_visca::{
-    camera::methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
-    command::pan_tilt::PanTiltDirection,
+    camera::{
+        methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
+        profiles::G2PresetId,
+    },
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     profiles::PTZOpticsG2,
     transport::tokio::Udp,
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    units::{Degrees, Normalized},
     Camera, Error,
 };
 use std::sync::Arc;
@@ -46,7 +51,11 @@ async fn main() -> Result<(), Error> {
 
     // Start moving the camera
     camera
-        .pan_tilt_move(PanTiltDirection::UpRight, 0x10, 0x10)
+        .pan_tilt_move(
+            PanTiltDirection::UpRight,
+            PanSpeed::new(0x10)?,
+            TiltSpeed::new(0x10)?,
+        )
         .await?;
     let move_time = start.elapsed();
 
@@ -78,7 +87,12 @@ async fn main() -> Result<(), Error> {
     let camera1 = Arc::clone(&camera);
     let move_task = tokio::spawn(async move {
         let cam = camera1.lock().await;
-        cam.pan_tilt_move(PanTiltDirection::Right, 0x08, 0).await
+        cam.pan_tilt_move(
+            PanTiltDirection::Right,
+            PanSpeed::new(0x08)?,
+            TiltSpeed::new(0)?,
+        )
+        .await
     });
 
     let camera2 = Arc::clone(&camera);
@@ -136,7 +150,7 @@ async fn main() -> Result<(), Error> {
             // Save preset to position 1
             use grafton_visca::camera::profiles::G2PresetId;
             let preset = G2PresetId::new(1)?;
-            cam.preset_set(preset.into()).await
+            cam.preset_set(PresetNumber::new(preset.into())?).await
         })
     };
 
@@ -252,7 +266,12 @@ async fn main() -> Result<(), Error> {
         let camera = Arc::clone(&camera);
         tokio::spawn(async move {
             let cam = camera.lock().await;
-            cam.pan_tilt_move(PanTiltDirection::Right, 0x08, 0).await
+            cam.pan_tilt_move(
+                PanTiltDirection::Right,
+                PanSpeed::new(0x08)?,
+                TiltSpeed::new(0)?,
+            )
+            .await
         })
     };
 

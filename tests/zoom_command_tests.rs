@@ -110,7 +110,7 @@ fn test_zoom_command_zoom_in_variable() {
 
 #[test]
 fn test_zoom_command_zoom_out_variable() {
-    let speed = ZoomSpeed::new(7).unwrap_or_else(|e| panic!("Failed to create ZoomSpeed 7: {e:?}"));
+    let speed = ZoomSpeed::MAX;
     let cmd = Zoom::WideVariable(speed);
     let bytes = cmd
         .try_into_vec()

@@ -9,19 +9,20 @@ use crate::{
     Error,
 };
 
-/// WhiteBalance operations.
+/// White balance operations (async).
 pub trait WhiteBalanceOps: Sized {
     /// Set auto white balance mode.
-    #[cfg(feature = "tokio")]
     async fn white_balance_auto(&self) -> Result<(), Error>;
-
-    /// Set auto white balance mode. (blocking).
-    #[cfg(not(feature = "tokio"))]
-    fn white_balance_auto_blocking(&mut self) -> Result<(), Error>;
 }
 
+/// White balance operations (blocking).
+pub trait WhiteBalanceOpsBlocking: Sized {
+    /// Set auto white balance mode.
+    fn white_balance_auto(&self) -> Result<(), Error>;
+}
+
+// Async implementation
 impl WhiteBalanceOps for Camera {
-    #[cfg(feature = "tokio")]
     async fn white_balance_auto(&self) -> Result<(), Error> {
         let command = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto,
@@ -33,9 +34,11 @@ impl WhiteBalanceOps for Camera {
             _ => Err(Error::UnexpectedResponseType),
         }
     }
+}
 
-    #[cfg(not(feature = "tokio"))]
-    fn white_balance_auto_blocking(&mut self) -> Result<(), Error> {
+// Blocking implementation
+impl WhiteBalanceOpsBlocking for Camera {
+    fn white_balance_auto(&self) -> Result<(), Error> {
         let command = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto,
         };

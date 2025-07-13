@@ -3,11 +3,11 @@
 //! This example demonstrates common camera operations using the async API.
 
 use grafton_visca::{
-    camera::methods::{ExposureOps, FocusOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps},
+    r#async::{Camera, ExposureOps, FocusOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
-    
     transport::tokio::Tcp,
-    Camera, Error, ProfileId,
+    types::{PanSpeed, TiltSpeed},
+    Degrees, Error, Normalized,
 };
 use std::time::Duration;
 use tokio::time::sleep;
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create async transport
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = Camera::new(transport);
+    let camera = grafton_visca::Camera::new(transport).r#async();
 
     // Demo 1: Power Control
     demo_power_control(&camera).await?;
@@ -54,8 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_power_control(camera: &Camera) -> Result<(), Error>
-{
+async fn demo_power_control(camera: &Camera) -> Result<(), Error> {
     println!("📍 Demo 1: Power Control");
     println!("Powering on camera...");
     camera.power_on().await?;
@@ -65,8 +64,7 @@ async fn demo_power_control(camera: &Camera) -> Result<(), Error>
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_pan_tilt_movement(camera: &Camera) -> Result<(), Error>
-{
+async fn demo_pan_tilt_movement(camera: &Camera) -> Result<(), Error> {
     println!("\n📍 Demo 2: Pan/Tilt Movement");
 
     println!("Moving to home position...");
@@ -75,7 +73,11 @@ async fn demo_pan_tilt_movement(camera: &Camera) -> Result<(), Error>
 
     println!("Moving camera up-right...");
     camera
-        .pan_tilt_move(PanTiltDirection::UpRight, 16, 16)
+        .pan_tilt_move(
+            PanTiltDirection::UpRight,
+            PanSpeed::new(16)?,
+            TiltSpeed::new(16)?,
+        )
         .await?;
     sleep(Duration::from_secs(1)).await;
 
@@ -85,8 +87,7 @@ async fn demo_pan_tilt_movement(camera: &Camera) -> Result<(), Error>
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_zoom_control(camera: &Camera) -> Result<(), Error>
-{
+async fn demo_zoom_control(camera: &Camera) -> Result<(), Error> {
     println!("\n📍 Demo 3: Zoom Control");
 
     println!("Zooming in...");
@@ -97,17 +98,16 @@ async fn demo_zoom_control(camera: &Camera) -> Result<(), Error>
     camera.zoom_stop().await?;
 
     println!("Setting zoom to 50%...");
-    camera.zoom_absolute(0.5).await?; // Mid-range zoom
+    camera.zoom_absolute(Normalized(0.5)).await?; // Mid-range zoom
     sleep(Duration::from_secs(1)).await;
 
     println!("Resetting zoom...");
-    camera.zoom_absolute(0.0).await?;
+    camera.zoom_absolute(Normalized(0.0)).await?;
     Ok(())
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_focus_control(camera: &Camera) -> Result<(), Error>
-{
+async fn demo_focus_control(camera: &Camera) -> Result<(), Error> {
     println!("\n📍 Demo 4: Focus Control");
 
     println!("Setting auto-focus mode...");
@@ -120,8 +120,7 @@ async fn demo_focus_control(camera: &Camera) -> Result<(), Error>
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_exposure_settings(camera: &Camera) -> Result<(), Error>
-{
+async fn demo_exposure_settings(camera: &Camera) -> Result<(), Error> {
     println!("\n📍 Demo 5: Exposure Settings");
 
     println!("Setting exposure to auto...");
@@ -134,8 +133,7 @@ async fn demo_exposure_settings(camera: &Camera) -> Result<(), Error>
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_white_balance(camera: &Camera) -> Result<(), Error>
-{
+async fn demo_white_balance(camera: &Camera) -> Result<(), Error> {
     println!("\n📍 Demo 6: White Balance");
 
     println!("Setting white balance to auto...");
@@ -147,16 +145,19 @@ async fn demo_white_balance(camera: &Camera) -> Result<(), Error>
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_position_control(camera: &Camera) -> Result<(), Error>
-{
+async fn demo_position_control(camera: &Camera) -> Result<(), Error> {
     println!("\n📍 Demo 7: Position Control");
 
     println!("Moving to specific position (45°, 20°)...");
-    camera.pan_tilt_absolute(45.0, 20.0, 18).await?;
+    camera
+        .pan_tilt_absolute(Degrees(45.0), Degrees(20.0), 18.into())
+        .await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("Moving to position (-30°, -10°)...");
-    camera.pan_tilt_absolute(-30.0, -10.0, 18).await?;
+    camera
+        .pan_tilt_absolute(Degrees(-30.0), Degrees(-10.0), 18.into())
+        .await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("Returning to home...");

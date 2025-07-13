@@ -144,11 +144,23 @@ mod tests {
     fn test_normalized_conversion() {
         let camera = TestCamera;
 
-        assert_eq!(camera.normalized_to_focus_units(0.0).unwrap(), 0x1000);
-        assert_eq!(camera.normalized_to_focus_units(1.0).unwrap(), 0xF000);
+        assert_eq!(
+            camera
+                .normalized_to_focus_units(0.0)
+                .expect("0.0 is valid normalized value"),
+            0x1000
+        );
+        assert_eq!(
+            camera
+                .normalized_to_focus_units(1.0)
+                .expect("1.0 is valid normalized value"),
+            0xF000
+        );
 
         // Test round trip
-        let pos = camera.normalized_to_focus_units(0.5).unwrap();
+        let pos = camera
+            .normalized_to_focus_units(0.5)
+            .expect("0.5 is valid normalized value");
         let normalized = camera.focus_units_to_normalized(pos);
         assert!((normalized - 0.5).abs() < 0.01);
     }

@@ -33,22 +33,22 @@ fn main() -> Result<(), Error> {
     println!("Connecting to camera at {} (blocking mode)...", camera_addr);
 
     let transport = Udp::connect(camera_addr)?;
-    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
 
     println!("\n=== Camera Control Demo (Blocking) ===");
     println!("Using profile: {}\n", camera.profile_info());
 
     // Pan/Tilt Control
-    demonstrate_pan_tilt_blocking(&mut camera)?;
+    demonstrate_$1(&mut camera)?;
 
     // Zoom Control
-    demonstrate_zoom_blocking(&mut camera)?;
+    demonstrate_$1(&mut camera)?;
 
     // Focus Control
-    demonstrate_focus_blocking(&mut camera)?;
+    demonstrate_$1(&mut camera)?;
 
     // Preset Control
-    demonstrate_presets_blocking(&mut camera)?;
+    demonstrate_$1(&mut camera)?;
 
     println!("\n✅ Demo complete!");
     Ok(())
@@ -93,20 +93,20 @@ async fn main() -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "tokio"))]
-fn demonstrate_pan_tilt_blocking(camera: &mut Camera) -> Result<(), Error> {
+fn demonstrate_$1(camera: &mut Camera) -> Result<(), Error> {
     use std::{thread, time::Duration};
 
     println!("1. Pan/Tilt Control");
     println!("   - Moving to home position...");
-    camera.pan_tilt_home_blocking()?;
+    camera.$1()?;
     thread::sleep(Duration::from_secs(3));
 
     println!("   - Moving to absolute position (20°, -10°)...");
-    camera.pan_tilt_absolute_blocking(Degrees(20.0), Degrees(-10.0), SpeedLevel::from(10))?;
+    camera.$1(Degrees(20.0), Degrees(-10.0), SpeedLevel::from(10))?;
     thread::sleep(Duration::from_secs(2));
 
     println!("   - Relative movement (pan right, tilt up)...");
-    camera.pan_tilt_relative_blocking(Degrees(10.0), Degrees(5.0), SpeedLevel::from(15))?;
+    camera.$1(Degrees(10.0), Degrees(5.0), SpeedLevel::from(15))?;
     thread::sleep(Duration::from_secs(2));
 
     Ok(())
@@ -137,24 +137,24 @@ async fn demonstrate_pan_tilt(camera: &mut Camera) -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "tokio"))]
-fn demonstrate_zoom_blocking(camera: &mut Camera) -> Result<(), Error> {
+fn demonstrate_$1(camera: &mut Camera) -> Result<(), Error> {
     use std::{thread, time::Duration};
 
     println!("\n2. Zoom Control");
 
     println!("   - Zooming to 50%...");
-    camera.zoom_absolute_blocking(Normalized::new(0.5))?;
+    camera.$1(Normalized::new(0.5))?;
     thread::sleep(Duration::from_secs(2));
 
     println!("   - Zooming in...");
-    camera.zoom_in_blocking()?;
+    camera.$1()?;
     thread::sleep(Duration::from_secs(1));
-    camera.zoom_stop_blocking()?;
+    camera.$1()?;
 
     println!("   - Zooming out...");
-    camera.zoom_out_blocking()?;
+    camera.$1()?;
     thread::sleep(Duration::from_secs(1));
-    camera.zoom_stop_blocking()?;
+    camera.$1()?;
 
     Ok(())
 }
@@ -183,21 +183,21 @@ async fn demonstrate_zoom(camera: &mut Camera) -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "tokio"))]
-fn demonstrate_focus_blocking(camera: &mut Camera) -> Result<(), Error> {
+fn demonstrate_$1(camera: &mut Camera) -> Result<(), Error> {
     use std::{thread, time::Duration};
 
     println!("\n3. Focus Control");
 
     if camera.supports_capability("focus") {
         println!("   - Enabling auto-focus...");
-        camera.focus_auto_blocking()?;
+        camera.$1()?;
         thread::sleep(Duration::from_secs(2));
 
         println!("   - Manual focus adjustment...");
-        camera.focus_manual_blocking()?;
-        camera.focus_near_blocking(SpeedLevel::from(3))?;
+        camera.$1()?;
+        camera.$1(SpeedLevel::from(3))?;
         thread::sleep(Duration::from_secs(1));
-        camera.focus_stop_blocking()?;
+        camera.$1()?;
     } else {
         println!("   - Focus not supported by this camera profile");
     }
@@ -229,35 +229,35 @@ async fn demonstrate_focus(camera: &mut Camera) -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "tokio"))]
-fn demonstrate_presets_blocking(camera: &mut Camera) -> Result<(), Error> {
+fn demonstrate_$1(camera: &mut Camera) -> Result<(), Error> {
     use std::{thread, time::Duration};
 
     println!("\n4. Preset Control");
 
     if camera.supports_capability("presets") {
         println!("   - Saving current position as preset 1...");
-        camera.preset_set_blocking(PresetNumber::new(1)?)?;
+        camera.$1(PresetNumber::new(1)?)?;
         thread::sleep(Duration::from_millis(500));
 
         println!("   - Moving to a different position...");
-        camera.pan_tilt_absolute_blocking(Degrees(-20.0), Degrees(6.0), SpeedLevel::from(10))?;
-        camera.zoom_absolute_blocking(Normalized::new(0.75))?;
+        camera.$1(Degrees(-20.0), Degrees(6.0), SpeedLevel::from(10))?;
+        camera.$1(Normalized::new(0.75))?;
         thread::sleep(Duration::from_secs(3));
 
         println!("   - Saving as preset 2...");
-        camera.preset_set_blocking(PresetNumber::new(2)?)?;
+        camera.$1(PresetNumber::new(2)?)?;
         thread::sleep(Duration::from_millis(500));
 
         println!("   - Returning to home...");
-        camera.pan_tilt_home_blocking()?;
+        camera.$1()?;
         thread::sleep(Duration::from_secs(3));
 
         println!("   - Recalling preset 1...");
-        camera.preset_recall_blocking(PresetNumber::new(1)?)?;
+        camera.$1(PresetNumber::new(1)?)?;
         thread::sleep(Duration::from_secs(3));
 
         println!("   - Recalling preset 2...");
-        camera.preset_recall_blocking(PresetNumber::new(2)?)?;
+        camera.$1(PresetNumber::new(2)?)?;
         thread::sleep(Duration::from_secs(3));
     } else {
         println!("   - Presets not supported by this camera profile");

@@ -205,10 +205,28 @@ mod tests {
     fn test_shutter_speed_lookup() {
         let camera = TestCamera;
 
-        assert_eq!(camera.find_shutter_speed(0x01).unwrap().label, "1/60");
-        assert_eq!(camera.find_shutter_speed(0x02).unwrap().label, "1/100");
+        assert_eq!(
+            camera
+                .find_shutter_speed(0x01)
+                .expect("0x01 is a valid shutter speed")
+                .label,
+            "1/60"
+        );
+        assert_eq!(
+            camera
+                .find_shutter_speed(0x02)
+                .expect("0x02 is a valid shutter speed")
+                .label,
+            "1/100"
+        );
 
         // Should find closest
-        assert_eq!(camera.find_shutter_speed(0x10).unwrap().label, "1/1000");
+        assert_eq!(
+            camera
+                .find_shutter_speed(0x10)
+                .expect("should find closest shutter speed")
+                .label,
+            "1/1000"
+        );
     }
 }

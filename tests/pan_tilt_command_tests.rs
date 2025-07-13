@@ -214,8 +214,8 @@ fn test_response_type() {
 
     let cmd = PanTilt::Move {
         direction: PanTiltDirection::Stop,
-        pan_speed: PanSpeed::new(1).unwrap(),
-        tilt_speed: TiltSpeed::new(1).unwrap(),
+        pan_speed: PanSpeed::new(1).expect("valid speed"),
+        tilt_speed: TiltSpeed::new(1).expect("valid speed"),
     };
     assert_eq!(cmd.response_type(), None);
 }
@@ -229,8 +229,8 @@ fn test_command_category() {
     // Other commands are standard
     let cmd = PanTilt::Move {
         direction: PanTiltDirection::Up,
-        pan_speed: PanSpeed::new(1).unwrap(),
-        tilt_speed: TiltSpeed::new(1).unwrap(),
+        pan_speed: PanSpeed::new(1).expect("valid speed"),
+        tilt_speed: TiltSpeed::new(1).expect("valid speed"),
     };
     assert_eq!(cmd.timeout_kind(), CommandCategory::Movement);
 }

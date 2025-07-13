@@ -96,7 +96,7 @@ pub trait TransportExt: Transport {
         &self,
         duration: core::time::Duration,
     ) -> Result<bytes::Bytes, Error> {
-        crate::blocking::timeout(duration, self.recv()).and_then(|r| r.map_err(Into::into))
+        crate::executor::timeout(duration, self.recv()).and_then(|r| r.map_err(Into::into))
     }
 }
 

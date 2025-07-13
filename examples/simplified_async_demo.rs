@@ -4,7 +4,8 @@
 //! which avoids the complexity of the full runtime abstraction layer.
 
 use grafton_visca::{
-    camera::methods::PresetsOps, profiles::PTZOpticsG2, transport::tokio::Tcp, Camera, Error,
+    camera::methods::PresetsOps, command::preset::PresetNumber, transport::tokio::Tcp, Camera,
+    Error,
 };
 
 #[tokio::main]
@@ -19,7 +20,7 @@ async fn main() -> Result<(), Error> {
 
     // Use the camera normally
     println!("Recalling preset 1...");
-    camera.preset_recall(1).await?;
+    camera.preset_recall(PresetNumber::new(1)?).await?;
 
     println!("Done!");
     Ok(())

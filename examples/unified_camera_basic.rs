@@ -19,14 +19,14 @@ fn main() -> Result<(), Error> {
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
     let transport = Tcp::connect("192.168.1.100:52381")?;
-    let camera = Camera::new_blocking(transport);
+    let camera = Camera::new(transport).blocking();
 
     println!("Connected to: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
 
     // Create a camera with specific profile
     let transport = Tcp::connect("192.168.1.100:52381")?;
-    let camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
 
     println!("\nUsing specific profile: {}", camera.model_name());
 
@@ -39,8 +39,8 @@ fn main() -> Result<(), Error> {
     println!("  - ND Filter: {}", camera.supports_capability("nd_filter"));
 
     // TODO: Add command examples once extension traits are implemented
-    // camera.power_on_blocking()?;
-    // camera.zoom_in_blocking()?;
+    // camera.$1()?;
+    // camera.$1()?;
 
     println!("\n✅ Example complete!");
 

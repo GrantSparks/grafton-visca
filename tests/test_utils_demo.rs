@@ -26,7 +26,7 @@ fn test_with_mock_transport_basic() {
         .then_complete(1);
 
     // Create camera with mock transport
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, mock.clone());
 
     // Execute the command
     camera.power_on_blocking().unwrap();
@@ -117,7 +117,7 @@ fn test_scenario_builder() -> Result<()> {
     scenario.apply_to(&mut mock).unwrap();
 
     // Create camera and execute commands
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, mock.clone());
 
     camera.power_on_blocking()?;
     camera.pan_tilt_home_blocking()?;

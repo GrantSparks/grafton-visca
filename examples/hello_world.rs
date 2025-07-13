@@ -29,18 +29,18 @@ fn main() -> Result<(), Error> {
 
     // Create camera with blocking TCP transport
     let transport = Tcp::connect(&camera_addr)?;
-    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, transport);
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
 
     // Power on the camera
     println!("Powering on camera...");
-    camera.power_on_blocking()?;
+    camera.power_on()?;
 
     // Wait for camera to initialize
     std::thread::sleep(std::time::Duration::from_secs(2));
 
     // Move to home position
     println!("Moving to home position...");
-    camera.pan_tilt_home_blocking()?;
+    camera.pan_tilt_home()?;
 
     println!("Hello from VISCA camera!");
 

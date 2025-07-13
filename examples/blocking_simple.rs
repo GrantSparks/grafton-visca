@@ -13,9 +13,8 @@ fn main() {
 use grafton_visca::transport::blocking::Tcp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{PanTiltOps, PowerOps, ZoomOps},
+    blocking::{Camera, PanTiltOps, PowerOps, ZoomOps},
     profiles::PTZOpticsG2,
-    Camera,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -33,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = Tcp::connect(&camera_ip)?;
 
     // Create camera with PTZOpticsG2 profile
-    let mut camera = Camera::new(transport);
+    let camera = grafton_visca::Camera::new(transport).blocking();
 
     println!("Camera created successfully with blocking transport!");
     println!("Running without any async runtime - pure blocking I/O!");

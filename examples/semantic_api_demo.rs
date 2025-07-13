@@ -10,6 +10,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         command::pan_tilt::PanTiltDirection,
         profiles::PTZOpticsG2,
         transport::blocking::Udp,
+        types::{PanSpeed, SpeedLevel, TiltSpeed},
+        units::{Degrees, Normalized},
         Camera,
     };
 
@@ -22,10 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Zoom Control
     println!("1. Zoom Control");
     println!("   Setting zoom to 50%...");
-    camera.zoom_absolute(0.5)?;
+    camera.zoom_absolute(Normalized::new(0.5))?;
 
     println!("   Setting zoom using raw VISCA value...");
-    camera.zoom_absolute(0x3000 as f32 / 0x4000 as f32)?; // Convert to normalized position
+    camera.zoom_absolute(Normalized::new(0x3000 as f32 / 0x4000 as f32))?; // Convert to normalized position
 
     // Focus Control
     println!("\n2. Focus Control");
@@ -44,12 +46,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.pan_tilt_home()?;
 
     println!("   Moving to 45° right, 15° up...");
-    camera.pan_tilt_absolute(45.0, -15.0, 10)?;
+    camera.pan_tilt_absolute(Degrees::new(45.0), Degrees::new(-15.0), SpeedLevel::Medium)?;
 
     // Movement Control
     println!("\n4. Movement Control");
     println!("   Moving right at speed 10...");
-    camera.pan_tilt_move(PanTiltDirection::Right, 10, 0)?;
+    camera.pan_tilt_move(
+        PanTiltDirection::Right,
+        PanSpeed::new(10)?,
+        TiltSpeed::new(0)?,
+    )?;
 
     println!("   Stopping movement...");
     camera.pan_tilt_stop()?;
@@ -89,6 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         command::pan_tilt::PanTiltDirection,
         profiles::PTZOpticsG2,
         transport::tokio::Udp,
+        types::{PanSpeed, SpeedLevel, TiltSpeed},
+        units::{Degrees, Normalized},
         Camera,
     };
 
@@ -101,10 +109,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Zoom Control
     println!("1. Zoom Control");
     println!("   Setting zoom to 50%...");
-    camera.zoom_absolute(0.5).await?;
+    camera.zoom_absolute(Normalized::new(0.5)).await?;
 
     println!("   Setting zoom using raw VISCA value...");
-    camera.zoom_absolute(0x3000 as f32 / 0x4000 as f32).await?; // Convert to normalized position
+    camera
+        .zoom_absolute(Normalized::new(0x3000 as f32 / 0x4000 as f32))
+        .await?; // Convert to normalized position
 
     // Focus Control
     println!("\n2. Focus Control");
@@ -123,12 +133,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     camera.pan_tilt_home().await?;
 
     println!("   Moving to 45° right, 15° up...");
-    camera.pan_tilt_absolute(45.0, -15.0, 10).await?;
+    camera
+        .pan_tilt_absolute(Degrees::new(45.0), Degrees::new(-15.0), SpeedLevel::Medium)
+        .await?;
 
     // Movement Control
     println!("\n4. Movement Control");
     println!("   Moving right at speed 10...");
-    camera.pan_tilt_move(PanTiltDirection::Right, 10, 0).await?;
+    camera
+        .pan_tilt_move(
+            PanTiltDirection::Right,
+            PanSpeed::new(10)?,
+            TiltSpeed::new(0)?,
+        )
+        .await?;
 
     println!("   Stopping movement...");
     camera.pan_tilt_stop().await?;
