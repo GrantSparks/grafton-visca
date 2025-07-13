@@ -44,7 +44,8 @@ fn main() -> Result<(), Error> {
     println!("Connecting to camera at {} (blocking mode)...", camera_addr);
 
     let transport = Udp::connect(camera_addr)?;
-    let camera = grafton_visca::Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
+    let mut camera =
+        grafton_visca::Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
 
     println!("\n=== Camera Control Demo (Blocking) ===");
     println!("Using profile: PTZOpticsG2\n");

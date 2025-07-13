@@ -8,8 +8,10 @@
 mod common;
 
 use crate::common::{
-    patterns, test_fixtures::generators, CommandFixtures, MockResponse, MockTransport,
-    MockTransportBuilder, ProtocolValidator, ScenarioBuilder, ValidationMode,
+    patterns,
+    test_fixtures::{generators, CommandFixtures},
+    MockResponse, MockTransport, MockTransportBuilder, ProtocolValidator, ScenarioBuilder,
+    ValidationMode,
 };
 use grafton_visca::{
     blocking::*,
@@ -122,11 +124,11 @@ fn test_edge_case_commands() {
     let edge_cases = CommandFixtures::edge_case_commands();
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
 
-    for (name, cmd_bytes) in edge_cases {
+    for (name, cmd_bytes) in &edge_cases {
         println!("Testing edge case: {}", name);
 
         // Validate protocol compliance even for edge cases
-        let result = validator.validate_command(&cmd_bytes);
+        let result = validator.validate_command(cmd_bytes);
 
         // Some edge cases might be intentionally invalid
         if result.is_err() {
@@ -237,7 +239,7 @@ fn test_comprehensive_command_sequence() {
         .expect_home()
         // Zoom operations
         .expect_command(
-            &patterns::zoom::STOP,
+            patterns::zoom::STOP,
             vec![
                 MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                 MockResponse::Delayed(

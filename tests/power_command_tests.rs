@@ -100,13 +100,13 @@ fn test_power_commands_with_camera() {
     let mut mock = MockTransport::new();
 
     // Set up expectation for power on
-    mock.expect_command(&patterns::power::ON)
+    mock.expect_command(patterns::power::ON)
         .described_as("power on command")
         .will_ack(1)
         .then_complete(1);
 
     // Set up expectation for power off
-    mock.expect_command(&patterns::power::STANDBY)
+    mock.expect_command(patterns::power::STANDBY)
         .described_as("power off command")
         .will_ack(1)
         .then_complete(1);

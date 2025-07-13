@@ -2,14 +2,13 @@
 
 mod common;
 
-use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
+use crate::common::{patterns, MockTransport, ProtocolValidator, ValidationMode};
 use grafton_visca::{
     blocking::PanTiltOps,
     camera::{Camera, ProfileId},
     command::{
         encode_visca::EncodeVisca,
         pan_tilt::{PanTilt, PanTiltDirection},
-        ResponseType,
     },
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
@@ -242,17 +241,17 @@ fn test_pan_tilt_with_camera() {
     let mut mock = MockTransport::new();
 
     // Set up expectations
-    mock.expect_command(&patterns::pan_tilt::HOME)
+    mock.expect_command(patterns::pan_tilt::HOME)
         .described_as("pan/tilt home")
         .will_ack(1)
         .then_complete(1);
 
-    mock.expect_command(&patterns::pan_tilt::STOP)
+    mock.expect_command(patterns::pan_tilt::STOP)
         .described_as("pan/tilt stop")
         .will_ack(1)
         .then_complete(1);
 
-    mock.expect_command(&patterns::pan_tilt::UP)
+    mock.expect_command(patterns::pan_tilt::UP)
         .described_as("pan/tilt up")
         .will_ack(1)
         .then_complete(1);
@@ -306,7 +305,7 @@ fn test_pan_tilt_with_inquiry_response() {
     let mut mock = MockTransport::new();
 
     // Set up pan/tilt position inquiry
-    mock.expect_command(&patterns::pan_tilt::POSITION_INQ)
+    mock.expect_command(patterns::pan_tilt::POSITION_INQ)
         .described_as("pan/tilt position inquiry")
         .will_return_data(&[
             0x01, 0x02, 0x03, 0x04, // Pan position 0x1234

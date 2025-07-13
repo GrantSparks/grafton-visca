@@ -48,8 +48,6 @@ fn main() -> Result<(), Error> {
 
 #[cfg(not(feature = "async"))]
 fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
-    use grafton_visca::camera::profiles::G2PresetId;
-
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Tcp::connect(camera_addr)?;
     let mut camera = grafton_visca::Camera::new(transport).blocking();

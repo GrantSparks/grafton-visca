@@ -13,10 +13,8 @@ use grafton_visca::{
     blocking::*,
     camera::{Camera, ProfileId},
     command::{
-        gain::AntiFlickerMode, image_adjustment::SharpnessMode, AutoFocusSensitivity, ExposureMode,
-        FocusZone, InquiryResponse, Response, ResponseType, WhiteBalanceMode,
+        gain::AntiFlickerMode, AutoFocusSensitivity, ExposureMode, FocusZone, WhiteBalanceMode,
     },
-    Error,
 };
 use std::time::Duration;
 
@@ -26,7 +24,7 @@ fn test_power_inquiry_with_mock_transport() {
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
 
     // Set up expectation for power inquiry
-    mock.expect_command(&patterns::inquiry::POWER)
+    mock.expect_command(patterns::inquiry::POWER)
         .described_as("power inquiry")
         .will_ack(1)
         .will_return_data(&[0x02]); // Power on
@@ -61,7 +59,7 @@ fn test_zoom_position_inquiry_with_validation() {
 
     for (position, _description) in &zoom_positions {
         builder = builder.expect(
-            &patterns::inquiry::ZOOM_POSITION,
+            patterns::inquiry::ZOOM_POSITION,
             vec![
                 MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                 MockResponse::Immediate(
@@ -99,7 +97,7 @@ fn test_pan_tilt_position_inquiry_comprehensive() {
     let scenario = ScenarioBuilder::new("Pan/Tilt Position Inquiry Test")
         .description("Test pan/tilt position inquiry with various positions")
         .expect_command(
-            &patterns::inquiry::PAN_TILT_POSITION,
+            patterns::inquiry::PAN_TILT_POSITION,
             vec![
                 MockResponse::Immediate(ResponseBuilder::ack(1)),
                 MockResponse::Immediate(
@@ -111,7 +109,7 @@ fn test_pan_tilt_position_inquiry_comprehensive() {
             ],
         )
         .expect_command(
-            &patterns::inquiry::PAN_TILT_POSITION,
+            patterns::inquiry::PAN_TILT_POSITION,
             vec![
                 MockResponse::Immediate(ResponseBuilder::ack(1)),
                 MockResponse::Immediate(
@@ -148,15 +146,15 @@ fn test_error_response_handling() {
     let mock = crate::common::MockTransportBuilder::new()
         .connected(true)
         .expect(
-            &patterns::inquiry::POWER,
+            patterns::inquiry::POWER,
             vec![MockResponse::Immediate(ResponseBuilder::error(0x02))], // Syntax error
         )
         .expect(
-            &patterns::inquiry::ZOOM_POSITION,
+            patterns::inquiry::ZOOM_POSITION,
             vec![MockResponse::Immediate(ResponseBuilder::error(0x03))], // Buffer full
         )
         .expect(
-            &patterns::inquiry::PAN_TILT_POSITION,
+            patterns::inquiry::PAN_TILT_POSITION,
             vec![MockResponse::Immediate(ResponseBuilder::error(0x41))], // Not executable
         )
         .build();
@@ -186,7 +184,7 @@ fn test_exposure_mode_inquiry_all_modes() {
 
     for (mode_byte, _expected_mode, _description) in &exposure_modes {
         builder = builder.expect(
-            &patterns::inquiry::EXPOSURE_MODE,
+            patterns::inquiry::EXPOSURE_MODE,
             vec![
                 MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                 MockResponse::Immediate(ResponseBuilder::inquiry().add_byte(*mode_byte).build()),
@@ -223,7 +221,7 @@ fn test_white_balance_inquiry_with_protocol_validation() {
 
     for (mode_byte, _) in &wb_modes {
         builder = builder.expect(
-            &patterns::inquiry::WHITE_BALANCE_MODE,
+            patterns::inquiry::WHITE_BALANCE_MODE,
             vec![
                 MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                 MockResponse::Immediate(ResponseBuilder::inquiry().add_byte(*mode_byte).build()),
@@ -256,7 +254,7 @@ fn test_complex_inquiry_sequence_with_timing() {
     let scenario = ScenarioBuilder::new("Complex Inquiry Sequence")
         .description("Test realistic sequence of camera inquiries with timing")
         .expect_command(
-            &patterns::inquiry::POWER,
+            patterns::inquiry::POWER,
             vec![
                 MockResponse::Immediate(ResponseBuilder::ack(1)),
                 MockResponse::Delayed(
@@ -268,7 +266,7 @@ fn test_complex_inquiry_sequence_with_timing() {
             ],
         )
         .expect_command(
-            &patterns::inquiry::ZOOM_POSITION,
+            patterns::inquiry::ZOOM_POSITION,
             vec![
                 MockResponse::Immediate(ResponseBuilder::ack(1)),
                 MockResponse::Delayed(
@@ -280,7 +278,7 @@ fn test_complex_inquiry_sequence_with_timing() {
             ],
         )
         .expect_command(
-            &patterns::inquiry::PAN_TILT_POSITION,
+            patterns::inquiry::PAN_TILT_POSITION,
             vec![
                 MockResponse::Immediate(ResponseBuilder::ack(1)),
                 MockResponse::Delayed(
@@ -325,7 +323,7 @@ fn test_anti_flicker_mode_parsing() {
     ];
 
     for (mode_byte, expected_mode) in &modes {
-        mock.expect_command(&patterns::inquiry::ANTI_FLICKER)
+        mock.expect_command(patterns::inquiry::ANTI_FLICKER)
             .described_as(&format!("anti-flicker mode {:?}", expected_mode))
             .will_ack(1)
             .will_return_data(&[*mode_byte]);
@@ -353,7 +351,7 @@ fn test_focus_zone_inquiry_comprehensive() {
     ];
 
     for (zone_byte, expected_zone) in &zones {
-        mock.expect_command(&patterns::inquiry::FOCUS_ZONE)
+        mock.expect_command(patterns::inquiry::FOCUS_ZONE)
             .described_as(&format!("focus zone {:?}", expected_zone))
             .will_ack(1)
             .will_return_data(&[*zone_byte]);
@@ -381,7 +379,7 @@ fn test_auto_focus_sensitivity_inquiry() {
     ];
 
     for (sens_byte, expected_sens) in &sensitivities {
-        mock.expect_command(&patterns::inquiry::AUTO_FOCUS_SENSITIVITY)
+        mock.expect_command(patterns::inquiry::AUTO_FOCUS_SENSITIVITY)
             .described_as(&format!("auto focus sensitivity {:?}", expected_sens))
             .will_ack(1)
             .will_return_data(&[*sens_byte]);
@@ -402,11 +400,11 @@ fn test_malformed_response_handling() {
     let mut mock = MockTransport::new();
 
     // Test various malformed responses
-    mock.expect_command(&patterns::inquiry::POWER)
+    mock.expect_command(patterns::inquiry::POWER)
         .described_as("power inquiry - malformed response")
         .will_respond(MockResponse::Immediate(vec![0x90, 0x50, 0xFF])); // Missing data
 
-    mock.expect_command(&patterns::inquiry::ZOOM_POSITION)
+    mock.expect_command(patterns::inquiry::ZOOM_POSITION)
         .described_as("zoom inquiry - truncated response")
         .will_respond(MockResponse::Immediate(vec![0x90, 0x50, 0x01, 0xFF])); // Incomplete data
 
@@ -424,7 +422,7 @@ fn test_timeout_handling() {
     let mut mock = MockTransport::new();
 
     // Set up command that will timeout
-    mock.expect_command(&patterns::inquiry::POWER)
+    mock.expect_command(patterns::inquiry::POWER)
         .described_as("power inquiry - timeout")
         .will_respond(MockResponse::Timeout);
 

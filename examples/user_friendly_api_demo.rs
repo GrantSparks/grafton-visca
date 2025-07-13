@@ -5,7 +5,7 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{Camera, ExposureOps, ImageProcessingOps, InquiryOps, PanTiltOps, ZoomOps},
+    blocking::{ExposureOps, ImageProcessingOps, InquiryOps, PanTiltOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
     transport::blocking::Udp,
     types::{
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create camera with default address
     let transport = Udp::connect("192.168.1.100:1259")?;
-    let mut camera = Camera::new(transport);
+    let camera = grafton_visca::Camera::new(transport).blocking();
 
     // Example 1: Using SpeedLevel for intuitive movement control
     println!("=== Speed Level Demo ===");
@@ -32,8 +32,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let slow_tilt = SpeedLevel::Slow.to_tilt_speed();
     camera.pan_tilt_move(
         PanTiltDirection::UpRight,
-        PanSpeed::try_from(slow_pan)?.into(),
-        TiltSpeed::try_from(slow_tilt)?.into(),
+        PanSpeed::try_from(slow_pan)?,
+        TiltSpeed::try_from(slow_tilt)?,
     )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;
@@ -43,8 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fast_tilt = SpeedLevel::Fast.to_tilt_speed();
     camera.pan_tilt_move(
         PanTiltDirection::DownLeft,
-        PanSpeed::try_from(fast_pan)?.into(),
-        TiltSpeed::try_from(fast_tilt)?.into(),
+        PanSpeed::try_from(fast_pan)?,
+        TiltSpeed::try_from(fast_tilt)?,
     )?;
     std::thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;

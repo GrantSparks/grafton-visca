@@ -9,16 +9,6 @@ use grafton_visca::transport::blocking::Tcp;
 use grafton_visca::transport::tokio::Tcp;
 
 use grafton_visca::Error;
-#[cfg(not(feature = "async"))]
-use grafton_visca::{
-    camera::{
-        methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-        profiles::G2PresetId,
-    },
-    command::pan_tilt::PanTiltDirection,
-    profiles::PTZOpticsG2,
-    Camera,
-};
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::{
@@ -26,9 +16,18 @@ use grafton_visca::{
         profiles::G2PresetId,
     },
     command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
-    profiles::PTZOpticsG2,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
+    Camera,
+};
+#[cfg(not(feature = "async"))]
+use grafton_visca::{
+    camera::{
+        methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
+        profiles::G2PresetId,
+    },
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
+    types::{PanSpeed, TiltSpeed},
     Camera,
 };
 use std::time::Duration;
@@ -129,7 +128,7 @@ fn demonstrate_error_classification() {
         (
             "FeatureNotSupported",
             Error::FeatureNotSupported {
-                feature: "advanced_zoom".to_string(),
+                feature: "advanced_zoom",
             },
         ),
     ];
@@ -287,7 +286,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
-        Ok(preset_id) => match camera.preset_recall(PresetNumber::new(preset_id.into())?) {
+        Ok(preset_id) => match camera.preset_recall(PresetNumber::new(u8::from(preset_id))?) {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
                 println!("   ⚠️  Preset {} not found (expected)", id);
@@ -432,7 +431,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
         Ok(preset_id) => match camera
-            .preset_recall(PresetNumber::new(preset_id.into())?)
+            .preset_recall(PresetNumber::new(u8::from(preset_id))?)
             .await
         {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),

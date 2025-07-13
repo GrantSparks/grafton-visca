@@ -65,6 +65,7 @@ pub struct TransportExpectation {
 
 /// A mock response to return
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum MockResponse {
     /// Return these bytes immediately
     Immediate(Vec<u8>),
@@ -79,6 +80,7 @@ pub enum MockResponse {
     Timeout,
 }
 
+#[allow(dead_code)]
 impl MockTransport {
     /// Create a new mock transport
     pub fn new() -> Self {
@@ -190,6 +192,7 @@ impl MockTransport {
     }
 }
 
+#[allow(dead_code)]
 impl TransportExpectation {
     /// Expect an ACK response with the given socket number
     pub fn will_ack(&mut self, socket: u8) -> &mut Self {
@@ -361,6 +364,7 @@ pub struct MockTransportBuilder {
     transport: MockTransport,
 }
 
+#[allow(dead_code)]
 impl MockTransportBuilder {
     /// Create a new builder
     pub fn new() -> Self {

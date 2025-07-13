@@ -19,14 +19,14 @@ fn main() -> Result<(), Error> {
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
     let transport = Tcp::connect("192.168.1.100:52381")?;
-    let camera = Camera::new(transport).blocking();
+    let _camera = Camera::new(transport).blocking();
 
     // Note: profile info methods not available on blocking camera
     println!("Using default profile");
 
     // Create a camera with specific profile
     let transport = Tcp::connect("192.168.1.100:52381")?;
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
+    let _camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
 
     println!("\nUsing specific profile: PTZOpticsG2");
 
