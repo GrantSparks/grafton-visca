@@ -4,6 +4,7 @@
 
 // Allow missing docs for macro-generated code
 #![allow(missing_docs)]
+#![allow(unused_braces)]
 
 use grafton_visca::{visca_command, Error};
 // Import the trait to use its methods
@@ -12,16 +13,16 @@ use grafton_visca::command::encode_visca::EncodeVisca;
 visca_command! {
     category = "Movement",
     enum TestCommands {
-        Home => [0x81, 0x01, 0x06, 0x04, 0xFF],
-        Reset => [0x81, 0x01, 0x06, 0x05, 0xFF],
+        Home => { Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]) },
+        Reset => { Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF]) },
     }
 }
 
 visca_command! {
     category = "Quick",
     enum PowerCommands {
-        On => [0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
-        Standby => [0x81, 0x01, 0x04, 0x00, 0x03, 0xFF],
+        On => { Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]) },
+        Standby => { Ok(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]) },
     }
 }
 

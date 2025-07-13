@@ -219,7 +219,7 @@ impl ProtocolValidator {
 
     /// Check if a socket is available
     pub fn is_socket_available(&self, socket: u8) -> bool {
-        self.sockets_in_use.get(&socket).copied().unwrap_or(false) == false
+        !self.sockets_in_use.get(&socket).copied().unwrap_or(false)
     }
 
     /// Check if all sockets are free

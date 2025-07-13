@@ -15,7 +15,7 @@ fn test_power_on_command_bytes() {
 
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
-    assert!(validator.validate_command(&bytes).is_ok());
+    assert!(validator.validate_command(bytes).is_ok());
 
     // Verify the expected command bytes
     assert_eq!(bytes, vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
@@ -28,7 +28,7 @@ fn test_power_standby_command_bytes() {
 
     // Validate with different modes
     let mut lenient_validator = ProtocolValidator::new(ValidationMode::Lenient);
-    assert!(lenient_validator.validate_command(&bytes).is_ok());
+    assert!(lenient_validator.validate_command(bytes).is_ok());
 
     // Verify the expected command bytes
     assert_eq!(bytes, vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]);

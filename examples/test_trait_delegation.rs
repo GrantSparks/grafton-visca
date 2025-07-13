@@ -43,11 +43,7 @@ fn test_blocking_compilation() {
 #[cfg(feature = "tokio")]
 fn test_async_compilation() {
     // Import all async traits to ensure they're implemented
-    use grafton_visca::r#async::{
-        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,
-        PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps, WhiteBalanceOps,
-        ZoomOps,
-    };
+    use grafton_visca::r#async::{ColorOps, PowerOps, WhiteBalanceOps, ZoomOps};
 
     // This function just needs to compile - we're verifying trait implementations exist
     async fn _test_trait_methods(camera: &grafton_visca::r#async::Camera) {

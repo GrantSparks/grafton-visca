@@ -16,11 +16,10 @@ use grafton_visca::transport::blocking::Udp;
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{Camera, FocusOps, PanTiltOps, PresetsOps, ZoomOps},
-    camera::profiles::G2PresetId,
-    command::pan_tilt::PanTiltDirection,
-    types::{PanSpeed, SpeedLevel, TiltSpeed},
-    units::Degrees,
+    blocking::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
+    types::{FocusPosition, PanSpeed, SpeedLevel, TiltSpeed},
+    units::{Degrees, Normalized},
 };
 
 #[cfg(not(feature = "async"))]
@@ -65,19 +64,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(1));
 
     // Continuous movement
-    camera.pan_tilt_move(PanTiltDirection::UpRight, 12, 10)?;
+    camera.pan_tilt_move(
+        PanTiltDirection::UpRight,
+        PanSpeed::new(12)?,
+        TiltSpeed::new(10)?,
+    )?;
     thread::sleep(Duration::from_millis(500));
     camera.pan_tilt_stop()?;
     println!("   ✓ Executed: Home → Move UpRight → Stop");
 
     // Zoom operations
-    camera.zoom_absolute(0.5)?;
+    camera.zoom_absolute(Normalized(0.5))?;
     println!("   ✓ Set zoom to 50%");
     thread::sleep(Duration::from_secs(1));
 
     // Focus control
     camera.focus_manual()?;
-    camera.focus_absolute(0.5)?;
+    let focus_pos = FocusPosition::try_from(Normalized(0.5))?;
+    camera.set_focus(focus_pos)?;
     println!("   ✓ Set manual focus to 50%");
 
     // Demonstrate absolute positioning with validation
@@ -103,9 +107,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate preset operations (type-safe preset IDs)
     println!("\n4. Type-safe preset operations");
 
-    // Save current position to preset using G2-specific preset ID
-    let preset_id = G2PresetId::new(1)?;
-    camera.preset_set(preset_id.into())?;
+    // Save current position to preset
+    let preset_id = 1;
+    camera.preset_set(PresetNumber::new(preset_id)?)?;
     println!("   ✓ Saved current position to preset {}", preset_id);
 
     // Move to a different position
@@ -113,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_secs(2));
 
     // Recall the saved preset
-    camera.preset_recall(preset_id.into())?;
+    camera.preset_recall(PresetNumber::new(preset_id)?)?;
     println!("   ✓ Recalled preset {}", preset_id);
     thread::sleep(Duration::from_secs(2));
 
@@ -140,8 +144,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Helper function demonstrating sequential command patterns
 #[cfg(not(feature = "async"))]
-fn perform_scan_sequence<T: grafton_visca::transport::core::Transport>(
-    camera: &mut Camera,
+fn perform_scan_sequence(
+    camera: &mut grafton_visca::blocking::Camera,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Return to home
     camera.pan_tilt_home()?;
