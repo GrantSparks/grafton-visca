@@ -169,12 +169,10 @@ impl EncodeVisca for PanTilt {
 
     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         use crate::command::const_encoding::constants::pan_tilt;
-        use crate::command::const_encoding::CommandBuilder;
 
         match self {
             Self::Home => {
-                let cmd = CommandBuilder::<4>::new().append(pan_tilt::HOME).build();
-                let bytes = cmd.as_slice();
+                let bytes = pan_tilt::HOME;
                 if buffer.len() < bytes.len() {
                     return Err(Error::BufferTooSmall {
                         required: bytes.len(),
@@ -185,8 +183,7 @@ impl EncodeVisca for PanTilt {
                 Ok(bytes.len())
             }
             Self::Reset => {
-                let cmd = CommandBuilder::<4>::new().append(pan_tilt::RESET).build();
-                let bytes = cmd.as_slice();
+                let bytes = pan_tilt::RESET;
                 if buffer.len() < bytes.len() {
                     return Err(Error::BufferTooSmall {
                         required: bytes.len(),

@@ -15,7 +15,7 @@ use grafton_visca::{
     command::preset::PresetNumber,
     types::SpeedLevel,
     units::Degrees,
-    Camera, Error,
+    Camera, Error, Normalized,
 };
 use std::future::{ready, Ready};
 

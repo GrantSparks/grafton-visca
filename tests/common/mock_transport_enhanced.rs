@@ -303,7 +303,7 @@ impl Transport for MockTransport {
         std::future::ready(Ok(()))
     }
 
-    fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
+    fn recv(&self) -> Self::RecvFut<'_> {
         let mut inner = self.inner.lock().unwrap();
 
         if !inner.connected {

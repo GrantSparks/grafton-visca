@@ -4,7 +4,7 @@
 
 use grafton_visca::{
     command::pan_tilt::PanTiltDirection,
-    r#async::{ExposureOps, FocusOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps},
+    r#async::{Camera, ExposureOps, FocusOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps},
     transport::tokio::Tcp,
     types::{PanSpeed, TiltSpeed},
     Degrees, Error, Normalized,

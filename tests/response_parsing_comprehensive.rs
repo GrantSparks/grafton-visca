@@ -8,9 +8,8 @@ mod common;
 use crate::common::{ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
     command::{
-        gain::AntiFlickerMode, image_adjustment::SharpnessMode, response::parse_response,
-        AutoFocusSensitivity, ExposureMode, FocusZone, InquiryResponse, Response, ResponseType,
-        WhiteBalanceMode,
+        gain::AntiFlickerMode, response::parse_response, AutoFocusSensitivity, ExposureMode,
+        FocusZone, InquiryResponse, Response, ResponseType, WhiteBalanceMode,
     },
     Error,
 };
