@@ -168,7 +168,7 @@ impl TallyOps for Camera {
         // For now, return a NotImplemented error as there's no tally inquiry command in the protocol
         // This would need to be added to the InquiryCommand enum with the proper VISCA bytes
         Err(Error::FeatureNotSupported {
-            feature: "Tally status inquiry".to_string(),
+            feature: "Tally status inquiry",
         })
     }
 }
@@ -269,7 +269,7 @@ impl TallyOpsBlocking for Camera {
         // For now, return a NotImplemented error as there's no tally inquiry command in the protocol
         // This would need to be added to the InquiryCommand enum with the proper VISCA bytes
         Err(Error::FeatureNotSupported {
-            feature: "Tally status inquiry".to_string(),
+            feature: "Tally status inquiry",
         })
     }
 }

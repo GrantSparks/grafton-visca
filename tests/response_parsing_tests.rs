@@ -411,7 +411,7 @@ mod response_parsing_tests {
         let gain_bytes = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
         let response = parse_response(&gain_bytes, &ResponseType::Gain);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Gain { gain })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::GainLevel { gain })) => {
                 assert_eq!(gain, 0x07);
             }
             _ => panic!("Expected Gain inquiry response"),
@@ -498,9 +498,9 @@ mod response_parsing_tests {
     fn test_parse_red_blue_gain_responses() {
         // Test RedGain -10
         let red_gain_bytes = vec![0x90, 0x50, 0x00, 0xFF];
-        let response = parse_response(&red_gain_bytes, &ResponseType::RedGain);
+        let response = parse_response(&red_gain_bytes, &ResponseType::RedChannel);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::RedGain { gain })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::RedChannel { gain })) => {
                 assert_eq!(gain, -10);
             }
             _ => panic!("Expected RedGain inquiry response"),
@@ -508,9 +508,9 @@ mod response_parsing_tests {
 
         // Test RedGain 0
         let red_gain_bytes = vec![0x90, 0x50, 0x0A, 0xFF];
-        let response = parse_response(&red_gain_bytes, &ResponseType::RedGain);
+        let response = parse_response(&red_gain_bytes, &ResponseType::RedChannel);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::RedGain { gain })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::RedChannel { gain })) => {
                 assert_eq!(gain, 0);
             }
             _ => panic!("Expected RedGain inquiry response"),
@@ -518,9 +518,9 @@ mod response_parsing_tests {
 
         // Test BlueGain +10
         let blue_gain_bytes = vec![0x90, 0x50, 0x14, 0xFF];
-        let response = parse_response(&blue_gain_bytes, &ResponseType::BlueGain);
+        let response = parse_response(&blue_gain_bytes, &ResponseType::BlueChannel);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::BlueGain { gain })) => {
+            Ok(Response::InquiryResponse(InquiryResponse::BlueChannel { gain })) => {
                 assert_eq!(gain, 10);
             }
             _ => panic!("Expected BlueGain inquiry response"),

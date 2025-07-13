@@ -24,8 +24,7 @@ crate::visca_bounded_param! {
     /// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
     FocusSpeed: u8 {
         min: 0,
-        max: 7,
-        error_msg: "Focus speed must be in the range 0..=7"
+        max: 7
     }
 }
 
@@ -499,7 +498,7 @@ mod tests {
         // Invalid speeds
         assert!(matches!(
             FocusSpeed::new(8),
-            Err(Error::InvalidParameter(_))
+            Err(Error::InvalidParameter { .. })
         ));
     }
 

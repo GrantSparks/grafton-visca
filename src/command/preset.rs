@@ -33,8 +33,7 @@ crate::visca_bounded_param! {
     /// Valid range: 0 to 89 (0x00 to 0x59).
     PresetNumber: u8 {
         min: 0,
-        max: 89,
-        error_msg: "Preset number must be between 0 and 89"
+        max: 89
     }
 }
 
@@ -99,11 +98,11 @@ mod tests {
         // Invalid preset numbers
         assert!(matches!(
             PresetNumber::new(90),
-            Err(Error::InvalidParameter(_))
+            Err(Error::InvalidParameter { .. })
         ));
         assert!(matches!(
             PresetNumber::new(255),
-            Err(Error::InvalidParameter(_))
+            Err(Error::InvalidParameter { .. })
         ));
     }
 

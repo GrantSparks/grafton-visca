@@ -12,7 +12,8 @@ use crate::common::{
     ProtocolValidator, ScenarioBuilder, ValidationMode,
 };
 use grafton_visca::{
-    camera::{methods::*, Camera, ProfileId},
+    blocking::*,
+    camera::{Camera, ProfileId},
     command::preset::PresetNumber,
     Result,
 };
@@ -46,11 +47,11 @@ fn test_all_power_commands_with_fixtures() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute the commands
-    camera.power_on_blocking().unwrap();
-    camera.power_off_blocking().unwrap();
+    camera.power_on().unwrap();
+    camera.power_off().unwrap();
 
     // MockTransportBuilder automatically verifies expectations when dropped
 }
@@ -73,16 +74,16 @@ fn test_zoom_commands_with_fixtures() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute zoom commands
-    camera.zoom_stop_blocking().unwrap();
-    camera.zoom_in_blocking().unwrap();
-    camera.zoom_out_blocking().unwrap();
+    camera.zoom_stop().unwrap();
+    camera.zoom_in().unwrap();
+    camera.zoom_out().unwrap();
     // Note: Variable speed zoom is not available in the current API
     // Using standard zoom commands instead
-    camera.zoom_in_blocking().unwrap();
-    camera.zoom_out_blocking().unwrap();
+    camera.zoom_in().unwrap();
+    camera.zoom_out().unwrap();
 
     // MockTransportBuilder automatically verifies expectations when dropped
 }
@@ -105,20 +106,20 @@ fn test_preset_commands_with_fixtures() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Test preset operations
     camera
-        .preset_set_blocking(PresetNumber::new(1).unwrap())
+        .preset_set(PresetNumber::new(1).unwrap())
         .unwrap();
     camera
-        .preset_recall_blocking(PresetNumber::new(1).unwrap())
+        .preset_recall(PresetNumber::new(1).unwrap())
         .unwrap();
     camera
-        .preset_set_blocking(PresetNumber::new(2).unwrap())
+        .preset_set(PresetNumber::new(2).unwrap())
         .unwrap();
     camera
-        .preset_recall_blocking(PresetNumber::new(2).unwrap())
+        .preset_recall(PresetNumber::new(2).unwrap())
         .unwrap();
 
     // MockTransportBuilder automatically verifies expectations when dropped
@@ -176,13 +177,13 @@ fn test_zoom_positions_with_generator() {
     }
 
     let mock = builder.build();
-    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute zoom position commands
     for position in zoom_positions.iter().take(5) {
         // Convert position to normalized value (0.0 - 1.0)
-        let normalized = *position as f32 / 0x4000 as f32;
-        camera.zoom_absolute_blocking(normalized).unwrap();
+        let normalized = grafton_visca::units::Normalized(*position as f32 / 0x4000 as f32);
+        camera.zoom_absolute(normalized).unwrap();
     }
 
     // MockTransportBuilder automatically verifies expectations when dropped
@@ -215,13 +216,17 @@ fn test_pan_tilt_positions_with_generator() {
     let mut mock = MockTransport::new();
     scenario.build().apply_to(&mut mock).unwrap();
 
-    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute movements
     for ((pan, tilt), &speed) in positions.iter().take(3).zip(speeds.iter()) {
         // Convert i16 degrees to f32
         camera
-            .pan_tilt_absolute_blocking(*pan as f32, *tilt as f32, speed)
+            .pan_tilt_absolute(
+                grafton_visca::units::Degrees::new(*pan as f32),
+                grafton_visca::units::Degrees::new(*tilt as f32),
+                grafton_visca::types::SpeedLevel::from(speed)
+            )
             .unwrap();
     }
 
@@ -267,16 +272,16 @@ fn test_comprehensive_command_sequence() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let mut camera = Camera::with_profile_blocking(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute the sequence
-    camera.power_on_blocking().unwrap();
-    camera.pan_tilt_home_blocking().unwrap();
-    camera.zoom_stop_blocking().unwrap();
+    camera.power_on().unwrap();
+    camera.pan_tilt_home().unwrap();
+    camera.zoom_stop().unwrap();
     camera
-        .preset_recall_blocking(PresetNumber::new(1).unwrap())
+        .preset_recall(PresetNumber::new(1).unwrap())
         .unwrap();
-    camera.focus_auto_blocking().unwrap();
+    camera.focus_auto().unwrap();
 
     // MockTransportBuilder automatically verifies expectations when dropped
 }

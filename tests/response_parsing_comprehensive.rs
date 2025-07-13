@@ -442,9 +442,9 @@ fn test_gain_value_conversions() {
     // Test RedGain conversion
     for raw_value in 0..=20 {
         let response = vec![0x90, 0x50, raw_value, 0xFF];
-        let result = parse_response(&response, &ResponseType::RedGain).unwrap();
+        let result = parse_response(&response, &ResponseType::RedChannel).unwrap();
         match result {
-            Response::InquiryResponse(InquiryResponse::RedGain { gain }) => {
+            Response::InquiryResponse(InquiryResponse::RedChannel { gain }) => {
                 assert_eq!(gain, i16::from(raw_value) as i8 - 10);
             }
             _ => panic!("Expected RedGain inquiry response"),
@@ -454,9 +454,9 @@ fn test_gain_value_conversions() {
     // Test BlueGain conversion
     for raw_value in 0..=20 {
         let response = vec![0x90, 0x50, raw_value, 0xFF];
-        let result = parse_response(&response, &ResponseType::BlueGain).unwrap();
+        let result = parse_response(&response, &ResponseType::BlueChannel).unwrap();
         match result {
-            Response::InquiryResponse(InquiryResponse::BlueGain { gain }) => {
+            Response::InquiryResponse(InquiryResponse::BlueChannel { gain }) => {
                 assert_eq!(gain, i16::from(raw_value) as i8 - 10);
             }
             _ => panic!("Expected BlueGain inquiry response"),
@@ -640,8 +640,8 @@ fn test_exhaustive_response_type_coverage() {
             vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF],
         ),
         (ResponseType::GainLimit, vec![0x90, 0x50, 0x00, 0xFF]),
-        (ResponseType::RedGain, vec![0x90, 0x50, 0x0A, 0xFF]), // 0 after conversion
-        (ResponseType::BlueGain, vec![0x90, 0x50, 0x0A, 0xFF]), // 0 after conversion
+        (ResponseType::RedChannel, vec![0x90, 0x50, 0x0A, 0xFF]), // 0 after conversion
+        (ResponseType::BlueChannel, vec![0x90, 0x50, 0x0A, 0xFF]), // 0 after conversion
         (
             ResponseType::Sharpness,
             vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF],

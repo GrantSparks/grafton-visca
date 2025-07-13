@@ -33,6 +33,7 @@ pub enum DynamicProfile {
 
 impl DynamicProfile {
     /// Get the model name of the camera.
+    #[must_use]
     pub fn model_name(&self) -> &'static str {
         match self {
             Self::PTZOpticsG2(_) => PTZOpticsG2::MODEL_NAME,
@@ -42,6 +43,7 @@ impl DynamicProfile {
     }
 
     /// Get the default VISCA address.
+    #[must_use]
     pub fn default_address(&self) -> u8 {
         match self {
             Self::PTZOpticsG2(_) => PTZOpticsG2::DEFAULT_ADDRESS,
@@ -51,6 +53,7 @@ impl DynamicProfile {
     }
 
     /// Get the protocol style.
+    #[must_use]
     pub fn protocol_style(&self) -> ProtocolStyle {
         match self {
             Self::PTZOpticsG2(_) => PTZOpticsG2::PROTOCOL_STYLE,
@@ -60,6 +63,7 @@ impl DynamicProfile {
     }
 
     /// Get the acknowledgment timeout.
+    #[must_use]
     pub fn ack_timeout(&self) -> Duration {
         match self {
             Self::PTZOpticsG2(_) => PTZOpticsG2::ACK_TIMEOUT,
@@ -69,6 +73,7 @@ impl DynamicProfile {
     }
 
     /// Get the completion timeout.
+    #[must_use]
     pub fn completion_timeout(&self) -> Duration {
         match self {
             Self::PTZOpticsG2(_) => PTZOpticsG2::COMPLETION_TIMEOUT,
@@ -78,6 +83,7 @@ impl DynamicProfile {
     }
 
     /// Get the busy timeout.
+    #[must_use]
     pub fn busy_timeout(&self) -> Duration {
         match self {
             Self::PTZOpticsG2(_) => PTZOpticsG2::BUSY_TIMEOUT,
@@ -87,6 +93,7 @@ impl DynamicProfile {
     }
 
     /// Check if the camera supports VISCA inquiry commands.
+    #[must_use]
     pub fn supports_inquiry(&self) -> bool {
         match self {
             Self::PTZOpticsG2(_) => PTZOpticsG2::SUPPORTS_INQUIRY,
@@ -96,6 +103,7 @@ impl DynamicProfile {
     }
 
     /// Get a capability summary for the camera.
+    #[must_use]
     pub fn capability_summary(&self) -> String {
         match self {
             Self::PTZOpticsG2(p) => p.capability_summary(),
@@ -124,6 +132,7 @@ pub enum ProfileId {
 
 impl ProfileId {
     /// Convert to a dynamic profile instance.
+    #[must_use]
     pub fn to_profile(self) -> DynamicProfile {
         match self {
             Self::PTZOpticsG2 => DynamicProfile::PTZOpticsG2(PTZOpticsG2),
@@ -233,8 +242,9 @@ where
 /// let transport = Tcp::connect("192.168.1.100:52381")?;
 /// let camera = Camera::new(transport);
 ///
-/// // Use the camera (blocking methods)
-/// camera.send_command_blocking(&some_command)?;
+/// // Use the camera through the blocking wrapper
+/// let blocking_camera = camera.blocking();
+/// // Or use send_command_blocking directly for internal use
 /// # Ok(())
 /// # }
 /// ```
@@ -242,6 +252,16 @@ pub struct Camera {
     profile: DynamicProfile,
     transport: Arc<dyn UnifiedTransport>,
     address: u8,
+}
+
+impl Clone for Camera {
+    fn clone(&self) -> Self {
+        Self {
+            profile: self.profile.clone(),
+            transport: Arc::clone(&self.transport),
+            address: self.address,
+        }
+    }
 }
 
 impl std::fmt::Debug for Camera {
@@ -335,11 +355,13 @@ impl Camera {
     }
 
     /// Get the camera's model name.
+    #[must_use]
     pub fn model_name(&self) -> &'static str {
         self.profile.model_name()
     }
 
     /// Get the camera's profile information.
+    #[must_use]
     pub fn profile_info(&self) -> String {
         self.profile.capability_summary()
     }
@@ -350,6 +372,7 @@ impl Camera {
     }
 
     /// Get the current VISCA address.
+    #[must_use]
     pub fn address(&self) -> u8 {
         self.address
     }
@@ -464,6 +487,7 @@ impl Camera {
     /// Check if the camera supports a specific capability.
     ///
     /// This provides runtime introspection of camera capabilities.
+    #[must_use]
     pub fn supports_capability(&self, capability: &str) -> bool {
         match capability {
             "pan_tilt" => match &self.profile {
@@ -518,6 +542,7 @@ impl Camera {
     // Profile-specific accessor methods
 
     /// Get the power on time for the camera.
+    #[must_use]
     pub fn power_on_time(&self) -> Duration {
         use crate::capabilities::Power;
         match &self.profile {
@@ -528,6 +553,7 @@ impl Camera {
     }
 
     /// Get the standby time for the camera.
+    #[must_use]
     pub fn standby_time(&self) -> Duration {
         use crate::capabilities::Power;
         match &self.profile {
@@ -538,6 +564,7 @@ impl Camera {
     }
 
     /// Get the maximum number of presets supported.
+    #[must_use]
     pub fn max_presets(&self) -> u8 {
         use crate::capabilities::Presets;
         match &self.profile {
@@ -548,6 +575,7 @@ impl Camera {
     }
 
     /// Get the zoom speed range.
+    #[must_use]
     pub fn zoom_speed_range(&self) -> std::ops::Range<u8> {
         use crate::capabilities::Zoom;
         match &self.profile {
@@ -558,6 +586,7 @@ impl Camera {
     }
 
     /// Get the optical zoom maximum value.
+    #[must_use]
     pub fn optical_zoom_max(&self) -> u16 {
         use crate::capabilities::Zoom;
         match &self.profile {
@@ -568,6 +597,7 @@ impl Camera {
     }
 
     /// Get the digital zoom maximum value.
+    #[must_use]
     pub fn digital_zoom_max(&self) -> Option<u16> {
         use crate::capabilities::Zoom;
         match &self.profile {
@@ -682,6 +712,7 @@ impl Camera {
     }
 
     /// Get the ND filter mode.
+    #[must_use]
     pub fn nd_filter_mode(&self) -> Option<crate::capabilities::NDFilterMode> {
         use crate::capabilities::NDFilter;
         match &self.profile {
@@ -698,14 +729,14 @@ impl Camera {
         // Check if camera supports ND filters
         match &self.profile {
             DynamicProfile::PTZOpticsG2(_) => Err(Error::FeatureNotSupported {
-                feature: "ND filter".to_string(),
+                feature: "ND filter",
             }),
             DynamicProfile::SonyFR7(p) => {
                 // Use the NDFilterExt trait method for validation
                 p.validate_nd_filter(level).map_err(Into::into)
             }
             DynamicProfile::GenericVisca(_) => Err(Error::FeatureNotSupported {
-                feature: "ND filter".to_string(),
+                feature: "ND filter",
             }),
         }
     }
@@ -729,6 +760,22 @@ impl Camera {
     /// ```
     pub fn blocking(self) -> crate::blocking::Camera {
         crate::blocking::Camera::new(self)
+    }
+
+    /// Get a blocking wrapper for this camera by reference.
+    ///
+    /// This provides a blocking API without consuming the camera instance,
+    /// allowing you to obtain both blocking and async views.
+    pub fn blocking_ref(&self) -> crate::blocking::Camera {
+        crate::blocking::Camera::new(self.clone())
+    }
+
+    /// Get an async wrapper for this camera by reference.
+    ///
+    /// This provides an async API without consuming the camera instance,
+    /// allowing you to obtain both blocking and async views.
+    pub fn async_ref(&self) -> crate::r#async::Camera {
+        crate::r#async::Camera::new(self.clone())
     }
 
     /// Get an async wrapper for this camera.

@@ -381,7 +381,7 @@ pub fn validate_pan_position(pos: i16, model: CameraModel) -> Result<i16, Error>
     let (min, max) = model.pan_range();
     if pos < min || pos > max {
         Err(Error::ParameterOutOfRange {
-            parameter: "pan".to_string(),
+            parameter: "pan",
             value: i32::from(pos),
             min: i32::from(min),
             max: i32::from(max),
@@ -400,7 +400,7 @@ pub fn validate_tilt_position(pos: i16, model: CameraModel) -> Result<i16, Error
     let (min, max) = model.tilt_range();
     if pos < min || pos > max {
         Err(Error::ParameterOutOfRange {
-            parameter: "tilt".to_string(),
+            parameter: "tilt",
             value: i32::from(pos),
             min: i32::from(min),
             max: i32::from(max),
@@ -419,7 +419,7 @@ pub fn validate_zoom_position(pos: u16, model: CameraModel) -> Result<u16, Error
     let (min, max) = model.zoom_range();
     if pos < min || pos > max {
         Err(Error::ParameterOutOfRange {
-            parameter: "zoom".to_string(),
+            parameter: "zoom",
             value: i32::from(pos),
             min: i32::from(min),
             max: i32::from(max),
@@ -437,7 +437,7 @@ pub fn validate_zoom_position(pos: u16, model: CameraModel) -> Result<u16, Error
 pub fn validate_pan_speed(speed: u8) -> Result<u8, Error> {
     if speed > speed::PAN_SPEED_MAX {
         Err(Error::ParameterOutOfRange {
-            parameter: "pan_speed".to_string(),
+            parameter: "pan_speed",
             value: i32::from(speed),
             min: 0,
             max: i32::from(speed::PAN_SPEED_MAX),
@@ -455,7 +455,7 @@ pub fn validate_pan_speed(speed: u8) -> Result<u8, Error> {
 pub fn validate_tilt_speed(speed: u8) -> Result<u8, Error> {
     if speed > speed::TILT_SPEED_MAX {
         Err(Error::ParameterOutOfRange {
-            parameter: "tilt_speed".to_string(),
+            parameter: "tilt_speed",
             value: i32::from(speed),
             min: 0,
             max: i32::from(speed::TILT_SPEED_MAX),
@@ -473,7 +473,7 @@ pub fn validate_tilt_speed(speed: u8) -> Result<u8, Error> {
 pub fn validate_preset_id(id: u8) -> Result<u8, Error> {
     if id > preset::PRESET_ID_MAX {
         Err(Error::ParameterOutOfRange {
-            parameter: "preset_id".to_string(),
+            parameter: "preset_id",
             value: i32::from(id),
             min: i32::from(preset::PRESET_ID_MIN),
             max: i32::from(preset::PRESET_ID_MAX),

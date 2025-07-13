@@ -77,6 +77,10 @@ jobs:
       - name: Test async feature only
         run: cargo test --no-default-features --features async --verbose
       
+      # Test blocking mode (no features)
+      - name: Test blocking mode
+        run: cargo test --no-default-features --verbose --tests
+      
       # Build examples (only on stable)
       - name: Build examples with default features
         if: matrix.rust == 'stable'

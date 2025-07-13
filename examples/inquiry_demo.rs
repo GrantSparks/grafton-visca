@@ -7,9 +7,9 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{InquiryOps, PanTiltInquiryOps},
+    blocking::{Camera, InquiryOps, PanTiltInquiryOps},
     transport::blocking::Tcp,
-    Camera, Error,
+    Error,
 };
 #[cfg(not(feature = "async"))]
 use std::env;
@@ -31,7 +31,7 @@ fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(camera_addr)?;
-    let camera = Camera::new(transport).blocking();
+    let camera = grafton_visca::Camera::new(transport).blocking();
 
     // Run inquiries using blocking methods
     run_inquiries(&mut camera)?;
@@ -40,7 +40,7 @@ fn main() -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "async"))]
-fn run_inquiries(camera: &mut Camera) -> Result<(), Error> {
+fn run_inquiries(camera: &mut grafton_visca::blocking::Camera) -> Result<(), Error> {
     println!(
         "
 === VISCA Inquiry Command Demo ==="
@@ -53,7 +53,7 @@ fn run_inquiries(camera: &mut Camera) -> Result<(), Error> {
 
     // Example 1: Query power state
     println!("1. Querying power state...");
-    let power_on = camera.get_$1()?;
+    let power_on = camera.get_power_state()?;
     println!("   Power is: {}", if power_on { "ON" } else { "OFF" });
 
     if !power_on {

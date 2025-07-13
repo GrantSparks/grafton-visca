@@ -25,7 +25,7 @@ fn runtime_capability_check() {
     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
 
     // This compiles but would return an error if PTZOpticsG2 doesn't support ND filter
-    match camera.set_nd_filter_blocking(2) {
+    match camera.set_nd_filter(2) {
         Ok(_) => println!("ND filter set"),
         Err(e) => println!("ND filter not supported: {}", e),
     }

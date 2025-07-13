@@ -428,10 +428,11 @@ impl TryFrom<u8> for G2Gain {
             6 => Ok(G2Gain::Gain18dB),
             7 => Ok(G2Gain::Gain21dB),
             8 => Ok(G2Gain::Gain24dB),
-            _ => Err(Error::InvalidParameter(format!(
-                "Invalid G2 gain value: {}",
-                value
-            ))),
+            _ => Err(Error::InvalidParameter {
+                parameter: "gain",
+                value: value.to_string(),
+                reason: "Invalid G2 gain value".to_string(),
+            }),
         }
     }
 }

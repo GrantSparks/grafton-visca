@@ -113,6 +113,7 @@ impl<const N: usize> CommandBuilder<N> {
     }
 
     /// Get slice of valid bytes (for dynamic sizing).
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         let end = if self.position < N {
             self.position + 1

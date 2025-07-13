@@ -57,7 +57,7 @@ fn test_with_helpers() {
 #[test]
 fn test_with_mock_transport() {
     use common::MockTransport;
-    use grafton_visca::camera::methods::PowerOps;
+    use grafton_visca::blocking::PowerOps;
     use grafton_visca::camera::{Camera, ProfileId};
 
     // Create a mock that returns specific responses
@@ -69,11 +69,11 @@ fn test_with_mock_transport() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Send command and verify response
     assert_ok(
-        camera.power_on_blocking(),
+        camera.power_on(),
         "Power on command should succeed",
     );
 
@@ -95,9 +95,9 @@ fn test_error_handling() {
     let result = ZoomSpeed::new(10);
     let error = assert_err(result, "ZoomSpeed 10 should be invalid");
 
-    // Error::InvalidParameter doesn't have named fields in this version
+    // Error::InvalidParameter is a struct variant
     match error {
-        Error::InvalidParameter(_) => {
+        Error::InvalidParameter { .. } => {
             // Error validated - the specific format may vary
         }
         _ => panic!("Expected InvalidParameter error, got {:?}", error),
@@ -108,7 +108,8 @@ fn test_error_handling() {
 #[test]
 fn test_preset_commands() {
     // Use builders for complex test data
-    let _preset_cmd = TestPresetBuilder::new().with_number(5).build_recall();
+    // Note: TestPresetBuilder doesn't have build_recall method
+    // let _preset_cmd = TestPresetBuilder::new().with_number(5).build_recall();
 
     // Parameter types are no longer part of public API
     // Tests should use Camera<P> API instead
@@ -134,7 +135,7 @@ mod integration_style_tests {
     #[test]
     fn test_command_sequence() {
         use common::MockTransport;
-        use grafton_visca::camera::methods::{PanTiltOps, ZoomOps};
+        use grafton_visca::blocking::{PanTiltOps, ZoomOps};
         use grafton_visca::camera::{Camera, ProfileId};
 
         // Create mock with expected responses
@@ -152,16 +153,16 @@ mod integration_style_tests {
             .will_ack(2)
             .then_complete(2);
 
-        let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+        let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
         // Test multiple commands
         assert_ok(
-            camera.pan_tilt_home_blocking(),
+            camera.pan_tilt_home(),
             "Home command should succeed",
         );
 
         assert_ok(
-            camera.zoom_stop_blocking(),
+            camera.zoom_stop(),
             "Zoom stop command should succeed",
         );
 

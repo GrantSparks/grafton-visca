@@ -87,7 +87,7 @@ impl NDFilterOps for Camera {
         let command = match self.nd_filter_mode() {
             None | Some(crate::capabilities::NDFilterMode::None) => {
                 return Err(Error::FeatureNotSupported {
-                    feature: "ND filter".to_string(),
+                    feature: "ND filter",
                 })
             }
             Some(crate::capabilities::NDFilterMode::Fixed(value)) => {
@@ -120,7 +120,7 @@ impl NDFilterOpsBlocking for Camera {
         let command = match self.nd_filter_mode() {
             None | Some(crate::capabilities::NDFilterMode::None) => {
                 return Err(Error::FeatureNotSupported {
-                    feature: "ND filter".to_string(),
+                    feature: "ND filter",
                 })
             }
             Some(crate::capabilities::NDFilterMode::Fixed(value)) => {

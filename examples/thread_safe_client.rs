@@ -10,11 +10,11 @@
 use grafton_visca::transport::blocking::Udp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{PanTiltOps, PowerOps, ZoomOps},
+    blocking::{Camera, PanTiltOps, PowerOps, ZoomOps},
     command::pan_tilt::PanTiltDirection,
     profiles::PTZOpticsG2,
     types::{PanSpeed, TiltSpeed},
-    Camera, Error,
+    Error,
 };
 #[cfg(not(feature = "async"))]
 use std::sync::{Arc, Mutex};
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create UDP transport and Camera with PTZOpticsG2 profile
     let transport = Udp::connect(camera_addr)?;
-    let camera = Camera::new(transport);
+    let camera = grafton_visca::Camera::new(transport).blocking();
 
     // Wrap the camera in Arc<Mutex> for thread-safe access
     let camera = Arc::new(Mutex::new(camera));
@@ -161,6 +161,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate `Camera<P>` specific features
     println!("\nCamera profile information:");
+    // Note: MODEL_NAME is not directly accessible, use ProfileMetadata trait
+    use grafton_visca::capabilities::ProfileMetadata;
     println!("Model: {}", PTZOpticsG2::MODEL_NAME);
     println!("Pan range: -170 to +170 degrees");
     println!("Tilt range: -30 to +90 degrees");

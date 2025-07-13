@@ -4,14 +4,16 @@ mod common;
 
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
-    camera::{methods::PanTiltOps, Camera, ProfileId},
+    blocking::PanTiltOps,
+    camera::{Camera, ProfileId},
     command::{
         encode_visca::EncodeVisca,
         pan_tilt::{PanTilt, PanTiltDirection},
         ResponseType,
     },
     timeout::CommandCategory,
-    types::{Degrees, PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
+    types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
+    units::Degrees,
     Error,
 };
 
@@ -255,13 +257,13 @@ fn test_pan_tilt_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Test commands
-    assert!(camera.pan_tilt_home_blocking().is_ok());
-    assert!(camera.pan_tilt_stop_blocking().is_ok());
+    assert!(camera.pan_tilt_home().is_ok());
+    assert!(camera.pan_tilt_stop().is_ok());
     assert!(camera
-        .pan_tilt_move_blocking(
+        .pan_tilt_move(
             PanTiltDirection::Up,
             PanSpeed::new(0x18).unwrap(),
             TiltSpeed::new(0x18).unwrap()
@@ -289,14 +291,14 @@ fn test_pan_tilt_absolute_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Move to center position
     assert!(camera
-        .pan_tilt_absolute_blocking(
+        .pan_tilt_absolute(
             Degrees::new(0.0),
             Degrees::new(0.0),
-            SpeedLevel::new(0x10).unwrap()
+            SpeedLevel::from(0x10)
         )
         .is_ok());
 
@@ -315,7 +317,7 @@ fn test_pan_tilt_with_inquiry_response() {
             0x05, 0x06, 0x07, 0x08, // Tilt position 0x5678
         ]);
 
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone());
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly

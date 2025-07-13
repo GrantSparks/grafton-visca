@@ -16,15 +16,13 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{
-        methods::{FocusOps, PanTiltOps, PowerOps, PresetsOps},
-        profiles::G2PresetId,
-    },
-    command::pan_tilt::PanTiltDirection,
+    blocking::{Camera, FocusOps, PanTiltOps, PowerOps, PresetsOps},
+    camera::profiles::G2PresetId,
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     profiles::PTZOpticsG2,
     transport::blocking::Tcp,
     types::{PanSpeed, TiltSpeed},
-    Camera, Error,
+    Error,
 };
 #[cfg(not(feature = "async"))]
 use std::time::{Duration, Instant};
@@ -55,7 +53,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Tcp::connect(camera_addr)?;
-    let mut camera = Camera::new(transport);
+    let mut camera = grafton_visca::Camera::new(transport).blocking();
 
     println!("Note: The Camera API doesn't have built-in timeout support.");
     println!("These examples show execution timing patterns.\n");
@@ -67,7 +65,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     // Note: Direct power inquiry method not available in Camera API
     // Power on command (will succeed if already on)
     let start = Instant::now();
-    match camera.power_on() {
+    match (|| camera.power_on())() {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Power on command completed in {:?}", elapsed);
@@ -89,11 +87,11 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     println!("   These commands may take longer to acknowledge\n");
 
     let start = Instant::now();
-    match camera.pan_tilt_move(
+    match (|| camera.pan_tilt_move(
         PanTiltDirection::Left,
         PanSpeed::try_from(15)?,
         TiltSpeed::try_from(0)?,
-    ) {
+    ))() {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Start movement completed in {:?}", elapsed);
@@ -103,7 +101,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
             // Stop movement
             let stop_start = Instant::now();
-            match camera.pan_tilt_stop() {
+            match (|| camera.pan_tilt_stop())() {
                 Ok(_) => {
                     let stop_elapsed = stop_start.elapsed();
                     println!("   ✓ Stop movement completed in {:?}", stop_elapsed);
@@ -122,7 +120,9 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
 
     // Save preset
     let start = Instant::now();
-    match camera.preset_set(preset_id.into()) {
+    // Note: PresetNumber doesn't have From<G2PresetId> implementation
+    // Using PresetNumber directly
+    match (|| camera.preset_set(PresetNumber::new(1)?))() {
         Ok(_) => {
             let elapsed = start.elapsed();
             println!("   ✓ Save preset completed in {:?}", elapsed);
