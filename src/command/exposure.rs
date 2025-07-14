@@ -33,7 +33,7 @@ pub enum ExposureMode {
 }
 
 impl TryFrom<u8> for ExposureMode {
-    type Error = crate::Error;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -42,7 +42,7 @@ impl TryFrom<u8> for ExposureMode {
             0x0A => Ok(ExposureMode::Shutter),
             0x0B => Ok(ExposureMode::Iris),
             0x0D => Ok(ExposureMode::Bright),
-            _ => Err(crate::Error::InvalidResponse {
+            _ => Err(Error::InvalidResponse {
                 expected: "0x00 (Auto), 0x03 (Manual), 0x0A (Shutter), 0x0B (Iris), or 0x0D (Bright)".to_string(),
                 actual: vec![value],
             }),
@@ -50,45 +50,17 @@ impl TryFrom<u8> for ExposureMode {
     }
 }
 
-/// Command to set the camera's exposure mode.
-///
-/// This command allows switching between different exposure modes such as
-/// auto, manual, shutter priority, iris priority, or brightness priority.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct ExposureCommand {
-    /// The exposure mode to set.
-    pub mode: ExposureMode,
-}
-
-impl EncodeVisca for ExposureCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x39;
-        buffer[4] = self.mode as u8;
-        buffer[5] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
+crate::visca_param_command! {
+    /// Command to set the camera's exposure mode.
+    ///
+    /// This command allows switching between different exposure modes such as
+    /// auto, manual, shutter priority, iris priority, or brightness priority.
+    pub(crate) struct ExposureCommand {
+        mode: ExposureMode,
     }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
+    prefix = [0x81, 0x01, 0x04, 0x39];
+    param_byte = *mode as u8;
+    timeout = Quick;
 }
 
 /// Exposure compensation level.
@@ -587,7 +559,7 @@ visca_command! {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::constants::CameraModel;
+    use crate::{constants::CameraModel, EncodeVisca};
 
     #[test]
     fn test_exposure_mode_command() {

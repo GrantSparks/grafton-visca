@@ -5,9 +5,8 @@
 
 // Crate imports
 use crate::{
-    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
+    command::const_encoding::CommandBuilder,
     error::Error,
-    timeout::CommandCategory,
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
     visca_bool_command, visca_command,
 };
@@ -105,53 +104,25 @@ pub enum ImageFlipMode {
     Both,
 }
 
-/// Command to set the combined image flip mode.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct ImageFlipCombinedCommand {
-    /// Internal command bytes.
-    command: [u8; 6],
+crate::visca_param_command! {
+    /// Command to set the combined image flip mode.
+    pub(crate) struct ImageFlipCombinedCommand {
+        mode: ImageFlipMode,
+    }
+    prefix = [0x81, 0x01, 0x04, 0x61];
+    param_byte = match mode {
+        ImageFlipMode::Off => 0x00,
+        ImageFlipMode::Horizontal => 0x01,
+        ImageFlipMode::Vertical => 0x02,
+        ImageFlipMode::Both => 0x03,
+    };
+    timeout = Custom;
 }
 
 impl ImageFlipCombinedCommand {
     /// Create a new image flip combined command.
     pub fn new(mode: ImageFlipMode) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::image::FLIP_COMBINED_PREFIX);
-        let mode_byte = match mode {
-            ImageFlipMode::Off => 0x00,
-            ImageFlipMode::Horizontal => 0x01,
-            ImageFlipMode::Vertical => 0x02,
-            ImageFlipMode::Both => 0x03,
-        };
-        cmd.push(mode_byte);
-        Self {
-            command: cmd.build(),
-        }
-    }
-}
-
-impl EncodeVisca for ImageFlipCombinedCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Custom
+        Self { mode }
     }
 }
 
@@ -164,6 +135,7 @@ impl EncodeVisca for ImageFlipCombinedCommand {
 )]
 mod tests {
     use super::*;
+    use crate::{timeout::CommandCategory, EncodeVisca};
 
     #[test]
     fn test_backlight_command() {
