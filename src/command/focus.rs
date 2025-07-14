@@ -18,6 +18,15 @@ use crate::{
     visca_command,
 };
 
+/// Focus mode setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusMode {
+    /// Automatic focus mode.
+    Auto,
+    /// Manual focus mode.
+    Manual,
+}
+
 crate::visca_bounded_param! {
     /// Variable focus speed.
     ///

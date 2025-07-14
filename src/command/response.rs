@@ -12,7 +12,7 @@
 use crate::{
     command::{
         gain::AntiFlickerMode, image_adjustment::SharpnessMode, AutoFocusSensitivity, ExposureMode,
-        FocusZone, InquiryResponse, WhiteBalanceMode,
+        FocusMode, FocusZone, InquiryResponse, WhiteBalanceMode,
     },
     error::Error,
 };
@@ -625,6 +625,137 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             Ok(Response::InquiryResponse(InquiryResponse::TallyGreen {
                 on: payload[0] == 0x02,
+            }))
+        }
+        ResponseType::Bright => {
+            if payload.len() != 4 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let position = combine_nibbles_u16(&payload[0..4]);
+            Ok(Response::InquiryResponse(InquiryResponse::Bright {
+                position,
+            }))
+        }
+        ResponseType::Gain => {
+            if payload.len() != 4 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Extract the gain value from the last nibble
+            let gain = payload[3];
+            Ok(Response::InquiryResponse(InquiryResponse::GainLevel {
+                gain,
+            }))
+        }
+        ResponseType::Iris => {
+            if payload.len() != 4 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Extract the iris position from the last nibble
+            let position = payload[3];
+            Ok(Response::InquiryResponse(InquiryResponse::Iris {
+                position,
+            }))
+        }
+        ResponseType::Saturation => {
+            if payload.len() != 4 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Extract the saturation level from the last nibble
+            let level = payload[3];
+            Ok(Response::InquiryResponse(InquiryResponse::Saturation {
+                level,
+            }))
+        }
+        ResponseType::ColorTemperature => {
+            if payload.len() != 4 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Extract the color temperature from nibbles 2 and 3
+            let temperature = ((payload[2] as u16) << 4) | (payload[3] as u16);
+            Ok(Response::InquiryResponse(InquiryResponse::ColorTemperature {
+                temperature,
+            }))
+        }
+        ResponseType::Hue => {
+            if payload.len() != 4 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Extract the hue value from the last nibble
+            let hue = payload[3];
+            Ok(Response::InquiryResponse(InquiryResponse::Hue {
+                hue,
+            }))
+        }
+        ResponseType::Version => {
+            // Version response format: VV VV MM MM FF FF KK
+            // VV VV = Vendor ID (2 bytes)
+            // MM MM = Model ID (2 bytes)
+            // FF FF = ROM version (2 bytes)
+            // KK = Max socket number (1 byte)
+            if payload.len() != 7 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let vendor = ((payload[0] as u16) << 8) | (payload[1] as u16);
+            let model = ((payload[2] as u16) << 8) | (payload[3] as u16);
+            let rom_version = ((payload[4] as u32) << 8) | (payload[5] as u32);
+            let max_socket = payload[6];
+            Ok(Response::InquiryResponse(InquiryResponse::Version {
+                vendor,
+                model,
+                rom_version,
+                max_socket,
+            }))
+        }
+        ResponseType::FocusMode => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let mode = match payload[0] {
+                0x02 => FocusMode::Auto,
+                0x03 => FocusMode::Manual,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "focus_mode",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Unknown focus mode value".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::FocusMode {
+                mode,
+            }))
+        }
+        ResponseType::DynamicRange => {
+            // Dynamic range level response
+            // Based on common VISCA patterns, expecting single byte level value
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let level = payload[0];
+            Ok(Response::InquiryResponse(InquiryResponse::DynamicRange {
+                level,
+            }))
+        }
+        ResponseType::NoiseReduction2D => {
+            // 2D noise reduction level response
+            // Based on common VISCA patterns, expecting single byte level value
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let level = payload[0];
+            Ok(Response::InquiryResponse(InquiryResponse::NoiseReduction2D {
+                level,
+            }))
+        }
+        ResponseType::NoiseReduction3D => {
+            // 3D noise reduction level response
+            // Based on common VISCA patterns, expecting single byte level value
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let level = payload[0];
+            Ok(Response::InquiryResponse(InquiryResponse::NoiseReduction3D {
+                level,
             }))
         }
         // For unimplemented response types, return Unknown variant
