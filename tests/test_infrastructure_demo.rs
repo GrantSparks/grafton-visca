@@ -93,12 +93,12 @@ fn test_error_handling() {
     let result = PanSpeed::new(30);
     let error = assert_err(result, "PanSpeed 30 should be invalid");
 
-    // Error::InvalidParameter is a struct variant
+    // Error::ParameterOutOfRange is a struct variant
     match error {
-        Error::InvalidParameter { .. } => {
+        Error::ParameterOutOfRange { .. } => {
             // Error validated - the specific format may vary
         }
-        _ => panic!("Expected InvalidParameter error, got {:?}", error),
+        _ => panic!("Expected ParameterOutOfRange error, got {:?}", error),
     }
 }
 

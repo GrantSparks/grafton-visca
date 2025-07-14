@@ -186,8 +186,8 @@ impl EncodeVisca for Zoom {
 
     fn response_type(&self) -> Option<ResponseType> {
         match self {
-            Self::TeleStd => Some(ResponseType::ZoomIn),
-            Self::WideStd => Some(ResponseType::ZoomOut),
+            Self::TeleStd | Self::TeleVariable(_) => Some(ResponseType::ZoomIn),
+            Self::WideStd | Self::WideVariable(_) => Some(ResponseType::ZoomOut),
             _ => None,
         }
     }
