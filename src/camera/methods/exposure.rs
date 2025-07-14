@@ -1,6 +1,6 @@
 //! Exposure methods for cameras using the new GAT architecture.
 
-use crate::{camera::unified::Camera, Error};
+use crate::{camera::Camera, Error};
 
 /// Exposure operations (async).
 pub trait ExposureOps: Sized {

@@ -1,7 +1,7 @@
 //! Zoom methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::unified::Camera,
+    camera::Camera,
     capabilities::ValidationError,
     command::{
         zoom::{Zoom as ZoomCommand, ZoomSpeed},

@@ -3,7 +3,7 @@
 //! These methods ONLY exist for cameras that implement NDFilter.
 
 use crate::{
-    camera::unified::Camera,
+    camera::Camera,
     command::{
         const_encoding::{
             encode_nd_filter_fixed, encode_nd_filter_stepped, encode_nd_filter_variable,

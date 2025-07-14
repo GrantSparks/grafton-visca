@@ -1,7 +1,7 @@
 //! Pan/Tilt methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::unified::Camera,
+    camera::Camera,
     command::pan_tilt::{PanTilt, PanTiltDirection},
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
     units::Degrees,

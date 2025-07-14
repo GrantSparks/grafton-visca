@@ -1,7 +1,7 @@
 //! Focus methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::unified::Camera,
+    camera::Camera,
     command::focus::{Focus as FocusCommand, FocusSpeed},
     types::{FocusPosition, SpeedLevel},
     Error,
