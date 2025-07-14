@@ -394,11 +394,79 @@ macro_rules! visca_builder {
                 // Extract fields and call the builder closure
                 {
                     $(let $param = &self.$field;)+
-                    $($stmt);+
+                    $($stmt)*
                 }
 
                 let bytes = $builder.build();
                 buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
+                Ok(Self::MAX_SIZE)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
+                None
+            }
+
+            fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
+                $crate::timeout::CommandCategory::$category
+            }
+        }
+    };
+}
+
+/// Create a single-byte parameter command.
+///
+/// This macro generates commands that take a single parameter (typically an enum)
+/// and encode it as a single byte in the command sequence.
+///
+/// # Example
+/// ```ignore
+/// visca_param_command! {
+///     /// Set camera exposure mode
+///     pub(crate) struct ExposureCommand {
+///         mode: ExposureMode,
+///     }
+///     prefix = [0x81, 0x01, 0x04, 0x39];
+///     param_byte = mode as u8;
+///     timeout = Quick;
+/// }
+/// ```
+#[macro_export]
+macro_rules! visca_param_command {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $field:ident: $ftype:ty,
+        }
+        prefix = [$($prefix:expr),+ $(,)?];
+        param_byte = $param_expr:expr;
+        timeout = $category:ident;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        $vis struct $name {
+            /// The parameter value.
+            pub $field: $ftype,
+        }
+
+        impl $crate::command::encode_visca::EncodeVisca for $name {
+            type Response = ();
+            const MAX_SIZE: usize = [$($prefix),+].len() + 2; // prefix + param + 0xFF
+
+            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err($crate::Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len(),
+                    });
+                }
+
+                let prefix = [$($prefix),+];
+                buffer[..prefix.len()].copy_from_slice(&prefix);
+                
+                let $field = &self.$field;
+                buffer[prefix.len()] = $param_expr;
+                buffer[prefix.len() + 1] = 0xFF;
+
                 Ok(Self::MAX_SIZE)
             }
 

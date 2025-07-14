@@ -35,43 +35,18 @@ pub enum WhiteBalanceMode {
     ColorTemperature = 0x20,
 }
 
-/// Command to set the white balance mode.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct WhiteBalanceCommand {
-    /// The white balance mode to set.
-    pub mode: WhiteBalanceMode,
+crate::visca_param_command! {
+    /// Command to set the white balance mode.
+    pub(crate) struct WhiteBalanceCommand {
+        mode: WhiteBalanceMode,
+    }
+    prefix = [0x81, 0x01, 0x04, 0x35];
+    param_byte = *mode as u8;
+    timeout = Quick;
 }
 
-impl EncodeVisca for WhiteBalanceCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x35;
-        buffer[4] = self.mode as u8;
-        buffer[5] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
-
+impl WhiteBalanceCommand {
+    #[allow(dead_code)]
     fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
         use crate::constants::CameraModel;
 
@@ -162,7 +137,7 @@ impl EncodeVisca for AWBSensitivityCommand {
 }
 
 impl TryFrom<u8> for WhiteBalanceMode {
-    type Error = crate::Error;
+    type Error = Error;
 
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
@@ -173,7 +148,7 @@ impl TryFrom<u8> for WhiteBalanceMode {
             0x04 => Ok(Self::ATW),
             0x05 => Ok(Self::Manual),
             0x20 => Ok(Self::ColorTemperature),
-            _ => Err(crate::Error::InvalidResponse {
+            _ => Err(Error::InvalidResponse {
                 expected: "0x00 (Auto), 0x01 (Indoor), 0x02 (Outdoor), 0x03 (OnePush), 0x04 (ATW), 0x05 (Manual), or 0x20 (ColorTemperature)".to_string(),
                 actual: vec![v],
             }),
@@ -185,6 +160,7 @@ impl TryFrom<u8> for WhiteBalanceMode {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::{EncodeVisca, visca_test};
 
     #[test]
     fn test_white_balance_mode_values() {
@@ -197,89 +173,19 @@ mod tests {
         assert_eq!(WhiteBalanceMode::ColorTemperature as u8, 0x20);
     }
 
-    #[test]
-    fn test_white_balance_command_auto() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Auto,
-        };
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x35, 0x00, 0xFF]
-        );
-    }
+    visca_test!(WhiteBalanceCommand, test_white_balance_command_auto, WhiteBalanceCommand { mode: WhiteBalanceMode::Auto }, &[0x81, 0x01, 0x04, 0x35, 0x00, 0xFF]);
 
-    #[test]
-    fn test_white_balance_command_indoor() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Indoor,
-        };
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x35, 0x01, 0xFF]
-        );
-    }
+    visca_test!(WhiteBalanceCommand, test_white_balance_command_indoor, WhiteBalanceCommand { mode: WhiteBalanceMode::Indoor }, &[0x81, 0x01, 0x04, 0x35, 0x01, 0xFF]);
 
-    #[test]
-    fn test_white_balance_command_outdoor() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Outdoor,
-        };
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x35, 0x02, 0xFF]
-        );
-    }
+    visca_test!(WhiteBalanceCommand, test_white_balance_command_outdoor, WhiteBalanceCommand { mode: WhiteBalanceMode::Outdoor }, &[0x81, 0x01, 0x04, 0x35, 0x02, 0xFF]);
 
-    #[test]
-    fn test_white_balance_command_one_push() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::OnePush,
-        };
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x35, 0x03, 0xFF]
-        );
-    }
+    visca_test!(WhiteBalanceCommand, test_white_balance_command_one_push, WhiteBalanceCommand { mode: WhiteBalanceMode::OnePush }, &[0x81, 0x01, 0x04, 0x35, 0x03, 0xFF]);
 
-    #[test]
-    fn test_white_balance_command_atw() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::ATW,
-        };
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x35, 0x04, 0xFF]
-        );
-    }
+    visca_test!(WhiteBalanceCommand, test_white_balance_command_atw, WhiteBalanceCommand { mode: WhiteBalanceMode::ATW }, &[0x81, 0x01, 0x04, 0x35, 0x04, 0xFF]);
 
-    #[test]
-    fn test_white_balance_command_manual() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Manual,
-        };
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x35, 0x05, 0xFF]
-        );
-    }
+    visca_test!(WhiteBalanceCommand, test_white_balance_command_manual, WhiteBalanceCommand { mode: WhiteBalanceMode::Manual }, &[0x81, 0x01, 0x04, 0x35, 0x05, 0xFF]);
 
-    #[test]
-    fn test_white_balance_command_color_temperature() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::ColorTemperature,
-        };
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x35, 0x20, 0xFF]
-        );
-    }
+    visca_test!(WhiteBalanceCommand, test_white_balance_command_color_temperature, WhiteBalanceCommand { mode: WhiteBalanceMode::ColorTemperature }, &[0x81, 0x01, 0x04, 0x35, 0x20, 0xFF]);
 
     #[test]
     fn test_white_balance_mode_try_from() {

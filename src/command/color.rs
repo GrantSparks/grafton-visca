@@ -178,99 +178,51 @@ impl EncodeVisca for BlueTuningCommand {
     }
 }
 
-/// Saturation control command.
-///
-/// Adjusts the color saturation level of the image.
-/// Lower values produce more muted colors, while higher values
-/// produce more vivid colors.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct SaturationCommand {
-    /// Internal command bytes.
-    command: [u8; 9],
+crate::visca_builder! {
+    /// Saturation control command.
+    ///
+    /// Adjusts the color saturation level of the image.
+    /// Lower values produce more muted colors, while higher values
+    /// produce more vivid colors.
+    pub(crate) struct SaturationCommand {
+        /// The saturation level to set.
+        level: SaturationLevel,
+    }
+    builder<9> => |builder, level| {
+        let _ = builder.append(crate::command::const_encoding::constants::color::SATURATION_PREFIX);
+        let _ = builder.push(level.value());
+    }
+    timeout = Quick;
 }
 
 impl SaturationCommand {
     /// Create a new saturation command.
     pub fn new(level: SaturationLevel) -> Self {
-        let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(crate::command::const_encoding::constants::color::SATURATION_PREFIX);
-        cmd.push(level.value());
-        Self {
-            command: cmd.build(),
-        }
+        Self { level }
     }
 }
 
-impl EncodeVisca for SaturationCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 9;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
+crate::visca_builder! {
+    /// Hue adjustment command.
+    ///
+    /// Adjusts the hue (color phase) of the image, shifting all colors
+    /// around the color wheel. This can be used to correct color casts
+    /// or create artistic effects.
+    pub(crate) struct HueCommand {
+        /// The hue level to set.
+        level: HueLevel,
     }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
+    builder<9> => |builder, level| {
+        let _ = builder.append(crate::command::const_encoding::constants::color::HUE_PREFIX);
+        let _ = builder.push(level.value());
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
-}
-
-/// Hue adjustment command.
-///
-/// Adjusts the hue (color phase) of the image, shifting all colors
-/// around the color wheel. This can be used to correct color casts
-/// or create artistic effects.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct HueCommand {
-    /// Internal command bytes.
-    command: [u8; 9],
+    timeout = Quick;
 }
 
 impl HueCommand {
     /// Create a new hue command.
     pub fn new(level: HueLevel) -> Self {
-        let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(crate::command::const_encoding::constants::color::HUE_PREFIX);
-        cmd.push(level.value());
-        Self {
-            command: cmd.build(),
-        }
-    }
-}
-
-impl EncodeVisca for HueCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 9;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+        Self { level }
     }
 }
 
@@ -530,18 +482,9 @@ impl EncodeVisca for BlueGain {
 )]
 mod tests {
     use super::*;
-    use crate::constants::CameraModel;
+    use crate::{constants::CameraModel, EncodeVisca, visca_test};
 
-    #[test]
-    fn test_one_push_trigger_command() {
-        let cmd = OnePushTriggerCommand::new();
-        assert_eq!(
-            cmd.try_into_vec().unwrap(),
-            vec![0x81, 0x01, 0x04, 0x10, 0x05, 0xFF]
-        );
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-    }
+    visca_test!(OnePushTriggerCommand, test_one_push_trigger_command, OnePushTriggerCommand::new(), &[0x81, 0x01, 0x04, 0x10, 0x05, 0xFF]);
 
     #[test]
     fn test_red_tuning_command() {

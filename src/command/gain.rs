@@ -98,47 +98,23 @@ impl EncodeVisca for Gain {
     }
 }
 
-/// Command to set the automatic gain control limit.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct GainLimitCommand {
-    /// Internal command bytes.
-    command: [u8; 6],
+crate::visca_builder! {
+    /// Command to set the automatic gain control limit.
+    pub(crate) struct GainLimitCommand {
+        /// The gain limit to set.
+        limit: GainLimit,
+    }
+    builder<6> => |builder, limit| {
+        let _ = builder.append(crate::command::const_encoding::constants::gain::GAIN_LIMIT_PREFIX);
+        let _ = builder.push(limit.value());
+    }
+    timeout = Quick;
 }
 
 impl GainLimitCommand {
     /// Create a new gain limit command.
     pub fn new(limit: GainLimit) -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::gain::GAIN_LIMIT_PREFIX);
-        cmd.push(limit.value());
-        Self {
-            command: cmd.build(),
-        }
-    }
-}
-
-impl EncodeVisca for GainLimitCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+        Self { limit }
     }
 }
 
@@ -157,14 +133,14 @@ pub enum AntiFlickerMode {
 }
 
 impl TryFrom<u8> for AntiFlickerMode {
-    type Error = crate::Error;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0x00 => Ok(AntiFlickerMode::Off),
             0x01 => Ok(AntiFlickerMode::Hz50),
             0x02 => Ok(AntiFlickerMode::Hz60),
-            _ => Err(crate::Error::InvalidResponse {
+            _ => Err(Error::InvalidResponse {
                 expected: "0x00 (Off), 0x01 (50Hz), or 0x02 (60Hz)".to_string(),
                 actual: vec![value],
             }),
@@ -218,37 +194,13 @@ impl AntiFlickerCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::constants::CameraModel;
+    use crate::{constants::CameraModel, EncodeVisca, visca_test};
 
-    #[test]
-    fn test_gain_command_reset() {
-        let cmd = Gain::Reset;
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF]
-        );
-    }
+    visca_test!(Gain, test_gain_command_reset, Gain::Reset, &[0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF]);
 
-    #[test]
-    fn test_gain_command_up() {
-        let cmd = Gain::Up;
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF]
-        );
-    }
+    visca_test!(Gain, test_gain_command_up, Gain::Up, &[0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF]);
 
-    #[test]
-    fn test_gain_command_down() {
-        let cmd = Gain::Down;
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF]
-        );
-    }
+    visca_test!(Gain, test_gain_command_down, Gain::Down, &[0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF]);
 
     #[test]
     fn test_gain_command_set_value() {

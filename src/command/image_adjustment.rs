@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
+    command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
@@ -21,13 +21,13 @@ pub enum SharpnessMode {
 }
 
 impl TryFrom<u8> for SharpnessMode {
-    type Error = crate::Error;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0x02 => Ok(SharpnessMode::Auto),
             0x03 => Ok(SharpnessMode::Manual),
-            _ => Err(crate::Error::InvalidResponse {
+            _ => Err(Error::InvalidResponse {
                 expected: "0x02 (Auto) or 0x03 (Manual)".to_string(),
                 actual: vec![value],
             }),
@@ -150,11 +150,17 @@ impl EncodeVisca for Sharpness {
     }
 }
 
-/// Command to set the luminance (brightness) level.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct LuminanceCommand {
-    /// The luminance level to set.
-    value: LuminanceLevel,
+crate::visca_builder! {
+    /// Command to set the luminance (brightness) level.
+    pub(crate) struct LuminanceCommand {
+        /// The luminance level to set.
+        value: LuminanceLevel,
+    }
+    builder<9> => |builder, value| {
+        let _ = builder.append(crate::command::const_encoding::constants::image::LUMINANCE_PREFIX);
+        let _ = builder.push(value.value());
+    }
+    timeout = Quick;
 }
 
 impl LuminanceCommand {
@@ -164,41 +170,17 @@ impl LuminanceCommand {
     }
 }
 
-impl EncodeVisca for LuminanceCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 9;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        let mut builder = CommandBuilder::<9>::new();
-        builder.append(crate::command::const_encoding::constants::image::LUMINANCE_PREFIX);
-        builder.push(self.value.value());
-        
-        let bytes = builder.build();
-        buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
-        Ok(Self::MAX_SIZE)
+crate::visca_builder! {
+    /// Command to set the contrast level.
+    pub(crate) struct ContrastCommand {
+        /// The contrast level to set.
+        value: ContrastLevel,
     }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
+    builder<9> => |builder, value| {
+        let _ = builder.append(crate::command::const_encoding::constants::image::CONTRAST_PREFIX);
+        let _ = builder.push(value.value());
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
-}
-
-/// Command to set the contrast level.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ContrastCommand {
-    /// The contrast level to set.
-    value: ContrastLevel,
+    timeout = Quick;
 }
 
 impl ContrastCommand {
@@ -208,41 +190,11 @@ impl ContrastCommand {
     }
 }
 
-impl EncodeVisca for ContrastCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 9;
-
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        let mut builder = CommandBuilder::<9>::new();
-        builder.append(crate::command::const_encoding::constants::image::CONTRAST_PREFIX);
-        builder.push(self.value.value());
-        
-        let bytes = builder.build();
-        buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::constants::CameraModel;
+    use crate::{constants::CameraModel, EncodeVisca};
     use crate::types::SharpnessLevel;
 
     #[test]
