@@ -84,6 +84,15 @@ impl PanTiltDirection {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{EncodeVisca, visca_test};
+
+    visca_test!(PanTilt, test_pan_tilt_home, PanTilt::Home, &[0x81, 0x01, 0x06, 0x04, 0xFF]);
+    visca_test!(PanTilt, test_pan_tilt_reset, PanTilt::Reset, &[0x81, 0x01, 0x06, 0x05, 0xFF]);
+}
+
 /// Pan/Tilt movement commands.
 ///
 /// Provides various ways to control camera pan and tilt:

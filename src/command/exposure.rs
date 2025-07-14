@@ -32,6 +32,24 @@ pub enum ExposureMode {
     Bright = 0x0D,
 }
 
+impl TryFrom<u8> for ExposureMode {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(ExposureMode::Auto),
+            0x03 => Ok(ExposureMode::Manual),
+            0x0A => Ok(ExposureMode::Shutter),
+            0x0B => Ok(ExposureMode::Iris),
+            0x0D => Ok(ExposureMode::Bright),
+            _ => Err(crate::Error::InvalidResponse {
+                expected: "0x00 (Auto), 0x03 (Manual), 0x0A (Shutter), 0x0B (Iris), or 0x0D (Bright)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
 /// Command to set the camera's exposure mode.
 ///
 /// This command allows switching between different exposure modes such as
@@ -70,21 +88,6 @@ impl EncodeVisca for ExposureCommand {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-}
-
-impl TryFrom<u8> for ExposureMode {
-    type Error = ();
-
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            0x00 => Ok(Self::Auto),
-            0x03 => Ok(Self::Manual),
-            0x0A => Ok(Self::Shutter),
-            0x0B => Ok(Self::Iris),
-            0x0D => Ok(Self::Bright),
-            _ => Err(()),
-        }
     }
 }
 

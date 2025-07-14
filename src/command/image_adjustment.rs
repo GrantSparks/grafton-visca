@@ -20,6 +20,21 @@ pub enum SharpnessMode {
     Manual,
 }
 
+impl TryFrom<u8> for SharpnessMode {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x02 => Ok(SharpnessMode::Auto),
+            0x03 => Ok(SharpnessMode::Manual),
+            _ => Err(crate::Error::InvalidResponse {
+                expected: "0x02 (Auto) or 0x03 (Manual)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
 /// Sharpness control commands.
 ///
 /// Controls edge enhancement to make images appear more or less sharp.
@@ -138,19 +153,14 @@ impl EncodeVisca for Sharpness {
 /// Command to set the luminance (brightness) level.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LuminanceCommand {
-    /// Internal command bytes.
-    command: [u8; 9],
+    /// The luminance level to set.
+    value: LuminanceLevel,
 }
 
 impl LuminanceCommand {
     /// Create a new luminance command.
     pub fn new(value: LuminanceLevel) -> Self {
-        let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(crate::command::const_encoding::constants::image::LUMINANCE_PREFIX);
-        cmd.push(value.value());
-        Self {
-            command: cmd.build(),
-        }
+        Self { value }
     }
 }
 
@@ -166,7 +176,12 @@ impl EncodeVisca for LuminanceCommand {
             });
         }
 
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        let mut builder = CommandBuilder::<9>::new();
+        builder.append(crate::command::const_encoding::constants::image::LUMINANCE_PREFIX);
+        builder.push(self.value.value());
+        
+        let bytes = builder.build();
+        buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
         Ok(Self::MAX_SIZE)
     }
 
@@ -182,19 +197,14 @@ impl EncodeVisca for LuminanceCommand {
 /// Command to set the contrast level.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ContrastCommand {
-    /// Internal command bytes.
-    command: [u8; 9],
+    /// The contrast level to set.
+    value: ContrastLevel,
 }
 
 impl ContrastCommand {
     /// Create a new contrast command.
     pub fn new(value: ContrastLevel) -> Self {
-        let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(crate::command::const_encoding::constants::image::CONTRAST_PREFIX);
-        cmd.push(value.value());
-        Self {
-            command: cmd.build(),
-        }
+        Self { value }
     }
 }
 
@@ -210,7 +220,12 @@ impl EncodeVisca for ContrastCommand {
             });
         }
 
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        let mut builder = CommandBuilder::<9>::new();
+        builder.append(crate::command::const_encoding::constants::image::CONTRAST_PREFIX);
+        builder.push(self.value.value());
+        
+        let bytes = builder.build();
+        buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
         Ok(Self::MAX_SIZE)
     }
 
@@ -439,23 +454,23 @@ mod tests {
         // Test boundary values for luminance
         let level =
             LuminanceLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = LuminanceCommand::new(level);
+        let cmd = LuminanceCommand { value: level };
         assert!(cmd.try_into_vec().is_ok());
 
         let level =
             LuminanceLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = LuminanceCommand::new(level);
+        let cmd = LuminanceCommand { value: level };
         assert!(cmd.try_into_vec().is_ok());
 
         // Test boundary values for contrast
         let level =
             ContrastLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = ContrastCommand::new(level);
+        let cmd = ContrastCommand { value: level };
         assert!(cmd.try_into_vec().is_ok());
 
         let level =
             ContrastLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = ContrastCommand::new(level);
+        let cmd = ContrastCommand { value: level };
         assert!(cmd.try_into_vec().is_ok());
     }
 
@@ -517,12 +532,12 @@ mod tests {
         // Test LuminanceCommand and ContrastCommand use Quick category
         let level =
             LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = LuminanceCommand::new(level);
+        let cmd = LuminanceCommand { value: level };
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
 
         let level =
             ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = ContrastCommand::new(level);
+        let cmd = ContrastCommand { value: level };
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 }
