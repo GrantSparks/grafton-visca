@@ -39,7 +39,7 @@ pub use crate::camera::methods::{
 };
 
 // Import traits needed for disambiguation in macros
-use crate::camera::methods::{ColorOpsBlocking, ExposureOpsBlocking};
+use crate::camera::methods::{ColorOpsBlocking, ExposureOpsBlocking, SystemOpsBlocking};
 
 // Implement all blocking traits for the wrapper type using the forward_facade! macro
 use crate::forward_facade;
@@ -67,7 +67,7 @@ forward_facade!(Camera, blocking,
     SystemOps:
         trigger_address_assignment() -> crate::Result<()>,
         interface_clear() -> crate::Result<()>,
-        cancel_command(socket: crate::command::Socket) -> crate::Result<()>;
+        cancel_command@SystemOpsBlocking(socket: crate::command::system::Socket) -> crate::Result<()>;
     NDFilterOps:
         set_nd_filter(level: u8) -> crate::Result<()>,
         get_nd_filter() -> crate::Result<u8>;
