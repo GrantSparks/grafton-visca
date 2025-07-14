@@ -201,12 +201,10 @@ fn test_pan_tilt_command_consistency() {
 
 #[test]
 fn test_response_type_consistency() {
-    // Most action commands return None for response_type
+    // All zoom movement commands return None for response_type (action commands)
     assert!(Zoom::Stop.response_type().is_none());
-    // TeleStd and WideStd have response types
-    assert!(Zoom::TeleStd.response_type().is_some());
-    assert!(Zoom::WideStd.response_type().is_some());
-    // Variable speed zoom commands don't have response types
+    assert!(Zoom::TeleStd.response_type().is_none());
+    assert!(Zoom::WideStd.response_type().is_none());
     assert!(Zoom::TeleVariable(ZoomSpeed::new(5).unwrap())
         .response_type()
         .is_none());

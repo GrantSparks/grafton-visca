@@ -6,7 +6,7 @@ use crate::common::{patterns, MockTransport, ProtocolValidator, ValidationMode};
 use grafton_visca::{
     blocking::{InquiryOps, ZoomOps},
     camera::{Camera, ProfileId},
-    command::{zoom::ZoomSpeed, EncodeVisca, ResponseType, Zoom},
+    command::{zoom::ZoomSpeed, EncodeVisca, Zoom},
     types::ZoomPosition,
     Error,
 };
@@ -73,7 +73,7 @@ fn test_zoom_command_zoom_in_standard() {
 
     // Verify using pattern constants
     assert_eq!(bytes, patterns::zoom::TELE_STD);
-    assert_eq!(cmd.response_type(), Some(ResponseType::ZoomIn));
+    assert_eq!(cmd.response_type(), None);
 
     // Validate protocol compliance
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
@@ -167,22 +167,15 @@ fn test_position_to_nibbles() {
 
 #[test]
 fn test_zoom_response_type() {
-    // Commands that expect ZoomIn response
-    assert_eq!(Zoom::TeleStd.response_type(), Some(ResponseType::ZoomIn));
+    // All zoom movement commands are action commands and return None for response_type
+    // They receive ACK + Completion responses, not inquiry data responses
+    assert_eq!(Zoom::TeleStd.response_type(), None);
     let speed = ZoomSpeed::new(5).unwrap();
-    assert_eq!(
-        Zoom::TeleVariable(speed).response_type(),
-        Some(ResponseType::ZoomIn)
-    );
+    assert_eq!(Zoom::TeleVariable(speed).response_type(), None);
 
-    // Commands that expect ZoomOut response
-    assert_eq!(Zoom::WideStd.response_type(), Some(ResponseType::ZoomOut));
-    assert_eq!(
-        Zoom::WideVariable(speed).response_type(),
-        Some(ResponseType::ZoomOut)
-    );
+    assert_eq!(Zoom::WideStd.response_type(), None);
+    assert_eq!(Zoom::WideVariable(speed).response_type(), None);
 
-    // Commands that have no response type
     assert_eq!(Zoom::Stop.response_type(), None);
     let position = ZoomPosition::new(0x1234).unwrap();
     assert_eq!(Zoom::Position(position).response_type(), None);
