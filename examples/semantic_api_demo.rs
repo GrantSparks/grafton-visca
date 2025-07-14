@@ -8,7 +8,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::methods::{FocusOps, PanTiltOps, ZoomOps},
         command::pan_tilt::PanTiltDirection,
-        profiles::PTZOpticsG2,
         transport::blocking::Udp,
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, Normalized},
@@ -93,7 +92,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::methods::{FocusOps, PanTiltOps, ZoomOps},
         command::pan_tilt::PanTiltDirection,
-        profiles::PTZOpticsG2,
         transport::tokio::Udp,
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, Normalized},

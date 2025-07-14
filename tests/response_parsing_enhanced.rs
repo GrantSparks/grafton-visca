@@ -23,17 +23,31 @@ fn test_power_inquiry_with_mock_transport() {
     let mut mock = MockTransport::new();
     let mut validator = ProtocolValidator::new(ValidationMode::Strict);
 
-    // Set up expectation for power inquiry
+    // For inquiry commands, the camera expects:
+    // 1. ACK response first
+    // 2. Then the inquiry data response
+    // The mock transport processes responses in order
     mock.expect_command(patterns::inquiry::POWER)
         .described_as("power inquiry")
         .will_ack(1)
-        .will_return_data(&[0x02]); // Power on
+        .will_return_data(&[0x02]); // Power on - creates [0x90, 0x50, 0x02, 0xFF]
 
     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute inquiry
-    let result = camera.get_power_state().unwrap();
-    assert!(result);
+    let result = camera.get_power_state();
+    match result {
+        Ok(on) => {
+            println!("Power state: {}", on);
+            assert!(on);
+        }
+        Err(e) => {
+            println!("Error: {:?}", e);
+            println!("Sent commands: {:?}", mock.sent_history());
+            println!("Response history: {:?}", mock.response_history());
+            panic!("Failed to get power state: {:?}", e);
+        }
+    }
 
     // Validate protocol compliance
     let sent_commands = mock.sent_history();
@@ -313,8 +327,6 @@ fn test_complex_inquiry_sequence_with_timing() {
 
 #[test]
 fn test_anti_flicker_mode_parsing() {
-    let mut mock = MockTransport::new();
-
     // Test all anti-flicker modes
     let modes = vec![
         (0x00, AntiFlickerMode::Off),
@@ -323,26 +335,34 @@ fn test_anti_flicker_mode_parsing() {
     ];
 
     for (mode_byte, expected_mode) in &modes {
+        // Create a fresh mock for each test to avoid ordering issues
+        let mut mock = MockTransport::new();
+
         mock.expect_command(patterns::inquiry::ANTI_FLICKER)
             .described_as(&format!("anti-flicker mode {:?}", expected_mode))
             .will_ack(1)
             .will_return_data(&[*mode_byte]);
+
+        let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+
+        let result = camera.get_anti_flicker();
+        match result {
+            Ok(mode) => assert_eq!(mode, *expected_mode),
+            Err(e) => {
+                // Print debug info
+                println!("Error getting anti-flicker mode: {:?}", e);
+                println!("Sent commands: {:?}", mock.sent_history());
+                println!("Response history: {:?}", mock.response_history());
+                panic!("Failed to get anti-flicker mode");
+            }
+        }
+
+        mock.verify().unwrap();
     }
-
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
-
-    for (_, expected_mode) in &modes {
-        let result = camera.get_anti_flicker().unwrap();
-        assert_eq!(result, *expected_mode);
-    }
-
-    mock.verify().unwrap();
 }
 
 #[test]
 fn test_focus_zone_inquiry_comprehensive() {
-    let mut mock = MockTransport::new();
-
     // Test all focus zones
     let zones = vec![
         (0x00, FocusZone::Top),
@@ -351,26 +371,25 @@ fn test_focus_zone_inquiry_comprehensive() {
     ];
 
     for (zone_byte, expected_zone) in &zones {
+        // Create a fresh mock for each test to avoid ordering issues
+        let mut mock = MockTransport::new();
+
         mock.expect_command(patterns::inquiry::FOCUS_ZONE)
             .described_as(&format!("focus zone {:?}", expected_zone))
             .will_ack(1)
             .will_return_data(&[*zone_byte]);
-    }
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+        let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
-    for (_, expected_zone) in &zones {
         let result = camera.get_focus_zone().unwrap();
         assert_eq!(result, *expected_zone);
-    }
 
-    mock.verify().unwrap();
+        mock.verify().unwrap();
+    }
 }
 
 #[test]
 fn test_auto_focus_sensitivity_inquiry() {
-    let mut mock = MockTransport::new();
-
     // Test all sensitivity levels
     let sensitivities = vec![
         (0x00, AutoFocusSensitivity::Low),
@@ -379,20 +398,21 @@ fn test_auto_focus_sensitivity_inquiry() {
     ];
 
     for (sens_byte, expected_sens) in &sensitivities {
+        // Create a fresh mock for each test to avoid ordering issues
+        let mut mock = MockTransport::new();
+
         mock.expect_command(patterns::inquiry::AUTO_FOCUS_SENSITIVITY)
             .described_as(&format!("auto focus sensitivity {:?}", expected_sens))
             .will_ack(1)
             .will_return_data(&[*sens_byte]);
-    }
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+        let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
-    for (_, expected_sens) in &sensitivities {
         let result = camera.get_auto_focus_sensitivity().unwrap();
         assert_eq!(result, *expected_sens);
-    }
 
-    mock.verify().unwrap();
+        mock.verify().unwrap();
+    }
 }
 
 #[test]

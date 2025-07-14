@@ -9,7 +9,7 @@
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::blocking::{PanTiltOps, PowerOps};
 #[cfg(feature = "tokio")]
-use grafton_visca::r#async::{PanTiltOps, PowerOps, ZoomOps};
+use grafton_visca::r#async::{PanTiltOps, PowerOps};
 use grafton_visca::{Camera, Error, ProfileId};
 use std::env;
 
@@ -66,7 +66,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera with async TCP transport
     let transport = Tcp::connect(&camera_addr).await?;
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
 
     // Power on the camera
     println!("Powering on camera...");

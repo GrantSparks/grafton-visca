@@ -228,7 +228,7 @@ fn test_zoom_with_inquiry_response() {
         .described_as("zoom position inquiry")
         .will_return_data(&[0x04, 0x00, 0x00, 0x00]); // Position 0x4000
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let _camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
 
     // This would need the inquiry methods implemented
     // For now, just verify the mock was set up correctly

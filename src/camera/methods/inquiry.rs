@@ -241,29 +241,25 @@ impl InquiryOps for Camera {
     }
 
     async fn get_focus_zone(&self) -> Result<FocusZone, Error> {
-        // TODO: AFZoneInquiry struct needs to be defined
-        // let cmd = AFZoneInquiry;
-        // let response = self.send_command(&cmd).await?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::AFZone { zone }) => Ok(zone),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = FocusZoneInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
-        // TODO: AFSensitivityInquiry struct needs to be defined
-        // let cmd = AFSensitivityInquiry;
-        // let response = self.send_command(&cmd).await?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::AFSensitivity { sensitivity }) => {
-        //         Ok(sensitivity)
-        //     }
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = AutoFocusSensitivityInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
+                Ok(sensitivity)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     async fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {
@@ -564,29 +560,25 @@ impl InquiryOpsBlocking for Camera {
     }
 
     fn get_focus_zone(&self) -> Result<FocusZone, Error> {
-        // TODO: AFZoneInquiry struct needs to be defined
-        // let cmd = AFZoneInquiry;
-        // let response = self.send_command_blocking(&cmd)?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::AFZone { zone }) => Ok(zone),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = FocusZoneInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
-        // TODO: AFSensitivityInquiry struct needs to be defined
-        // let cmd = AFSensitivityInquiry;
-        // let response = self.send_command_blocking(&cmd)?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::AFSensitivity { sensitivity }) => {
-        //         Ok(sensitivity)
-        //     }
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = AutoFocusSensitivityInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
+                Ok(sensitivity)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {

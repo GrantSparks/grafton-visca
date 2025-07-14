@@ -11,7 +11,6 @@
 use grafton_visca::{
     camera::profiles::G2PresetId,
     command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
-    profiles::PTZOpticsG2,
     r#async::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
     transport::tokio::Udp,
     types::{PanSpeed, SpeedLevel, TiltSpeed},

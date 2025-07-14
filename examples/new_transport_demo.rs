@@ -5,7 +5,6 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::profiles::GenericVisca,
     transport::tokio::{Tcp, Udp},
     Camera,
 };

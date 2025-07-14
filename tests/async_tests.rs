@@ -9,7 +9,8 @@
 // TODO: Update these tests to use the new transport architecture
 // The MockAsyncTransport and ViscaProtocol APIs have been replaced
 
-#[cfg(disabled_until_updated)]
+// Disabled until updated to use new transport architecture
+#[cfg(any())] // Never true - intentionally disabled
 mod async_tests {
 
     use super::common::MockAsyncTransport;

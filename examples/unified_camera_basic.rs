@@ -56,14 +56,14 @@ async fn main() -> Result<(), Error> {
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
     let transport = Tcp::connect("192.168.1.100:52381").await?;
-    let camera = Camera::new(transport);
+    let _camera = Camera::new(transport);
 
     // Note: profile info methods not yet implemented for async camera
     println!("Using default profile");
 
     // Create a camera with specific profile
     let transport = Tcp::connect("192.168.1.100:52381").await?;
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    let _camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
 
     println!("\nUsing specific profile: PTZOpticsG2");
 

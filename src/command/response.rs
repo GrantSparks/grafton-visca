@@ -572,7 +572,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
-            let position = combine_nibbles_u16(&payload[2..4]);
+            let position = combine_nibbles_u8(&payload[2..4]) as u16;
             Ok(Response::InquiryResponse(InquiryResponse::Shutter {
                 position,
             }))

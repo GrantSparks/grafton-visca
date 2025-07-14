@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create async transport
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = grafton_visca::Camera::new(transport);
+    let camera = grafton_visca::Camera::new(transport).r#async();
 
     // Demo 1: Power Control
     demo_power_control(&camera).await?;

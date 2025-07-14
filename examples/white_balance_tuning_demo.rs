@@ -3,9 +3,7 @@
 //! Demonstrates white balance control commands.
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{
-    camera::methods::WhiteBalanceOps, profiles::PTZOpticsG2, transport::tokio::Udp, Camera,
-};
+use grafton_visca::{camera::methods::WhiteBalanceOps, transport::tokio::Udp, Camera};
 
 #[cfg(feature = "tokio")]
 #[tokio::main]

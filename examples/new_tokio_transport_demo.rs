@@ -6,7 +6,6 @@
 use bytes::Bytes;
 use grafton_visca::{
     camera::methods::PanTiltOps,
-    profiles::PTZOpticsG2,
     transport::{core::Transport, tokio::Tcp},
     types::SpeedLevel,
     units::Degrees,

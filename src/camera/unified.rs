@@ -453,26 +453,62 @@ impl Camera {
 
         match self.transport.recv().await {
             Ok(bytes) => Response::parse(&bytes),
-            Err(e) => Err(Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Receive error: {}", e),
-            ))),
+            Err(e) => {
+                // Preserve the original error type
+                if e.to_string().contains("Operation timed out") {
+                    Err(Error::Timeout)
+                } else {
+                    Err(e)
+                }
+            }
         }
     }
 
     /// Wait for a specific type of response with timeout.
     async fn wait_for_response_with_type(
         &self,
-        _expected_type: ResponseType,
-        timeout: Duration,
+        expected_type: ResponseType,
+        _timeout: Duration,
     ) -> Result<Response, Error> {
-        let response = self.wait_for_response(timeout).await?;
-
-        // For now, just return the response without type checking
-        // since we don't have a proper mapping between ResponseType and Response variants
-        match response {
-            Response::Error(e) => Err(e),
-            _ => Ok(response),
+        // For inquiry commands, we may receive an ACK first, then the inquiry response
+        loop {
+            match self.transport.recv().await {
+                Ok(bytes) => {
+                    // First try to parse as a regular response
+                    match Response::parse(&bytes) {
+                        Ok(Response::CmdAck) => {
+                            // Skip ACK for inquiry commands and wait for the actual response
+                            log::debug!("Skipping ACK response for inquiry command");
+                            continue;
+                        }
+                        Ok(Response::Error(e)) => return Err(e),
+                        Ok(Response::Completion) => {
+                            // Unexpected completion for inquiry
+                            return Err(Error::UnexpectedResponseType);
+                        }
+                        Ok(other) => {
+                            // This shouldn't happen with parse() but handle it
+                            return Ok(other);
+                        }
+                        Err(_) => {
+                            // If regular parse fails, it might be an inquiry response
+                            // Try parsing with the expected type
+                            match Response::parse_with_type(&bytes, &expected_type) {
+                                Ok(response) => return Ok(response),
+                                Err(e) => return Err(e),
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Preserve the original error type
+                    if e.to_string().contains("Operation timed out") {
+                        return Err(Error::Timeout);
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
         }
     }
 

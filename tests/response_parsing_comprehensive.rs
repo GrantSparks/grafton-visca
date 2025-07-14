@@ -17,7 +17,7 @@ use grafton_visca::{
 #[test]
 fn test_response_debug() {
     let ack = Response::CmdAck;
-    assert_eq!(format!("{:?}", ack), "Ack");
+    assert_eq!(format!("{:?}", ack), "CmdAck");
 
     let completion = Response::Completion;
     assert_eq!(format!("{:?}", completion), "Completion");
@@ -495,7 +495,7 @@ fn test_extended_value_nibble_combination() {
     let result = parse_response(&response, &ResponseType::Shutter).unwrap();
     match result {
         Response::InquiryResponse(InquiryResponse::Shutter { position }) => {
-            assert_eq!(position, 0xAB);
+            assert_eq!(position, 171); // 0xAB = 171 decimal
         }
         _ => panic!("Expected Shutter inquiry response"),
     }
