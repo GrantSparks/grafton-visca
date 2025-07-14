@@ -390,7 +390,7 @@ macro_rules! visca_builder {
                 }
 
                 let mut $builder = $crate::command::const_encoding::CommandBuilder::<$size>::new();
-                
+
                 // Extract fields and call the builder closure
                 {
                     $(let $param = &self.$field;)+
@@ -462,7 +462,7 @@ macro_rules! visca_param_command {
 
                 let prefix = [$($prefix),+];
                 buffer[..prefix.len()].copy_from_slice(&prefix);
-                
+
                 let $field = &self.$field;
                 buffer[prefix.len()] = $param_expr;
                 buffer[prefix.len() + 1] = 0xFF;

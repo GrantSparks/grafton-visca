@@ -482,9 +482,14 @@ impl EncodeVisca for BlueGain {
 )]
 mod tests {
     use super::*;
-    use crate::{constants::CameraModel, EncodeVisca, visca_test};
+    use crate::{constants::CameraModel, visca_test, EncodeVisca};
 
-    visca_test!(OnePushTriggerCommand, test_one_push_trigger_command, OnePushTriggerCommand::new(), &[0x81, 0x01, 0x04, 0x10, 0x05, 0xFF]);
+    visca_test!(
+        OnePushTriggerCommand,
+        test_one_push_trigger_command,
+        OnePushTriggerCommand::new(),
+        &[0x81, 0x01, 0x04, 0x10, 0x05, 0xFF]
+    );
 
     #[test]
     fn test_red_tuning_command() {

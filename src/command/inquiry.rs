@@ -5,12 +5,20 @@
 
 // Re-export all inquiry command structs from the internal module
 pub use super::inquiry_structs::{
-    AntiFlickerInquiry, AutoFocusSensitivityInquiry, BacklightInquiry, BlackWhiteInquiry,
-    BlueGainInquiry, BrightInquiry, ColorTemperatureInquiry, ContrastInquiry, DynamicRangeInquiry,
-    ExposureCompensationInquiry, ExposureCompensationModeInquiry, ExposureModeInquiry,
-    FocusNearLimitInquiry, FocusPositionInquiry, FocusZoneInquiry, GainInquiry, GainLimitInquiry,
-    HueInquiry, ImageFlipInquiry, IrisInquiry, LuminanceInquiry, NoiseReduction2DInquiry,
-    NoiseReduction3DInquiry, PanTiltPositionInquiry, PowerInquiry, RedGainInquiry,
-    SaturationInquiry, SharpnessInquiry, SharpnessModeInquiry, ShutterInquiry, VersionInquiry,
-    WhiteBalanceModeInquiry, ZoomPositionInquiry,
+    AntiFlickerInquiry, AutoFocusInquiry, AutoFocusSensitivityInquiry, AutoTraceInquiry,
+    AutoWhiteBalanceSensitivityInquiry, BacklightInquiry, BlackWhiteInquiry, BlackWhiteModeInquiry,
+    BlueGainInquiry, BlueTuningInquiry, BrightInquiry, BroadcastDomainInquiry,
+    ColorTemperatureInquiry, ContrastInquiry, DefogLevelInquiry, DefogModeInquiry, DigitalInquiry,
+    DigitalPtzInquiry, DynamicRangeInquiry, ExposureCompensationInquiry,
+    ExposureCompensationModeInquiry, ExposureCompensationPositionInquiry, ExposureModeInquiry,
+    FlipModeInquiry, FocusModeInquiry, FocusNearLimitInquiry, FocusPositionInquiry,
+    FocusRangeInquiry, FocusUnlockInquiry, FocusZoneInquiry, GainInquiry, GainLimitInquiry,
+    HueInquiry, ImageFlipInquiry, IrisControlInquiry, IrisInquiry, LuminanceInquiry,
+    MenuOpenCloseInquiry, MotionSyncModeInquiry, MotionSyncSpeedInquiry, NdFilterInquiry,
+    NdFilterPresetInquiry, NightDayModeInquiry, NoiseReduction2DInquiry, NoiseReduction3DInquiry,
+    NrLevelInquiry, NrModeInquiry, NrSpeedInquiry, PanTiltPositionInquiry, PictureEffectInquiry,
+    PowerInquiry, RedGainInquiry, RedTuningInquiry, ResolutionInquiry, SaturationInquiry,
+    SharpnessInquiry, SharpnessModeInquiry, SharpnessPositionInquiry, ShutterInquiry,
+    StandbyInquiry, TallyAutoAdjustInquiry, TallyStatusInquiry, TwoToneModeInquiry,
+    UsbAudioInquiry, VersionInquiry, WhiteBalanceModeInquiry, ZoomPositionInquiry,
 };

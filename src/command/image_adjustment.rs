@@ -35,6 +35,81 @@ impl TryFrom<u8> for SharpnessMode {
     }
 }
 
+/// Noise reduction modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NrMode {
+    /// Noise reduction disabled.
+    Off,
+    /// Noise reduction enabled.
+    On,
+}
+
+impl TryFrom<u8> for NrMode {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x02 => Ok(NrMode::Off),
+            0x03 => Ok(NrMode::On),
+            _ => Err(Error::InvalidResponse {
+                expected: "0x02 (Off) or 0x03 (On)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
+/// Noise reduction speed settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NrSpeed {
+    /// Slow noise reduction processing.
+    Slow,
+    /// Normal noise reduction processing.
+    Normal,
+    /// Fast noise reduction processing.
+    Fast,
+}
+
+impl TryFrom<u8> for NrSpeed {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(NrSpeed::Slow),
+            0x01 => Ok(NrSpeed::Normal),
+            0x02 => Ok(NrSpeed::Fast),
+            _ => Err(Error::InvalidResponse {
+                expected: "0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
+/// Black and white mode settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlackWhiteMode {
+    /// Color mode (normal operation).
+    Color,
+    /// Black and white mode.
+    BlackWhite,
+}
+
+impl TryFrom<u8> for BlackWhiteMode {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x02 => Ok(BlackWhiteMode::Color),
+            0x03 => Ok(BlackWhiteMode::BlackWhite),
+            _ => Err(Error::InvalidResponse {
+                expected: "0x02 (Color) or 0x03 (BlackWhite)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
 /// Sharpness control commands.
 ///
 /// Controls edge enhancement to make images appear more or less sharp.
@@ -194,8 +269,8 @@ impl ContrastCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{constants::CameraModel, EncodeVisca};
     use crate::types::SharpnessLevel;
+    use crate::{constants::CameraModel, EncodeVisca};
 
     #[test]
     fn test_sharpness_mode() {
