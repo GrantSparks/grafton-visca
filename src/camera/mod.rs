@@ -406,7 +406,7 @@ impl Camera {
         // Create socket manager components
         #[cfg(feature = "tokio")]
         let (command_sender, command_receiver) = tokio::sync::mpsc::unbounded_channel();
-        
+
         #[cfg(not(feature = "tokio"))]
         let (command_sender, command_receiver) = std::sync::mpsc::channel();
 
@@ -417,36 +417,44 @@ impl Camera {
         // Start the socket manager actor
         let transport = Arc::clone(&self.transport);
         let profile = self.profile;
-        
+
         #[cfg(feature = "tokio")]
         {
-            let actor = crate::socket_manager::SocketManagerActor::new(transport, command_receiver, profile);
+            let actor = crate::socket_manager::SocketManagerActor::new(
+                transport,
+                command_receiver,
+                profile,
+            );
             tokio::spawn(async move {
                 if let Err(e) = actor.run().await {
                     log::error!("Socket manager actor failed: {}", e);
                 }
             });
         }
-        
+
         #[cfg(not(feature = "tokio"))]
         {
-            let actor = crate::socket_manager::SocketManagerActor::new(transport, command_receiver, profile);
+            let actor = crate::socket_manager::SocketManagerActor::new(
+                transport,
+                command_receiver,
+                profile,
+            );
             std::thread::spawn(move || {
                 // For non-tokio, we need to create a simple blocking event loop
                 // This is a simplified implementation
                 use std::future::Future;
                 use std::task::{Context, Poll};
-                
+
                 struct SimpleExecutor;
-                
+
                 impl SimpleExecutor {
                     fn block_on<F: Future>(future: F) -> F::Output {
                         let mut future = Box::pin(future);
-                        
+
                         loop {
                             let waker = futures::task::noop_waker();
                             let mut cx = Context::from_waker(&waker);
-                            
+
                             match future.as_mut().poll(&mut cx) {
                                 Poll::Ready(result) => return result,
                                 Poll::Pending => {
@@ -458,7 +466,7 @@ impl Camera {
                         }
                     }
                 }
-                
+
                 if let Err(e) = SimpleExecutor::block_on(actor.run()) {
                     log::error!("Socket manager actor failed: {}", e);
                 }
@@ -471,18 +479,26 @@ impl Camera {
     /// Cancel a command on a specific socket.
     ///
     /// This sends a VISCA command cancel request to the camera for the specified socket.
-    pub async fn cancel_command(&self, socket: crate::command::system::Socket) -> Result<(), Error> {
+    pub async fn cancel_command(
+        &self,
+        socket: crate::command::system::Socket,
+    ) -> Result<(), Error> {
         if let Some(socket_manager) = &self.socket_manager {
             socket_manager.cancel_command(socket).await
         } else {
-            Err(Error::InvalidState("Socket manager not initialized".to_string()))
+            Err(Error::InvalidState(
+                "Socket manager not initialized".to_string(),
+            ))
         }
     }
-    
+
     /// Cancel a command on a specific socket (blocking version).
     ///
     /// This sends a VISCA command cancel request to the camera for the specified socket.
-    pub(crate) fn cancel_command_blocking(&self, socket: crate::command::system::Socket) -> Result<(), Error> {
+    pub(crate) fn cancel_command_blocking(
+        &self,
+        socket: crate::command::system::Socket,
+    ) -> Result<(), Error> {
         // Use executor to block on the async method
         futures::executor::block_on(self.cancel_command(socket))
     }
@@ -502,7 +518,9 @@ impl Camera {
     {
         // Check if socket manager is available
         if let Some(socket_manager) = &self.socket_manager {
-            return self.send_command_via_socket_manager(command, socket_manager).await;
+            return self
+                .send_command_via_socket_manager(command, socket_manager)
+                .await;
         }
 
         // Fall back to direct transport (legacy behavior)
@@ -538,16 +556,21 @@ impl Camera {
             }
         };
 
-        log::debug!("Sending VISCA command via socket manager: {:02X?}", framed_bytes);
+        log::debug!(
+            "Sending VISCA command via socket manager: {:02X?}",
+            framed_bytes
+        );
 
         // Determine if this is an inquiry command
         let is_inquiry = command.response_type().is_some();
-        
+
         // Get timeout category from command
         let category = command.timeout_kind();
 
         // Send via socket manager
-        socket_manager.send_command(framed_bytes, category, is_inquiry).await
+        socket_manager
+            .send_command(framed_bytes, category, is_inquiry)
+            .await
     }
 
     /// Send command directly via transport (legacy approach)

@@ -118,7 +118,7 @@ pub enum Error {
     /// VISCA protocol command canceled (0x04): Command was canceled in the specified socket.
     #[error("Command was canceled")]
     CommandCanceled,
-    
+
     /// VISCA protocol command cancelled (0x04): Command was cancelled in the specified socket.
     #[error("Command was cancelled")]
     CommandCancelled,
@@ -126,7 +126,7 @@ pub enum Error {
     /// VISCA protocol no socket error (0x05): No command is executing in the specified socket.
     #[error("No socket available")]
     NoSocket,
-    
+
     /// VISCA protocol no socket error (0x05): No command is executing in the specified socket.
     #[error("No socket error")]
     NoSocketError,
@@ -150,15 +150,15 @@ pub enum Error {
     /// Received an unknown error code from the camera.
     #[error("Unknown error code: {0:#02X}")]
     Unknown(u8),
-    
+
     /// Received an unknown error code from the camera.
     #[error("Unknown error code: {0:#02X}")]
     UnknownError(u8),
-    
+
     /// Invalid request to socket manager.
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
-    
+
     /// Message length error (0x01): Message length is incorrect.
     #[error("Message length error")]
     MessageLengthError,
