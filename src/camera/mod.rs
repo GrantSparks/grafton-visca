@@ -16,6 +16,7 @@ use crate::{
     capabilities::{ProfileIntrospection, ProfileMetadata, ProtocolStyle},
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
+    socket_manager::SocketManagerHandle,
     transport::core::{BlockingTransport, Transport},
     Response,
 };
@@ -123,6 +124,9 @@ impl Default for CameraProfile {
         Self::GenericVisca(GenericVisca)
     }
 }
+
+/// Type alias for dynamic camera profile.
+pub type DynamicProfile = CameraProfile;
 
 /// Camera model identifier for selecting a specific camera model and its associated profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -265,6 +269,7 @@ pub struct Camera {
     profile: CameraProfile,
     transport: Arc<dyn UnifiedTransport>,
     address: u8,
+    socket_manager: Option<SocketManagerHandle>,
 }
 
 impl Clone for Camera {
@@ -273,6 +278,7 @@ impl Clone for Camera {
             profile: self.profile,
             transport: Arc::clone(&self.transport),
             address: self.address,
+            socket_manager: self.socket_manager.clone(),
         }
     }
 }
@@ -283,6 +289,7 @@ impl std::fmt::Debug for Camera {
             .field("profile", &self.profile)
             .field("address", &self.address)
             .field("transport", &"<dyn UnifiedTransport>")
+            .field("socket_manager", &self.socket_manager.is_some())
             .finish()
     }
 }
@@ -348,6 +355,7 @@ impl Camera {
             profile,
             transport,
             address,
+            socket_manager: None, // Will be initialized when needed
         }
     }
 
@@ -367,6 +375,7 @@ impl Camera {
             profile,
             transport,
             address,
+            socket_manager: None, // Will be initialized when needed
         }
     }
 
@@ -387,6 +396,97 @@ impl Camera {
         self.address = address;
     }
 
+    /// Initialize the socket manager for this camera.
+    /// This enables queued command processing for proper two-socket management.
+    pub fn initialize_socket_manager(&mut self) -> Result<(), Error> {
+        if self.socket_manager.is_some() {
+            return Ok(()); // Already initialized
+        }
+
+        // Create socket manager components
+        #[cfg(feature = "tokio")]
+        let (command_sender, command_receiver) = tokio::sync::mpsc::unbounded_channel();
+        
+        #[cfg(not(feature = "tokio"))]
+        let (command_sender, command_receiver) = std::sync::mpsc::channel();
+
+        // Store the handle
+        let handle = SocketManagerHandle::new(command_sender);
+        self.socket_manager = Some(handle);
+
+        // Start the socket manager actor
+        let transport = Arc::clone(&self.transport);
+        let profile = self.profile;
+        
+        #[cfg(feature = "tokio")]
+        {
+            let actor = crate::socket_manager::SocketManagerActor::new(transport, command_receiver, profile);
+            tokio::spawn(async move {
+                if let Err(e) = actor.run().await {
+                    log::error!("Socket manager actor failed: {}", e);
+                }
+            });
+        }
+        
+        #[cfg(not(feature = "tokio"))]
+        {
+            let actor = crate::socket_manager::SocketManagerActor::new(transport, command_receiver, profile);
+            std::thread::spawn(move || {
+                // For non-tokio, we need to create a simple blocking event loop
+                // This is a simplified implementation
+                use std::future::Future;
+                use std::task::{Context, Poll};
+                
+                struct SimpleExecutor;
+                
+                impl SimpleExecutor {
+                    fn block_on<F: Future>(future: F) -> F::Output {
+                        let mut future = Box::pin(future);
+                        
+                        loop {
+                            let waker = futures::task::noop_waker();
+                            let mut cx = Context::from_waker(&waker);
+                            
+                            match future.as_mut().poll(&mut cx) {
+                                Poll::Ready(result) => return result,
+                                Poll::Pending => {
+                                    // In a real implementation, we would wait for events
+                                    // For now, we'll just yield to avoid busy waiting
+                                    std::thread::yield_now();
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if let Err(e) = SimpleExecutor::block_on(actor.run()) {
+                    log::error!("Socket manager actor failed: {}", e);
+                }
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Cancel a command on a specific socket.
+    ///
+    /// This sends a VISCA command cancel request to the camera for the specified socket.
+    pub async fn cancel_command(&self, socket: crate::command::system::Socket) -> Result<(), Error> {
+        if let Some(socket_manager) = &self.socket_manager {
+            socket_manager.cancel_command(socket).await
+        } else {
+            Err(Error::InvalidState("Socket manager not initialized".to_string()))
+        }
+    }
+    
+    /// Cancel a command on a specific socket (blocking version).
+    ///
+    /// This sends a VISCA command cancel request to the camera for the specified socket.
+    pub(crate) fn cancel_command_blocking(&self, socket: crate::command::system::Socket) -> Result<(), Error> {
+        // Use executor to block on the async method
+        futures::executor::block_on(self.cancel_command(socket))
+    }
+
     /// Get the current VISCA address.
     #[must_use]
     pub fn address(&self) -> u8 {
@@ -397,6 +497,61 @@ impl Camera {
     ///
     /// This is the primary async interface for sending commands to the camera.
     pub async fn send_command<C>(&self, command: &C) -> Result<Response, Error>
+    where
+        C: EncodeVisca,
+    {
+        // Check if socket manager is available
+        if let Some(socket_manager) = &self.socket_manager {
+            return self.send_command_via_socket_manager(command, socket_manager).await;
+        }
+
+        // Fall back to direct transport (legacy behavior)
+        self.send_command_direct(command).await
+    }
+
+    /// Send command via socket manager (new queued approach)
+    async fn send_command_via_socket_manager<C>(
+        &self,
+        command: &C,
+        socket_manager: &SocketManagerHandle,
+    ) -> Result<Response, Error>
+    where
+        C: EncodeVisca,
+    {
+        // Get command bytes using EncodeVisca
+        let mut buffer = [0u8; 64]; // Use a reasonable max size
+        let size = command.encode_into(&mut buffer)?;
+        let mut cmd_bytes = buffer[..size].to_vec();
+
+        // Add VISCA terminator if not present
+        if cmd_bytes.last() != Some(&crate::command::const_encoding::VISCA_TERMINATOR) {
+            cmd_bytes.push(crate::command::const_encoding::VISCA_TERMINATOR);
+        }
+
+        // Apply protocol-specific framing if needed
+        let framed_bytes = match self.profile.protocol_style() {
+            ProtocolStyle::RawVisca => cmd_bytes,
+            ProtocolStyle::SonyEncapsulated { use_sequence: _ } => {
+                // TODO: Implement Sony encapsulation
+                log::warn!("Sony encapsulation not yet implemented, using raw VISCA");
+                cmd_bytes
+            }
+        };
+
+        log::debug!("Sending VISCA command via socket manager: {:02X?}", framed_bytes);
+
+        // Determine if this is an inquiry command
+        let is_inquiry = command.response_type().is_some();
+        
+        // Get timeout category from command
+        let category = command.timeout_kind();
+
+        // Send via socket manager
+        socket_manager.send_command(framed_bytes, category, is_inquiry).await
+    }
+
+    /// Send command directly via transport (legacy approach)
+    async fn send_command_direct<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca,
     {

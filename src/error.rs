@@ -118,10 +118,18 @@ pub enum Error {
     /// VISCA protocol command canceled (0x04): Command was canceled in the specified socket.
     #[error("Command was canceled")]
     CommandCanceled,
+    
+    /// VISCA protocol command cancelled (0x04): Command was cancelled in the specified socket.
+    #[error("Command was cancelled")]
+    CommandCancelled,
 
     /// VISCA protocol no socket error (0x05): No command is executing in the specified socket.
     #[error("No socket available")]
     NoSocket,
+    
+    /// VISCA protocol no socket error (0x05): No command is executing in the specified socket.
+    #[error("No socket error")]
+    NoSocketError,
 
     /// VISCA protocol command not executable (0x41): Command cannot be executed due to current conditions.
     #[error("Command is not executable")]
@@ -142,6 +150,18 @@ pub enum Error {
     /// Received an unknown error code from the camera.
     #[error("Unknown error code: {0:#02X}")]
     Unknown(u8),
+    
+    /// Received an unknown error code from the camera.
+    #[error("Unknown error code: {0:#02X}")]
+    UnknownError(u8),
+    
+    /// Invalid request to socket manager.
+    #[error("Invalid request: {0}")]
+    InvalidRequest(String),
+    
+    /// Message length error (0x01): Message length is incorrect.
+    #[error("Message length error")]
+    MessageLengthError,
 
     /// Failed to parse response data.
     #[error("Parse error: {0}")]
@@ -239,6 +259,7 @@ impl Error {
     #[must_use]
     pub const fn from_code(code: u8) -> Self {
         match code {
+            0x01 => Self::MessageLengthError,
             0x02 => Self::SyntaxError,
             0x03 => Self::CommandBufferFull,
             0x04 => Self::CommandCanceled,
