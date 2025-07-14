@@ -7,7 +7,11 @@
 //! - Use profile-aware unit conversions
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{r#async::InquiryOps, transport::tokio::Tcp, Camera, Error};
+use grafton_visca::{
+    r#async::{InquiryOps, PanTiltInquiryOps},
+    transport::tokio::Tcp,
+    Camera, Error,
+};
 
 // Include the transport implementation from the example file
 
@@ -43,7 +47,7 @@ async fn main() -> Result<(), Error> {
 
     // Query position in VISCA units (available for all cameras)
     println!("\n--- Position (VISCA Units) ---");
-    match camera.get_position().await {
+    match camera.get_pan_tilt_position().await {
         Ok((pan, tilt)) => {
             println!("Pan: {} units", pan);
             println!("Tilt: {} units", tilt);

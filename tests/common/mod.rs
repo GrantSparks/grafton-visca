@@ -6,6 +6,8 @@
 
 // Allow unsafe in tests for creating mock wakers
 #![allow(unsafe_code)]
+// Allow dead code in test utilities since not all utilities are used in every test file
+#![allow(dead_code)]
 
 // Re-export submodules
 pub mod builders;

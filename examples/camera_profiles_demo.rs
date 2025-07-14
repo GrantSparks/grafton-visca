@@ -59,6 +59,7 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
         unified_camera.supports_capability("nd_filter")
     );
 
+    let power_on_time = unified_camera.power_on_time();
     let camera = unified_camera.r#async();
 
     // Use the camera with high-level API
@@ -68,9 +69,9 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     camera.power_on().await?;
     println!(
         "  - Powered on (waiting {} seconds)",
-        unified_camera.power_on_time().as_secs()
+        power_on_time.as_secs()
     );
-    tokio::time::sleep(unified_camera.power_on_time()).await;
+    tokio::time::sleep(power_on_time).await;
 
     // Move to home position
     camera.pan_tilt_home().await?;
@@ -120,16 +121,18 @@ async fn demonstrate_sony_fr7() -> Result<(), Error> {
         unified_camera.nd_filter_mode()
     );
 
+    let power_on_time = unified_camera.power_on_time();
+    let supports_nd_filter = unified_camera.supports_capability("nd_filter");
     let camera = unified_camera.r#async();
 
     println!("\nPerforming FR7-specific operations:");
 
     // Standard operations work the same
     camera.power_on().await?;
-    tokio::time::sleep(unified_camera.power_on_time()).await;
+    tokio::time::sleep(power_on_time).await;
 
     // FR7 can also use ND filters
-    if unified_camera.supports_capability("nd_filter") {
+    if supports_nd_filter {
         // Note: These methods would need to be implemented
         // camera.set_nd_filter(1).await?;
         println!("  - ND filter operations available");
@@ -159,6 +162,7 @@ async fn demonstrate_generic_visca() -> Result<(), Error> {
     println!("  ✓ Zoom: {}", unified_camera.supports_capability("zoom"));
     println!("  ? Other features: implementation-dependent");
 
+    let supports_focus = unified_camera.supports_capability("focus");
     let camera = unified_camera.r#async();
 
     // Safe to use basic operations
@@ -166,7 +170,7 @@ async fn demonstrate_generic_visca() -> Result<(), Error> {
     camera.pan_tilt_home().await?;
 
     // Check capabilities before using advanced features
-    if unified_camera.supports_capability("focus") {
+    if supports_focus {
         camera.focus_auto().await?;
         println!("  - Focus available on this camera");
     } else {
@@ -181,6 +185,7 @@ async fn demonstrate_generic_visca() -> Result<(), Error> {
 // The unified Camera API means we don't need generics -
 // just check capabilities at runtime if needed
 #[cfg(feature = "tokio")]
+#[allow(dead_code)]
 async fn capture_preset(
     camera: &mut grafton_visca::r#async::Camera,
     preset_id: u8,

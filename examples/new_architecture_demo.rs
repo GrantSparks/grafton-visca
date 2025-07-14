@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::{profiles::PTZOpticsG2, transport::tokio::tcp::Tcp, Camera};
+    use grafton_visca::{transport::tokio::tcp::Tcp, Camera};
 
     // Create an async TCP transport
     let transport = Tcp::connect("192.168.1.100:5678").await?;

@@ -5,20 +5,18 @@
 
 mod common;
 
-use crate::common::{
-    patterns, MockResponse, MockTransport, MockTransportBuilder, ProtocolValidator,
-    ScenarioBuilder, ValidationMode,
-};
-use std::time::Duration;
-
 #[cfg(not(feature = "tokio"))]
 mod blocking_tests {
-    use super::*;
+    use crate::common::{
+        patterns, MockResponse, MockTransport, MockTransportBuilder, ProtocolValidator,
+        ScenarioBuilder, ValidationMode,
+    };
     use grafton_visca::{
         blocking::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
         camera::{Camera, ProfileId},
         Error,
     };
+    use std::time::Duration;
 
     #[test]
     fn test_camera_power_command() {

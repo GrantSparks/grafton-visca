@@ -26,6 +26,7 @@ async fn test_async_wrapper_api() {
     // In a real test, you'd use a mock transport
 
     // The async wrapper should expose async methods
+    #[allow(dead_code)]
     async fn example(camera: &Camera) -> Result<(), grafton_visca::Error> {
         camera.zoom_stop().await?;
         camera.zoom_in().await?;

@@ -9,7 +9,7 @@ use grafton_visca::{
     capabilities::{PanTilt, Presets, ProfileMetadata},
     command::preset::PresetNumber,
     transport::tokio::Tcp,
-    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    types::SpeedLevel,
     units::{Degrees, Normalized},
     Camera, Error,
 };

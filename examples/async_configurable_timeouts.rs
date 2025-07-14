@@ -10,14 +10,8 @@
 //! Timeouts are handled at the transport level or using tokio::time::timeout.
 
 use grafton_visca::{
-    camera::{
-        methods::{PanTiltOps, PowerOps, PresetsOps},
-        profiles::PTZOpticsG2,
-    },
-    transport::{
-        tokio::{Tcp, Udp},
-        Transport,
-    },
+    camera::methods::{PanTiltOps, PowerOps, PresetsOps},
+    transport::tokio::{Tcp, Udp},
     types::SpeedLevel,
     units::Degrees,
     Camera, Error,

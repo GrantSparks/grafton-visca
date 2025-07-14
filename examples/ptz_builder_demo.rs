@@ -182,7 +182,6 @@ use grafton_visca::{
         profiles::G2PresetId,
     },
     command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
-    profiles::PTZOpticsG2,
     transport::tokio::Udp,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},

@@ -4,9 +4,7 @@
 //! For most use cases, prefer using the Camera API instead.
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{
-    camera::methods::ZoomOps, profiles::GenericVisca, transport::tokio::Udp, Camera,
-};
+use grafton_visca::{camera::methods::ZoomOps, transport::tokio::Udp, Camera};
 
 #[cfg(not(feature = "tokio"))]
 fn main() {
