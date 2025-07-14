@@ -218,17 +218,24 @@ where
 /// ```no_run
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// use grafton_visca::{Camera, ProfileId};
+/// use grafton_visca::command::power::PowerCommand;
+/// #[cfg(feature = "tokio")]
 /// use grafton_visca::transport::tokio::Tcp;
 ///
+/// # #[cfg(feature = "tokio")]
+/// # {
 /// // Create a camera with automatic profile detection
 /// let transport = Tcp::connect("192.168.1.100:52381").await?;
 /// let camera = Camera::new(transport);
 ///
 /// // Or specify a profile explicitly
-/// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+/// let transport2 = Tcp::connect("192.168.1.100:52381").await?;
+/// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport2);
 ///
 /// // Use the camera
-/// camera.send_command(&some_command).await?;
+/// let power_on_cmd = PowerCommand::On;
+/// camera.send_command(&power_on_cmd).await?;
+/// # }
 /// # Ok(())
 /// # }
 /// ```
@@ -788,15 +795,19 @@ impl Camera {
     ///
     /// # Example
     /// ```no_run
-    /// use grafton_visca::{Camera, ProfileId, transport::blocking::Mock};
+    /// use grafton_visca::{Camera, ProfileId};
+    /// use grafton_visca::transport::blocking::Tcp;
     /// use grafton_visca::blocking::ZoomOps;
     ///
-    /// let transport = Mock::new();
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let transport = Tcp::connect("192.168.1.100:52381")?;
     /// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
     /// let blocking_camera = camera.blocking();
     ///
     /// // Use blocking API
-    /// blocking_camera.zoom_stop().unwrap();
+    /// blocking_camera.zoom_stop()?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn blocking(self) -> crate::blocking::Camera {
         crate::blocking::Camera::new(self)
@@ -825,18 +836,23 @@ impl Camera {
     ///
     /// # Example
     /// ```no_run
-    /// # async {
-    /// use grafton_visca::{Camera, ProfileId, transport::Tokio};
-    /// use grafton_visca::transport::tokio::Mock;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[cfg(feature = "tokio")]
+    /// use grafton_visca::transport::tokio::Tcp;
+    /// use grafton_visca::{Camera, ProfileId};
     /// use grafton_visca::r#async::ZoomOps;
     ///
-    /// let transport = Mock::new();
-    /// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, Tokio(transport));
+    /// # #[cfg(feature = "tokio")]
+    /// # {
+    /// let transport = Tcp::connect("192.168.1.100:52381").await?;
+    /// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
     /// let async_camera = camera.r#async();
     ///
     /// // Use async API
-    /// async_camera.zoom_stop().await.unwrap();
-    /// # };
+    /// async_camera.zoom_stop().await?;
+    /// # }
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn r#async(self) -> crate::r#async::Camera {
         crate::r#async::Camera::new(self)

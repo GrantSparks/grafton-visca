@@ -17,8 +17,14 @@ impl<const N: usize> CommandBuilder<N> {
     ///
     /// # Example
     /// ```
+    /// use grafton_visca::command::const_encoding::CommandBuilder;
+    ///
     /// const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x47];
     /// let builder = CommandBuilder::<9>::from_prefix(PREFIX);
+    /// let command = builder.build();
+    ///
+    /// // Verify the command starts with our prefix
+    /// assert_eq!(&command[0..4], PREFIX);
     /// ```
     pub const fn from_prefix(prefix: &[u8]) -> Self {
         let mut buffer = [0u8; N];

@@ -124,7 +124,7 @@ impl TryFrom<i8> for ExposureCompensationLevel {
 /// # Example
 /// ```no_run
 /// use grafton_visca::command::{ExposureCompensation, exposure::ExposureCompensationLevel};
-/// use grafton_visca::Command;
+/// use grafton_visca::EncodeVisca;
 ///
 /// // Enable exposure compensation
 /// let enable = ExposureCompensation::On;

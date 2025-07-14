@@ -156,6 +156,3 @@ forward_facade!(Camera, blocking,
         tally_off() -> crate::Result<()>,
         get_tally_status() -> crate::Result<bool>;
 );
-
-
-
