@@ -185,11 +185,10 @@ impl EncodeVisca for Zoom {
     }
 
     fn response_type(&self) -> Option<ResponseType> {
-        match self {
-            Self::TeleStd | Self::TeleVariable(_) => Some(ResponseType::ZoomIn),
-            Self::WideStd | Self::WideVariable(_) => Some(ResponseType::ZoomOut),
-            _ => None,
-        }
+        // Zoom movement commands are action commands, not inquiries.
+        // They receive ACK + Completion responses like pan-tilt movements.
+        // Only dedicated inquiry commands should return specific response types.
+        None
     }
 
     fn timeout_kind(&self) -> CommandCategory {
