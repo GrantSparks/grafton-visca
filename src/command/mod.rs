@@ -245,4 +245,9 @@ pub enum InquiryResponse {
         /// Whether the green tally light is on.
         on: bool,
     },
+    /// Focus mode inquiry response.
+    FocusMode {
+        /// Current focus mode (Auto or Manual).
+        mode: FocusMode,
+    },
 }
