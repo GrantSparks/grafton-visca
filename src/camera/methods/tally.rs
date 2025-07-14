@@ -1,7 +1,7 @@
 //! Tally light control methods for cameras.
 
 use crate::{
-    camera::unified::Camera,
+    camera::Camera,
     command::{tally::Tally, Response},
     Error,
 };

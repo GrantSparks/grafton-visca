@@ -1,7 +1,7 @@
 //! Preset methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::unified::Camera,
+    camera::Camera,
     capabilities::ValidationError,
     command::preset::{PresetAction, PresetCommand, PresetNumber},
     Error, Response,

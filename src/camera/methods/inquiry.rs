@@ -1,7 +1,7 @@
 //! Inquiry methods for querying camera state using the new GAT architecture.
 
 use crate::{
-    camera::unified::Camera,
+    camera::Camera,
     command::{
         inquiry::*, AntiFlickerMode, AutoFocusSensitivity, ExposureMode, FocusZone,
         InquiryResponse, Response, SharpnessMode, WhiteBalanceMode,

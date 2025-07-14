@@ -1,7 +1,7 @@
 //! System control methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::unified::Camera,
+    camera::Camera,
     command::system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket},
     Error, Response,
 };
