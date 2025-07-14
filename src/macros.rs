@@ -7,7 +7,6 @@
 //!
 //! - `visca_command!` - Create simple command enums
 //! - `visca_bounded_param!` - Create validated newtype wrappers for numeric parameters
-//! - `validate_all!` - Validate multiple parameters in a single expression
 //! - `visca_bool_command!` - Create commands with boolean on/off parameters
 
 /// Create a simple VISCA command enum with byte sequences.
@@ -168,31 +167,6 @@ macro_rules! visca_bounded_param {
     };
 }
 
-/// Validate multiple parameters in a single expression.
-///
-/// Returns early with an error if any validation fails.
-///
-/// # Example
-/// ```ignore
-/// validate_all! {
-///     "pan_speed" => pan_speed <= 0x18,
-///     "tilt_speed" => tilt_speed <= 0x18,
-/// }
-/// ```
-#[macro_export]
-macro_rules! validate_all {
-    ($($name:literal => $condition:expr),+ $(,)?) => {
-        $(
-            if !($condition) {
-                return Err($crate::Error::InvalidParameter {
-                    parameter: $name,
-                    value: format!("{:?}", $name),
-                    reason: concat!("failed condition: ", stringify!($condition)).to_string(),
-                });
-            }
-        )+
-    };
-}
 
 /// Create a boolean command with on/off states.
 ///
@@ -275,47 +249,6 @@ macro_rules! visca_bool_command {
     };
 }
 
-// Internal macro for creating codec implementations
-#[doc(hidden)]
-#[macro_export]
-macro_rules! visca_encode_impl {
-    // Standard encode implementation
-    (standard $name:ty, $size:literal, $encode_body:expr) => {
-        impl $crate::command::encode_visca::EncodeVisca for $name {
-            type Response = ();
-            const MAX_SIZE: usize = $size;
-
-            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-
-                let bytes: Vec<u8> = $encode_body(self)?;
-
-                if bytes.len() > Self::MAX_SIZE {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: bytes.len(),
-                        actual: Self::MAX_SIZE,
-                    });
-                }
-
-                buffer[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
-            }
-
-            fn response_type(&self) -> Option<$crate::command::ResponseType> {
-                None
-            }
-
-            fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
-                $crate::timeout::CommandCategory::Quick
-            }
-        }
-    };
-}
 
 /// Internal macro for test generation
 #[doc(hidden)]
@@ -501,29 +434,49 @@ macro_rules! visca_param_command {
 /// ```
 #[macro_export]
 macro_rules! forward_facade {
-    // Blocking variant
-    ($wrapper:ident, blocking, $($trait_name:ident : $($method:ident $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
+    // Blocking variant with optional trait disambiguation
+    ($wrapper:ident, blocking, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(
             impl $trait_name for $wrapper {
                 $(
                     fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
-                        self.0.$method($($($param),*)?)
+                        forward_facade!(@call $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
                     }
                 )+
             }
         )+
     };
 
-    // Async variant
-    ($wrapper:ident, async, $($trait_name:ident : $($method:ident $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
+    // Async variant with optional trait disambiguation
+    ($wrapper:ident, async, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(
             impl $trait_name for $wrapper {
                 $(
                     async fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
-                        self.0.$method($($($param),*)?).await
+                        forward_facade!(@call_async $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
                     }
                 )+
             }
         )+
+    };
+
+    // Helper for blocking calls with trait disambiguation
+    (@call $trait:ident, $method:ident, $receiver:expr, $($param:expr),*) => {
+        $trait::$method(&$receiver, $($param),*)
+    };
+
+    // Helper for blocking calls without trait disambiguation
+    (@call , $method:ident, $receiver:expr, $($param:expr),*) => {
+        $receiver.$method($($param),*)
+    };
+
+    // Helper for async calls with trait disambiguation
+    (@call_async $trait:ident, $method:ident, $receiver:expr, $($param:expr),*) => {
+        $trait::$method(&$receiver, $($param),*).await
+    };
+
+    // Helper for async calls without trait disambiguation
+    (@call_async , $method:ident, $receiver:expr, $($param:expr),*) => {
+        $receiver.$method($($param),*).await
     };
 }
