@@ -18,7 +18,6 @@ use super::response::ResponseType;
 /// # use grafton_visca::command::{EncodeVisca, ResponseType};
 /// # use grafton_visca::timeout::CommandCategory;
 /// # use grafton_visca::Error;
-/// # use grafton_visca::constants::CameraModel;
 /// struct MyCommand;
 ///
 /// impl EncodeVisca for MyCommand {

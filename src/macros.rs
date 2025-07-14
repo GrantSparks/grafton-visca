@@ -21,8 +21,12 @@
 /// visca_command! {
 ///     category = "Movement",
 ///     enum PanTilt {
-///         Home => [0x81, 0x01, 0x06, 0x04, 0xFF],
-///         Reset => [0x81, 0x01, 0x06, 0x05, 0xFF],
+///         Home => {
+///             Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF])
+///         },
+///         Reset => {
+///             Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF])
+///         },
 ///     }
 /// }
 /// ```
@@ -107,9 +111,9 @@ macro_rules! visca_command {
 ///
 /// visca_bounded_param! {
 ///     /// Zoom speed level from 0 (slow) to 7 (fast)
-///     struct ZoomSpeed: u8 {
+///     ZoomSpeed: u8 {
 ///         min: 0,
-///         max: 7,
+///         max: 7
 ///     }
 /// }
 /// ```
@@ -166,7 +170,6 @@ macro_rules! visca_bounded_param {
         }
     };
 }
-
 
 /// Create a boolean command with on/off states.
 ///
@@ -248,7 +251,6 @@ macro_rules! visca_bool_command {
         }
     };
 }
-
 
 /// Internal macro for test generation
 #[doc(hidden)]
