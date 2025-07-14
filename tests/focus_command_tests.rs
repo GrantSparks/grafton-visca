@@ -13,7 +13,7 @@ use crate::common::{
 };
 use grafton_visca::{
     blocking::*,
-    camera::{Camera, ProfileId},
+    camera::{Camera, CameraModel},
     command::focus::FocusSpeed,
     types::{FocusPosition, SpeedLevel},
     Error,
@@ -51,7 +51,7 @@ fn test_focus_commands_with_fixtures() {
     }
 
     let mock = builder.build();
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute focus operations (note: the fixture commands don't match what the API sends)
     // The fixtures have standard speed commands but the API uses variable speed
@@ -85,7 +85,7 @@ fn test_focus_mode_commands() {
             Duration::from_millis(50),
         ));
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     camera.focus_auto().unwrap();
     camera.focus_manual().unwrap();
@@ -119,7 +119,7 @@ fn test_focus_movement_commands() {
             Duration::from_millis(100),
         ));
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     camera.focus_stop().unwrap();
     // The API takes SpeedLevel and converts to variable speed commands
@@ -156,7 +156,7 @@ fn test_focus_variable_speed_commands() {
             ));
     }
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute variable speed focus commands
     // The SpeedLevel to focus speed mapping is: Slowest->0, Slow->2, Medium->4, Fast->6, Fastest->7
@@ -243,7 +243,7 @@ fn test_focus_position_command() {
             ));
     }
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute focus position commands
     for pos in &positions {
@@ -265,7 +265,7 @@ fn test_focus_one_push() {
             Duration::from_millis(1000), // Longer delay for auto focus
         ));
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     camera.focus_one_push().unwrap();
 }
@@ -319,7 +319,7 @@ fn test_focus_command_sequence() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute the sequence
     camera.power_on().unwrap();
@@ -344,7 +344,7 @@ fn test_focus_error_handling() {
             patterns::responses::NOT_EXECUTABLE[2],
         )));
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Should get an error
     let result = camera.focus_auto();
@@ -388,7 +388,7 @@ async fn test_focus_commands_async() {
             Duration::from_millis(200),
         ));
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).r#async();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).r#async();
 
     // Execute async operations
     camera.focus_auto().await.unwrap();

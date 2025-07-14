@@ -15,7 +15,7 @@ use crate::common::{
 };
 use grafton_visca::{
     blocking::*,
-    camera::{Camera, ProfileId},
+    camera::{Camera, CameraModel},
     command::preset::PresetNumber,
 };
 use std::time::Duration;
@@ -56,7 +56,7 @@ fn test_all_power_commands_with_fixtures() {
     }
 
     let mock = builder.build();
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute the commands in exact order
     camera.power_on().unwrap();
@@ -98,7 +98,7 @@ fn test_zoom_commands_with_fixtures() {
     );
 
     let mock = builder.build();
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute zoom commands in the same order as expectations
     camera.zoom_stop().unwrap();
@@ -146,7 +146,7 @@ fn test_preset_commands_with_fixtures() {
     );
 
     let mock = builder.build();
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Test preset operations in the same order as expectations
     camera.preset_set(PresetNumber::new(1).unwrap()).unwrap();
@@ -214,7 +214,7 @@ fn test_zoom_positions_with_generator() {
     }
 
     let mock = builder.build();
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute zoom position commands
     for position in zoom_positions.iter().take(5) {
@@ -269,7 +269,7 @@ fn test_pan_tilt_positions_with_generator() {
     let mut mock = MockTransport::new();
     scenario.build().apply_to(&mut mock).unwrap();
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute movements
     for ((pan, tilt), &speed) in positions.iter().take(3).zip(speeds.iter()) {
@@ -329,7 +329,7 @@ fn test_comprehensive_command_sequence() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute the sequence
     camera.power_on().unwrap();

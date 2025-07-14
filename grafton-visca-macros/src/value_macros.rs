@@ -244,7 +244,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             .map(|model| {
                 let model_ident = quote::format_ident!("{}", model);
                 quote! {
-                    crate::constants::CameraModel::#model_ident
+                    crate::constants::CameraVariant::#model_ident
                 }
             })
             .collect::<Vec<_>>();
@@ -271,7 +271,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             ///
             /// # Errors
             /// Returns an error if the value is not valid for the given camera model.
-            pub fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), crate::Error> {
+            pub fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), crate::Error> {
                 if matches!(model, #(#model_checks)|*) {
                     // Re-run validation for this model
                     Self::new(self.value())?;

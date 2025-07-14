@@ -58,7 +58,7 @@ fn test_with_helpers() {
 fn test_with_mock_transport() {
     use common::MockTransport;
     use grafton_visca::blocking::PowerOps;
-    use grafton_visca::camera::{Camera, ProfileId};
+    use grafton_visca::camera::{Camera, CameraModel};
 
     // Create a mock that returns specific responses
     let mut mock = MockTransport::new();
@@ -69,7 +69,7 @@ fn test_with_mock_transport() {
         .will_ack(1)
         .then_complete(1);
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Send command and verify response
     assert_ok(camera.power_on(), "Power on command should succeed");
@@ -134,7 +134,7 @@ mod integration_style_tests {
     fn test_command_sequence() {
         use common::MockTransport;
         use grafton_visca::blocking::{PanTiltOps, ZoomOps};
-        use grafton_visca::camera::{Camera, ProfileId};
+        use grafton_visca::camera::{Camera, CameraModel};
 
         // Create mock with expected responses
         let mut mock = MockTransport::new();
@@ -151,7 +151,7 @@ mod integration_style_tests {
             .will_ack(2)
             .then_complete(2);
 
-        let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+        let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
         // Test multiple commands
         assert_ok(camera.pan_tilt_home(), "Home command should succeed");

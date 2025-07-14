@@ -10,7 +10,7 @@ use grafton_visca::{
     blocking::{Camera, FocusOps, PanTiltOps, PresetsOps, ZoomOps},
     command::preset::PresetNumber,
     types::SpeedLevel,
-    Degrees, Error, Normalized, ProfileId,
+    CameraModel, Degrees, Error, Normalized,
 };
 
 #[cfg(feature = "tokio")]
@@ -18,7 +18,7 @@ use grafton_visca::{
     command::preset::PresetNumber,
     r#async::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
     types::SpeedLevel,
-    Camera, Degrees, Error, Normalized, ProfileId,
+    Camera, CameraModel, Degrees, Error, Normalized,
 };
 use std::env;
 
@@ -45,7 +45,7 @@ fn main() -> Result<(), Error> {
 
     let transport = Udp::connect(camera_addr)?;
     let mut camera =
-        grafton_visca::Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
+        grafton_visca::Camera::with_profile(CameraModel::PTZOpticsG2, transport).blocking();
 
     println!("\n=== Camera Control Demo (Blocking) ===");
     println!("Using profile: PTZOpticsG2\n");
@@ -83,7 +83,7 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to camera at {} (async mode)...", camera_addr);
 
     let transport = Udp::connect(camera_addr).await?;
-    let mut camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
 
     println!("\n=== Camera Control Demo (Async) ===");
     println!("Using profile: PTZOpticsG2\n");

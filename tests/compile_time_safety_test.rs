@@ -1,6 +1,6 @@
 //! Integration test demonstrating runtime capability checking of the unified API.
 
-use grafton_visca::{blocking::*, Camera, Error, ProfileId};
+use grafton_visca::{blocking::*, Camera, CameraModel, Error};
 
 // Mock transport for testing
 #[derive(Debug)]
@@ -30,7 +30,7 @@ impl grafton_visca::transport::core::BlockingTransport for MockTransport {}
 
 #[test]
 fn test_ptzoptics_g2_capabilities() {
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, MockTransport).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, MockTransport).blocking();
 
     // These methods exist for all cameras - capability checks happen at runtime
     assert!(camera.power_on().is_ok());
@@ -53,7 +53,7 @@ fn test_ptzoptics_g2_capabilities() {
 
 #[test]
 fn test_sony_fr7_has_nd_filter() {
-    let camera = Camera::with_profile(ProfileId::SonyFR7, MockTransport).blocking();
+    let camera = Camera::with_profile(CameraModel::SonyFR7, MockTransport).blocking();
 
     // FR7 has all standard features
     assert!(camera.power_on().is_ok());
@@ -75,8 +75,8 @@ fn test_runtime_capability_checking() {
         camera.set_nd_filter(64)
     }
 
-    let mut fr7 = Camera::with_profile(ProfileId::SonyFR7, MockTransport);
-    let mut g2 = Camera::with_profile(ProfileId::PTZOpticsG2, MockTransport);
+    let mut fr7 = Camera::with_profile(CameraModel::SonyFR7, MockTransport);
+    let mut g2 = Camera::with_profile(CameraModel::PTZOpticsG2, MockTransport);
 
     // With the unified API, both calls compile but behavior differs at runtime
     match try_adjust_nd_filter(&mut fr7) {

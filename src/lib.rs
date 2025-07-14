@@ -42,7 +42,7 @@
 //!
 //! ### Camera - No Generics Required!
 //! ```ignore
-//! use grafton_visca::{Camera, ProfileId, Error};
+//! use grafton_visca::{Camera, CameraModel, Error};
 //! use grafton_visca::blocking::{Camera as BlockingCamera, PowerOps, ZoomOps};
 //! use grafton_visca::transport::blocking::Tcp;
 //!
@@ -53,7 +53,7 @@
 //!
 //!     // Or specify a profile explicitly
 //!     let transport = Tcp::connect("192.168.1.100:52381")?;
-//!     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
+//!     let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).blocking();
 //!
 //!     // Check camera info
 //!     println!("Camera: {}", camera.model_name());
@@ -69,7 +69,7 @@
 //!
 //! ### Async Example
 //! ```ignore
-//! use grafton_visca::{Camera, ProfileId, Error};
+//! use grafton_visca::{Camera, CameraModel, Error};
 //! use grafton_visca::r#async::{Camera as AsyncCamera, PowerOps, ZoomOps};
 //! use grafton_visca::transport::tokio::Tcp;
 //!
@@ -77,7 +77,7 @@
 //! async fn main() -> Result<(), Error> {
 //!     // Create camera with specific profile
 //!     let transport = Tcp::connect("192.168.1.100:52381").await?;
-//!     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).r#async();
+//!     let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).r#async();
 //!
 //!     // Same API, just with .await
 //!     camera.power_on().await?;
@@ -89,10 +89,10 @@
 //!
 //! ## Camera Profiles
 //!
-//! The library includes pre-defined profiles accessible via `ProfileId`:
-//! - `ProfileId::PTZOpticsG2` - PTZOptics G2 series cameras  
-//! - `ProfileId::SonyFR7` - Sony FR7 cameras with ND filter support
-//! - `ProfileId::GenericVisca` - Generic VISCA-compatible cameras (default)
+//! The library includes pre-defined profiles accessible via `CameraModel`:
+//! - `CameraModel::PTZOpticsG2` - PTZOptics G2 series cameras  
+//! - `CameraModel::SonyFR7` - Sony FR7 cameras with ND filter support
+//! - `CameraModel::GenericVisca` - Generic VISCA-compatible cameras (default)
 //!
 //! ### Custom Camera Profiles
 //!
@@ -157,13 +157,13 @@
 //!
 //! ```ignore
 //! # // Cargo.toml: features = ["tokio"]
-//! use grafton_visca::{Camera, ProfileId};
+//! use grafton_visca::{Camera, CameraModel};
 //! use grafton_visca::transport::tokio::Tcp;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let transport = Tcp::connect("192.168.1.100:5678").await?;
-//!     let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+//!     let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
 //!
 //!     camera.power_on().await?;
 //!     camera.pan_tilt_home().await?;
@@ -179,7 +179,7 @@
 //!
 //! ```ignore
 //! # // Cargo.toml: features = ["async"]
-//! use grafton_visca::{Camera, ProfileId};
+//! use grafton_visca::{Camera, CameraModel};
 //! use grafton_visca::transport::Transport;
 //! use async_std::net::TcpStream; // or any runtime's stream
 //! use async_std::io::{ReadExt, WriteExt};
@@ -314,7 +314,7 @@ pub mod blocking;
 
 // Note: r#async is a reserved keyword, so we use the raw identifier syntax
 pub mod r#async;
-pub use camera::{Camera, ProfileId};
+pub use camera::{Camera, CameraModel};
 pub use command::{EncodeVisca, InquiryResponse, Response};
 
 // Re-export unit types for convenience

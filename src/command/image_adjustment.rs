@@ -270,7 +270,7 @@ impl ContrastCommand {
 mod tests {
     use super::*;
     use crate::types::SharpnessLevel;
-    use crate::{constants::CameraModel, EncodeVisca};
+    use crate::{constants::CameraVariant, EncodeVisca};
 
     #[test]
     fn test_sharpness_mode() {
@@ -349,7 +349,7 @@ mod tests {
         // Test valid G2 values
         for value in 0..=11 {
             let cmd = Sharpness::SetLevel { value };
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Test invalid G2 value
@@ -360,10 +360,10 @@ mod tests {
 
         // Test that non-SetLevel commands pass validation
         let cmd = Sharpness::Reset;
-        assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
 
         let cmd = Sharpness::Mode(SharpnessMode::Auto);
-        assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+        assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
     }
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
             let level = LuminanceLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = LuminanceCommand::new(level);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // G2 supports all values 0-14, so no invalid values to test
@@ -425,7 +425,7 @@ mod tests {
             let level = ContrastLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = ContrastCommand::new(level);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // G2 supports all values 0-14, so no invalid values to test

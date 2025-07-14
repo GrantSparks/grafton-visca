@@ -194,7 +194,7 @@ impl AntiFlickerCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{constants::CameraModel, visca_test, EncodeVisca};
+    use crate::{constants::CameraVariant, visca_test, EncodeVisca};
 
     visca_test!(
         Gain,
@@ -242,7 +242,7 @@ mod tests {
             let gain =
                 GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Gain::SetValue(gain);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Gain itself is limited to 0x00-0x07, which are all valid for G2
@@ -250,13 +250,13 @@ mod tests {
 
         // Non-direct commands should always be valid
         assert!(Gain::Reset
-            .validate_for_model(CameraModel::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PTZOpticsG2)
             .is_ok());
         assert!(Gain::Up
-            .validate_for_model(CameraModel::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PTZOpticsG2)
             .is_ok());
         assert!(Gain::Down
-            .validate_for_model(CameraModel::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PTZOpticsG2)
             .is_ok());
     }
 
@@ -283,7 +283,7 @@ mod tests {
             let limit =
                 GainLimit::new(*value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainLimitCommand::new(limit);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Test that non-G2 values might fail (depends on what G2_VALID_VALUES contains)
@@ -291,7 +291,7 @@ mod tests {
         if !GainLimit::G2_VALID_VALUES.contains(&0x08) {
             if let Ok(limit) = GainLimit::new(0x08) {
                 let cmd = GainLimitCommand::new(limit);
-                assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_err());
+                assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_err());
             }
         }
     }

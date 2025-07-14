@@ -4,7 +4,7 @@
 //! `Command` and `ViscaCommand` traits into a single interface with zero-allocation
 //! encoding support.
 
-use crate::{constants::CameraModel, error::Error, timeout::CommandCategory};
+use crate::{constants::CameraVariant, error::Error, timeout::CommandCategory};
 
 use super::response::ResponseType;
 
@@ -135,7 +135,7 @@ pub trait EncodeVisca: Send + Sync {
     /// # Errors
     ///
     /// Returns `Error::ModelValidation` if the command is not valid for the specified model.
-    fn validate_for_model(&self, _model: CameraModel) -> Result<(), Error> {
+    fn validate_for_model(&self, _model: CameraVariant) -> Result<(), Error> {
         Ok(())
     }
 }

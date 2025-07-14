@@ -5,7 +5,7 @@ mod common;
 use crate::common::{patterns, MockTransport, ProtocolValidator, ResponseBuilder, ValidationMode};
 use grafton_visca::{
     blocking::PowerOps,
-    camera::{Camera, ProfileId},
+    camera::{Camera, CameraModel},
 };
 
 #[test]
@@ -111,7 +111,7 @@ fn test_power_commands_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Test power on
     assert!(camera.power_on().is_ok());

@@ -561,7 +561,7 @@ visca_command! {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{constants::CameraModel, EncodeVisca};
+    use crate::{constants::CameraVariant, EncodeVisca};
 
     #[test]
     fn test_exposure_mode_command() {
@@ -732,15 +732,15 @@ mod tests {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = ExposureCompensation::SetLevel(level);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Other command types should always be valid
         assert!(ExposureCompensation::On
-            .validate_for_model(CameraModel::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PTZOpticsG2)
             .is_ok());
         assert!(ExposureCompensation::Off
-            .validate_for_model(CameraModel::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PTZOpticsG2)
             .is_ok());
     }
 
@@ -766,7 +766,7 @@ mod tests {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = DynamicRange::SetLevel(level);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
     }
 
@@ -819,7 +819,7 @@ mod tests {
             let level =
                 IrisLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Iris::SetAperture(level);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Test that non-G2 valid value still passes validation (G2 is more restrictive)
@@ -827,7 +827,7 @@ mod tests {
 
         // Non-direct commands should always be valid
         assert!(Iris::Reset
-            .validate_for_model(CameraModel::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PTZOpticsG2)
             .is_ok());
     }
 
@@ -880,7 +880,7 @@ mod tests {
             let speed =
                 ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Shutter::SetSpeed(speed);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Test that non-G2 valid value still passes validation (G2 is more restrictive)
@@ -888,7 +888,7 @@ mod tests {
 
         // Non-direct commands should always be valid
         assert!(Shutter::Reset
-            .validate_for_model(CameraModel::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PTZOpticsG2)
             .is_ok());
     }
 
@@ -941,7 +941,7 @@ mod tests {
             let level = BrightnessLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Bright::SetLevel(level);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Test that non-G2 valid value still passes validation (G2 is more restrictive)
@@ -949,7 +949,7 @@ mod tests {
 
         // Non-direct commands should always be valid
         assert!(Bright::Reset
-            .validate_for_model(CameraModel::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PTZOpticsG2)
             .is_ok());
     }
 
