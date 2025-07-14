@@ -36,8 +36,8 @@ fn run_examples() -> Result<(), Error> {
 
     println!();
 
-    // Example 2: Multi-parameter validation with validate_all! macro
-    println!("2. Multi-parameter validation with validate_all! macro:");
+    // Example 2: Multi-parameter validation (validate_all! macro was removed)
+    println!("2. Multi-parameter validation (validate_all! macro was removed):");
 
     let pan_speed_raw = 12;
     let tilt_speed_raw = 8;
@@ -56,8 +56,7 @@ fn run_examples() -> Result<(), Error> {
             reason: format!("Invalid tilt speed: {}", tilt_speed_raw),
         })?;
 
-    // New way with validate_all!:
-    // validate_all! macro is not available, use individual validation
+    // Note: validate_all! macro was removed as it was unused
     let pan_speed = PanSpeed::try_from(pan_speed_raw).map_err(|_| Error::InvalidParameter {
         parameter: "pan_speed",
         value: pan_speed_raw.to_string(),
@@ -87,8 +86,8 @@ fn run_examples() -> Result<(), Error> {
 
     println!();
 
-    // Example 3: Error handling with validate_all!
-    println!("3. Error handling with validate_all! macro:");
+    // Example 3: Error handling (validate_all! macro was removed)
+    println!("3. Error handling (validate_all! macro was removed):");
 
     let invalid_pan = 30; // Max is 24 (0x18)
     let invalid_tilt = 25; // Max is 20 (0x14)
