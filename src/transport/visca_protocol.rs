@@ -147,32 +147,113 @@ impl Response {
         matches!(
             (self, expected),
             (
+                Response::InquiryResponse(InquiryResponse::Power { .. }),
+                ResponseType::Power
+            ) | (
+                Response::InquiryResponse(InquiryResponse::PanTiltPosition { .. }),
+                ResponseType::PanTiltPosition,
+            ) | (
                 Response::InquiryResponse(InquiryResponse::ZoomPosition { .. }),
                 ResponseType::ZoomPosition,
             ) | (
                 Response::InquiryResponse(InquiryResponse::FocusPosition { .. }),
                 ResponseType::FocusPosition,
             ) | (
-                Response::InquiryResponse(InquiryResponse::PanTiltPosition { .. }),
-                ResponseType::PanTiltPosition,
+                Response::InquiryResponse(InquiryResponse::FocusNearLimit { .. }),
+                ResponseType::FocusNearLimit,
             ) | (
-                Response::InquiryResponse(InquiryResponse::Power { .. }),
-                ResponseType::Power
+                Response::InquiryResponse(InquiryResponse::FocusZone { .. }),
+                ResponseType::FocusZone,
             ) | (
-                Response::InquiryResponse(InquiryResponse::WhiteBalance { .. }),
-                ResponseType::WhiteBalanceMode,
+                Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { .. }),
+                ResponseType::AutoFocusSensitivity,
             ) | (
                 Response::InquiryResponse(InquiryResponse::ExposureMode { .. }),
                 ResponseType::ExposureMode,
             ) | (
+                Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { .. }),
+                ResponseType::ExposureCompensationMode,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::ExposureCompensation { .. }),
+                ResponseType::ExposureCompensation,
+            ) | (
                 Response::InquiryResponse(InquiryResponse::Iris { .. }),
                 ResponseType::Iris
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Shutter { .. }),
+                ResponseType::Shutter
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Bright { .. }),
+                ResponseType::Bright,
             ) | (
                 Response::InquiryResponse(InquiryResponse::GainLevel { .. }),
                 ResponseType::Gain
             ) | (
-                Response::InquiryResponse(InquiryResponse::Shutter { .. }),
-                ResponseType::Shutter
+                Response::InquiryResponse(InquiryResponse::GainLimit { .. }),
+                ResponseType::GainLimit,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::AntiFlicker { .. }),
+                ResponseType::AntiFlicker,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Backlight { .. }),
+                ResponseType::Backlight,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::DynamicRange { .. }),
+                ResponseType::DynamicRange,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::WhiteBalanceMode { .. }),
+                ResponseType::WhiteBalanceMode,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::ColorTemperature { .. }),
+                ResponseType::ColorTemperature,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::RedChannel { .. }),
+                ResponseType::RedChannel,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::BlueChannel { .. }),
+                ResponseType::BlueChannel,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Luminance { .. }),
+                ResponseType::Luminance,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Contrast { .. }),
+                ResponseType::Contrast,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Sharpness { .. }),
+                ResponseType::Sharpness,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::SharpnessMode { .. }),
+                ResponseType::SharpnessMode,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Saturation { .. }),
+                ResponseType::Saturation,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Hue { .. }),
+                ResponseType::Hue,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::NoiseReduction2D { .. }),
+                ResponseType::NoiseReduction2D,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::NoiseReduction3D { .. }),
+                ResponseType::NoiseReduction3D,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::ImageFlip { .. }),
+                ResponseType::ImageFlip,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::BlackWhite { .. }),
+                ResponseType::BlackWhite,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::Version { .. }),
+                ResponseType::Version,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::TallyRed { .. }),
+                ResponseType::TallyRed,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::TallyGreen { .. }),
+                ResponseType::TallyGreen,
+            ) | (
+                Response::InquiryResponse(InquiryResponse::FocusMode { .. }),
+                ResponseType::FocusMode,
             )
         )
     }

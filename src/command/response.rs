@@ -423,7 +423,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::WhiteBalance {
+            Ok(Response::InquiryResponse(InquiryResponse::WhiteBalanceMode {
                 mode,
             }))
         }
@@ -727,7 +727,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
         }
         ResponseType::DynamicRange => {
             // Dynamic range level response
-            // Based on common VISCA patterns, expecting single byte level value
+            // Single byte level value (0x0=0 to 0x8=8)
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -873,5 +873,99 @@ mod tests {
         // Test u8 combination
         let nibbles = [0x0A, 0x0B];
         assert_eq!(combine_nibbles_u8(&nibbles), 0xAB);
+    }
+}
+
+// Custom parser helper functions for inquiry responses
+// These are used by the derive macro when custom_fn is specified
+
+/// Parse the last nibble from a 4-byte payload for Gain
+pub fn parse_gain_last_nibble(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::GainLevel {
+        gain: data[3] & 0x0F,
+    })
+}
+
+/// Parse the last nibble from a 4-byte payload for Iris
+pub fn parse_iris_last_nibble(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::Iris {
+        position: data[3] & 0x0F,
+    })
+}
+
+/// Parse the last nibble from a 4-byte payload for Saturation
+pub fn parse_saturation_last_nibble(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::Saturation {
+        level: data[3] & 0x0F,
+    })
+}
+
+/// Parse the last nibble from a 4-byte payload for Hue
+pub fn parse_hue_last_nibble(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::Hue {
+        hue: data[3] & 0x0F,
+    })
+}
+
+/// Parse middle nibbles from payload (used for Sharpness)
+pub fn parse_middle_nibbles(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    let value = combine_nibbles_u8(&data[2..4]);
+    Ok(InquiryResponse::Sharpness { value })
+}
+
+/// Parse exposure compensation value with offset
+pub fn parse_exposure_compensation(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    let value = combine_nibbles_u8(&data[2..4]) as i8 - 7;
+    Ok(InquiryResponse::ExposureCompensation { value })
+}
+
+/// Parse shutter value from middle nibbles
+pub fn parse_shutter(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    let position = combine_nibbles_u8(&data[2..4]) as u16;
+    Ok(InquiryResponse::Shutter { position })
+}
+
+/// Parse color temperature from middle nibbles
+pub fn parse_color_temperature(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    let temperature = ((data[2] as u16) << 4) | (data[3] as u16);
+    Ok(InquiryResponse::ColorTemperature { temperature })
+}
+
+/// Parse sharpness mode (0x02 = Auto, 0x03 = Manual)
+pub fn parse_sharpness_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    match data[0] {
+        0x02 => Ok(InquiryResponse::SharpnessMode { mode: SharpnessMode::Auto }),
+        0x03 => Ok(InquiryResponse::SharpnessMode { mode: SharpnessMode::Manual }),
+        _ => Err(Error::InvalidResponse {
+            expected: "0x02 (Auto) or 0x03 (Manual)".to_string(),
+            actual: vec![data[0]],
+        }),
     }
 }

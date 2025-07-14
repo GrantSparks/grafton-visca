@@ -177,7 +177,7 @@ pub enum InquiryResponse {
     },
 
     /// White balance mode inquiry response.
-    WhiteBalance {
+    WhiteBalanceMode {
         /// Current white balance mode.
         mode: WhiteBalanceMode,
     },

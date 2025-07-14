@@ -27,6 +27,21 @@ pub enum FocusMode {
     Manual,
 }
 
+impl TryFrom<u8> for FocusMode {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x02 => Ok(FocusMode::Auto),
+            0x03 => Ok(FocusMode::Manual),
+            _ => Err(crate::Error::InvalidResponse {
+                expected: "0x02 (Auto) or 0x03 (Manual)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
 crate::visca_bounded_param! {
     /// Variable focus speed.
     ///
@@ -209,6 +224,22 @@ pub enum FocusZone {
     Bottom,
 }
 
+impl TryFrom<u8> for FocusZone {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(FocusZone::Top),
+            0x01 => Ok(FocusZone::Center),
+            0x02 => Ok(FocusZone::Bottom),
+            _ => Err(crate::Error::InvalidResponse {
+                expected: "0x00 (Top), 0x01 (Center), or 0x02 (Bottom)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
 /// Command to set the focus zone.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct FocusZoneCommand {
@@ -264,6 +295,22 @@ pub enum AutoFocusSensitivity {
     Normal,
     /// Low sensitivity - slower focus response, more stable in changing scenes.
     Low,
+}
+
+impl TryFrom<u8> for AutoFocusSensitivity {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x02 => Ok(AutoFocusSensitivity::High),
+            0x01 => Ok(AutoFocusSensitivity::Normal),
+            0x00 => Ok(AutoFocusSensitivity::Low),
+            _ => Err(crate::Error::InvalidResponse {
+                expected: "0x00 (Low), 0x01 (Normal), or 0x02 (High)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
 }
 
 /// Command to set auto focus sensitivity.

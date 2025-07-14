@@ -340,7 +340,7 @@ impl InquiryOps for Camera {
         let cmd = WhiteBalanceModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => Ok(mode),
+            Response::InquiryResponse(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -659,7 +659,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = WhiteBalanceModeInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => Ok(mode),
+            Response::InquiryResponse(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }

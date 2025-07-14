@@ -344,32 +344,33 @@ macro_rules! visca_test {
 ///     struct ZoomPosition {
 ///         position: u16,
 ///     }
-///     builder<6> {
-///         append([0x81, 0x01, 0x04, 0x47]);
-///         encode_u16(position.value());
+///     builder<9> => |builder, position| {
+///         builder.append(&[0x81, 0x01, 0x04, 0x47]);
+///         builder.push((position.value() >> 8) as u8);
+///         builder.push((position.value() & 0xFF) as u8);
 ///     }
 ///     timeout = Movement;
 /// }
 /// ```
 #[macro_export]
 macro_rules! visca_builder {
-    // Version with fields
+    // Version with fields and visibility
     (
         $(#[$meta:meta])*
-        struct $name:ident {
+        $vis:vis struct $name:ident {
             $(
                 $(#[$field_meta:meta])*
                 $field:ident: $ftype:ty
             ),+ $(,)?
         }
-        builder<$size:literal> {
+        builder<$size:literal> => |$builder:ident, $($param:ident),+| {
             $($stmt:stmt);+ $(;)?
         }
         timeout = $category:ident;
     ) => {
         $(#[$meta])*
         #[derive(Debug, Copy, Clone)]
-        pub struct $name {
+        $vis struct $name {
             $(
                 $(#[$field_meta])*
                 pub $field: $ftype,
@@ -388,17 +389,15 @@ macro_rules! visca_builder {
                     });
                 }
 
-                let mut builder = $crate::command::const_encoding::CommandBuilder::<$size>::new();
+                let mut $builder = $crate::command::const_encoding::CommandBuilder::<$size>::new();
+                
+                // Extract fields and call the builder closure
+                {
+                    $(let $param = &self.$field;)+
+                    $($stmt);+
+                }
 
-                // Extract fields for use in the builder block
-                $(
-                    let $field = &self.$field;
-                )+
-
-                // Execute builder statements
-                $($stmt)+
-
-                let bytes = builder.build();
+                let bytes = $builder.build();
                 buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
                 Ok(Self::MAX_SIZE)
             }

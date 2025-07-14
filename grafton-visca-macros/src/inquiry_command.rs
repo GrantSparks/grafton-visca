@@ -31,21 +31,23 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                 quote! { vec![0x81, 0x09, 0x04, #byte_value, 0xFF] }
             };
 
+            // Determine crate path once for consistency
+            let crate_path =
+                if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
+                    quote! { crate }
+                } else {
+                    quote! { ::grafton_visca }
+                };
+
             // Generate parser implementation if parser info is provided
             let parse_response_impl = if let Some(parser_info) = &attrs.parser {
-                let parser_body = generate_parser_body(&response_type, parser_info);
-                let crate_path_for_parser =
-                    if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
-                        quote! { crate }
-                    } else {
-                        quote! { ::grafton_visca }
-                    };
+                let parser_body = generate_parser_body(&response_type, parser_info, &crate_path);
                 quote! {
                     impl #struct_name {
                         /// Parse the response data for this inquiry command
-                        pub fn parse_response(&self, data: &[u8]) -> Result<#crate_path_for_parser::command::InquiryResponse, #crate_path_for_parser::Error> {
+                        pub fn parse_response(&self, data: &[u8]) -> Result<#crate_path::command::InquiryResponse, #crate_path::Error> {
                             if data.is_empty() {
-                                return Err(#crate_path_for_parser::Error::InvalidResponseLength);
+                                return Err(#crate_path::Error::InvalidResponseLength);
                             }
                             Ok(#parser_body)
                         }
@@ -55,13 +57,6 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                 quote! {}
             };
 
-            // Use $crate when available (internal usage), otherwise use ::grafton_visca
-            let crate_path =
-                if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
-                    quote! { crate }
-                } else {
-                    quote! { ::grafton_visca }
-                };
 
             let expanded = quote! {
                 impl #crate_path::command::EncodeVisca for #struct_name {
@@ -237,21 +232,21 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
     attrs
 }
 
-fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo) -> TokenStream {
+fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo, crate_path: &TokenStream) -> TokenStream {
     match parser_info.parser_type.as_str() {
-        "bool" => super::parser_templates::generate_bool_parser(response_variant),
+        "bool" => super::parser_templates::generate_bool_parser(response_variant, crate_path),
         "direct_byte" | "byte" => {
             let field_name = format_ident!("value"); // Default field name
-            super::parser_templates::generate_direct_byte_parser(response_variant, &field_name)
+            super::parser_templates::generate_direct_byte_parser(response_variant, &field_name, crate_path)
         }
-        "position" => super::parser_templates::generate_position_parser(response_variant),
+        "position" => super::parser_templates::generate_position_parser(response_variant, crate_path),
         "extended_nibble" | "nibble" => {
             let field_name = parser_info
                 .field_name
                 .as_deref()
                 .map(|s| format_ident!("{}", s))
                 .unwrap_or_else(|| format_ident!("value"));
-            super::parser_templates::generate_extended_nibble_parser(response_variant, &field_name)
+            super::parser_templates::generate_extended_nibble_parser(response_variant, &field_name, crate_path)
         }
         "offset" => {
             let field_name = parser_info
@@ -260,10 +255,10 @@ fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo) -> T
                 .map(|s| format_ident!("{}", s))
                 .unwrap_or_else(|| format_ident!("value"));
             let offset = parser_info.offset.unwrap_or(0);
-            super::parser_templates::generate_offset_parser(response_variant, &field_name, offset)
+            super::parser_templates::generate_offset_parser(response_variant, &field_name, offset, crate_path)
         }
         "flags" | "bit_flags" => {
-            super::parser_templates::generate_bit_flags_parser(response_variant)
+            super::parser_templates::generate_bit_flags_parser(response_variant, crate_path)
         }
         "mode" | "mode_enum" => {
             let mode_type = parser_info
@@ -271,9 +266,9 @@ fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo) -> T
                 .as_deref()
                 .map(|s| format_ident!("{}", s))
                 .expect("mode parser requires type attribute");
-            super::parser_templates::generate_mode_enum_parser(response_variant, &mode_type)
+            super::parser_templates::generate_mode_enum_parser(response_variant, &mode_type, crate_path)
         }
-        "pan_tilt" => super::parser_templates::generate_pan_tilt_parser(response_variant),
+        "pan_tilt" => super::parser_templates::generate_pan_tilt_parser(response_variant, crate_path),
         "custom" => {
             let custom_fn = parser_info
                 .custom_fn
@@ -281,13 +276,13 @@ fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo) -> T
                 .map(|s| format_ident!("{}", s))
                 .expect("custom parser requires custom_fn attribute");
             quote! {
-                #custom_fn(data)?
+                #crate_path::command::response::#custom_fn(data)?
             }
         }
         _ => {
             let parser_type_str = &parser_info.parser_type;
             quote! {
-                return Err(::grafton_visca::Error::InvalidResponse {
+                return Err(#crate_path::Error::InvalidResponse {
                     expected: format!("Unknown parser type: {}", #parser_type_str),
                     actual: data.to_vec(),
                 })

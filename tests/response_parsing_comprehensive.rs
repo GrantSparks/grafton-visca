@@ -273,14 +273,14 @@ fn test_parse_white_balance_mode_response() {
         let response = vec![0x90, 0x50, value, 0xFF];
         let result = parse_response(&response, &ResponseType::WhiteBalanceMode).unwrap();
         match result {
-            Response::InquiryResponse(InquiryResponse::WhiteBalance { mode }) => {
+            Response::InquiryResponse(InquiryResponse::WhiteBalanceMode { mode }) => {
                 assert_eq!(
                     mode, expected_mode,
                     "Value 0x{:02X} should map to {:?}",
                     value, expected_mode
                 );
             }
-            _ => panic!("Expected WhiteBalance inquiry response"),
+            _ => panic!("Expected WhiteBalanceMode inquiry response"),
         }
     }
 }

@@ -685,7 +685,7 @@ mod response_parsing_tests {
     }
 
     fn test_dynamic_range_response(level_value: u8) {
-        let bytes = vec![0x90, 0x50, 0x00, 0x00, 0x00, level_value, 0xFF];
+        let bytes = vec![0x90, 0x50, level_value, 0xFF];
         let response = parse_response(&bytes, &ResponseType::DynamicRange);
         match response {
             Ok(Response::InquiryResponse(InquiryResponse::DynamicRange { level })) => {

@@ -162,7 +162,7 @@ impl EncodeVisca for AWBSensitivityCommand {
 }
 
 impl TryFrom<u8> for WhiteBalanceMode {
-    type Error = ();
+    type Error = crate::Error;
 
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
@@ -173,7 +173,10 @@ impl TryFrom<u8> for WhiteBalanceMode {
             0x04 => Ok(Self::ATW),
             0x05 => Ok(Self::Manual),
             0x20 => Ok(Self::ColorTemperature),
-            _ => Err(()),
+            _ => Err(crate::Error::InvalidResponse {
+                expected: "0x00 (Auto), 0x01 (Indoor), 0x02 (Outdoor), 0x03 (OnePush), 0x04 (ATW), 0x05 (Manual), or 0x20 (ColorTemperature)".to_string(),
+                actual: vec![v],
+            }),
         }
     }
 }

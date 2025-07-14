@@ -156,6 +156,22 @@ pub enum AntiFlickerMode {
     Hz60 = 0x02,
 }
 
+impl TryFrom<u8> for AntiFlickerMode {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(AntiFlickerMode::Off),
+            0x01 => Ok(AntiFlickerMode::Hz50),
+            0x02 => Ok(AntiFlickerMode::Hz60),
+            _ => Err(crate::Error::InvalidResponse {
+                expected: "0x00 (Off), 0x01 (50Hz), or 0x02 (60Hz)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
 visca_command! {
     /// Command to set anti-flicker mode.
     category = "Quick",
