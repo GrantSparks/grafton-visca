@@ -482,7 +482,7 @@ impl EncodeVisca for BlueGain {
 )]
 mod tests {
     use super::*;
-    use crate::{constants::CameraModel, visca_test, EncodeVisca};
+    use crate::{constants::CameraVariant, visca_test, EncodeVisca};
 
     visca_test!(
         OnePushTriggerCommand,
@@ -518,7 +518,7 @@ mod tests {
         for level in -10..=10 {
             let tuning = RedTuning::new(level).unwrap();
             let cmd = RedTuningCommand::new(tuning);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Invalid values can't be created with RedTuning type
@@ -551,7 +551,7 @@ mod tests {
         for level in -10..=10 {
             let tuning = BlueTuning::new(level).unwrap();
             let cmd = BlueTuningCommand::new(tuning);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Invalid values can't be created with BlueTuning type
@@ -582,7 +582,7 @@ mod tests {
         for level in 0x00..=0x0E {
             let sat_level = SaturationLevel::new(level).unwrap();
             let cmd = SaturationCommand::new(sat_level);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Invalid values can't be created with SaturationLevel type
@@ -613,7 +613,7 @@ mod tests {
         for level in 0x00..=0x0E {
             let hue_level = HueLevel::new(level).unwrap();
             let cmd = HueCommand::new(hue_level);
-            assert!(cmd.validate_for_model(CameraModel::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
 
         // Invalid values can't be created with HueLevel type

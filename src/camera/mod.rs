@@ -22,12 +22,12 @@ use crate::{
 
 use super::profiles::{GenericVisca, PTZOpticsG2, SonyFR7};
 
-/// Dynamic camera profile wrapper that erases the concrete profile type.
+/// Camera profile wrapper that erases the concrete profile type.
 ///
 /// This enum allows us to store different camera profiles without exposing
 /// generic parameters to the user.
 #[derive(Debug, Clone, Copy)]
-pub enum DynamicProfile {
+pub enum CameraProfile {
     /// PTZOptics G2 camera profile
     PTZOpticsG2(PTZOpticsG2),
     /// Sony FR7 camera profile  
@@ -36,7 +36,7 @@ pub enum DynamicProfile {
     GenericVisca(GenericVisca),
 }
 
-impl DynamicProfile {
+impl CameraProfile {
     /// Get the model name of the camera.
     #[must_use]
     pub fn model_name(&self) -> &'static str {
@@ -118,15 +118,15 @@ impl DynamicProfile {
     }
 }
 
-impl Default for DynamicProfile {
+impl Default for CameraProfile {
     fn default() -> Self {
         Self::GenericVisca(GenericVisca)
     }
 }
 
-/// Camera profile identifier for selecting a specific camera model.
+/// Camera model identifier for selecting a specific camera model and its associated profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProfileId {
+pub enum CameraModel {
     /// PTZOptics G2 camera
     PTZOpticsG2,
     /// Sony FR7 camera
@@ -135,19 +135,19 @@ pub enum ProfileId {
     GenericVisca,
 }
 
-impl ProfileId {
-    /// Convert to a dynamic profile instance.
+impl CameraModel {
+    /// Convert to a camera profile instance.
     #[must_use]
-    pub fn to_profile(self) -> DynamicProfile {
+    pub fn to_profile(self) -> CameraProfile {
         match self {
-            Self::PTZOpticsG2 => DynamicProfile::PTZOpticsG2(PTZOpticsG2),
-            Self::SonyFR7 => DynamicProfile::SonyFR7(SonyFR7),
-            Self::GenericVisca => DynamicProfile::GenericVisca(GenericVisca),
+            Self::PTZOpticsG2 => CameraProfile::PTZOpticsG2(PTZOpticsG2),
+            Self::SonyFR7 => CameraProfile::SonyFR7(SonyFR7),
+            Self::GenericVisca => CameraProfile::GenericVisca(GenericVisca),
         }
     }
 }
 
-impl Default for ProfileId {
+impl Default for CameraModel {
     fn default() -> Self {
         Self::GenericVisca
     }
@@ -222,7 +222,7 @@ where
 /// ## Async usage
 /// ```no_run
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// use grafton_visca::{Camera, ProfileId};
+/// use grafton_visca::{Camera, CameraModel};
 /// use grafton_visca::command::power::PowerCommand;
 /// #[cfg(feature = "tokio")]
 /// use grafton_visca::transport::tokio::Tcp;
@@ -235,7 +235,7 @@ where
 ///
 /// // Or specify a profile explicitly
 /// let transport2 = Tcp::connect("192.168.1.100:52381").await?;
-/// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport2);
+/// let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport2);
 ///
 /// // Use the camera
 /// let power_on_cmd = PowerCommand::On;
@@ -248,7 +248,7 @@ where
 /// ## Blocking usage
 /// ```no_run
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// use grafton_visca::{Camera, ProfileId};
+/// use grafton_visca::{Camera, CameraModel};
 /// use grafton_visca::transport::blocking::Tcp;
 ///
 /// // Create a camera with blocking transport
@@ -262,7 +262,7 @@ where
 /// # }
 /// ```
 pub struct Camera {
-    profile: DynamicProfile,
+    profile: CameraProfile,
     transport: Arc<dyn UnifiedTransport>,
     address: u8,
 }
@@ -298,11 +298,11 @@ impl Camera {
         for<'a> T::SendFut<'a>: Send,
         for<'a> T::RecvFut<'a>: Send,
     {
-        Self::with_profile_and_transport(ProfileId::default(), transport)
+        Self::with_profile_and_transport(CameraModel::default(), transport)
     }
 
     /// Create a new unified camera with a specific profile.
-    pub fn with_profile<T>(profile: ProfileId, transport: T) -> Self
+    pub fn with_profile<T>(profile: CameraModel, transport: T) -> Self
     where
         T: Transport + Send + Sync + 'static,
         for<'a> T::SendFut<'a>: Send,
@@ -319,12 +319,12 @@ impl Camera {
         for<'a> T::SendFut<'a>: Send,
         for<'a> T::RecvFut<'a>: Send,
     {
-        Self::with_profile_and_blocking_transport(ProfileId::default(), transport)
+        Self::with_profile_and_blocking_transport(CameraModel::default(), transport)
     }
 
     /// Create with a specific profile and blocking transport.
     #[allow(dead_code)]
-    pub(crate) fn with_profile_blocking<T>(profile: ProfileId, transport: T) -> Self
+    pub(crate) fn with_profile_blocking<T>(profile: CameraModel, transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
         for<'a> T::SendFut<'a>: Send,
@@ -334,7 +334,7 @@ impl Camera {
     }
 
     /// Internal constructor for async transports.
-    fn with_profile_and_transport<T>(profile: ProfileId, transport: T) -> Self
+    fn with_profile_and_transport<T>(profile: CameraModel, transport: T) -> Self
     where
         T: Transport + Send + Sync + 'static,
         for<'a> T::SendFut<'a>: Send,
@@ -353,7 +353,7 @@ impl Camera {
 
     /// Internal constructor for blocking transports.
     #[allow(dead_code)]
-    fn with_profile_and_blocking_transport<T>(profile: ProfileId, transport: T) -> Self
+    fn with_profile_and_blocking_transport<T>(profile: CameraModel, transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
         for<'a> T::SendFut<'a>: Send,
@@ -543,49 +543,49 @@ impl Camera {
     pub fn supports_capability(&self, capability: &str) -> bool {
         match capability {
             "pan_tilt" => match &self.profile {
-                DynamicProfile::PTZOpticsG2(p) => p.supports_pan_tilt(),
-                DynamicProfile::SonyFR7(p) => p.supports_pan_tilt(),
-                DynamicProfile::GenericVisca(p) => p.supports_pan_tilt(),
+                CameraProfile::PTZOpticsG2(p) => p.supports_pan_tilt(),
+                CameraProfile::SonyFR7(p) => p.supports_pan_tilt(),
+                CameraProfile::GenericVisca(p) => p.supports_pan_tilt(),
             },
             "zoom" => match &self.profile {
-                DynamicProfile::PTZOpticsG2(p) => p.supports_zoom(),
-                DynamicProfile::SonyFR7(p) => p.supports_zoom(),
-                DynamicProfile::GenericVisca(p) => p.supports_zoom(),
+                CameraProfile::PTZOpticsG2(p) => p.supports_zoom(),
+                CameraProfile::SonyFR7(p) => p.supports_zoom(),
+                CameraProfile::GenericVisca(p) => p.supports_zoom(),
             },
             "focus" => match &self.profile {
-                DynamicProfile::PTZOpticsG2(p) => p.supports_focus(),
-                DynamicProfile::SonyFR7(p) => p.supports_focus(),
-                DynamicProfile::GenericVisca(p) => p.supports_focus(),
+                CameraProfile::PTZOpticsG2(p) => p.supports_focus(),
+                CameraProfile::SonyFR7(p) => p.supports_focus(),
+                CameraProfile::GenericVisca(p) => p.supports_focus(),
             },
             "exposure" => match &self.profile {
-                DynamicProfile::PTZOpticsG2(p) => p.supports_exposure(),
-                DynamicProfile::SonyFR7(p) => p.supports_exposure(),
-                DynamicProfile::GenericVisca(p) => p.supports_exposure(),
+                CameraProfile::PTZOpticsG2(p) => p.supports_exposure(),
+                CameraProfile::SonyFR7(p) => p.supports_exposure(),
+                CameraProfile::GenericVisca(p) => p.supports_exposure(),
             },
             "white_balance" => match &self.profile {
-                DynamicProfile::PTZOpticsG2(p) => p.supports_white_balance(),
-                DynamicProfile::SonyFR7(p) => p.supports_white_balance(),
-                DynamicProfile::GenericVisca(p) => p.supports_white_balance(),
+                CameraProfile::PTZOpticsG2(p) => p.supports_white_balance(),
+                CameraProfile::SonyFR7(p) => p.supports_white_balance(),
+                CameraProfile::GenericVisca(p) => p.supports_white_balance(),
             },
             "image_processing" => match &self.profile {
-                DynamicProfile::PTZOpticsG2(p) => p.supports_image_processing(),
-                DynamicProfile::SonyFR7(p) => p.supports_image_processing(),
-                DynamicProfile::GenericVisca(p) => p.supports_image_processing(),
+                CameraProfile::PTZOpticsG2(p) => p.supports_image_processing(),
+                CameraProfile::SonyFR7(p) => p.supports_image_processing(),
+                CameraProfile::GenericVisca(p) => p.supports_image_processing(),
             },
             "presets" => match &self.profile {
-                DynamicProfile::PTZOpticsG2(p) => p.supports_presets(),
-                DynamicProfile::SonyFR7(p) => p.supports_presets(),
-                DynamicProfile::GenericVisca(p) => p.supports_presets(),
+                CameraProfile::PTZOpticsG2(p) => p.supports_presets(),
+                CameraProfile::SonyFR7(p) => p.supports_presets(),
+                CameraProfile::GenericVisca(p) => p.supports_presets(),
             },
             "power" => match &self.profile {
-                DynamicProfile::PTZOpticsG2(p) => p.supports_power(),
-                DynamicProfile::SonyFR7(p) => p.supports_power(),
-                DynamicProfile::GenericVisca(p) => p.supports_power(),
+                CameraProfile::PTZOpticsG2(p) => p.supports_power(),
+                CameraProfile::SonyFR7(p) => p.supports_power(),
+                CameraProfile::GenericVisca(p) => p.supports_power(),
             },
             "nd_filter" => match &self.profile {
-                DynamicProfile::PTZOpticsG2(p) => p.supports_nd_filter(),
-                DynamicProfile::SonyFR7(p) => p.supports_nd_filter(),
-                DynamicProfile::GenericVisca(p) => p.supports_nd_filter(),
+                CameraProfile::PTZOpticsG2(p) => p.supports_nd_filter(),
+                CameraProfile::SonyFR7(p) => p.supports_nd_filter(),
+                CameraProfile::GenericVisca(p) => p.supports_nd_filter(),
             },
             _ => false,
         }
@@ -598,9 +598,9 @@ impl Camera {
     pub fn power_on_time(&self) -> Duration {
         use crate::capabilities::Power;
         match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => PTZOpticsG2::POWER_ON_TIME,
-            DynamicProfile::SonyFR7(_) => SonyFR7::POWER_ON_TIME,
-            DynamicProfile::GenericVisca(_) => GenericVisca::POWER_ON_TIME,
+            CameraProfile::PTZOpticsG2(_) => PTZOpticsG2::POWER_ON_TIME,
+            CameraProfile::SonyFR7(_) => SonyFR7::POWER_ON_TIME,
+            CameraProfile::GenericVisca(_) => GenericVisca::POWER_ON_TIME,
         }
     }
 
@@ -609,9 +609,9 @@ impl Camera {
     pub fn standby_time(&self) -> Duration {
         use crate::capabilities::Power;
         match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => PTZOpticsG2::STANDBY_TIME,
-            DynamicProfile::SonyFR7(_) => SonyFR7::STANDBY_TIME,
-            DynamicProfile::GenericVisca(_) => GenericVisca::STANDBY_TIME,
+            CameraProfile::PTZOpticsG2(_) => PTZOpticsG2::STANDBY_TIME,
+            CameraProfile::SonyFR7(_) => SonyFR7::STANDBY_TIME,
+            CameraProfile::GenericVisca(_) => GenericVisca::STANDBY_TIME,
         }
     }
 
@@ -620,9 +620,9 @@ impl Camera {
     pub fn max_presets(&self) -> u8 {
         use crate::capabilities::Presets;
         match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => PTZOpticsG2::MAX_PRESETS,
-            DynamicProfile::SonyFR7(_) => SonyFR7::MAX_PRESETS,
-            DynamicProfile::GenericVisca(_) => 0, // GenericVisca doesn't support presets
+            CameraProfile::PTZOpticsG2(_) => PTZOpticsG2::MAX_PRESETS,
+            CameraProfile::SonyFR7(_) => SonyFR7::MAX_PRESETS,
+            CameraProfile::GenericVisca(_) => 0, // GenericVisca doesn't support presets
         }
     }
 
@@ -631,9 +631,9 @@ impl Camera {
     pub fn zoom_speed_range(&self) -> std::ops::Range<u8> {
         use crate::capabilities::Zoom;
         match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => PTZOpticsG2::ZOOM_SPEED_RANGE,
-            DynamicProfile::SonyFR7(_) => SonyFR7::ZOOM_SPEED_RANGE,
-            DynamicProfile::GenericVisca(_) => GenericVisca::ZOOM_SPEED_RANGE,
+            CameraProfile::PTZOpticsG2(_) => PTZOpticsG2::ZOOM_SPEED_RANGE,
+            CameraProfile::SonyFR7(_) => SonyFR7::ZOOM_SPEED_RANGE,
+            CameraProfile::GenericVisca(_) => GenericVisca::ZOOM_SPEED_RANGE,
         }
     }
 
@@ -642,9 +642,9 @@ impl Camera {
     pub fn optical_zoom_max(&self) -> u16 {
         use crate::capabilities::Zoom;
         match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => PTZOpticsG2::OPTICAL_ZOOM_MAX,
-            DynamicProfile::SonyFR7(_) => SonyFR7::OPTICAL_ZOOM_MAX,
-            DynamicProfile::GenericVisca(_) => GenericVisca::OPTICAL_ZOOM_MAX,
+            CameraProfile::PTZOpticsG2(_) => PTZOpticsG2::OPTICAL_ZOOM_MAX,
+            CameraProfile::SonyFR7(_) => SonyFR7::OPTICAL_ZOOM_MAX,
+            CameraProfile::GenericVisca(_) => GenericVisca::OPTICAL_ZOOM_MAX,
         }
     }
 
@@ -653,9 +653,9 @@ impl Camera {
     pub fn digital_zoom_max(&self) -> Option<u16> {
         use crate::capabilities::Zoom;
         match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => PTZOpticsG2::DIGITAL_ZOOM_MAX,
-            DynamicProfile::SonyFR7(_) => SonyFR7::DIGITAL_ZOOM_MAX,
-            DynamicProfile::GenericVisca(_) => GenericVisca::DIGITAL_ZOOM_MAX,
+            CameraProfile::PTZOpticsG2(_) => PTZOpticsG2::DIGITAL_ZOOM_MAX,
+            CameraProfile::SonyFR7(_) => SonyFR7::DIGITAL_ZOOM_MAX,
+            CameraProfile::GenericVisca(_) => GenericVisca::DIGITAL_ZOOM_MAX,
         }
     }
 
@@ -667,15 +667,15 @@ impl Camera {
     ) -> (crate::units::ViscaUnits<i16>, crate::units::ViscaUnits<i16>) {
         use crate::capabilities::PanTilt;
         let (pan_conv, tilt_conv) = match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => (
+            CameraProfile::PTZOpticsG2(_) => (
                 PTZOpticsG2::PAN_DEGREES_TO_UNITS,
                 PTZOpticsG2::TILT_DEGREES_TO_UNITS,
             ),
-            DynamicProfile::SonyFR7(_) => (
+            CameraProfile::SonyFR7(_) => (
                 SonyFR7::PAN_DEGREES_TO_UNITS,
                 SonyFR7::TILT_DEGREES_TO_UNITS,
             ),
-            DynamicProfile::GenericVisca(_) => (
+            CameraProfile::GenericVisca(_) => (
                 GenericVisca::PAN_DEGREES_TO_UNITS,
                 GenericVisca::TILT_DEGREES_TO_UNITS,
             ),
@@ -698,15 +698,15 @@ impl Camera {
     ) -> (crate::units::Degrees, crate::units::Degrees) {
         use crate::capabilities::PanTilt;
         let (pan_conv, tilt_conv) = match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => (
+            CameraProfile::PTZOpticsG2(_) => (
                 PTZOpticsG2::PAN_DEGREES_TO_UNITS,
                 PTZOpticsG2::TILT_DEGREES_TO_UNITS,
             ),
-            DynamicProfile::SonyFR7(_) => (
+            CameraProfile::SonyFR7(_) => (
                 SonyFR7::PAN_DEGREES_TO_UNITS,
                 SonyFR7::TILT_DEGREES_TO_UNITS,
             ),
-            DynamicProfile::GenericVisca(_) => (
+            CameraProfile::GenericVisca(_) => (
                 GenericVisca::PAN_DEGREES_TO_UNITS,
                 GenericVisca::TILT_DEGREES_TO_UNITS,
             ),
@@ -725,9 +725,9 @@ impl Camera {
     pub fn validate_pan(&self, pan_units: i16) -> Result<i16, Error> {
         use crate::capabilities::{PanTilt, ValidationError};
         let range = match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => PTZOpticsG2::PAN_RANGE,
-            DynamicProfile::SonyFR7(_) => SonyFR7::PAN_RANGE,
-            DynamicProfile::GenericVisca(_) => GenericVisca::PAN_RANGE,
+            CameraProfile::PTZOpticsG2(_) => PTZOpticsG2::PAN_RANGE,
+            CameraProfile::SonyFR7(_) => SonyFR7::PAN_RANGE,
+            CameraProfile::GenericVisca(_) => GenericVisca::PAN_RANGE,
         };
 
         if range.contains(&pan_units) {
@@ -746,9 +746,9 @@ impl Camera {
     pub fn validate_tilt(&self, tilt_units: i16) -> Result<i16, Error> {
         use crate::capabilities::{PanTilt, ValidationError};
         let range = match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => PTZOpticsG2::TILT_RANGE,
-            DynamicProfile::SonyFR7(_) => SonyFR7::TILT_RANGE,
-            DynamicProfile::GenericVisca(_) => GenericVisca::TILT_RANGE,
+            CameraProfile::PTZOpticsG2(_) => PTZOpticsG2::TILT_RANGE,
+            CameraProfile::SonyFR7(_) => SonyFR7::TILT_RANGE,
+            CameraProfile::GenericVisca(_) => GenericVisca::TILT_RANGE,
         };
 
         if range.contains(&tilt_units) {
@@ -768,9 +768,9 @@ impl Camera {
     pub fn nd_filter_mode(&self) -> Option<crate::capabilities::NDFilterMode> {
         use crate::capabilities::NDFilter;
         match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => None, // PTZOpticsG2 doesn't support ND filters
-            DynamicProfile::SonyFR7(_) => Some(SonyFR7::ND_MODE),
-            DynamicProfile::GenericVisca(_) => None, // GenericVisca doesn't support ND filters
+            CameraProfile::PTZOpticsG2(_) => None, // PTZOpticsG2 doesn't support ND filters
+            CameraProfile::SonyFR7(_) => Some(SonyFR7::ND_MODE),
+            CameraProfile::GenericVisca(_) => None, // GenericVisca doesn't support ND filters
         }
     }
 
@@ -780,14 +780,14 @@ impl Camera {
 
         // Check if camera supports ND filters
         match &self.profile {
-            DynamicProfile::PTZOpticsG2(_) => Err(Error::FeatureNotSupported {
+            CameraProfile::PTZOpticsG2(_) => Err(Error::FeatureNotSupported {
                 feature: "ND filter",
             }),
-            DynamicProfile::SonyFR7(p) => {
+            CameraProfile::SonyFR7(p) => {
                 // Use the NDFilterExt trait method for validation
                 p.validate_nd_filter(level).map_err(Into::into)
             }
-            DynamicProfile::GenericVisca(_) => Err(Error::FeatureNotSupported {
+            CameraProfile::GenericVisca(_) => Err(Error::FeatureNotSupported {
                 feature: "ND filter",
             }),
         }
@@ -800,13 +800,13 @@ impl Camera {
     ///
     /// # Example
     /// ```no_run
-    /// use grafton_visca::{Camera, ProfileId};
+    /// use grafton_visca::{Camera, CameraModel};
     /// use grafton_visca::transport::blocking::Tcp;
     /// use grafton_visca::blocking::ZoomOps;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let transport = Tcp::connect("192.168.1.100:52381")?;
-    /// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    /// let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
     /// let blocking_camera = camera.blocking();
     ///
     /// // Use blocking API
@@ -844,13 +844,13 @@ impl Camera {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// #[cfg(feature = "tokio")]
     /// use grafton_visca::transport::tokio::Tcp;
-    /// use grafton_visca::{Camera, ProfileId};
+    /// use grafton_visca::{Camera, CameraModel};
     /// use grafton_visca::r#async::ZoomOps;
     ///
     /// # #[cfg(feature = "tokio")]
     /// # {
     /// let transport = Tcp::connect("192.168.1.100:52381").await?;
-    /// let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    /// let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
     /// let async_camera = camera.r#async();
     ///
     /// // Use async API
@@ -879,13 +879,13 @@ mod tests {
 
     #[test]
     fn test_profile_selection() {
-        let profile = ProfileId::PTZOpticsG2.to_profile();
+        let profile = CameraModel::PTZOpticsG2.to_profile();
         assert_eq!(profile.model_name(), "PTZOptics G2");
 
-        let profile = ProfileId::SonyFR7.to_profile();
+        let profile = CameraModel::SonyFR7.to_profile();
         assert_eq!(profile.model_name(), "Sony FR7");
 
-        let profile = ProfileId::default().to_profile();
+        let profile = CameraModel::default().to_profile();
         assert_eq!(profile.model_name(), "Generic VISCA Camera");
     }
 }

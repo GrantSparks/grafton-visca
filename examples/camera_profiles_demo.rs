@@ -7,7 +7,8 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    command::preset::PresetNumber, types::SpeedLevel, Camera, Degrees, Error, Normalized, ProfileId,
+    command::preset::PresetNumber, types::SpeedLevel, Camera, CameraModel, Degrees, Error,
+    Normalized,
 };
 
 #[cfg(feature = "tokio")]
@@ -36,7 +37,7 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
 
     // Connect to camera
     let transport = Tcp::connect("192.168.1.100:5678").await?;
-    let unified_camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    let unified_camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
 
     println!("Connected to: {}", unified_camera.model_name());
     println!("Profile info: {}", unified_camera.profile_info());
@@ -107,7 +108,7 @@ async fn demonstrate_sony_fr7() -> Result<(), Error> {
     println!("=== Sony FR7 Demo ===");
 
     let transport = Tcp::connect("192.168.1.101:5678").await?;
-    let unified_camera = Camera::with_profile(ProfileId::SonyFR7, transport);
+    let unified_camera = Camera::with_profile(CameraModel::SonyFR7, transport);
 
     println!("Connected to: {}", unified_camera.model_name());
     println!("Profile info: {}", unified_camera.profile_info());

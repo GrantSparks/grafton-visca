@@ -11,7 +11,7 @@ use crate::common::test_fixtures::{generators, CommandFixtures};
 use crate::common::*;
 use grafton_visca::{
     blocking::*,
-    camera::{Camera, ProfileId},
+    camera::{Camera, CameraModel},
     Error, Result,
 };
 use std::time::Duration;
@@ -28,7 +28,7 @@ fn test_with_mock_transport_basic() {
         .then_complete(1);
 
     // Create camera with mock transport
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute the command
     camera.power_on().unwrap();
@@ -119,7 +119,7 @@ fn test_scenario_builder() -> Result<()> {
     scenario.apply_to(&mut mock).unwrap();
 
     // Create camera and execute commands
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     camera.power_on()?;
     camera.pan_tilt_home()?;

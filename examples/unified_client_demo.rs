@@ -3,7 +3,7 @@
 //! This example shows how the Camera API works seamlessly without
 //! requiring generic type parameters for profile or transport.
 
-use grafton_visca::{Camera, Error, ProfileId};
+use grafton_visca::{Camera, CameraModel, Error};
 
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::transport::blocking::{Tcp, Udp};
@@ -27,21 +27,21 @@ fn blocking_examples() -> Result<(), Error> {
     // Example 2: Create camera with specific profile
     println!("\nExample 2: PTZOptics G2 profile with TCP");
     let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, tcp_transport);
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, tcp_transport);
     println!("Created camera: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
 
     // Example 3: Create Sony FR7 camera
     println!("\nExample 3: Sony FR7 profile");
     let transport = Udp::connect("192.168.1.200:52381")?;
-    let camera = Camera::with_profile(ProfileId::SonyFR7, transport);
+    let camera = Camera::with_profile(CameraModel::SonyFR7, transport);
     println!("Created camera: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
 
     // Example 4: Check capabilities at runtime
     println!("\nExample 4: Runtime capability checking");
     let transport = Tcp::connect("192.168.1.100:5678")?;
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
 
     println!("Capabilities for {}:", camera.model_name());
     println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
@@ -69,21 +69,21 @@ async fn async_examples() -> Result<(), Error> {
     // Example 2: Create camera with specific profile
     println!("\nExample 2: PTZOptics G2 profile with TCP");
     let tcp_transport = Tcp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, tcp_transport);
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, tcp_transport);
     println!("Created camera: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
 
     // Example 3: Create Sony FR7 camera
     println!("\nExample 3: Sony FR7 profile");
     let transport = Udp::connect("192.168.1.200:52381").await?;
-    let camera = Camera::with_profile(ProfileId::SonyFR7, transport);
+    let camera = Camera::with_profile(CameraModel::SonyFR7, transport);
     println!("Created camera: {}", camera.model_name());
     println!("Profile info: {}", camera.profile_info());
 
     // Example 4: Check capabilities at runtime
     println!("\nExample 4: Runtime capability checking");
     let transport = Tcp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
 
     println!("Capabilities for {}:", camera.model_name());
     println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
@@ -113,9 +113,9 @@ fn advanced_example() {
     println!("NEW: Camera (profile and transport hidden)");
 
     println!("\nProfile options:");
-    println!("- ProfileId::GenericVisca (default)");
-    println!("- ProfileId::PTZOpticsG2");
-    println!("- ProfileId::SonyFR7");
+    println!("- CameraModel::GenericVisca (default)");
+    println!("- CameraModel::PTZOpticsG2");
+    println!("- CameraModel::SonyFR7");
 }
 
 // ==================== MAIN FUNCTIONS ====================

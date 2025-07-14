@@ -12,7 +12,7 @@ use crate::common::{
 };
 use grafton_visca::{
     blocking::*,
-    camera::{Camera, ProfileId},
+    camera::{Camera, CameraModel},
     command::preset::PresetNumber,
     Error,
 };
@@ -57,7 +57,7 @@ fn test_preset_commands_with_fixtures() {
     }
 
     let mock = builder.build();
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute preset operations
     camera.preset_set(PresetNumber::new(1).unwrap()).unwrap();
@@ -81,7 +81,7 @@ fn test_preset_recall_with_scenario_builder() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute the sequence
     camera.power_on().unwrap();
@@ -130,7 +130,7 @@ fn test_preset_set_command() {
             ));
     }
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute preset set commands
     camera.preset_set(PresetNumber::new(0).unwrap()).unwrap();
@@ -159,7 +159,7 @@ fn test_preset_recall_command() {
             ));
     }
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute preset recall commands
     camera.preset_recall(PresetNumber::new(0).unwrap()).unwrap();
@@ -230,7 +230,7 @@ fn test_preset_command_sequence() {
     let mut mock = MockTransport::new();
     scenario.apply_to(&mut mock).unwrap();
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Execute the sequence
     camera.power_on().unwrap();
@@ -262,7 +262,7 @@ fn test_preset_error_handling() {
             patterns::responses::NOT_EXECUTABLE[2],
         )));
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Should get an error
     let result = camera.preset_recall(PresetNumber::new(5).unwrap());
@@ -279,7 +279,7 @@ fn test_preset_with_timeout() {
         .will_respond(MockResponse::Immediate(ResponseBuilder::ack(1)));
     // No completion response - will timeout
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Should timeout
     let result = camera.preset_recall(PresetNumber::new(3).unwrap());
@@ -309,7 +309,7 @@ async fn test_preset_commands_async() {
             Duration::from_millis(2000),
         ));
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).r#async();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).r#async();
 
     // Execute async operations
     camera

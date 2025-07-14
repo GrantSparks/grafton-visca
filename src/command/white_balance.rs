@@ -61,14 +61,14 @@ crate::visca_param_command! {
 
 impl WhiteBalanceCommand {
     #[allow(dead_code)]
-    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
-        use crate::constants::CameraModel;
+    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
+        use crate::constants::CameraVariant;
 
         match self.mode {
             WhiteBalanceMode::ATW => {
                 // ATW is only supported on Sony models
                 match model {
-                    CameraModel::SonyFR7 => Ok(()),
+                    CameraVariant::SonyFR7 => Ok(()),
                     _ => Err(Error::ModelValidation {
                         model,
                         command: "WhiteBalanceCommand(ATW)".to_string(),
@@ -135,12 +135,12 @@ impl EncodeVisca for AWBSensitivityCommand {
         CommandCategory::Quick
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraModel) -> Result<(), Error> {
-        use crate::constants::CameraModel;
+    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
+        use crate::constants::CameraVariant;
 
         // AWB Sensitivity is only supported on PTZOptics models
         match model {
-            CameraModel::PTZOpticsG2 => Ok(()),
+            CameraVariant::PTZOpticsG2 => Ok(()),
             _ => Err(Error::ModelValidation {
                 model,
                 command: "AWBSensitivityCommand".to_string(),
@@ -425,12 +425,12 @@ mod tests {
 
         // Should pass for PTZOpticsG2
         assert!(cmd
-            .validate_for_model(crate::constants::CameraModel::PTZOpticsG2)
+            .validate_for_model(crate::constants::CameraVariant::PTZOpticsG2)
             .is_ok());
 
         // Should fail for other models
         assert!(cmd
-            .validate_for_model(crate::constants::CameraModel::SonyFR7)
+            .validate_for_model(crate::constants::CameraVariant::SonyFR7)
             .is_err());
     }
 
@@ -442,12 +442,12 @@ mod tests {
 
         // Should pass for SonyFR7
         assert!(cmd
-            .validate_for_model(crate::constants::CameraModel::SonyFR7)
+            .validate_for_model(crate::constants::CameraVariant::SonyFR7)
             .is_ok());
 
         // Should fail for other models
         assert!(cmd
-            .validate_for_model(crate::constants::CameraModel::PTZOpticsG2)
+            .validate_for_model(crate::constants::CameraVariant::PTZOpticsG2)
             .is_err());
     }
 }

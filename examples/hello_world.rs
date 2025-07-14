@@ -10,7 +10,7 @@
 use grafton_visca::blocking::{PanTiltOps, PowerOps};
 #[cfg(feature = "tokio")]
 use grafton_visca::r#async::{PanTiltOps, PowerOps};
-use grafton_visca::{Camera, Error, ProfileId};
+use grafton_visca::{Camera, CameraModel, Error};
 use std::env;
 
 #[cfg(not(feature = "tokio"))]
@@ -33,7 +33,7 @@ fn main() -> Result<(), Error> {
 
     // Create camera with blocking TCP transport
     let transport = Tcp::connect(&camera_addr)?;
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).blocking();
 
     // Power on the camera
     println!("Powering on camera...");
@@ -66,7 +66,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera with async TCP transport
     let transport = Tcp::connect(&camera_addr).await?;
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, transport);
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
 
     // Power on the camera
     println!("Powering on camera...");

@@ -205,7 +205,7 @@ pub enum Error {
     #[error("Command '{command}' not valid for {model:?}: {reason}")]
     ModelValidation {
         /// The camera model that failed validation.
-        model: crate::constants::CameraModel,
+        model: crate::constants::CameraVariant,
         /// The command that failed validation.
         command: String,
         /// Reason for the validation failure.

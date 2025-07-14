@@ -5,7 +5,7 @@ mod common;
 use crate::common::{patterns, MockTransport, ProtocolValidator, ValidationMode};
 use grafton_visca::{
     blocking::{InquiryOps, ZoomOps},
-    camera::{Camera, ProfileId},
+    camera::{Camera, CameraModel},
     command::{zoom::ZoomSpeed, EncodeVisca, Zoom},
     types::ZoomPosition,
     Error,
@@ -201,7 +201,7 @@ fn test_zoom_commands_with_camera() {
         .will_ack(1)
         .then_complete(1);
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Test zoom commands in order of expectations
     assert!(camera.zoom_stop().is_ok());
@@ -221,7 +221,7 @@ fn test_zoom_with_inquiry_response() {
         .described_as("zoom position inquiry")
         .will_return_data(&[0x04, 0x00, 0x00, 0x00]); // Position 0x4000
 
-    let camera = Camera::with_profile(ProfileId::PTZOpticsG2, mock.clone()).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
     // Call the zoom position inquiry method
     let position = camera.get_zoom_position().unwrap();
