@@ -28,8 +28,18 @@ visca_command! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{EncodeVisca, visca_test};
+    use crate::{visca_test, EncodeVisca};
 
-    visca_test!(PowerCommand, test_power_on, PowerCommand::On, &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
-    visca_test!(PowerCommand, test_power_standby, PowerCommand::Standby, &[0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]);
+    visca_test!(
+        PowerCommand,
+        test_power_on,
+        PowerCommand::On,
+        &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]
+    );
+    visca_test!(
+        PowerCommand,
+        test_power_standby,
+        PowerCommand::Standby,
+        &[0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]
+    );
 }

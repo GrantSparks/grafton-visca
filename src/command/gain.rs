@@ -194,13 +194,28 @@ impl AntiFlickerCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{constants::CameraModel, EncodeVisca, visca_test};
+    use crate::{constants::CameraModel, visca_test, EncodeVisca};
 
-    visca_test!(Gain, test_gain_command_reset, Gain::Reset, &[0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF]);
+    visca_test!(
+        Gain,
+        test_gain_command_reset,
+        Gain::Reset,
+        &[0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF]
+    );
 
-    visca_test!(Gain, test_gain_command_up, Gain::Up, &[0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF]);
+    visca_test!(
+        Gain,
+        test_gain_command_up,
+        Gain::Up,
+        &[0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF]
+    );
 
-    visca_test!(Gain, test_gain_command_down, Gain::Down, &[0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF]);
+    visca_test!(
+        Gain,
+        test_gain_command_down,
+        Gain::Down,
+        &[0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF]
+    );
 
     #[test]
     fn test_gain_command_set_value() {

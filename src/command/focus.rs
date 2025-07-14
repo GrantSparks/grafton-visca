@@ -42,6 +42,42 @@ impl TryFrom<u8> for FocusMode {
     }
 }
 
+/// Focus range setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusRange {
+    /// Normal focus range.
+    Normal,
+    /// 10x focus range.
+    Range10x,
+    /// 4.3x focus range.
+    Range4_3x,
+    /// 2.1x focus range.
+    Range2_1x,
+    /// 1x focus range.
+    Range1x,
+    /// 0.35x focus range.
+    Range0_35x,
+}
+
+impl TryFrom<u8> for FocusRange {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(FocusRange::Normal),
+            0x01 => Ok(FocusRange::Range10x),
+            0x02 => Ok(FocusRange::Range4_3x),
+            0x03 => Ok(FocusRange::Range2_1x),
+            0x04 => Ok(FocusRange::Range1x),
+            0x05 => Ok(FocusRange::Range0_35x),
+            _ => Err(Error::InvalidResponse {
+                expected: "0x00-0x05 (focus range)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
 crate::visca_bounded_param! {
     /// Variable focus speed.
     ///
@@ -338,7 +374,7 @@ crate::visca_builder! {
         let p1 = ((pos_val >> 8) & 0x0F) as u8;
         let p2 = ((pos_val >> 4) & 0x0F) as u8;
         let p3 = (pos_val & 0x0F) as u8;
-        
+
         let _ = builder.append(&[0x81, 0x01, 0x04, 0x28]);
         let _ = builder.push(p0);
         let _ = builder.push(p1);
@@ -434,13 +470,28 @@ impl EncodeVisca for PushAF {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{EncodeVisca, visca_test};
+    use crate::{visca_test, EncodeVisca};
 
-    visca_test!(Focus, test_focus_command_stop, Focus::Stop, &[0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]);
+    visca_test!(
+        Focus,
+        test_focus_command_stop,
+        Focus::Stop,
+        &[0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]
+    );
 
-    visca_test!(Focus, test_focus_command_far_standard, Focus::Far, &[0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]);
+    visca_test!(
+        Focus,
+        test_focus_command_far_standard,
+        Focus::Far,
+        &[0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]
+    );
 
-    visca_test!(Focus, test_focus_command_near_standard, Focus::Near, &[0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]);
+    visca_test!(
+        Focus,
+        test_focus_command_near_standard,
+        Focus::Near,
+        &[0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]
+    );
 
     #[test]
     fn test_focus_command_far_variable() {
@@ -506,13 +557,33 @@ mod tests {
         );
     }
 
-    visca_test!(Focus, test_focus_command_auto, Focus::Auto, &[0x81, 0x01, 0x04, 0x38, 0x02, 0xFF]);
+    visca_test!(
+        Focus,
+        test_focus_command_auto,
+        Focus::Auto,
+        &[0x81, 0x01, 0x04, 0x38, 0x02, 0xFF]
+    );
 
-    visca_test!(Focus, test_focus_command_manual, Focus::Manual, &[0x81, 0x01, 0x04, 0x38, 0x03, 0xFF]);
+    visca_test!(
+        Focus,
+        test_focus_command_manual,
+        Focus::Manual,
+        &[0x81, 0x01, 0x04, 0x38, 0x03, 0xFF]
+    );
 
-    visca_test!(Focus, test_focus_command_one_push_trigger, Focus::OnePushTrigger, &[0x81, 0x01, 0x04, 0x18, 0x01, 0xFF]);
+    visca_test!(
+        Focus,
+        test_focus_command_one_push_trigger,
+        Focus::OnePushTrigger,
+        &[0x81, 0x01, 0x04, 0x18, 0x01, 0xFF]
+    );
 
-    visca_test!(Focus, test_focus_command_infinity, Focus::Infinity, &[0x81, 0x01, 0x04, 0x18, 0x02, 0xFF]);
+    visca_test!(
+        Focus,
+        test_focus_command_infinity,
+        Focus::Infinity,
+        &[0x81, 0x01, 0x04, 0x18, 0x02, 0xFF]
+    );
 
     #[test]
     fn test_focus_zone_command() {

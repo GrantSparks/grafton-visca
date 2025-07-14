@@ -11,8 +11,11 @@
 // Workspace / local-crate imports
 use crate::{
     command::{
-        gain::AntiFlickerMode, image_adjustment::SharpnessMode, AutoFocusSensitivity, ExposureMode,
-        FocusMode, FocusZone, InquiryResponse, WhiteBalanceMode,
+        gain::AntiFlickerMode,
+        image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
+        system::{MotionSyncMode, MotionSyncSpeed},
+        AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, FocusZone,
+        InquiryResponse, WhiteBalanceMode,
     },
     error::Error,
 };
@@ -197,10 +200,6 @@ pub enum ResponseType {
     // Additional response types for completeness
     /// Sharpness position inquiry response.
     SharpnessPosition,
-    /// Horizontal flip state inquiry response.
-    HorizontalFlip,
-    /// Vertical flip state inquiry response.
-    VerticalFlip,
     /// Black and white mode state inquiry response.
     BlackWhiteMode,
     /// Exposure compensation position inquiry response.
@@ -211,10 +210,6 @@ pub enum ResponseType {
     BlueTuning,
     /// Auto white balance sensitivity inquiry response.
     AutoWhiteBalanceSensitivity,
-    /// 3D noise reduction state inquiry response.
-    ThreeDNoiseReduction,
-    /// 2D noise reduction state inquiry response.
-    TwoDNoiseReduction,
     /// Motion sync mode inquiry response.
     MotionSyncMode,
     /// Motion sync speed inquiry response.
@@ -271,8 +266,6 @@ pub enum ResponseType {
     ZoomTeleWide,
     /// Standby state inquiry response.
     Standby,
-    /// Tally state inquiry response.
-    Tally,
     /// Digital PTZ state inquiry response.
     DigitalPtz,
     /// Digital mode inquiry response.
@@ -281,8 +274,6 @@ pub enum ResponseType {
     IrisControl,
     /// Defog level inquiry response.
     DefogLevel,
-    /// Night/day state inquiry response.
-    NightDay,
     /// Night/day switch inquiry response.
     NightDaySwitch,
     /// Flip mode inquiry response.
@@ -423,9 +414,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::WhiteBalanceMode {
-                mode,
-            }))
+            Ok(Response::InquiryResponse(
+                InquiryResponse::WhiteBalanceMode { mode },
+            ))
         }
         ResponseType::AntiFlicker => {
             if payload.len() != 1 {
@@ -672,9 +663,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             // Extract the color temperature from nibbles 2 and 3
             let temperature = ((payload[2] as u16) << 4) | (payload[3] as u16);
-            Ok(Response::InquiryResponse(InquiryResponse::ColorTemperature {
-                temperature,
-            }))
+            Ok(Response::InquiryResponse(
+                InquiryResponse::ColorTemperature { temperature },
+            ))
         }
         ResponseType::Hue => {
             if payload.len() != 4 {
@@ -682,9 +673,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             // Extract the hue value from the last nibble
             let hue = payload[3];
-            Ok(Response::InquiryResponse(InquiryResponse::Hue {
-                hue,
-            }))
+            Ok(Response::InquiryResponse(InquiryResponse::Hue { hue }))
         }
         ResponseType::Version => {
             // Version response format: VV VV MM MM FF FF KK
@@ -743,9 +732,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let level = payload[0];
-            Ok(Response::InquiryResponse(InquiryResponse::NoiseReduction2D {
-                level,
-            }))
+            Ok(Response::InquiryResponse(
+                InquiryResponse::NoiseReduction2D { level },
+            ))
         }
         ResponseType::NoiseReduction3D => {
             // 3D noise reduction level response
@@ -754,15 +743,689 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let level = payload[0];
-            Ok(Response::InquiryResponse(InquiryResponse::NoiseReduction3D {
-                level,
+            Ok(Response::InquiryResponse(
+                InquiryResponse::NoiseReduction3D { level },
+            ))
+        }
+        ResponseType::MenuOpenClose => {
+            // Menu open/close status response
+            // Single byte: 0x02 = closed, 0x03 = open
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let is_open = match payload[0] {
+                0x02 => false, // Menu closed
+                0x03 => true,  // Menu open
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "menu_status",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)"
+                            .to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::MenuOpenClose {
+                is_open,
             }))
         }
-        // For unimplemented response types, return Unknown variant
-        _ => Ok(Response::Unknown {
-            response_type: Some(*expected_type),
-            data: payload.to_vec(),
-        }),
+        ResponseType::AutoFocus => {
+            // AutoFocus on/off status response
+            // Single byte: 0x02 = off, 0x03 = on
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let enabled = match payload[0] {
+                0x02 => false, // AF off
+                0x03 => true,  // AF on
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "autofocus_status",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)"
+                            .to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::AutoFocus {
+                enabled,
+            }))
+        }
+        ResponseType::TallyStatus => {
+            // Tally light status response
+            // Two bytes: first for red, second for green
+            // Each byte: 0x02 = off, 0x03 = on
+            if payload.len() != 2 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let red_on = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "tally_red_status",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)"
+                            .to_string(),
+                    })
+                }
+            };
+            let green_on = match payload[1] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "tally_green_status",
+                        value: format!("{:02X}", payload[1]),
+                        reason: "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)"
+                            .to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::TallyStatus {
+                red_on,
+                green_on,
+            }))
+        }
+        ResponseType::Resolution => {
+            // Resolution inquiry response
+            // Single byte indicating resolution mode
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Resolution values based on common PTZ camera patterns:
+            // 0x00 = 1080p60, 0x01 = 1080p30, 0x02 = 720p60, 0x03 = 720p30, etc.
+            let resolution_mode = payload[0];
+            Ok(Response::InquiryResponse(InquiryResponse::Resolution(
+                resolution_mode,
+            )))
+        }
+        ResponseType::NightDayMode => {
+            // Night/Day mode inquiry response
+            // Single byte: 0x02 = Day mode, 0x03 = Night mode
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let is_night = match payload[0] {
+                0x02 => false, // Day mode
+                0x03 => true,  // Night mode
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "night_day_mode",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)"
+                            .to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::NightDayMode {
+                is_night,
+            }))
+        }
+        ResponseType::NdFilter => {
+            // ND filter position inquiry response
+            // Single byte indicating filter position
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Common ND filter positions:
+            // 0x00 = Clear (no filter)
+            // 0x01 = 1/4 ND
+            // 0x02 = 1/8 ND
+            // 0x03 = 1/16 ND
+            // 0x04 = 1/32 ND
+            // 0x05 = 1/64 ND
+            let position = payload[0];
+            Ok(Response::InquiryResponse(InquiryResponse::NdFilter {
+                position,
+            }))
+        }
+        ResponseType::PictureEffect => {
+            // Picture effect inquiry response
+            // Single byte indicating current effect
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Picture effect values:
+            // 0x00 = Off (normal)
+            // 0x01 = Negative
+            // 0x02 = B&W
+            // Other values are camera-specific effects
+            let effect = payload[0];
+            Ok(Response::InquiryResponse(InquiryResponse::PictureEffect {
+                effect,
+            }))
+        }
+        ResponseType::FlipMode => {
+            // Combined flip mode inquiry response
+            // Single byte encoding both horizontal and vertical flip
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Flip mode encoding:
+            // 0x00 = No flip
+            // 0x01 = Horizontal flip only
+            // 0x02 = Vertical flip only
+            // 0x03 = Both horizontal and vertical flip
+            let mode = payload[0];
+            let horizontal = (mode & 0x01) != 0;
+            let vertical = (mode & 0x02) != 0;
+            Ok(Response::InquiryResponse(InquiryResponse::FlipMode {
+                horizontal,
+                vertical,
+            }))
+        }
+        ResponseType::Standby => {
+            // Standby mode inquiry response
+            // Single byte: 0x02 = Active, 0x03 = Standby
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let in_standby =
+                match payload[0] {
+                    0x02 => false, // Active
+                    0x03 => true,  // Standby
+                    _ => return Err(Error::InvalidParameter {
+                        parameter: "standby_mode",
+                        value: format!("{:02X}", payload[0]),
+                        reason:
+                            "Invalid standby mode value. Expected 0x02 (active) or 0x03 (standby)"
+                                .to_string(),
+                    }),
+                };
+            Ok(Response::InquiryResponse(InquiryResponse::Standby {
+                in_standby,
+            }))
+        }
+        ResponseType::FocusRange => {
+            // Focus range inquiry response
+            // Single byte indicating focus range mode
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            // Parse custom focus range response
+            parse_focus_range(payload).map(Response::InquiryResponse)
+        }
+        ResponseType::IrisControl => {
+            // Iris control inquiry response
+            // Single byte: 0x02 = Manual control, 0x03 = Auto control
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let auto = match payload[0] {
+                0x02 => false, // Manual control
+                0x03 => true,  // Auto control
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "iris_control",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)"
+                            .to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::IrisControl {
+                auto,
+            }))
+        }
+        ResponseType::DefogMode => {
+            // Defog mode inquiry response
+            // Single byte: 0x02 = Off, 0x03 = On
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let enabled = match payload[0] {
+                0x02 => false, // Defog off
+                0x03 => true,  // Defog on
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "defog_mode",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Invalid defog mode value. Expected 0x02 (off) or 0x03 (on)"
+                            .to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::DefogMode {
+                enabled,
+            }))
+        }
+        ResponseType::DefogLevel => {
+            // Defog level inquiry response
+            // Single byte indicating defog strength level
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            Ok(Response::InquiryResponse(InquiryResponse::DefogLevel {
+                level: payload[0],
+            }))
+        }
+        ResponseType::DigitalPtz => {
+            // Digital PTZ enable/disable inquiry response
+            // Single byte: 0x02 = Off, 0x03 = On
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let enabled = match payload[0] {
+                0x02 => false, // Digital PTZ off
+                0x03 => true,  // Digital PTZ on
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "digital_ptz",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Invalid digital PTZ value. Expected 0x02 (off) or 0x03 (on)"
+                            .to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::DigitalPtz {
+                enabled,
+            }))
+        }
+        ResponseType::AutoWhiteBalanceSensitivity => {
+            // Auto white balance sensitivity inquiry response
+            // Single byte: 0x00 = Low, 0x01 = Normal, 0x02 = High
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let sensitivity = match payload[0] {
+                0x00 => AutoWhiteBalanceSensitivity::Low,
+                0x01 => AutoWhiteBalanceSensitivity::Normal,
+                0x02 => AutoWhiteBalanceSensitivity::High,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "auto_wb_sensitivity",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Invalid auto white balance sensitivity. Expected 0x00 (Low), 0x01 (Normal), or 0x02 (High)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(
+                InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity },
+            ))
+        }
+        ResponseType::ExposureCompensationPosition => {
+            // Exposure compensation position inquiry response
+            // 4 bytes: PP PP (position as nibbles)
+            if payload.len() != 4 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let position = combine_nibbles_u16(&payload[0..4]);
+            Ok(Response::InquiryResponse(
+                InquiryResponse::ExposureCompensationPosition { position },
+            ))
+        }
+        ResponseType::RedTuning => {
+            // Red channel tuning inquiry response
+            // Single byte: tuning level
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            Ok(Response::InquiryResponse(InquiryResponse::RedTuning {
+                level: payload[0],
+            }))
+        }
+        ResponseType::BlueTuning => {
+            // Blue channel tuning inquiry response
+            // Single byte: tuning level
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            Ok(Response::InquiryResponse(InquiryResponse::BlueTuning {
+                level: payload[0],
+            }))
+        }
+        ResponseType::AutoTrace => {
+            // Auto trace mode inquiry response
+            // Single byte: 0x02 = Off, 0x03 = On
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let enabled = match payload[0] {
+                0x02 => false, // Auto trace off
+                0x03 => true,  // Auto trace on
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "auto_trace",
+                        value: format!("{:02X}", payload[0]),
+                        reason: "Invalid auto trace value. Expected 0x02 (off) or 0x03 (on)"
+                            .to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::AutoTrace {
+                enabled,
+            }))
+        }
+        ResponseType::FocusUnlock => {
+            // Focus unlock state inquiry response
+            // Single byte: 0x02 = Locked, 0x03 = Unlocked
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let unlocked =
+                match payload[0] {
+                    0x02 => false, // Focus locked
+                    0x03 => true,  // Focus unlocked
+                    _ => return Err(Error::InvalidParameter {
+                        parameter: "focus_unlock",
+                        value: format!("{:02X}", payload[0]),
+                        reason:
+                            "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)"
+                                .to_string(),
+                    }),
+                };
+            Ok(Response::InquiryResponse(InquiryResponse::FocusUnlock {
+                unlocked,
+            }))
+        }
+        ResponseType::SharpnessPosition => {
+            if payload.len() != 4 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let position = combine_nibbles_u16(&payload[0..4]);
+            Ok(Response::InquiryResponse(
+                InquiryResponse::SharpnessPosition { position },
+            ))
+        }
+        ResponseType::NrLevel => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            Ok(Response::InquiryResponse(InquiryResponse::NrLevel(
+                payload[0],
+            )))
+        }
+        ResponseType::BroadcastDomain => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            Ok(Response::InquiryResponse(InquiryResponse::BroadcastDomain(
+                payload[0],
+            )))
+        }
+        ResponseType::MotionSyncMode => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let mode = MotionSyncMode::try_from(payload[0])?;
+            Ok(Response::InquiryResponse(InquiryResponse::MotionSyncMode {
+                mode,
+            }))
+        }
+        ResponseType::MotionSyncSpeed => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let speed = MotionSyncSpeed::try_from(payload[0])?;
+            Ok(Response::InquiryResponse(
+                InquiryResponse::MotionSyncSpeed { speed },
+            ))
+        }
+        ResponseType::NrMode => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let mode = NrMode::try_from(payload[0])?;
+            Ok(Response::InquiryResponse(InquiryResponse::NrMode { mode }))
+        }
+        ResponseType::NrSpeed => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let speed = NrSpeed::try_from(payload[0])?;
+            Ok(Response::InquiryResponse(InquiryResponse::NrSpeed {
+                speed,
+            }))
+        }
+        ResponseType::BlackWhiteMode => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let mode = BlackWhiteMode::try_from(payload[0])?;
+            Ok(Response::InquiryResponse(InquiryResponse::BlackWhiteMode {
+                mode,
+            }))
+        }
+        ResponseType::UsbAudio => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let on = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "UsbAudio status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::UsbAudio { on }))
+        }
+        ResponseType::TwoToneMode => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let on = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "TwoToneMode status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::TwoToneMode {
+                on,
+            }))
+        }
+        ResponseType::NdFilterPreset => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            Ok(Response::InquiryResponse(InquiryResponse::NdFilterPreset {
+                preset: payload[0],
+            }))
+        }
+        ResponseType::Digital => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let on = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "Digital mode status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::Digital { on }))
+        }
+        ResponseType::TallyAutoAdjust => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let on = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "TallyAutoAdjust status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(
+                InquiryResponse::TallyAutoAdjust { on },
+            ))
+        }
+        ResponseType::Rtmp => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let on = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "RTMP status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::Rtmp { on }))
+        }
+        ResponseType::ZoomOut => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let active = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "ZoomOut status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (inactive) or 0x03 (active)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::ZoomOut {
+                active,
+            }))
+        }
+        ResponseType::ZoomIn => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let active = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "ZoomIn status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (inactive) or 0x03 (active)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::ZoomIn {
+                active,
+            }))
+        }
+        ResponseType::IrisUp => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let active = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "IrisUp status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (inactive) or 0x03 (active)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::IrisUp {
+                active,
+            }))
+        }
+        ResponseType::IrisDown => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let active = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "IrisDown status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (inactive) or 0x03 (active)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::IrisDown {
+                active,
+            }))
+        }
+        ResponseType::NightDayPosition => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let position = payload[0];
+            Ok(Response::InquiryResponse(
+                InquiryResponse::NightDayPosition { position },
+            ))
+        }
+        ResponseType::FocusNearFar => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let near = match payload[0] {
+                0x02 => false, // Far active
+                0x03 => true,  // Near active
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "FocusNearFar status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (far) or 0x03 (near)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::FocusNearFar {
+                near,
+            }))
+        }
+        ResponseType::ZoomTeleWide => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let tele = match payload[0] {
+                0x02 => false, // Wide active
+                0x03 => true,  // Tele active
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "ZoomTeleWide status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (wide) or 0x03 (tele)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::ZoomTeleWide {
+                tele,
+            }))
+        }
+        ResponseType::NightDaySwitch => {
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            let enabled = match payload[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "NightDaySwitch status",
+                        value: format!("0x{:02X}", payload[0]),
+                        reason: "Expected 0x02 (disabled) or 0x03 (enabled)".to_string(),
+                    })
+                }
+            };
+            Ok(Response::InquiryResponse(InquiryResponse::NightDaySwitch {
+                enabled,
+            }))
+        }
     }
 }
 
@@ -786,94 +1449,6 @@ fn combine_nibbles_u8(nibbles: &[u8]) -> u8 {
         return 0;
     }
     ((nibbles[0] & 0x0F) << 4) | (nibbles[1] & 0x0F)
-}
-
-// Note: Complex response parsing tests moved to tests/response_parsing_comprehensive.rs
-// Only basic unit tests remain here for fast feedback during development
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_response_debug() {
-        let ack = Response::CmdAck;
-        assert_eq!(format!("{:?}", ack), "CmdAck");
-
-        let completion = Response::Completion;
-        assert_eq!(format!("{:?}", completion), "Completion");
-    }
-
-    #[test]
-    fn test_response_type_equality() {
-        assert_eq!(ResponseType::Power, ResponseType::Power);
-        assert_ne!(ResponseType::Power, ResponseType::ZoomPosition);
-    }
-
-    #[test]
-    fn test_basic_ack_parsing() {
-        let response = vec![0x90, 0x41, 0xFF];
-        let result = parse_response(&response, &ResponseType::Power).unwrap();
-        assert!(matches!(result, Response::CmdAck));
-    }
-
-    #[test]
-    fn test_basic_completion_parsing() {
-        let response = vec![0x90, 0x51, 0xFF];
-        let result = parse_response(&response, &ResponseType::Power).unwrap();
-        assert!(matches!(result, Response::Completion));
-    }
-
-    #[test]
-    fn test_basic_error_parsing() {
-        let response = vec![0x90, 0x60, 0x02, 0xFF];
-        let result = parse_response(&response, &ResponseType::Power);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_invalid_format() {
-        // Empty response
-        let response = vec![];
-        let result = parse_response(&response, &ResponseType::Power);
-        assert!(matches!(result, Err(Error::InvalidResponseFormat)));
-
-        // Too short
-        let response = vec![0x90, 0xFF];
-        let result = parse_response(&response, &ResponseType::Power);
-        assert!(matches!(result, Err(Error::InvalidResponseFormat)));
-    }
-
-    #[test]
-    fn test_simple_power_response() {
-        // Power On
-        let response = vec![0x90, 0x50, 0x02, 0xFF];
-        let result = parse_response(&response, &ResponseType::Power).unwrap();
-        match result {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => assert!(on),
-            _ => panic!("Expected Power inquiry response"),
-        }
-
-        // Power Off
-        let response = vec![0x90, 0x50, 0x03, 0xFF];
-        let result = parse_response(&response, &ResponseType::Power).unwrap();
-        match result {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => assert!(!on),
-            _ => panic!("Expected Power inquiry response"),
-        }
-    }
-
-    #[test]
-    fn test_combine_nibbles() {
-        // Test u16 combination
-        let nibbles = [0x01, 0x02, 0x03, 0x04];
-        assert_eq!(combine_nibbles_u16(&nibbles), 0x1234);
-
-        // Test u8 combination
-        let nibbles = [0x0A, 0x0B];
-        assert_eq!(combine_nibbles_u8(&nibbles), 0xAB);
-    }
 }
 
 // Custom parser helper functions for inquiry responses
@@ -961,11 +1536,409 @@ pub fn parse_sharpness_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     match data[0] {
-        0x02 => Ok(InquiryResponse::SharpnessMode { mode: SharpnessMode::Auto }),
-        0x03 => Ok(InquiryResponse::SharpnessMode { mode: SharpnessMode::Manual }),
+        0x02 => Ok(InquiryResponse::SharpnessMode {
+            mode: SharpnessMode::Auto,
+        }),
+        0x03 => Ok(InquiryResponse::SharpnessMode {
+            mode: SharpnessMode::Manual,
+        }),
         _ => Err(Error::InvalidResponse {
             expected: "0x02 (Auto) or 0x03 (Manual)".to_string(),
             actual: vec![data[0]],
         }),
+    }
+}
+
+/// Parse menu open/close status
+pub fn parse_menu_open_close(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let is_open = match data[0] {
+        0x02 => false, // Menu closed
+        0x03 => true,  // Menu open
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "menu_status",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)"
+                    .to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::MenuOpenClose { is_open })
+}
+
+/// Parse auto focus on/off status
+pub fn parse_auto_focus(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let enabled = match data[0] {
+        0x02 => false, // AF off
+        0x03 => true,  // AF on
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "autofocus_status",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)"
+                    .to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::AutoFocus { enabled })
+}
+
+/// Parse tally light status (red and green)
+pub fn parse_tally_status(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 2 {
+        return Err(Error::InvalidResponseLength);
+    }
+    let red_on = match data[0] {
+        0x02 => false,
+        0x03 => true,
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "tally_red_status",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+            })
+        }
+    };
+    let green_on = match data[1] {
+        0x02 => false,
+        0x03 => true,
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "tally_green_status",
+                value: format!("{:02X}", data[1]),
+                reason: "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::TallyStatus { red_on, green_on })
+}
+
+/// Parse night/day mode status
+pub fn parse_night_day_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let is_night = match data[0] {
+        0x02 => false, // Day mode
+        0x03 => true,  // Night mode
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "night_day_mode",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)"
+                    .to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::NightDayMode { is_night })
+}
+
+/// Parse flip mode (combined horizontal/vertical)
+pub fn parse_flip_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    // Flip mode encoding:
+    // 0x00 = No flip
+    // 0x01 = Horizontal flip only
+    // 0x02 = Vertical flip only
+    // 0x03 = Both horizontal and vertical flip
+    let mode = data[0];
+    let horizontal = (mode & 0x01) != 0;
+    let vertical = (mode & 0x02) != 0;
+    Ok(InquiryResponse::FlipMode {
+        horizontal,
+        vertical,
+    })
+}
+
+/// Parse standby mode status
+pub fn parse_standby(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let in_standby = match data[0] {
+        0x02 => false, // Active
+        0x03 => true,  // Standby
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "standby_mode",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid standby mode value. Expected 0x02 (active) or 0x03 (standby)"
+                    .to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::Standby { in_standby })
+}
+
+/// Parse ND filter position
+pub fn parse_nd_filter(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::NdFilter { position: data[0] })
+}
+
+/// Parse picture effect mode
+pub fn parse_picture_effect(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::PictureEffect { effect: data[0] })
+}
+
+/// Parse focus range mode
+pub fn parse_focus_range(data: &[u8]) -> Result<InquiryResponse, Error> {
+    use crate::command::FocusRange;
+
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let range = FocusRange::try_from(data[0])?;
+    Ok(InquiryResponse::FocusRange { range })
+}
+
+/// Parse iris control mode
+pub fn parse_iris_control(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let auto = match data[0] {
+        0x02 => false, // Manual control
+        0x03 => true,  // Auto control
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "iris_control",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)"
+                    .to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::IrisControl { auto })
+}
+
+/// Parse defog mode
+pub fn parse_defog_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let enabled = match data[0] {
+        0x02 => false, // Defog off
+        0x03 => true,  // Defog on
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "defog_mode",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid defog mode value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::DefogMode { enabled })
+}
+
+/// Parse digital PTZ mode
+pub fn parse_digital_ptz(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let enabled = match data[0] {
+        0x02 => false, // Digital PTZ off
+        0x03 => true,  // Digital PTZ on
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "digital_ptz",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid digital PTZ value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::DigitalPtz { enabled })
+}
+
+/// Parse defog level
+pub fn parse_defog_level(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::DefogLevel { level: data[0] })
+}
+
+/// Parse auto white balance sensitivity
+pub fn parse_auto_wb_sensitivity(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let sensitivity = match data[0] {
+        0x00 => AutoWhiteBalanceSensitivity::Low,
+        0x01 => AutoWhiteBalanceSensitivity::Normal,
+        0x02 => AutoWhiteBalanceSensitivity::High,
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "auto_wb_sensitivity",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid auto white balance sensitivity. Expected 0x00 (Low), 0x01 (Normal), or 0x02 (High)".to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity })
+}
+
+/// Parse exposure compensation position
+pub fn parse_exposure_compensation_position(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.len() < 4 {
+        return Err(Error::InvalidResponseLength);
+    }
+    let position = combine_nibbles_u16(&data[0..4]);
+    Ok(InquiryResponse::ExposureCompensationPosition { position })
+}
+
+/// Parse red tuning level
+pub fn parse_red_tuning(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::RedTuning { level: data[0] })
+}
+
+/// Parse blue tuning level
+pub fn parse_blue_tuning(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::BlueTuning { level: data[0] })
+}
+
+/// Parse auto trace mode
+pub fn parse_auto_trace(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let enabled = match data[0] {
+        0x02 => false, // Auto trace off
+        0x03 => true,  // Auto trace on
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "auto_trace",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid auto trace value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::AutoTrace { enabled })
+}
+
+/// Parse focus unlock state
+pub fn parse_focus_unlock(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let unlocked = match data[0] {
+        0x02 => false, // Focus locked
+        0x03 => true,  // Focus unlocked
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "focus_unlock",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)"
+                    .to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::FocusUnlock { unlocked })
+}
+
+// Note: Complex response parsing tests moved to tests/response_parsing_comprehensive.rs
+// Only basic unit tests remain here for fast feedback during development
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_response_debug() {
+        let ack = Response::CmdAck;
+        assert_eq!(format!("{:?}", ack), "CmdAck");
+
+        let completion = Response::Completion;
+        assert_eq!(format!("{:?}", completion), "Completion");
+    }
+
+    #[test]
+    fn test_response_type_equality() {
+        assert_eq!(ResponseType::Power, ResponseType::Power);
+        assert_ne!(ResponseType::Power, ResponseType::ZoomPosition);
+    }
+
+    #[test]
+    fn test_basic_ack_parsing() {
+        let response = vec![0x90, 0x41, 0xFF];
+        let result = parse_response(&response, &ResponseType::Power).unwrap();
+        assert!(matches!(result, Response::CmdAck));
+    }
+
+    #[test]
+    fn test_basic_completion_parsing() {
+        let response = vec![0x90, 0x51, 0xFF];
+        let result = parse_response(&response, &ResponseType::Power).unwrap();
+        assert!(matches!(result, Response::Completion));
+    }
+
+    #[test]
+    fn test_basic_error_parsing() {
+        let response = vec![0x90, 0x60, 0x02, 0xFF];
+        let result = parse_response(&response, &ResponseType::Power);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_format() {
+        // Empty response
+        let response = vec![];
+        let result = parse_response(&response, &ResponseType::Power);
+        assert!(matches!(result, Err(Error::InvalidResponseFormat)));
+
+        // Too short
+        let response = vec![0x90, 0xFF];
+        let result = parse_response(&response, &ResponseType::Power);
+        assert!(matches!(result, Err(Error::InvalidResponseFormat)));
+    }
+
+    #[test]
+    fn test_simple_power_response() {
+        // Power On
+        let response = vec![0x90, 0x50, 0x02, 0xFF];
+        let result = parse_response(&response, &ResponseType::Power).unwrap();
+        match result {
+            Response::InquiryResponse(InquiryResponse::Power { on }) => assert!(on),
+            _ => panic!("Expected Power inquiry response"),
+        }
+
+        // Power Off
+        let response = vec![0x90, 0x50, 0x03, 0xFF];
+        let result = parse_response(&response, &ResponseType::Power).unwrap();
+        match result {
+            Response::InquiryResponse(InquiryResponse::Power { on }) => assert!(!on),
+            _ => panic!("Expected Power inquiry response"),
+        }
+    }
+
+    #[test]
+    fn test_combine_nibbles() {
+        // Test u16 combination
+        let nibbles = [0x01, 0x02, 0x03, 0x04];
+        assert_eq!(combine_nibbles_u16(&nibbles), 0x1234);
+
+        // Test u8 combination
+        let nibbles = [0x0A, 0x0B];
+        assert_eq!(combine_nibbles_u8(&nibbles), 0xAB);
     }
 }

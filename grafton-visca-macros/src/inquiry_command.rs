@@ -49,14 +49,13 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                             if data.is_empty() {
                                 return Err(#crate_path::Error::InvalidResponseLength);
                             }
-                            Ok(#parser_body)
+                            #parser_body
                         }
                     }
                 }
             } else {
                 quote! {}
             };
-
 
             let expanded = quote! {
                 impl #crate_path::command::EncodeVisca for #struct_name {
@@ -232,21 +231,35 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
     attrs
 }
 
-fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo, crate_path: &TokenStream) -> TokenStream {
+fn generate_parser_body(
+    response_variant: &Ident,
+    parser_info: &ParserInfo,
+    crate_path: &TokenStream,
+) -> TokenStream {
     match parser_info.parser_type.as_str() {
         "bool" => super::parser_templates::generate_bool_parser(response_variant, crate_path),
         "direct_byte" | "byte" => {
             let field_name = format_ident!("value"); // Default field name
-            super::parser_templates::generate_direct_byte_parser(response_variant, &field_name, crate_path)
+            super::parser_templates::generate_direct_byte_parser(
+                response_variant,
+                &field_name,
+                crate_path,
+            )
         }
-        "position" => super::parser_templates::generate_position_parser(response_variant, crate_path),
+        "position" => {
+            super::parser_templates::generate_position_parser(response_variant, crate_path)
+        }
         "extended_nibble" | "nibble" => {
             let field_name = parser_info
                 .field_name
                 .as_deref()
                 .map(|s| format_ident!("{}", s))
                 .unwrap_or_else(|| format_ident!("value"));
-            super::parser_templates::generate_extended_nibble_parser(response_variant, &field_name, crate_path)
+            super::parser_templates::generate_extended_nibble_parser(
+                response_variant,
+                &field_name,
+                crate_path,
+            )
         }
         "offset" => {
             let field_name = parser_info
@@ -255,7 +268,12 @@ fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo, crat
                 .map(|s| format_ident!("{}", s))
                 .unwrap_or_else(|| format_ident!("value"));
             let offset = parser_info.offset.unwrap_or(0);
-            super::parser_templates::generate_offset_parser(response_variant, &field_name, offset, crate_path)
+            super::parser_templates::generate_offset_parser(
+                response_variant,
+                &field_name,
+                offset,
+                crate_path,
+            )
         }
         "flags" | "bit_flags" => {
             super::parser_templates::generate_bit_flags_parser(response_variant, crate_path)
@@ -266,9 +284,15 @@ fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo, crat
                 .as_deref()
                 .map(|s| format_ident!("{}", s))
                 .expect("mode parser requires type attribute");
-            super::parser_templates::generate_mode_enum_parser(response_variant, &mode_type, crate_path)
+            super::parser_templates::generate_mode_enum_parser(
+                response_variant,
+                &mode_type,
+                crate_path,
+            )
         }
-        "pan_tilt" => super::parser_templates::generate_pan_tilt_parser(response_variant, crate_path),
+        "pan_tilt" => {
+            super::parser_templates::generate_pan_tilt_parser(response_variant, crate_path)
+        }
         "custom" => {
             let custom_fn = parser_info
                 .custom_fn
@@ -276,7 +300,7 @@ fn generate_parser_body(response_variant: &Ident, parser_info: &ParserInfo, crat
                 .map(|s| format_ident!("{}", s))
                 .expect("custom parser requires custom_fn attribute");
             quote! {
-                #crate_path::command::response::#custom_fn(data)?
+                #crate_path::command::response::#custom_fn(data)
             }
         }
         _ => {

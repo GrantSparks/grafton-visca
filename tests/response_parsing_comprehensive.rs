@@ -582,7 +582,10 @@ fn test_response_into_result() {
         response_type: None,
         data: vec![0x90, 0x50, 0xFF],
     };
-    assert!(matches!(unknown.into_result(), Err(Error::InvalidResponse { .. })));
+    assert!(matches!(
+        unknown.into_result(),
+        Err(Error::InvalidResponse { .. })
+    ));
 }
 
 #[test]
@@ -678,6 +681,67 @@ fn test_exhaustive_response_type_coverage() {
         (ResponseType::DynamicRange, vec![0x90, 0x50, 0x05, 0xFF]), // Level 5
         (ResponseType::NoiseReduction2D, vec![0x90, 0x50, 0x03, 0xFF]), // Level 3
         (ResponseType::NoiseReduction3D, vec![0x90, 0x50, 0x04, 0xFF]), // Level 4
+        // Newly implemented types - Phase 2
+        (ResponseType::MenuOpenClose, vec![0x90, 0x50, 0x02, 0xFF]), // Menu closed
+        (ResponseType::AutoFocus, vec![0x90, 0x50, 0x03, 0xFF]),     // AF on
+        (
+            ResponseType::TallyStatus,
+            vec![0x90, 0x50, 0x02, 0x02, 0xFF],
+        ), // Both off
+        (ResponseType::Resolution, vec![0x90, 0x50, 0x00, 0xFF]),    // Mode 0 (1080p60)
+        // Newly implemented types - Phase 3
+        (ResponseType::NightDayMode, vec![0x90, 0x50, 0x02, 0xFF]), // Day mode
+        (ResponseType::NdFilter, vec![0x90, 0x50, 0x00, 0xFF]),     // Clear filter
+        (ResponseType::PictureEffect, vec![0x90, 0x50, 0x00, 0xFF]), // Off
+        (ResponseType::FlipMode, vec![0x90, 0x50, 0x00, 0xFF]),     // No flip
+        (ResponseType::Standby, vec![0x90, 0x50, 0x02, 0xFF]),      // Active
+        // Newly implemented types - Phase 4
+        (ResponseType::FocusRange, vec![0x90, 0x50, 0x00, 0xFF]), // Normal
+        (ResponseType::IrisControl, vec![0x90, 0x50, 0x02, 0xFF]), // Manual
+        (ResponseType::DefogMode, vec![0x90, 0x50, 0x02, 0xFF]),  // Off
+        (ResponseType::DefogLevel, vec![0x90, 0x50, 0x00, 0xFF]), // Level 0
+        (ResponseType::DigitalPtz, vec![0x90, 0x50, 0x02, 0xFF]), // Off
+        // Newly implemented types - Phase 6
+        (
+            ResponseType::AutoWhiteBalanceSensitivity,
+            vec![0x90, 0x50, 0x01, 0xFF],
+        ), // Normal
+        (
+            ResponseType::ExposureCompensationPosition,
+            vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF],
+        ), // Position 0
+        (ResponseType::RedTuning, vec![0x90, 0x50, 0x80, 0xFF]), // Level 128
+        (ResponseType::BlueTuning, vec![0x90, 0x50, 0x80, 0xFF]), // Level 128
+        (ResponseType::AutoTrace, vec![0x90, 0x50, 0x02, 0xFF]), // Off
+        (ResponseType::FocusUnlock, vec![0x90, 0x50, 0x02, 0xFF]), // Locked
+        // Newly implemented types - Phase 7
+        (
+            ResponseType::SharpnessPosition,
+            vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF],
+        ), // Position 0x1234
+        (ResponseType::NrLevel, vec![0x90, 0x50, 0x05, 0xFF]), // Level 5
+        (ResponseType::BroadcastDomain, vec![0x90, 0x50, 0x01, 0xFF]), // Domain 1
+        (ResponseType::MotionSyncMode, vec![0x90, 0x50, 0x02, 0xFF]), // Off
+        (ResponseType::MotionSyncSpeed, vec![0x90, 0x50, 0x01, 0xFF]), // Normal
+        (ResponseType::NrMode, vec![0x90, 0x50, 0x03, 0xFF]),  // On
+        (ResponseType::NrSpeed, vec![0x90, 0x50, 0x02, 0xFF]), // Fast
+        (ResponseType::BlackWhiteMode, vec![0x90, 0x50, 0x03, 0xFF]), // BlackWhite
+        // Newly implemented types - Phase 9
+        (ResponseType::UsbAudio, vec![0x90, 0x50, 0x02, 0xFF]), // Off
+        (ResponseType::TwoToneMode, vec![0x90, 0x50, 0x03, 0xFF]), // On
+        (ResponseType::NdFilterPreset, vec![0x90, 0x50, 0x01, 0xFF]), // Preset 1
+        (ResponseType::Digital, vec![0x90, 0x50, 0x02, 0xFF]),  // Off
+        (ResponseType::TallyAutoAdjust, vec![0x90, 0x50, 0x03, 0xFF]), // On
+        // Newly implemented types - Phase 10
+        (ResponseType::Rtmp, vec![0x90, 0x50, 0x02, 0xFF]), // Off
+        (ResponseType::ZoomOut, vec![0x90, 0x50, 0x03, 0xFF]), // Active
+        (ResponseType::ZoomIn, vec![0x90, 0x50, 0x02, 0xFF]), // Inactive
+        (ResponseType::IrisUp, vec![0x90, 0x50, 0x03, 0xFF]), // Active
+        (ResponseType::IrisDown, vec![0x90, 0x50, 0x02, 0xFF]), // Inactive
+        (ResponseType::NightDayPosition, vec![0x90, 0x50, 0x05, 0xFF]), // Position 5
+        (ResponseType::FocusNearFar, vec![0x90, 0x50, 0x03, 0xFF]), // Near active
+        (ResponseType::ZoomTeleWide, vec![0x90, 0x50, 0x02, 0xFF]), // Wide active
+        (ResponseType::NightDaySwitch, vec![0x90, 0x50, 0x03, 0xFF]), // Enabled
     ];
 
     // Verify all implemented types parse successfully
@@ -699,55 +763,8 @@ fn test_exhaustive_response_type_coverage() {
     }
 
     // List of ALL unimplemented types - these should return Unknown
-    let unimplemented_types = vec![
-        ResponseType::PictureEffect,
-        ResponseType::SharpnessPosition,
-        ResponseType::HorizontalFlip,
-        ResponseType::VerticalFlip,
-        ResponseType::BlackWhiteMode,
-        ResponseType::ExposureCompensationPosition,
-        ResponseType::RedTuning,
-        ResponseType::BlueTuning,
-        ResponseType::AutoWhiteBalanceSensitivity,
-        ResponseType::ThreeDNoiseReduction,
-        ResponseType::TwoDNoiseReduction,
-        ResponseType::MotionSyncMode,
-        ResponseType::MotionSyncSpeed,
-        ResponseType::FocusRange,
-        ResponseType::MenuOpenClose,
-        ResponseType::UsbAudio,
-        ResponseType::Rtmp,
-        ResponseType::AutoFocus,
-        ResponseType::FocusUnlock,
-        ResponseType::ZoomOut,
-        ResponseType::ZoomIn,
-        ResponseType::IrisUp,
-        ResponseType::IrisDown,
-        ResponseType::NightDayMode,
-        ResponseType::NightDayPosition,
-        ResponseType::AutoTrace,
-        ResponseType::TwoToneMode,
-        ResponseType::DefogMode,
-        ResponseType::NrLevel,
-        ResponseType::NrMode,
-        ResponseType::NrSpeed,
-        ResponseType::BroadcastDomain,
-        ResponseType::Resolution,
-        ResponseType::NdFilter,
-        ResponseType::NdFilterPreset,
-        ResponseType::FocusNearFar,
-        ResponseType::ZoomTeleWide,
-        ResponseType::Standby,
-        ResponseType::Tally,
-        ResponseType::DigitalPtz,
-        ResponseType::Digital,
-        ResponseType::IrisControl,
-        ResponseType::DefogLevel,
-        ResponseType::NightDay,
-        ResponseType::NightDaySwitch,
-        ResponseType::FlipMode,
-        ResponseType::TallyStatus,
-        ResponseType::TallyAutoAdjust,
+    let unimplemented_types: Vec<ResponseType> = vec![
+        // All response types are now implemented!
     ];
 
     // Verify unimplemented types return Unknown
@@ -857,4 +874,1289 @@ fn test_noise_reduction_inquiry_responses() {
         }
         _ => panic!("Expected NoiseReduction3D inquiry response"),
     }
+}
+
+#[test]
+fn test_menu_open_close_inquiry_response() {
+    // Test menu closed
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::MenuOpenClose).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::MenuOpenClose { is_open }) => {
+            assert!(!is_open);
+        }
+        _ => panic!("Expected MenuOpenClose inquiry response"),
+    }
+
+    // Test menu open
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::MenuOpenClose).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::MenuOpenClose { is_open }) => {
+            assert!(is_open);
+        }
+        _ => panic!("Expected MenuOpenClose inquiry response"),
+    }
+
+    // Test invalid menu status value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::MenuOpenClose);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_auto_focus_inquiry_response() {
+    // Test AF off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoFocus).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::AutoFocus { enabled }) => {
+            assert!(!enabled);
+        }
+        _ => panic!("Expected AutoFocus inquiry response"),
+    }
+
+    // Test AF on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoFocus).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::AutoFocus { enabled }) => {
+            assert!(enabled);
+        }
+        _ => panic!("Expected AutoFocus inquiry response"),
+    }
+
+    // Test invalid AF status value
+    let response = vec![0x90, 0x50, 0x05, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoFocus);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_tally_status_inquiry_response() {
+    // Test both tally lights off
+    let response = vec![0x90, 0x50, 0x02, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::TallyStatus).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::TallyStatus { red_on, green_on }) => {
+            assert!(!red_on);
+            assert!(!green_on);
+        }
+        _ => panic!("Expected TallyStatus inquiry response"),
+    }
+
+    // Test red on, green off
+    let response = vec![0x90, 0x50, 0x03, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::TallyStatus).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::TallyStatus { red_on, green_on }) => {
+            assert!(red_on);
+            assert!(!green_on);
+        }
+        _ => panic!("Expected TallyStatus inquiry response"),
+    }
+
+    // Test red off, green on
+    let response = vec![0x90, 0x50, 0x02, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::TallyStatus).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::TallyStatus { red_on, green_on }) => {
+            assert!(!red_on);
+            assert!(green_on);
+        }
+        _ => panic!("Expected TallyStatus inquiry response"),
+    }
+
+    // Test both tally lights on
+    let response = vec![0x90, 0x50, 0x03, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::TallyStatus).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::TallyStatus { red_on, green_on }) => {
+            assert!(red_on);
+            assert!(green_on);
+        }
+        _ => panic!("Expected TallyStatus inquiry response"),
+    }
+
+    // Test invalid length
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::TallyStatus);
+    assert!(matches!(result, Err(Error::InvalidResponseLength)));
+}
+
+#[test]
+fn test_resolution_inquiry_response() {
+    // Test resolution mode 0 (1080p60)
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::Resolution).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::Resolution(mode)) => {
+            assert_eq!(mode, 0x00);
+        }
+        _ => panic!("Expected Resolution inquiry response"),
+    }
+
+    // Test resolution mode 1 (1080p30)
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::Resolution).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::Resolution(mode)) => {
+            assert_eq!(mode, 0x01);
+        }
+        _ => panic!("Expected Resolution inquiry response"),
+    }
+
+    // Test resolution mode 2 (720p60)
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::Resolution).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::Resolution(mode)) => {
+            assert_eq!(mode, 0x02);
+        }
+        _ => panic!("Expected Resolution inquiry response"),
+    }
+}
+
+#[test]
+fn test_night_day_mode_response() {
+    // Test day mode
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDayMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NightDayMode { is_night }) => {
+            assert!(!is_night);
+        }
+        _ => panic!("Expected NightDayMode inquiry response"),
+    }
+
+    // Test night mode
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDayMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NightDayMode { is_night }) => {
+            assert!(is_night);
+        }
+        _ => panic!("Expected NightDayMode inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDayMode);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_nd_filter_response() {
+    // Test clear (no filter)
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::NdFilter).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NdFilter { position }) => {
+            assert_eq!(position, 0x00);
+        }
+        _ => panic!("Expected NdFilter inquiry response"),
+    }
+
+    // Test 1/4 ND
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::NdFilter).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NdFilter { position }) => {
+            assert_eq!(position, 0x01);
+        }
+        _ => panic!("Expected NdFilter inquiry response"),
+    }
+
+    // Test 1/64 ND
+    let response = vec![0x90, 0x50, 0x05, 0xFF];
+    let result = parse_response(&response, &ResponseType::NdFilter).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NdFilter { position }) => {
+            assert_eq!(position, 0x05);
+        }
+        _ => panic!("Expected NdFilter inquiry response"),
+    }
+}
+
+#[test]
+fn test_picture_effect_response() {
+    // Test off (normal)
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::PictureEffect).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::PictureEffect { effect }) => {
+            assert_eq!(effect, 0x00);
+        }
+        _ => panic!("Expected PictureEffect inquiry response"),
+    }
+
+    // Test negative
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::PictureEffect).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::PictureEffect { effect }) => {
+            assert_eq!(effect, 0x01);
+        }
+        _ => panic!("Expected PictureEffect inquiry response"),
+    }
+
+    // Test B&W
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::PictureEffect).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::PictureEffect { effect }) => {
+            assert_eq!(effect, 0x02);
+        }
+        _ => panic!("Expected PictureEffect inquiry response"),
+    }
+}
+
+#[test]
+fn test_flip_mode_response() {
+    // Test no flip
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::FlipMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FlipMode {
+            horizontal,
+            vertical,
+        }) => {
+            assert!(!horizontal);
+            assert!(!vertical);
+        }
+        _ => panic!("Expected FlipMode inquiry response"),
+    }
+
+    // Test horizontal flip only
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::FlipMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FlipMode {
+            horizontal,
+            vertical,
+        }) => {
+            assert!(horizontal);
+            assert!(!vertical);
+        }
+        _ => panic!("Expected FlipMode inquiry response"),
+    }
+
+    // Test vertical flip only
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::FlipMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FlipMode {
+            horizontal,
+            vertical,
+        }) => {
+            assert!(!horizontal);
+            assert!(vertical);
+        }
+        _ => panic!("Expected FlipMode inquiry response"),
+    }
+
+    // Test both flips
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::FlipMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FlipMode {
+            horizontal,
+            vertical,
+        }) => {
+            assert!(horizontal);
+            assert!(vertical);
+        }
+        _ => panic!("Expected FlipMode inquiry response"),
+    }
+}
+
+#[test]
+fn test_standby_response() {
+    // Test active mode
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::Standby).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::Standby { in_standby }) => {
+            assert!(!in_standby);
+        }
+        _ => panic!("Expected Standby inquiry response"),
+    }
+
+    // Test standby mode
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::Standby).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::Standby { in_standby }) => {
+            assert!(in_standby);
+        }
+        _ => panic!("Expected Standby inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::Standby);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_focus_range_response() {
+    use grafton_visca::command::FocusRange;
+
+    // Test normal focus range
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusRange).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FocusRange { range }) => {
+            assert_eq!(range, FocusRange::Normal);
+        }
+        _ => panic!("Expected FocusRange inquiry response"),
+    }
+
+    // Test 10x focus range
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusRange).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FocusRange { range }) => {
+            assert_eq!(range, FocusRange::Range10x);
+        }
+        _ => panic!("Expected FocusRange inquiry response"),
+    }
+
+    // Test 4.3x focus range
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusRange).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FocusRange { range }) => {
+            assert_eq!(range, FocusRange::Range4_3x);
+        }
+        _ => panic!("Expected FocusRange inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x06, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusRange);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_iris_control_response() {
+    // Test manual control
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::IrisControl).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::IrisControl { auto }) => {
+            assert!(!auto);
+        }
+        _ => panic!("Expected IrisControl inquiry response"),
+    }
+
+    // Test auto control
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::IrisControl).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::IrisControl { auto }) => {
+            assert!(auto);
+        }
+        _ => panic!("Expected IrisControl inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::IrisControl);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_defog_mode_response() {
+    // Test defog off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::DefogMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::DefogMode { enabled }) => {
+            assert!(!enabled);
+        }
+        _ => panic!("Expected DefogMode inquiry response"),
+    }
+
+    // Test defog on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::DefogMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::DefogMode { enabled }) => {
+            assert!(enabled);
+        }
+        _ => panic!("Expected DefogMode inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::DefogMode);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_defog_level_response() {
+    // Test defog level 0
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::DefogLevel).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::DefogLevel { level }) => {
+            assert_eq!(level, 0);
+        }
+        _ => panic!("Expected DefogLevel inquiry response"),
+    }
+
+    // Test defog level 8 (maximum)
+    let response = vec![0x90, 0x50, 0x08, 0xFF];
+    let result = parse_response(&response, &ResponseType::DefogLevel).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::DefogLevel { level }) => {
+            assert_eq!(level, 8);
+        }
+        _ => panic!("Expected DefogLevel inquiry response"),
+    }
+
+    // Test defog level 4 (medium)
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::DefogLevel).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::DefogLevel { level }) => {
+            assert_eq!(level, 4);
+        }
+        _ => panic!("Expected DefogLevel inquiry response"),
+    }
+}
+
+#[test]
+fn test_digital_ptz_response() {
+    // Test digital PTZ off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::DigitalPtz).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::DigitalPtz { enabled }) => {
+            assert!(!enabled);
+        }
+        _ => panic!("Expected DigitalPtz inquiry response"),
+    }
+
+    // Test digital PTZ on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::DigitalPtz).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::DigitalPtz { enabled }) => {
+            assert!(enabled);
+        }
+        _ => panic!("Expected DigitalPtz inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::DigitalPtz);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_auto_white_balance_sensitivity_response() {
+    use grafton_visca::command::AutoWhiteBalanceSensitivity;
+
+    // Test Low sensitivity
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoWhiteBalanceSensitivity).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity }) => {
+            assert_eq!(sensitivity, AutoWhiteBalanceSensitivity::Low);
+        }
+        _ => panic!("Expected AutoWhiteBalanceSensitivity inquiry response"),
+    }
+
+    // Test Normal sensitivity
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoWhiteBalanceSensitivity).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity }) => {
+            assert_eq!(sensitivity, AutoWhiteBalanceSensitivity::Normal);
+        }
+        _ => panic!("Expected AutoWhiteBalanceSensitivity inquiry response"),
+    }
+
+    // Test High sensitivity
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoWhiteBalanceSensitivity).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity }) => {
+            assert_eq!(sensitivity, AutoWhiteBalanceSensitivity::High);
+        }
+        _ => panic!("Expected AutoWhiteBalanceSensitivity inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoWhiteBalanceSensitivity);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_exposure_compensation_position_response() {
+    // Test position 0x0000
+    let response = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::ExposureCompensationPosition).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::ExposureCompensationPosition { position }) => {
+            assert_eq!(position, 0x0000);
+        }
+        _ => panic!("Expected ExposureCompensationPosition inquiry response"),
+    }
+
+    // Test position 0x1234
+    let response = vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::ExposureCompensationPosition).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::ExposureCompensationPosition { position }) => {
+            assert_eq!(position, 0x1234);
+        }
+        _ => panic!("Expected ExposureCompensationPosition inquiry response"),
+    }
+
+    // Test invalid length
+    let response = vec![0x90, 0x50, 0x01, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::ExposureCompensationPosition);
+    assert!(matches!(result, Err(Error::InvalidResponseLength)));
+}
+
+#[test]
+fn test_red_tuning_response() {
+    // Test level 0
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::RedTuning).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::RedTuning { level }) => {
+            assert_eq!(level, 0);
+        }
+        _ => panic!("Expected RedTuning inquiry response"),
+    }
+
+    // Test level 255
+    let response = vec![0x90, 0x50, 0xFF, 0xFF];
+    let result = parse_response(&response, &ResponseType::RedTuning).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::RedTuning { level }) => {
+            assert_eq!(level, 0xFF);
+        }
+        _ => panic!("Expected RedTuning inquiry response"),
+    }
+}
+
+#[test]
+fn test_blue_tuning_response() {
+    // Test level 0
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::BlueTuning).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::BlueTuning { level }) => {
+            assert_eq!(level, 0);
+        }
+        _ => panic!("Expected BlueTuning inquiry response"),
+    }
+
+    // Test level 128
+    let response = vec![0x90, 0x50, 0x80, 0xFF];
+    let result = parse_response(&response, &ResponseType::BlueTuning).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::BlueTuning { level }) => {
+            assert_eq!(level, 0x80);
+        }
+        _ => panic!("Expected BlueTuning inquiry response"),
+    }
+}
+
+#[test]
+fn test_auto_trace_response() {
+    // Test auto trace off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoTrace).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::AutoTrace { enabled }) => {
+            assert!(!enabled);
+        }
+        _ => panic!("Expected AutoTrace inquiry response"),
+    }
+
+    // Test auto trace on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoTrace).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::AutoTrace { enabled }) => {
+            assert!(enabled);
+        }
+        _ => panic!("Expected AutoTrace inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::AutoTrace);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_focus_unlock_response() {
+    // Test focus locked
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusUnlock).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FocusUnlock { unlocked }) => {
+            assert!(!unlocked);
+        }
+        _ => panic!("Expected FocusUnlock inquiry response"),
+    }
+
+    // Test focus unlocked
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusUnlock).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FocusUnlock { unlocked }) => {
+            assert!(unlocked);
+        }
+        _ => panic!("Expected FocusUnlock inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusUnlock);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_sharpness_position_response() {
+    // Test valid sharpness position
+    let response = vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::SharpnessPosition).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::SharpnessPosition { position }) => {
+            assert_eq!(position, 0x1234);
+        }
+        _ => panic!("Expected SharpnessPosition inquiry response"),
+    }
+
+    // Test invalid length
+    let response = vec![0x90, 0x50, 0x01, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::SharpnessPosition);
+    assert!(matches!(result, Err(Error::InvalidResponseLength)));
+}
+
+#[test]
+fn test_nr_level_response() {
+    // Test noise reduction level
+    let response = vec![0x90, 0x50, 0x05, 0xFF];
+    let result = parse_response(&response, &ResponseType::NrLevel).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NrLevel(level)) => {
+            assert_eq!(level, 0x05);
+        }
+        _ => panic!("Expected NrLevel inquiry response"),
+    }
+
+    // Test invalid length
+    let response = vec![0x90, 0x50, 0x05, 0x06, 0xFF];
+    let result = parse_response(&response, &ResponseType::NrLevel);
+    assert!(matches!(result, Err(Error::InvalidResponseLength)));
+}
+
+#[test]
+fn test_broadcast_domain_response() {
+    // Test broadcast domain
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::BroadcastDomain).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::BroadcastDomain(domain)) => {
+            assert_eq!(domain, 0x01);
+        }
+        _ => panic!("Expected BroadcastDomain inquiry response"),
+    }
+
+    // Test invalid length
+    let response = vec![0x90, 0x50, 0x01, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::BroadcastDomain);
+    assert!(matches!(result, Err(Error::InvalidResponseLength)));
+}
+
+#[test]
+fn test_motion_sync_mode_response() {
+    use grafton_visca::command::system::MotionSyncMode;
+
+    // Test motion sync off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::MotionSyncMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::MotionSyncMode { mode }) => {
+            assert_eq!(mode, MotionSyncMode::Off);
+        }
+        _ => panic!("Expected MotionSyncMode inquiry response"),
+    }
+
+    // Test motion sync on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::MotionSyncMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::MotionSyncMode { mode }) => {
+            assert_eq!(mode, MotionSyncMode::On);
+        }
+        _ => panic!("Expected MotionSyncMode inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::MotionSyncMode);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_motion_sync_speed_response() {
+    use grafton_visca::command::system::MotionSyncSpeed;
+
+    // Test slow speed
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::MotionSyncSpeed).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::MotionSyncSpeed { speed }) => {
+            assert_eq!(speed, MotionSyncSpeed::Slow);
+        }
+        _ => panic!("Expected MotionSyncSpeed inquiry response"),
+    }
+
+    // Test normal speed
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::MotionSyncSpeed).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::MotionSyncSpeed { speed }) => {
+            assert_eq!(speed, MotionSyncSpeed::Normal);
+        }
+        _ => panic!("Expected MotionSyncSpeed inquiry response"),
+    }
+
+    // Test fast speed
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::MotionSyncSpeed).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::MotionSyncSpeed { speed }) => {
+            assert_eq!(speed, MotionSyncSpeed::Fast);
+        }
+        _ => panic!("Expected MotionSyncSpeed inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::MotionSyncSpeed);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_nr_mode_response() {
+    use grafton_visca::command::image_adjustment::NrMode;
+
+    // Test noise reduction off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::NrMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NrMode { mode }) => {
+            assert_eq!(mode, NrMode::Off);
+        }
+        _ => panic!("Expected NrMode inquiry response"),
+    }
+
+    // Test noise reduction on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::NrMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NrMode { mode }) => {
+            assert_eq!(mode, NrMode::On);
+        }
+        _ => panic!("Expected NrMode inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::NrMode);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_nr_speed_response() {
+    use grafton_visca::command::image_adjustment::NrSpeed;
+
+    // Test slow speed
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::NrSpeed).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NrSpeed { speed }) => {
+            assert_eq!(speed, NrSpeed::Slow);
+        }
+        _ => panic!("Expected NrSpeed inquiry response"),
+    }
+
+    // Test normal speed
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::NrSpeed).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NrSpeed { speed }) => {
+            assert_eq!(speed, NrSpeed::Normal);
+        }
+        _ => panic!("Expected NrSpeed inquiry response"),
+    }
+
+    // Test fast speed
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::NrSpeed).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NrSpeed { speed }) => {
+            assert_eq!(speed, NrSpeed::Fast);
+        }
+        _ => panic!("Expected NrSpeed inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::NrSpeed);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_black_white_mode_response() {
+    use grafton_visca::command::image_adjustment::BlackWhiteMode;
+
+    // Test color mode
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::BlackWhiteMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::BlackWhiteMode { mode }) => {
+            assert_eq!(mode, BlackWhiteMode::Color);
+        }
+        _ => panic!("Expected BlackWhiteMode inquiry response"),
+    }
+
+    // Test black and white mode
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::BlackWhiteMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::BlackWhiteMode { mode }) => {
+            assert_eq!(mode, BlackWhiteMode::BlackWhite);
+        }
+        _ => panic!("Expected BlackWhiteMode inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::BlackWhiteMode);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_usb_audio_response() {
+    // Test USB audio off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::UsbAudio).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::UsbAudio { on }) => {
+            assert!(!on);
+        }
+        _ => panic!("Expected UsbAudio inquiry response"),
+    }
+
+    // Test USB audio on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::UsbAudio).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::UsbAudio { on }) => {
+            assert!(on);
+        }
+        _ => panic!("Expected UsbAudio inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::UsbAudio);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_two_tone_mode_response() {
+    // Test two tone mode off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::TwoToneMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::TwoToneMode { on }) => {
+            assert!(!on);
+        }
+        _ => panic!("Expected TwoToneMode inquiry response"),
+    }
+
+    // Test two tone mode on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::TwoToneMode).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::TwoToneMode { on }) => {
+            assert!(on);
+        }
+        _ => panic!("Expected TwoToneMode inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::TwoToneMode);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_nd_filter_preset_response() {
+    // Test preset 0 (clear)
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::NdFilterPreset).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NdFilterPreset { preset }) => {
+            assert_eq!(preset, 0x00);
+        }
+        _ => panic!("Expected NdFilterPreset inquiry response"),
+    }
+
+    // Test preset 1
+    let response = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = parse_response(&response, &ResponseType::NdFilterPreset).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NdFilterPreset { preset }) => {
+            assert_eq!(preset, 0x01);
+        }
+        _ => panic!("Expected NdFilterPreset inquiry response"),
+    }
+
+    // Test preset 5
+    let response = vec![0x90, 0x50, 0x05, 0xFF];
+    let result = parse_response(&response, &ResponseType::NdFilterPreset).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NdFilterPreset { preset }) => {
+            assert_eq!(preset, 0x05);
+        }
+        _ => panic!("Expected NdFilterPreset inquiry response"),
+    }
+
+    // Test invalid length
+    let response = vec![0x90, 0x50, 0x01, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::NdFilterPreset);
+    assert!(matches!(result, Err(Error::InvalidResponseLength)));
+}
+
+#[test]
+fn test_digital_response() {
+    // Test digital mode off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::Digital).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::Digital { on }) => {
+            assert!(!on);
+        }
+        _ => panic!("Expected Digital inquiry response"),
+    }
+
+    // Test digital mode on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::Digital).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::Digital { on }) => {
+            assert!(on);
+        }
+        _ => panic!("Expected Digital inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::Digital);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_tally_auto_adjust_response() {
+    // Test tally auto adjust off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::TallyAutoAdjust).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::TallyAutoAdjust { on }) => {
+            assert!(!on);
+        }
+        _ => panic!("Expected TallyAutoAdjust inquiry response"),
+    }
+
+    // Test tally auto adjust on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::TallyAutoAdjust).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::TallyAutoAdjust { on }) => {
+            assert!(on);
+        }
+        _ => panic!("Expected TallyAutoAdjust inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::TallyAutoAdjust);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_rtmp_response() {
+    // Test RTMP off
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::Rtmp).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::Rtmp { on }) => {
+            assert!(!on);
+        }
+        _ => panic!("Expected Rtmp inquiry response"),
+    }
+
+    // Test RTMP on
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::Rtmp).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::Rtmp { on }) => {
+            assert!(on);
+        }
+        _ => panic!("Expected Rtmp inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::Rtmp);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_zoom_out_response() {
+    // Test zoom out inactive
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::ZoomOut).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::ZoomOut { active }) => {
+            assert!(!active);
+        }
+        _ => panic!("Expected ZoomOut inquiry response"),
+    }
+
+    // Test zoom out active
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::ZoomOut).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::ZoomOut { active }) => {
+            assert!(active);
+        }
+        _ => panic!("Expected ZoomOut inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::ZoomOut);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_zoom_in_response() {
+    // Test zoom in inactive
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::ZoomIn).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::ZoomIn { active }) => {
+            assert!(!active);
+        }
+        _ => panic!("Expected ZoomIn inquiry response"),
+    }
+
+    // Test zoom in active
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::ZoomIn).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::ZoomIn { active }) => {
+            assert!(active);
+        }
+        _ => panic!("Expected ZoomIn inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::ZoomIn);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_iris_up_response() {
+    // Test iris up inactive
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::IrisUp).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::IrisUp { active }) => {
+            assert!(!active);
+        }
+        _ => panic!("Expected IrisUp inquiry response"),
+    }
+
+    // Test iris up active
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::IrisUp).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::IrisUp { active }) => {
+            assert!(active);
+        }
+        _ => panic!("Expected IrisUp inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::IrisUp);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_iris_down_response() {
+    // Test iris down inactive
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::IrisDown).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::IrisDown { active }) => {
+            assert!(!active);
+        }
+        _ => panic!("Expected IrisDown inquiry response"),
+    }
+
+    // Test iris down active
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::IrisDown).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::IrisDown { active }) => {
+            assert!(active);
+        }
+        _ => panic!("Expected IrisDown inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::IrisDown);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_night_day_position_response() {
+    // Test night/day position 0
+    let response = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDayPosition).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NightDayPosition { position }) => {
+            assert_eq!(position, 0x00);
+        }
+        _ => panic!("Expected NightDayPosition inquiry response"),
+    }
+
+    // Test night/day position 5
+    let response = vec![0x90, 0x50, 0x05, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDayPosition).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NightDayPosition { position }) => {
+            assert_eq!(position, 0x05);
+        }
+        _ => panic!("Expected NightDayPosition inquiry response"),
+    }
+
+    // Test night/day position 255
+    let response = vec![0x90, 0x50, 0xFF, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDayPosition).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NightDayPosition { position }) => {
+            assert_eq!(position, 0xFF);
+        }
+        _ => panic!("Expected NightDayPosition inquiry response"),
+    }
+
+    // Test invalid length
+    let response = vec![0x90, 0x50, 0x05, 0x06, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDayPosition);
+    assert!(matches!(result, Err(Error::InvalidResponseLength)));
+}
+
+#[test]
+fn test_focus_near_far_response() {
+    // Test focus far
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusNearFar).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FocusNearFar { near }) => {
+            assert!(!near); // Far active
+        }
+        _ => panic!("Expected FocusNearFar inquiry response"),
+    }
+
+    // Test focus near
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusNearFar).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::FocusNearFar { near }) => {
+            assert!(near); // Near active
+        }
+        _ => panic!("Expected FocusNearFar inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::FocusNearFar);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_zoom_tele_wide_response() {
+    // Test zoom wide
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::ZoomTeleWide).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::ZoomTeleWide { tele }) => {
+            assert!(!tele); // Wide active
+        }
+        _ => panic!("Expected ZoomTeleWide inquiry response"),
+    }
+
+    // Test zoom tele
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::ZoomTeleWide).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::ZoomTeleWide { tele }) => {
+            assert!(tele); // Tele active
+        }
+        _ => panic!("Expected ZoomTeleWide inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::ZoomTeleWide);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
+}
+
+#[test]
+fn test_night_day_switch_response() {
+    // Test night/day switch disabled
+    let response = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDaySwitch).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NightDaySwitch { enabled }) => {
+            assert!(!enabled);
+        }
+        _ => panic!("Expected NightDaySwitch inquiry response"),
+    }
+
+    // Test night/day switch enabled
+    let response = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDaySwitch).unwrap();
+    match result {
+        Response::InquiryResponse(InquiryResponse::NightDaySwitch { enabled }) => {
+            assert!(enabled);
+        }
+        _ => panic!("Expected NightDaySwitch inquiry response"),
+    }
+
+    // Test invalid value
+    let response = vec![0x90, 0x50, 0x04, 0xFF];
+    let result = parse_response(&response, &ResponseType::NightDaySwitch);
+    assert!(matches!(result, Err(Error::InvalidParameter { .. })));
 }

@@ -43,7 +43,9 @@ impl TryFrom<u8> for ExposureMode {
             0x0B => Ok(ExposureMode::Iris),
             0x0D => Ok(ExposureMode::Bright),
             _ => Err(Error::InvalidResponse {
-                expected: "0x00 (Auto), 0x03 (Manual), 0x0A (Shutter), 0x0B (Iris), or 0x0D (Bright)".to_string(),
+                expected:
+                    "0x00 (Auto), 0x03 (Manual), 0x0A (Shutter), 0x0B (Iris), or 0x0D (Bright)"
+                        .to_string(),
                 actual: vec![value],
             }),
         }

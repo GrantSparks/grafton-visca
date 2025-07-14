@@ -120,6 +120,57 @@ impl EncodeVisca for InterfaceClearCommand {
     }
 }
 
+/// Motion sync modes for coordinated camera movement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotionSyncMode {
+    /// Motion sync disabled.
+    Off,
+    /// Motion sync enabled.
+    On,
+}
+
+impl TryFrom<u8> for MotionSyncMode {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x02 => Ok(MotionSyncMode::Off),
+            0x03 => Ok(MotionSyncMode::On),
+            _ => Err(Error::InvalidResponse {
+                expected: "0x02 (Off) or 0x03 (On)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
+/// Motion sync speed settings for camera movement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotionSyncSpeed {
+    /// Slow motion sync speed.
+    Slow,
+    /// Normal motion sync speed.
+    Normal,
+    /// Fast motion sync speed.
+    Fast,
+}
+
+impl TryFrom<u8> for MotionSyncSpeed {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(MotionSyncSpeed::Slow),
+            0x01 => Ok(MotionSyncSpeed::Normal),
+            0x02 => Ok(MotionSyncSpeed::Fast),
+            _ => Err(Error::InvalidResponse {
+                expected: "0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)".to_string(),
+                actual: vec![value],
+            }),
+        }
+    }
+}
+
 /// Socket to cancel commands on.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Socket {

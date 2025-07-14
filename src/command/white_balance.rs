@@ -35,6 +35,20 @@ pub enum WhiteBalanceMode {
     ColorTemperature = 0x20,
 }
 
+/// Auto white balance sensitivity levels.
+///
+/// Controls how aggressively the automatic white balance algorithm
+/// adjusts to changing lighting conditions.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum AutoWhiteBalanceSensitivity {
+    /// Low sensitivity - slower, more stable adjustments.
+    Low = 0x00,
+    /// Normal sensitivity - balanced adjustment speed.
+    Normal = 0x01,
+    /// High sensitivity - faster adjustments to changing conditions.
+    High = 0x02,
+}
+
 crate::visca_param_command! {
     /// Command to set the white balance mode.
     pub(crate) struct WhiteBalanceCommand {
@@ -160,7 +174,7 @@ impl TryFrom<u8> for WhiteBalanceMode {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{EncodeVisca, visca_test};
+    use crate::{visca_test, EncodeVisca};
 
     #[test]
     fn test_white_balance_mode_values() {
@@ -173,19 +187,68 @@ mod tests {
         assert_eq!(WhiteBalanceMode::ColorTemperature as u8, 0x20);
     }
 
-    visca_test!(WhiteBalanceCommand, test_white_balance_command_auto, WhiteBalanceCommand { mode: WhiteBalanceMode::Auto }, &[0x81, 0x01, 0x04, 0x35, 0x00, 0xFF]);
+    visca_test!(
+        WhiteBalanceCommand,
+        test_white_balance_command_auto,
+        WhiteBalanceCommand {
+            mode: WhiteBalanceMode::Auto
+        },
+        &[0x81, 0x01, 0x04, 0x35, 0x00, 0xFF]
+    );
 
-    visca_test!(WhiteBalanceCommand, test_white_balance_command_indoor, WhiteBalanceCommand { mode: WhiteBalanceMode::Indoor }, &[0x81, 0x01, 0x04, 0x35, 0x01, 0xFF]);
+    visca_test!(
+        WhiteBalanceCommand,
+        test_white_balance_command_indoor,
+        WhiteBalanceCommand {
+            mode: WhiteBalanceMode::Indoor
+        },
+        &[0x81, 0x01, 0x04, 0x35, 0x01, 0xFF]
+    );
 
-    visca_test!(WhiteBalanceCommand, test_white_balance_command_outdoor, WhiteBalanceCommand { mode: WhiteBalanceMode::Outdoor }, &[0x81, 0x01, 0x04, 0x35, 0x02, 0xFF]);
+    visca_test!(
+        WhiteBalanceCommand,
+        test_white_balance_command_outdoor,
+        WhiteBalanceCommand {
+            mode: WhiteBalanceMode::Outdoor
+        },
+        &[0x81, 0x01, 0x04, 0x35, 0x02, 0xFF]
+    );
 
-    visca_test!(WhiteBalanceCommand, test_white_balance_command_one_push, WhiteBalanceCommand { mode: WhiteBalanceMode::OnePush }, &[0x81, 0x01, 0x04, 0x35, 0x03, 0xFF]);
+    visca_test!(
+        WhiteBalanceCommand,
+        test_white_balance_command_one_push,
+        WhiteBalanceCommand {
+            mode: WhiteBalanceMode::OnePush
+        },
+        &[0x81, 0x01, 0x04, 0x35, 0x03, 0xFF]
+    );
 
-    visca_test!(WhiteBalanceCommand, test_white_balance_command_atw, WhiteBalanceCommand { mode: WhiteBalanceMode::ATW }, &[0x81, 0x01, 0x04, 0x35, 0x04, 0xFF]);
+    visca_test!(
+        WhiteBalanceCommand,
+        test_white_balance_command_atw,
+        WhiteBalanceCommand {
+            mode: WhiteBalanceMode::ATW
+        },
+        &[0x81, 0x01, 0x04, 0x35, 0x04, 0xFF]
+    );
 
-    visca_test!(WhiteBalanceCommand, test_white_balance_command_manual, WhiteBalanceCommand { mode: WhiteBalanceMode::Manual }, &[0x81, 0x01, 0x04, 0x35, 0x05, 0xFF]);
+    visca_test!(
+        WhiteBalanceCommand,
+        test_white_balance_command_manual,
+        WhiteBalanceCommand {
+            mode: WhiteBalanceMode::Manual
+        },
+        &[0x81, 0x01, 0x04, 0x35, 0x05, 0xFF]
+    );
 
-    visca_test!(WhiteBalanceCommand, test_white_balance_command_color_temperature, WhiteBalanceCommand { mode: WhiteBalanceMode::ColorTemperature }, &[0x81, 0x01, 0x04, 0x35, 0x20, 0xFF]);
+    visca_test!(
+        WhiteBalanceCommand,
+        test_white_balance_command_color_temperature,
+        WhiteBalanceCommand {
+            mode: WhiteBalanceMode::ColorTemperature
+        },
+        &[0x81, 0x01, 0x04, 0x35, 0x20, 0xFF]
+    );
 
     #[test]
     fn test_white_balance_mode_try_from() {
