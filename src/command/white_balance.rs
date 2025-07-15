@@ -60,7 +60,6 @@ crate::visca_param_command! {
 }
 
 impl WhiteBalanceCommand {
-    #[allow(dead_code)]
     fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
         use crate::constants::CameraVariant;
 
