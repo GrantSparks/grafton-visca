@@ -192,7 +192,6 @@ where
 }
 
 /// Wrapper for blocking transports.
-#[allow(dead_code)]
 struct BlockingTransportWrapper<T: BlockingTransport> {
     transport: T,
 }
@@ -319,7 +318,6 @@ impl Camera {
     }
 
     /// Create with a blocking transport.
-    #[allow(dead_code)]
     pub(crate) fn new_blocking<T>(transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
@@ -330,7 +328,6 @@ impl Camera {
     }
 
     /// Create with a specific profile and blocking transport.
-    #[allow(dead_code)]
     pub(crate) fn with_profile_blocking<T>(profile: CameraModel, transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
@@ -351,16 +348,22 @@ impl Camera {
         let address = profile.default_address();
         let transport = Arc::new(AsyncTransportWrapper { transport });
 
-        Self {
+        let mut camera = Self {
             profile,
             transport,
             address,
-            socket_manager: None, // Will be initialized when needed
+            socket_manager: None,
+        };
+
+        // Initialize socket manager automatically for better reliability
+        if let Err(e) = camera.initialize_socket_manager() {
+            log::warn!("Failed to initialize socket manager: {}", e);
         }
+
+        camera
     }
 
     /// Internal constructor for blocking transports.
-    #[allow(dead_code)]
     fn with_profile_and_blocking_transport<T>(profile: CameraModel, transport: T) -> Self
     where
         T: BlockingTransport + Send + Sync + 'static,
@@ -371,12 +374,19 @@ impl Camera {
         let address = profile.default_address();
         let transport = Arc::new(BlockingTransportWrapper { transport });
 
-        Self {
+        let mut camera = Self {
             profile,
             transport,
             address,
-            socket_manager: None, // Will be initialized when needed
+            socket_manager: None,
+        };
+
+        // Initialize socket manager automatically for better reliability
+        if let Err(e) = camera.initialize_socket_manager() {
+            log::warn!("Failed to initialize socket manager: {}", e);
         }
+
+        camera
     }
 
     /// Get the camera's model name.

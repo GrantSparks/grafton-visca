@@ -8,7 +8,7 @@ use crate::timeout::CommandCategory;
 
 // Use conditional compilation for async support
 #[cfg(feature = "tokio")]
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 
 #[cfg(not(feature = "tokio"))]
 use std::sync::Mutex;

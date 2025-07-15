@@ -297,7 +297,6 @@ crate::visca_builder! {
 
 impl FocusZoneCommand {
     /// Create a new focus zone command.
-    #[allow(dead_code)]
     pub fn new(zone: FocusZone) -> Self {
         Self { zone }
     }
@@ -353,7 +352,6 @@ crate::visca_builder! {
 
 impl AutoFocusSensitivityCommand {
     /// Create a new auto focus sensitivity command.
-    #[allow(dead_code)]
     pub fn new(sensitivity: AutoFocusSensitivity) -> Self {
         Self { sensitivity }
     }
@@ -387,7 +385,6 @@ crate::visca_builder! {
 
 impl FocusNearLimitCommand {
     /// Create a new focus near limit command.
-    #[allow(dead_code)]
     pub fn new(position: FocusPosition) -> Self {
         Self { position }
     }

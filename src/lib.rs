@@ -307,7 +307,7 @@ pub mod units;
 pub mod timeout; // Public for use in macros
 
 // Socket state management and command queue
-mod socket_manager;
+pub mod socket_manager;
 
 // Minimal blocking executor
 pub mod executor;

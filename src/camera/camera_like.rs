@@ -7,7 +7,6 @@ use crate::Camera;
 /// This trait is implemented by all camera wrapper types (root Camera,
 /// blocking::Camera, and async::Camera) to provide a consistent way
 /// to access the underlying camera functionality.
-#[allow(dead_code)]
 pub(crate) trait CameraLike {
     /// Get an immutable reference to the underlying Camera.
     fn inner(&self) -> &Camera;
