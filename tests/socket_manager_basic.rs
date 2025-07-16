@@ -135,11 +135,6 @@ impl MockTransport {
         commands.clone()
     }
 
-    fn add_response(&self, response: Result<Bytes, Error>) {
-        let mut responses = self.responses.lock().unwrap();
-        responses.push_back(response);
-    }
-
     fn generate_visca_ack_completion(&self) -> (Bytes, Bytes) {
         // Generate ACK response (90 41 FF for socket 1)
         let ack = Bytes::from(vec![0x90, 0x41, 0xFF]);
@@ -179,10 +174,9 @@ impl Transport for MockTransport {
             // instead of returning immediately with an error
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             let mut responses = responses.lock().unwrap();
-            let result = responses
+            responses
                 .pop_front()
-                .unwrap_or_else(|| Err(Error::TransportError("No response available".to_string())));
-            result
+                .unwrap_or_else(|| Err(Error::TransportError("No response available".to_string())))
         })
     }
 }
@@ -192,7 +186,8 @@ async fn test_socket_manager_initialization() {
     println!("=== Testing socket manager initialization ===");
 
     let transport = MockTransport::new();
-    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    let handle = tokio::runtime::Handle::current();
+    let mut camera = Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport, handle);
 
     // Test initialization
     let result = camera.initialize_socket_manager();
@@ -210,7 +205,9 @@ async fn test_socket_manager_command_basic() {
     println!("=== Testing basic socket manager command sending ===");
 
     let transport = MockTransport::new();
-    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport.clone());
+    let handle = tokio::runtime::Handle::current();
+    let mut camera =
+        Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport.clone(), handle);
 
     // Initialize socket manager
     camera
@@ -274,7 +271,9 @@ async fn test_socket_manager_simple() {
     println!("=== Testing simple socket manager initialization ===");
 
     let transport = MockTransport::new();
-    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport.clone());
+    let handle = tokio::runtime::Handle::current();
+    let mut camera =
+        Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport.clone(), handle);
 
     // Initialize socket manager
     let init_result = camera.initialize_socket_manager();
@@ -291,7 +290,9 @@ async fn test_socket_manager_with_auto_responses() {
     println!("=== Testing socket manager with auto responses ===");
 
     let transport = MockTransport::with_auto_respond();
-    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport.clone());
+    let handle = tokio::runtime::Handle::current();
+    let mut camera =
+        Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport.clone(), handle);
 
     // Initialize socket manager
     camera
@@ -351,7 +352,9 @@ async fn test_socket_manager_without_initialization() {
     println!("=== Testing command sending without socket manager ===");
 
     let transport = MockTransport::new();
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport.clone());
+    let handle = tokio::runtime::Handle::current();
+    let camera =
+        Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport.clone(), handle);
 
     // Don't initialize socket manager
     println!("🔄 Sending command without socket manager...");

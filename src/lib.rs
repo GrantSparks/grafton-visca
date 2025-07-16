@@ -306,7 +306,15 @@ pub mod units;
 
 pub mod timeout; // Public for use in macros
 
-// Socket state management and command queue
+/// Socket manager for handling VISCA protocol two-socket state machine.
+///
+/// This module implements a sophisticated command queue and socket management system
+/// for VISCA cameras that support dual socket communication. It handles:
+/// - Command queuing and prioritization
+/// - Socket state tracking (free/busy)
+/// - Automatic retries for transient errors
+/// - Timeout management
+/// - Concurrent command execution on available sockets
 pub mod socket_manager;
 
 // Minimal blocking executor

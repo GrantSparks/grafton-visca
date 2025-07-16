@@ -50,17 +50,17 @@ impl Camera {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// #[derive(Clone)]
     /// struct AsyncStdSpawner;
-    /// 
+    ///
     /// impl Spawner for AsyncStdSpawner {
     ///     fn spawn(&self, task: SpawnableFuture) {
     ///         async_std::task::spawn(task);
     ///     }
     /// }
-    /// 
+    ///
     /// # let transport = todo!();
     /// let spawner = AsyncStdSpawner;
     /// let camera = Camera::with_spawner(CameraModel::PTZOpticsG2, transport, spawner);
-    /// 
+    ///
     /// // Ready to control camera with async-std
     /// camera.pan_tilt_home().await?;
     /// # Ok(())

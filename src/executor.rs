@@ -38,20 +38,20 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 /// ```
 ///
 /// ## Using with async-std
-/// ```no_run
+/// ```ignore
 /// use grafton_visca::executor::{Spawner, SpawnableFuture};
 /// use grafton_visca::{Camera, CameraModel};
 /// use std::sync::Arc;
-/// 
+///
 /// #[derive(Clone)]
 /// struct AsyncStdSpawner;
-/// 
+///
 /// impl Spawner for AsyncStdSpawner {
 ///     fn spawn(&self, task: SpawnableFuture) {
 ///         async_std::task::spawn(task);
 ///     }
 /// }
-/// 
+///
 /// #[async_std::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     // Create your transport (implement Transport trait for async-std)
@@ -69,21 +69,21 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 /// #     async { Err("example only".into()) }
 /// # }
 /// ```
-/// 
+///
 /// ## Using with smol
-/// ```no_run
+/// ```ignore
 /// use grafton_visca::executor::{Spawner, SpawnableFuture};
 /// use grafton_visca::{Camera, CameraModel};
-/// 
+///
 /// #[derive(Clone)]
 /// struct SmolSpawner(smol::Executor<'static>);
-/// 
+///
 /// impl Spawner for SmolSpawner {
 ///     fn spawn(&self, task: SpawnableFuture) {
 ///         self.0.spawn(task).detach();
 ///     }
 /// }
-/// 
+///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     let ex = smol::Executor::new();
 ///     
@@ -104,14 +104,14 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 /// #     Err("example only".into())
 /// # }
 /// ```
-/// 
+///
 /// ## Using with embassy (no_std)
-/// ```no_run
+/// ```ignore
 /// use grafton_visca::executor::{Spawner, SpawnableFuture};
 /// use embassy_executor::Spawner as EmbassySpawner;
-/// 
+///
 /// struct EmbassySpawnerWrapper(EmbassySpawner);
-/// 
+///
 /// impl Spawner for EmbassySpawnerWrapper {
 ///     fn spawn(&self, task: SpawnableFuture) {
 ///         // Note: Embassy requires static futures, so you may need to leak the task
@@ -121,7 +121,7 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 ///         }).ok();
 ///     }
 /// }
-/// 
+///
 /// #[embassy_executor::main]
 /// async fn main(spawner: EmbassySpawner) {
 ///     // Create your embedded transport
@@ -187,7 +187,7 @@ impl Spawner for tokio::runtime::Handle {
 /// # }
 /// ```
 #[cfg(feature = "async")]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BlockingSpawner;
 
 #[cfg(feature = "async")]

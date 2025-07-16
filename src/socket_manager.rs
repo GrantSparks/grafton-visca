@@ -10,7 +10,6 @@ use std::time::Instant;
 #[cfg(feature = "tokio")]
 use tokio::sync::{mpsc, oneshot};
 
-
 #[cfg(not(feature = "tokio"))]
 use std::sync::mpsc;
 
@@ -95,7 +94,7 @@ impl Socket {
 ///
 /// Sockets can either be free (available for new commands) or busy
 /// (currently executing a command).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum SocketState {
     /// Socket is free and available for new commands.
     Free,
@@ -111,14 +110,17 @@ pub enum SocketState {
 }
 
 impl SocketState {
+    /// Check if the socket is free and available for new commands.
     pub fn is_free(&self) -> bool {
         matches!(self, SocketState::Free)
     }
 
+    /// Check if the socket is busy executing a command.
     pub fn is_busy(&self) -> bool {
         matches!(self, SocketState::Busy { .. })
     }
 
+    /// Get the time when the current command execution started, if the socket is busy.
     pub fn started_at(&self) -> Option<Instant> {
         match self {
             SocketState::Free => None,
@@ -126,6 +128,7 @@ impl SocketState {
         }
     }
 
+    /// Get the ID of the command currently being executed, if the socket is busy.
     pub fn command_id(&self) -> Option<u32> {
         match self {
             SocketState::Free => None,
@@ -133,6 +136,7 @@ impl SocketState {
         }
     }
 
+    /// Get the category of the command currently being executed, if the socket is busy.
     pub fn category(&self) -> Option<CommandCategory> {
         match self {
             SocketState::Free => None,
@@ -141,21 +145,31 @@ impl SocketState {
     }
 }
 
+/// Represents a command that is waiting to be sent or is currently being executed.
 #[derive(Debug)]
 pub struct PendingCmd {
+    /// Unique identifier for this command instance.
     pub id: u32,
+    /// The raw VISCA command bytes to send.
     pub bytes: Vec<u8>,
+    /// Category of the command for timeout and retry logic.
     pub category: CommandCategory,
+    /// Channel to send the response back to the caller.
     #[cfg(feature = "tokio")]
     pub response_sender: oneshot::Sender<Result<Response>>,
+    /// Channel to send the response back to the caller.
     #[cfg(not(feature = "tokio"))]
     pub response_sender: Sender<Result<Response>>,
+    /// Whether this is an inquiry command (query) or action command.
     pub is_inquiry: bool,
+    /// When this command was first enqueued.
     pub enqueued_at: Instant,
+    /// Number of retry attempts made for this command.
     pub retry_attempt: u32,
 }
 
 impl PendingCmd {
+    /// Create a new pending command.
     #[cfg(feature = "tokio")]
     pub fn new(
         id: u32,
@@ -194,22 +208,32 @@ impl PendingCmd {
         }
     }
 
+    /// Complete this command by sending the result through the response channel.
     pub fn complete(self, result: Result<Response>) {
         let _ = self.response_sender.send(result);
     }
 }
 
+/// Internal state of the socket manager.
+///
+/// This struct maintains the state of both sockets, the command queue,
+/// and tracking information for active commands.
 #[derive(Debug)]
 pub struct SocketManagerInner {
+    /// State of each socket (Socket1 and Socket2).
     pub sockets: [SocketState; 2],
+    /// Queue of commands waiting to be sent.
     pub command_queue: VecDeque<PendingCmd>,
+    /// Counter for generating unique command IDs.
     pub next_command_id: u32,
+    /// Commands currently being executed on each socket.
     pub active_commands: [Option<PendingCmd>; 2],
+    /// Inquiry command waiting for response (only one allowed at a time).
     pub pending_inquiry: Option<PendingCmd>,
 }
 
-impl SocketManagerInner {
-    pub fn new() -> Self {
+impl Default for SocketManagerInner {
+    fn default() -> Self {
         Self {
             sockets: [SocketState::Free, SocketState::Free],
             command_queue: VecDeque::new(),
@@ -218,7 +242,15 @@ impl SocketManagerInner {
             pending_inquiry: None,
         }
     }
+}
 
+impl SocketManagerInner {
+    /// Create a new socket manager inner state with both sockets free.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Find a free socket available for sending a command.
     pub fn get_free_socket(&self) -> Option<Socket> {
         if self.sockets[0].is_free() {
             Some(Socket::Socket1)
@@ -229,6 +261,7 @@ impl SocketManagerInner {
         }
     }
 
+    /// Mark a socket as busy with the given command.
     pub fn mark_socket_busy(&mut self, socket: Socket, command_id: u32, category: CommandCategory) {
         let index = socket.as_index();
         self.sockets[index] = SocketState::Busy {
@@ -238,73 +271,102 @@ impl SocketManagerInner {
         };
     }
 
+    /// Mark a socket as free and clear its active command.
     pub fn mark_socket_free(&mut self, socket: Socket) {
         let index = socket.as_index();
         self.sockets[index] = SocketState::Free;
         self.active_commands[index] = None;
     }
 
+    /// Get the next unique command ID.
     pub fn get_next_command_id(&mut self) -> u32 {
         let id = self.next_command_id;
         self.next_command_id = self.next_command_id.wrapping_add(1);
         id
     }
 
+    /// Add a command to the queue.
     pub fn enqueue_command(&mut self, command: PendingCmd) {
         self.command_queue.push_back(command);
     }
 
+    /// Remove and return the next command from the queue.
     pub fn dequeue_command(&mut self) -> Option<PendingCmd> {
         self.command_queue.pop_front()
     }
 
+    /// Set the active command for a socket.
     pub fn set_active_command(&mut self, socket: Socket, command: PendingCmd) {
         let index = socket.as_index();
         self.active_commands[index] = Some(command);
     }
 
+    /// Take the active command for a socket, leaving None in its place.
     pub fn take_active_command(&mut self, socket: Socket) -> Option<PendingCmd> {
         let index = socket.as_index();
         self.active_commands[index].take()
     }
 
+    /// Get a reference to the active command for a socket.
     pub fn get_active_command(&self, socket: Socket) -> Option<&PendingCmd> {
         let index = socket.as_index();
         self.active_commands[index].as_ref()
     }
 
+    /// Set the pending inquiry command.
     pub fn set_pending_inquiry(&mut self, command: PendingCmd) {
         self.pending_inquiry = Some(command);
     }
 
+    /// Take the pending inquiry command, leaving None in its place.
     pub fn take_pending_inquiry(&mut self) -> Option<PendingCmd> {
         self.pending_inquiry.take()
     }
 }
 
+/// Commands that can be sent to the socket manager actor.
+#[derive(Debug)]
 pub enum SocketManagerCommand {
+    /// Send a VISCA command through the socket manager.
     SendCommand {
+        /// Raw command bytes to send.
         bytes: Vec<u8>,
+        /// Command category for timeout and retry logic.
         category: CommandCategory,
+        /// Whether this is an inquiry (query) command.
         is_inquiry: bool,
+        /// Channel to send the response back to the caller.
         #[cfg(feature = "tokio")]
         response_sender: oneshot::Sender<Result<Response>>,
+        /// Channel to send the response back to the caller.
         #[cfg(not(feature = "tokio"))]
         response_sender: Sender<Result<Response>>,
     },
+    /// Cancel a command on a specific socket.
     CancelCommand {
+        /// Socket to cancel the command on.
         socket: Socket,
+        /// Channel to send the cancellation result.
         #[cfg(feature = "tokio")]
         response_sender: oneshot::Sender<Result<()>>,
+        /// Channel to send the cancellation result.
         #[cfg(not(feature = "tokio"))]
         response_sender: Sender<Result<()>>,
     },
+    /// Handle a response received from the camera.
     HandleResponse {
+        /// The response to handle.
         response: Response,
     },
+    /// Shutdown the socket manager actor.
     Shutdown,
 }
 
+/// Handle to communicate with the socket manager actor.
+///
+/// This handle can be cloned and shared across threads to send commands
+/// to the socket manager from multiple locations.
+#[derive(Debug)]
 pub struct SocketManagerHandle {
     #[cfg(feature = "tokio")]
     command_sender: mpsc::UnboundedSender<SocketManagerCommand>,
@@ -321,6 +383,7 @@ impl Clone for SocketManagerHandle {
 }
 
 impl SocketManagerHandle {
+    /// Create a new socket manager handle.
     #[cfg(feature = "tokio")]
     pub fn new(command_sender: mpsc::UnboundedSender<SocketManagerCommand>) -> Self {
         Self { command_sender }
@@ -331,6 +394,10 @@ impl SocketManagerHandle {
         Self { command_sender }
     }
 
+    /// Send a command through the socket manager.
+    ///
+    /// Commands are queued and executed on available sockets. The method
+    /// returns when the command completes or times out.
     pub async fn send_command(
         &self,
         bytes: Vec<u8>,
@@ -374,6 +441,9 @@ impl SocketManagerHandle {
         result
     }
 
+    /// Cancel a command on a specific socket.
+    ///
+    /// This sends a cancel command to the camera for the specified socket.
     pub async fn cancel_command(&self, socket: Socket) -> Result<()> {
         let (response_sender, response_receiver) = oneshot::channel();
 
@@ -408,6 +478,10 @@ impl SocketManagerHandle {
         result
     }
 
+    /// Handle a response received from the camera.
+    ///
+    /// This method is typically called by the transport layer when
+    /// responses are received from the camera.
     pub fn handle_response(&self, response: Response) -> Result<()> {
         #[cfg(feature = "tokio")]
         let send_result = self
@@ -425,6 +499,7 @@ impl SocketManagerHandle {
         Ok(())
     }
 
+    /// Shutdown the socket manager actor.
     pub fn shutdown(&self) -> Result<()> {
         #[cfg(feature = "tokio")]
         let send_result = self
@@ -463,24 +538,34 @@ pub trait RetryHook {
 }
 
 /// Default retry hook implementation that handles 0x41 "Not Executable" errors.
+#[derive(Debug, Copy, Clone)]
 pub struct DefaultRetryHook {
     max_attempts: u32,
     base_delay: std::time::Duration,
 }
 
-impl DefaultRetryHook {
-    pub fn new() -> Self {
+impl Default for DefaultRetryHook {
+    fn default() -> Self {
         Self {
             max_attempts: 3,
             base_delay: std::time::Duration::from_millis(100),
         }
     }
+}
 
+impl DefaultRetryHook {
+    /// Create a new default retry hook with standard settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the maximum number of retry attempts.
     pub fn with_max_attempts(mut self, max_attempts: u32) -> Self {
         self.max_attempts = max_attempts;
         self
     }
 
+    /// Set the base delay for exponential backoff.
     pub fn with_base_delay(mut self, delay: std::time::Duration) -> Self {
         self.base_delay = delay;
         self
@@ -516,6 +601,7 @@ impl RetryHook for DefaultRetryHook {
 }
 
 /// No-op retry hook that never retries.
+#[derive(Debug, Copy, Clone)]
 pub struct NoRetryHook;
 
 impl RetryHook for NoRetryHook {
@@ -532,6 +618,10 @@ impl RetryHook for NoRetryHook {
     }
 }
 
+/// The socket manager actor that runs the main event loop.
+///
+/// This actor manages the two-socket state machine, processes commands,
+/// handles responses, and manages timeouts and retries.
 pub struct SocketManagerActor {
     inner: SocketManagerInner,
     transport: Arc<dyn UnifiedTransport>,
@@ -543,7 +633,19 @@ pub struct SocketManagerActor {
     retry_hook: Box<dyn RetryHook + Send + Sync>,
 }
 
+impl std::fmt::Debug for SocketManagerActor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SocketManagerActor")
+            .field("inner", &self.inner)
+            .field("transport", &"Arc<dyn UnifiedTransport>")
+            .field("profile", &self.profile)
+            .field("retry_hook", &"Box<dyn RetryHook>")
+            .finish()
+    }
+}
+
 impl SocketManagerActor {
+    /// Create a new socket manager actor.
     #[cfg(feature = "tokio")]
     pub fn new(
         transport: Arc<dyn UnifiedTransport>,
@@ -580,6 +682,9 @@ impl SocketManagerActor {
         self
     }
 
+    /// Run the socket manager actor event loop.
+    ///
+    /// This method runs until shutdown is requested or an error occurs.
     pub async fn run(mut self) -> Result<()> {
         debug!("Socket manager starting");
 
