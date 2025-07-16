@@ -3,58 +3,128 @@ use grafton_visca::command::power::PowerCommand;
 use grafton_visca::command::system::Socket;
 use grafton_visca::transport::core::Transport;
 use grafton_visca::{Camera, CameraModel, Error};
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "tokio")]
+use tokio::sync::{mpsc, Mutex};
+
+#[cfg(not(feature = "tokio"))]
+use std::sync::Mutex;
+
 /// Mock transport for testing socket manager
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct MockTransport {
+    #[cfg(feature = "tokio")]
     sent_commands: Arc<Mutex<Vec<Vec<u8>>>>,
-    responses: Arc<Mutex<VecDeque<Result<Bytes, Error>>>>,
+    #[cfg(not(feature = "tokio"))]
+    sent_commands: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+    #[cfg(feature = "tokio")]
+    response_sender: mpsc::UnboundedSender<Result<Bytes, Error>>,
+    #[cfg(feature = "tokio")]
+    response_receiver: Arc<Mutex<mpsc::UnboundedReceiver<Result<Bytes, Error>>>>,
 }
 
 impl MockTransport {
+    #[cfg(feature = "tokio")]
     fn new() -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
         Self {
             sent_commands: Arc::new(Mutex::new(Vec::new())),
-            responses: Arc::new(Mutex::new(VecDeque::new())),
+            response_sender: tx,
+            response_receiver: Arc::new(Mutex::new(rx)),
         }
     }
 
-    fn add_response(&self, response: Result<Bytes, Error>) {
-        let mut responses = self.responses.lock().unwrap();
-        responses.push_back(response);
+    #[cfg(not(feature = "tokio"))]
+    fn new() -> Self {
+        Self {
+            sent_commands: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
+    #[cfg(feature = "tokio")]
+    fn add_response(&self, response: Result<Bytes, Error>) {
+        // This simulates the camera sending a response
+        let _ = self.response_sender.send(response);
+    }
+
+    #[cfg(not(feature = "tokio"))]
+    fn add_response(&self, _response: Result<Bytes, Error>) {
+        // No-op for non-tokio builds
+    }
+
+    #[cfg(feature = "tokio")]
+    async fn get_sent_commands(&self) -> Vec<Vec<u8>> {
+        let commands = self.sent_commands.lock().await;
+        commands.clone()
+    }
+
+    #[cfg(not(feature = "tokio"))]
     fn get_sent_commands(&self) -> Vec<Vec<u8>> {
         let commands = self.sent_commands.lock().unwrap();
         commands.clone()
     }
+}
 
-    fn clear_sent_commands(&self) {
-        let mut commands = self.sent_commands.lock().unwrap();
-        commands.clear();
+impl std::fmt::Debug for MockTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MockTransport")
+            .field("sent_commands", &self.sent_commands)
+            .finish()
     }
 }
 
 impl Transport for MockTransport {
     type Error = Error;
+    #[cfg(feature = "tokio")]
+    type SendFut<'a> =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>;
+    #[cfg(not(feature = "tokio"))]
     type SendFut<'a> = futures::future::Ready<Result<(), Error>>;
-    type RecvFut<'a> = futures::future::Ready<Result<Bytes, Error>>;
+    #[cfg(feature = "tokio")]
+    type RecvFut<'a> =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Bytes, Error>> + Send + 'a>>;
+    #[cfg(not(feature = "tokio"))]
+    type RecvFut<'a> = futures::future::Pending<Result<Bytes, Error>>;
 
+    #[cfg(feature = "tokio")]
+    fn send(&self, bytes: &[u8]) -> Self::SendFut<'_> {
+        let commands_to_send = bytes.to_vec();
+        let sent_commands = Arc::clone(&self.sent_commands);
+        Box::pin(async move {
+            let mut commands = sent_commands.lock().await;
+            commands.push(commands_to_send);
+            Ok(())
+        })
+    }
+
+    #[cfg(not(feature = "tokio"))]
     fn send(&self, bytes: &[u8]) -> Self::SendFut<'_> {
         let mut commands = self.sent_commands.lock().unwrap();
         commands.push(bytes.to_vec());
         futures::future::ready(Ok(()))
     }
 
+    #[cfg(feature = "tokio")]
     fn recv(&self) -> Self::RecvFut<'_> {
-        let mut responses = self.responses.lock().unwrap();
-        let result = responses
-            .pop_front()
-            .unwrap_or_else(|| Err(Error::TransportError("No response available".to_string())));
-        futures::future::ready(result)
+        // Clone the Arc to avoid lifetime issues
+        let receiver_arc = Arc::clone(&self.response_receiver);
+        Box::pin(async move {
+            // This simulates real hardware that blocks until data is available
+            let mut receiver = receiver_arc.lock().await;
+            match receiver.recv().await {
+                Some(result) => result,
+                None => Err(Error::TransportError("Transport closed".to_string())),
+            }
+        })
+    }
+
+    #[cfg(not(feature = "tokio"))]
+    fn recv(&self) -> Self::RecvFut<'_> {
+        // For non-tokio builds, return a future that never completes
+        // This simulates blocking I/O
+        futures::future::pending()
     }
 }
 
@@ -62,10 +132,9 @@ impl Transport for MockTransport {
 #[tokio::test]
 async fn test_socket_manager_initialization() {
     let transport = MockTransport::new();
-    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
-
-    // Initially socket manager should not be initialized
-    assert!(camera.send_command(&PowerCommand::On).await.is_ok());
+    let handle = tokio::runtime::Handle::current();
+    let mut camera =
+        Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport.clone(), handle);
 
     // Initialize socket manager
     let result = camera.initialize_socket_manager();
@@ -85,7 +154,9 @@ async fn test_socket_manager_initialization() {
 #[tokio::test]
 async fn test_socket_manager_command_sending() {
     let transport = MockTransport::new();
-    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport.clone());
+    let handle = tokio::runtime::Handle::current();
+    let mut camera =
+        Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport.clone(), handle);
 
     // Initialize socket manager
     camera
@@ -110,7 +181,7 @@ async fn test_socket_manager_command_sending() {
     }
 
     // Check that command was actually sent
-    let sent_commands = transport.get_sent_commands();
+    let sent_commands = transport.get_sent_commands().await;
     assert!(!sent_commands.is_empty(), "No commands were sent");
 
     println!("Socket manager command sending test completed");
@@ -120,7 +191,9 @@ async fn test_socket_manager_command_sending() {
 #[tokio::test]
 async fn test_socket_manager_timeout_handling() {
     let transport = MockTransport::new();
-    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport.clone());
+    let handle = tokio::runtime::Handle::current();
+    let mut camera =
+        Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport.clone(), handle);
 
     // Initialize socket manager
     camera
@@ -153,7 +226,9 @@ async fn test_socket_manager_timeout_handling() {
 #[tokio::test]
 async fn test_socket_manager_cancellation() {
     let transport = MockTransport::new();
-    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport.clone());
+    let handle = tokio::runtime::Handle::current();
+    let mut camera =
+        Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport.clone(), handle);
 
     // Initialize socket manager
     camera
@@ -178,6 +253,7 @@ async fn test_socket_manager_cancellation() {
 #[test]
 fn test_socket_manager_without_tokio() {
     let transport = MockTransport::new();
+    // This test is for non-tokio environments, so use standard constructor
     let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
 
     // Initialize socket manager

@@ -59,7 +59,6 @@ crate::visca_param_command! {
     timeout = Quick;
 }
 
-
 /// AWB Sensitivity levels (PTZOptics specific).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AWBSensitivity {
@@ -113,7 +112,6 @@ impl EncodeVisca for AWBSensitivityCommand {
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
     }
-
 }
 
 impl TryFrom<u8> for WhiteBalanceMode {
@@ -382,5 +380,4 @@ mod tests {
             vec![0x81, 0x01, 0x04, 0xA9, 0x02, 0xFF]
         );
     }
-
 }

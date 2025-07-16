@@ -194,7 +194,6 @@ where
     }
 }
 
-
 /// Unified camera interface that abstracts over profile and transport generics.
 ///
 /// This type provides a single, easy-to-use interface for camera control without
@@ -281,8 +280,9 @@ impl std::fmt::Debug for Camera {
 impl Camera {
     /// Create a new unified camera with default profile (GenericVisca).
     ///
-    /// This constructor automatically detects whether the transport is async or blocking
-    /// and wraps it appropriately.
+    /// This constructor is suitable for both async and blocking usage.
+    /// If you need async operations with background task management,
+    /// use `new_with_spawner` instead.
     pub fn new<T>(transport: T) -> Self
     where
         T: Transport + Send + Sync + 'static,
@@ -292,73 +292,11 @@ impl Camera {
         Self::with_profile_and_transport(CameraModel::default(), transport)
     }
 
-    /// Create a new unified camera with a custom spawner.
+    /// Create a new unified camera with a spawner for async operations.
     ///
-    /// This constructor allows you to provide your own spawner implementation
-    /// for executing the socket manager actor. This is useful when you want to
-    /// use a different async runtime than Tokio or control how tasks are spawned.
-    ///
-    /// This method is only available when the `async` feature is enabled but
-    /// `tokio` is not, as Tokio users can rely on the automatic runtime detection.
-    ///
-    /// # Example with async-std
-    /// ```no_run
-    /// # use grafton_visca::{Camera, CameraModel};
-    /// # use grafton_visca::executor::{Spawner, SpawnableFuture};
-    /// # #[cfg(feature = "async")]
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use async_std::task;
-    /// 
-    /// #[derive(Clone)]
-    /// struct AsyncStdSpawner;
-    /// 
-    /// impl Spawner for AsyncStdSpawner {
-    ///     fn spawn(&self, task: SpawnableFuture) {
-    ///         async_std::task::spawn(task);
-    ///     }
-    /// }
-    /// 
-    /// # let transport = todo!();
-    /// let spawner = AsyncStdSpawner;
-    /// let camera = Camera::new_with_spawner(transport, spawner);
-    /// 
-    /// // Use camera with async-std runtime
-    /// camera.zoom_stop().await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    /// 
-    /// # Example with smol
-    /// ```no_run
-    /// # use grafton_visca::{Camera, CameraModel};
-    /// # use grafton_visca::executor::{Spawner, SpawnableFuture};
-    /// # #[cfg(feature = "async")]
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use smol::Executor;
-    /// 
-    /// let ex = Executor::new();
-    /// 
-    /// #[derive(Clone)]
-    /// struct SmolSpawner(Executor<'static>);
-    /// 
-    /// impl Spawner for SmolSpawner {
-    ///     fn spawn(&self, task: SpawnableFuture) {
-    ///         self.0.spawn(task).detach();
-    ///     }
-    /// }
-    /// 
-    /// smol::block_on(ex.run(async {
-    /// #     let transport = todo!();
-    ///     let spawner = SmolSpawner(ex.clone());
-    ///     let camera = Camera::new_with_spawner(transport, spawner);
-    ///     
-    ///     // Use camera with smol runtime
-    ///     camera.pan_tilt_home().await
-    /// }))?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(all(feature = "async", not(feature = "tokio")))]
+    /// Use this constructor when you need async operations with background
+    /// task management (e.g., socket manager for concurrent commands).
+    #[cfg(feature = "async")]
     pub fn new_with_spawner<T, S>(transport: T, spawner: S) -> Self
     where
         T: Transport + Send + Sync + 'static,
@@ -370,6 +308,10 @@ impl Camera {
     }
 
     /// Create a new unified camera with a specific profile.
+    ///
+    /// This constructor is suitable for both async and blocking usage.
+    /// If you need async operations with background task management,
+    /// use `with_profile_and_spawner` instead.
     pub fn with_profile<T>(profile: CameraModel, transport: T) -> Self
     where
         T: Transport + Send + Sync + 'static,
@@ -379,19 +321,12 @@ impl Camera {
         Self::with_profile_and_transport(profile, transport)
     }
 
-    /// Create a new unified camera with a specific profile and custom spawner.
+    /// Create a new unified camera with a specific profile and spawner.
     ///
-    /// This method combines profile selection with custom spawner support,
-    /// allowing full control over both the camera model and task execution.
-    ///
-    /// This method is only available when the `async` feature is enabled but
-    /// `tokio` is not, as Tokio users can rely on the automatic runtime detection.
-    #[cfg(all(feature = "async", not(feature = "tokio")))]
-    pub fn with_profile_and_spawner<T, S>(
-        profile: CameraModel,
-        transport: T,
-        spawner: S,
-    ) -> Self
+    /// Use this constructor when you need async operations with background
+    /// task management (e.g., socket manager for concurrent commands).
+    #[cfg(feature = "async")]
+    pub fn with_profile_and_spawner<T, S>(profile: CameraModel, transport: T, spawner: S) -> Self
     where
         T: Transport + Send + Sync + 'static,
         S: Spawner,
@@ -401,8 +336,7 @@ impl Camera {
         Self::with_profile_transport_and_spawner(profile, transport, spawner)
     }
 
-
-    /// Internal constructor for async transports.
+    /// Internal constructor for all transports without spawner.
     fn with_profile_and_transport<T>(profile: CameraModel, transport: T) -> Self
     where
         T: Transport + Send + Sync + 'static,
@@ -413,25 +347,18 @@ impl Camera {
         let address = profile.default_address();
         let transport = Arc::new(AsyncTransportWrapper { transport });
 
-        let mut camera = Self {
+        Self {
             profile,
             transport,
             address,
             socket_manager: None,
             #[cfg(feature = "async")]
             spawner: None,
-        };
-
-        // Initialize socket manager automatically for better reliability
-        if let Err(e) = camera.initialize_socket_manager() {
-            log::warn!("Failed to initialize socket manager: {}", e);
         }
-
-        camera
     }
 
     /// Internal constructor for async transports with spawner.
-    #[cfg(all(feature = "async", not(feature = "tokio")))]
+    #[cfg(feature = "async")]
     fn with_profile_transport_and_spawner<T, S>(
         profile: CameraModel,
         transport: T,
@@ -446,7 +373,6 @@ impl Camera {
         let profile = profile.to_profile();
         let address = profile.default_address();
         let transport = Arc::new(AsyncTransportWrapper { transport });
-        #[cfg(feature = "async")]
         let spawner: Option<Arc<dyn Spawner>> = Some(Arc::new(spawner));
 
         let mut camera = Self {
@@ -454,7 +380,6 @@ impl Camera {
             transport,
             address,
             socket_manager: None,
-            #[cfg(feature = "async")]
             spawner,
         };
 
@@ -465,7 +390,6 @@ impl Camera {
 
         camera
     }
-
 
     /// Get the camera's model name.
     #[must_use]
@@ -508,9 +432,12 @@ impl Camera {
             // Start the socket manager actor
             let transport = Arc::clone(&self.transport);
             let profile = self.profile;
-            let actor =
-                crate::socket_manager::SocketManagerActor::new(transport, command_receiver, profile);
-            
+            let actor = crate::socket_manager::SocketManagerActor::new(
+                transport,
+                command_receiver,
+                profile,
+            );
+
             if let Some(spawner) = &self.spawner {
                 // Use the provided spawner
                 let future = Box::pin(async move {
@@ -520,29 +447,14 @@ impl Camera {
                 });
                 spawner.spawn(future);
             } else {
-                // Use tokio if available and no spawner provided
-                #[cfg(feature = "tokio")]
-                {
-                    tokio::spawn(async move {
-                        if let Err(e) = actor.run().await {
-                            log::error!("Socket manager actor failed: {}", e);
-                        }
-                    });
-                }
-
-                // Without tokio and no spawner, we cannot initialize the socket manager
-                #[cfg(not(feature = "tokio"))]
-                {
-                    log::error!(
-                        "Cannot initialize socket manager without a spawner in non-tokio builds"
-                    );
-                    return Err(Error::InvalidState(
-                        "Socket manager requires a spawner in non-tokio builds. Use Camera::new_with_spawner()".to_string(),
-                    ));
-                }
+                // No spawner provided - this is expected when using standard constructors
+                log::error!("Cannot initialize socket manager without a spawner");
+                return Err(Error::InvalidState(
+                    "Socket manager requires a spawner. Use Camera::new_with_spawner() or Camera::with_profile_and_spawner() to provide one.".to_string(),
+                ));
             }
         }
-        
+
         // For blocking-only builds, we cannot use the socket manager
         #[cfg(not(feature = "async"))]
         {
@@ -568,7 +480,6 @@ impl Camera {
             ))
         }
     }
-
 
     /// Get the current VISCA address.
     #[must_use]

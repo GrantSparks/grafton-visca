@@ -295,7 +295,6 @@ crate::visca_builder! {
     timeout = Quick;
 }
 
-
 /// Auto Focus Sensitivity levels.
 ///
 /// Controls how responsive the auto focus system is to changes in the scene.
@@ -344,7 +343,6 @@ crate::visca_builder! {
     timeout = Quick;
 }
 
-
 crate::visca_builder! {
     /// Command to set the focus near limit.
     ///
@@ -370,7 +368,6 @@ crate::visca_builder! {
     }
     timeout = Quick;
 }
-
 
 visca_command! {
     /// Focus Lock command (PTZOptics specific).
