@@ -30,6 +30,53 @@ impl Camera {
     pub fn new(inner: crate::Camera) -> Self {
         Self(inner)
     }
+
+    /// Create a new async camera with a custom spawner.
+    ///
+    /// This is a convenience method that creates a camera with a custom spawner
+    /// and wraps it in the async interface. Use this when integrating with
+    /// async runtimes other than Tokio.
+    ///
+    /// This method is only available when the `async` feature is enabled but
+    /// `tokio` is not, as Tokio users can rely on the automatic runtime detection.
+    ///
+    /// # Example with async-std
+    /// ```no_run
+    /// # use grafton_visca::r#async::Camera;
+    /// # use grafton_visca::executor::{Spawner, SpawnableFuture};
+    /// # use grafton_visca::CameraModel;
+    /// # #[cfg(all(feature = "async", not(feature = "tokio")))]
+    /// # #[async_std::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Clone)]
+    /// struct AsyncStdSpawner;
+    /// 
+    /// impl Spawner for AsyncStdSpawner {
+    ///     fn spawn(&self, task: SpawnableFuture) {
+    ///         async_std::task::spawn(task);
+    ///     }
+    /// }
+    /// 
+    /// # let transport = todo!();
+    /// let spawner = AsyncStdSpawner;
+    /// let camera = Camera::with_spawner(CameraModel::PTZOpticsG2, transport, spawner);
+    /// 
+    /// // Ready to control camera with async-std
+    /// camera.pan_tilt_home().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(all(feature = "async", not(feature = "tokio")))]
+    pub fn with_spawner<T, S>(profile: crate::CameraModel, transport: T, spawner: S) -> Self
+    where
+        T: crate::transport::core::Transport + Send + Sync + 'static,
+        S: crate::executor::Spawner,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
+    {
+        let inner = crate::Camera::with_profile_and_spawner(profile, transport, spawner);
+        Self(inner)
+    }
 }
 
 // Re-export async traits with unsuffixed names

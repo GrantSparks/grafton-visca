@@ -17,9 +17,12 @@ use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     socket_manager::SocketManagerHandle,
-    transport::core::{BlockingTransport, Transport},
+    transport::core::Transport,
     Response,
 };
+
+#[cfg(feature = "async")]
+use crate::executor::Spawner;
 
 use super::profiles::{GenericVisca, PTZOpticsG2, SonyFR7};
 
@@ -191,28 +194,6 @@ where
     }
 }
 
-/// Wrapper for blocking transports.
-struct BlockingTransportWrapper<T: BlockingTransport> {
-    transport: T,
-}
-
-#[async_trait::async_trait]
-impl<T> UnifiedTransport for BlockingTransportWrapper<T>
-where
-    T: BlockingTransport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
-        // Blocking transports return Ready futures that can be directly awaited
-        self.transport.send(bytes).await.map_err(Into::into)
-    }
-
-    async fn recv(&self) -> Result<bytes::Bytes, Error> {
-        // Blocking transports return Ready futures that can be directly awaited
-        self.transport.recv().await.map_err(Into::into)
-    }
-}
 
 /// Unified camera interface that abstracts over profile and transport generics.
 ///
@@ -269,6 +250,8 @@ pub struct Camera {
     transport: Arc<dyn UnifiedTransport>,
     address: u8,
     socket_manager: Option<SocketManagerHandle>,
+    #[cfg(feature = "async")]
+    spawner: Option<Arc<dyn Spawner>>,
 }
 
 impl Clone for Camera {
@@ -278,6 +261,8 @@ impl Clone for Camera {
             transport: Arc::clone(&self.transport),
             address: self.address,
             socket_manager: self.socket_manager.clone(),
+            #[cfg(feature = "async")]
+            spawner: self.spawner.clone(),
         }
     }
 }
@@ -307,6 +292,83 @@ impl Camera {
         Self::with_profile_and_transport(CameraModel::default(), transport)
     }
 
+    /// Create a new unified camera with a custom spawner.
+    ///
+    /// This constructor allows you to provide your own spawner implementation
+    /// for executing the socket manager actor. This is useful when you want to
+    /// use a different async runtime than Tokio or control how tasks are spawned.
+    ///
+    /// This method is only available when the `async` feature is enabled but
+    /// `tokio` is not, as Tokio users can rely on the automatic runtime detection.
+    ///
+    /// # Example with async-std
+    /// ```no_run
+    /// # use grafton_visca::{Camera, CameraModel};
+    /// # use grafton_visca::executor::{Spawner, SpawnableFuture};
+    /// # #[cfg(feature = "async")]
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use async_std::task;
+    /// 
+    /// #[derive(Clone)]
+    /// struct AsyncStdSpawner;
+    /// 
+    /// impl Spawner for AsyncStdSpawner {
+    ///     fn spawn(&self, task: SpawnableFuture) {
+    ///         async_std::task::spawn(task);
+    ///     }
+    /// }
+    /// 
+    /// # let transport = todo!();
+    /// let spawner = AsyncStdSpawner;
+    /// let camera = Camera::new_with_spawner(transport, spawner);
+    /// 
+    /// // Use camera with async-std runtime
+    /// camera.zoom_stop().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    /// 
+    /// # Example with smol
+    /// ```no_run
+    /// # use grafton_visca::{Camera, CameraModel};
+    /// # use grafton_visca::executor::{Spawner, SpawnableFuture};
+    /// # #[cfg(feature = "async")]
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use smol::Executor;
+    /// 
+    /// let ex = Executor::new();
+    /// 
+    /// #[derive(Clone)]
+    /// struct SmolSpawner(Executor<'static>);
+    /// 
+    /// impl Spawner for SmolSpawner {
+    ///     fn spawn(&self, task: SpawnableFuture) {
+    ///         self.0.spawn(task).detach();
+    ///     }
+    /// }
+    /// 
+    /// smol::block_on(ex.run(async {
+    /// #     let transport = todo!();
+    ///     let spawner = SmolSpawner(ex.clone());
+    ///     let camera = Camera::new_with_spawner(transport, spawner);
+    ///     
+    ///     // Use camera with smol runtime
+    ///     camera.pan_tilt_home().await
+    /// }))?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(all(feature = "async", not(feature = "tokio")))]
+    pub fn new_with_spawner<T, S>(transport: T, spawner: S) -> Self
+    where
+        T: Transport + Send + Sync + 'static,
+        S: Spawner,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
+    {
+        Self::with_profile_transport_and_spawner(CameraModel::default(), transport, spawner)
+    }
+
     /// Create a new unified camera with a specific profile.
     pub fn with_profile<T>(profile: CameraModel, transport: T) -> Self
     where
@@ -317,25 +379,28 @@ impl Camera {
         Self::with_profile_and_transport(profile, transport)
     }
 
-    /// Create with a blocking transport.
-    pub(crate) fn new_blocking<T>(transport: T) -> Self
+    /// Create a new unified camera with a specific profile and custom spawner.
+    ///
+    /// This method combines profile selection with custom spawner support,
+    /// allowing full control over both the camera model and task execution.
+    ///
+    /// This method is only available when the `async` feature is enabled but
+    /// `tokio` is not, as Tokio users can rely on the automatic runtime detection.
+    #[cfg(all(feature = "async", not(feature = "tokio")))]
+    pub fn with_profile_and_spawner<T, S>(
+        profile: CameraModel,
+        transport: T,
+        spawner: S,
+    ) -> Self
     where
-        T: BlockingTransport + Send + Sync + 'static,
+        T: Transport + Send + Sync + 'static,
+        S: Spawner,
         for<'a> T::SendFut<'a>: Send,
         for<'a> T::RecvFut<'a>: Send,
     {
-        Self::with_profile_and_blocking_transport(CameraModel::default(), transport)
+        Self::with_profile_transport_and_spawner(profile, transport, spawner)
     }
 
-    /// Create with a specific profile and blocking transport.
-    pub(crate) fn with_profile_blocking<T>(profile: CameraModel, transport: T) -> Self
-    where
-        T: BlockingTransport + Send + Sync + 'static,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
-    {
-        Self::with_profile_and_blocking_transport(profile, transport)
-    }
 
     /// Internal constructor for async transports.
     fn with_profile_and_transport<T>(profile: CameraModel, transport: T) -> Self
@@ -353,6 +418,8 @@ impl Camera {
             transport,
             address,
             socket_manager: None,
+            #[cfg(feature = "async")]
+            spawner: None,
         };
 
         // Initialize socket manager automatically for better reliability
@@ -363,22 +430,32 @@ impl Camera {
         camera
     }
 
-    /// Internal constructor for blocking transports.
-    fn with_profile_and_blocking_transport<T>(profile: CameraModel, transport: T) -> Self
+    /// Internal constructor for async transports with spawner.
+    #[cfg(all(feature = "async", not(feature = "tokio")))]
+    fn with_profile_transport_and_spawner<T, S>(
+        profile: CameraModel,
+        transport: T,
+        spawner: S,
+    ) -> Self
     where
-        T: BlockingTransport + Send + Sync + 'static,
+        T: Transport + Send + Sync + 'static,
+        S: Spawner,
         for<'a> T::SendFut<'a>: Send,
         for<'a> T::RecvFut<'a>: Send,
     {
         let profile = profile.to_profile();
         let address = profile.default_address();
-        let transport = Arc::new(BlockingTransportWrapper { transport });
+        let transport = Arc::new(AsyncTransportWrapper { transport });
+        #[cfg(feature = "async")]
+        let spawner: Option<Arc<dyn Spawner>> = Some(Arc::new(spawner));
 
         let mut camera = Self {
             profile,
             transport,
             address,
             socket_manager: None,
+            #[cfg(feature = "async")]
+            spawner,
         };
 
         // Initialize socket manager automatically for better reliability
@@ -388,6 +465,7 @@ impl Camera {
 
         camera
     }
+
 
     /// Get the camera's model name.
     #[must_use]
@@ -413,74 +491,63 @@ impl Camera {
             return Ok(()); // Already initialized
         }
 
-        // Create socket manager components
-        #[cfg(feature = "tokio")]
-        let (command_sender, command_receiver) = tokio::sync::mpsc::unbounded_channel();
-
-        #[cfg(not(feature = "tokio"))]
-        let (command_sender, command_receiver) = std::sync::mpsc::channel();
-
-        // Store the handle
-        let handle = SocketManagerHandle::new(command_sender);
-        self.socket_manager = Some(handle);
-
-        // Start the socket manager actor
-        let transport = Arc::clone(&self.transport);
-        let profile = self.profile;
-
-        #[cfg(feature = "tokio")]
+        // Socket manager is only available in async builds
+        #[cfg(feature = "async")]
         {
-            let actor = crate::socket_manager::SocketManagerActor::new(
-                transport,
-                command_receiver,
-                profile,
-            );
-            tokio::spawn(async move {
-                if let Err(e) = actor.run().await {
-                    log::error!("Socket manager actor failed: {}", e);
-                }
-            });
-        }
+            // Create socket manager components
+            #[cfg(feature = "tokio")]
+            let (command_sender, command_receiver) = tokio::sync::mpsc::unbounded_channel();
 
-        #[cfg(not(feature = "tokio"))]
-        {
-            let actor = crate::socket_manager::SocketManagerActor::new(
-                transport,
-                command_receiver,
-                profile,
-            );
-            std::thread::spawn(move || {
-                // For non-tokio, we need to create a simple blocking event loop
-                // This is a simplified implementation
-                use std::future::Future;
-                use std::task::{Context, Poll};
+            #[cfg(not(feature = "tokio"))]
+            let (command_sender, command_receiver) = std::sync::mpsc::channel();
 
-                struct SimpleExecutor;
+            // Store the handle
+            let handle = SocketManagerHandle::new(command_sender);
+            self.socket_manager = Some(handle);
 
-                impl SimpleExecutor {
-                    fn block_on<F: Future>(future: F) -> F::Output {
-                        let mut future = Box::pin(future);
-
-                        loop {
-                            let waker = futures::task::noop_waker();
-                            let mut cx = Context::from_waker(&waker);
-
-                            match future.as_mut().poll(&mut cx) {
-                                Poll::Ready(result) => return result,
-                                Poll::Pending => {
-                                    // In a real implementation, we would wait for events
-                                    // For now, we'll just yield to avoid busy waiting
-                                    std::thread::yield_now();
-                                }
-                            }
-                        }
+            // Start the socket manager actor
+            let transport = Arc::clone(&self.transport);
+            let profile = self.profile;
+            let actor =
+                crate::socket_manager::SocketManagerActor::new(transport, command_receiver, profile);
+            
+            if let Some(spawner) = &self.spawner {
+                // Use the provided spawner
+                let future = Box::pin(async move {
+                    if let Err(e) = actor.run().await {
+                        log::error!("Socket manager actor failed: {}", e);
                     }
+                });
+                spawner.spawn(future);
+            } else {
+                // Use tokio if available and no spawner provided
+                #[cfg(feature = "tokio")]
+                {
+                    tokio::spawn(async move {
+                        if let Err(e) = actor.run().await {
+                            log::error!("Socket manager actor failed: {}", e);
+                        }
+                    });
                 }
 
-                if let Err(e) = SimpleExecutor::block_on(actor.run()) {
-                    log::error!("Socket manager actor failed: {}", e);
+                // Without tokio and no spawner, we cannot initialize the socket manager
+                #[cfg(not(feature = "tokio"))]
+                {
+                    log::error!(
+                        "Cannot initialize socket manager without a spawner in non-tokio builds"
+                    );
+                    return Err(Error::InvalidState(
+                        "Socket manager requires a spawner in non-tokio builds. Use Camera::new_with_spawner()".to_string(),
+                    ));
                 }
-            });
+            }
+        }
+        
+        // For blocking-only builds, we cannot use the socket manager
+        #[cfg(not(feature = "async"))]
+        {
+            log::warn!("Socket manager not available in blocking-only builds");
+            // Don't return an error, just don't initialize the socket manager
         }
 
         Ok(())
@@ -502,16 +569,6 @@ impl Camera {
         }
     }
 
-    /// Cancel a command on a specific socket (blocking version).
-    ///
-    /// This sends a VISCA command cancel request to the camera for the specified socket.
-    pub(crate) fn cancel_command_blocking(
-        &self,
-        socket: crate::command::system::Socket,
-    ) -> Result<(), Error> {
-        // Use executor to block on the async method
-        futures::executor::block_on(self.cancel_command(socket))
-    }
 
     /// Get the current VISCA address.
     #[must_use]
@@ -1056,7 +1113,6 @@ impl Camera {
 // through extension traits that provide high-level convenience methods on top of send_command.
 
 // Internal trait for camera wrapper access
-pub(crate) mod camera_like;
 
 pub mod methods;
 pub mod profiles;
