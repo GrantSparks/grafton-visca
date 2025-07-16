@@ -79,6 +79,20 @@ impl Camera {
     }
 }
 
+/// Prelude for async camera operations.
+///
+/// Import this to get all async trait operations:
+/// ```ignore
+/// use grafton_visca::r#async::prelude::*;
+/// ```
+pub mod prelude {
+    pub use super::{
+        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,
+        PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps, 
+        WhiteBalanceOps, ZoomOps,
+    };
+}
+
 // Re-export async traits with unsuffixed names
 pub use crate::camera::methods::{
     ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,

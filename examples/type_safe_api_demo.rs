@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // PTZOpticsG2 has specific preset constraints (0-89)
     // Note: G2PresetId doesn't convert to PresetNumber directly
     // Use PresetNumber instead
-    use grafton_visca::command::preset::PresetNumber;
+    use grafton_visca::PresetNumber;
     let preset = PresetNumber::new(5)?;
     camera.preset_set(preset)?;
     println!("   ✓ Saved position to preset");

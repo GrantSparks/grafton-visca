@@ -138,7 +138,8 @@ impl TryFrom<u8> for WhiteBalanceMode {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{visca_test, EncodeVisca};
+    use crate::visca_test;
+    use crate::command::encode_visca::EncodeVisca;
 
     #[test]
     fn test_white_balance_mode_values() {

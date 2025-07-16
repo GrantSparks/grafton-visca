@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use grafton_visca::transport::{BlockingTransport, Transport};
+use grafton_visca::transport::Transport;
 use grafton_visca::{Error, Result};
 use std::future::Ready;
 
@@ -339,7 +339,8 @@ impl Transport for MockTransport {
     }
 }
 
-impl BlockingTransport for MockTransport {}
+// BlockingTransport is now private, so we can't implement it
+// impl BlockingTransport for MockTransport {}
 
 impl Default for MockTransport {
     fn default() -> Self {

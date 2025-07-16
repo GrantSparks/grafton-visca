@@ -28,6 +28,20 @@ impl Camera {
     }
 }
 
+/// Prelude for blocking camera operations.
+///
+/// Import this to get all blocking trait operations:
+/// ```ignore
+/// use grafton_visca::blocking::prelude::*;
+/// ```
+pub mod prelude {
+    pub use super::{
+        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,
+        PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps,
+        WhiteBalanceOps, ZoomOps,
+    };
+}
+
 // Re-export blocking traits with unsuffixed names
 pub use crate::camera::methods::{
     ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,

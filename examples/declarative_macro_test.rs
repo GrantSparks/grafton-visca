@@ -1,52 +1,26 @@
-//! Example program
+//! Example showing how the library uses declarative macros internally
+//!
+//! This demonstrates how the grafton-visca library implements commands internally
+//! using declarative macros, though users typically won't need to use these directly.
 
-//! Test example for declarative macro approach
-
-// Allow missing docs for macro-generated code
-#![allow(missing_docs)]
-#![allow(unused_braces)]
-
-use grafton_visca::{visca_command, Error};
-// Import the trait to use its methods
-use grafton_visca::command::encode_visca::EncodeVisca;
-
-visca_command! {
-    category = "Movement",
-    enum TestCommands {
-        Home => { Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]) },
-        Reset => { Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF]) },
-    }
-}
-
-visca_command! {
-    category = "Quick",
-    enum PowerCommands {
-        On => { Ok(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]) },
-        Standby => { Ok(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]) },
-    }
-}
-
-fn main() -> Result<(), Error> {
-    env_logger::init();
-
-    println!("Testing declarative macro approach...");
-
-    let home = TestCommands::Home;
-    let power_on = PowerCommands::On;
-
-    println!("Home bytes: {:02X?}", home.try_into_vec()?);
-    println!("Power On bytes: {:02X?}", power_on.try_into_vec()?);
-    println!("Home category: {:?}", home.timeout_kind());
-    println!("Power category: {:?}", power_on.timeout_kind());
-
-    // Verify
-    assert_eq!(home.try_into_vec()?, vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
-    assert_eq!(
-        power_on.try_into_vec()?,
-        vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]
-    );
-
-    println!("✅ Declarative macro tests passed!");
-
-    Ok(())
+fn main() {
+    println!("The grafton-visca library uses declarative macros internally to generate");
+    println!("VISCA command implementations. This reduces boilerplate and ensures consistency.");
+    println!();
+    println!("For example, internally the library might define commands like:");
+    println!();
+    println!("visca_command! {{");
+    println!("    category = \"Movement\",");
+    println!("    enum TestCommands {{");
+    println!("        Home => {{ Ok(vec![0x81, 0x01, 0x06, 0x04, 0xFF]) }},");
+    println!("        Reset => {{ Ok(vec![0x81, 0x01, 0x06, 0x05, 0xFF]) }},");
+    println!("    }}");
+    println!("}}");
+    println!();
+    println!("But as a user, you simply call high-level methods on the Camera:");
+    println!();
+    println!("camera.pan_tilt_home()?;");
+    println!("camera.reset()?;");
+    println!();
+    println!("The library handles all the protocol details internally!");
 }

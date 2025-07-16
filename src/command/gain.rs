@@ -194,7 +194,8 @@ impl AntiFlickerCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{constants::CameraVariant, visca_test, EncodeVisca};
+    use crate::{constants::CameraVariant, visca_test};
+    use crate::command::encode_visca::EncodeVisca;
 
     visca_test!(
         Gain,

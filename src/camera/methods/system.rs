@@ -2,8 +2,8 @@
 
 use crate::{
     camera::Camera,
-    command::system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket},
-    Error, Response,
+    command::{system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket}, Response},
+    Error,
 };
 
 /// System operations (async).

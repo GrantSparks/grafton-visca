@@ -1,50 +1,29 @@
-//! Example demonstrating the new InquiryCommand derive macro pattern
+//! Example demonstrating inquiry methods on Camera
 //!
-//! This shows how inquiry commands are defined as individual structs
-//! that automatically generate Command implementations.
+//! This shows how to query camera state using the high-level Camera API.
 
-use grafton_visca::command::{
-    encode_visca::EncodeVisca, PanTiltPositionInquiry, PowerInquiry, ZoomPositionInquiry,
-};
+use grafton_visca::{Camera, CameraModel};
 
 fn main() {
-    // Create inquiry instances directly
-    let power_inquiry = PowerInquiry;
-    let pan_tilt_inquiry = PanTiltPositionInquiry;
-    let zoom_inquiry = ZoomPositionInquiry;
-
-    // Use the Command trait to get command bytes
-    println!(
-        "Power inquiry bytes: {:?}",
-        power_inquiry.try_into_vec().unwrap()
-    );
-    println!(
-        "Pan/Tilt inquiry bytes: {:?}",
-        pan_tilt_inquiry.try_into_vec().unwrap()
-    );
-    println!(
-        "Zoom inquiry bytes: {:?}",
-        zoom_inquiry.try_into_vec().unwrap()
-    );
-
-    // Each inquiry has its response type
-    println!("Power response type: {:?}", power_inquiry.response_type());
-    println!(
-        "Pan/Tilt response type: {:?}",
-        pan_tilt_inquiry.response_type()
-    );
-    println!("Zoom response type: {:?}", zoom_inquiry.response_type());
+    // Note: This example demonstrates the API without a real camera connection
+    println!("Camera inquiry API example:");
+    println!();
+    println!("// Create a camera with a specific profile:");
+    println!("let transport = Tcp::connect(\"192.168.1.100:5678\")?;");
+    println!("let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).blocking();");
+    println!();
+    println!("// Query camera state using high-level methods:");
+    println!("let power_on = camera.is_powered_on()?;");
+    println!("let (pan, tilt) = camera.get_pan_tilt_position()?;");
+    println!("let zoom = camera.get_zoom_position()?;");
+    println!("let focus = camera.get_focus_position()?;");
+    println!("let exposure_mode = camera.get_exposure_mode()?;");
+    println!("let white_balance = camera.get_white_balance_mode()?;");
+    println!();
+    println!("// These methods handle all the low-level VISCA protocol details internally.");
+    println!("// The InquiryCommand derive macro generates the protocol implementation,");
+    println!("// but users don't need to interact with it directly.");
+    println!();
+    println!("// The Camera API provides a clean, type-safe interface without exposing");
+    println!("// internal command structures or protocol details.");
 }
-
-// Example showing how to define new inquiry commands using the derive macro:
-//
-//
-// #[derive(InquiryCommand, Debug, Copy, Clone)]
-// #[visca(command = 0x00, response = "Power")]
-// struct MyPowerInquiry;
-//
-// The derive macro automatically generates:
-// - Command trait implementation
-// - to_bytes() method returning the VISCA command bytes
-// - response_type() method returning the expected ResponseType
-// - command_category() method (returns CommandCategory::Quick for inquiries)

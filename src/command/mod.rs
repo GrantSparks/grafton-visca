@@ -36,21 +36,21 @@ pub use self::{
     color::*,
     encode_visca::EncodeVisca,
     exposure::*,
-    flip::*,
+    // flip::*,  // Commented out - unused
     focus::*,
     gain::*,
     image::*,
     image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
-    inquiry::*,
+    // inquiry::*,  // Commented out - unused
     pan_tilt::*,
     power::*,
     preset::*,
-    resolution::{nd_filter_description, picture_effect_description, ResolutionMode},
-    response::{parse_response, Response, ResponseType},
+    // resolution::{nd_filter_description, picture_effect_description, ResolutionMode},  // Commented out - unused
+    response::{Response, ResponseType},  // Removed parse_response - unused
     system::{MotionSyncMode, MotionSyncSpeed, Socket},
-    tally::*,
+    // tally::*,  // Commented out - unused
     white_balance::*,
-    zoom::*,
+    // zoom::*,  // Commented out - unused
 };
 
 // Note: Complex tests moved to tests/ directory for enhanced testing infrastructure

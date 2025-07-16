@@ -561,7 +561,8 @@ visca_command! {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{constants::CameraVariant, EncodeVisca};
+    use crate::constants::CameraVariant;
+    use crate::command::encode_visca::EncodeVisca;
 
     #[test]
     fn test_exposure_mode_command() {

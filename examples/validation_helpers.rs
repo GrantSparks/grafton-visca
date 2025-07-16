@@ -1,16 +1,11 @@
 //! Example demonstrating validation helpers and type-safe value creation
 //!
 //! This example shows how to use the library's type-safe value types
-//! and validation helpers.
+//! and validation helpers through the public API.
 
 use grafton_visca::{
-    command::{
-        encode_visca::EncodeVisca,
-        gain::Gain as GainCommand,
-        pan_tilt::{PanTilt, PanTiltDirection},
-    },
     types::{GainLevel, PanSpeed, TiltSpeed},
-    Error,
+    Error, PanTiltDirection,
 };
 
 fn main() {
@@ -28,11 +23,13 @@ fn run_examples() -> Result<(), Error> {
     // Create a gain level (0-15 for most cameras)
     let gain_level = GainLevel::new(5)?;
     println!("  Created GainLevel: {}", gain_level.value());
+    println!("  Gain level is validated to be within range (0-15)");
 
-    // Use in a command
-    let gain_cmd = GainCommand::SetValue(gain_level);
-    println!("  Created command: {:?}", gain_cmd);
-    println!("  Command bytes: {:?}", gain_cmd.try_into_vec()?);
+    // Create pan/tilt speeds
+    let pan_speed = PanSpeed::new(0x10)?;
+    println!("  Created PanSpeed: {}", pan_speed.value());
+    let tilt_speed = TiltSpeed::new(0x10)?;
+    println!("  Created TiltSpeed: {}", tilt_speed.value());
 
     println!();
 
@@ -42,7 +39,7 @@ fn run_examples() -> Result<(), Error> {
     let pan_speed_raw = 12;
     let tilt_speed_raw = 8;
 
-    // Old way (verbose):
+    // Create speeds from raw values:
     let _pan_speed_old =
         PanSpeed::try_from(pan_speed_raw).map_err(|_| Error::InvalidParameter {
             parameter: "pan_speed",
@@ -74,15 +71,9 @@ fn run_examples() -> Result<(), Error> {
         tilt_speed.value()
     );
 
-    // Use in a command
-    let move_cmd = PanTilt::Move {
-        direction: PanTiltDirection::Up,
-        pan_speed,
-        tilt_speed,
-    };
-
-    println!("  Created command: {:?}", move_cmd);
-    println!("  Command bytes: {:?}", move_cmd.try_into_vec()?);
+    // These validated values can now be used with Camera methods
+    println!("  These values can be used with camera.pan_tilt_move()");
+    println!("  Direction: {:?}", PanTiltDirection::Up);
 
     println!();
 

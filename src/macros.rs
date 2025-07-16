@@ -259,6 +259,7 @@ macro_rules! visca_test {
     ($name:ident, $test_name:ident, $cmd:expr, $expected:expr) => {
         #[test]
         fn $test_name() {
+            use $crate::command::encode_visca::EncodeVisca;
             let cmd = $cmd;
             let mut buffer = vec![0u8; 32];
             let len = cmd.encode_into(&mut buffer).expect("encode failed");

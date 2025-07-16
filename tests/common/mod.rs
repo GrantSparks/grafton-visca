@@ -10,7 +10,6 @@
 #![allow(dead_code)]
 
 // Re-export submodules
-pub mod builders;
 pub mod helpers;
 pub mod macros;
 pub mod mock_transport_enhanced;

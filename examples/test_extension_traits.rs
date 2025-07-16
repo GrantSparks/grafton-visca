@@ -9,13 +9,8 @@ use grafton_visca::{
         ExposureOps, FocusOps, ImageProcessingOps, PanTiltOps, PowerOps, PresetsOps,
         WhiteBalanceOps, ZoomOps,
     },
-    command::preset::PresetNumber,
-    command::{
-        // exposure::{DynamicRangeLevel, ExposureMode}, // not used
-        // image::ImageFlipMode, // unused import
-        pan_tilt::PanTiltDirection,
-        // white_balance::WhiteBalanceMode, // not used
-    },
+    PresetNumber,
+    PanTiltDirection,
     transport::tokio::Udp,
     types::{
         BrightnessLevel, ColorTemp, ContrastLevel, DynamicRangeLevel, GainLevel, GainLimit,

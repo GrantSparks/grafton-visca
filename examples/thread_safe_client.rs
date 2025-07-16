@@ -11,7 +11,7 @@ use grafton_visca::transport::blocking::Udp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     blocking::{PanTiltOps, PowerOps, ZoomOps},
-    command::pan_tilt::PanTiltDirection,
+    PanTiltDirection,
     profiles::PTZOpticsG2,
     types::{PanSpeed, TiltSpeed},
     Error,
