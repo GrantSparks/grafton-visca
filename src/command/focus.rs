@@ -295,12 +295,6 @@ crate::visca_builder! {
     timeout = Quick;
 }
 
-impl FocusZoneCommand {
-    /// Create a new focus zone command.
-    pub fn new(zone: FocusZone) -> Self {
-        Self { zone }
-    }
-}
 
 /// Auto Focus Sensitivity levels.
 ///
@@ -350,12 +344,6 @@ crate::visca_builder! {
     timeout = Quick;
 }
 
-impl AutoFocusSensitivityCommand {
-    /// Create a new auto focus sensitivity command.
-    pub fn new(sensitivity: AutoFocusSensitivity) -> Self {
-        Self { sensitivity }
-    }
-}
 
 crate::visca_builder! {
     /// Command to set the focus near limit.
@@ -383,12 +371,6 @@ crate::visca_builder! {
     timeout = Quick;
 }
 
-impl FocusNearLimitCommand {
-    /// Create a new focus near limit command.
-    pub fn new(position: FocusPosition) -> Self {
-        Self { position }
-    }
-}
 
 visca_command! {
     /// Focus Lock command (PTZOptics specific).

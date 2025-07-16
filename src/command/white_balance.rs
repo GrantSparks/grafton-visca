@@ -59,26 +59,6 @@ crate::visca_param_command! {
     timeout = Quick;
 }
 
-impl WhiteBalanceCommand {
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-
-        match self.mode {
-            WhiteBalanceMode::ATW => {
-                // ATW is only supported on Sony models
-                match model {
-                    CameraVariant::SonyFR7 => Ok(()),
-                    _ => Err(Error::ModelValidation {
-                        model,
-                        command: "WhiteBalanceCommand(ATW)".to_string(),
-                        reason: "ATW mode is only supported on Sony models".to_string(),
-                    }),
-                }
-            }
-            _ => Ok(()), // Other modes are supported by all models
-        }
-    }
-}
 
 /// AWB Sensitivity levels (PTZOptics specific).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -134,19 +114,6 @@ impl EncodeVisca for AWBSensitivityCommand {
         CommandCategory::Quick
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-
-        // AWB Sensitivity is only supported on PTZOptics models
-        match model {
-            CameraVariant::PTZOpticsG2 => Ok(()),
-            _ => Err(Error::ModelValidation {
-                model,
-                command: "AWBSensitivityCommand".to_string(),
-                reason: "AWB Sensitivity is only supported on PTZOptics models".to_string(),
-            }),
-        }
-    }
 }
 
 impl TryFrom<u8> for WhiteBalanceMode {
@@ -416,37 +383,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_awb_sensitivity_model_validation() {
-        let cmd = AWBSensitivityCommand {
-            sensitivity: AWBSensitivity::Normal,
-        };
-
-        // Should pass for PTZOpticsG2
-        assert!(cmd
-            .validate_for_model(crate::constants::CameraVariant::PTZOpticsG2)
-            .is_ok());
-
-        // Should fail for other models
-        assert!(cmd
-            .validate_for_model(crate::constants::CameraVariant::SonyFR7)
-            .is_err());
-    }
-
-    #[test]
-    fn test_atw_model_validation() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::ATW,
-        };
-
-        // Should pass for SonyFR7
-        assert!(cmd
-            .validate_for_model(crate::constants::CameraVariant::SonyFR7)
-            .is_ok());
-
-        // Should fail for other models
-        assert!(cmd
-            .validate_for_model(crate::constants::CameraVariant::PTZOpticsG2)
-            .is_err());
-    }
 }

@@ -1,17 +1,15 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
-use std::time::Instant;
 use crate::command::response::Response;
 use crate::command::system::Socket;
 use crate::error::{Error, Result};
 use crate::timeout::CommandCategory;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::time::Instant;
 
 // Use conditional compilation for async support
 #[cfg(feature = "tokio")]
 use tokio::sync::{mpsc, oneshot};
 
-#[cfg(not(feature = "tokio"))]
-use std::sync::Mutex;
 
 #[cfg(not(feature = "tokio"))]
 use std::sync::mpsc;
@@ -19,12 +17,12 @@ use std::sync::mpsc;
 #[cfg(not(feature = "tokio"))]
 pub mod oneshot {
     use super::*;
-    
+
     pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
         let (tx, rx) = mpsc::channel();
         (Sender(tx), Receiver(rx))
     }
-    
+
     pub type Sender<T> = super::Sender<T>;
     pub type Receiver<T> = super::Receiver<T>;
 }
@@ -52,7 +50,7 @@ impl<T> Receiver<T> {
     pub fn recv(self) -> Result<T, Error> {
         self.0.recv().map_err(|_| Error::ChannelClosed)
     }
-    
+
     pub async fn recv_async(self) -> Result<T, Error> {
         self.recv()
     }
@@ -77,7 +75,7 @@ impl Socket {
             _ => None,
         }
     }
-    
+
     /// Get the socket as a zero-based array index.
     ///
     /// This is useful for indexing into arrays where sockets are tracked by position.
@@ -176,7 +174,7 @@ impl PendingCmd {
             retry_attempt: 0,
         }
     }
-    
+
     #[cfg(not(feature = "tokio"))]
     pub fn new(
         id: u32,
@@ -284,7 +282,6 @@ impl SocketManagerInner {
     }
 }
 
-
 pub enum SocketManagerCommand {
     SendCommand {
         bytes: Vec<u8>,
@@ -328,7 +325,7 @@ impl SocketManagerHandle {
     pub fn new(command_sender: mpsc::UnboundedSender<SocketManagerCommand>) -> Self {
         Self { command_sender }
     }
-    
+
     #[cfg(not(feature = "tokio"))]
     pub fn new(command_sender: mpsc::Sender<SocketManagerCommand>) -> Self {
         Self { command_sender }
@@ -341,9 +338,10 @@ impl SocketManagerHandle {
         is_inquiry: bool,
     ) -> Result<Response> {
         let (response_sender, response_receiver) = oneshot::channel();
-        
+
         #[cfg(feature = "tokio")]
-        let send_result = self.command_sender
+        let send_result = self
+            .command_sender
             .send(SocketManagerCommand::SendCommand {
                 bytes,
                 category,
@@ -351,9 +349,10 @@ impl SocketManagerHandle {
                 response_sender,
             })
             .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-            
+
         #[cfg(not(feature = "tokio"))]
-        let send_result = self.command_sender
+        let send_result = self
+            .command_sender
             .send(SocketManagerCommand::SendCommand {
                 bytes,
                 category,
@@ -363,33 +362,33 @@ impl SocketManagerHandle {
             .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
 
         send_result?;
-        
+
         #[cfg(feature = "tokio")]
         let result = response_receiver
             .await
             .map_err(|_| Error::TransportError("Response channel closed".to_string()))?;
-            
+
         #[cfg(not(feature = "tokio"))]
-        let result = response_receiver
-            .recv_async()
-            .await?;
-            
+        let result = response_receiver.recv_async().await?;
+
         result
     }
 
     pub async fn cancel_command(&self, socket: Socket) -> Result<()> {
         let (response_sender, response_receiver) = oneshot::channel();
-        
+
         #[cfg(feature = "tokio")]
-        let send_result = self.command_sender
+        let send_result = self
+            .command_sender
             .send(SocketManagerCommand::CancelCommand {
                 socket,
                 response_sender,
             })
             .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-            
+
         #[cfg(not(feature = "tokio"))]
-        let send_result = self.command_sender
+        let send_result = self
+            .command_sender
             .send(SocketManagerCommand::CancelCommand {
                 socket,
                 response_sender,
@@ -397,54 +396,56 @@ impl SocketManagerHandle {
             .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
 
         send_result?;
-        
+
         #[cfg(feature = "tokio")]
         let result = response_receiver
             .await
             .map_err(|_| Error::TransportError("Response channel closed".to_string()))?;
-            
+
         #[cfg(not(feature = "tokio"))]
-        let result = response_receiver
-            .recv_async()
-            .await?;
-            
+        let result = response_receiver.recv_async().await?;
+
         result
     }
 
     pub fn handle_response(&self, response: Response) -> Result<()> {
         #[cfg(feature = "tokio")]
-        let send_result = self.command_sender
+        let send_result = self
+            .command_sender
             .send(SocketManagerCommand::HandleResponse { response })
             .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-            
+
         #[cfg(not(feature = "tokio"))]
-        let send_result = self.command_sender
+        let send_result = self
+            .command_sender
             .send(SocketManagerCommand::HandleResponse { response })
             .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-            
+
         send_result?;
         Ok(())
     }
 
     pub fn shutdown(&self) -> Result<()> {
         #[cfg(feature = "tokio")]
-        let send_result = self.command_sender
+        let send_result = self
+            .command_sender
             .send(SocketManagerCommand::Shutdown)
             .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-            
+
         #[cfg(not(feature = "tokio"))]
-        let send_result = self.command_sender
+        let send_result = self
+            .command_sender
             .send(SocketManagerCommand::Shutdown)
             .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-            
+
         send_result?;
         Ok(())
     }
 }
 
+use crate::camera::UnifiedTransport;
 use crate::command::system::CommandCancelCommand;
 use crate::command::EncodeVisca;
-use crate::camera::UnifiedTransport;
 use log::{debug, error, trace, warn};
 
 /// Trait for handling retry decisions for commands.
@@ -453,10 +454,10 @@ pub trait RetryHook {
     /// Called when a command fails with a potentially retryable error.
     /// Returns whether the command should be retried.
     fn should_retry(&self, error: &Error, attempt: u32) -> bool;
-    
+
     /// Returns the delay before retrying the command.
     fn retry_delay(&self, error: &Error, attempt: u32) -> std::time::Duration;
-    
+
     /// Returns the maximum number of retry attempts.
     fn max_attempts(&self) -> u32;
 }
@@ -474,12 +475,12 @@ impl DefaultRetryHook {
             base_delay: std::time::Duration::from_millis(100),
         }
     }
-    
+
     pub fn with_max_attempts(mut self, max_attempts: u32) -> Self {
         self.max_attempts = max_attempts;
         self
     }
-    
+
     pub fn with_base_delay(mut self, delay: std::time::Duration) -> Self {
         self.base_delay = delay;
         self
@@ -491,16 +492,16 @@ impl RetryHook for DefaultRetryHook {
         if attempt >= self.max_attempts {
             return false;
         }
-        
+
         // Check if this is a retryable error
         matches!(error, Error::CommandNotExecutable)
     }
-    
+
     fn retry_delay(&self, _error: &Error, attempt: u32) -> std::time::Duration {
         // Exponential backoff with jitter
         let multiplier = 2_u32.pow(attempt);
         let delay = self.base_delay * multiplier;
-        
+
         // Cap the delay at 5 seconds
         if delay > std::time::Duration::from_secs(5) {
             std::time::Duration::from_secs(5)
@@ -508,7 +509,7 @@ impl RetryHook for DefaultRetryHook {
             delay
         }
     }
-    
+
     fn max_attempts(&self) -> u32 {
         self.max_attempts
     }
@@ -521,11 +522,11 @@ impl RetryHook for NoRetryHook {
     fn should_retry(&self, _error: &Error, _attempt: u32) -> bool {
         false
     }
-    
+
     fn retry_delay(&self, _error: &Error, _attempt: u32) -> std::time::Duration {
         std::time::Duration::from_secs(0)
     }
-    
+
     fn max_attempts(&self) -> u32 {
         1
     }
@@ -557,7 +558,7 @@ impl SocketManagerActor {
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
     }
-    
+
     #[cfg(not(feature = "tokio"))]
     pub fn new(
         transport: Arc<dyn UnifiedTransport>,
@@ -572,7 +573,7 @@ impl SocketManagerActor {
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
     }
-    
+
     /// Set a custom retry hook for this socket manager.
     pub fn with_retry_hook(mut self, retry_hook: Box<dyn RetryHook + Send + Sync>) -> Self {
         self.retry_hook = retry_hook;
@@ -581,13 +582,13 @@ impl SocketManagerActor {
 
     pub async fn run(mut self) -> Result<()> {
         debug!("Socket manager starting");
-        
+
         loop {
             #[cfg(feature = "tokio")]
             {
                 // Check for timeouts before processing new commands
                 self.check_timeouts().await;
-                
+
                 tokio::select! {
                     command = self.command_receiver.recv() => {
                         match command {
@@ -635,15 +636,15 @@ impl SocketManagerActor {
                     }
                 }
             }
-            
+
             #[cfg(not(feature = "tokio"))]
             {
                 // For non-tokio, we need to handle both command and response channels
                 // This is a simplified implementation that alternates between checking both
-                
+
                 // Check for timeouts first
                 self.check_timeouts().await;
-                
+
                 // Check for commands first
                 let command = self.command_receiver.recv().ok();
                 if let Some(cmd) = command {
@@ -654,7 +655,8 @@ impl SocketManagerActor {
                             is_inquiry,
                             response_sender,
                         } => {
-                            self.handle_send_command(bytes, category, is_inquiry, response_sender).await;
+                            self.handle_send_command(bytes, category, is_inquiry, response_sender)
+                                .await;
                         }
                         SocketManagerCommand::CancelCommand {
                             socket,
@@ -685,7 +687,7 @@ impl SocketManagerActor {
                 }
             }
         }
-        
+
         debug!("Socket manager stopped");
         Ok(())
     }
@@ -709,7 +711,7 @@ impl SocketManagerActor {
 
     async fn handle_inquiry_command(&mut self, pending_cmd: PendingCmd) {
         trace!("Handling inquiry command {}", pending_cmd.id);
-        
+
         if self.inner.pending_inquiry.is_some() {
             warn!("Inquiry already in progress, completing with error");
             pending_cmd.complete(Err(Error::CommandBufferFull));
@@ -730,7 +732,7 @@ impl SocketManagerActor {
 
     async fn handle_action_command(&mut self, pending_cmd: PendingCmd) {
         trace!("Handling action command {}", pending_cmd.id);
-        
+
         if let Some(socket) = self.inner.get_free_socket() {
             self.send_command_on_socket(pending_cmd, socket).await;
         } else {
@@ -741,15 +743,23 @@ impl SocketManagerActor {
 
     async fn send_command_on_socket(&mut self, pending_cmd: PendingCmd, socket: Socket) {
         trace!("Sending command {} on {:?}", pending_cmd.id, socket);
-        
+
         match self.transport.send(&pending_cmd.bytes).await {
             Ok(()) => {
-                trace!("Command {} sent successfully on {:?}", pending_cmd.id, socket);
-                self.inner.mark_socket_busy(socket, pending_cmd.id, pending_cmd.category);
+                trace!(
+                    "Command {} sent successfully on {:?}",
+                    pending_cmd.id,
+                    socket
+                );
+                self.inner
+                    .mark_socket_busy(socket, pending_cmd.id, pending_cmd.category);
                 self.inner.set_active_command(socket, pending_cmd);
             }
             Err(e) => {
-                error!("Failed to send command {} on {:?}: {}", pending_cmd.id, socket, e);
+                error!(
+                    "Failed to send command {} on {:?}: {}",
+                    pending_cmd.id, socket, e
+                );
                 pending_cmd.complete(Err(e));
             }
         }
@@ -758,16 +768,16 @@ impl SocketManagerActor {
     async fn handle_cancel_command(
         &mut self,
         socket: Socket,
-        #[cfg(feature = "tokio")]
-        response_sender: oneshot::Sender<Result<()>>,
-        #[cfg(not(feature = "tokio"))]
-        response_sender: Sender<Result<()>>,
+        #[cfg(feature = "tokio")] response_sender: oneshot::Sender<Result<()>>,
+        #[cfg(not(feature = "tokio"))] response_sender: Sender<Result<()>>,
     ) {
         trace!("Handling cancel command for {:?}", socket);
-        
+
         if self.inner.sockets[socket.as_index()].is_free() {
             warn!("Attempted to cancel command on free socket {:?}", socket);
-            let _ = response_sender.send(Err(Error::InvalidRequest("No command active on socket".to_string())));
+            let _ = response_sender.send(Err(Error::InvalidRequest(
+                "No command active on socket".to_string(),
+            )));
             return;
         }
 
@@ -775,7 +785,9 @@ impl SocketManagerActor {
         let mut bytes = Vec::new();
         if let Err(e) = cancel_cmd.encode_into(&mut bytes) {
             error!("Failed to encode cancel command for {:?}: {}", socket, e);
-            let _ = response_sender.send(Err(Error::InvalidRequest("Failed to encode cancel command".to_string())));
+            let _ = response_sender.send(Err(Error::InvalidRequest(
+                "Failed to encode cancel command".to_string(),
+            )));
             return;
         }
 
@@ -793,7 +805,7 @@ impl SocketManagerActor {
 
     async fn handle_response(&mut self, response: Response) {
         trace!("Handling response: {:?}", response);
-        
+
         match response {
             Response::CmdAck => {
                 warn!("Received CmdAck without socket information");
@@ -812,19 +824,19 @@ impl SocketManagerActor {
             }
         }
     }
-    
+
     async fn handle_raw_response(&mut self, bytes: bytes::Bytes) {
         trace!("Handling raw response: {:02X?}", bytes);
-        
+
         if bytes.is_empty() {
             warn!("Empty response received");
             return;
         }
-        
+
         // Extract socket information from raw bytes
         let socket_byte = bytes[0];
         let socket = Socket::from_response_byte(socket_byte);
-        
+
         // Parse the response
         match Response::parse(&bytes) {
             Ok(Response::CmdAck) => {
@@ -838,14 +850,20 @@ impl SocketManagerActor {
                 if let Some(socket) = socket {
                     self.handle_completion_response(socket).await;
                 } else {
-                    warn!("Invalid socket byte in completion response: 0x{:02x}", socket_byte);
+                    warn!(
+                        "Invalid socket byte in completion response: 0x{:02x}",
+                        socket_byte
+                    );
                 }
             }
             Ok(Response::Error(error)) => {
                 if let Some(socket) = socket {
                     self.handle_error_response(socket, error).await;
                 } else {
-                    warn!("Invalid socket byte in error response: 0x{:02x}", socket_byte);
+                    warn!(
+                        "Invalid socket byte in error response: 0x{:02x}",
+                        socket_byte
+                    );
                 }
             }
             Ok(Response::InquiryResponse(data)) => {
@@ -873,7 +891,10 @@ impl SocketManagerActor {
     async fn handle_completion_response(&mut self, socket: Socket) {
         trace!("Received completion for {:?}", socket);
         if let Some(command) = self.inner.take_active_command(socket) {
-            debug!("Completion received for command {} on {:?}", command.id, socket);
+            debug!(
+                "Completion received for command {} on {:?}",
+                command.id, socket
+            );
             command.complete(Ok(Response::Completion));
             self.inner.mark_socket_free(socket);
             self.try_dispatch_next_command().await;
@@ -885,26 +906,35 @@ impl SocketManagerActor {
     async fn handle_error_response(&mut self, socket: Socket, error: Error) {
         trace!("Received error for {:?}: {:?}", socket, error);
         if let Some(mut command) = self.inner.take_active_command(socket) {
-            debug!("Error received for command {} on {:?}: {:?}", command.id, socket, error);
-            
+            debug!(
+                "Error received for command {} on {:?}: {:?}",
+                command.id, socket, error
+            );
+
             // Check if we should retry this command
             if self.retry_hook.should_retry(&error, command.retry_attempt) {
                 command.retry_attempt += 1;
-                let delay = self.retry_hook.retry_delay(&error, command.retry_attempt - 1);
+                let delay = self
+                    .retry_hook
+                    .retry_delay(&error, command.retry_attempt - 1);
                 let max_attempts = self.retry_hook.max_attempts();
-                
-                debug!("Retrying command {} (attempt {}/{}) after {:?}", 
-                       command.id, command.retry_attempt, max_attempts, delay);
-                
+
+                debug!(
+                    "Retrying command {} (attempt {}/{}) after {:?}",
+                    command.id, command.retry_attempt, max_attempts, delay
+                );
+
                 // Schedule the retry
                 self.schedule_retry(command, delay).await;
             } else {
                 // No retry, complete with error
-                debug!("Command {} exceeded max retry attempts, failing with error: {:?}", 
-                       command.id, error);
+                debug!(
+                    "Command {} exceeded max retry attempts, failing with error: {:?}",
+                    command.id, error
+                );
                 command.complete(Err(error));
             }
-            
+
             self.inner.mark_socket_free(socket);
             self.try_dispatch_next_command().await;
         } else {
@@ -934,11 +964,13 @@ impl SocketManagerActor {
     async fn check_timeouts(&mut self) {
         let now = Instant::now();
         let mut timed_out_sockets = Vec::new();
-        
+
         // Check for socket timeouts
         for (socket_index, socket_state) in self.inner.sockets.iter().enumerate() {
             if socket_state.is_busy() {
-                if let (Some(started_at), Some(category)) = (socket_state.started_at(), socket_state.category()) {
+                if let (Some(started_at), Some(category)) =
+                    (socket_state.started_at(), socket_state.category())
+                {
                     let timeout_duration = match category {
                         CommandCategory::Quick => self.profile.ack_timeout(),
                         CommandCategory::Movement => self.profile.completion_timeout(),
@@ -946,7 +978,7 @@ impl SocketManagerActor {
                         CommandCategory::LongRunning => self.profile.completion_timeout(),
                         CommandCategory::Custom => self.profile.completion_timeout(),
                     };
-                    
+
                     if now.duration_since(started_at) > timeout_duration {
                         let socket = match socket_index {
                             0 => Socket::Socket1,
@@ -958,18 +990,21 @@ impl SocketManagerActor {
                 }
             }
         }
-        
+
         // Handle timed out sockets
         for socket in timed_out_sockets {
             let socket_state = &self.inner.sockets[socket.as_index()];
             if let Some(command_id) = socket_state.command_id() {
-                warn!("Command {} timeout on {:?}, sending cancel command", command_id, socket);
+                warn!(
+                    "Command {} timeout on {:?}, sending cancel command",
+                    command_id, socket
+                );
             } else {
                 warn!("Command timeout on {:?}, sending cancel command", socket);
             }
             self.handle_command_timeout(socket).await;
         }
-        
+
         // Check for inquiry timeout
         if let Some(ref inquiry) = self.inner.pending_inquiry {
             let timeout_duration = self.profile.completion_timeout();
@@ -979,17 +1014,20 @@ impl SocketManagerActor {
             }
         }
     }
-    
+
     async fn handle_command_timeout(&mut self, socket: Socket) {
         // Get command ID for better debugging
         let command_id = self.inner.sockets[socket.as_index()].command_id();
-        
+
         // Send a cancel command to the camera
         let cancel_command = CommandCancelCommand::new(socket);
         let mut cancel_bytes = vec![0u8; CommandCancelCommand::MAX_SIZE];
-        
+
         if let Some(cmd_id) = command_id {
-            debug!("Sending cancel command for timed out command {} on socket {:?}", cmd_id, socket);
+            debug!(
+                "Sending cancel command for timed out command {} on socket {:?}",
+                cmd_id, socket
+            );
         } else {
             debug!("Sending cancel command for timed out socket {:?}", socket);
         }
@@ -1004,7 +1042,7 @@ impl SocketManagerActor {
                 error!("Failed to encode cancel command: {}", e);
             }
         }
-        
+
         // Complete the active command with a timeout error
         if let Some(command) = self.inner.take_active_command(socket) {
             let timeout_error = Error::CommandTimeout {
@@ -1013,14 +1051,14 @@ impl SocketManagerActor {
             };
             command.complete(Err(timeout_error));
         }
-        
+
         // Mark the socket as free
         self.inner.mark_socket_free(socket);
-        
+
         // Try to dispatch the next command
         self.try_dispatch_next_command().await;
     }
-    
+
     async fn handle_inquiry_timeout(&mut self) {
         if let Some(inquiry) = self.inner.take_pending_inquiry() {
             let timeout_error = Error::CommandTimeout {
@@ -1030,18 +1068,20 @@ impl SocketManagerActor {
             inquiry.complete(Err(timeout_error));
         }
     }
-    
+
     async fn schedule_retry(&mut self, command: PendingCmd, delay: std::time::Duration) {
         log::debug!(
             "Scheduling retry for command {} (attempt {}) with delay {:?}",
-            command.id, command.retry_attempt, delay
+            command.id,
+            command.retry_attempt,
+            delay
         );
-        
+
         #[cfg(feature = "tokio")]
         {
             // For tokio builds, implement proper delayed retry
             tokio::time::sleep(delay).await;
-            
+
             // After the delay, re-queue the command
             if command.is_inquiry {
                 self.inner.set_pending_inquiry(command);
@@ -1049,13 +1089,13 @@ impl SocketManagerActor {
                 self.inner.enqueue_command(command);
             }
         }
-        
+
         #[cfg(not(feature = "tokio"))]
         {
             // For non-tokio builds, use thread::sleep as a fallback
             // This blocks the current thread, which is not ideal but functional
             std::thread::sleep(delay);
-            
+
             if command.is_inquiry {
                 self.inner.set_pending_inquiry(command);
             } else {
@@ -1090,7 +1130,7 @@ mod tests {
             started_at: now,
             category: CommandCategory::Movement,
         };
-        
+
         assert!(!state.is_free());
         assert!(state.is_busy());
         assert_eq!(state.started_at(), Some(now));
@@ -1113,11 +1153,11 @@ mod tests {
     fn test_socket_manager_free_socket_detection() {
         let manager = SocketManagerInner::new();
         assert_eq!(manager.get_free_socket(), Some(Socket::Socket1));
-        
+
         let mut manager = SocketManagerInner::new();
         manager.mark_socket_busy(Socket::Socket1, 1, CommandCategory::Movement);
         assert_eq!(manager.get_free_socket(), Some(Socket::Socket2));
-        
+
         manager.mark_socket_busy(Socket::Socket2, 2, CommandCategory::Movement);
         assert_eq!(manager.get_free_socket(), None);
     }
@@ -1147,26 +1187,26 @@ mod tests {
     #[test]
     fn test_socket_manager_socket_state_tracking() {
         let mut manager = SocketManagerInner::new();
-        
+
         // Initially both sockets should be free
         assert!(manager.sockets[0].is_free());
         assert!(manager.sockets[1].is_free());
-        
+
         // Mark socket 1 as busy
         manager.mark_socket_busy(Socket::Socket1, 42, CommandCategory::Movement);
         assert!(manager.sockets[0].is_busy());
         assert!(manager.sockets[1].is_free());
-        
+
         // Mark socket 2 as busy
         manager.mark_socket_busy(Socket::Socket2, 43, CommandCategory::Quick);
         assert!(manager.sockets[0].is_busy());
         assert!(manager.sockets[1].is_busy());
-        
+
         // Free socket 1
         manager.mark_socket_free(Socket::Socket1);
         assert!(manager.sockets[0].is_free());
         assert!(manager.sockets[1].is_busy());
-        
+
         // Free socket 2
         manager.mark_socket_free(Socket::Socket2);
         assert!(manager.sockets[0].is_free());
@@ -1178,14 +1218,8 @@ mod tests {
     fn test_pending_cmd_creation() {
         let (tx, _rx) = oneshot::channel();
         let bytes = vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
-        let cmd = PendingCmd::new(
-            1,
-            bytes.clone(),
-            CommandCategory::Movement,
-            tx,
-            false,
-        );
-        
+        let cmd = PendingCmd::new(1, bytes.clone(), CommandCategory::Movement, tx, false);
+
         assert_eq!(cmd.id, 1);
         assert_eq!(cmd.bytes, bytes);
         assert_eq!(cmd.category, CommandCategory::Movement);
@@ -1194,32 +1228,47 @@ mod tests {
 
     #[test]
     fn test_command_category_default_timeouts() {
-        assert_eq!(CommandCategory::Quick.default_timeout(), Duration::from_secs(2));
-        assert_eq!(CommandCategory::Movement.default_timeout(), Duration::from_secs(10));
-        assert_eq!(CommandCategory::Preset.default_timeout(), Duration::from_secs(60));
-        assert_eq!(CommandCategory::LongRunning.default_timeout(), Duration::from_secs(300));
-        assert_eq!(CommandCategory::Custom.default_timeout(), Duration::from_secs(30));
+        assert_eq!(
+            CommandCategory::Quick.default_timeout(),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            CommandCategory::Movement.default_timeout(),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            CommandCategory::Preset.default_timeout(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            CommandCategory::LongRunning.default_timeout(),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            CommandCategory::Custom.default_timeout(),
+            Duration::from_secs(30)
+        );
     }
 
     #[test]
     fn test_default_retry_hook() {
         let hook = DefaultRetryHook::new();
-        
+
         // Should retry CommandNotExecutable errors
         assert!(hook.should_retry(&Error::CommandNotExecutable, 0));
         assert!(hook.should_retry(&Error::CommandNotExecutable, 1));
         assert!(hook.should_retry(&Error::CommandNotExecutable, 2));
         assert!(!hook.should_retry(&Error::CommandNotExecutable, 3)); // Max attempts reached
-        
+
         // Should not retry other errors
         assert!(!hook.should_retry(&Error::CameraBusy, 0));
         assert!(!hook.should_retry(&Error::TransportError("test".to_string()), 0));
-        
+
         // Test retry delay calculation
         let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
         let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
         let delay2 = hook.retry_delay(&Error::CommandNotExecutable, 2);
-        
+
         assert!(delay1 > delay0);
         assert!(delay2 > delay1);
         assert!(delay2 <= Duration::from_secs(5)); // Should be capped
@@ -1228,14 +1277,17 @@ mod tests {
     #[test]
     fn test_no_retry_hook() {
         let hook = NoRetryHook;
-        
+
         // Should never retry any error
         assert!(!hook.should_retry(&Error::CommandNotExecutable, 0));
         assert!(!hook.should_retry(&Error::CameraBusy, 0));
-        
+
         // Should always return zero delay
-        assert_eq!(hook.retry_delay(&Error::CommandNotExecutable, 0), Duration::from_secs(0));
-        
+        assert_eq!(
+            hook.retry_delay(&Error::CommandNotExecutable, 0),
+            Duration::from_secs(0)
+        );
+
         // Should have max attempts of 1
         assert_eq!(hook.max_attempts(), 1);
     }
@@ -1245,11 +1297,11 @@ mod tests {
         let hook = DefaultRetryHook::new()
             .with_max_attempts(5)
             .with_base_delay(Duration::from_millis(50));
-        
+
         assert_eq!(hook.max_attempts(), 5);
         assert!(hook.should_retry(&Error::CommandNotExecutable, 4));
         assert!(!hook.should_retry(&Error::CommandNotExecutable, 5));
-        
+
         // Check that base delay is used
         let delay = hook.retry_delay(&Error::CommandNotExecutable, 0);
         assert_eq!(delay, Duration::from_millis(50)); // base_delay * 2^0 = 50ms
@@ -1267,9 +1319,9 @@ mod tests {
                 tx,
                 false,
             );
-            
+
             assert_eq!(cmd.retry_attempt, 0);
-            
+
             cmd.retry_attempt += 1;
             assert_eq!(cmd.retry_attempt, 1);
         }
