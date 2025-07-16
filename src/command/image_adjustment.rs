@@ -270,7 +270,8 @@ impl ContrastCommand {
 mod tests {
     use super::*;
     use crate::types::SharpnessLevel;
-    use crate::{constants::CameraVariant, EncodeVisca};
+    use crate::constants::CameraVariant;
+    use crate::command::encode_visca::EncodeVisca;
 
     #[test]
     fn test_sharpness_mode() {

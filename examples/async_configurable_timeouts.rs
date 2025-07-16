@@ -144,7 +144,7 @@ async fn demonstrate_preset_timeout(camera: &Camera) -> Result<(), Error> {
     let preset_timeout = Duration::from_secs(30);
 
     // Create a preset ID
-    use grafton_visca::command::preset::PresetNumber;
+    use grafton_visca::PresetNumber;
     let preset = PresetNumber::new(1)?;
 
     // Recall preset (which may take time to complete movement)

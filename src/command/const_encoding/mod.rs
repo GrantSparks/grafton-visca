@@ -10,7 +10,7 @@ pub mod encoding;
 pub mod macros;
 
 pub use builder::CommandBuilder;
-pub use constants::*;
+// pub use constants::*;  // Commented out - unused
 pub use encoding::*;
 
 /// Maximum size for any VISCA command.

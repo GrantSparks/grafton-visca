@@ -7,7 +7,7 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    command::preset::PresetNumber, types::SpeedLevel, Camera, CameraModel, Degrees, Error,
+    PresetNumber, types::SpeedLevel, Camera, CameraModel, Degrees, Error,
     Normalized,
 };
 
@@ -205,7 +205,7 @@ async fn capture_preset(
     // Note: supports_capability() is only available on unified Camera
     // For async Camera, we just try the operation
     camera
-        .preset_set(grafton_visca::command::PresetNumber::new(preset_id)?)
+        .preset_set(PresetNumber::new(preset_id)?)
         .await?;
     println!("  - Saved position as preset {}", preset_id);
 

@@ -1,6 +1,6 @@
 //! Power methods for cameras using the new GAT architecture.
 
-use crate::{camera::Camera, command::PowerCommand, Error, Response};
+use crate::{camera::Camera, command::{PowerCommand, Response}, Error};
 
 /// Power operations (async).
 pub trait PowerOps: Sized {

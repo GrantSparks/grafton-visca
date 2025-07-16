@@ -11,21 +11,17 @@ use grafton_visca::transport::tokio::Tcp;
 use grafton_visca::Error;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
+    blocking::prelude::*,
     camera::profiles::G2PresetId,
-    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     types::{PanSpeed, TiltSpeed},
-    Camera,
+    Camera, PanTiltDirection, PresetNumber,
 };
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{
-        methods::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-        profiles::G2PresetId,
-    },
-    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
+    r#async::prelude::*,
+    camera::profiles::G2PresetId,
     types::{PanSpeed, TiltSpeed},
-    Camera,
+    Camera, PanTiltDirection, PresetNumber,
 };
 use std::time::Duration;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]

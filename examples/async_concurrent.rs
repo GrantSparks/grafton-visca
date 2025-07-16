@@ -8,12 +8,11 @@
 //! - Maximize throughput with concurrent operations
 
 use grafton_visca::{
-    camera::methods::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
-    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     transport::tokio::Udp,
     types::{PanSpeed, TiltSpeed},
-    Camera, Error,
+    Camera, Error, PanTiltDirection, PresetNumber,
 };
+use grafton_visca::r#async::prelude::*;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;

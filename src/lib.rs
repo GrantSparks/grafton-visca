@@ -43,8 +43,9 @@
 //! ### Camera - No Generics Required!
 //! ```ignore
 //! use grafton_visca::{Camera, CameraModel, Error};
-//! use grafton_visca::blocking::{Camera as BlockingCamera, PowerOps, ZoomOps};
 //! use grafton_visca::transport::blocking::Tcp;
+//! // Use the prelude to import all camera operation traits
+//! use grafton_visca::blocking::prelude::*;
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera with default profile (GenericVisca)
@@ -70,8 +71,9 @@
 //! ### Async Example
 //! ```ignore
 //! use grafton_visca::{Camera, CameraModel, Error};
-//! use grafton_visca::r#async::{Camera as AsyncCamera, PowerOps, ZoomOps};
 //! use grafton_visca::transport::tokio::Tcp;
+//! // Use the async prelude
+//! use grafton_visca::r#async::prelude::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
@@ -282,11 +284,11 @@
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
 
-/// Capability traits for composable camera features
-pub mod capabilities;
+// Internal: capability traits for camera feature composition (hidden from public API)
+pub(crate) mod capabilities;
 
-/// VISCA command definitions
-pub mod command;
+// Internal: VISCA command definitions (hidden from public API)
+pub(crate) mod command;
 
 /// Error types
 mod error;
@@ -306,16 +308,8 @@ pub mod units;
 
 pub mod timeout; // Public for use in macros
 
-/// Socket manager for handling VISCA protocol two-socket state machine.
-///
-/// This module implements a sophisticated command queue and socket management system
-/// for VISCA cameras that support dual socket communication. It handles:
-/// - Command queuing and prioritization
-/// - Socket state tracking (free/busy)
-/// - Automatic retries for transient errors
-/// - Timeout management
-/// - Concurrent command execution on available sockets
-pub mod socket_manager;
+// Internal: Socket manager for VISCA protocol two-socket state machine (hidden from public API)
+pub(crate) mod socket_manager;
 
 // Minimal blocking executor
 pub mod executor;
@@ -325,8 +319,10 @@ pub mod blocking;
 
 // Note: r#async is a reserved keyword, so we use the raw identifier syntax
 pub mod r#async;
+
+// Prelude for convenient imports
+pub mod prelude;
 pub use camera::{Camera, CameraModel};
-pub use command::{EncodeVisca, InquiryResponse, Response};
 
 // Re-export unit types for convenience
 pub use units::{
@@ -334,6 +330,18 @@ pub use units::{
 };
 // Re-export FStop from types
 pub use types::{FStop, IntoIrisLevel};
+
+// Re-export commonly used command types through a cleaner namespace
+pub use command::{
+    exposure::ExposureMode,
+    focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone},
+    gain::AntiFlickerMode,
+    image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
+    pan_tilt::PanTiltDirection,
+    preset::PresetNumber,
+    system::{MotionSyncMode, MotionSyncSpeed},
+    white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+};
 
 // Re-export only the ViscaValue macro publicly
 // InquiryCommand macro is now used internally only

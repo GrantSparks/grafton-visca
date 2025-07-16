@@ -3,8 +3,8 @@
 use crate::{
     camera::Camera,
     capabilities::ValidationError,
-    command::preset::{PresetAction, PresetCommand, PresetNumber},
-    Error, Response,
+    command::{preset::{PresetAction, PresetCommand, PresetNumber}, Response},
+    Error,
 };
 
 /// Presets operations (async).

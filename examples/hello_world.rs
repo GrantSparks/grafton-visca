@@ -7,9 +7,9 @@
 //! - Async: cargo run --example hello_world --features tokio <camera_ip:port>
 
 #[cfg(not(feature = "tokio"))]
-use grafton_visca::blocking::{PanTiltOps, PowerOps};
+use grafton_visca::blocking::prelude::*;
 #[cfg(feature = "tokio")]
-use grafton_visca::r#async::{PanTiltOps, PowerOps};
+use grafton_visca::r#async::prelude::*;
 use grafton_visca::{Camera, CameraModel, Error};
 use std::env;
 

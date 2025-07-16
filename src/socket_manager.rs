@@ -1431,4 +1431,97 @@ mod tests {
             assert_eq!(cmd.retry_attempt, 1);
         }
     }
+
+    #[test]
+    fn test_socket_manager_basic_functionality() {
+        let mut manager = SocketManagerInner::new();
+
+        // Test initial state
+        assert_eq!(manager.get_free_socket(), Some(Socket::Socket1));
+        assert_eq!(manager.next_command_id, 1);
+
+        // Test command ID generation
+        let id1 = manager.get_next_command_id();
+        let id2 = manager.get_next_command_id();
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+
+        // Test socket state management
+        manager.mark_socket_busy(Socket::Socket1, id1, CommandCategory::Movement);
+        assert_eq!(manager.get_free_socket(), Some(Socket::Socket2));
+        assert!(manager.sockets[0].is_busy());
+        assert!(manager.sockets[1].is_free());
+
+        manager.mark_socket_busy(Socket::Socket2, id2, CommandCategory::Quick);
+        assert_eq!(manager.get_free_socket(), None);
+        assert!(manager.sockets[0].is_busy());
+        assert!(manager.sockets[1].is_busy());
+
+        // Test freeing sockets
+        manager.mark_socket_free(Socket::Socket1);
+        assert_eq!(manager.get_free_socket(), Some(Socket::Socket1));
+        assert!(manager.sockets[0].is_free());
+        assert!(manager.sockets[1].is_busy());
+    }
+
+    #[test]
+    fn test_socket_state_properties() {
+        let free_state = SocketState::Free;
+        assert!(free_state.is_free());
+        assert!(!free_state.is_busy());
+        assert_eq!(free_state.command_id(), None);
+        assert_eq!(free_state.started_at(), None);
+        assert_eq!(free_state.category(), None);
+
+        let busy_state = SocketState::Busy {
+            command_id: 42,
+            started_at: Instant::now(),
+            category: CommandCategory::Movement,
+        };
+        assert!(!busy_state.is_free());
+        assert!(busy_state.is_busy());
+        assert_eq!(busy_state.command_id(), Some(42));
+        assert!(busy_state.started_at().is_some());
+        assert_eq!(busy_state.category(), Some(CommandCategory::Movement));
+    }
+
+    #[test]
+    fn test_socket_response_byte_parsing() {
+        use crate::command::system::Socket;
+
+        assert_eq!(Socket::from_response_byte(0x90), Some(Socket::Socket1));
+        assert_eq!(Socket::from_response_byte(0x91), Some(Socket::Socket2));
+        assert_eq!(Socket::from_response_byte(0x92), None);
+        assert_eq!(Socket::from_response_byte(0x80), None);
+
+        assert_eq!(Socket::Socket1.as_index(), 0);
+        assert_eq!(Socket::Socket2.as_index(), 1);
+    }
+
+    #[test]
+    fn test_socket_manager_demonstrates_two_socket_tracking() {
+        let mut manager = SocketManagerInner::new();
+
+        // Simulate the key behavior that prevents Buffer Full errors:
+        // Only allow 2 commands to be active at once
+
+        // First command gets Socket1
+        let cmd1_id = manager.get_next_command_id();
+        let socket1 = manager.get_free_socket().expect("Should have free socket");
+        assert_eq!(socket1, Socket::Socket1);
+        manager.mark_socket_busy(socket1, cmd1_id, CommandCategory::Movement);
+
+        // Second command gets Socket2
+        let cmd2_id = manager.get_next_command_id();
+        let socket2 = manager.get_free_socket().expect("Should have free socket");
+        assert_eq!(socket2, Socket::Socket2);
+        manager.mark_socket_busy(socket2, cmd2_id, CommandCategory::Movement);
+
+        // Third command would be queued (no free socket)
+        assert_eq!(manager.get_free_socket(), None);
+
+        // This is the core of G1: Accurate socket tracking
+        // By having None returned, the socket manager knows to queue the command
+        // instead of sending it immediately, preventing Buffer Full errors
+    }
 }

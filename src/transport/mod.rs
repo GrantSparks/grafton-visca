@@ -41,8 +41,10 @@
 pub mod core;
 pub mod transport_kind;
 
-pub use core::{BlockingTransport, Transport, TransportExt};
-pub use transport_kind::TransportKind;
+pub use core::Transport;
+// Internal: auxiliary transport traits (hidden from public API)
+// pub(crate) use core::{BlockingTransport, TransportExt};  // Commented out - unused
+// pub(crate) use transport_kind::TransportKind;  // Commented out - unused
 
 // Blocking transport module (always available)
 pub mod blocking;

@@ -135,7 +135,8 @@ impl ImageFlipCombinedCommand {
 )]
 mod tests {
     use super::*;
-    use crate::{timeout::CommandCategory, EncodeVisca};
+    use crate::timeout::CommandCategory;
+    use crate::command::encode_visca::EncodeVisca;
 
     #[test]
     fn test_backlight_command() {
@@ -368,6 +369,8 @@ mod tests {
 
     #[test]
     fn test_command_categories() {
+        use crate::command::encode_visca::EncodeVisca;
+        
         // Test that BacklightCommand and BlackWhiteCommand use Quick category
         let cmd = BacklightCommand::new(true);
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));

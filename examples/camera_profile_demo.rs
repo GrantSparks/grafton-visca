@@ -2,16 +2,13 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{
-        methods::{FocusOps, PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-        profiles::{G2PresetId, PTZOpticsG2},
-    },
-    capabilities::{PanTilt, Presets, ProfileMetadata},
-    command::preset::PresetNumber,
+    r#async::prelude::*,
+    camera::profiles::{G2PresetId, PTZOpticsG2},
+    PresetNumber,
     transport::tokio::Tcp,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    Camera, Error,
+    Camera, CameraModel, Error,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -30,18 +27,13 @@ async fn main() -> Result<(), Error> {
 
     // Create a G2 camera with TCP transport
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = Camera::new(transport);
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
 
-    // Display camera capabilities
-    println!("Camera Model: {}", PTZOpticsG2::MODEL_NAME);
-    println!("Pan Range: {:?}", <PTZOpticsG2 as PanTilt>::PAN_RANGE);
-    println!("Tilt Range: {:?}", <PTZOpticsG2 as PanTilt>::TILT_RANGE);
-    println!("Max Pan Speed: {}", <PTZOpticsG2 as PanTilt>::MAX_PAN_SPEED);
-    println!(
-        "Max Tilt Speed: {}",
-        <PTZOpticsG2 as PanTilt>::MAX_TILT_SPEED
-    );
-    println!("Max Presets: {}", <PTZOpticsG2 as Presets>::MAX_PRESETS);
+    // Display camera capabilities using public API
+    println!("Camera Model: {}", camera.model_name());
+    println!("Supports Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
+    println!("Supports Zoom: {}", camera.supports_capability("zoom"));
+    println!("Supports Presets: {}", camera.supports_capability("presets"));
     println!();
 
     // Power on the camera

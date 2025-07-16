@@ -4,7 +4,7 @@
 //! which avoids the complexity of the full runtime abstraction layer.
 
 use grafton_visca::{
-    camera::methods::PresetsOps, command::preset::PresetNumber, transport::tokio::Tcp, Camera,
+    camera::methods::PresetsOps, PresetNumber, transport::tokio::Tcp, Camera,
     Error,
 };
 

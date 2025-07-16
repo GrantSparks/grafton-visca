@@ -14,11 +14,10 @@ use std::time::Duration;
 
 use crate::{
     capabilities::{ProfileIntrospection, ProfileMetadata, ProtocolStyle},
-    command::{encode_visca::EncodeVisca, ResponseType},
+    command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
     socket_manager::SocketManagerHandle,
     transport::core::Transport,
-    Response,
 };
 
 #[cfg(feature = "async")]

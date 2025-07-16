@@ -171,7 +171,7 @@ mod blocking_tests {
         let camera = Camera::with_profile(CameraModel::PTZOpticsG2, mock.clone()).blocking();
 
         // Set and recall preset 5
-        use grafton_visca::command::preset::PresetNumber;
+        use grafton_visca::PresetNumber;
         let preset_id = PresetNumber::new(5).unwrap();
         assert!(camera.preset_set(preset_id).is_ok());
         assert!(camera.preset_recall(preset_id).is_ok());
