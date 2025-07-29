@@ -8,6 +8,7 @@ use crate::{
 };
 
 /// Focus operations (async).
+#[cfg(feature = "async")]
 pub trait FocusOps: Sized {
     /// Set auto focus mode.
     async fn focus_auto(&self) -> Result<(), Error>;
@@ -94,6 +95,7 @@ pub trait FocusOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl FocusOps for Camera {
     async fn focus_auto(&self) -> Result<(), Error> {
         self.send_command(&FocusCommand::Auto).await?;

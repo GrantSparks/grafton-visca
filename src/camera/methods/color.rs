@@ -14,6 +14,7 @@ use crate::{
 };
 
 /// Color operations (async).
+#[cfg(feature = "async")]
 pub trait ColorOps: Sized {
     /// Trigger one-push white balance.
     async fn one_push_trigger(&self) -> Result<(), Error>;
@@ -92,6 +93,7 @@ pub trait ColorOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl ColorOps for Camera {
     async fn one_push_trigger(&self) -> Result<(), Error> {
         self.send_command(&OnePushTriggerCommand::new()).await?;

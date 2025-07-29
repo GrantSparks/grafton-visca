@@ -312,6 +312,7 @@ pub mod units;
 pub mod timeout; // Public for use in macros
 
 // Internal: Socket manager for VISCA protocol two-socket state machine (hidden from public API)
+#[cfg(feature = "async")]
 pub(crate) mod socket_manager;
 
 // Minimal blocking executor
@@ -321,6 +322,7 @@ pub mod executor;
 pub mod blocking;
 
 // Note: r#async is a reserved keyword, so we use the raw identifier syntax
+#[cfg(feature = "async")]
 pub mod r#async;
 
 // Prelude for convenient imports

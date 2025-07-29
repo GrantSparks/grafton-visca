@@ -26,7 +26,7 @@ impl Tcp {
         let stream = TcpStream::connect_timeout(
             &address
                 .parse()
-                .map_err(|e| Error::TransportError(format!("Invalid address: {}", e)))?,
+                .map_err(|e| Error::TransportError(format!("Invalid address: {e}")))?,
             timeout,
         )?;
 
@@ -61,7 +61,7 @@ impl BlockingTransport for Tcp {}
 fn send_impl(stream: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
     let mut stream = stream
         .lock()
-        .map_err(|e| Error::TransportError(format!("Failed to lock stream: {}", e)))?;
+        .map_err(|e| Error::TransportError(format!("Failed to lock stream: {e}")))?;
 
     stream.write_all(data)?;
     stream.flush()?;
@@ -71,7 +71,7 @@ fn send_impl(stream: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
 fn recv_impl(stream: &Mutex<TcpStream>) -> Result<bytes::Bytes, Error> {
     let mut stream = stream
         .lock()
-        .map_err(|e| Error::TransportError(format!("Failed to lock stream: {}", e)))?;
+        .map_err(|e| Error::TransportError(format!("Failed to lock stream: {e}")))?;
 
     let mut buffer = vec![0u8; 1024];
     let mut total_read = 0;

@@ -10,6 +10,7 @@ use crate::{
 };
 
 /// System operations (async).
+#[cfg(feature = "async")]
 pub trait SystemOps: Sized {
     /// Trigger automatic address assignment (broadcast command for serial bus).
     /// Note: This doesn't set a specific address but triggers the auto-addressing process.
@@ -36,6 +37,7 @@ pub trait SystemOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl SystemOps for Camera {
     async fn trigger_address_assignment(&self) -> Result<(), Error> {
         let cmd = AddressSetCommand::new();

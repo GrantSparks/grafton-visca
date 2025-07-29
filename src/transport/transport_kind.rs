@@ -122,6 +122,6 @@ mod tests {
         // Ensure the enum doesn't get too large
         let size = size_of::<TransportKind>();
         // This will vary based on the largest variant, but should be reasonable
-        assert!(size < 256, "TransportKind size is {} bytes", size);
+        assert!(size < 256, "TransportKind size is {size} bytes");
     }
 }

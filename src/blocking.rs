@@ -36,10 +36,16 @@ impl Camera {
 /// use grafton_visca::blocking::prelude::*;
 /// ```
 pub mod prelude {
-    pub use super::{
-        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControl,
-        MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
-        SystemOps, TallyOps, VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
+    pub use crate::camera::methods::{
+        ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps,
+        FocusOpsBlocking as FocusOps, ImageProcessingOpsBlocking as ImageProcessingOps,
+        InquiryOpsBlocking as InquiryOps, MenuControlMethodsBlocking as MenuControl,
+        MotionSyncControlBlocking as MotionSyncControl, NDFilterOpsBlocking as NDFilterOps,
+        PanTiltInquiryOpsBlocking as PanTiltInquiryOps, PanTiltOpsBlocking as PanTiltOps,
+        PowerOpsBlocking as PowerOps, PresetsOpsBlocking as PresetsOps,
+        SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
+        VariableSpeedMethodsBlocking as VariableSpeedMethods,
+        WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
     };
 }
 

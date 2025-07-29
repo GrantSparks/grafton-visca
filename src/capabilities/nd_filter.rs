@@ -28,7 +28,7 @@ pub trait NDFilterExt: NDFilter {
                 } else {
                     Err(ValidationError::InvalidValue {
                         parameter: "ND filter",
-                        message: format!("Only 0 (off) or {} (on) are valid", fixed_value),
+                        message: format!("Only 0 (off) or {fixed_value} (on) are valid"),
                     })
                 }
             }

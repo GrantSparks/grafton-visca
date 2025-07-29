@@ -58,7 +58,7 @@ pub trait WhiteBalanceExt: WhiteBalance {
         } else {
             Err(ValidationError::InvalidValue {
                 parameter: "white balance mode",
-                message: format!("Mode {:?} not supported", mode),
+                message: format!("Mode {mode:?} not supported"),
             })
         }
     }

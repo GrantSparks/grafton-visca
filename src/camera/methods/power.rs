@@ -7,6 +7,7 @@ use crate::{
 };
 
 /// Power operations (async).
+#[cfg(feature = "async")]
 pub trait PowerOps: Sized {
     /// Power on the camera.
     async fn power_on(&self) -> Result<(), Error>;
@@ -25,6 +26,7 @@ pub trait PowerOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl PowerOps for Camera {
     async fn power_on(&self) -> Result<(), Error> {
         let command = PowerCommand::On;

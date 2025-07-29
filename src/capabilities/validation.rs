@@ -40,15 +40,14 @@ impl fmt::Display for ValidationError {
             } => {
                 write!(
                     f,
-                    "{} value {} is out of range [{}, {}]",
-                    parameter, value, min, max
+                    "{parameter} value {value} is out of range [{min}, {max}]"
                 )
             }
             ValidationError::InvalidValue { parameter, message } => {
-                write!(f, "Invalid {} value: {}", parameter, message)
+                write!(f, "Invalid {parameter} value: {message}")
             }
             ValidationError::NotSupported(feature) => {
-                write!(f, "{} is not supported by this camera", feature)
+                write!(f, "{feature} is not supported by this camera")
             }
         }
     }

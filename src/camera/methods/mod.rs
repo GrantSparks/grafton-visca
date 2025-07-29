@@ -22,22 +22,41 @@ pub mod white_balance;
 pub mod zoom;
 
 // Re-export extension traits (async)
+#[cfg(feature = "async")]
 pub use color::ColorOps;
+#[cfg(feature = "async")]
 pub use exposure::ExposureOps;
+#[cfg(feature = "async")]
 pub use focus::FocusOps;
+#[cfg(feature = "async")]
 pub use image_processing::ImageProcessingOps;
+#[cfg(feature = "async")]
 pub use inquiry::{InquiryOps, PanTiltInquiryOps};
-pub use menu::{MenuControlMethods, MenuControlMethodsBlocking};
+#[cfg(feature = "async")]
+pub use menu::MenuControlMethods;
+pub use menu::MenuControlMethodsBlocking;
+#[cfg(feature = "async")]
 pub use motion_sync::MotionSyncControl;
+#[cfg(feature = "async")]
 pub use nd_filter::NDFilterOps;
+#[cfg(feature = "async")]
 pub use pan_tilt::PanTiltOps;
+#[cfg(feature = "async")]
 pub use power::PowerOps;
+#[cfg(feature = "async")]
 pub use presets::PresetsOps;
+#[cfg(feature = "async")]
 pub use streaming::StreamingMethods;
+#[cfg(feature = "async")]
 pub use system::SystemOps;
+#[cfg(feature = "async")]
 pub use tally::TallyOps;
-pub use variable_speed::{VariableSpeedMethods, VariableSpeedMethodsBlocking};
+#[cfg(feature = "async")]
+pub use variable_speed::VariableSpeedMethods;
+pub use variable_speed::VariableSpeedMethodsBlocking;
+#[cfg(feature = "async")]
 pub use white_balance::WhiteBalanceOps;
+#[cfg(feature = "async")]
 pub use zoom::ZoomOps;
 
 // Re-export blocking traits

@@ -111,6 +111,7 @@ pub trait StreamingMethodsBlocking: Sized {
 }
 
 // Implementation for async Camera
+#[cfg(feature = "async")]
 impl StreamingMethods for crate::camera::Camera {
     async fn enable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::On;

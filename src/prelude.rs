@@ -33,6 +33,7 @@
 //! ```
 
 // Re-export all async operation traits
+#[cfg(feature = "async")]
 pub use crate::camera::methods::{
     ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,
     PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps, WhiteBalanceOps,

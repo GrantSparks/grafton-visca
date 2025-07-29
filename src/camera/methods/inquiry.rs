@@ -11,6 +11,7 @@ use crate::{
 };
 
 /// Inquiry operations (async).
+#[cfg(feature = "async")]
 pub trait InquiryOps: Sized {
     /// Get the current power state of the camera.
     /// Returns `true` if powered on, `false` if in standby.
@@ -216,6 +217,7 @@ pub trait InquiryOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl InquiryOps for Camera {
     async fn get_power_state(&self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
@@ -884,6 +886,7 @@ impl InquiryOpsBlocking for Camera {
 }
 
 /// Pan/Tilt-specific inquiry operations (async).
+#[cfg(feature = "async")]
 pub trait PanTiltInquiryOps: Sized {
     /// Get the current pan and tilt position.
     async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
@@ -902,6 +905,7 @@ pub trait PanTiltInquiryOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl PanTiltInquiryOps for Camera {
     async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;

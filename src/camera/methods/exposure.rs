@@ -3,6 +3,7 @@
 use crate::{camera::Camera, Error};
 
 /// Exposure operations (async).
+#[cfg(feature = "async")]
 pub trait ExposureOps: Sized {
     /// Set auto exposure mode.
     async fn exposure_auto(&self) -> Result<(), Error>;
@@ -218,6 +219,7 @@ pub trait ExposureOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl ExposureOps for Camera {
     async fn exposure_auto(&self) -> Result<(), Error> {
         use crate::command::exposure::{ExposureCommand, ExposureMode};

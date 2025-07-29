@@ -20,6 +20,7 @@ use crate::{
 };
 
 /// Image processing operations (async).
+#[cfg(feature = "async")]
 pub trait ImageProcessingOps: Sized {
     /// Enable image flip.
     async fn enable_flip(&self) -> Result<(), Error>;
@@ -176,6 +177,7 @@ pub trait ImageProcessingOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl ImageProcessingOps for Camera {
     async fn enable_flip(&self) -> Result<(), Error> {
         let cmd = ImageFlipCommand::new(Flip::On);

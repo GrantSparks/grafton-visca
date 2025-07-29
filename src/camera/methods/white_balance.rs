@@ -12,6 +12,7 @@ use crate::{
 };
 
 /// White balance operations (async).
+#[cfg(feature = "async")]
 pub trait WhiteBalanceOps: Sized {
     /// Set auto white balance mode.
     async fn white_balance_auto(&self) -> Result<(), Error>;
@@ -30,6 +31,7 @@ pub trait WhiteBalanceOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl WhiteBalanceOps for Camera {
     async fn white_balance_auto(&self) -> Result<(), Error> {
         let command = WhiteBalanceCommand {

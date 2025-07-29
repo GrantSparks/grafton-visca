@@ -55,7 +55,7 @@ pub use self::{
     preset::*,
     response::{Response, ResponseType}, // Removed parse_response - unused
     // streaming::{MulticastStreaming, NDIQualityCommand},  // Not public - used internally
-    system::{MotionSyncMode, MotionSyncSpeed, Socket},
+    system::{MotionSyncMode, MotionSyncSpeed},
     // tally::*,  // Commented out - unused
     variable_speed::*,
     white_balance::*,
