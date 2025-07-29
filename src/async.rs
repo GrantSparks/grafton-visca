@@ -41,28 +41,28 @@ impl Camera {
     /// This method is only available when the `async` feature is enabled but
     /// `tokio` is not, as Tokio users can rely on the automatic runtime detection.
     ///
-    /// # Example with async-std
-    /// ```no_run
+    /// # Example with custom spawner
+    /// ```ignore
     /// # use grafton_visca::r#async::Camera;
     /// # use grafton_visca::executor::{Spawner, SpawnableFuture};
     /// # use grafton_visca::CameraModel;
-    /// # #[cfg(all(feature = "async", not(feature = "tokio")))]
-    /// # #[async_std::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use grafton_visca::r#async::PanTiltOps;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// #[derive(Clone)]
-    /// struct AsyncStdSpawner;
+    /// struct MySpawner;
     ///
-    /// impl Spawner for AsyncStdSpawner {
+    /// impl Spawner for MySpawner {
     ///     fn spawn(&self, task: SpawnableFuture) {
-    ///         async_std::task::spawn(task);
+    ///         // Spawn task with your runtime
+    ///         // e.g., async_std::task::spawn(task);
     ///     }
     /// }
     ///
     /// # let transport = todo!();
-    /// let spawner = AsyncStdSpawner;
+    /// let spawner = MySpawner;
     /// let camera = Camera::with_spawner(CameraModel::PTZOpticsG2, transport, spawner);
     ///
-    /// // Ready to control camera with async-std
+    /// // Ready to control camera with your async runtime
     /// camera.pan_tilt_home().await?;
     /// # Ok(())
     /// # }

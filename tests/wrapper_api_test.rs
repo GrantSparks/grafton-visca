@@ -58,6 +58,7 @@ fn test_wrapper_creation() {
         let _blocking = camera.blocking();
     }
 
+    #[cfg(feature = "async")]
     #[allow(dead_code)]
     fn create_async_wrapper<T: grafton_visca::transport::core::Transport + Send + Sync + 'static>(
         transport: T,
