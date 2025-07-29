@@ -5,11 +5,10 @@
 
 // Crate imports
 use crate::{
-    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType},
+    command::{encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{GainLevel, GainLimit},
-    visca_command,
 };
 
 /// Commands for controlling gain values.
@@ -42,7 +41,11 @@ impl EncodeVisca for Gain {
     type Response = ();
     const MAX_SIZE: usize = 9;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 if buffer.len() < 6 {
@@ -51,7 +54,7 @@ impl EncodeVisca for Gain {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x0C;
@@ -75,7 +78,7 @@ impl EncodeVisca for Gain {
                 let high = (value >> 4) & 0x0F;
                 let low = value & 0x0F;
 
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x4C;
@@ -118,84 +121,12 @@ impl GainLimitCommand {
     }
 }
 
-/// Anti-flicker mode settings.
-///
-/// Reduces flicker caused by artificial lighting that operates at
-/// different frequencies than the camera's frame rate.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum AntiFlickerMode {
-    /// Disable anti-flicker processing.
-    Off = 0x00,
-    /// Enable 50Hz anti-flicker (for regions with 50Hz AC power).
-    Hz50 = 0x01,
-    /// Enable 60Hz anti-flicker (for regions with 60Hz AC power).
-    Hz60 = 0x02,
-}
-
-impl TryFrom<u8> for AntiFlickerMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(AntiFlickerMode::Off),
-            0x01 => Ok(AntiFlickerMode::Hz50),
-            0x02 => Ok(AntiFlickerMode::Hz60),
-            _ => Err(Error::InvalidResponse {
-                expected: "0x00 (Off), 0x01 (50Hz), or 0x02 (60Hz)".to_string(),
-                actual: vec![value],
-            }),
-        }
-    }
-}
-
-visca_command! {
-    /// Command to set anti-flicker mode.
-    category = "Quick",
-    enum AntiFlickerCommand {
-        /// Disable anti-flicker processing.
-        Off => {
-            let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::gain::ANTI_FLICKER_PREFIX)
-                .push(0x00)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
-        },
-        /// Enable 50Hz anti-flicker (for regions with 50Hz AC power).
-        Hz50 => {
-            let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::gain::ANTI_FLICKER_PREFIX)
-                .push(0x01)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
-        },
-        /// Enable 60Hz anti-flicker (for regions with 60Hz AC power).
-        Hz60 => {
-            let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::gain::ANTI_FLICKER_PREFIX)
-                .push(0x02)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
-        },
-    }
-}
-
-impl AntiFlickerCommand {
-    /// Create a new anti-flicker command.
-    pub fn new(mode: AntiFlickerMode) -> Self {
-        match mode {
-            AntiFlickerMode::Off => Self::Off,
-            AntiFlickerMode::Hz50 => Self::Hz50,
-            AntiFlickerMode::Hz60 => Self::Hz60,
-        }
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::{constants::CameraVariant, visca_test};
     use crate::command::encode_visca::EncodeVisca;
+    use crate::{constants::CameraVariant, visca_test};
 
     visca_test!(
         Gain,
@@ -229,7 +160,7 @@ mod tests {
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
-                cmd.try_into_vec()
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, high, low, 0xFF]
             );
@@ -270,7 +201,7 @@ mod tests {
                 GainLimit::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainLimitCommand::new(limit);
             assert_eq!(
-                cmd.try_into_vec()
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x2C, value, 0xFF]
             );
@@ -298,40 +229,6 @@ mod tests {
     }
 
     #[test]
-    fn test_anti_flicker_mode_values() {
-        assert_eq!(AntiFlickerMode::Off as u8, 0x00);
-        assert_eq!(AntiFlickerMode::Hz50 as u8, 0x01);
-        assert_eq!(AntiFlickerMode::Hz60 as u8, 0x02);
-    }
-
-    #[test]
-    fn test_anti_flicker_command() {
-        // Test Off mode
-        let cmd = AntiFlickerCommand::new(AntiFlickerMode::Off);
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x23, 0x00, 0xFF]
-        );
-
-        // Test 50Hz mode
-        let cmd = AntiFlickerCommand::new(AntiFlickerMode::Hz50);
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x23, 0x01, 0xFF]
-        );
-
-        // Test 60Hz mode
-        let cmd = AntiFlickerCommand::new(AntiFlickerMode::Hz60);
-        assert_eq!(
-            cmd.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x23, 0x02, 0xFF]
-        );
-    }
-
-    #[test]
     fn test_command_categories() {
         // All gain commands should be Quick category
         assert_eq!(Gain::Reset.timeout_kind(), CommandCategory::Quick);
@@ -349,10 +246,6 @@ mod tests {
                 GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
             .timeout_kind(),
-            CommandCategory::Quick
-        );
-        assert_eq!(
-            AntiFlickerCommand::new(AntiFlickerMode::Hz50).timeout_kind(),
             CommandCategory::Quick
         );
     }
@@ -373,9 +266,6 @@ mod tests {
         )
         .response_type()
         .is_none());
-        assert!(AntiFlickerCommand::new(AntiFlickerMode::Hz50)
-            .response_type()
-            .is_none());
     }
 
     #[test]
@@ -390,26 +280,5 @@ mod tests {
         );
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("SetValue"));
-    }
-
-    #[test]
-    fn test_anti_flicker_clone() {
-        // Test Copy/Clone traits
-        let cmd1 = AntiFlickerCommand::new(AntiFlickerMode::Hz50);
-        let cmd2 = cmd1; // Copy
-        let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
-
-        assert_eq!(
-            cmd1.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd2.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        );
-        assert_eq!(
-            cmd1.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd3.try_into_vec()
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        );
     }
 }

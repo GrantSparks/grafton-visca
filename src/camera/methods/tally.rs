@@ -2,7 +2,10 @@
 
 use crate::{
     camera::Camera,
-    command::{tally::Tally, Response},
+    command::{
+        tally::{Tally, TallyInquiry},
+        InquiryResponse, Response,
+    },
     Error,
 };
 
@@ -37,6 +40,12 @@ pub trait TallyOps: Sized {
 
     /// Get tally light status.
     async fn get_tally_status(&self) -> Result<bool, Error>;
+
+    /// Query red tally light state.
+    async fn get_red_tally_status(&self) -> Result<bool, Error>;
+
+    /// Query green tally light state (FR7 specific).
+    async fn get_green_tally_status(&self) -> Result<bool, Error>;
 }
 
 /// Tally light control operations (blocking).
@@ -70,6 +79,12 @@ pub trait TallyOpsBlocking: Sized {
 
     /// Get tally light status.
     fn get_tally_status(&self) -> Result<bool, Error>;
+
+    /// Query red tally light state.
+    fn get_red_tally_status(&self) -> Result<bool, Error>;
+
+    /// Query green tally light state (FR7 specific).
+    fn get_green_tally_status(&self) -> Result<bool, Error>;
 }
 
 // Async implementation
@@ -165,11 +180,28 @@ impl TallyOps for Camera {
     }
 
     async fn get_tally_status(&self) -> Result<bool, Error> {
-        // For now, return a NotImplemented error as there's no tally inquiry command in the protocol
-        // This would need to be added to the InquiryCommand enum with the proper VISCA bytes
-        Err(Error::FeatureNotSupported {
-            feature: "Tally status inquiry",
-        })
+        // Default to red tally status for backward compatibility
+        TallyOps::get_red_tally_status(self).await
+    }
+
+    async fn get_red_tally_status(&self) -> Result<bool, Error> {
+        let command = TallyInquiry::Red;
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_green_tally_status(&self) -> Result<bool, Error> {
+        let command = TallyInquiry::Green;
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 }
 
@@ -266,11 +298,28 @@ impl TallyOpsBlocking for Camera {
     }
 
     fn get_tally_status(&self) -> Result<bool, Error> {
-        // For now, return a NotImplemented error as there's no tally inquiry command in the protocol
-        // This would need to be added to the InquiryCommand enum with the proper VISCA bytes
-        Err(Error::FeatureNotSupported {
-            feature: "Tally status inquiry",
-        })
+        // Default to red tally status for backward compatibility
+        TallyOpsBlocking::get_red_tally_status(self)
+    }
+
+    fn get_red_tally_status(&self) -> Result<bool, Error> {
+        let command = TallyInquiry::Red;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_green_tally_status(&self) -> Result<bool, Error> {
+        let command = TallyInquiry::Green;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 }
 

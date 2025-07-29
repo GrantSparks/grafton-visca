@@ -2,8 +2,6 @@
 //!
 //! This shows how to query camera state using the high-level Camera API.
 
-use grafton_visca::{Camera, CameraModel};
-
 fn main() {
     // Note: This example demonstrates the API without a real camera connection
     println!("Camera inquiry API example:");

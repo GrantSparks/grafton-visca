@@ -2,13 +2,12 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
+    camera::profiles::G2PresetId,
     r#async::prelude::*,
-    camera::profiles::{G2PresetId, PTZOpticsG2},
-    PresetNumber,
     transport::tokio::Tcp,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    Camera, CameraModel, Error,
+    Camera, CameraModel, Error, PresetNumber,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -31,9 +30,15 @@ async fn main() -> Result<(), Error> {
 
     // Display camera capabilities using public API
     println!("Camera Model: {}", camera.model_name());
-    println!("Supports Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
+    println!(
+        "Supports Pan/Tilt: {}",
+        camera.supports_capability("pan_tilt")
+    );
     println!("Supports Zoom: {}", camera.supports_capability("zoom"));
-    println!("Supports Presets: {}", camera.supports_capability("presets"));
+    println!(
+        "Supports Presets: {}",
+        camera.supports_capability("presets")
+    );
     println!();
 
     // Power on the camera

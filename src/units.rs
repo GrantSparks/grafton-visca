@@ -180,6 +180,7 @@ impl<T> Magnification<T> {
 
 impl Fraction {
     /// Create a new fraction.
+    #[must_use]
     pub fn new(numerator: u32, denominator: u32) -> Self {
         Self {
             numerator,

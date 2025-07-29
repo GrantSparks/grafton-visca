@@ -91,42 +91,172 @@ impl ResolutionMode {
     }
 }
 
-/// Helper function to interpret ND filter position values.
+/// Picture effect modes for PTZ cameras.
 ///
-/// # Arguments
-/// * `position` - The raw ND filter position byte
-///
-/// # Returns
-/// A human-readable description of the ND filter setting
-pub fn nd_filter_description(position: u8) -> &'static str {
-    match position {
-        0x00 => "Clear (no filter)",
-        0x01 => "1/4 ND",
-        0x02 => "1/8 ND",
-        0x03 => "1/16 ND",
-        0x04 => "1/32 ND",
-        0x05 => "1/64 ND",
-        _ => "Unknown ND filter position",
+/// These effects modify the camera's video output for artistic or functional purposes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PictureEffectMode {
+    /// Normal operation (no effect).
+    Off,
+    /// Negative image effect.
+    Negative,
+    /// Black and white effect.
+    BlackAndWhite,
+    /// Sepia tone effect.
+    Sepia,
+    /// Sketch effect.
+    Sketch,
+    /// Emboss effect.
+    Emboss,
+    /// Mosaic effect.
+    Mosaic,
+    /// Unknown or camera-specific effect.
+    Unknown(u8),
+}
+
+impl PictureEffectMode {
+    /// Convert a raw picture effect byte to a PictureEffectMode enum.
+    ///
+    /// # Arguments
+    /// * `effect` - The raw effect byte from the camera
+    ///
+    /// # Returns
+    /// The corresponding PictureEffectMode variant
+    pub fn from_byte(effect: u8) -> Self {
+        match effect {
+            0x00 => PictureEffectMode::Off,
+            0x01 => PictureEffectMode::Negative,
+            0x02 => PictureEffectMode::BlackAndWhite,
+            0x03 => PictureEffectMode::Sepia,
+            0x04 => PictureEffectMode::Sketch,
+            0x05 => PictureEffectMode::Emboss,
+            0x06 => PictureEffectMode::Mosaic,
+            _ => PictureEffectMode::Unknown(effect),
+        }
+    }
+
+    /// Get a human-readable description of the picture effect.
+    pub fn description(&self) -> &'static str {
+        match self {
+            PictureEffectMode::Off => "Off (normal)",
+            PictureEffectMode::Negative => "Negative",
+            PictureEffectMode::BlackAndWhite => "Black & White",
+            PictureEffectMode::Sepia => "Sepia",
+            PictureEffectMode::Sketch => "Sketch",
+            PictureEffectMode::Emboss => "Emboss",
+            PictureEffectMode::Mosaic => "Mosaic",
+            PictureEffectMode::Unknown(_) => "Unknown picture effect",
+        }
+    }
+
+    /// Get the raw byte value for this picture effect mode.
+    pub fn to_byte(&self) -> u8 {
+        match self {
+            PictureEffectMode::Off => 0x00,
+            PictureEffectMode::Negative => 0x01,
+            PictureEffectMode::BlackAndWhite => 0x02,
+            PictureEffectMode::Sepia => 0x03,
+            PictureEffectMode::Sketch => 0x04,
+            PictureEffectMode::Emboss => 0x05,
+            PictureEffectMode::Mosaic => 0x06,
+            PictureEffectMode::Unknown(value) => *value,
+        }
     }
 }
 
-/// Helper function to interpret picture effect values.
+/// ND filter positions for cameras with neutral density filters (Sony FR7).
 ///
-/// # Arguments
-/// * `effect` - The raw picture effect byte
-///
-/// # Returns
-/// A human-readable description of the picture effect
-pub fn picture_effect_description(effect: u8) -> &'static str {
-    match effect {
-        0x00 => "Off (normal)",
-        0x01 => "Negative",
-        0x02 => "Black & White",
-        0x03 => "Sepia",
-        0x04 => "Sketch",
-        0x05 => "Emboss",
-        0x06 => "Mosaic",
-        _ => "Unknown picture effect",
+/// ND filters reduce light entering the camera without affecting color balance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NDFilterPosition {
+    /// Clear (no filter applied).
+    Clear,
+    /// 1/4 ND (2 stops reduction).
+    OneQuarter,
+    /// 1/8 ND (3 stops reduction).
+    OneEighth,
+    /// 1/16 ND (4 stops reduction).
+    OneSixteenth,
+    /// 1/32 ND (5 stops reduction).
+    OneThirtySecond,
+    /// 1/64 ND (6 stops reduction).
+    OneSixtyFourth,
+    /// Unknown or camera-specific ND filter setting.
+    Unknown(u8),
+}
+
+impl NDFilterPosition {
+    /// Convert a raw ND filter position byte to an NDFilterPosition enum.
+    ///
+    /// # Arguments
+    /// * `position` - The raw position byte from the camera
+    ///
+    /// # Returns
+    /// The corresponding NDFilterPosition variant
+    pub fn from_byte(position: u8) -> Self {
+        match position {
+            0x00 => NDFilterPosition::Clear,
+            0x01 => NDFilterPosition::OneQuarter,
+            0x02 => NDFilterPosition::OneEighth,
+            0x03 => NDFilterPosition::OneSixteenth,
+            0x04 => NDFilterPosition::OneThirtySecond,
+            0x05 => NDFilterPosition::OneSixtyFourth,
+            _ => NDFilterPosition::Unknown(position),
+        }
+    }
+
+    /// Get a human-readable description of the ND filter position.
+    pub fn description(&self) -> &'static str {
+        match self {
+            NDFilterPosition::Clear => "Clear (no filter)",
+            NDFilterPosition::OneQuarter => "1/4 ND",
+            NDFilterPosition::OneEighth => "1/8 ND",
+            NDFilterPosition::OneSixteenth => "1/16 ND",
+            NDFilterPosition::OneThirtySecond => "1/32 ND",
+            NDFilterPosition::OneSixtyFourth => "1/64 ND",
+            NDFilterPosition::Unknown(_) => "Unknown ND filter position",
+        }
+    }
+
+    /// Get the raw byte value for this ND filter position.
+    pub fn to_byte(&self) -> u8 {
+        match self {
+            NDFilterPosition::Clear => 0x00,
+            NDFilterPosition::OneQuarter => 0x01,
+            NDFilterPosition::OneEighth => 0x02,
+            NDFilterPosition::OneSixteenth => 0x03,
+            NDFilterPosition::OneThirtySecond => 0x04,
+            NDFilterPosition::OneSixtyFourth => 0x05,
+            NDFilterPosition::Unknown(value) => *value,
+        }
+    }
+
+    /// Get the light reduction factor as a rational number (numerator, denominator).
+    /// Returns None for Clear or Unknown positions.
+    pub fn reduction_factor(&self) -> Option<(u32, u32)> {
+        match self {
+            NDFilterPosition::Clear => Some((1, 1)),
+            NDFilterPosition::OneQuarter => Some((1, 4)),
+            NDFilterPosition::OneEighth => Some((1, 8)),
+            NDFilterPosition::OneSixteenth => Some((1, 16)),
+            NDFilterPosition::OneThirtySecond => Some((1, 32)),
+            NDFilterPosition::OneSixtyFourth => Some((1, 64)),
+            NDFilterPosition::Unknown(_) => None,
+        }
+    }
+
+    /// Get the number of f-stops of light reduction.
+    /// Returns None for Unknown positions.
+    pub fn stops_reduction(&self) -> Option<f32> {
+        match self {
+            NDFilterPosition::Clear => Some(0.0),
+            NDFilterPosition::OneQuarter => Some(2.0),
+            NDFilterPosition::OneEighth => Some(3.0),
+            NDFilterPosition::OneSixteenth => Some(4.0),
+            NDFilterPosition::OneThirtySecond => Some(5.0),
+            NDFilterPosition::OneSixtyFourth => Some(6.0),
+            NDFilterPosition::Unknown(_) => None,
+        }
     }
 }
 
@@ -161,17 +291,26 @@ mod tests {
 
     #[test]
     fn test_nd_filter_descriptions() {
-        assert_eq!(nd_filter_description(0x00), "Clear (no filter)");
-        assert_eq!(nd_filter_description(0x01), "1/4 ND");
-        assert_eq!(nd_filter_description(0x05), "1/64 ND");
-        assert_eq!(nd_filter_description(0xFF), "Unknown ND filter position");
+        assert_eq!(NDFilterPosition::Clear.description(), "Clear (no filter)");
+        assert_eq!(NDFilterPosition::OneQuarter.description(), "1/4 ND");
+        assert_eq!(NDFilterPosition::OneSixtyFourth.description(), "1/64 ND");
+        assert_eq!(
+            NDFilterPosition::Unknown(0xFF).description(),
+            "Unknown ND filter position"
+        );
     }
 
     #[test]
     fn test_picture_effect_descriptions() {
-        assert_eq!(picture_effect_description(0x00), "Off (normal)");
-        assert_eq!(picture_effect_description(0x01), "Negative");
-        assert_eq!(picture_effect_description(0x02), "Black & White");
-        assert_eq!(picture_effect_description(0xFF), "Unknown picture effect");
+        assert_eq!(PictureEffectMode::Off.description(), "Off (normal)");
+        assert_eq!(PictureEffectMode::Negative.description(), "Negative");
+        assert_eq!(
+            PictureEffectMode::BlackAndWhite.description(),
+            "Black & White"
+        );
+        assert_eq!(
+            PictureEffectMode::Unknown(0xFF).description(),
+            "Unknown picture effect"
+        );
     }
 }

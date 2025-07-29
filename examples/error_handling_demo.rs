@@ -18,8 +18,8 @@ use grafton_visca::{
 };
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    r#async::prelude::*,
     camera::profiles::G2PresetId,
+    r#async::prelude::*,
     types::{PanSpeed, TiltSpeed},
     Camera, PanTiltDirection, PresetNumber,
 };

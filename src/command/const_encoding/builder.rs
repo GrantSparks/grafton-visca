@@ -16,8 +16,8 @@ impl<const N: usize> CommandBuilder<N> {
     /// Create a new builder from a const prefix.
     ///
     /// # Example
-    /// ```
-    /// use grafton_visca::command::const_encoding::CommandBuilder;
+    /// ```ignore
+    /// // Internal API - not part of public interface
     ///
     /// const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x47];
     /// let builder = CommandBuilder::<9>::from_prefix(PREFIX);
@@ -56,17 +56,6 @@ impl<const N: usize> CommandBuilder<N> {
         self
     }
 
-    /// Add multiple bytes.
-    pub const fn bytes(mut self, bytes: &[u8]) -> Self {
-        let mut i = 0;
-        while i < bytes.len() && self.position < N {
-            self.buffer[self.position] = bytes[i];
-            self.position += 1;
-            i += 1;
-        }
-        self
-    }
-
     /// Add VISCA-encoded 16-bit value (4 bytes).
     ///
     /// VISCA encoding splits a 16-bit value into 4 nibbles.
@@ -76,28 +65,6 @@ impl<const N: usize> CommandBuilder<N> {
             self.buffer[self.position + 1] = ((value >> 8) & 0x0F) as u8;
             self.buffer[self.position + 2] = ((value >> 4) & 0x0F) as u8;
             self.buffer[self.position + 3] = (value & 0x0F) as u8;
-            self.position += 4;
-        }
-        self
-    }
-
-    /// Add VISCA-encoded signed 16-bit value (4 bytes).
-    ///
-    /// For negative values, the sign is encoded in the high nibble.
-    pub const fn visca_i16(mut self, value: i16) -> Self {
-        if self.position + 4 <= N {
-            // Manual abs implementation for const context
-            let abs_val = if value < 0 {
-                (-(value as i32)) as u16
-            } else {
-                value as u16
-            };
-            let sign = if value < 0 { 0x0F } else { 0x00 };
-
-            self.buffer[self.position] = sign | ((abs_val >> 12) & 0x0F) as u8;
-            self.buffer[self.position + 1] = ((abs_val >> 8) & 0x0F) as u8;
-            self.buffer[self.position + 2] = ((abs_val >> 4) & 0x0F) as u8;
-            self.buffer[self.position + 3] = (abs_val & 0x0F) as u8;
             self.position += 4;
         }
         self
@@ -116,27 +83,6 @@ impl<const N: usize> CommandBuilder<N> {
             self.buffer[self.position] = VISCA_TERMINATOR;
         }
         self.buffer
-    }
-
-    /// Get slice of valid bytes (for dynamic sizing).
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        let end = if self.position < N {
-            self.position + 1
-        } else {
-            N
-        };
-        &self.buffer[..end]
-    }
-
-    /// Get the current position in the buffer.
-    pub const fn position(&self) -> usize {
-        self.position
-    }
-
-    /// Check if the builder has room for more bytes.
-    pub const fn has_capacity(&self, bytes: usize) -> bool {
-        self.position + bytes <= N
     }
 
     /// Append bytes from a slice.
@@ -158,6 +104,57 @@ impl<const N: usize> CommandBuilder<N> {
         }
         self
     }
+
+    /// Add camera ID byte at the beginning of the buffer.
+    /// This replaces the default 0x81 with the provided camera ID.
+    pub fn with_camera_id(&mut self, camera_id: crate::camera_id::CameraId) -> &mut Self {
+        if !self.buffer.is_empty()
+            && self.buffer[0] == crate::command::const_encoding::DEFAULT_ADDRESS
+        {
+            self.buffer[0] = camera_id.to_address_byte();
+        }
+        self
+    }
+
+    /// Add VISCA-encoded 16-bit value (4 bytes) using mutable reference.
+    pub fn push_visca_u16(&mut self, value: u16) -> &mut Self {
+        if self.position + 4 <= N {
+            self.buffer[self.position] = ((value >> 12) & 0x0F) as u8;
+            self.buffer[self.position + 1] = ((value >> 8) & 0x0F) as u8;
+            self.buffer[self.position + 2] = ((value >> 4) & 0x0F) as u8;
+            self.buffer[self.position + 3] = (value & 0x0F) as u8;
+            self.position += 4;
+        }
+        self
+    }
+
+    /// Add VISCA-encoded 14-bit value (4 bytes) using mutable reference.
+    pub fn push_visca_u14(&mut self, value: u16) -> &mut Self {
+        self.push_visca_u16(value & 0x3FFF)
+    }
+
+    /// Finalize with terminator and return the number of bytes written.
+    pub fn finalize(&mut self) -> usize {
+        if self.position < N {
+            self.buffer[self.position] = VISCA_TERMINATOR;
+            self.position += 1;
+        }
+        self.position
+    }
+
+    /// Copy the built command into the provided buffer.
+    /// Returns the number of bytes written.
+    pub fn copy_to(&self, buffer: &mut [u8]) -> Result<usize, crate::Error> {
+        let len = self.position;
+        if buffer.len() < len {
+            return Err(crate::Error::BufferTooSmall {
+                required: len,
+                actual: buffer.len(),
+            });
+        }
+        buffer[..len].copy_from_slice(&self.buffer[..len]);
+        Ok(len)
+    }
 }
 
 impl<const N: usize> Default for CommandBuilder<N> {
@@ -177,16 +174,6 @@ mod tests {
         let cmd = builder.visca_u16(0x4000).build();
 
         assert_eq!(cmd, [0x81, 0x01, 0x04, 0x47, 0x04, 0x00, 0x00, 0x00, 0xFF]);
-    }
-
-    #[test]
-    fn test_builder_visca_i16() {
-        let builder = CommandBuilder::<6>::new();
-        let cmd = builder.byte(0x81).visca_i16(-100).build();
-
-        // -100 = 0x64 absolute value
-        // High nibble has sign bit (0x0F)
-        assert_eq!(cmd[1..5], [0x0F, 0x00, 0x06, 0x04]);
     }
 
     #[test]

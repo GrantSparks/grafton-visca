@@ -135,15 +135,16 @@ impl ImageFlipCombinedCommand {
 )]
 mod tests {
     use super::*;
-    use crate::timeout::CommandCategory;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::timeout::CommandCategory;
 
     #[test]
     fn test_backlight_command() {
         // Test backlight on
         let cmd = BacklightCommand::new(true);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x33, 0x02, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -152,7 +153,8 @@ mod tests {
         // Test backlight off
         let cmd = BacklightCommand::new(false);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x33, 0x03, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -164,7 +166,8 @@ mod tests {
         // Test off
         let cmd = NoiseReduction2D::Off;
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x53, 0x00, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -175,7 +178,8 @@ mod tests {
             let nr_level = NoiseReduction2DLevel::new(level).unwrap();
             let cmd = NoiseReduction2D::Level(nr_level);
             assert_eq!(
-                cmd.try_into_vec().unwrap(),
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                    .unwrap(),
                 vec![0x81, 0x01, 0x04, 0x53, level, 0xFF]
             );
             assert!(cmd.response_type().is_none());
@@ -188,7 +192,8 @@ mod tests {
         // Test off
         let cmd = NoiseReduction3D::Off;
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x54, 0x00, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -199,7 +204,8 @@ mod tests {
             let nr_level = NoiseReduction3DLevel::new(level).unwrap();
             let cmd = NoiseReduction3D::Level(nr_level);
             assert_eq!(
-                cmd.try_into_vec().unwrap(),
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                    .unwrap(),
                 vec![0x81, 0x01, 0x04, 0x54, level, 0xFF]
             );
             assert!(cmd.response_type().is_none());
@@ -212,7 +218,8 @@ mod tests {
         // Test black and white on
         let cmd = BlackWhiteCommand::new(true);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x01, 0x04, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -221,7 +228,8 @@ mod tests {
         // Test black and white off (color mode)
         let cmd = BlackWhiteCommand::new(false);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x01, 0x00, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -233,7 +241,8 @@ mod tests {
         // Test Off
         let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Off);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x61, 0x00, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -242,21 +251,24 @@ mod tests {
         // Test Horizontal
         let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Horizontal);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]
         );
 
         // Test Vertical
         let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Vertical);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x61, 0x02, 0xFF]
         );
 
         // Test Both
         let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Both);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x61, 0x03, 0xFF]
         );
     }
@@ -281,15 +293,21 @@ mod tests {
         let backlight_cmd2 = backlight_cmd1;
         // Verify commands produce same bytes
         assert_eq!(
-            backlight_cmd1.try_into_vec().unwrap(),
-            backlight_cmd2.try_into_vec().unwrap()
+            backlight_cmd1
+                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            backlight_cmd2
+                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap()
         );
 
         let flip_cmd1 = ImageFlipCombinedCommand::new(ImageFlipMode::Horizontal);
         let flip_cmd2 = flip_cmd1;
         // Verify the command was copied correctly
         assert_eq!(
-            flip_cmd2.try_into_vec().unwrap(),
+            flip_cmd2
+                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]
         );
     }
@@ -329,12 +347,22 @@ mod tests {
         // Test that creating commands with the same parameters produces identical bytes
         let cmd1 = BacklightCommand::new(true);
         let cmd2 = BacklightCommand::new(true);
-        assert_eq!(cmd1.try_into_vec().unwrap(), cmd2.try_into_vec().unwrap());
+        assert_eq!(
+            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap()
+        );
 
         let level = NoiseReduction2DLevel::new(3).unwrap();
         let cmd1 = NoiseReduction2D::Level(level);
         let cmd2 = NoiseReduction2D::Level(level);
-        assert_eq!(cmd1.try_into_vec().unwrap(), cmd2.try_into_vec().unwrap());
+        assert_eq!(
+            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -370,7 +398,7 @@ mod tests {
     #[test]
     fn test_command_categories() {
         use crate::command::encode_visca::EncodeVisca;
-        
+
         // Test that BacklightCommand and BlackWhiteCommand use Quick category
         let cmd = BacklightCommand::new(true);
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));

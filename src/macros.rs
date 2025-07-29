@@ -15,8 +15,8 @@
 /// for simple commands that don't require parameters.
 ///
 /// # Example
-/// ```
-/// use grafton_visca::visca_command;
+/// ```ignore
+/// // Internal macro - not part of public API
 ///
 /// visca_command! {
 ///     category = "Movement",
@@ -55,7 +55,7 @@ macro_rules! visca_command {
             type Response = ();
             const MAX_SIZE: usize = 32; // Conservative default
 
-            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+            fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 // Create a helper function for each variant
                 $(
                     #[allow(non_snake_case)]
@@ -65,11 +65,16 @@ macro_rules! visca_command {
                 )+
 
                 // Match on self and call the appropriate helper
-                let bytes = match self {
+                let mut bytes = match self {
                     $(
                         Self::$variant$( ($($param),*) )? => $variant($($($param),*)?)?,
                     )+
                 };
+
+                // Replace hardcoded camera ID with dynamic one
+                if !bytes.is_empty() && bytes[0] == 0x81 {
+                    bytes[0] = camera_id.to_address_byte();
+                }
 
                 if buffer.len() < bytes.len() {
                     return Err($crate::Error::BufferTooSmall {
@@ -176,8 +181,8 @@ macro_rules! visca_bounded_param {
 /// This macro simplifies creating commands that toggle features.
 ///
 /// # Example
-/// ```
-/// use grafton_visca::visca_bool_command;
+/// ```ignore
+/// // Internal macro - not part of public API
 ///
 /// visca_bool_command! {
 ///     /// Control camera backlight compensation
@@ -206,18 +211,8 @@ macro_rules! visca_bool_command {
 
         impl $name {
             /// Creates a new instance with the specified enabled state.
-            pub fn new(enabled: bool) -> Self {
+            pub(crate) fn new(enabled: bool) -> Self {
                 Self { enabled }
-            }
-
-            /// Creates a new instance with enabled state set to true.
-            pub fn on() -> Self {
-                Self { enabled: true }
-            }
-
-            /// Creates a new instance with enabled state set to false.
-            pub fn off() -> Self {
-                Self { enabled: false }
             }
         }
 
@@ -225,7 +220,7 @@ macro_rules! visca_bool_command {
             type Response = ();
             const MAX_SIZE: usize = [$($prefix),+].len() + 2; // prefix + state + 0xFF
 
-            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+            fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 if buffer.len() < Self::MAX_SIZE {
                     return Err($crate::Error::BufferTooSmall {
                         required: Self::MAX_SIZE,
@@ -233,7 +228,12 @@ macro_rules! visca_bool_command {
                     });
                 }
 
-                let prefix = [$($prefix),+];
+                let mut prefix = [$($prefix),+];
+                // Replace hardcoded camera ID with dynamic one
+                if !prefix.is_empty() && prefix[0] == 0x81 {
+                    prefix[0] = camera_id.to_address_byte();
+                }
+
                 buffer[..prefix.len()].copy_from_slice(&prefix);
                 buffer[prefix.len()] = if self.enabled { $on } else { $off };
                 buffer[prefix.len() + 1] = 0xFF;
@@ -259,10 +259,13 @@ macro_rules! visca_test {
     ($name:ident, $test_name:ident, $cmd:expr, $expected:expr) => {
         #[test]
         fn $test_name() {
+            use $crate::camera_id::CameraId;
             use $crate::command::encode_visca::EncodeVisca;
             let cmd = $cmd;
             let mut buffer = vec![0u8; 32];
-            let len = cmd.encode_into(&mut buffer).expect("encode failed");
+            let len = cmd
+                .encode_into(CameraId::CAMERA_1, &mut buffer)
+                .expect("encode failed");
             assert_eq!(&buffer[..len], $expected);
         }
     };
@@ -317,7 +320,7 @@ macro_rules! visca_builder {
             type Response = ();
             const MAX_SIZE: usize = $size;
 
-            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+            fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 if buffer.len() < Self::MAX_SIZE {
                     return Err($crate::Error::BufferTooSmall {
                         required: Self::MAX_SIZE,
@@ -335,6 +338,10 @@ macro_rules! visca_builder {
 
                 let bytes = $builder.build();
                 buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
+                // Replace hardcoded camera ID with dynamic one
+                if buffer[0] == 0x81 {
+                    buffer[0] = camera_id.to_address_byte();
+                }
                 Ok(Self::MAX_SIZE)
             }
 
@@ -388,7 +395,7 @@ macro_rules! visca_param_command {
             type Response = ();
             const MAX_SIZE: usize = [$($prefix),+].len() + 2; // prefix + param + 0xFF
 
-            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+            fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 if buffer.len() < Self::MAX_SIZE {
                     return Err($crate::Error::BufferTooSmall {
                         required: Self::MAX_SIZE,
@@ -396,7 +403,11 @@ macro_rules! visca_param_command {
                     });
                 }
 
-                let prefix = [$($prefix),+];
+                let mut prefix = [$($prefix),+];
+                // Replace hardcoded camera ID with dynamic one
+                if !prefix.is_empty() && prefix[0] == 0x81 {
+                    prefix[0] = camera_id.to_address_byte();
+                }
                 buffer[..prefix.len()].copy_from_slice(&prefix);
 
                 let $field = &self.$field;

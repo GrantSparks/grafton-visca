@@ -284,6 +284,9 @@
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
 
+/// Camera ID type for VISCA protocol addressing.
+pub mod camera_id;
+
 // Internal: capability traits for camera feature composition (hidden from public API)
 pub(crate) mod capabilities;
 
@@ -323,6 +326,7 @@ pub mod r#async;
 // Prelude for convenient imports
 pub mod prelude;
 pub use camera::{Camera, CameraModel};
+pub use camera_id::CameraId;
 
 // Re-export unit types for convenience
 pub use units::{
@@ -335,17 +339,20 @@ pub use types::{FStop, IntoIrisLevel};
 pub use command::{
     exposure::ExposureMode,
     focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone},
-    gain::AntiFlickerMode,
     image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
-    pan_tilt::PanTiltDirection,
+    pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
     preset::PresetNumber,
+    resolution::{NDFilterPosition, PictureEffectMode, ResolutionMode},
     system::{MotionSyncMode, MotionSyncSpeed},
-    white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+    white_balance::{AWBSensitivity, AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 
 // Re-export only the ViscaValue macro publicly
 // InquiryCommand macro is now used internally only
 pub use grafton_visca_macros::ViscaValue;
+
+// Re-export ProfileMetadata for camera profile introspection
+pub use capabilities::ProfileMetadata;
 
 // Macros are already exported with #[macro_export] so we don't need to re-export them
 

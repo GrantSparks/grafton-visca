@@ -87,34 +87,8 @@ pub trait FocusExt: Focus {
 // Automatic implementation for all types that support focus
 impl<T: Focus> FocusExt for T {}
 
-/// Focus zone selection for cameras that support it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FocusZone {
-    /// Center of the image.
-    Center,
-    /// Top of the image.
-    Top,
-    /// Bottom of the image.
-    Bottom,
-    /// Custom zone with coordinates.
-    Custom {
-        /// X coordinate (0-15).
-        x: u8,
-        /// Y coordinate (0-15).
-        y: u8,
-    },
-}
-
-/// Auto focus sensitivity levels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AutoFocusSensitivity {
-    /// Normal sensitivity.
-    Normal,
-    /// Low sensitivity - less reactive to changes.
-    Low,
-    /// High sensitivity - more reactive to changes.
-    High,
-}
+// Note: FocusZone and AutoFocusSensitivity enums are defined in the command module
+// and re-exported from the crate root. This avoids duplication.
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]

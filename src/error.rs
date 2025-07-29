@@ -252,6 +252,13 @@ pub enum Error {
         /// The raw response data.
         data: Vec<u8>,
     },
+
+    /// Invalid camera ID provided.
+    #[error("Invalid camera ID {id}: must be 1-7 for individual cameras or 8 for broadcast")]
+    InvalidCameraId {
+        /// The invalid camera ID that was provided.
+        id: u8,
+    },
 }
 
 impl Error {

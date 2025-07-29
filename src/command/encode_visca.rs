@@ -4,7 +4,9 @@
 //! `Command` and `ViscaCommand` traits into a single interface with zero-allocation
 //! encoding support.
 
-use crate::{constants::CameraVariant, error::Error, timeout::CommandCategory};
+use crate::{
+    camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
+};
 
 use super::response::ResponseType;
 
@@ -14,9 +16,10 @@ use super::response::ResponseType;
 /// traits, providing both zero-allocation encoding and convenient heap-allocated methods.
 ///
 /// # Example Implementation
-/// ```no_run
-/// # use grafton_visca::command::{EncodeVisca, ResponseType};
+/// ```ignore
+/// // Internal trait - not part of public API
 /// # use grafton_visca::timeout::CommandCategory;
+/// # use grafton_visca::camera_id::CameraId;
 /// # use grafton_visca::Error;
 /// struct MyCommand;
 ///
@@ -24,14 +27,14 @@ use super::response::ResponseType;
 ///     type Response = ();
 ///     const MAX_SIZE: usize = 6;
 ///
-///     fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+///     fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
 ///         // Check buffer size
 ///         if buffer.len() < 6 {
 ///             return Err(Error::BufferTooSmall { required: 6, actual: buffer.len() });
 ///         }
 ///         
 ///         // Write VISCA command bytes
-///         buffer[0] = 0x81;
+///         buffer[0] = camera_id.to_address_byte();  // Dynamic camera ID
 ///         buffer[1] = 0x01;
 ///         buffer[2] = 0x04;
 ///         buffer[3] = 0x00;
@@ -65,6 +68,7 @@ pub trait EncodeVisca: Send + Sync {
     ///
     /// # Arguments
     ///
+    /// * `camera_id` - The camera ID to address the command to
     /// * `buffer` - The buffer to write the command bytes into
     ///
     /// # Returns
@@ -75,19 +79,23 @@ pub trait EncodeVisca: Send + Sync {
     ///
     /// * `Error::BufferTooSmall` if the buffer is smaller than required
     /// * `Error::InvalidParameter` if the command contains invalid parameters
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error>;
+    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 
     /// Encodes the command to a fixed-size array.
     ///
     /// This method provides stack-allocated encoding for compile-time known sizes.
     ///
+    /// # Arguments
+    ///
+    /// * `camera_id` - The camera ID to address the command to
+    ///
     /// # Errors
     ///
     /// * `Error::BufferTooSmall` if N is smaller than the encoded size
     /// * `Error::InvalidParameter` if the command contains invalid parameters
-    fn encode_array<const N: usize>(&self) -> Result<[u8; N], Error> {
+    fn encode_array<const N: usize>(&self, camera_id: CameraId) -> Result<[u8; N], Error> {
         let mut buffer = [0u8; N];
-        let size = self.encode_into(&mut buffer)?;
+        let size = self.encode_into(camera_id, &mut buffer)?;
         if size > N {
             return Err(Error::BufferTooSmall {
                 required: size,
@@ -102,12 +110,16 @@ pub trait EncodeVisca: Send + Sync {
     /// This is a convenience method that allocates a vector for the encoded bytes.
     /// Prefer `encode_into` or `encode_array` for performance-critical code.
     ///
+    /// # Arguments
+    ///
+    /// * `camera_id` - The camera ID to address the command to
+    ///
     /// # Errors
     ///
     /// * `Error::InvalidParameter` if the command contains invalid parameters
-    fn try_into_vec(&self) -> Result<Vec<u8>, Error> {
+    fn try_into_vec(&self, camera_id: CameraId) -> Result<Vec<u8>, Error> {
         let mut buffer = vec![0u8; Self::MAX_SIZE];
-        let size = self.encode_into(&mut buffer)?;
+        let size = self.encode_into(camera_id, &mut buffer)?;
         buffer.truncate(size);
         Ok(buffer)
     }

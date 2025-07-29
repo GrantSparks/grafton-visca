@@ -12,10 +12,9 @@ use grafton_visca::{
         methods::{PanTiltOps, PresetsOps, ZoomOps},
         profiles::G2PresetId,
     },
-    PresetNumber,
     types::SpeedLevel,
     units::Degrees,
-    Camera, Error, Normalized,
+    Camera, Error, Normalized, PresetNumber,
 };
 use std::future::{ready, Ready};
 

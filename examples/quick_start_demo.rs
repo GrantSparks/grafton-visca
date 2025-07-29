@@ -7,10 +7,9 @@ use grafton_visca::transport::blocking::Udp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     blocking::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
-    Error,
+    Error, PanTiltDirection, PresetNumber,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;

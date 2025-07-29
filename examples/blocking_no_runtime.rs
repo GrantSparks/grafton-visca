@@ -11,10 +11,9 @@ fn main() {
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     blocking::{PanTiltOps, PowerOps, PresetsOps, ZoomOps},
-    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     transport::blocking::Tcp,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
-    Degrees,
+    Degrees, PanTiltDirection, PresetNumber,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;

@@ -1,10 +1,40 @@
 //! Integration test demonstrating runtime capability checking of the unified API.
 
 use grafton_visca::{blocking::*, Camera, CameraModel, Error};
+use std::sync::Mutex;
 
-// Mock transport for testing
+// Mock transport that returns proper VISCA responses
 #[derive(Debug)]
-struct MockTransport;
+struct MockTransport {
+    response_sequence: Mutex<Vec<Vec<u8>>>,
+    response_index: Mutex<usize>,
+}
+
+impl MockTransport {
+    fn new() -> Self {
+        Self {
+            // Default sequence: ACK followed by Completion for each command
+            response_sequence: Mutex::new(vec![
+                vec![0x90, 0x41, 0xFF], // ACK (socket 1)
+                vec![0x90, 0x51, 0xFF], // Completion (socket 1)
+            ]),
+            response_index: Mutex::new(0),
+        }
+    }
+    
+    fn new_with_sony_envelope() -> Self {
+        Self {
+            // Sony encapsulated responses with 8-byte header
+            response_sequence: Mutex::new(vec![
+                // ACK with Sony header: [0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00] + [0x90, 0x41, 0xFF]
+                vec![0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x41, 0xFF],
+                // Completion with Sony header
+                vec![0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x51, 0xFF],
+            ]),
+            response_index: Mutex::new(0),
+        }
+    }
+}
 
 impl grafton_visca::transport::Transport for MockTransport {
     type Error = Error;
@@ -22,7 +52,19 @@ impl grafton_visca::transport::Transport for MockTransport {
     }
 
     fn recv(&self) -> Self::RecvFut<'_> {
-        std::future::ready(Ok(bytes::Bytes::from(vec![0x90, 0x50, 0xFF])))
+        let sequence = self.response_sequence.lock().unwrap();
+        let mut index = self.response_index.lock().unwrap();
+        
+        let response = if *index < sequence.len() {
+            sequence[*index].clone()
+        } else {
+            // Reset to beginning for next command
+            *index = 0;
+            sequence[0].clone()
+        };
+        
+        *index += 1;
+        std::future::ready(Ok(bytes::Bytes::from(response)))
     }
 }
 
@@ -30,7 +72,7 @@ impl grafton_visca::transport::core::BlockingTransport for MockTransport {}
 
 #[test]
 fn test_ptzoptics_g2_capabilities() {
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, MockTransport).blocking();
+    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, MockTransport::new()).blocking();
 
     // These methods exist for all cameras - capability checks happen at runtime
     assert!(camera.power_on().is_ok());
@@ -53,7 +95,7 @@ fn test_ptzoptics_g2_capabilities() {
 
 #[test]
 fn test_sony_fr7_has_nd_filter() {
-    let camera = Camera::with_profile(CameraModel::SonyFR7, MockTransport).blocking();
+    let camera = Camera::with_profile(CameraModel::SonyFR7, MockTransport::new_with_sony_envelope()).blocking();
 
     // FR7 has all standard features
     assert!(camera.power_on().is_ok());
@@ -75,8 +117,8 @@ fn test_runtime_capability_checking() {
         camera.set_nd_filter(64)
     }
 
-    let mut fr7 = Camera::with_profile(CameraModel::SonyFR7, MockTransport);
-    let mut g2 = Camera::with_profile(CameraModel::PTZOpticsG2, MockTransport);
+    let mut fr7 = Camera::with_profile(CameraModel::SonyFR7, MockTransport::new_with_sony_envelope());
+    let mut g2 = Camera::with_profile(CameraModel::PTZOpticsG2, MockTransport::new());
 
     // With the unified API, both calls compile but behavior differs at runtime
     match try_adjust_nd_filter(&mut fr7) {

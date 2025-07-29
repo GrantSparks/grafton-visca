@@ -7,11 +7,10 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::methods::{FocusOps, PanTiltOps, ZoomOps},
-        PanTiltDirection,
         transport::blocking::Udp,
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, Normalized},
-        Camera,
+        Camera, PanTiltDirection,
     };
 
     // Connect to camera
@@ -91,11 +90,10 @@ fn main() {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::methods::{FocusOps, PanTiltOps, ZoomOps},
-        PanTiltDirection,
         transport::tokio::Udp,
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, Normalized},
-        Camera,
+        Camera, PanTiltDirection,
     };
 
     // Connect to camera

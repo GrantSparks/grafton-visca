@@ -7,12 +7,12 @@
 //! - Process responses asynchronously
 //! - Maximize throughput with concurrent operations
 
+use grafton_visca::r#async::prelude::*;
 use grafton_visca::{
     transport::tokio::Udp,
     types::{PanSpeed, TiltSpeed},
     Camera, Error, PanTiltDirection, PresetNumber,
 };
-use grafton_visca::r#async::prelude::*;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;

@@ -27,6 +27,7 @@ pub struct Camera(pub(super) crate::Camera);
 
 impl Camera {
     /// Create a new async camera wrapper.
+    #[must_use]
     pub fn new(inner: crate::Camera) -> Self {
         Self(inner)
     }
@@ -88,8 +89,8 @@ impl Camera {
 pub mod prelude {
     pub use super::{
         ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,
-        PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps, 
-        WhiteBalanceOps, ZoomOps,
+        PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps, WhiteBalanceOps,
+        ZoomOps,
     };
 }
 
@@ -114,8 +115,24 @@ impl ZoomOps for Camera {
         self.0.zoom_out().await
     }
 
+    async fn zoom_in_standard(&self) -> crate::Result<()> {
+        self.0.zoom_in_standard().await
+    }
+
+    async fn zoom_out_standard(&self) -> crate::Result<()> {
+        self.0.zoom_out_standard().await
+    }
+
     async fn zoom_absolute(&self, position: crate::units::Normalized) -> crate::Result<()> {
         self.0.zoom_absolute(position).await
+    }
+
+    async fn enable_digital_zoom(&self) -> crate::Result<()> {
+        self.0.enable_digital_zoom().await
+    }
+
+    async fn disable_digital_zoom(&self) -> crate::Result<()> {
+        self.0.disable_digital_zoom().await
     }
 }
 
@@ -126,6 +143,18 @@ impl ColorOps for Camera {
 
     async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> crate::Result<()> {
         ColorOps::set_color_temperature(&self.0, temp).await
+    }
+
+    async fn reset_color_temperature(&self) -> crate::Result<()> {
+        self.0.reset_color_temperature().await
+    }
+
+    async fn increase_color_temperature(&self) -> crate::Result<()> {
+        self.0.increase_color_temperature().await
+    }
+
+    async fn decrease_color_temperature(&self) -> crate::Result<()> {
+        self.0.decrease_color_temperature().await
     }
 
     async fn color_temperature(&self, temp: Option<crate::types::ColorTemp>) -> crate::Result<()> {
@@ -170,8 +199,32 @@ impl ExposureOps for Camera {
         self.0.set_iris(level).await
     }
 
+    async fn reset_iris(&self) -> crate::Result<()> {
+        self.0.reset_iris().await
+    }
+
+    async fn increase_iris(&self) -> crate::Result<()> {
+        self.0.increase_iris().await
+    }
+
+    async fn decrease_iris(&self) -> crate::Result<()> {
+        self.0.decrease_iris().await
+    }
+
     async fn set_brightness(&self, level: crate::types::BrightnessLevel) -> crate::Result<()> {
         self.0.set_brightness(level).await
+    }
+
+    async fn reset_brightness(&self) -> crate::Result<()> {
+        self.0.reset_brightness().await
+    }
+
+    async fn increase_brightness(&self) -> crate::Result<()> {
+        self.0.increase_brightness().await
+    }
+
+    async fn decrease_brightness(&self) -> crate::Result<()> {
+        self.0.decrease_brightness().await
     }
 
     async fn set_backlight(&self, enabled: bool) -> crate::Result<()> {
@@ -180,6 +233,18 @@ impl ExposureOps for Camera {
 
     async fn set_gain(&self, gain: crate::types::GainLevel) -> crate::Result<()> {
         self.0.set_gain(gain).await
+    }
+
+    async fn reset_gain(&self) -> crate::Result<()> {
+        self.0.reset_gain().await
+    }
+
+    async fn increase_gain(&self) -> crate::Result<()> {
+        self.0.increase_gain().await
+    }
+
+    async fn decrease_gain(&self) -> crate::Result<()> {
+        self.0.decrease_gain().await
     }
 
     async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> crate::Result<()> {
@@ -192,6 +257,54 @@ impl ExposureOps for Camera {
 
     async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> crate::Result<()> {
         ExposureOps::set_color_temperature(&self.0, temp).await
+    }
+
+    async fn enable_exposure_compensation(&self) -> crate::Result<()> {
+        self.0.enable_exposure_compensation().await
+    }
+
+    async fn disable_exposure_compensation(&self) -> crate::Result<()> {
+        self.0.disable_exposure_compensation().await
+    }
+
+    async fn reset_exposure_compensation(&self) -> crate::Result<()> {
+        self.0.reset_exposure_compensation().await
+    }
+
+    async fn increase_exposure_compensation(&self) -> crate::Result<()> {
+        self.0.increase_exposure_compensation().await
+    }
+
+    async fn decrease_exposure_compensation(&self) -> crate::Result<()> {
+        self.0.decrease_exposure_compensation().await
+    }
+
+    async fn set_exposure_compensation_level(&self, level: i8) -> crate::Result<()> {
+        self.0.set_exposure_compensation_level(level).await
+    }
+
+    async fn set_shutter_speed(&self, speed: crate::types::ShutterSpeed) -> crate::Result<()> {
+        self.0.set_shutter_speed(speed).await
+    }
+
+    async fn reset_shutter_speed(&self) -> crate::Result<()> {
+        self.0.reset_shutter_speed().await
+    }
+
+    async fn increase_shutter_speed(&self) -> crate::Result<()> {
+        self.0.increase_shutter_speed().await
+    }
+
+    async fn decrease_shutter_speed(&self) -> crate::Result<()> {
+        self.0.decrease_shutter_speed().await
+    }
+
+    async fn enable_spotlight(&self) -> crate::Result<()> {
+        self.0.enable_spotlight().await
+    }
+
+    async fn disable_spotlight(&self) -> crate::Result<()> {
+        self.0.disable_spotlight().await
     }
 }
 
@@ -223,11 +336,43 @@ impl FocusOps for Camera {
     async fn set_focus(&self, position: crate::types::FocusPosition) -> crate::Result<()> {
         self.0.set_focus(position).await
     }
+
+    async fn focus_infinity(&self) -> crate::Result<()> {
+        self.0.focus_infinity().await
+    }
+
+    async fn enable_focus_lock(&self) -> crate::Result<()> {
+        self.0.enable_focus_lock().await
+    }
+
+    async fn disable_focus_lock(&self) -> crate::Result<()> {
+        self.0.disable_focus_lock().await
+    }
+
+    async fn push_af_press(&self) -> crate::Result<()> {
+        self.0.push_af_press().await
+    }
+
+    async fn push_af_release(&self) -> crate::Result<()> {
+        self.0.push_af_release().await
+    }
 }
 
 impl ImageProcessingOps for Camera {
     async fn enable_flip(&self) -> crate::Result<()> {
         self.0.enable_flip().await
+    }
+
+    async fn disable_flip(&self) -> crate::Result<()> {
+        self.0.disable_flip().await
+    }
+
+    async fn enable_horizontal_flip(&self) -> crate::Result<()> {
+        self.0.enable_horizontal_flip().await
+    }
+
+    async fn disable_horizontal_flip(&self) -> crate::Result<()> {
+        self.0.disable_horizontal_flip().await
     }
 
     async fn set_contrast(&self, level: crate::types::ContrastLevel) -> crate::Result<()> {
@@ -236,6 +381,22 @@ impl ImageProcessingOps for Camera {
 
     async fn set_sharpness(&self, level: crate::types::SharpnessLevel) -> crate::Result<()> {
         self.0.set_sharpness(level).await
+    }
+
+    async fn set_sharpness_mode(&self, mode: crate::command::SharpnessMode) -> crate::Result<()> {
+        self.0.set_sharpness_mode(mode).await
+    }
+
+    async fn reset_sharpness(&self) -> crate::Result<()> {
+        self.0.reset_sharpness().await
+    }
+
+    async fn increase_sharpness(&self) -> crate::Result<()> {
+        self.0.increase_sharpness().await
+    }
+
+    async fn decrease_sharpness(&self) -> crate::Result<()> {
+        self.0.decrease_sharpness().await
     }
 
     async fn set_saturation(&self, level: crate::types::SaturationLevel) -> crate::Result<()> {
@@ -253,11 +414,19 @@ impl ImageProcessingOps for Camera {
         self.0.set_noise_reduction_2d(level).await
     }
 
+    async fn disable_noise_reduction_2d(&self) -> crate::Result<()> {
+        self.0.disable_noise_reduction_2d().await
+    }
+
     async fn set_noise_reduction_3d(
         &self,
         level: crate::types::NoiseReduction3DLevel,
     ) -> crate::Result<()> {
         self.0.set_noise_reduction_3d(level).await
+    }
+
+    async fn disable_noise_reduction_3d(&self) -> crate::Result<()> {
+        self.0.disable_noise_reduction_3d().await
     }
 
     async fn set_image_flip(&self, mode: crate::command::ImageFlipMode) -> crate::Result<()> {
@@ -266,6 +435,22 @@ impl ImageProcessingOps for Camera {
 
     async fn set_luminance(&self, level: crate::types::LuminanceLevel) -> crate::Result<()> {
         self.0.set_luminance(level).await
+    }
+
+    async fn enable_freeze(&self) -> crate::Result<()> {
+        self.0.enable_freeze().await
+    }
+
+    async fn disable_freeze(&self) -> crate::Result<()> {
+        self.0.disable_freeze().await
+    }
+
+    async fn enable_black_white(&self) -> crate::Result<()> {
+        self.0.enable_black_white().await
+    }
+
+    async fn disable_black_white(&self) -> crate::Result<()> {
+        self.0.disable_black_white().await
     }
 }
 
@@ -348,10 +533,6 @@ impl InquiryOps for Camera {
         self.0.get_color_temperature().await
     }
 
-    async fn get_anti_flicker(&self) -> crate::Result<crate::command::AntiFlickerMode> {
-        self.0.get_anti_flicker().await
-    }
-
     async fn get_gamma(&self) -> crate::Result<u8> {
         self.0.get_gamma().await
     }
@@ -390,6 +571,22 @@ impl InquiryOps for Camera {
 
     async fn get_black_white(&self) -> crate::Result<bool> {
         self.0.get_black_white().await
+    }
+
+    async fn get_resolution(&self) -> crate::Result<crate::command::resolution::ResolutionMode> {
+        self.0.get_resolution().await
+    }
+
+    async fn get_picture_effect(
+        &self,
+    ) -> crate::Result<crate::command::resolution::PictureEffectMode> {
+        self.0.get_picture_effect().await
+    }
+
+    async fn get_nd_filter_position(
+        &self,
+    ) -> crate::Result<crate::command::resolution::NDFilterPosition> {
+        self.0.get_nd_filter_position().await
     }
 }
 
@@ -442,6 +639,22 @@ impl PanTiltOps for Camera {
     async fn pan_tilt_reset(&self) -> crate::Result<()> {
         self.0.pan_tilt_reset().await
     }
+
+    async fn pan_tilt_limit_set(
+        &self,
+        corner: crate::command::pan_tilt::PanTiltLimitCorner,
+        pan: crate::types::PanPosition,
+        tilt: crate::types::TiltPosition,
+    ) -> crate::Result<()> {
+        self.0.pan_tilt_limit_set(corner, pan, tilt).await
+    }
+
+    async fn pan_tilt_limit_clear(
+        &self,
+        corner: crate::command::pan_tilt::PanTiltLimitCorner,
+    ) -> crate::Result<()> {
+        self.0.pan_tilt_limit_clear(corner).await
+    }
 }
 
 impl PanTiltInquiryOps for Camera {
@@ -473,6 +686,10 @@ impl PresetsOps for Camera {
 
     async fn preset_set(&self, preset: crate::command::PresetNumber) -> crate::Result<()> {
         self.0.preset_set(preset).await
+    }
+
+    async fn preset_reset(&self, preset: crate::command::PresetNumber) -> crate::Result<()> {
+        self.0.preset_reset(preset).await
     }
 }
 
@@ -530,10 +747,25 @@ impl TallyOps for Camera {
     async fn get_tally_status(&self) -> crate::Result<bool> {
         self.0.get_tally_status().await
     }
+
+    async fn get_red_tally_status(&self) -> crate::Result<bool> {
+        self.0.get_red_tally_status().await
+    }
+
+    async fn get_green_tally_status(&self) -> crate::Result<bool> {
+        self.0.get_green_tally_status().await
+    }
 }
 
 impl WhiteBalanceOps for Camera {
     async fn white_balance_auto(&self) -> crate::Result<()> {
         self.0.white_balance_auto().await
+    }
+
+    async fn set_awb_sensitivity(
+        &self,
+        sensitivity: crate::command::white_balance::AWBSensitivity,
+    ) -> crate::Result<()> {
+        self.0.set_awb_sensitivity(sensitivity).await
     }
 }

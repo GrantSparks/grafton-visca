@@ -2,6 +2,13 @@
 //!
 //! This module provides commands for controlling camera focus functionality,
 //! including auto/manual modes, directional focus, and direct position control.
+//!
+//! # VISCA Compliance
+//! Most commands in this module are part of the baseline VISCA specification.
+//!
+//! ## Vendor-Specific Commands
+//! - `FocusLock` - PTZOptics specific
+//! - `PushAF` - Sony FR7 specific
 
 // Standard library imports
 // (none)
@@ -132,7 +139,11 @@ impl EncodeVisca for Focus {
     type Response = ();
     const MAX_SIZE: usize = 9;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         match self {
             Self::Stop | Self::Far | Self::Near => {
                 if buffer.len() < 6 {
@@ -141,7 +152,7 @@ impl EncodeVisca for Focus {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x08;
@@ -161,7 +172,7 @@ impl EncodeVisca for Focus {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x08;
@@ -186,7 +197,7 @@ impl EncodeVisca for Focus {
                 let p2 = ((pos_val >> 4) & 0x0F) as u8;
                 let p3 = (pos_val & 0x0F) as u8;
 
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x48;
@@ -204,7 +215,7 @@ impl EncodeVisca for Focus {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x38;
@@ -223,7 +234,7 @@ impl EncodeVisca for Focus {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x18;
@@ -247,7 +258,7 @@ impl EncodeVisca for Focus {
     }
 }
 
-/// Focus Zone selection.
+/// Focus Zone selection (baseline VISCA).
 ///
 /// Determines which area of the image the camera uses for auto focus.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -370,9 +381,11 @@ crate::visca_builder! {
 }
 
 visca_command! {
-    /// Focus Lock command (PTZOptics specific).
+    /// Focus Lock command.
     ///
     /// Controls whether the camera locks focus at the current position.
+    ///
+    /// **Vendor-Specific**: This command is specific to PTZOptics cameras.
     category = "Quick",
     enum FocusLock {
         /// Enable focus lock
@@ -394,10 +407,12 @@ visca_command! {
     }
 }
 
-/// Push AF command (FR7 specific).
+/// Push AF command.
 ///
 /// Controls the Push Auto Focus feature which temporarily activates
 /// auto focus when pressed.
+///
+/// **Vendor-Specific**: This command is specific to Sony FR7 cameras.
 #[derive(Debug, Copy, Clone)]
 pub enum PushAF {
     /// Press Push AF button (activate temporary auto focus)
@@ -410,7 +425,11 @@ impl EncodeVisca for PushAF {
     type Response = ();
     const MAX_SIZE: usize = 8;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -418,7 +437,7 @@ impl EncodeVisca for PushAF {
             });
         }
 
-        buffer[0] = 0x81;
+        buffer[0] = camera_id.to_address_byte();
         buffer[1] = 0x01;
         buffer[2] = 0x7E;
         buffer[3] = 0x01;
@@ -446,8 +465,8 @@ impl EncodeVisca for PushAF {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::visca_test;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::visca_test;
 
     visca_test!(
         Focus,
@@ -478,7 +497,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Focus::FarWithSpeed(speed);
             assert_eq!(
-                cmd.try_into_vec()
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed_val, 0xFF]
             );
@@ -493,7 +512,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Focus::NearWithSpeed(speed);
             assert_eq!(
-                cmd.try_into_vec()
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed_val, 0xFF]
             );
@@ -519,7 +538,7 @@ mod tests {
             FocusPosition::new(0x1234).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         );
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x48, 0x01, 0x02, 0x03, 0x04, 0xFF]
         );
@@ -528,7 +547,7 @@ mod tests {
             FocusPosition::new(0xF000).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         );
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x48, 0x0F, 0x00, 0x00, 0x00, 0xFF]
         );
@@ -568,7 +587,7 @@ mod tests {
             zone: FocusZone::Top,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xAA, 0x00, 0xFF]
         );
@@ -577,7 +596,7 @@ mod tests {
             zone: FocusZone::Center,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xAA, 0x01, 0xFF]
         );
@@ -586,7 +605,7 @@ mod tests {
             zone: FocusZone::Bottom,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xAA, 0x02, 0xFF]
         );
@@ -598,7 +617,7 @@ mod tests {
             sensitivity: AutoFocusSensitivity::High,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x02, 0xFF]
         );
@@ -607,7 +626,7 @@ mod tests {
             sensitivity: AutoFocusSensitivity::Normal,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x01, 0xFF]
         );
@@ -616,7 +635,7 @@ mod tests {
             sensitivity: AutoFocusSensitivity::Low,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x00, 0xFF]
         );
@@ -629,7 +648,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x02, 0x03, 0x04, 0xFF]
         );
@@ -639,7 +658,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x00, 0x00, 0x00, 0xFF]
         );

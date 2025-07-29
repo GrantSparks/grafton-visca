@@ -31,6 +31,11 @@ pub mod const_encoding;
 // New unified EncodeVisca trait
 pub mod encode_visca;
 
+// Ergonomic command builders (zero dead code approach) - commented out for demo
+// pub mod ergonomic_pan_tilt;
+// pub mod ergonomic_power;
+// pub mod ergonomic_zoom;
+
 // Re-export command types
 pub use self::{
     color::*,
@@ -38,15 +43,14 @@ pub use self::{
     exposure::*,
     // flip::*,  // Commented out - unused
     focus::*,
-    gain::*,
+    // gain::*,  // Gain is re-exported through exposure module
     image::*,
     image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
-    // inquiry::*,  // Commented out - unused
+    // inquiry::*,  // Individual types are re-exported from inquiry module
     pan_tilt::*,
     power::*,
     preset::*,
-    // resolution::{nd_filter_description, picture_effect_description, ResolutionMode},  // Commented out - unused
-    response::{Response, ResponseType},  // Removed parse_response - unused
+    response::{Response, ResponseType}, // Removed parse_response - unused
     system::{MotionSyncMode, MotionSyncSpeed, Socket},
     // tally::*,  // Commented out - unused
     white_balance::*,
@@ -60,7 +64,7 @@ pub use self::{
 /// Response data from VISCA inquiry commands.
 ///
 /// Each variant represents a different type of inquiry response with its associated data.
-/// These are returned wrapped in `Response::InquiryResponse(...)`.
+/// These are returned wrapped in `Response::Inquiry(...)`.
 #[derive(Debug, Copy, Clone)]
 pub enum InquiryResponse {
     /// Power status inquiry response.
@@ -171,11 +175,6 @@ pub enum InquiryResponse {
     Backlight {
         /// Whether backlight compensation is enabled.
         status: bool,
-    },
-    /// Anti-flicker mode inquiry response.
-    AntiFlicker {
-        /// Current anti-flicker mode (Off, 50Hz, or 60Hz).
-        mode: AntiFlickerMode,
     },
 
     /// White balance mode inquiry response.
@@ -343,6 +342,11 @@ pub enum InquiryResponse {
     BlueTuning {
         /// Blue channel tuning level.
         level: u8,
+    },
+    /// Gamma curve inquiry response.
+    Gamma {
+        /// Gamma curve setting (0=Standard, 1-4=different gamma curves).
+        value: u8,
     },
     /// Auto trace mode inquiry response.
     AutoTrace {

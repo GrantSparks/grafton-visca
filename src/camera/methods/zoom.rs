@@ -4,7 +4,7 @@ use crate::{
     camera::Camera,
     capabilities::ValidationError,
     command::{
-        zoom::{Zoom as ZoomCommand, ZoomSpeed},
+        zoom::{DigitalZoom, DigitalZoomCommand, Zoom as ZoomCommand, ZoomSpeed},
         Response,
     },
     types::ZoomPosition,
@@ -23,8 +23,20 @@ pub trait ZoomOps: Sized {
     /// Start zooming out (wide).
     async fn zoom_out(&self) -> Result<(), Error>;
 
+    /// Start zooming in at standard speed.
+    async fn zoom_in_standard(&self) -> Result<(), Error>;
+
+    /// Start zooming out at standard speed.
+    async fn zoom_out_standard(&self) -> Result<(), Error>;
+
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
     async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
+
+    /// Enable digital zoom.
+    async fn enable_digital_zoom(&self) -> Result<(), Error>;
+
+    /// Disable digital zoom.
+    async fn disable_digital_zoom(&self) -> Result<(), Error>;
 }
 
 /// Zoom operations (blocking).
@@ -38,8 +50,20 @@ pub trait ZoomOpsBlocking: Sized {
     /// Start zooming out (wide).
     fn zoom_out(&self) -> Result<(), Error>;
 
+    /// Start zooming in at standard speed.
+    fn zoom_in_standard(&self) -> Result<(), Error>;
+
+    /// Start zooming out at standard speed.
+    fn zoom_out_standard(&self) -> Result<(), Error>;
+
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
     fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
+
+    /// Enable digital zoom.
+    fn enable_digital_zoom(&self) -> Result<(), Error>;
+
+    /// Disable digital zoom.
+    fn disable_digital_zoom(&self) -> Result<(), Error>;
 }
 
 // Async implementation
@@ -80,6 +104,26 @@ impl ZoomOps for Camera {
         }
     }
 
+    async fn zoom_in_standard(&self) -> Result<(), Error> {
+        let command = ZoomCommand::TeleStd;
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn zoom_out_standard(&self) -> Result<(), Error> {
+        let command = ZoomCommand::WideStd;
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
     async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
         let normalized = position;
         let position_value = normalized.0;
@@ -99,6 +143,26 @@ impl ZoomOps for Camera {
         let zoom_pos = (position_value * max_zoom as f32) as u16;
         let zoom_position = ZoomPosition::new(zoom_pos)?;
         let command = ZoomCommand::Position(zoom_position);
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn enable_digital_zoom(&self) -> Result<(), Error> {
+        let command = DigitalZoomCommand::new(DigitalZoom::On);
+        let response = self.send_command(&command).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn disable_digital_zoom(&self) -> Result<(), Error> {
+        let command = DigitalZoomCommand::new(DigitalZoom::Off);
         let response = self.send_command(&command).await?;
         match response {
             Response::Completion => Ok(()),
@@ -146,6 +210,26 @@ impl ZoomOpsBlocking for Camera {
         }
     }
 
+    fn zoom_in_standard(&self) -> Result<(), Error> {
+        let command = ZoomCommand::TeleStd;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn zoom_out_standard(&self) -> Result<(), Error> {
+        let command = ZoomCommand::WideStd;
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
     fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
         let normalized = position;
         let position_value = normalized.0;
@@ -165,6 +249,26 @@ impl ZoomOpsBlocking for Camera {
         let zoom_pos = (position_value * max_zoom as f32) as u16;
         let zoom_position = ZoomPosition::new(zoom_pos)?;
         let command = ZoomCommand::Position(zoom_position);
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn enable_digital_zoom(&self) -> Result<(), Error> {
+        let command = DigitalZoomCommand::new(DigitalZoom::On);
+        let response = self.send_command_blocking(&command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn disable_digital_zoom(&self) -> Result<(), Error> {
+        let command = DigitalZoomCommand::new(DigitalZoom::Off);
         let response = self.send_command_blocking(&command)?;
         match response {
             Response::Completion => Ok(()),

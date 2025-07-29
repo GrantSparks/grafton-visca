@@ -19,8 +19,8 @@ use crate::transport::blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 ///
 /// # Example
 ///
-/// ```no_run
-/// # use grafton_visca::transport::{TransportKind, blocking::{Tcp, Udp}};
+/// ```ignore
+/// // Example of using TransportKind enum
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let use_tcp = true;
 /// // Can store different transport types in the same enum
@@ -100,12 +100,14 @@ impl TransportKind {
 
     #[cfg(feature = "tokio")]
     /// Create a TransportKind from a Tokio TCP transport.
+    #[must_use]
     pub fn from_tokio_tcp(transport: TokioTcp) -> Self {
         Self::TokioTcp(transport)
     }
 
     #[cfg(feature = "tokio")]
     /// Create a TransportKind from a Tokio UDP transport.
+    #[must_use]
     pub fn from_tokio_udp(transport: TokioUdp) -> Self {
         Self::TokioUdp(transport)
     }

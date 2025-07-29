@@ -29,7 +29,6 @@ visca_command! {
 mod tests {
     use super::*;
     use crate::visca_test;
-    use crate::command::encode_visca::EncodeVisca;
 
     visca_test!(
         PowerCommand,

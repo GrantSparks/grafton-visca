@@ -157,7 +157,8 @@ mod tests {
     fn test_flip_on_command() {
         let cmd = ImageFlipCommand::new(Flip::On);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x66, 0x02, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -168,7 +169,8 @@ mod tests {
     fn test_flip_off_command() {
         let cmd = ImageFlipCommand::new(Flip::Off);
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x66, 0x03, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -222,13 +224,19 @@ mod tests {
         let cmd1 = ImageFlipCommand::new(Flip::On);
         let cmd2 = cmd1.clone();
         // Verify commands produce same bytes
-        assert_eq!(cmd1.try_into_vec().unwrap(), cmd2.try_into_vec().unwrap());
+        assert_eq!(
+            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap()
+        );
 
         let cmd1 = ImageFlipCommand::new(Flip::Off);
         let cmd2 = cmd1; // Copy trait
                          // Verify the command was copied correctly
         assert_eq!(
-            cmd2.try_into_vec().unwrap(),
+            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x81, 0x01, 0x04, 0x66, 0x03, 0xFF]
         );
     }
@@ -247,7 +255,9 @@ mod tests {
     fn test_command_trait_impl() {
         // Verify ImageFlipCommand implements EncodeVisca trait
         let cmd = ImageFlipCommand::new(Flip::On);
-        assert!(cmd.try_into_vec().is_ok());
+        assert!(cmd
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .is_ok());
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
@@ -256,7 +266,9 @@ mod tests {
     fn test_byte_sequence_correctness() {
         // Verify the exact byte sequences match VISCA protocol
         let on_cmd = ImageFlipCommand::new(Flip::On);
-        let on_bytes = on_cmd.try_into_vec().unwrap();
+        let on_bytes = on_cmd
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .unwrap();
         assert_eq!(on_bytes[0], 0x81); // Command header
         assert_eq!(on_bytes[1], 0x01); // Command type
         assert_eq!(on_bytes[2], 0x04); // Category
@@ -265,7 +277,9 @@ mod tests {
         assert_eq!(on_bytes[5], 0xFF); // Terminator
 
         let off_cmd = ImageFlipCommand::new(Flip::Off);
-        let off_bytes = off_cmd.try_into_vec().unwrap();
+        let off_bytes = off_cmd
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .unwrap();
         assert_eq!(off_bytes[0], 0x81); // Command header
         assert_eq!(off_bytes[1], 0x01); // Command type
         assert_eq!(off_bytes[2], 0x04); // Category
@@ -279,10 +293,20 @@ mod tests {
         // Test that creating commands with the same flip state produces identical bytes
         let cmd1 = ImageFlipCommand::new(Flip::On);
         let cmd2 = ImageFlipCommand::new(Flip::On);
-        assert_eq!(cmd1.try_into_vec().unwrap(), cmd2.try_into_vec().unwrap());
+        assert_eq!(
+            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap()
+        );
 
         let cmd1 = ImageFlipCommand::new(Flip::Off);
         let cmd2 = ImageFlipCommand::new(Flip::Off);
-        assert_eq!(cmd1.try_into_vec().unwrap(), cmd2.try_into_vec().unwrap());
+        assert_eq!(
+            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap()
+        );
     }
 }

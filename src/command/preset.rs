@@ -55,7 +55,11 @@ impl EncodeVisca for PresetCommand {
     type Response = ();
     const MAX_SIZE: usize = 7;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -63,7 +67,7 @@ impl EncodeVisca for PresetCommand {
             });
         }
 
-        buffer[0] = 0x81;
+        buffer[0] = camera_id.to_address_byte();
         buffer[1] = 0x01;
         buffer[2] = 0x04;
         buffer[3] = 0x3F;
@@ -132,7 +136,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3F, 0x00, 0x0A, 0xFF]
         );
@@ -146,7 +150,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x2D, 0xFF]
         );
@@ -160,7 +164,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, 0xFF]
         );

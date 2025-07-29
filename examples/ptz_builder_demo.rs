@@ -17,9 +17,9 @@ use grafton_visca::transport::blocking::Udp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     blocking::prelude::*,
-    PanTiltDirection, PresetNumber,
     types::{FocusPosition, PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
+    PanTiltDirection, PresetNumber,
 };
 
 #[cfg(not(feature = "async"))]
@@ -179,11 +179,10 @@ fn perform_scan_sequence(
 use grafton_visca::{
     camera::profiles::G2PresetId,
     r#async::prelude::*,
-    PanTiltDirection, PresetNumber,
     transport::tokio::Udp,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
-    Camera,
+    Camera, PanTiltDirection, PresetNumber,
 };
 
 #[cfg(feature = "tokio")]

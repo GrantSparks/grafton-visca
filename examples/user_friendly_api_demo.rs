@@ -6,12 +6,12 @@
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     blocking::{ExposureOps, ImageProcessingOps, InquiryOps, PanTiltOps, ZoomOps},
-    PanTiltDirection,
     transport::blocking::Udp,
     types::{
         FStop, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength,
         PanSpeed, SpeedLevel, TiltSpeed,
     },
+    PanTiltDirection,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;

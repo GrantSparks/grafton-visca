@@ -11,10 +11,9 @@ use grafton_visca::transport::blocking::Udp;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     blocking::{PanTiltOps, PowerOps, ZoomOps},
-    PanTiltDirection,
     profiles::PTZOpticsG2,
     types::{PanSpeed, TiltSpeed},
-    Error,
+    Error, PanTiltDirection,
 };
 #[cfg(not(feature = "async"))]
 use std::sync::{Arc, Mutex};
@@ -162,7 +161,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate `Camera<P>` specific features
     println!("\nCamera profile information:");
     // Note: MODEL_NAME is not directly accessible, use ProfileMetadata trait
-    use grafton_visca::capabilities::ProfileMetadata;
+    use grafton_visca::ProfileMetadata;
     println!("Model: {}", PTZOpticsG2::MODEL_NAME);
     println!("Pan range: -170 to +170 degrees");
     println!("Tilt range: -30 to +90 degrees");
