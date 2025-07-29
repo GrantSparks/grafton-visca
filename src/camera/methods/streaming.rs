@@ -16,10 +16,12 @@ pub trait StreamingMethods: Sized {
     /// Returns an error if the command fails or the camera doesn't support NDI multicast.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::{camera::Camera, camera::methods::StreamingMethods};
-    /// # let mut camera = Camera::new("192.168.1.100");
+    /// # use grafton_visca::r#async::{Camera, StreamingMethods};
+    /// # use grafton_visca::transport::tokio::Tcp;
+    /// # let transport = Tcp::connect("192.168.1.100:52381").await?;
+    /// # let camera = Camera::new(transport);
     /// camera.enable_multicast().await?;
     /// # Ok(())
     /// # }
@@ -32,10 +34,12 @@ pub trait StreamingMethods: Sized {
     /// Returns an error if the command fails or the camera doesn't support NDI multicast.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::{camera::Camera, camera::methods::StreamingMethods};
-    /// # let mut camera = Camera::new("192.168.1.100");
+    /// # use grafton_visca::r#async::{Camera, StreamingMethods};
+    /// # use grafton_visca::transport::tokio::Tcp;
+    /// # let transport = Tcp::connect("192.168.1.100:52381").await?;
+    /// # let camera = Camera::new(transport);
     /// camera.disable_multicast().await?;
     /// # Ok(())
     /// # }
@@ -48,10 +52,13 @@ pub trait StreamingMethods: Sized {
     /// Returns an error if the command fails or the camera doesn't support NDI quality control.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::{camera::Camera, camera::methods::StreamingMethods, types::NDIQuality};
-    /// # let mut camera = Camera::new("192.168.1.100");
+    /// # use grafton_visca::r#async::{Camera, StreamingMethods};
+    /// # use grafton_visca::transport::tokio::Tcp;
+    /// # use grafton_visca::types::NDIQuality;
+    /// # let transport = Tcp::connect("192.168.1.100:52381").await?;
+    /// # let camera = Camera::new(transport);
     /// camera.set_ndi_quality(NDIQuality::High).await?;
     /// # Ok(())
     /// # }
@@ -69,8 +76,11 @@ pub trait StreamingMethodsBlocking: Sized {
     /// # Example
     /// ```no_run
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::{blocking::Camera, camera::methods::StreamingMethodsBlocking};
-    /// # let mut camera = Camera::new("192.168.1.100");
+    /// # use grafton_visca::blocking::{Camera, StreamingMethods};
+    /// # use grafton_visca::transport::blocking::Tcp;
+    /// # let transport = Tcp::connect("192.168.1.100:52381")?;
+    /// # let inner_camera = grafton_visca::Camera::new(transport);
+    /// # let camera = Camera::new(inner_camera);
     /// camera.enable_multicast()?;
     /// # Ok(())
     /// # }
@@ -85,8 +95,11 @@ pub trait StreamingMethodsBlocking: Sized {
     /// # Example
     /// ```no_run
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::{blocking::Camera, camera::methods::StreamingMethodsBlocking};
-    /// # let mut camera = Camera::new("192.168.1.100");
+    /// # use grafton_visca::blocking::{Camera, StreamingMethods};
+    /// # use grafton_visca::transport::blocking::Tcp;
+    /// # let transport = Tcp::connect("192.168.1.100:52381")?;
+    /// # let inner_camera = grafton_visca::Camera::new(transport);
+    /// # let camera = Camera::new(inner_camera);
     /// camera.disable_multicast()?;
     /// # Ok(())
     /// # }
@@ -101,8 +114,12 @@ pub trait StreamingMethodsBlocking: Sized {
     /// # Example
     /// ```no_run
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::{blocking::Camera, camera::methods::StreamingMethodsBlocking, types::NDIQuality};
-    /// # let mut camera = Camera::new("192.168.1.100");
+    /// # use grafton_visca::blocking::{Camera, StreamingMethods};
+    /// # use grafton_visca::transport::blocking::Tcp;
+    /// # use grafton_visca::types::NDIQuality;
+    /// # let transport = Tcp::connect("192.168.1.100:52381")?;
+    /// # let inner_camera = grafton_visca::Camera::new(transport);
+    /// # let camera = Camera::new(inner_camera);
     /// camera.set_ndi_quality(NDIQuality::High)?;
     /// # Ok(())
     /// # }
