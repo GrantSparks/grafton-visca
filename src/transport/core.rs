@@ -80,13 +80,14 @@ pub trait TransportExt: Transport {
     #[cfg(all(feature = "async", not(feature = "tokio")))]
     fn recv_with_timeout<'a>(
         &'a self,
-        _duration: core::time::Duration,
+        #[allow(unused_variables)] duration: core::time::Duration,
     ) -> impl Future<Output = Result<bytes::Bytes, Error>> + 'a
     where
         Self: 'a,
     {
         // Without a specific runtime, we can't implement timeout.
-        // Users should wrap recv() with their runtime's timeout mechanism.
+        // The duration parameter is kept for API compatibility but cannot be used
+        // without a specific runtime. Users should wrap recv() with their runtime's timeout mechanism.
         async move { self.recv().await.map_err(Into::into) }
     }
 
