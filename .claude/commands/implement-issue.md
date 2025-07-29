@@ -31,7 +31,7 @@ Analyze:
 
 2. **Implement Thoroughly**:
    - Use `Edit` for modifying existing files
-   - Create new files with `Edit` when needed
+   - Use `Create` for new files or `Edit` when needed
    - Run tests with `Bash(cargo test:*)` to verify changes
    - Use `Bash(cargo check)` for quick compilation checks during development
    - Run `Bash(cargo clippy)` to catch common mistakes and improve code quality
