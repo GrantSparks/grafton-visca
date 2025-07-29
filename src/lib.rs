@@ -333,7 +333,7 @@ pub use units::{
     Degrees, Fraction, Kelvin, Magnification, Normalized, Percentage, Raw, ViscaUnits,
 };
 // Re-export FStop from types
-pub use types::{FStop, IntoIrisLevel};
+pub use types::{FStop, IntoIrisLevel, NDIQuality};
 
 // Re-export commonly used command types through a cleaner namespace
 pub use command::{

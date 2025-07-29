@@ -105,7 +105,10 @@ pub trait ExposureOps: Sized {
 
     /// Set brightness using direct mode.
     /// This is supported on Sony models but not on FR7.
-    async fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>;
+    async fn set_brightness_direct(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> Result<(), Error>;
 }
 
 /// Exposure operations (blocking).
@@ -455,7 +458,10 @@ impl ExposureOps for Camera {
         Ok(())
     }
 
-    async fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
+    async fn set_brightness_direct(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> Result<(), Error> {
         use crate::command::exposure::Bright;
 
         let command = Bright::Direct(level);

@@ -315,7 +315,10 @@ impl ExposureOps for Camera {
         self.0.disable_auto_slow_shutter().await
     }
 
-    async fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> crate::Result<()> {
+    async fn set_brightness_direct(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> crate::Result<()> {
         self.0.set_brightness_direct(level).await
     }
 }

@@ -1,13 +1,14 @@
 //! Tests for socket manager functionality through the public Camera API
 
-
 #[cfg(feature = "tokio")]
 mod tokio_tests {
-    use super::*;
     use bytes::Bytes;
+    use grafton_visca::r#async::{PanTiltOps, PowerOps, PresetsOps, ZoomOps};
     use grafton_visca::transport::Transport;
+    use grafton_visca::{Camera, CameraModel, Error, PanTiltDirection, PresetNumber};
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     /// Mock transport for testing socket manager behavior
     #[derive(Debug, Clone)]
