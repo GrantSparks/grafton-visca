@@ -17,11 +17,10 @@ fn main() {
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     blocking::{FocusOps, PanTiltOps, PowerOps, PresetsOps},
-    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
     transport::blocking::Tcp,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::Degrees,
-    Error,
+    Error, PanTiltDirection, PresetNumber,
 };
 #[cfg(not(feature = "async"))]
 use std::time::{Duration, Instant};

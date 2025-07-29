@@ -9,15 +9,13 @@ use grafton_visca::{
         ExposureOps, FocusOps, ImageProcessingOps, PanTiltOps, PowerOps, PresetsOps,
         WhiteBalanceOps, ZoomOps,
     },
-    PresetNumber,
-    PanTiltDirection,
     transport::tokio::Udp,
     types::{
         BrightnessLevel, ColorTemp, ContrastLevel, DynamicRangeLevel, GainLevel, GainLimit,
         HueLevel, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed,
         SaturationLevel, SharpnessLevel, TiltSpeed,
     },
-    Camera, Degrees, Error, Normalized,
+    Camera, Degrees, Error, Normalized, PanTiltDirection, PresetNumber,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;

@@ -1,3 +1,4 @@
+use crate::camera_id::CameraId;
 use crate::command::response::Response;
 use crate::command::system::Socket;
 use crate::error::{Error, Result};
@@ -230,6 +231,8 @@ pub struct SocketManagerInner {
     pub active_commands: [Option<PendingCmd>; 2],
     /// Inquiry command waiting for response (only one allowed at a time).
     pub pending_inquiry: Option<PendingCmd>,
+    /// Camera ID for addressing commands.
+    pub camera_id: CameraId,
 }
 
 impl Default for SocketManagerInner {
@@ -240,6 +243,7 @@ impl Default for SocketManagerInner {
             next_command_id: 1,
             active_commands: [None, None],
             pending_inquiry: None,
+            camera_id: CameraId::CAMERA_1,
         }
     }
 }
@@ -326,7 +330,7 @@ impl SocketManagerInner {
 
 /// Commands that can be sent to the socket manager actor.
 #[derive(Debug)]
-pub enum SocketManagerCommand {
+pub(crate) enum SocketManagerCommand {
     /// Send a VISCA command through the socket manager.
     SendCommand {
         /// Raw command bytes to send.
@@ -353,13 +357,6 @@ pub enum SocketManagerCommand {
         #[cfg(not(feature = "tokio"))]
         response_sender: Sender<Result<()>>,
     },
-    /// Handle a response received from the camera.
-    HandleResponse {
-        /// The response to handle.
-        response: Response,
-    },
-    /// Shutdown the socket manager actor.
-    Shutdown,
 }
 
 /// Handle to communicate with the socket manager actor.
@@ -367,7 +364,7 @@ pub enum SocketManagerCommand {
 /// This handle can be cloned and shared across threads to send commands
 /// to the socket manager from multiple locations.
 #[derive(Debug)]
-pub struct SocketManagerHandle {
+pub(crate) struct SocketManagerHandle {
     #[cfg(feature = "tokio")]
     command_sender: mpsc::UnboundedSender<SocketManagerCommand>,
     #[cfg(not(feature = "tokio"))]
@@ -477,45 +474,6 @@ impl SocketManagerHandle {
 
         result
     }
-
-    /// Handle a response received from the camera.
-    ///
-    /// This method is typically called by the transport layer when
-    /// responses are received from the camera.
-    pub fn handle_response(&self, response: Response) -> Result<()> {
-        #[cfg(feature = "tokio")]
-        let send_result = self
-            .command_sender
-            .send(SocketManagerCommand::HandleResponse { response })
-            .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-
-        #[cfg(not(feature = "tokio"))]
-        let send_result = self
-            .command_sender
-            .send(SocketManagerCommand::HandleResponse { response })
-            .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-
-        send_result?;
-        Ok(())
-    }
-
-    /// Shutdown the socket manager actor.
-    pub fn shutdown(&self) -> Result<()> {
-        #[cfg(feature = "tokio")]
-        let send_result = self
-            .command_sender
-            .send(SocketManagerCommand::Shutdown)
-            .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-
-        #[cfg(not(feature = "tokio"))]
-        let send_result = self
-            .command_sender
-            .send(SocketManagerCommand::Shutdown)
-            .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-
-        send_result?;
-        Ok(())
-    }
 }
 
 use crate::camera::UnifiedTransport;
@@ -525,7 +483,7 @@ use log::{debug, error, trace, warn};
 
 /// Trait for handling retry decisions for commands.
 /// This provides extensibility for automatic retry logic.
-pub trait RetryHook {
+pub(crate) trait RetryHook {
     /// Called when a command fails with a potentially retryable error.
     /// Returns whether the command should be retried.
     fn should_retry(&self, error: &Error, attempt: u32) -> bool;
@@ -539,7 +497,7 @@ pub trait RetryHook {
 
 /// Default retry hook implementation that handles 0x41 "Not Executable" errors.
 #[derive(Debug, Copy, Clone)]
-pub struct DefaultRetryHook {
+pub(crate) struct DefaultRetryHook {
     max_attempts: u32,
     base_delay: std::time::Duration,
 }
@@ -560,12 +518,14 @@ impl DefaultRetryHook {
     }
 
     /// Set the maximum number of retry attempts.
+    #[cfg(test)]
     pub fn with_max_attempts(mut self, max_attempts: u32) -> Self {
         self.max_attempts = max_attempts;
         self
     }
 
     /// Set the base delay for exponential backoff.
+    #[cfg(test)]
     pub fn with_base_delay(mut self, delay: std::time::Duration) -> Self {
         self.base_delay = delay;
         self
@@ -622,7 +582,7 @@ impl RetryHook for NoRetryHook {
 ///
 /// This actor manages the two-socket state machine, processes commands,
 /// handles responses, and manages timeouts and retries.
-pub struct SocketManagerActor {
+pub(crate) struct SocketManagerActor {
     inner: SocketManagerInner,
     transport: Arc<dyn UnifiedTransport>,
     #[cfg(feature = "tokio")]
@@ -651,9 +611,12 @@ impl SocketManagerActor {
         transport: Arc<dyn UnifiedTransport>,
         command_receiver: mpsc::UnboundedReceiver<SocketManagerCommand>,
         profile: crate::camera::DynamicProfile,
+        camera_id: CameraId,
     ) -> Self {
+        let mut inner = SocketManagerInner::new();
+        inner.camera_id = camera_id;
         Self {
-            inner: SocketManagerInner::new(),
+            inner,
             transport,
             command_receiver,
             profile,
@@ -666,20 +629,17 @@ impl SocketManagerActor {
         transport: Arc<dyn UnifiedTransport>,
         command_receiver: mpsc::Receiver<SocketManagerCommand>,
         profile: crate::camera::DynamicProfile,
+        camera_id: CameraId,
     ) -> Self {
+        let mut inner = SocketManagerInner::new();
+        inner.camera_id = camera_id;
         Self {
-            inner: SocketManagerInner::new(),
+            inner,
             transport,
             command_receiver,
             profile,
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
-    }
-
-    /// Set a custom retry hook for this socket manager.
-    pub fn with_retry_hook(mut self, retry_hook: Box<dyn RetryHook + Send + Sync>) -> Self {
-        self.retry_hook = retry_hook;
-        self
     }
 
     /// Run the socket manager actor event loop.
@@ -710,13 +670,6 @@ impl SocketManagerActor {
                                 response_sender,
                             }) => {
                                 self.handle_cancel_command(socket, response_sender).await;
-                            }
-                            Some(SocketManagerCommand::HandleResponse { response }) => {
-                                self.handle_response(response).await;
-                            }
-                            Some(SocketManagerCommand::Shutdown) => {
-                                debug!("Socket manager shutting down");
-                                break;
                             }
                             None => {
                                 debug!("Socket manager command channel closed");
@@ -768,13 +721,6 @@ impl SocketManagerActor {
                             response_sender,
                         } => {
                             self.handle_cancel_command(socket, response_sender).await;
-                        }
-                        SocketManagerCommand::HandleResponse { response } => {
-                            self.handle_response(response).await;
-                        }
-                        SocketManagerCommand::Shutdown => {
-                            debug!("Socket manager shutting down");
-                            break;
                         }
                     }
                 } else {
@@ -888,7 +834,7 @@ impl SocketManagerActor {
 
         let cancel_cmd = CommandCancelCommand::new(socket);
         let mut bytes = Vec::new();
-        if let Err(e) = cancel_cmd.encode_into(&mut bytes) {
+        if let Err(e) = cancel_cmd.encode_into(self.inner.camera_id, &mut bytes) {
             error!("Failed to encode cancel command for {:?}: {}", socket, e);
             let _ = response_sender.send(Err(Error::InvalidRequest(
                 "Failed to encode cancel command".to_string(),
@@ -904,28 +850,6 @@ impl SocketManagerActor {
             Err(e) => {
                 error!("Failed to send cancel command for {:?}: {}", socket, e);
                 let _ = response_sender.send(Err(e));
-            }
-        }
-    }
-
-    async fn handle_response(&mut self, response: Response) {
-        trace!("Handling response: {:?}", response);
-
-        match response {
-            Response::CmdAck => {
-                warn!("Received CmdAck without socket information");
-            }
-            Response::Completion => {
-                warn!("Received Completion without socket information");
-            }
-            Response::Error(error) => {
-                warn!("Received Error without socket information: {:?}", error);
-            }
-            Response::InquiryResponse(data) => {
-                self.handle_inquiry_response(data).await;
-            }
-            _ => {
-                warn!("Unhandled response type: {:?}", response);
             }
         }
     }
@@ -971,7 +895,7 @@ impl SocketManagerActor {
                     );
                 }
             }
-            Ok(Response::InquiryResponse(data)) => {
+            Ok(Response::Inquiry(data)) => {
                 self.handle_inquiry_response(data).await;
             }
             Ok(other) => {
@@ -1051,7 +975,7 @@ impl SocketManagerActor {
         trace!("Received inquiry response: {:?}", data);
         if let Some(command) = self.inner.take_pending_inquiry() {
             debug!("Inquiry response received for command {}", command.id);
-            command.complete(Ok(Response::InquiryResponse(data)));
+            command.complete(Ok(Response::Inquiry(data)));
         } else {
             warn!("Received inquiry response but no pending inquiry");
         }
@@ -1136,7 +1060,7 @@ impl SocketManagerActor {
         } else {
             debug!("Sending cancel command for timed out socket {:?}", socket);
         }
-        match cancel_command.encode_into(&mut cancel_bytes) {
+        match cancel_command.encode_into(self.inner.camera_id, &mut cancel_bytes) {
             Ok(size) => {
                 cancel_bytes.truncate(size);
                 if let Err(e) = self.transport.send(&cancel_bytes).await {
@@ -1211,6 +1135,7 @@ impl SocketManagerActor {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::command::system::Socket;
@@ -1507,13 +1432,17 @@ mod tests {
 
         // First command gets Socket1
         let cmd1_id = manager.get_next_command_id();
-        let socket1 = manager.get_free_socket().expect("Should have free socket");
+        let socket1 = manager.get_free_socket();
+        assert!(socket1.is_some(), "Test setup ensures this succeeds");
+        let socket1 = socket1.expect("test setup ensures socket1 is available");
         assert_eq!(socket1, Socket::Socket1);
         manager.mark_socket_busy(socket1, cmd1_id, CommandCategory::Movement);
 
         // Second command gets Socket2
         let cmd2_id = manager.get_next_command_id();
-        let socket2 = manager.get_free_socket().expect("Should have free socket");
+        let socket2 = manager.get_free_socket();
+        assert!(socket2.is_some(), "Test setup ensures this succeeds");
+        let socket2 = socket2.expect("test setup ensures socket2 is available");
         assert_eq!(socket2, Socket::Socket2);
         manager.mark_socket_busy(socket2, cmd2_id, CommandCategory::Movement);
 

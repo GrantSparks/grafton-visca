@@ -193,6 +193,7 @@ pub struct BlockingSpawner;
 #[cfg(feature = "async")]
 impl BlockingSpawner {
     /// Create a new blocking spawner.
+    #[must_use]
     pub fn new() -> Self {
         BlockingSpawner
     }

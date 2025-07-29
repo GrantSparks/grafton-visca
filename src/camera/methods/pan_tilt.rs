@@ -2,7 +2,7 @@
 
 use crate::{
     camera::Camera,
-    command::pan_tilt::{PanTilt, PanTiltDirection},
+    command::pan_tilt::{PanTilt, PanTiltDirection, PanTiltLimitCorner},
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
     units::Degrees,
     Error,
@@ -42,6 +42,17 @@ pub trait PanTiltOps: Sized {
 
     /// Reset pan/tilt to default position.
     async fn pan_tilt_reset(&self) -> Result<(), Error>;
+
+    /// Set pan/tilt movement limit for a specific corner.
+    async fn pan_tilt_limit_set(
+        &self,
+        corner: PanTiltLimitCorner,
+        pan: PanPosition,
+        tilt: TiltPosition,
+    ) -> Result<(), Error>;
+
+    /// Clear pan/tilt movement limit for a specific corner.
+    async fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error>;
 }
 
 /// Pan/Tilt operations (blocking).
@@ -78,6 +89,17 @@ pub trait PanTiltOpsBlocking: Sized {
 
     /// Reset pan/tilt to default position.
     fn pan_tilt_reset(&self) -> Result<(), Error>;
+
+    /// Set pan/tilt movement limit for a specific corner.
+    fn pan_tilt_limit_set(
+        &self,
+        corner: PanTiltLimitCorner,
+        pan: PanPosition,
+        tilt: TiltPosition,
+    ) -> Result<(), Error>;
+
+    /// Clear pan/tilt movement limit for a specific corner.
+    fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error>;
 }
 
 // Async implementation
@@ -178,6 +200,23 @@ impl PanTiltOps for Camera {
         self.send_command(&cmd).await?;
         Ok(())
     }
+
+    async fn pan_tilt_limit_set(
+        &self,
+        corner: PanTiltLimitCorner,
+        pan: PanPosition,
+        tilt: TiltPosition,
+    ) -> Result<(), Error> {
+        let cmd = PanTilt::LimitSet { corner, pan, tilt };
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
+
+    async fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error> {
+        let cmd = PanTilt::LimitClear { corner };
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
 }
 
 // Blocking implementation
@@ -275,6 +314,23 @@ impl PanTiltOpsBlocking for Camera {
 
     fn pan_tilt_reset(&self) -> Result<(), Error> {
         let cmd = PanTilt::Reset;
+        self.send_command_blocking(&cmd)?;
+        Ok(())
+    }
+
+    fn pan_tilt_limit_set(
+        &self,
+        corner: PanTiltLimitCorner,
+        pan: PanPosition,
+        tilt: TiltPosition,
+    ) -> Result<(), Error> {
+        let cmd = PanTilt::LimitSet { corner, pan, tilt };
+        self.send_command_blocking(&cmd)?;
+        Ok(())
+    }
+
+    fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error> {
+        let cmd = PanTilt::LimitClear { corner };
         self.send_command_blocking(&cmd)?;
         Ok(())
     }

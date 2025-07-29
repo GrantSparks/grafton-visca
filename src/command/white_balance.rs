@@ -2,13 +2,24 @@
 //!
 //! This module provides commands for controlling camera white balance settings,
 //! including auto, manual, and preset modes like indoor/outdoor/one-push/color temperature.
+//!
+//! # VISCA Compliance
+//! Most white balance modes (Auto, Indoor, Outdoor, OnePush, Manual) are baseline VISCA.
+//!
+//! ## Vendor-Specific Features
+//! - `ATW` (Auto Tracking White Balance) - Sony FR7 specific
+//! - `AWBSensitivity` - PTZOptics specific
 
 // Standard library imports
 use std::convert::TryFrom;
 
 // Crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, ResponseType},
+    command::{
+        const_encoding::{CommandBuilder, DEFAULT_ADDRESS},
+        encode_visca::EncodeVisca,
+        ResponseType,
+    },
     error::Error,
     timeout::CommandCategory,
 };
@@ -27,7 +38,9 @@ pub enum WhiteBalanceMode {
     Outdoor = 0x02,
     /// One-push white balance (calibrate once based on current scene).
     OnePush = 0x03,
-    /// Auto tracking white balance (FR7 specific).
+    /// Auto tracking white balance.
+    ///
+    /// **Vendor-Specific**: This mode is specific to Sony FR7 cameras.
     ATW = 0x04,
     /// Manual white balance control.
     Manual = 0x05,
@@ -59,7 +72,9 @@ crate::visca_param_command! {
     timeout = Quick;
 }
 
-/// AWB Sensitivity levels (PTZOptics specific).
+/// AWB Sensitivity levels.
+///
+/// **Vendor-Specific**: This feature is specific to PTZOptics cameras.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AWBSensitivity {
     /// High sensitivity.
@@ -81,28 +96,21 @@ impl EncodeVisca for AWBSensitivityCommand {
     type Response = ();
     const MAX_SIZE: usize = 6;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         let level = match self.sensitivity {
             AWBSensitivity::High => 0x00,
             AWBSensitivity::Normal => 0x01,
             AWBSensitivity::Low => 0x02,
         };
 
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0xA9;
-        buffer[4] = level;
-        buffer[5] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
+        let mut builder = CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0xA9]);
+        builder.with_camera_id(camera_id);
+        builder.push(level).finalize();
+        builder.copy_to(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -138,8 +146,8 @@ impl TryFrom<u8> for WhiteBalanceMode {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::visca_test;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::visca_test;
 
     #[test]
     fn test_white_balance_mode_values() {
@@ -307,15 +315,15 @@ mod tests {
         let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
         assert_eq!(
-            cmd1.try_into_vec()
+            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd2.try_into_vec()
+            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
         assert_eq!(
-            cmd1.try_into_vec()
+            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd3.try_into_vec()
+            cmd3.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
     }
@@ -335,7 +343,7 @@ mod tests {
         for mode in modes {
             let cmd = WhiteBalanceCommand { mode };
             let bytes = cmd
-                .try_into_vec()
+                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
             // Verify command structure
@@ -356,7 +364,7 @@ mod tests {
             sensitivity: AWBSensitivity::High,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x00, 0xFF]
         );
@@ -366,7 +374,7 @@ mod tests {
             sensitivity: AWBSensitivity::Normal,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x01, 0xFF]
         );
@@ -376,7 +384,7 @@ mod tests {
             sensitivity: AWBSensitivity::Low,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x02, 0xFF]
         );

@@ -28,29 +28,29 @@ fn main() -> Result<(), Error> {
     let camera = camera.blocking();
 
     // All camera operations are available without individual trait imports:
-    
+
     // Power operations
     camera.power_on()?;
-    
+
     // Zoom operations
     camera.zoom_stop()?;
-    
+
     // Pan/Tilt operations
     camera.pan_tilt_home()?;
-    
+
     // Focus operations
     camera.focus_auto()?;
-    
+
     // Preset operations
     camera.preset_recall(PresetNumber::new(1).unwrap())?;
-    
+
     // Exposure operations
     camera.exposure_auto()?;
-    
+
     // And many more...
-    
+
     println!("All operations completed successfully!");
-    
+
     Ok(())
 }
 
@@ -58,17 +58,17 @@ fn main() -> Result<(), Error> {
 #[tokio::main]
 async fn async_example() -> Result<(), Error> {
     use grafton_visca::transport::tokio::Tcp;
-    
+
     // For async operations, use the async prelude
     use grafton_visca::r#async::prelude::*;
-    
+
     let transport = Tcp::connect("192.168.1.100:5678").await?;
     let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).r#async();
-    
+
     // All async operations available
     camera.power_on().await?;
     camera.zoom_stop().await?;
     camera.pan_tilt_home().await?;
-    
+
     Ok(())
 }

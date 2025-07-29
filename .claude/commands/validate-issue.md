@@ -1,0 +1,106 @@
+---
+allowed-tools: Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue close:*), Edit, ReadFile, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git status:*), Bash(git diff:*), Bash(cargo test*), Bash(cargo build*), Bash(cargo check*), Bash(cargo clippy*), Bash(cargo fmt*), Bash(grep:*), Bash(find:*), Bash(rg:*)
+description: Validate that all requirements for a GitHub issue have been fully implemented
+---
+Read GitHub issue #$ARGUMENTS and validate that every requirement, including extended scope mentioned in comments, has been fully and completely implemented.
+
+## Validation Process Overview
+Use `gh issue view $ARGUMENTS --comments` to read the issue and all comments. Do not trust claims made in the issue or comments - independently verify everything. Assess whether the implementation meets the highest quality standards and identify potential improvements.
+
+## Phase 1: Requirements Extraction
+1. **Read Complete Context**:
+   - Use `gh issue view $ARGUMENTS --comments` to get full issue history
+   - Extract all requirements from the original issue
+   - Identify any scope expansions or clarifications in comments
+   - Note any edge cases or special considerations mentioned
+
+2. **Define Full Scope**:
+   - Determine what should properly be in scope given the initial task
+   - Don't accept limited scope claims at face value
+   - Consider what a thorough implementation would include
+   - Identify any missing functionality that should reasonably be included
+
+## Phase 2: Implementation Verification
+1. **Code Inspection**:
+   - Use `ReadFile` to examine all relevant files mentioned in comments
+   - Use `Bash(grep:*)`, `Bash(find:*)`, or `Bash(rg:*)` to search for:
+     - Implementation of each requirement
+     - Error handling for edge cases
+     - Proper input validation
+     - Complete test coverage
+   - Verify code quality, naming conventions, and documentation
+
+2. **Functionality Testing**:
+   - Run all relevant tests with `Bash(cargo test:*)`
+   - Check for test coverage of all requirements
+   - Look for missing test cases for edge conditions
+   - Verify integration between components
+   - Use `Bash(cargo check)` for quick compilation verification
+
+3. **Quality Assessment**:
+   - Run `Bash(cargo clippy)` to check for common mistakes and improvements
+   - Check `Bash(cargo fmt -- --check)` for proper formatting
+   - Look for opportunities to use more idiomatic Rust patterns
+   - Verify proper error handling with Result/Option types
+   - Check for proper lifetime annotations where needed
+   - Assess unsafe code usage if any
+
+## Phase 3: Improvement Analysis
+1. **Identify Gaps**:
+   - List any unimplemented requirements
+   - Note missing edge case handling
+   - Identify incomplete or weak test coverage
+   - Find opportunities for better code organization
+
+2. **Quality Improvements**:
+   - How could the implementation be more idiomatic Rust?
+   - Are there better patterns for error handling?
+   - Could the code be more performant or memory efficient?
+   - Are there opportunities to reduce allocations?
+   - Could traits be better utilized for abstraction?
+
+## Phase 4: Decision and Action
+Based on your validation:
+
+### If Implementation is Incomplete or Substandard:
+1. Draft detailed feedback in `/tmp/gh-validation-$ARGUMENTS.md` including:
+   - **Validation Results**: What was checked and findings
+   - **Missing Requirements**: Checklist of unimplemented items
+   - **Quality Issues**: Specific problems found (clippy warnings, etc.)
+   - **Recommended Improvements**: Concrete suggestions with examples
+   - **Next Steps**: Clear action items for completion
+
+2. Post comment: `gh issue comment $ARGUMENTS --body-file /tmp/gh-validation-$ARGUMENTS.md`
+
+### If Implementation is Complete and High Quality:
+1. Final verification:
+   - Run `git status` to see uncommitted changes
+   - Use `git diff` to review any pending modifications
+   - Run `cargo test` to ensure all tests pass
+   - Run `cargo build --release` to verify release build works
+
+2. Commit and push:
+   - `git add` relevant files
+   - `git commit -m "Complete implementation of #$ARGUMENTS: [brief description]"`
+   - Never mention Claude or AI assistance in commit messages
+   - `git push`
+
+3. Draft closing comment in `/tmp/gh-close-$ARGUMENTS.md`:
+   - **Validation Summary**: What was verified
+   - **Implementation Highlights**: Key achievements
+   - **Test Coverage**: Confirmation of comprehensive testing
+   - **Quality Notes**: Any exceptional aspects of the implementation
+
+4. Post comment and close:
+   - `gh issue comment $ARGUMENTS --body-file /tmp/gh-close-$ARGUMENTS.md`
+   - `gh issue close $ARGUMENTS`
+
+## Validation Standards
+- **Completeness**: Every requirement explicitly stated or reasonably implied is implemented
+- **Correctness**: Implementation works correctly for all valid inputs
+- **Robustness**: Proper handling of edge cases and invalid inputs
+- **Quality**: Code is clean, maintainable, and follows Rust best practices
+- **Testing**: Comprehensive test coverage exists for all functionality
+- **Documentation**: Code has proper doc comments and examples where appropriate
+
+Remember: Be thorough and critical. The goal is to ensure the highest quality implementation, not just to check boxes. If the implementation could be better, say so with specific recommendations.

@@ -206,16 +206,6 @@ pub struct GainInquiry;
 #[visca(command = 0x2C, response = "GainLimit", parser = "byte")]
 pub struct GainLimitInquiry;
 
-/// Inquiry command to get the anti-flicker mode setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(
-    command = 0x23,
-    response = "AntiFlicker",
-    parser = "mode",
-    type = "AntiFlickerMode"
-)]
-pub struct AntiFlickerInquiry;
-
 // Image Processing Inquiries
 
 /// Inquiry command to get the backlight compensation mode.
@@ -464,6 +454,16 @@ pub struct RedTuningInquiry;
 )]
 pub struct BlueTuningInquiry;
 
+/// Inquiry command to get the current gamma curve setting.
+#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[visca(
+    command = 0x5B,
+    response = "Gamma",
+    parser = "custom",
+    custom_fn = "parse_gamma"
+)]
+pub struct GammaInquiry;
+
 /// Inquiry command to get the auto trace mode status.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
 #[visca(
@@ -579,7 +579,6 @@ pub struct TallyAutoAdjustInquiry;
 mod tests {
     use super::*;
     use crate::visca_test;
-    use crate::command::encode_visca::EncodeVisca;
 
     visca_test!(
         ZoomPositionInquiry,

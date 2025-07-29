@@ -197,10 +197,9 @@ macro_rules! assert_send_ok {
 
 #[cfg(test)]
 mod tests {
-    use crate::assert_command_bytes;
+
     // Note: EncodeVisca is now internal, so this test is commented out
     // use grafton_visca::command::EncodeVisca;
-    use grafton_visca::Error;
 
     // Test commented out since EncodeVisca is now internal
     /*

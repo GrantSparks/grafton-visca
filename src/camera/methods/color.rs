@@ -21,6 +21,15 @@ pub trait ColorOps: Sized {
     /// Set color temperature.
     async fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error>;
 
+    /// Reset color temperature to default value.
+    async fn reset_color_temperature(&self) -> Result<(), Error>;
+
+    /// Increase color temperature (makes image cooler/bluer).
+    async fn increase_color_temperature(&self) -> Result<(), Error>;
+
+    /// Decrease color temperature (makes image warmer/redder).
+    async fn decrease_color_temperature(&self) -> Result<(), Error>;
+
     /// Set or query color temperature.
     async fn color_temperature(&self, temp: Option<ColorTemp>) -> Result<(), Error>;
 
@@ -50,6 +59,15 @@ pub trait ColorOpsBlocking: Sized {
 
     /// Set color temperature.
     fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error>;
+
+    /// Reset color temperature to default value.
+    fn reset_color_temperature(&self) -> Result<(), Error>;
+
+    /// Increase color temperature (makes image cooler/bluer).
+    fn increase_color_temperature(&self) -> Result<(), Error>;
+
+    /// Decrease color temperature (makes image warmer/redder).
+    fn decrease_color_temperature(&self) -> Result<(), Error>;
 
     /// Set or query color temperature.
     fn color_temperature(&self, temp: Option<ColorTemp>) -> Result<(), Error>;
@@ -83,6 +101,21 @@ impl ColorOps for Camera {
     async fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error> {
         self.send_command(&ColorTemperature::SetTemperature(temp))
             .await?;
+        Ok(())
+    }
+
+    async fn reset_color_temperature(&self) -> Result<(), Error> {
+        self.send_command(&ColorTemperature::Reset).await?;
+        Ok(())
+    }
+
+    async fn increase_color_temperature(&self) -> Result<(), Error> {
+        self.send_command(&ColorTemperature::Up).await?;
+        Ok(())
+    }
+
+    async fn decrease_color_temperature(&self) -> Result<(), Error> {
+        self.send_command(&ColorTemperature::Down).await?;
         Ok(())
     }
 
@@ -137,6 +170,21 @@ impl ColorOpsBlocking for Camera {
 
     fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error> {
         self.send_command_blocking(&ColorTemperature::SetTemperature(temp))?;
+        Ok(())
+    }
+
+    fn reset_color_temperature(&self) -> Result<(), Error> {
+        self.send_command_blocking(&ColorTemperature::Reset)?;
+        Ok(())
+    }
+
+    fn increase_color_temperature(&self) -> Result<(), Error> {
+        self.send_command_blocking(&ColorTemperature::Up)?;
+        Ok(())
+    }
+
+    fn decrease_color_temperature(&self) -> Result<(), Error> {
+        self.send_command_blocking(&ColorTemperature::Down)?;
         Ok(())
     }
 

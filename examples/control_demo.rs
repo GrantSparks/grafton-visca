@@ -8,17 +8,15 @@
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::{
     blocking::{Camera, FocusOps, PanTiltOps, PresetsOps, ZoomOps},
-    PresetNumber,
     types::SpeedLevel,
-    CameraModel, Degrees, Error, Normalized,
+    CameraModel, Degrees, Error, Normalized, PresetNumber,
 };
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    PresetNumber,
     r#async::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
     types::SpeedLevel,
-    Camera, CameraModel, Degrees, Error, Normalized,
+    Camera, CameraModel, Degrees, Error, Normalized, PresetNumber,
 };
 use std::env;
 

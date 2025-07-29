@@ -26,9 +26,9 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
 
             // Generate the bytes based on subcategory
             let bytes_expr = if let Some(sub) = attrs.subcategory {
-                quote! { vec![0x81, 0x09, #sub, #byte_value, 0xFF] }
+                quote! { vec![camera_id.to_address_byte(), 0x09, #sub, #byte_value, 0xFF] }
             } else {
-                quote! { vec![0x81, 0x09, 0x04, #byte_value, 0xFF] }
+                quote! { vec![camera_id.to_address_byte(), 0x09, 0x04, #byte_value, 0xFF] }
             };
 
             // Determine crate path once for consistency
@@ -62,7 +62,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                     type Response = #crate_path::command::InquiryResponse;
                     const MAX_SIZE: usize = 5;
 
-                    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
+                    fn encode_into(&self, camera_id: #crate_path::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
                         let bytes = #bytes_expr;
                         let len = bytes.len();
                         if buffer.len() < len {

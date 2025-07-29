@@ -135,7 +135,11 @@ impl EncodeVisca for Sharpness {
     type Response = ();
     const MAX_SIZE: usize = 9;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -149,7 +153,7 @@ impl EncodeVisca for Sharpness {
                     SharpnessMode::Auto => 0x02,
                     SharpnessMode::Manual => 0x03,
                 };
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x05;
@@ -158,7 +162,7 @@ impl EncodeVisca for Sharpness {
                 Ok(6)
             }
             Self::Reset => {
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x02;
@@ -167,7 +171,7 @@ impl EncodeVisca for Sharpness {
                 Ok(6)
             }
             Self::Up => {
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x02;
@@ -176,7 +180,7 @@ impl EncodeVisca for Sharpness {
                 Ok(6)
             }
             Self::Down => {
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x02;
@@ -202,7 +206,7 @@ impl EncodeVisca for Sharpness {
                     });
                 }
 
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x42;
@@ -269,16 +273,16 @@ impl ContrastCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::types::SharpnessLevel;
-    use crate::constants::CameraVariant;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::constants::CameraVariant;
+    use crate::types::SharpnessLevel;
 
     #[test]
     fn test_sharpness_mode() {
         // Test Auto mode
         let cmd = Sharpness::Mode(SharpnessMode::Auto);
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x05, 0x02, 0xFF]
         );
@@ -288,7 +292,7 @@ mod tests {
         // Test Manual mode
         let cmd = Sharpness::Mode(SharpnessMode::Manual);
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x05, 0x03, 0xFF]
         );
@@ -298,7 +302,7 @@ mod tests {
     fn test_sharpness_reset() {
         let cmd = Sharpness::Reset;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x02, 0x00, 0xFF]
         );
@@ -311,7 +315,7 @@ mod tests {
         // Test Up
         let cmd = Sharpness::Up;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x02, 0x02, 0xFF]
         );
@@ -319,7 +323,7 @@ mod tests {
         // Test Down
         let cmd = Sharpness::Down;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x02, 0x03, 0xFF]
         );
@@ -331,7 +335,7 @@ mod tests {
         for value in 0..=11 {
             let cmd = Sharpness::SetLevel { value };
             let bytes = cmd
-                .try_into_vec()
+                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x42, 0x00, 0x00]);
@@ -375,7 +379,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = LuminanceCommand::new(level);
             let bytes = cmd
-                .try_into_vec()
+                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             assert_eq!(
                 bytes,
@@ -408,7 +412,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = ContrastCommand::new(level);
             let bytes = cmd
-                .try_into_vec()
+                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             assert_eq!(
                 bytes,
@@ -474,32 +478,44 @@ mod tests {
     fn test_edge_cases() {
         // Test boundary values for sharpness
         let cmd = Sharpness::SetLevel { value: 0 };
-        assert!(cmd.try_into_vec().is_ok());
+        assert!(cmd
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .is_ok());
 
         let cmd = Sharpness::SetLevel { value: 11 };
-        assert!(cmd.try_into_vec().is_ok());
+        assert!(cmd
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .is_ok());
 
         // Test boundary values for luminance
         let level =
             LuminanceLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = LuminanceCommand { value: level };
-        assert!(cmd.try_into_vec().is_ok());
+        assert!(cmd
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .is_ok());
 
         let level =
             LuminanceLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = LuminanceCommand { value: level };
-        assert!(cmd.try_into_vec().is_ok());
+        assert!(cmd
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .is_ok());
 
         // Test boundary values for contrast
         let level =
             ContrastLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = ContrastCommand { value: level };
-        assert!(cmd.try_into_vec().is_ok());
+        assert!(cmd
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .is_ok());
 
         let level =
             ContrastLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = ContrastCommand { value: level };
-        assert!(cmd.try_into_vec().is_ok());
+        assert!(cmd
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .is_ok());
     }
 
     #[test]
@@ -507,14 +523,14 @@ mod tests {
         // Test that SetLevel command properly encodes value as nibbles
         let cmd = Sharpness::SetLevel { value: 0x0B };
         let bytes = cmd
-            .try_into_vec()
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x0B); // Low nibble
 
         let cmd = Sharpness::SetLevel { value: 0x05 };
         let bytes = cmd
-            .try_into_vec()
+            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x05); // Low nibble

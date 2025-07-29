@@ -2,6 +2,13 @@
 //!
 //! This module provides commands for controlling tally lights on compatible cameras.
 //! Tally lights indicate when a camera is active or being used.
+//!
+//! # VISCA Compliance
+//! Basic red tally light control is part of baseline VISCA.
+//!
+//! ## Vendor-Specific Features
+//! - Green tally light (`GreenOn`, `GreenOff`) - Sony FR7 specific
+//! - Flash/solid modes (`Flash`, `On`, `Off`) - PTZOptics specific
 
 use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
@@ -107,7 +114,11 @@ impl EncodeVisca for TallyInquiry {
     type Response = ();
     const MAX_SIZE: usize = 7;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -115,7 +126,7 @@ impl EncodeVisca for TallyInquiry {
             });
         }
 
-        buffer[0] = 0x81;
+        buffer[0] = camera_id.to_address_byte();
         buffer[1] = 0x09;
         buffer[2] = 0x7E;
         buffer[3] = 0x01;

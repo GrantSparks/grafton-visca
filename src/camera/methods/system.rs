@@ -2,7 +2,10 @@
 
 use crate::{
     camera::Camera,
-    command::{system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket}, Response},
+    command::{
+        system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket},
+        Response,
+    },
     Error,
 };
 

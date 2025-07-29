@@ -43,7 +43,11 @@ impl EncodeVisca for NDFilterCommand {
     type Response = ();
     const MAX_SIZE: usize = 16;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        _camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         let len = self.bytes.len();
         if buffer.len() < len {
             return Err(Error::BufferTooSmall {

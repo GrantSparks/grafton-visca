@@ -13,17 +13,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{
+    camera_id::CameraId,
     capabilities::{ProfileIntrospection, ProfileMetadata, ProtocolStyle},
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
     socket_manager::SocketManagerHandle,
-    transport::core::Transport,
+    transport::{core::Transport, TransportEnvelope},
 };
 
 #[cfg(feature = "async")]
 use crate::executor::Spawner;
 
 use super::profiles::{GenericVisca, PTZOpticsG2, SonyFR7};
+
+// Ergonomic camera module - commented out for demo
+// pub mod ergonomic_camera;
 
 /// Camera profile wrapper that erases the concrete profile type.
 ///
@@ -205,7 +209,7 @@ where
 /// ```no_run
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// use grafton_visca::{Camera, CameraModel};
-/// use grafton_visca::command::power::PowerCommand;
+/// use grafton_visca::prelude::*;
 /// #[cfg(feature = "tokio")]
 /// use grafton_visca::transport::tokio::Tcp;
 ///
@@ -246,8 +250,9 @@ where
 pub struct Camera {
     profile: CameraProfile,
     transport: Arc<dyn UnifiedTransport>,
-    address: u8,
+    camera_id: CameraId,
     socket_manager: Option<SocketManagerHandle>,
+    envelope: TransportEnvelope,
     #[cfg(feature = "async")]
     spawner: Option<Arc<dyn Spawner>>,
 }
@@ -257,8 +262,9 @@ impl Clone for Camera {
         Self {
             profile: self.profile,
             transport: Arc::clone(&self.transport),
-            address: self.address,
+            camera_id: self.camera_id,
             socket_manager: self.socket_manager.clone(),
+            envelope: TransportEnvelope::new(self.profile.protocol_style()),
             #[cfg(feature = "async")]
             spawner: self.spawner.clone(),
         }
@@ -269,7 +275,7 @@ impl std::fmt::Debug for Camera {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Camera")
             .field("profile", &self.profile)
-            .field("address", &self.address)
+            .field("camera_id", &self.camera_id)
             .field("transport", &"<dyn UnifiedTransport>")
             .field("socket_manager", &self.socket_manager.is_some())
             .finish()
@@ -343,13 +349,14 @@ impl Camera {
         for<'a> T::RecvFut<'a>: Send,
     {
         let profile = profile.to_profile();
-        let address = profile.default_address();
+        let camera_id = CameraId::new(profile.default_address()).unwrap_or(CameraId::CAMERA_1);
         let transport = Arc::new(AsyncTransportWrapper { transport });
 
         Self {
+            envelope: TransportEnvelope::new(profile.protocol_style()),
             profile,
             transport,
-            address,
+            camera_id,
             socket_manager: None,
             #[cfg(feature = "async")]
             spawner: None,
@@ -370,14 +377,15 @@ impl Camera {
         for<'a> T::RecvFut<'a>: Send,
     {
         let profile = profile.to_profile();
-        let address = profile.default_address();
+        let camera_id = CameraId::new(profile.default_address()).unwrap_or(CameraId::CAMERA_1);
         let transport = Arc::new(AsyncTransportWrapper { transport });
         let spawner: Option<Arc<dyn Spawner>> = Some(Arc::new(spawner));
 
         let mut camera = Self {
+            envelope: TransportEnvelope::new(profile.protocol_style()),
             profile,
             transport,
-            address,
+            camera_id,
             socket_manager: None,
             spawner,
         };
@@ -402,9 +410,19 @@ impl Camera {
         self.profile.capability_summary()
     }
 
-    /// Set the VISCA address for this camera.
-    pub fn set_address(&mut self, address: u8) {
-        self.address = address;
+    /// Set the camera ID for this camera.
+    ///
+    /// # Errors
+    /// Returns an error if the ID is not in the valid range (1-8).
+    pub fn set_camera_id(&mut self, id: u8) -> Result<(), Error> {
+        self.camera_id = CameraId::new(id)?;
+        Ok(())
+    }
+
+    /// Get the current camera ID.
+    #[must_use]
+    pub fn camera_id(&self) -> CameraId {
+        self.camera_id
     }
 
     /// Initialize the socket manager for this camera.
@@ -435,6 +453,7 @@ impl Camera {
                 transport,
                 command_receiver,
                 profile,
+                self.camera_id,
             );
 
             if let Some(spawner) = &self.spawner {
@@ -483,7 +502,7 @@ impl Camera {
     /// Get the current VISCA address.
     #[must_use]
     pub fn address(&self) -> u8 {
-        self.address
+        self.camera_id.id()
     }
 
     /// Send a command asynchronously and wait for response.
@@ -515,7 +534,7 @@ impl Camera {
     {
         // Get command bytes using EncodeVisca
         let mut buffer = [0u8; 64]; // Use a reasonable max size
-        let size = command.encode_into(&mut buffer)?;
+        let size = command.encode_into(self.camera_id, &mut buffer)?;
         let mut cmd_bytes = buffer[..size].to_vec();
 
         // Add VISCA terminator if not present
@@ -523,23 +542,14 @@ impl Camera {
             cmd_bytes.push(crate::command::const_encoding::VISCA_TERMINATOR);
         }
 
-        // Apply protocol-specific framing if needed
-        let framed_bytes = match self.profile.protocol_style() {
-            ProtocolStyle::RawVisca => cmd_bytes,
-            ProtocolStyle::SonyEncapsulated { use_sequence: _ } => {
-                // TODO: Implement Sony encapsulation
-                log::warn!("Sony encapsulation not yet implemented, using raw VISCA");
-                cmd_bytes
-            }
-        };
+        // Apply protocol-specific framing using transport envelope
+        let is_inquiry = command.response_type().is_some();
+        let framed_bytes = self.envelope.frame_command(&cmd_bytes, is_inquiry);
 
         log::debug!(
             "Sending VISCA command via socket manager: {:02X?}",
             framed_bytes
         );
-
-        // Determine if this is an inquiry command
-        let is_inquiry = command.response_type().is_some();
 
         // Get timeout category from command
         let category = command.timeout_kind();
@@ -557,7 +567,7 @@ impl Camera {
     {
         // Get command bytes using EncodeVisca
         let mut buffer = [0u8; 64]; // Use a reasonable max size
-        let size = command.encode_into(&mut buffer)?;
+        let size = command.encode_into(self.camera_id, &mut buffer)?;
         let mut cmd_bytes = buffer[..size].to_vec();
 
         // Add VISCA terminator if not present
@@ -566,16 +576,9 @@ impl Camera {
             cmd_bytes.push(crate::command::const_encoding::VISCA_TERMINATOR);
         }
 
-        // Apply protocol-specific framing if needed
-        let framed_bytes = match self.profile.protocol_style() {
-            ProtocolStyle::RawVisca => cmd_bytes,
-            ProtocolStyle::SonyEncapsulated { use_sequence: _ } => {
-                // TODO: Implement Sony encapsulation
-                // For now, just use raw bytes
-                log::warn!("Sony encapsulation not yet implemented, using raw VISCA");
-                cmd_bytes
-            }
-        };
+        // Apply protocol-specific framing using transport envelope
+        let is_inquiry = command.response_type().is_some();
+        let framed_bytes = self.envelope.frame_command(&cmd_bytes, is_inquiry);
 
         log::debug!("Sending VISCA command: {:02X?}", framed_bytes);
 
@@ -619,7 +622,11 @@ impl Camera {
         // For now, just receive without timeout
 
         match self.transport.recv().await {
-            Ok(bytes) => Response::parse(&bytes),
+            Ok(bytes) => {
+                // Extract VISCA payload from envelope if needed
+                let visca_bytes = self.envelope.extract_response(&bytes)?;
+                Response::parse(&visca_bytes)
+            }
             Err(e) => {
                 // Preserve the original error type
                 if e.to_string().contains("Operation timed out") {
@@ -641,8 +648,14 @@ impl Camera {
         loop {
             match self.transport.recv().await {
                 Ok(bytes) => {
+                    // Extract VISCA payload from envelope if needed
+                    let visca_bytes = match self.envelope.extract_response(&bytes) {
+                        Ok(payload) => payload,
+                        Err(e) => return Err(e),
+                    };
+
                     // First try to parse as a regular response
-                    match Response::parse(&bytes) {
+                    match Response::parse(&visca_bytes) {
                         Ok(Response::CmdAck) => {
                             // Skip ACK for inquiry commands and wait for the actual response
                             log::debug!("Skipping ACK response for inquiry command");
@@ -660,7 +673,7 @@ impl Camera {
                         Err(_) => {
                             // If regular parse fails, it might be an inquiry response
                             // Try parsing with the expected type
-                            match Response::parse_with_type(&bytes, &expected_type) {
+                            match Response::parse_with_type(&visca_bytes, &expected_type) {
                                 Ok(response) => return Ok(response),
                                 Err(e) => return Err(e),
                             }
@@ -815,6 +828,7 @@ impl Camera {
     }
 
     /// Convert degrees to pan/tilt units.
+    #[must_use]
     pub fn degrees_to_units(
         &self,
         pan_deg: crate::units::Degrees,
@@ -846,6 +860,7 @@ impl Camera {
     }
 
     /// Convert pan/tilt units to degrees.
+    #[must_use]
     pub fn units_to_degrees(
         &self,
         pan_units: i16,
@@ -969,6 +984,7 @@ impl Camera {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn blocking(self) -> crate::blocking::Camera {
         crate::blocking::Camera::new(self)
     }
@@ -977,6 +993,7 @@ impl Camera {
     ///
     /// This provides a blocking API without consuming the camera instance,
     /// allowing you to obtain both blocking and async views.
+    #[must_use]
     pub fn blocking_ref(&self) -> crate::blocking::Camera {
         crate::blocking::Camera::new(self.clone())
     }
@@ -985,6 +1002,7 @@ impl Camera {
     ///
     /// This provides an async API without consuming the camera instance,
     /// allowing you to obtain both blocking and async views.
+    #[must_use]
     pub fn async_ref(&self) -> crate::r#async::Camera {
         crate::r#async::Camera::new(self.clone())
     }
@@ -1014,6 +1032,7 @@ impl Camera {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn r#async(self) -> crate::r#async::Camera {
         crate::r#async::Camera::new(self)
     }

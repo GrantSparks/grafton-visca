@@ -3,4 +3,4 @@
 // Re-export types that are used by multiple capability traits
 pub use crate::capabilities::exposure::ShutterSpeed;
 pub use crate::capabilities::nd_filter::NDFilterMode;
-pub use crate::capabilities::white_balance::WhiteBalanceMode;
+// Note: WhiteBalanceMode is now re-exported from the command module at crate root

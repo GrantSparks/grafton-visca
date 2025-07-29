@@ -2,6 +2,13 @@
 //!
 //! This module provides commands for system-level operations including
 //! address setting, interface clearing, and command cancellation.
+//!
+//! # VISCA Compliance
+//! Core system commands like address setting and interface clearing are baseline VISCA.
+//!
+//! ## Vendor-Specific Features
+//! - `MotionSyncMode` and `MotionSyncSpeed` - PTZOptics specific (firmware 1.1.6+)
+//!   These features coordinate pan, tilt, and zoom movements for smoother preset recalls.
 
 // Standard library imports
 // (none)
@@ -47,7 +54,11 @@ impl EncodeVisca for AddressSetCommand {
     type Response = ();
     const MAX_SIZE: usize = 4;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        _camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -56,6 +67,7 @@ impl EncodeVisca for AddressSetCommand {
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        // ADDRESS_SET is always broadcast (0x88), don't use camera_id
         Ok(Self::MAX_SIZE)
     }
 
@@ -99,7 +111,11 @@ impl EncodeVisca for InterfaceClearCommand {
     type Response = ();
     const MAX_SIZE: usize = 5;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        _camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -108,6 +124,7 @@ impl EncodeVisca for InterfaceClearCommand {
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        // INTERFACE_CLEAR is always broadcast (0x88), don't use camera_id
         Ok(Self::MAX_SIZE)
     }
 
@@ -208,7 +225,11 @@ impl EncodeVisca for CommandCancelCommand {
     type Response = ();
     const MAX_SIZE: usize = 3;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -217,6 +238,8 @@ impl EncodeVisca for CommandCancelCommand {
         }
 
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
+        // Replace the camera ID for cancel command
+        buffer[0] = camera_id.to_address_byte();
         Ok(Self::MAX_SIZE)
     }
 
@@ -237,7 +260,11 @@ mod tests {
     #[test]
     fn test_address_set_command() {
         let cmd = AddressSetCommand::new();
-        assert_eq!(cmd.try_into_vec().unwrap(), vec![0x88, 0x30, 0x01, 0xFF]);
+        assert_eq!(
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            vec![0x88, 0x30, 0x01, 0xFF]
+        );
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }
@@ -246,7 +273,8 @@ mod tests {
     fn test_interface_clear_command() {
         let cmd = InterfaceClearCommand::new();
         assert_eq!(
-            cmd.try_into_vec().unwrap(),
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
             vec![0x88, 0x01, 0x00, 0x01, 0xFF]
         );
         assert!(cmd.response_type().is_none());
@@ -256,7 +284,11 @@ mod tests {
     #[test]
     fn test_command_cancel_socket1() {
         let cmd = CommandCancelCommand::new(Socket::Socket1);
-        assert_eq!(cmd.try_into_vec().unwrap(), vec![0x81, 0x21, 0xFF]);
+        assert_eq!(
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            vec![0x81, 0x21, 0xFF]
+        );
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }
@@ -264,7 +296,11 @@ mod tests {
     #[test]
     fn test_command_cancel_socket2() {
         let cmd = CommandCancelCommand::new(Socket::Socket2);
-        assert_eq!(cmd.try_into_vec().unwrap(), vec![0x81, 0x22, 0xFF]);
+        assert_eq!(
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            vec![0x81, 0x22, 0xFF]
+        );
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }

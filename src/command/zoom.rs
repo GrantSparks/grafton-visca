@@ -29,7 +29,11 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, ResponseType},
+    command::{
+        const_encoding::{constants, CommandBuilder, DEFAULT_ADDRESS},
+        encode_visca::EncodeVisca,
+        ResponseType,
+    },
     error::Error,
     timeout::CommandCategory,
     types::{SpeedLevel, ZoomPosition},
@@ -89,97 +93,52 @@ impl EncodeVisca for Zoom {
     type Response = ();
     const MAX_SIZE: usize = 10;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         use crate::command::const_encoding::constants::zoom;
 
         match self {
             Self::Stop => {
-                let bytes = zoom::STOP;
-                if buffer.len() < bytes.len() {
-                    return Err(Error::BufferTooSmall {
-                        required: bytes.len(),
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[..bytes.len()].copy_from_slice(bytes);
-                Ok(bytes.len())
+                let mut builder = CommandBuilder::<6>::from_prefix(zoom::STOP);
+                builder.with_camera_id(camera_id);
+                builder.copy_to(buffer)
             }
             Self::TeleStd => {
-                let bytes = zoom::TELE_STD;
-                if buffer.len() < bytes.len() {
-                    return Err(Error::BufferTooSmall {
-                        required: bytes.len(),
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[..bytes.len()].copy_from_slice(bytes);
-                Ok(bytes.len())
+                let mut builder = CommandBuilder::<6>::from_prefix(zoom::TELE_STD);
+                builder.with_camera_id(camera_id);
+                builder.copy_to(buffer)
             }
             Self::WideStd => {
-                let bytes = zoom::WIDE_STD;
-                if buffer.len() < bytes.len() {
-                    return Err(Error::BufferTooSmall {
-                        required: bytes.len(),
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[..bytes.len()].copy_from_slice(bytes);
-                Ok(bytes.len())
+                let mut builder = CommandBuilder::<6>::from_prefix(zoom::WIDE_STD);
+                builder.with_camera_id(camera_id);
+                builder.copy_to(buffer)
             }
             Self::TeleVariable(speed) => {
                 // Tele variable: 81 01 04 07 2p FF where p is speed
-                let required = 6;
-                if buffer.len() < required {
-                    return Err(Error::BufferTooSmall {
-                        required,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = 0x81;
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x07;
-                buffer[4] = 0x20 | (speed.0 & 0x0F);
-                buffer[5] = 0xFF;
-                Ok(required)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x07]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x20 | (speed.0 & 0x0F)).finalize();
+                builder.copy_to(buffer)
             }
             Self::WideVariable(speed) => {
                 // Wide variable: 81 01 04 07 3p FF where p is speed
-                let required = 6;
-                if buffer.len() < required {
-                    return Err(Error::BufferTooSmall {
-                        required,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = 0x81;
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x07;
-                buffer[4] = 0x30 | (speed.0 & 0x0F);
-                buffer[5] = 0xFF;
-                Ok(required)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x07]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x30 | (speed.0 & 0x0F)).finalize();
+                builder.copy_to(buffer)
             }
             Self::Position(position) => {
                 // Direct position: 81 01 04 47 0p 0q 0r 0s FF
-                let required = 9;
-                if buffer.len() < required {
-                    return Err(Error::BufferTooSmall {
-                        required,
-                        actual: buffer.len(),
-                    });
-                }
-                let nibbles = position_to_nibbles(position.value());
-                buffer[0] = 0x81;
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x47;
-                buffer[4] = nibbles[0];
-                buffer[5] = nibbles[1];
-                buffer[6] = nibbles[2];
-                buffer[7] = nibbles[3];
-                buffer[8] = 0xFF;
-                Ok(required)
+                let mut builder =
+                    CommandBuilder::<9>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x47]);
+                builder.with_camera_id(camera_id);
+                builder.push_visca_u14(position.value()).finalize();
+                builder.copy_to(buffer)
             }
         }
     }
@@ -194,18 +153,6 @@ impl EncodeVisca for Zoom {
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Movement
     }
-}
-
-/// Converts a 16-bit position value into an array of 4 nibbles.
-///
-/// This is a common pattern in VISCA commands for encoding position data.
-const fn position_to_nibbles(position: u16) -> [u8; 4] {
-    [
-        ((position >> 12) & 0x0F) as u8,
-        ((position >> 8) & 0x0F) as u8,
-        ((position >> 4) & 0x0F) as u8,
-        (position & 0x0F) as u8,
-    ]
 }
 
 /// Digital zoom control state.
@@ -226,16 +173,16 @@ visca_command! {
     enum DigitalZoomCommand {
         /// Enable digital zoom.
         On => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::zoom::DIGITAL_ZOOM_PREFIX)
+            let cmd = CommandBuilder::<6>::new()
+                .append(constants::zoom::DIGITAL_ZOOM_PREFIX)
                 .push(0x02)
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
         },
         /// Disable digital zoom.
         Off => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::zoom::DIGITAL_ZOOM_PREFIX)
+            let cmd = CommandBuilder::<6>::new()
+                .append(constants::zoom::DIGITAL_ZOOM_PREFIX)
                 .push(0x03)
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())

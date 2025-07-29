@@ -8,6 +8,7 @@ use crate::capabilities::ValidationError;
 ///
 /// This trait defines the constants and capabilities for exposure settings
 /// including iris, shutter speed, gain, and exposure compensation.
+#[allow(dead_code)]
 pub trait Exposure {
     /// Valid range for iris values in VISCA units.
     const IRIS_RANGE: Range<u16>;
@@ -37,6 +38,7 @@ pub trait Exposure {
 }
 
 /// Extension trait that adds validation methods to cameras with exposure support.
+#[allow(dead_code)]
 pub trait ExposureExt: Exposure {
     /// Validate iris value is within range.
     fn validate_iris(&self, iris: u16) -> Result<u16, ValidationError> {
@@ -140,33 +142,8 @@ impl ShutterSpeed {
     }
 }
 
-/// Exposure modes supported by cameras.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExposureMode {
-    /// Fully automatic exposure.
-    Auto,
-    /// Manual control of all parameters.
-    Manual,
-    /// Shutter priority - set shutter, auto iris/gain.
-    ShutterPriority,
-    /// Iris priority - set iris, auto shutter/gain.
-    IrisPriority,
-    /// Bright mode - optimized for bright conditions.
-    Bright,
-}
-
-/// Dynamic range levels for cameras that support WDR.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DynamicRangeLevel {
-    /// WDR disabled.
-    Off,
-    /// Low WDR effect.
-    Low,
-    /// Medium WDR effect.
-    Medium,
-    /// High WDR effect.
-    High,
-}
+// Note: ExposureMode and DynamicRangeLevel enums are defined in the command module
+// and re-exported from the crate root. This avoids duplication.
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]

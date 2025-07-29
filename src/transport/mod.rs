@@ -39,6 +39,7 @@
 
 // Transport trait and utilities
 pub mod core;
+pub mod envelope;
 pub mod transport_kind;
 
 pub use core::Transport;
@@ -52,8 +53,9 @@ pub mod blocking;
 // Re-export transport implementations
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 
-// VISCA protocol
+// VISCA protocol and envelope
 pub mod visca_protocol;
+pub use envelope::TransportEnvelope;
 pub use visca_protocol::ViscaProtocol;
 
 // Tokio implementations

@@ -8,9 +8,10 @@ use std::time::Duration;
 
 use crate::capabilities::{
     Exposure, Focus, ImageProcessing, NDFilter, NDFilterMode, PanTilt, Power, Presets,
-    ProfileMetadata, ProtocolStyle, ShutterSpeed, WhiteBalance, WhiteBalanceMode, Zoom,
+    ProfileMetadata, ProtocolStyle, ShutterSpeed, WhiteBalance, Zoom,
 };
 use crate::error::Error;
+use crate::WhiteBalanceMode;
 
 // Import exposure constants
 mod exposure_constants {
@@ -58,7 +59,6 @@ const PTZOPTICS_G2_WB_MODES: &[WhiteBalanceMode] = &[
     WhiteBalanceMode::Outdoor,
     WhiteBalanceMode::OnePush,
     WhiteBalanceMode::Manual,
-    WhiteBalanceMode::Daylight,
 ];
 
 const GENERIC_WB_MODES: &[WhiteBalanceMode] = &[

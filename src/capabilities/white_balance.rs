@@ -3,6 +3,7 @@
 use std::ops::Range;
 
 use crate::capabilities::ValidationError;
+use crate::WhiteBalanceMode;
 
 /// Trait for cameras that support white balance control.
 ///
@@ -148,28 +149,8 @@ pub trait WhiteBalanceExt: WhiteBalance {
 // Automatic implementation for all types that support white balance
 impl<T: WhiteBalance> WhiteBalanceExt for T {}
 
-/// White balance modes supported by VISCA cameras.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WhiteBalanceMode {
-    /// Automatic white balance.
-    Auto,
-    /// Indoor lighting mode.
-    Indoor,
-    /// Outdoor lighting mode.
-    Outdoor,
-    /// One-push white balance mode.
-    OnePush,
-    /// Manual white balance control.
-    Manual,
-    /// Daylight preset (typically 5600K).
-    Daylight,
-    /// Fluorescent lighting preset.
-    Fluorescent,
-    /// Tungsten/incandescent lighting preset.
-    Tungsten,
-    /// Sodium lamp lighting preset.
-    Sodium,
-}
+// Note: WhiteBalanceMode enum is defined in the command module
+// and re-exported from the crate root. This avoids duplication.
 
 #[cfg(test)]
 mod tests {
@@ -200,7 +181,10 @@ mod tests {
 
         assert!(camera.validate_wb_mode(WhiteBalanceMode::Auto).is_ok());
         assert!(camera.validate_wb_mode(WhiteBalanceMode::Manual).is_ok());
-        assert!(camera.validate_wb_mode(WhiteBalanceMode::Tungsten).is_err());
+        // ColorTemperature mode is not in TEST_WB_MODES, so it should fail
+        assert!(camera
+            .validate_wb_mode(WhiteBalanceMode::ColorTemperature)
+            .is_err());
     }
 
     #[test]

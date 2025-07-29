@@ -3,8 +3,8 @@
 use crate::{
     camera::Camera,
     command::{
-        inquiry::*, AntiFlickerMode, AutoFocusSensitivity, ExposureMode, FocusZone,
-        InquiryResponse, Response, SharpnessMode, WhiteBalanceMode,
+        inquiry::*, AutoFocusSensitivity, ExposureMode, FocusZone, InquiryResponse, Response,
+        SharpnessMode, WhiteBalanceMode,
     },
     units::Degrees,
     Error,
@@ -70,9 +70,6 @@ pub trait InquiryOps: Sized {
     /// Get the current color temperature in Kelvin.
     async fn get_color_temperature(&self) -> Result<u16, Error>;
 
-    /// Get the anti-flicker mode.
-    async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error>;
-
     /// Get the gamma level.
     async fn get_gamma(&self) -> Result<u8, Error>;
 
@@ -102,6 +99,19 @@ pub trait InquiryOps: Sized {
 
     /// Check if black and white mode is enabled.
     async fn get_black_white(&self) -> Result<bool, Error>;
+
+    /// Get the current video resolution mode.
+    async fn get_resolution(&self) -> Result<crate::command::resolution::ResolutionMode, Error>;
+
+    /// Get the current picture effect mode.
+    async fn get_picture_effect(
+        &self,
+    ) -> Result<crate::command::resolution::PictureEffectMode, Error>;
+
+    /// Get the current ND filter position (Sony FR7 only).
+    async fn get_nd_filter_position(
+        &self,
+    ) -> Result<crate::command::resolution::NDFilterPosition, Error>;
 }
 
 /// Inquiry operations (blocking).
@@ -164,9 +174,6 @@ pub trait InquiryOpsBlocking: Sized {
     /// Get the current color temperature in Kelvin.
     fn get_color_temperature(&self) -> Result<u16, Error>;
 
-    /// Get the anti-flicker mode.
-    fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error>;
-
     /// Get the gamma level.
     fn get_gamma(&self) -> Result<u8, Error>;
 
@@ -196,6 +203,16 @@ pub trait InquiryOpsBlocking: Sized {
 
     /// Check if black and white mode is enabled.
     fn get_black_white(&self) -> Result<bool, Error>;
+
+    /// Get the current video resolution mode.
+    fn get_resolution(&self) -> Result<crate::command::resolution::ResolutionMode, Error>;
+
+    /// Get the current picture effect mode.
+    fn get_picture_effect(&self) -> Result<crate::command::resolution::PictureEffectMode, Error>;
+
+    /// Get the current ND filter position (Sony FR7 only).
+    fn get_nd_filter_position(&self)
+        -> Result<crate::command::resolution::NDFilterPosition, Error>;
 }
 
 // Async implementation
@@ -204,7 +221,7 @@ impl InquiryOps for Camera {
         let cmd = PowerInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
+            Response::Inquiry(InquiryResponse::Power { on }) => Ok(on),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -214,7 +231,7 @@ impl InquiryOps for Camera {
         let cmd = ZoomPositionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::ZoomPosition { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -224,7 +241,7 @@ impl InquiryOps for Camera {
         let cmd = FocusPositionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::FocusPosition { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -234,7 +251,7 @@ impl InquiryOps for Camera {
         let cmd = FocusNearLimitInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::FocusNearLimit { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -244,7 +261,7 @@ impl InquiryOps for Camera {
         let cmd = FocusZoneInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
+            Response::Inquiry(InquiryResponse::FocusZone { zone }) => Ok(zone),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -254,7 +271,7 @@ impl InquiryOps for Camera {
         let cmd = AutoFocusSensitivityInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
+            Response::Inquiry(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
                 Ok(sensitivity)
             }
             Response::Error(e) => Err(e),
@@ -266,7 +283,7 @@ impl InquiryOps for Camera {
         let cmd = ExposureModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
+            Response::Inquiry(InquiryResponse::ExposureMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -276,31 +293,29 @@ impl InquiryOps for Camera {
         let cmd = ExposureCompensationInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
+            Response::Inquiry(InquiryResponse::ExposureCompensation { value }) => Ok(value),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
-        // TODO: ExposureCompensationEnabledInquiry struct needs to be defined
-        // let cmd = ExposureCompensationEnabledInquiry;
-        // let response = self.send_command(&cmd).await?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::ExposureCompensationEnabled { enabled }) => {
-        //         Ok(enabled)
-        //     }
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = ExposureCompensationModeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => {
+                Ok(on)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     async fn get_iris(&self) -> Result<u8, Error> {
         let cmd = IrisInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::Iris { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -310,7 +325,7 @@ impl InquiryOps for Camera {
         let cmd = ShutterInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::Shutter { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -320,7 +335,7 @@ impl InquiryOps for Camera {
         let cmd = GainInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::GainLevel { gain }) => Ok(gain),
+            Response::Inquiry(InquiryResponse::GainLevel { gain }) => Ok(gain),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -330,7 +345,7 @@ impl InquiryOps for Camera {
         let cmd = GainLimitInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
+            Response::Inquiry(InquiryResponse::GainLimit { limit }) => Ok(limit),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -340,7 +355,7 @@ impl InquiryOps for Camera {
         let cmd = WhiteBalanceModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
+            Response::Inquiry(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -350,7 +365,7 @@ impl InquiryOps for Camera {
         let cmd = RedGainInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
+            Response::Inquiry(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -360,97 +375,77 @@ impl InquiryOps for Camera {
         let cmd = BlueGainInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
+            Response::Inquiry(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     async fn get_red_tuning(&self) -> Result<u8, Error> {
-        // TODO: RedTuningInquiry struct needs to be defined
-        // let cmd = RedTuningInquiry;
-        // let response = self.send_command(&cmd).await?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::RedTuning { value }) => Ok(value),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = RedTuningInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::RedTuning { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     async fn get_blue_tuning(&self) -> Result<u8, Error> {
-        // TODO: BlueTuningInquiry struct needs to be defined
-        // let cmd = BlueTuningInquiry;
-        // let response = self.send_command(&cmd).await?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::BlueTuning { value }) => Ok(value),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = BlueTuningInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::BlueTuning { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     async fn get_color_temperature(&self) -> Result<u16, Error> {
         let cmd = ColorTemperatureInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
-                Ok(temperature)
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    async fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
-        let cmd = AntiFlickerInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
+            Response::Inquiry(InquiryResponse::ColorTemperature { temperature }) => Ok(temperature),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     async fn get_gamma(&self) -> Result<u8, Error> {
-        // TODO: GammaInquiry struct needs to be defined
-        // let cmd = GammaInquiry;
-        // let response = self.send_command(&cmd).await?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::Gamma { value }) => Ok(value),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = GammaInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::Gamma { value }) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     async fn get_contrast(&self) -> Result<u8, Error> {
         let cmd = ContrastInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Contrast(value)) => Ok(value),
+            Response::Inquiry(InquiryResponse::Contrast(value)) => Ok(value),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     async fn get_brightness(&self) -> Result<u8, Error> {
-        // TODO: BrightnessInquiry struct needs to be defined
-        // let cmd = BrightnessInquiry;
-        // let response = self.send_command(&cmd).await?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::Brightness { value }) => Ok(value),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = BrightInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::Bright { position }) => Ok(position as u8),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     async fn get_sharpness(&self) -> Result<u8, Error> {
         let cmd = SharpnessInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
+            Response::Inquiry(InquiryResponse::Sharpness { value }) => Ok(value),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -460,7 +455,7 @@ impl InquiryOps for Camera {
         let cmd = SharpnessModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            Response::Inquiry(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -470,7 +465,7 @@ impl InquiryOps for Camera {
         let cmd = SaturationInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
+            Response::Inquiry(InquiryResponse::Saturation { level }) => Ok(level),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -480,7 +475,7 @@ impl InquiryOps for Camera {
         let cmd = HueInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
+            Response::Inquiry(InquiryResponse::Hue { hue }) => Ok(hue),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -490,7 +485,7 @@ impl InquiryOps for Camera {
         let cmd = NoiseReduction2DInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
+            Response::Inquiry(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -500,7 +495,7 @@ impl InquiryOps for Camera {
         let cmd = NoiseReduction3DInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
+            Response::Inquiry(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -510,7 +505,47 @@ impl InquiryOps for Camera {
         let cmd = BlackWhiteInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => Ok(on),
+            Response::Inquiry(InquiryResponse::BlackWhite { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_resolution(&self) -> Result<crate::command::resolution::ResolutionMode, Error> {
+        let cmd = ResolutionInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::Resolution(mode_byte)) => Ok(
+                crate::command::resolution::ResolutionMode::from_byte(mode_byte),
+            ),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_picture_effect(
+        &self,
+    ) -> Result<crate::command::resolution::PictureEffectMode, Error> {
+        let cmd = PictureEffectInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::PictureEffect { effect }) => Ok(
+                crate::command::resolution::PictureEffectMode::from_byte(effect),
+            ),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_nd_filter_position(
+        &self,
+    ) -> Result<crate::command::resolution::NDFilterPosition, Error> {
+        let cmd = NdFilterInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
+                crate::command::resolution::NDFilterPosition::from_byte(position),
+            ),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -523,7 +558,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = PowerInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => Ok(on),
+            Response::Inquiry(InquiryResponse::Power { on }) => Ok(on),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -533,7 +568,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = ZoomPositionInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ZoomPosition { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::ZoomPosition { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -543,7 +578,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = FocusPositionInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::FocusPosition { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::FocusPosition { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -553,7 +588,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = FocusNearLimitInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::FocusNearLimit { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::FocusNearLimit { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -563,7 +598,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = FocusZoneInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::FocusZone { zone }) => Ok(zone),
+            Response::Inquiry(InquiryResponse::FocusZone { zone }) => Ok(zone),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -573,7 +608,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = AutoFocusSensitivityInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
+            Response::Inquiry(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
                 Ok(sensitivity)
             }
             Response::Error(e) => Err(e),
@@ -585,7 +620,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = ExposureModeInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ExposureMode { mode }) => Ok(mode),
+            Response::Inquiry(InquiryResponse::ExposureMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -595,31 +630,29 @@ impl InquiryOpsBlocking for Camera {
         let cmd = ExposureCompensationInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ExposureCompensation { value }) => Ok(value),
+            Response::Inquiry(InquiryResponse::ExposureCompensation { value }) => Ok(value),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
-        // TODO: ExposureCompensationEnabledInquiry struct needs to be defined
-        // let cmd = ExposureCompensationEnabledInquiry;
-        // let response = self.send_command_blocking(&cmd)?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::ExposureCompensationEnabled { enabled }) => {
-        //         Ok(enabled)
-        //     }
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = ExposureCompensationModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => {
+                Ok(on)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     fn get_iris(&self) -> Result<u8, Error> {
         let cmd = IrisInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Iris { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::Iris { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -629,7 +662,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = ShutterInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Shutter { position }) => Ok(position),
+            Response::Inquiry(InquiryResponse::Shutter { position }) => Ok(position),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -639,7 +672,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = GainInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::GainLevel { gain }) => Ok(gain),
+            Response::Inquiry(InquiryResponse::GainLevel { gain }) => Ok(gain),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -649,7 +682,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = GainLimitInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::GainLimit { limit }) => Ok(limit),
+            Response::Inquiry(InquiryResponse::GainLimit { limit }) => Ok(limit),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -659,7 +692,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = WhiteBalanceModeInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
+            Response::Inquiry(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -669,7 +702,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = RedGainInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
+            Response::Inquiry(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -679,97 +712,77 @@ impl InquiryOpsBlocking for Camera {
         let cmd = BlueGainInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
+            Response::Inquiry(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     fn get_red_tuning(&self) -> Result<u8, Error> {
-        // TODO: RedTuningInquiry struct needs to be defined
-        // let cmd = RedTuningInquiry;
-        // let response = self.send_command_blocking(&cmd)?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::RedTuning { value }) => Ok(value),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = RedTuningInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::RedTuning { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     fn get_blue_tuning(&self) -> Result<u8, Error> {
-        // TODO: BlueTuningInquiry struct needs to be defined
-        // let cmd = BlueTuningInquiry;
-        // let response = self.send_command_blocking(&cmd)?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::BlueTuning { value }) => Ok(value),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = BlueTuningInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::BlueTuning { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     fn get_color_temperature(&self) -> Result<u16, Error> {
         let cmd = ColorTemperatureInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::ColorTemperature { temperature }) => {
-                Ok(temperature)
-            }
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    fn get_anti_flicker(&self) -> Result<AntiFlickerMode, Error> {
-        let cmd = AntiFlickerInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::InquiryResponse(InquiryResponse::AntiFlicker { mode }) => Ok(mode),
+            Response::Inquiry(InquiryResponse::ColorTemperature { temperature }) => Ok(temperature),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     fn get_gamma(&self) -> Result<u8, Error> {
-        // TODO: GammaInquiry struct needs to be defined
-        // let cmd = GammaInquiry;
-        // let response = self.send_command_blocking(&cmd)?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::Gamma { value }) => Ok(value),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = GammaInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::Gamma { value }) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     fn get_contrast(&self) -> Result<u8, Error> {
         let cmd = ContrastInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Contrast(value)) => Ok(value),
+            Response::Inquiry(InquiryResponse::Contrast(value)) => Ok(value),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     fn get_brightness(&self) -> Result<u8, Error> {
-        // TODO: BrightnessInquiry struct needs to be defined
-        // let cmd = BrightnessInquiry;
-        // let response = self.send_command_blocking(&cmd)?;
-        // match response {
-        //     Response::InquiryResponse(InquiryResponse::Brightness { value }) => Ok(value),
-        //     Response::Error(e) => Err(e),
-        //     _ => Err(Error::UnexpectedResponseType),
-        // }
-        Err(Error::UnexpectedResponseType)
+        let cmd = BrightInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::Bright { position }) => Ok(position as u8),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
     }
 
     fn get_sharpness(&self) -> Result<u8, Error> {
         let cmd = SharpnessInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Sharpness { value }) => Ok(value),
+            Response::Inquiry(InquiryResponse::Sharpness { value }) => Ok(value),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -779,7 +792,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = SharpnessModeInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            Response::Inquiry(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -789,7 +802,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = SaturationInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Saturation { level }) => Ok(level),
+            Response::Inquiry(InquiryResponse::Saturation { level }) => Ok(level),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -799,7 +812,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = HueInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::Hue { hue }) => Ok(hue),
+            Response::Inquiry(InquiryResponse::Hue { hue }) => Ok(hue),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -809,7 +822,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = NoiseReduction2DInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
+            Response::Inquiry(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -819,7 +832,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = NoiseReduction3DInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
+            Response::Inquiry(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -829,7 +842,45 @@ impl InquiryOpsBlocking for Camera {
         let cmd = BlackWhiteInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::BlackWhite { on }) => Ok(on),
+            Response::Inquiry(InquiryResponse::BlackWhite { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_resolution(&self) -> Result<crate::command::resolution::ResolutionMode, Error> {
+        let cmd = ResolutionInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::Resolution(mode_byte)) => Ok(
+                crate::command::resolution::ResolutionMode::from_byte(mode_byte),
+            ),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_picture_effect(&self) -> Result<crate::command::resolution::PictureEffectMode, Error> {
+        let cmd = PictureEffectInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::PictureEffect { effect }) => Ok(
+                crate::command::resolution::PictureEffectMode::from_byte(effect),
+            ),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_nd_filter_position(
+        &self,
+    ) -> Result<crate::command::resolution::NDFilterPosition, Error> {
+        let cmd = NdFilterInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
+                crate::command::resolution::NDFilterPosition::from_byte(position),
+            ),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -860,9 +911,7 @@ impl PanTiltInquiryOps for Camera {
         let cmd = PanTiltPositionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
-                Ok((pan, tilt))
-            }
+            Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => Ok((pan, tilt)),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -881,9 +930,7 @@ impl PanTiltInquiryOpsBlocking for Camera {
         let cmd = PanTiltPositionInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt }) => {
-                Ok((pan, tilt))
-            }
+            Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => Ok((pan, tilt)),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }

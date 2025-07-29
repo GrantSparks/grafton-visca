@@ -43,7 +43,9 @@ impl<T: Transport> ViscaProtocol<T> {
     {
         // Get command bytes using EncodeVisca
         let mut buffer = [0u8; 64]; // Use a reasonable max size
-        let size = command.encode_into(&mut buffer)?;
+                                    // Need camera_id - this is a design issue. ViscaProtocol should have camera_id
+                                    // For now, use default Camera 1
+        let size = command.encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)?;
         let cmd_bytes = &buffer[..size];
 
         log::debug!("Sending VISCA command: {:02X?}", cmd_bytes);
@@ -147,112 +149,109 @@ impl Response {
         matches!(
             (self, expected),
             (
-                Response::InquiryResponse(InquiryResponse::Power { .. }),
+                Response::Inquiry(InquiryResponse::Power { .. }),
                 ResponseType::Power
             ) | (
-                Response::InquiryResponse(InquiryResponse::PanTiltPosition { .. }),
+                Response::Inquiry(InquiryResponse::PanTiltPosition { .. }),
                 ResponseType::PanTiltPosition,
             ) | (
-                Response::InquiryResponse(InquiryResponse::ZoomPosition { .. }),
+                Response::Inquiry(InquiryResponse::ZoomPosition { .. }),
                 ResponseType::ZoomPosition,
             ) | (
-                Response::InquiryResponse(InquiryResponse::FocusPosition { .. }),
+                Response::Inquiry(InquiryResponse::FocusPosition { .. }),
                 ResponseType::FocusPosition,
             ) | (
-                Response::InquiryResponse(InquiryResponse::FocusNearLimit { .. }),
+                Response::Inquiry(InquiryResponse::FocusNearLimit { .. }),
                 ResponseType::FocusNearLimit,
             ) | (
-                Response::InquiryResponse(InquiryResponse::FocusZone { .. }),
+                Response::Inquiry(InquiryResponse::FocusZone { .. }),
                 ResponseType::FocusZone,
             ) | (
-                Response::InquiryResponse(InquiryResponse::AutoFocusSensitivity { .. }),
+                Response::Inquiry(InquiryResponse::AutoFocusSensitivity { .. }),
                 ResponseType::AutoFocusSensitivity,
             ) | (
-                Response::InquiryResponse(InquiryResponse::ExposureMode { .. }),
+                Response::Inquiry(InquiryResponse::ExposureMode { .. }),
                 ResponseType::ExposureMode,
             ) | (
-                Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { .. }),
+                Response::Inquiry(InquiryResponse::ExposureCompensationMode { .. }),
                 ResponseType::ExposureCompensationMode,
             ) | (
-                Response::InquiryResponse(InquiryResponse::ExposureCompensation { .. }),
+                Response::Inquiry(InquiryResponse::ExposureCompensation { .. }),
                 ResponseType::ExposureCompensation,
             ) | (
-                Response::InquiryResponse(InquiryResponse::Iris { .. }),
+                Response::Inquiry(InquiryResponse::Iris { .. }),
                 ResponseType::Iris
             ) | (
-                Response::InquiryResponse(InquiryResponse::Shutter { .. }),
+                Response::Inquiry(InquiryResponse::Shutter { .. }),
                 ResponseType::Shutter
             ) | (
-                Response::InquiryResponse(InquiryResponse::Bright { .. }),
+                Response::Inquiry(InquiryResponse::Bright { .. }),
                 ResponseType::Bright,
             ) | (
-                Response::InquiryResponse(InquiryResponse::GainLevel { .. }),
+                Response::Inquiry(InquiryResponse::GainLevel { .. }),
                 ResponseType::Gain
             ) | (
-                Response::InquiryResponse(InquiryResponse::GainLimit { .. }),
+                Response::Inquiry(InquiryResponse::GainLimit { .. }),
                 ResponseType::GainLimit,
             ) | (
-                Response::InquiryResponse(InquiryResponse::AntiFlicker { .. }),
-                ResponseType::AntiFlicker,
-            ) | (
-                Response::InquiryResponse(InquiryResponse::Backlight { .. }),
+                Response::Inquiry(InquiryResponse::Backlight { .. }),
                 ResponseType::Backlight,
             ) | (
-                Response::InquiryResponse(InquiryResponse::DynamicRange { .. }),
+                Response::Inquiry(InquiryResponse::DynamicRange { .. }),
                 ResponseType::DynamicRange,
             ) | (
-                Response::InquiryResponse(InquiryResponse::WhiteBalanceMode { .. }),
+                Response::Inquiry(InquiryResponse::WhiteBalanceMode { .. }),
                 ResponseType::WhiteBalanceMode,
             ) | (
-                Response::InquiryResponse(InquiryResponse::ColorTemperature { .. }),
+                Response::Inquiry(InquiryResponse::ColorTemperature { .. }),
                 ResponseType::ColorTemperature,
             ) | (
-                Response::InquiryResponse(InquiryResponse::RedChannel { .. }),
+                Response::Inquiry(InquiryResponse::RedChannel { .. }),
                 ResponseType::RedChannel,
             ) | (
-                Response::InquiryResponse(InquiryResponse::BlueChannel { .. }),
+                Response::Inquiry(InquiryResponse::BlueChannel { .. }),
                 ResponseType::BlueChannel,
             ) | (
-                Response::InquiryResponse(InquiryResponse::Luminance { .. }),
+                Response::Inquiry(InquiryResponse::Luminance { .. }),
                 ResponseType::Luminance,
             ) | (
-                Response::InquiryResponse(InquiryResponse::Contrast { .. }),
+                Response::Inquiry(InquiryResponse::Contrast { .. }),
                 ResponseType::Contrast,
             ) | (
-                Response::InquiryResponse(InquiryResponse::Sharpness { .. }),
+                Response::Inquiry(InquiryResponse::Sharpness { .. }),
                 ResponseType::Sharpness,
             ) | (
-                Response::InquiryResponse(InquiryResponse::SharpnessMode { .. }),
+                Response::Inquiry(InquiryResponse::SharpnessMode { .. }),
                 ResponseType::SharpnessMode,
             ) | (
-                Response::InquiryResponse(InquiryResponse::Saturation { .. }),
+                Response::Inquiry(InquiryResponse::Saturation { .. }),
                 ResponseType::Saturation,
             ) | (
-                Response::InquiryResponse(InquiryResponse::Hue { .. }),
+                Response::Inquiry(InquiryResponse::Hue { .. }),
                 ResponseType::Hue,
             ) | (
-                Response::InquiryResponse(InquiryResponse::NoiseReduction2D { .. }),
+                Response::Inquiry(InquiryResponse::NoiseReduction2D { .. }),
                 ResponseType::NoiseReduction2D,
             ) | (
-                Response::InquiryResponse(InquiryResponse::NoiseReduction3D { .. }),
+                Response::Inquiry(InquiryResponse::NoiseReduction3D { .. }),
                 ResponseType::NoiseReduction3D,
             ) | (
-                Response::InquiryResponse(InquiryResponse::ImageFlip { .. }),
+                Response::Inquiry(InquiryResponse::ImageFlip { .. }),
                 ResponseType::ImageFlip,
             ) | (
-                Response::InquiryResponse(InquiryResponse::BlackWhite { .. }),
+                Response::Inquiry(InquiryResponse::BlackWhite { .. }),
                 ResponseType::BlackWhite,
             ) | (
-                Response::InquiryResponse(InquiryResponse::Version { .. }),
+                Response::Inquiry(InquiryResponse::Version { .. }),
                 ResponseType::Version,
             ) | (
-                Response::InquiryResponse(InquiryResponse::TallyRed { .. }),
+                Response::Inquiry(InquiryResponse::TallyRed { .. }),
                 ResponseType::TallyRed,
             ) | (
-                Response::InquiryResponse(InquiryResponse::TallyGreen { .. }),
+                Response::Inquiry(InquiryResponse::TallyGreen { .. }),
                 ResponseType::TallyGreen,
             ) | (
-                Response::InquiryResponse(InquiryResponse::FocusMode { .. }),
+                Response::Inquiry(InquiryResponse::FocusMode { .. }),
                 ResponseType::FocusMode,
             )
         )

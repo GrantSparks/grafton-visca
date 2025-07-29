@@ -3,6 +3,8 @@
 //! This module provides response parsing functionality for VISCA protocol responses,
 //! including ACK/completion messages, error responses, and inquiry data parsing.
 
+#![allow(dead_code)]
+
 // Standard library imports
 // (none)
 
@@ -11,7 +13,6 @@
 // Workspace / local-crate imports
 use crate::{
     command::{
-        gain::AntiFlickerMode,
         image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
         system::{MotionSyncMode, MotionSyncSpeed},
         AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, FocusZone,
@@ -33,7 +34,7 @@ pub enum Response {
     /// Command failed with an error
     Error(Error),
     /// Inquiry command response containing requested data
-    InquiryResponse(InquiryResponse),
+    Inquiry(InquiryResponse),
     /// Unknown response format with type information and raw data
     Unknown {
         /// The response type that could not be parsed
@@ -54,7 +55,7 @@ impl Response {
             Response::Completion => Ok(()),
             Response::CmdAck => Err(Error::CommandPending), // ACK means command is queued, not completed
             Response::Error(e) => Err(e),
-            Response::InquiryResponse(_) => Ok(()), // Inquiry responses are success
+            Response::Inquiry(_) => Ok(()), // Inquiry responses are success
             Response::Unknown { data, .. } => Err(Error::InvalidResponse {
                 expected: "Known response type".to_string(),
                 actual: data,
@@ -154,8 +155,6 @@ pub enum ResponseType {
     Gain,
     /// Gain limit inquiry response.
     GainLimit,
-    /// Anti-flicker mode inquiry response.
-    AntiFlicker,
     /// Backlight compensation inquiry response.
     Backlight,
     /// Dynamic range inquiry response.
@@ -208,6 +207,8 @@ pub enum ResponseType {
     RedTuning,
     /// Blue tuning level inquiry response.
     BlueTuning,
+    /// Gamma curve setting inquiry response.
+    Gamma,
     /// Auto white balance sensitivity inquiry response.
     AutoWhiteBalanceSensitivity,
     /// Motion sync mode inquiry response.
@@ -332,7 +333,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::Power {
+            Ok(Response::Inquiry(InquiryResponse::Power {
                 on: payload[0] == 0x02,
             }))
         }
@@ -341,7 +342,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::InquiryResponse(InquiryResponse::ZoomPosition {
+            Ok(Response::Inquiry(InquiryResponse::ZoomPosition {
                 position,
             }))
         }
@@ -351,16 +352,17 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             let pan = combine_nibbles_i16(&payload[0..4]);
             let tilt = combine_nibbles_i16(&payload[4..8]);
-            Ok(Response::InquiryResponse(
-                InquiryResponse::PanTiltPosition { pan, tilt },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                pan,
+                tilt,
+            }))
         }
         ResponseType::FocusPosition => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::InquiryResponse(InquiryResponse::FocusPosition {
+            Ok(Response::Inquiry(InquiryResponse::FocusPosition {
                 position,
             }))
         }
@@ -369,7 +371,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::InquiryResponse(InquiryResponse::FocusNearLimit {
+            Ok(Response::Inquiry(InquiryResponse::FocusNearLimit {
                 position,
             }))
         }
@@ -391,9 +393,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureMode {
-                mode,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::ExposureMode { mode }))
         }
         ResponseType::WhiteBalanceMode => {
             if payload.len() != 1 {
@@ -414,27 +414,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(
-                InquiryResponse::WhiteBalanceMode { mode },
-            ))
-        }
-        ResponseType::AntiFlicker => {
-            if payload.len() != 1 {
-                return Err(Error::InvalidResponseLength);
-            }
-            let mode = match payload[0] {
-                0x00 => AntiFlickerMode::Off,
-                0x01 => AntiFlickerMode::Hz50,
-                0x02 => AntiFlickerMode::Hz60,
-                _ => {
-                    return Err(Error::InvalidParameter {
-                        parameter: "anti_flicker_mode",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Unknown anti-flicker mode value".to_string(),
-                    })
-                }
-            };
-            Ok(Response::InquiryResponse(InquiryResponse::AntiFlicker {
+            Ok(Response::Inquiry(InquiryResponse::WhiteBalanceMode {
                 mode,
             }))
         }
@@ -454,9 +434,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::FocusZone {
-                zone,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::FocusZone { zone }))
         }
         ResponseType::AutoFocusSensitivity => {
             if payload.len() != 1 {
@@ -474,15 +452,15 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(
-                InquiryResponse::AutoFocusSensitivity { sensitivity },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::AutoFocusSensitivity {
+                sensitivity,
+            }))
         }
         ResponseType::ExposureCompensationMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(
+            Ok(Response::Inquiry(
                 InquiryResponse::ExposureCompensationMode {
                     on: payload[0] == 0x02,
                 },
@@ -503,15 +481,13 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::SharpnessMode {
-                mode,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::SharpnessMode { mode }))
         }
         ResponseType::BlackWhite => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::BlackWhite {
+            Ok(Response::Inquiry(InquiryResponse::BlackWhite {
                 on: payload[0] == 0x04,
             }))
         }
@@ -519,7 +495,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::GainLimit {
+            Ok(Response::Inquiry(InquiryResponse::GainLimit {
                 limit: payload[0],
             }))
         }
@@ -527,7 +503,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::RedChannel {
+            Ok(Response::Inquiry(InquiryResponse::RedChannel {
                 gain: payload[0] as i8 - 10,
             }))
         }
@@ -535,7 +511,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::BlueChannel {
+            Ok(Response::Inquiry(InquiryResponse::BlueChannel {
                 gain: payload[0] as i8 - 10,
             }))
         }
@@ -544,36 +520,30 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let value = combine_nibbles_u8(&payload[2..4]);
-            Ok(Response::InquiryResponse(InquiryResponse::Sharpness {
-                value,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::Sharpness { value }))
         }
         ResponseType::ExposureCompensation => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let raw_value = combine_nibbles_u8(&payload[2..4]);
-            Ok(Response::InquiryResponse(
-                InquiryResponse::ExposureCompensation {
-                    value: raw_value as i8 - 7,
-                },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::ExposureCompensation {
+                value: raw_value as i8 - 7,
+            }))
         }
         ResponseType::Shutter => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u8(&payload[2..4]) as u16;
-            Ok(Response::InquiryResponse(InquiryResponse::Shutter {
-                position,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::Shutter { position }))
         }
         ResponseType::ImageFlip => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let value = payload[0];
-            Ok(Response::InquiryResponse(InquiryResponse::ImageFlip {
+            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
                 horizontal: (value & 0x01) != 0,
                 vertical: (value & 0x02) != 0,
             }))
@@ -582,7 +552,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::Backlight {
+            Ok(Response::Inquiry(InquiryResponse::Backlight {
                 status: payload[0] == 0x02,
             }))
         }
@@ -590,23 +560,19 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::Luminance(
-                payload[0],
-            )))
+            Ok(Response::Inquiry(InquiryResponse::Luminance(payload[0])))
         }
         ResponseType::Contrast => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::Contrast(
-                payload[0],
-            )))
+            Ok(Response::Inquiry(InquiryResponse::Contrast(payload[0])))
         }
         ResponseType::TallyRed => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::TallyRed {
+            Ok(Response::Inquiry(InquiryResponse::TallyRed {
                 on: payload[0] == 0x02,
             }))
         }
@@ -614,7 +580,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::TallyGreen {
+            Ok(Response::Inquiry(InquiryResponse::TallyGreen {
                 on: payload[0] == 0x02,
             }))
         }
@@ -623,9 +589,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::InquiryResponse(InquiryResponse::Bright {
-                position,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::Bright { position }))
         }
         ResponseType::Gain => {
             if payload.len() != 4 {
@@ -633,9 +597,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             // Extract the gain value from the last nibble
             let gain = payload[3];
-            Ok(Response::InquiryResponse(InquiryResponse::GainLevel {
-                gain,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::GainLevel { gain }))
         }
         ResponseType::Iris => {
             if payload.len() != 4 {
@@ -643,9 +605,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             // Extract the iris position from the last nibble
             let position = payload[3];
-            Ok(Response::InquiryResponse(InquiryResponse::Iris {
-                position,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::Iris { position }))
         }
         ResponseType::Saturation => {
             if payload.len() != 4 {
@@ -653,9 +613,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             // Extract the saturation level from the last nibble
             let level = payload[3];
-            Ok(Response::InquiryResponse(InquiryResponse::Saturation {
-                level,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::Saturation { level }))
         }
         ResponseType::ColorTemperature => {
             if payload.len() != 4 {
@@ -663,9 +621,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             // Extract the color temperature from nibbles 2 and 3
             let temperature = ((payload[2] as u16) << 4) | (payload[3] as u16);
-            Ok(Response::InquiryResponse(
-                InquiryResponse::ColorTemperature { temperature },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::ColorTemperature {
+                temperature,
+            }))
         }
         ResponseType::Hue => {
             if payload.len() != 4 {
@@ -673,7 +631,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }
             // Extract the hue value from the last nibble
             let hue = payload[3];
-            Ok(Response::InquiryResponse(InquiryResponse::Hue { hue }))
+            Ok(Response::Inquiry(InquiryResponse::Hue { hue }))
         }
         ResponseType::Version => {
             // Version response format: VV VV MM MM FF FF KK
@@ -688,7 +646,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             let model = ((payload[2] as u16) << 8) | (payload[3] as u16);
             let rom_version = ((payload[4] as u32) << 8) | (payload[5] as u32);
             let max_socket = payload[6];
-            Ok(Response::InquiryResponse(InquiryResponse::Version {
+            Ok(Response::Inquiry(InquiryResponse::Version {
                 vendor,
                 model,
                 rom_version,
@@ -710,9 +668,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::FocusMode {
-                mode,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::FocusMode { mode }))
         }
         ResponseType::DynamicRange => {
             // Dynamic range level response
@@ -721,9 +677,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let level = payload[0];
-            Ok(Response::InquiryResponse(InquiryResponse::DynamicRange {
-                level,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::DynamicRange { level }))
         }
         ResponseType::NoiseReduction2D => {
             // 2D noise reduction level response
@@ -732,9 +686,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let level = payload[0];
-            Ok(Response::InquiryResponse(
-                InquiryResponse::NoiseReduction2D { level },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::NoiseReduction2D {
+                level,
+            }))
         }
         ResponseType::NoiseReduction3D => {
             // 3D noise reduction level response
@@ -743,9 +697,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let level = payload[0];
-            Ok(Response::InquiryResponse(
-                InquiryResponse::NoiseReduction3D { level },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::NoiseReduction3D {
+                level,
+            }))
         }
         ResponseType::MenuOpenClose => {
             // Menu open/close status response
@@ -765,7 +719,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::MenuOpenClose {
+            Ok(Response::Inquiry(InquiryResponse::MenuOpenClose {
                 is_open,
             }))
         }
@@ -787,9 +741,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::AutoFocus {
-                enabled,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::AutoFocus { enabled }))
         }
         ResponseType::TallyStatus => {
             // Tally light status response
@@ -822,7 +774,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::TallyStatus {
+            Ok(Response::Inquiry(InquiryResponse::TallyStatus {
                 red_on,
                 green_on,
             }))
@@ -836,7 +788,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             // Resolution values based on common PTZ camera patterns:
             // 0x00 = 1080p60, 0x01 = 1080p30, 0x02 = 720p60, 0x03 = 720p30, etc.
             let resolution_mode = payload[0];
-            Ok(Response::InquiryResponse(InquiryResponse::Resolution(
+            Ok(Response::Inquiry(InquiryResponse::Resolution(
                 resolution_mode,
             )))
         }
@@ -858,7 +810,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::NightDayMode {
+            Ok(Response::Inquiry(InquiryResponse::NightDayMode {
                 is_night,
             }))
         }
@@ -876,9 +828,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             // 0x04 = 1/32 ND
             // 0x05 = 1/64 ND
             let position = payload[0];
-            Ok(Response::InquiryResponse(InquiryResponse::NdFilter {
-                position,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::NdFilter { position }))
         }
         ResponseType::PictureEffect => {
             // Picture effect inquiry response
@@ -892,9 +842,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             // 0x02 = B&W
             // Other values are camera-specific effects
             let effect = payload[0];
-            Ok(Response::InquiryResponse(InquiryResponse::PictureEffect {
-                effect,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::PictureEffect { effect }))
         }
         ResponseType::FlipMode => {
             // Combined flip mode inquiry response
@@ -910,7 +858,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             let mode = payload[0];
             let horizontal = (mode & 0x01) != 0;
             let vertical = (mode & 0x02) != 0;
-            Ok(Response::InquiryResponse(InquiryResponse::FlipMode {
+            Ok(Response::Inquiry(InquiryResponse::FlipMode {
                 horizontal,
                 vertical,
             }))
@@ -933,9 +881,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                                 .to_string(),
                     }),
                 };
-            Ok(Response::InquiryResponse(InquiryResponse::Standby {
-                in_standby,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::Standby { in_standby }))
         }
         ResponseType::FocusRange => {
             // Focus range inquiry response
@@ -944,7 +890,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             // Parse custom focus range response
-            parse_focus_range(payload).map(Response::InquiryResponse)
+            parse_focus_range(payload).map(Response::Inquiry)
         }
         ResponseType::IrisControl => {
             // Iris control inquiry response
@@ -964,9 +910,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::IrisControl {
-                auto,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::IrisControl { auto }))
         }
         ResponseType::DefogMode => {
             // Defog mode inquiry response
@@ -986,9 +930,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::DefogMode {
-                enabled,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::DefogMode { enabled }))
         }
         ResponseType::DefogLevel => {
             // Defog level inquiry response
@@ -996,7 +938,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::DefogLevel {
+            Ok(Response::Inquiry(InquiryResponse::DefogLevel {
                 level: payload[0],
             }))
         }
@@ -1018,9 +960,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::DigitalPtz {
-                enabled,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::DigitalPtz { enabled }))
         }
         ResponseType::AutoWhiteBalanceSensitivity => {
             // Auto white balance sensitivity inquiry response
@@ -1040,7 +980,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(
+            Ok(Response::Inquiry(
                 InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity },
             ))
         }
@@ -1051,7 +991,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::InquiryResponse(
+            Ok(Response::Inquiry(
                 InquiryResponse::ExposureCompensationPosition { position },
             ))
         }
@@ -1061,7 +1001,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::RedTuning {
+            Ok(Response::Inquiry(InquiryResponse::RedTuning {
                 level: payload[0],
             }))
         }
@@ -1071,8 +1011,18 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::BlueTuning {
+            Ok(Response::Inquiry(InquiryResponse::BlueTuning {
                 level: payload[0],
+            }))
+        }
+        ResponseType::Gamma => {
+            // Gamma curve setting inquiry response
+            // Single byte: gamma setting (0=Standard, 1-4=different curves)
+            if payload.len() != 1 {
+                return Err(Error::InvalidResponseLength);
+            }
+            Ok(Response::Inquiry(InquiryResponse::Gamma {
+                value: payload[0],
             }))
         }
         ResponseType::AutoTrace => {
@@ -1093,9 +1043,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::AutoTrace {
-                enabled,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::AutoTrace { enabled }))
         }
         ResponseType::FocusUnlock => {
             // Focus unlock state inquiry response
@@ -1115,32 +1063,28 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                                 .to_string(),
                     }),
                 };
-            Ok(Response::InquiryResponse(InquiryResponse::FocusUnlock {
-                unlocked,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::FocusUnlock { unlocked }))
         }
         ResponseType::SharpnessPosition => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::InquiryResponse(
-                InquiryResponse::SharpnessPosition { position },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::SharpnessPosition {
+                position,
+            }))
         }
         ResponseType::NrLevel => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::NrLevel(
-                payload[0],
-            )))
+            Ok(Response::Inquiry(InquiryResponse::NrLevel(payload[0])))
         }
         ResponseType::BroadcastDomain => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::BroadcastDomain(
+            Ok(Response::Inquiry(InquiryResponse::BroadcastDomain(
                 payload[0],
             )))
         }
@@ -1149,43 +1093,37 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 return Err(Error::InvalidResponseLength);
             }
             let mode = MotionSyncMode::try_from(payload[0])?;
-            Ok(Response::InquiryResponse(InquiryResponse::MotionSyncMode {
-                mode,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::MotionSyncMode { mode }))
         }
         ResponseType::MotionSyncSpeed => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let speed = MotionSyncSpeed::try_from(payload[0])?;
-            Ok(Response::InquiryResponse(
-                InquiryResponse::MotionSyncSpeed { speed },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::MotionSyncSpeed {
+                speed,
+            }))
         }
         ResponseType::NrMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let mode = NrMode::try_from(payload[0])?;
-            Ok(Response::InquiryResponse(InquiryResponse::NrMode { mode }))
+            Ok(Response::Inquiry(InquiryResponse::NrMode { mode }))
         }
         ResponseType::NrSpeed => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let speed = NrSpeed::try_from(payload[0])?;
-            Ok(Response::InquiryResponse(InquiryResponse::NrSpeed {
-                speed,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::NrSpeed { speed }))
         }
         ResponseType::BlackWhiteMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let mode = BlackWhiteMode::try_from(payload[0])?;
-            Ok(Response::InquiryResponse(InquiryResponse::BlackWhiteMode {
-                mode,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::BlackWhiteMode { mode }))
         }
         ResponseType::UsbAudio => {
             if payload.len() != 1 {
@@ -1202,7 +1140,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::UsbAudio { on }))
+            Ok(Response::Inquiry(InquiryResponse::UsbAudio { on }))
         }
         ResponseType::TwoToneMode => {
             if payload.len() != 1 {
@@ -1219,15 +1157,13 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::TwoToneMode {
-                on,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::TwoToneMode { on }))
         }
         ResponseType::NdFilterPreset => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::InquiryResponse(InquiryResponse::NdFilterPreset {
+            Ok(Response::Inquiry(InquiryResponse::NdFilterPreset {
                 preset: payload[0],
             }))
         }
@@ -1246,7 +1182,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::Digital { on }))
+            Ok(Response::Inquiry(InquiryResponse::Digital { on }))
         }
         ResponseType::TallyAutoAdjust => {
             if payload.len() != 1 {
@@ -1263,9 +1199,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(
-                InquiryResponse::TallyAutoAdjust { on },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::TallyAutoAdjust { on }))
         }
         ResponseType::Rtmp => {
             if payload.len() != 1 {
@@ -1282,7 +1216,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::Rtmp { on }))
+            Ok(Response::Inquiry(InquiryResponse::Rtmp { on }))
         }
         ResponseType::ZoomOut => {
             if payload.len() != 1 {
@@ -1299,9 +1233,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::ZoomOut {
-                active,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::ZoomOut { active }))
         }
         ResponseType::ZoomIn => {
             if payload.len() != 1 {
@@ -1318,9 +1250,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::ZoomIn {
-                active,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::ZoomIn { active }))
         }
         ResponseType::IrisUp => {
             if payload.len() != 1 {
@@ -1337,9 +1267,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::IrisUp {
-                active,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::IrisUp { active }))
         }
         ResponseType::IrisDown => {
             if payload.len() != 1 {
@@ -1356,18 +1284,16 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::IrisDown {
-                active,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::IrisDown { active }))
         }
         ResponseType::NightDayPosition => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = payload[0];
-            Ok(Response::InquiryResponse(
-                InquiryResponse::NightDayPosition { position },
-            ))
+            Ok(Response::Inquiry(InquiryResponse::NightDayPosition {
+                position,
+            }))
         }
         ResponseType::FocusNearFar => {
             if payload.len() != 1 {
@@ -1384,9 +1310,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::FocusNearFar {
-                near,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::FocusNearFar { near }))
         }
         ResponseType::ZoomTeleWide => {
             if payload.len() != 1 {
@@ -1403,9 +1327,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::ZoomTeleWide {
-                tele,
-            }))
+            Ok(Response::Inquiry(InquiryResponse::ZoomTeleWide { tele }))
         }
         ResponseType::NightDaySwitch => {
             if payload.len() != 1 {
@@ -1422,7 +1344,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::InquiryResponse(InquiryResponse::NightDaySwitch {
+            Ok(Response::Inquiry(InquiryResponse::NightDaySwitch {
                 enabled,
             }))
         }
@@ -1694,17 +1616,6 @@ pub fn parse_picture_effect(data: &[u8]) -> Result<InquiryResponse, Error> {
     Ok(InquiryResponse::PictureEffect { effect: data[0] })
 }
 
-/// Parse focus range mode
-pub fn parse_focus_range(data: &[u8]) -> Result<InquiryResponse, Error> {
-    use crate::command::FocusRange;
-
-    if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
-    }
-    let range = FocusRange::try_from(data[0])?;
-    Ok(InquiryResponse::FocusRange { range })
-}
-
 /// Parse iris control mode
 pub fn parse_iris_control(data: &[u8]) -> Result<InquiryResponse, Error> {
     if data.is_empty() {
@@ -1816,6 +1727,14 @@ pub fn parse_blue_tuning(data: &[u8]) -> Result<InquiryResponse, Error> {
     Ok(InquiryResponse::BlueTuning { level: data[0] })
 }
 
+/// Parse gamma curve setting
+pub fn parse_gamma(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    Ok(InquiryResponse::Gamma { value: data[0] })
+}
+
 /// Parse auto trace mode
 pub fn parse_auto_trace(data: &[u8]) -> Result<InquiryResponse, Error> {
     if data.is_empty() {
@@ -1853,6 +1772,17 @@ pub fn parse_focus_unlock(data: &[u8]) -> Result<InquiryResponse, Error> {
         }
     };
     Ok(InquiryResponse::FocusUnlock { unlocked })
+}
+
+/// Parse focus range mode
+pub fn parse_focus_range(data: &[u8]) -> Result<InquiryResponse, Error> {
+    use crate::command::FocusRange;
+
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let range = FocusRange::try_from(data[0])?;
+    Ok(InquiryResponse::FocusRange { range })
 }
 
 // Note: Complex response parsing tests moved to tests/response_parsing_comprehensive.rs
@@ -1918,7 +1848,7 @@ mod tests {
         let response = vec![0x90, 0x50, 0x02, 0xFF];
         let result = parse_response(&response, &ResponseType::Power).unwrap();
         match result {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => assert!(on),
+            Response::Inquiry(InquiryResponse::Power { on }) => assert!(on),
             _ => panic!("Expected Power inquiry response"),
         }
 
@@ -1926,7 +1856,7 @@ mod tests {
         let response = vec![0x90, 0x50, 0x03, 0xFF];
         let result = parse_response(&response, &ResponseType::Power).unwrap();
         match result {
-            Response::InquiryResponse(InquiryResponse::Power { on }) => assert!(!on),
+            Response::Inquiry(InquiryResponse::Power { on }) => assert!(!on),
             _ => panic!("Expected Power inquiry response"),
         }
     }
@@ -1988,10 +1918,12 @@ mod tests {
 
     #[test]
     fn test_parse_pan_tilt_position_response() {
-        let pt_response_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xFF];
+        let pt_response_bytes = &[
+            0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xFF,
+        ];
         let response = parse_response(pt_response_bytes, &ResponseType::PanTiltPosition);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::PanTiltPosition { pan, tilt })) => {
+            Ok(Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt })) => {
                 assert_eq!(pan, 0x1234);
                 assert_eq!(tilt, 0x5678);
             }
@@ -2004,7 +1936,7 @@ mod tests {
         let zoom_response_bytes = &[0x90, 0x50, 0x0A, 0x0B, 0x0C, 0x0D, 0xFF];
         let response = parse_response(zoom_response_bytes, &ResponseType::ZoomPosition);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ZoomPosition { position })) => {
+            Ok(Response::Inquiry(InquiryResponse::ZoomPosition { position })) => {
                 assert_eq!(position, 0xABCD);
             }
             _ => panic!("Expected ZoomPosition inquiry response"),
@@ -2016,7 +1948,7 @@ mod tests {
         let focus_response_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF];
         let response = parse_response(focus_response_bytes, &ResponseType::FocusPosition);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::FocusPosition { position })) => {
+            Ok(Response::Inquiry(InquiryResponse::FocusPosition { position })) => {
                 assert_eq!(position, 0x1234);
             }
             _ => panic!("Expected FocusPosition inquiry response"),
@@ -2029,7 +1961,7 @@ mod tests {
         let exposure_response_bytes = &[0x90, 0x50, 0x00, 0xFF];
         let response = parse_response(exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) => {
+            Ok(Response::Inquiry(InquiryResponse::ExposureMode { mode })) => {
                 assert_eq!(mode as u8, 0x00); // Auto mode
             }
             _ => panic!("Expected ExposureMode inquiry response"),
@@ -2039,7 +1971,7 @@ mod tests {
         let exposure_response_bytes = &[0x90, 0x50, 0x03, 0xFF];
         let response = parse_response(exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureMode { mode })) => {
+            Ok(Response::Inquiry(InquiryResponse::ExposureMode { mode })) => {
                 assert_eq!(mode as u8, 0x03); // Manual mode
             }
             _ => panic!("Expected ExposureMode inquiry response"),
@@ -2052,7 +1984,7 @@ mod tests {
         let luminance_response_bytes = &[0x90, 0x50, 0x00, 0xFF];
         let response = parse_response(luminance_response_bytes, &ResponseType::Luminance);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
+            Ok(Response::Inquiry(InquiryResponse::Luminance(value))) => {
                 assert_eq!(value, 0x00);
             }
             _ => panic!("Expected Luminance inquiry response"),
@@ -2062,7 +1994,7 @@ mod tests {
         let luminance_response_bytes = &[0x90, 0x50, 0x07, 0xFF];
         let response = parse_response(luminance_response_bytes, &ResponseType::Luminance);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
+            Ok(Response::Inquiry(InquiryResponse::Luminance(value))) => {
                 assert_eq!(value, 0x07);
             }
             _ => panic!("Expected Luminance inquiry response"),
@@ -2072,7 +2004,7 @@ mod tests {
         let luminance_response_bytes = &[0x90, 0x50, 0x0E, 0xFF];
         let response = parse_response(luminance_response_bytes, &ResponseType::Luminance);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Luminance(value))) => {
+            Ok(Response::Inquiry(InquiryResponse::Luminance(value))) => {
                 assert_eq!(value, 0x0E);
             }
             _ => panic!("Expected Luminance inquiry response"),
@@ -2085,7 +2017,7 @@ mod tests {
         let contrast_response_bytes = &[0x90, 0x50, 0x00, 0xFF];
         let response = parse_response(contrast_response_bytes, &ResponseType::Contrast);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Contrast(value))) => {
+            Ok(Response::Inquiry(InquiryResponse::Contrast(value))) => {
                 assert_eq!(value, 0x00);
             }
             _ => panic!("Expected Contrast inquiry response"),
@@ -2095,7 +2027,7 @@ mod tests {
         let contrast_response_bytes = &[0x90, 0x50, 0x07, 0xFF];
         let response = parse_response(contrast_response_bytes, &ResponseType::Contrast);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Contrast(value))) => {
+            Ok(Response::Inquiry(InquiryResponse::Contrast(value))) => {
                 assert_eq!(value, 0x07);
             }
             _ => panic!("Expected Contrast inquiry response"),
@@ -2105,7 +2037,7 @@ mod tests {
         let contrast_response_bytes = &[0x90, 0x50, 0x0E, 0xFF];
         let response = parse_response(contrast_response_bytes, &ResponseType::Contrast);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Contrast(value))) => {
+            Ok(Response::Inquiry(InquiryResponse::Contrast(value))) => {
                 assert_eq!(value, 0x0E);
             }
             _ => panic!("Expected Contrast inquiry response"),
@@ -2145,7 +2077,7 @@ mod tests {
         let sharpness_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0B, 0xFF];
         let response = parse_response(sharpness_bytes, &ResponseType::Sharpness);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Sharpness { value })) => {
+            Ok(Response::Inquiry(InquiryResponse::Sharpness { value })) => {
                 assert_eq!(value, 0x0B);
             }
             _ => panic!("Expected Sharpness inquiry response"),
@@ -2158,7 +2090,7 @@ mod tests {
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF];
         let response = parse_response(exp_comp_bytes, &ResponseType::ExposureCompensation);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensation { value })) => {
+            Ok(Response::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, -7);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
@@ -2168,7 +2100,7 @@ mod tests {
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
         let response = parse_response(exp_comp_bytes, &ResponseType::ExposureCompensation);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensation { value })) => {
+            Ok(Response::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 0);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
@@ -2178,7 +2110,7 @@ mod tests {
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0E, 0xFF];
         let response = parse_response(exp_comp_bytes, &ResponseType::ExposureCompensation);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensation { value })) => {
+            Ok(Response::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 7);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
@@ -2188,7 +2120,7 @@ mod tests {
         let exp_comp_mode_bytes = &[0x90, 0x50, 0x02, 0xFF];
         let response = parse_response(exp_comp_mode_bytes, &ResponseType::ExposureCompensationMode);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on })) => {
+            Ok(Response::Inquiry(InquiryResponse::ExposureCompensationMode { on })) => {
                 assert!(on);
             }
             _ => panic!("Expected ExposureCompensationMode inquiry response"),
@@ -2198,7 +2130,7 @@ mod tests {
         let exp_comp_mode_bytes = &[0x90, 0x50, 0x03, 0xFF];
         let response = parse_response(exp_comp_mode_bytes, &ResponseType::ExposureCompensationMode);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ExposureCompensationMode { on })) => {
+            Ok(Response::Inquiry(InquiryResponse::ExposureCompensationMode { on })) => {
                 assert!(!on);
             }
             _ => panic!("Expected ExposureCompensationMode inquiry response"),
@@ -2211,7 +2143,7 @@ mod tests {
         let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF];
         let response = parse_response(iris_bytes, &ResponseType::Iris);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Iris { position })) => {
+            Ok(Response::Inquiry(InquiryResponse::Iris { position })) => {
                 assert_eq!(position, 0x00);
             }
             _ => panic!("Expected Iris inquiry response"),
@@ -2221,7 +2153,7 @@ mod tests {
         let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0C, 0xFF];
         let response = parse_response(iris_bytes, &ResponseType::Iris);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Iris { position })) => {
+            Ok(Response::Inquiry(InquiryResponse::Iris { position })) => {
                 assert_eq!(position, 0x0C);
             }
             _ => panic!("Expected Iris inquiry response"),
@@ -2234,7 +2166,7 @@ mod tests {
         let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x01, 0xFF];
         let response = parse_response(shutter_bytes, &ResponseType::Shutter);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Shutter { position })) => {
+            Ok(Response::Inquiry(InquiryResponse::Shutter { position })) => {
                 assert_eq!(position, 0x01);
             }
             _ => panic!("Expected Shutter inquiry response"),
@@ -2244,7 +2176,7 @@ mod tests {
         let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x01, 0x01, 0xFF];
         let response = parse_response(shutter_bytes, &ResponseType::Shutter);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::Shutter { position })) => {
+            Ok(Response::Inquiry(InquiryResponse::Shutter { position })) => {
                 assert_eq!(position, 0x11);
             }
             _ => panic!("Expected Shutter inquiry response"),
@@ -2257,7 +2189,7 @@ mod tests {
         let gain_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
         let response = parse_response(gain_bytes, &ResponseType::Gain);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::GainLevel { gain })) => {
+            Ok(Response::Inquiry(InquiryResponse::GainLevel { gain })) => {
                 assert_eq!(gain, 0x07);
             }
             _ => panic!("Expected Gain inquiry response"),
@@ -2267,45 +2199,10 @@ mod tests {
         let gain_limit_bytes = &[0x90, 0x50, 0x0F, 0xFF];
         let response = parse_response(gain_limit_bytes, &ResponseType::GainLimit);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::GainLimit { limit })) => {
+            Ok(Response::Inquiry(InquiryResponse::GainLimit { limit })) => {
                 assert_eq!(limit, 0x0F);
             }
             _ => panic!("Expected GainLimit inquiry response"),
-        }
-    }
-
-    #[test]
-    fn test_parse_anti_flicker_responses() {
-        use crate::command::gain::AntiFlickerMode;
-
-        // Test AntiFlicker Off
-        let anti_flicker_bytes = &[0x90, 0x50, 0x00, 0xFF];
-        let response = parse_response(anti_flicker_bytes, &ResponseType::AntiFlicker);
-        match response {
-            Ok(Response::InquiryResponse(InquiryResponse::AntiFlicker { mode })) => {
-                assert!(matches!(mode, AntiFlickerMode::Off));
-            }
-            _ => panic!("Expected AntiFlicker inquiry response"),
-        }
-
-        // Test AntiFlicker 50Hz
-        let anti_flicker_bytes = &[0x90, 0x50, 0x01, 0xFF];
-        let response = parse_response(anti_flicker_bytes, &ResponseType::AntiFlicker);
-        match response {
-            Ok(Response::InquiryResponse(InquiryResponse::AntiFlicker { mode })) => {
-                assert!(matches!(mode, AntiFlickerMode::Hz50));
-            }
-            _ => panic!("Expected AntiFlicker inquiry response"),
-        }
-
-        // Test AntiFlicker 60Hz
-        let anti_flicker_bytes = &[0x90, 0x50, 0x02, 0xFF];
-        let response = parse_response(anti_flicker_bytes, &ResponseType::AntiFlicker);
-        match response {
-            Ok(Response::InquiryResponse(InquiryResponse::AntiFlicker { mode })) => {
-                assert!(matches!(mode, AntiFlickerMode::Hz60));
-            }
-            _ => panic!("Expected AntiFlicker inquiry response"),
         }
     }
 
@@ -2315,7 +2212,10 @@ mod tests {
         let flip_bytes = &[0x90, 0x50, 0x00, 0xFF];
         let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ImageFlip { vertical, horizontal })) => {
+            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            })) => {
                 assert!(!vertical);
                 assert!(!horizontal);
             }
@@ -2326,7 +2226,10 @@ mod tests {
         let flip_bytes = &[0x90, 0x50, 0x01, 0xFF];
         let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ImageFlip { vertical, horizontal })) => {
+            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            })) => {
                 assert!(!vertical);
                 assert!(horizontal);
             }
@@ -2337,7 +2240,10 @@ mod tests {
         let flip_bytes = &[0x90, 0x50, 0x02, 0xFF];
         let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ImageFlip { vertical, horizontal })) => {
+            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            })) => {
                 assert!(vertical);
                 assert!(!horizontal);
             }
@@ -2348,7 +2254,10 @@ mod tests {
         let flip_bytes = &[0x90, 0x50, 0x03, 0xFF];
         let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
         match response {
-            Ok(Response::InquiryResponse(InquiryResponse::ImageFlip { vertical, horizontal })) => {
+            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            })) => {
                 assert!(vertical);
                 assert!(horizontal);
             }
@@ -2368,11 +2277,6 @@ mod tests {
         // Exposure compensation with wrong length (should be 7 bytes)
         let invalid_exp_comp = &[0x90, 0x50, 0x07, 0xFF];
         let response = parse_response(invalid_exp_comp, &ResponseType::ExposureCompensation);
-        assert!(matches!(response, Err(Error::InvalidResponseLength)));
-
-        // Anti-flicker with wrong length (should be 4 bytes)
-        let invalid_anti_flicker = &[0x90, 0x50, 0x00, 0x01, 0xFF];
-        let response = parse_response(invalid_anti_flicker, &ResponseType::AntiFlicker);
         assert!(matches!(response, Err(Error::InvalidResponseLength)));
     }
 }

@@ -158,42 +158,8 @@ pub trait ImageProcessingExt: ImageProcessing {
 // Automatic implementation for all types that support image processing
 impl<T: ImageProcessing> ImageProcessingExt for T {}
 
-/// Image flip modes combining vertical and horizontal flipping.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ImageFlipMode {
-    /// No flipping.
-    Off,
-    /// Flip vertically only.
-    FlipOnly,
-    /// Mirror horizontally only.
-    MirrorOnly,
-    /// Both flip and mirror (180° rotation).
-    FlipAndMirror,
-}
-
-/// Sharpness modes for cameras that support it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SharpnessMode {
-    /// Automatic sharpness adjustment.
-    Auto,
-    /// Manual sharpness control.
-    Manual(u8),
-}
-
-/// Noise reduction strength levels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoiseReductionLevel {
-    /// Noise reduction disabled.
-    Off,
-    /// Low noise reduction.
-    Low,
-    /// Medium noise reduction.
-    Medium,
-    /// High noise reduction.
-    High,
-    /// Maximum noise reduction.
-    Max,
-}
+// Note: ImageFlipMode, SharpnessMode, and NoiseReductionLevel enums are defined
+// in the command module and re-exported from the crate root. This avoids duplication.
 
 #[cfg(test)]
 mod tests {

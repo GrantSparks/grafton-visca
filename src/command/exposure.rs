@@ -15,6 +15,7 @@ use crate::{
     error::Error,
     timeout::CommandCategory,
     types::{BrightnessLevel, DynamicRangeLevel, IrisLevel, ShutterSpeed},
+    visca_command,
 };
 
 /// Camera exposure control modes.
@@ -97,12 +98,6 @@ impl ExposureCompensationLevel {
         }
     }
 
-    /// Get the raw value.
-    #[must_use]
-    pub const fn value(self) -> i8 {
-        self.0
-    }
-
     /// Convert to protocol value (0x0 to 0xE).
     #[allow(clippy::cast_sign_loss)]
     #[must_use]
@@ -122,15 +117,10 @@ impl TryFrom<i8> for ExposureCompensationLevel {
 /// Exposure compensation commands.
 ///
 /// # Example
-/// ```no_run
-/// use grafton_visca::command::{ExposureCompensation, exposure::ExposureCompensationLevel};
-/// use grafton_visca::EncodeVisca;
-///
-/// // Enable exposure compensation
-/// let enable = ExposureCompensation::On;
-///
-/// // Set exposure compensation to +3
-/// let set_value = ExposureCompensation::SetLevel(ExposureCompensationLevel::new(3).unwrap());
+/// ```ignore
+/// // This type is used internally by the camera methods.
+/// // Users should use the high-level camera API instead:
+/// // camera.set_exposure_compensation(true).await?;
 /// ```
 #[derive(Debug, Copy, Clone)]
 pub enum ExposureCompensation {
@@ -152,7 +142,11 @@ impl EncodeVisca for ExposureCompensation {
     type Response = ();
     const MAX_SIZE: usize = 9;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         match self {
             Self::On | Self::Off => {
                 if buffer.len() < 6 {
@@ -161,7 +155,7 @@ impl EncodeVisca for ExposureCompensation {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x3E;
@@ -180,7 +174,7 @@ impl EncodeVisca for ExposureCompensation {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x0E;
@@ -200,7 +194,7 @@ impl EncodeVisca for ExposureCompensation {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x4E;
@@ -239,7 +233,11 @@ impl EncodeVisca for DynamicRange {
     type Response = ();
     const MAX_SIZE: usize = 9;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -251,7 +249,7 @@ impl EncodeVisca for DynamicRange {
             Self::SetLevel(level) => level,
         };
 
-        buffer[0] = 0x81;
+        buffer[0] = camera_id.to_address_byte();
         buffer[1] = 0x01;
         buffer[2] = 0x04;
         buffer[3] = 0x25;
@@ -296,7 +294,11 @@ impl EncodeVisca for Iris {
     type Response = ();
     const MAX_SIZE: usize = 9;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 if buffer.len() < 6 {
@@ -305,7 +307,7 @@ impl EncodeVisca for Iris {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x0B;
@@ -329,7 +331,7 @@ impl EncodeVisca for Iris {
                 let high = (value >> 4) & 0x0F;
                 let low = value & 0x0F;
 
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x4B;
@@ -375,7 +377,11 @@ impl EncodeVisca for Shutter {
     type Response = ();
     const MAX_SIZE: usize = 9;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 if buffer.len() < 6 {
@@ -384,7 +390,7 @@ impl EncodeVisca for Shutter {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x0A;
@@ -408,7 +414,7 @@ impl EncodeVisca for Shutter {
                 let high = ((value >> 4) & 0x0F) as u8;
                 let low = (value & 0x0F) as u8;
 
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x4A;
@@ -448,7 +454,11 @@ impl EncodeVisca for Bright {
     type Response = ();
     const MAX_SIZE: usize = 9;
 
-    fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 if buffer.len() < 6 {
@@ -457,7 +467,7 @@ impl EncodeVisca for Bright {
                         actual: buffer.len(),
                     });
                 }
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x0D;
@@ -481,7 +491,7 @@ impl EncodeVisca for Bright {
                 let high = ((value >> 4) & 0x0F) as u8;
                 let low = (value & 0x0F) as u8;
 
-                buffer[0] = 0x81;
+                buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
                 buffer[3] = 0x4D;
@@ -529,40 +539,12 @@ visca_command! {
     }
 }
 
-use crate::visca_command;
-
-visca_command! {
-    /// Auto Slow Shutter command.
-    ///
-    /// Controls whether the camera can use slower shutter speeds automatically
-    /// in low light conditions.
-    category = "Quick",
-    enum AutoSlowShutter {
-        /// Enable auto slow shutter
-        On => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::exposure::AUTO_SLOW_SHUTTER_PREFIX)
-                .append(&[0x02])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
-        },
-        /// Disable auto slow shutter
-        Off => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::exposure::AUTO_SLOW_SHUTTER_PREFIX)
-                .append(&[0x03])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
-        },
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::constants::CameraVariant;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::constants::CameraVariant;
 
     #[test]
     fn test_exposure_mode_command() {
@@ -571,7 +553,7 @@ mod tests {
             mode: ExposureMode::Auto,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x00, 0xFF]
         );
@@ -581,7 +563,7 @@ mod tests {
             mode: ExposureMode::Manual,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x03, 0xFF]
         );
@@ -591,7 +573,7 @@ mod tests {
             mode: ExposureMode::Shutter,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x0A, 0xFF]
         );
@@ -601,7 +583,7 @@ mod tests {
             mode: ExposureMode::Iris,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x0B, 0xFF]
         );
@@ -611,7 +593,7 @@ mod tests {
             mode: ExposureMode::Bright,
         };
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x39, 0x0D, 0xFF]
         );
@@ -648,7 +630,6 @@ mod tests {
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            assert_eq!(level.value(), value);
             assert_eq!(
                 level.to_protocol_value(),
                 u8::try_from(value + 7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
@@ -665,7 +646,7 @@ mod tests {
         // Test On command
         let cmd = ExposureCompensation::On;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF]
         );
@@ -673,7 +654,7 @@ mod tests {
         // Test Off command
         let cmd = ExposureCompensation::Off;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x3E, 0x03, 0xFF]
         );
@@ -681,7 +662,7 @@ mod tests {
         // Test Reset command
         let cmd = ExposureCompensation::Reset;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0E, 0x00, 0xFF]
         );
@@ -689,7 +670,7 @@ mod tests {
         // Test Up command
         let cmd = ExposureCompensation::Up;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0E, 0x02, 0xFF]
         );
@@ -697,7 +678,7 @@ mod tests {
         // Test Down command
         let cmd = ExposureCompensation::Down;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF]
         );
@@ -719,7 +700,7 @@ mod tests {
                 0xFF,
             ];
             assert_eq!(
-                cmd.try_into_vec()
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 expected
             );
@@ -753,7 +734,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = DynamicRange::SetLevel(level);
             assert_eq!(
-                cmd.try_into_vec()
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, value, 0xFF]
             );
@@ -776,7 +757,7 @@ mod tests {
         // Test Reset command
         let cmd = Iris::Reset;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF]
         );
@@ -784,7 +765,7 @@ mod tests {
         // Test Up command
         let cmd = Iris::Up;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF]
         );
@@ -792,7 +773,7 @@ mod tests {
         // Test Down command
         let cmd = Iris::Down;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF]
         );
@@ -806,7 +787,7 @@ mod tests {
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
-                cmd.try_into_vec()
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, high, low, 0xFF]
             );
@@ -837,7 +818,7 @@ mod tests {
         // Test Reset command
         let cmd = Shutter::Reset;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF]
         );
@@ -845,7 +826,7 @@ mod tests {
         // Test Up command
         let cmd = Shutter::Up;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF]
         );
@@ -853,7 +834,7 @@ mod tests {
         // Test Down command
         let cmd = Shutter::Down;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF]
         );
@@ -867,7 +848,7 @@ mod tests {
             let high = ((value >> 4) & 0x0F) as u8;
             let low = (value & 0x0F) as u8;
             assert_eq!(
-                cmd.try_into_vec()
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
             );
@@ -898,7 +879,7 @@ mod tests {
         // Test Reset command
         let cmd = Bright::Reset;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF]
         );
@@ -906,7 +887,7 @@ mod tests {
         // Test Up command
         let cmd = Bright::Up;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF]
         );
@@ -914,7 +895,7 @@ mod tests {
         // Test Down command
         let cmd = Bright::Down;
         assert_eq!(
-            cmd.try_into_vec()
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF]
         );
@@ -928,7 +909,7 @@ mod tests {
             let high = ((value >> 4) & 0x0F) as u8;
             let low = (value & 0x0F) as u8;
             assert_eq!(
-                cmd.try_into_vec()
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, high, low, 0xFF]
             );
