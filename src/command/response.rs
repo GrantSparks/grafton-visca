@@ -1600,6 +1600,26 @@ pub fn parse_standby(data: &[u8]) -> Result<InquiryResponse, Error> {
     Ok(InquiryResponse::Standby { in_standby })
 }
 
+/// Parse green tally light status (FR7 only)
+pub fn parse_tally_green(data: &[u8]) -> Result<InquiryResponse, Error> {
+    if data.is_empty() {
+        return Err(Error::InvalidResponseLength);
+    }
+    let on = match data[0] {
+        0x02 => true,  // On
+        0x03 => false, // Off
+        _ => {
+            return Err(Error::InvalidParameter {
+                parameter: "tally_green_status",
+                value: format!("{:02X}", data[0]),
+                reason: "Invalid green tally status value. Expected 0x02 (on) or 0x03 (off)"
+                    .to_string(),
+            })
+        }
+    };
+    Ok(InquiryResponse::TallyGreen { on })
+}
+
 /// Parse ND filter position
 pub fn parse_nd_filter(data: &[u8]) -> Result<InquiryResponse, Error> {
     if data.is_empty() {

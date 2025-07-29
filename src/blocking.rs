@@ -50,7 +50,8 @@ pub use crate::camera::methods::{
     MenuControlMethodsBlocking as MenuControl, MotionSyncControlBlocking as MotionSyncControl,
     NDFilterOpsBlocking as NDFilterOps, PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
     PanTiltOpsBlocking as PanTiltOps, PowerOpsBlocking as PowerOps,
-    PresetsOpsBlocking as PresetsOps, SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
+    PresetsOpsBlocking as PresetsOps, StreamingMethodsBlocking as StreamingMethods,
+    SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
     VariableSpeedMethodsBlocking as VariableSpeedMethods,
     WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
 };
@@ -172,7 +173,10 @@ forward_facade!(Camera, blocking,
         increase_shutter_speed() -> crate::Result<()>,
         decrease_shutter_speed() -> crate::Result<()>,
         enable_spotlight() -> crate::Result<()>,
-        disable_spotlight() -> crate::Result<()>;
+        disable_spotlight() -> crate::Result<()>,
+        enable_auto_slow_shutter() -> crate::Result<()>,
+        disable_auto_slow_shutter() -> crate::Result<()>,
+        set_brightness_direct(level: crate::types::BrightnessLevel) -> crate::Result<()>;
     ImageProcessingOps:
         enable_flip() -> crate::Result<()>,
         disable_flip() -> crate::Result<()>,
@@ -195,7 +199,8 @@ forward_facade!(Camera, blocking,
         enable_freeze() -> crate::Result<()>,
         disable_freeze() -> crate::Result<()>,
         enable_black_white() -> crate::Result<()>,
-        disable_black_white() -> crate::Result<()>;
+        disable_black_white() -> crate::Result<()>,
+        set_picture_effect(mode: crate::PictureEffectMode) -> crate::Result<()>;
     InquiryOps:
         get_power_state() -> crate::Result<bool>,
         get_zoom_position() -> crate::Result<u16>,
@@ -244,4 +249,8 @@ forward_facade!(Camera, blocking,
         get_green_tally_status() -> crate::Result<bool>;
     VariableSpeedMethods:
         set_variable_speed_mode(mode: crate::command::VariableSpeedMode) -> crate::Result<()>;
+    StreamingMethods:
+        enable_multicast() -> crate::Result<()>,
+        disable_multicast() -> crate::Result<()>,
+        set_ndi_quality(quality: crate::types::NDIQuality) -> crate::Result<()>;
 );

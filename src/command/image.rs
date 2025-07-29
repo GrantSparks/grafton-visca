@@ -151,6 +151,28 @@ impl ImageFlipCombinedCommand {
     }
 }
 
+// Import PictureEffectMode from resolution module
+use crate::command::resolution::PictureEffectMode;
+
+crate::visca_param_command! {
+    /// Command to set picture effect mode.
+    ///
+    /// Controls various artistic effects like negative, sepia, sketch, etc.
+    /// Note that not all effects are supported on all camera models.
+    pub(crate) struct PictureEffectCommand {
+        mode: PictureEffectMode,
+    }
+    prefix = [0x81, 0x01, 0x04, 0x63];
+    param_byte = mode.to_byte();
+    timeout = Quick;
+}
+
+impl CommandFeatures for PictureEffectCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::PictureEffect]
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -466,5 +488,60 @@ mod tests {
         let cmd = BlackWhiteCommand::new(false);
         let debug_str = format!("{:?}", cmd);
         assert!(debug_str.contains("BlackWhiteCommand"));
+    }
+
+    #[test]
+    fn test_picture_effect_command() {
+        // Test Off (normal) mode
+        let cmd = PictureEffectCommand {
+            mode: PictureEffectMode::Off,
+        };
+        assert_eq!(
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            vec![0x81, 0x01, 0x04, 0x63, 0x00, 0xFF]
+        );
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+
+        // Test Black and White effect
+        let cmd = PictureEffectCommand {
+            mode: PictureEffectMode::BlackAndWhite,
+        };
+        assert_eq!(
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            vec![0x81, 0x01, 0x04, 0x63, 0x02, 0xFF]
+        );
+
+        // Test Sepia effect
+        let cmd = PictureEffectCommand {
+            mode: PictureEffectMode::Sepia,
+        };
+        assert_eq!(
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap(),
+            vec![0x81, 0x01, 0x04, 0x63, 0x03, 0xFF]
+        );
+
+        // Test all defined picture effects
+        let test_cases = vec![
+            (PictureEffectMode::Off, 0x00),
+            (PictureEffectMode::Negative, 0x01),
+            (PictureEffectMode::BlackAndWhite, 0x02),
+            (PictureEffectMode::Sepia, 0x03),
+            (PictureEffectMode::Sketch, 0x04),
+            (PictureEffectMode::Emboss, 0x05),
+            (PictureEffectMode::Mosaic, 0x06),
+        ];
+
+        for (mode, expected_byte) in test_cases {
+            let cmd = PictureEffectCommand { mode };
+            assert_eq!(
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                    .unwrap(),
+                vec![0x81, 0x01, 0x04, 0x63, expected_byte, 0xFF]
+            );
+        }
     }
 }

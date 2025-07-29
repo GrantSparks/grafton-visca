@@ -307,6 +307,8 @@ pub struct AutoFocusInquiry;
 )]
 pub struct TallyStatusInquiry;
 
+// The TallyGreenInquiry is manually implemented below due to its special format
+
 /// Inquiry command to get the current video resolution mode.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
 #[visca(command = 0x63, response = "Resolution", parser = "byte")]
@@ -623,6 +625,12 @@ mod tests {
         &[0x81, 0x09, 0x04, 0xA8, 0xFF]
     );
     visca_test!(
+        TallyGreenInquiry,
+        test_tally_green_inquiry,
+        TallyGreenInquiry,
+        &[0x81, 0x09, 0x7E, 0x04, 0x1A, 0x00, 0xFF]
+    );
+    visca_test!(
         ResolutionInquiry,
         test_resolution_inquiry,
         ResolutionInquiry,
@@ -772,4 +780,53 @@ mod tests {
         BlackWhiteModeInquiry,
         &[0x81, 0x09, 0x04, 0x73, 0xFF]
     );
+}
+
+// Manual implementation for TallyGreenInquiry due to special format
+/// Inquiry command to get the green tally light status (FR7 only).
+/// Returns 0x02 for On, 0x03 for Off.
+#[derive(Debug, Copy, Clone)]
+pub struct TallyGreenInquiry;
+
+impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
+    type Response = crate::command::InquiryResponse;
+    const MAX_SIZE: usize = 7;
+
+    fn encode_into(
+        &self,
+        _camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(crate::error::Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len(),
+            });
+        }
+        
+        // Special format for green tally inquiry
+        buffer[0] = 0x81;
+        buffer[1] = 0x09;
+        buffer[2] = 0x7E;
+        buffer[3] = 0x04;
+        buffer[4] = 0x1A;
+        buffer[5] = 0x00;
+        buffer[6] = 0xFF;
+        
+        Ok(Self::MAX_SIZE)
+    }
+
+    fn response_type(&self) -> Option<crate::command::response::ResponseType> {
+        None
+    }
+
+    fn timeout_kind(&self) -> crate::timeout::CommandCategory {
+        crate::timeout::CommandCategory::Quick
+    }
+}
+
+impl crate::capabilities::CommandFeatures for TallyGreenInquiry {
+    fn required_features(&self) -> &[crate::capabilities::CameraFeature] {
+        &[crate::capabilities::CameraFeature::Tally]
+    }
 }
