@@ -8,8 +8,8 @@ use crate::{
     Result,
 };
 
-/// Methods for controlling network and streaming features (async).
-pub trait StreamingMethods: Sized {
+/// Operations for controlling network and streaming features (async).
+pub trait StreamingOps: Sized {
     /// Enable multicast streaming for NDI cameras.
     ///
     /// # Errors
@@ -18,7 +18,7 @@ pub trait StreamingMethods: Sized {
     /// # Example
     /// ```ignore
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::r#async::{Camera, StreamingMethods};
+    /// # use grafton_visca::r#async::{Camera, StreamingOps};
     /// # use grafton_visca::transport::tokio::Tcp;
     /// # let transport = Tcp::connect("192.168.1.100:52381").await?;
     /// # let camera = Camera::new(transport);
@@ -36,7 +36,7 @@ pub trait StreamingMethods: Sized {
     /// # Example
     /// ```ignore
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::r#async::{Camera, StreamingMethods};
+    /// # use grafton_visca::r#async::{Camera, StreamingOps};
     /// # use grafton_visca::transport::tokio::Tcp;
     /// # let transport = Tcp::connect("192.168.1.100:52381").await?;
     /// # let camera = Camera::new(transport);
@@ -54,7 +54,7 @@ pub trait StreamingMethods: Sized {
     /// # Example
     /// ```ignore
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::r#async::{Camera, StreamingMethods};
+    /// # use grafton_visca::r#async::{Camera, StreamingOps};
     /// # use grafton_visca::transport::tokio::Tcp;
     /// # use grafton_visca::types::NDIQuality;
     /// # let transport = Tcp::connect("192.168.1.100:52381").await?;
@@ -66,8 +66,8 @@ pub trait StreamingMethods: Sized {
     async fn set_ndi_quality(&self, quality: NDIQuality) -> Result<()>;
 }
 
-/// Methods for controlling network and streaming features (blocking).
-pub trait StreamingMethodsBlocking: Sized {
+/// Operations for controlling network and streaming features (blocking).
+pub trait StreamingOpsBlocking: Sized {
     /// Enable multicast streaming for NDI cameras.
     ///
     /// # Errors
@@ -76,7 +76,7 @@ pub trait StreamingMethodsBlocking: Sized {
     /// # Example
     /// ```no_run
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::blocking::{Camera, StreamingMethods};
+    /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
     /// # let transport = Tcp::connect("192.168.1.100:52381")?;
     /// # let inner_camera = grafton_visca::Camera::new(transport);
@@ -95,7 +95,7 @@ pub trait StreamingMethodsBlocking: Sized {
     /// # Example
     /// ```no_run
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::blocking::{Camera, StreamingMethods};
+    /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
     /// # let transport = Tcp::connect("192.168.1.100:52381")?;
     /// # let inner_camera = grafton_visca::Camera::new(transport);
@@ -114,7 +114,7 @@ pub trait StreamingMethodsBlocking: Sized {
     /// # Example
     /// ```no_run
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::blocking::{Camera, StreamingMethods};
+    /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
     /// # use grafton_visca::types::NDIQuality;
     /// # let transport = Tcp::connect("192.168.1.100:52381")?;
@@ -129,7 +129,7 @@ pub trait StreamingMethodsBlocking: Sized {
 
 // Implementation for async Camera
 #[cfg(feature = "async")]
-impl StreamingMethods for crate::camera::Camera {
+impl StreamingOps for crate::camera::Camera {
     async fn enable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::On;
         let response = self.send_command(&command).await?;
@@ -162,7 +162,7 @@ impl StreamingMethods for crate::camera::Camera {
 }
 
 // Implementation for blocking Camera
-impl StreamingMethodsBlocking for crate::camera::Camera {
+impl StreamingOpsBlocking for crate::camera::Camera {
     fn enable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::On;
         let response = self.send_command_blocking(&command)?;

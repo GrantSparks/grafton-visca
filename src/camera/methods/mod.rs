@@ -33,8 +33,8 @@ pub use image_processing::ImageProcessingOps;
 #[cfg(feature = "async")]
 pub use inquiry::{InquiryOps, PanTiltInquiryOps};
 #[cfg(feature = "async")]
-pub use menu::MenuControlMethods;
-pub use menu::MenuControlMethodsBlocking;
+pub use menu::MenuControlOps;
+pub use menu::MenuControlOpsBlocking;
 #[cfg(feature = "async")]
 pub use motion_sync::MotionSyncControl;
 #[cfg(feature = "async")]
@@ -46,14 +46,14 @@ pub use power::PowerOps;
 #[cfg(feature = "async")]
 pub use presets::PresetsOps;
 #[cfg(feature = "async")]
-pub use streaming::StreamingMethods;
+pub use streaming::StreamingOps;
 #[cfg(feature = "async")]
 pub use system::SystemOps;
 #[cfg(feature = "async")]
 pub use tally::TallyOps;
 #[cfg(feature = "async")]
-pub use variable_speed::VariableSpeedMethods;
-pub use variable_speed::VariableSpeedMethodsBlocking;
+pub use variable_speed::VariableSpeedOps;
+pub use variable_speed::VariableSpeedOpsBlocking;
 #[cfg(feature = "async")]
 pub use white_balance::WhiteBalanceOps;
 #[cfg(feature = "async")]
@@ -70,7 +70,7 @@ pub use nd_filter::NDFilterOpsBlocking;
 pub use pan_tilt::PanTiltOpsBlocking;
 pub use power::PowerOpsBlocking;
 pub use presets::PresetsOpsBlocking;
-pub use streaming::StreamingMethodsBlocking;
+pub use streaming::StreamingOpsBlocking;
 pub use system::SystemOpsBlocking;
 pub use tally::TallyOpsBlocking;
 pub use white_balance::WhiteBalanceOpsBlocking;

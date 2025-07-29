@@ -14,7 +14,6 @@ use tokio::sync::Mutex;
 #[derive(Debug)]
 pub struct Tcp {
     stream: Arc<Mutex<TcpStream>>,
-    _address: String,
 }
 
 impl Tcp {
@@ -34,7 +33,6 @@ impl Tcp {
 
         Ok(Self {
             stream: Arc::new(Mutex::new(stream)),
-            _address: address.to_string(),
         })
     }
 }

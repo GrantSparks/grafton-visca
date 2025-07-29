@@ -824,8 +824,10 @@ impl Camera {
     async fn wait_for_response_with_type(
         &self,
         expected_type: ResponseType,
-        _timeout: Duration,
+        #[allow(unused_variables)] timeout: Duration,
     ) -> Result<Response, Error> {
+        // TODO: Implement timeout using runtime-specific timeout mechanisms
+        // Currently, timeout is not implemented as it requires runtime-specific code
         // For inquiry commands, we may receive an ACK first, then the inquiry response
         loop {
             match self.transport.recv().await {

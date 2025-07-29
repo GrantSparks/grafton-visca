@@ -57,7 +57,7 @@ impl EncodeVisca for AddressSetCommand {
 
     fn encode_into(
         &self,
-        _camera_id: crate::camera_id::CameraId,
+        #[allow(unused_variables)] camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -67,8 +67,11 @@ impl EncodeVisca for AddressSetCommand {
             });
         }
 
+        // ADDRESS_SET is always broadcast (0x88), camera_id is not used
+        // The command bytes already contain the broadcast address
+        // INTERFACE_CLEAR is always broadcast (0x88), camera_id is not used
+        // The command bytes already contain the broadcast address
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        // ADDRESS_SET is always broadcast (0x88), don't use camera_id
         Ok(Self::MAX_SIZE)
     }
 
@@ -121,7 +124,7 @@ impl EncodeVisca for InterfaceClearCommand {
 
     fn encode_into(
         &self,
-        _camera_id: crate::camera_id::CameraId,
+        #[allow(unused_variables)] camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -131,8 +134,9 @@ impl EncodeVisca for InterfaceClearCommand {
             });
         }
 
+        // INTERFACE_CLEAR is always broadcast (0x88), camera_id is not used
+        // The command bytes already contain the broadcast address
         buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        // INTERFACE_CLEAR is always broadcast (0x88), don't use camera_id
         Ok(Self::MAX_SIZE)
     }
 

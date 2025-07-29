@@ -89,18 +89,18 @@ impl Camera {
 pub mod prelude {
     #[cfg(feature = "async")]
     pub use crate::camera::methods::{
-        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlMethods,
+        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlOps,
         MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
-        StreamingMethods, SystemOps, TallyOps, VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
+        StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
     };
 }
 
 // Re-export async traits with unsuffixed names
 #[cfg(feature = "async")]
 pub use crate::camera::methods::{
-    ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlMethods,
+    ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlOps,
     MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
-    StreamingMethods, SystemOps, TallyOps, VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
+    StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
 };
 
 // Implement all async traits for the wrapper type
@@ -663,7 +663,7 @@ impl MotionSyncControl for Camera {
 }
 
 #[async_trait::async_trait]
-impl MenuControlMethods for Camera {
+impl MenuControlOps for Camera {
     async fn set_menu_display(&self, display: bool) -> crate::Result<crate::command::Response> {
         self.0.set_menu_display(display).await
     }
@@ -865,7 +865,7 @@ impl WhiteBalanceOps for Camera {
     }
 }
 
-impl VariableSpeedMethods for Camera {
+impl VariableSpeedOps for Camera {
     async fn set_variable_speed_mode(
         &self,
         mode: crate::command::VariableSpeedMode,
@@ -874,7 +874,7 @@ impl VariableSpeedMethods for Camera {
     }
 }
 
-impl StreamingMethods for Camera {
+impl StreamingOps for Camera {
     async fn enable_multicast(&self) -> crate::Result<()> {
         self.0.enable_multicast().await
     }

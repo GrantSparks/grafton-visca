@@ -13,7 +13,7 @@ use crate::{
 /// Async methods for variable speed mode control.
 #[cfg(feature = "async")]
 #[allow(async_fn_in_trait)]
-pub trait VariableSpeedMethods {
+pub trait VariableSpeedOps {
     /// Set the variable speed mode (24-step or 50-step).
     ///
     /// Only available on Sony FR7.
@@ -27,7 +27,7 @@ pub trait VariableSpeedMethods {
 }
 
 #[cfg(feature = "async")]
-impl VariableSpeedMethods for Camera {
+impl VariableSpeedOps for Camera {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // Check if camera supports variable speed mode
         if !self.supports_feature(crate::CameraFeature::VariableSpeedMode) {
@@ -46,7 +46,7 @@ impl VariableSpeedMethods for Camera {
 }
 
 /// Blocking methods for variable speed mode control.
-pub trait VariableSpeedMethodsBlocking {
+pub trait VariableSpeedOpsBlocking {
     /// Set the variable speed mode (24-step or 50-step).
     ///
     /// Only available on Sony FR7.
@@ -59,7 +59,7 @@ pub trait VariableSpeedMethodsBlocking {
     fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error>;
 }
 
-impl VariableSpeedMethodsBlocking for Camera {
+impl VariableSpeedOpsBlocking for Camera {
     fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // Check if camera supports variable speed mode
         if !self.supports_feature(crate::CameraFeature::VariableSpeedMode) {

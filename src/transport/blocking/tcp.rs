@@ -12,7 +12,6 @@ use std::time::Duration;
 #[derive(Debug)]
 pub struct Tcp {
     stream: Mutex<TcpStream>,
-    _address: String,
 }
 
 impl Tcp {
@@ -37,7 +36,6 @@ impl Tcp {
 
         Ok(Self {
             stream: Mutex::new(stream),
-            _address: address.to_string(),
         })
     }
 }

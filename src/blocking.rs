@@ -39,13 +39,13 @@ pub mod prelude {
     pub use crate::camera::methods::{
         ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps,
         FocusOpsBlocking as FocusOps, ImageProcessingOpsBlocking as ImageProcessingOps,
-        InquiryOpsBlocking as InquiryOps, MenuControlMethodsBlocking as MenuControl,
+        InquiryOpsBlocking as InquiryOps, MenuControlOpsBlocking as MenuControl,
         MotionSyncControlBlocking as MotionSyncControl, NDFilterOpsBlocking as NDFilterOps,
         PanTiltInquiryOpsBlocking as PanTiltInquiryOps, PanTiltOpsBlocking as PanTiltOps,
         PowerOpsBlocking as PowerOps, PresetsOpsBlocking as PresetsOps,
         SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
-        VariableSpeedMethodsBlocking as VariableSpeedMethods,
-        WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
+        VariableSpeedOpsBlocking as VariableSpeedOps, WhiteBalanceOpsBlocking as WhiteBalanceOps,
+        ZoomOpsBlocking as ZoomOps,
     };
 }
 
@@ -53,13 +53,13 @@ pub mod prelude {
 pub use crate::camera::methods::{
     ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
     ImageProcessingOpsBlocking as ImageProcessingOps, InquiryOpsBlocking as InquiryOps,
-    MenuControlMethodsBlocking as MenuControl, MotionSyncControlBlocking as MotionSyncControl,
+    MenuControlOpsBlocking as MenuControl, MotionSyncControlBlocking as MotionSyncControl,
     NDFilterOpsBlocking as NDFilterOps, PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
     PanTiltOpsBlocking as PanTiltOps, PowerOpsBlocking as PowerOps,
-    PresetsOpsBlocking as PresetsOps, StreamingMethodsBlocking as StreamingMethods,
+    PresetsOpsBlocking as PresetsOps, StreamingOpsBlocking as StreamingOps,
     SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
-    VariableSpeedMethodsBlocking as VariableSpeedMethods,
-    WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
+    VariableSpeedOpsBlocking as VariableSpeedOps, WhiteBalanceOpsBlocking as WhiteBalanceOps,
+    ZoomOpsBlocking as ZoomOps,
 };
 
 // Import traits needed for disambiguation in macros
@@ -253,9 +253,9 @@ forward_facade!(Camera, blocking,
         get_tally_status() -> crate::Result<bool>,
         get_red_tally_status() -> crate::Result<bool>,
         get_green_tally_status() -> crate::Result<bool>;
-    VariableSpeedMethods:
+    VariableSpeedOps:
         set_variable_speed_mode(mode: crate::command::VariableSpeedMode) -> crate::Result<()>;
-    StreamingMethods:
+    StreamingOps:
         enable_multicast() -> crate::Result<()>,
         disable_multicast() -> crate::Result<()>,
         set_ndi_quality(quality: crate::types::NDIQuality) -> crate::Result<()>;

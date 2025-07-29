@@ -76,19 +76,6 @@ pub enum Error {
         reason: String,
     },
 
-    /// A parameter value is outside the valid range.
-    #[error("Value {value} out of range [{min}, {max}] for {parameter}")]
-    OutOfRange {
-        /// The invalid value provided.
-        value: i32,
-        /// Minimum valid value.
-        min: i32,
-        /// Maximum valid value.
-        max: i32,
-        /// Name of the parameter.
-        parameter: String,
-    },
-
     /// Requested preset position does not exist.
     #[error("Preset {id} not found")]
     PresetNotFound {
@@ -119,17 +106,9 @@ pub enum Error {
     #[error("Command was canceled")]
     CommandCanceled,
 
-    /// VISCA protocol command cancelled (0x04): Command was cancelled in the specified socket.
-    #[error("Command was cancelled")]
-    CommandCancelled,
-
     /// VISCA protocol no socket error (0x05): No command is executing in the specified socket.
     #[error("No socket available")]
     NoSocket,
-
-    /// VISCA protocol no socket error (0x05): No command is executing in the specified socket.
-    #[error("No socket error")]
-    NoSocketError,
 
     /// VISCA protocol command not executable (0x41): Command cannot be executed due to current conditions.
     #[error("Command is not executable")]
@@ -150,10 +129,6 @@ pub enum Error {
     /// Received an unknown error code from the camera.
     #[error("Unknown error code: {0:#02X}")]
     Unknown(u8),
-
-    /// Received an unknown error code from the camera.
-    #[error("Unknown error code: {0:#02X}")]
-    UnknownError(u8),
 
     /// Invalid request to socket manager.
     #[error("Invalid request: {0}")]

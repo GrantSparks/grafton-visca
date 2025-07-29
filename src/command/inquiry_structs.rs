@@ -794,7 +794,7 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
 
     fn encode_into(
         &self,
-        _camera_id: crate::camera_id::CameraId,
+        camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::error::Error> {
         if buffer.len() < Self::MAX_SIZE {
@@ -805,7 +805,7 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
         }
 
         // Special format for green tally inquiry
-        buffer[0] = 0x81;
+        buffer[0] = camera_id.to_address_byte();
         buffer[1] = 0x09;
         buffer[2] = 0x7E;
         buffer[3] = 0x04;

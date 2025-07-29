@@ -11,7 +11,6 @@ use std::time::Duration;
 #[derive(Debug)]
 pub struct Udp {
     socket: Mutex<UdpSocket>,
-    _remote_addr: String,
 }
 
 impl Udp {
@@ -26,7 +25,6 @@ impl Udp {
 
         Ok(Self {
             socket: Mutex::new(socket),
-            _remote_addr: address.to_string(),
         })
     }
 }

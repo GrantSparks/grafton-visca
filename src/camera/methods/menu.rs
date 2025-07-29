@@ -12,7 +12,7 @@ use crate::{
 /// Async menu control methods for cameras that support menu navigation.
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
-pub trait MenuControlMethods: Send + Sync {
+pub trait MenuControlOps: Send + Sync {
     /// Show or hide the on-screen menu.
     async fn set_menu_display(&self, display: bool) -> Result<Response, Error>;
 
@@ -30,7 +30,7 @@ pub trait MenuControlMethods: Send + Sync {
 }
 
 /// Blocking menu control methods for cameras that support menu navigation.
-pub trait MenuControlMethodsBlocking {
+pub trait MenuControlOpsBlocking {
     /// Show or hide the on-screen menu.
     fn set_menu_display(&self, display: bool) -> Result<Response, Error>;
 
@@ -50,7 +50,7 @@ pub trait MenuControlMethodsBlocking {
 /// Implementation for async cameras with menu control.
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
-impl MenuControlMethods for Camera {
+impl MenuControlOps for Camera {
     async fn set_menu_display(&self, display: bool) -> Result<Response, Error> {
         let cmd = MenuDisplayCommand::new(display);
         self.send_command(&cmd).await
@@ -90,7 +90,7 @@ impl MenuControlMethods for Camera {
 }
 
 /// Implementation for blocking cameras with menu control.
-impl MenuControlMethodsBlocking for Camera {
+impl MenuControlOpsBlocking for Camera {
     fn set_menu_display(&self, display: bool) -> Result<Response, Error> {
         let cmd = MenuDisplayCommand::new(display);
         self.send_command_blocking(&cmd)

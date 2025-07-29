@@ -11,7 +11,6 @@ use tokio::net::UdpSocket;
 #[derive(Debug)]
 pub struct Udp {
     socket: Arc<UdpSocket>,
-    _remote_addr: String,
 }
 
 impl Udp {
@@ -22,7 +21,6 @@ impl Udp {
 
         Ok(Self {
             socket: Arc::new(socket),
-            _remote_addr: address.to_string(),
         })
     }
 }
