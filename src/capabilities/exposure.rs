@@ -82,7 +82,7 @@ pub trait ExposureExt: Exposure {
         } else {
             Err(ValidationError::InvalidValue {
                 parameter: "shutter speed",
-                message: format!("Unsupported shutter speed value: {}", value),
+                message: format!("Unsupported shutter speed value: {value}"),
             })
         }
     }

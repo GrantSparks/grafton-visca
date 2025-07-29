@@ -10,6 +10,7 @@ use crate::{
 };
 
 /// Tally light control operations (async).
+#[cfg(feature = "async")]
 pub trait TallyOps: Sized {
     /// Turn red tally light on.
     async fn tally_red_on(&self) -> Result<(), Error>;
@@ -88,6 +89,7 @@ pub trait TallyOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl TallyOps for Camera {
     async fn tally_red_on(&self) -> Result<(), Error> {
         let command = Tally::RedOn;

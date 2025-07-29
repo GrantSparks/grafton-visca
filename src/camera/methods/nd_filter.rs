@@ -14,6 +14,7 @@ use crate::{
 };
 
 /// ND filter operations (async).
+#[cfg(feature = "async")]
 pub trait NDFilterOps: Sized {
     /// Set ND filter mode (preset or variable).
     async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error>;
@@ -56,6 +57,7 @@ pub trait NDFilterOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl NDFilterOps for Camera {
     async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
         // Check if camera has ND filter support

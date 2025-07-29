@@ -9,6 +9,7 @@ use crate::{
 };
 
 /// Pan/Tilt operations (async).
+#[cfg(feature = "async")]
 pub trait PanTiltOps: Sized {
     /// Stop all pan/tilt movement.
     async fn pan_tilt_stop(&self) -> Result<(), Error>;
@@ -103,6 +104,7 @@ pub trait PanTiltOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl PanTiltOps for Camera {
     async fn pan_tilt_stop(&self) -> Result<(), Error> {
         let cmd = PanTilt::Move {

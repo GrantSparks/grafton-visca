@@ -11,6 +11,7 @@ use crate::{
 };
 
 /// Async methods for variable speed mode control.
+#[cfg(feature = "async")]
 #[allow(async_fn_in_trait)]
 pub trait VariableSpeedMethods {
     /// Set the variable speed mode (24-step or 50-step).
@@ -25,6 +26,7 @@ pub trait VariableSpeedMethods {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error>;
 }
 
+#[cfg(feature = "async")]
 impl VariableSpeedMethods for Camera {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // Check if camera supports variable speed mode

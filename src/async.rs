@@ -87,14 +87,16 @@ impl Camera {
 /// use grafton_visca::r#async::prelude::*;
 /// ```
 pub mod prelude {
-    pub use super::{
+    #[cfg(feature = "async")]
+    pub use crate::camera::methods::{
         ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlMethods,
-        NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps,
-        VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
+        MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
+        StreamingMethods, SystemOps, TallyOps, VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
     };
 }
 
 // Re-export async traits with unsuffixed names
+#[cfg(feature = "async")]
 pub use crate::camera::methods::{
     ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlMethods,
     MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
@@ -795,7 +797,7 @@ impl SystemOps for Camera {
         self.0.interface_clear().await
     }
 
-    async fn cancel_command(&self, socket: crate::command::Socket) -> crate::Result<()> {
+    async fn cancel_command(&self, socket: crate::command::system::Socket) -> crate::Result<()> {
         self.0.cancel_command(socket).await
     }
 }

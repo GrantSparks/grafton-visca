@@ -1816,10 +1816,10 @@ mod tests {
     #[test]
     fn test_response_debug() {
         let ack = Response::CmdAck;
-        assert_eq!(format!("{:?}", ack), "CmdAck");
+        assert_eq!(format!("{ack:?}"), "CmdAck");
 
         let completion = Response::Completion;
-        assert_eq!(format!("{:?}", completion), "Completion");
+        assert_eq!(format!("{completion:?}"), "Completion");
     }
 
     #[test]

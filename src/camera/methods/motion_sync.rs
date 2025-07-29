@@ -8,6 +8,7 @@ use crate::{
 };
 
 /// Motion Sync control methods for cameras that support this feature.
+#[cfg(feature = "async")]
 pub trait MotionSyncControl {
     /// Sets the motion sync mode (on/off).
     ///
@@ -73,6 +74,7 @@ pub trait MotionSyncControlBlocking {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl MotionSyncControl for Camera {
     async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
         if !self.supports_motion_sync() {

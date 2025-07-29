@@ -50,7 +50,7 @@ impl BlockingTransport for Udp {}
 fn send_impl(socket: &Mutex<UdpSocket>, data: &[u8]) -> Result<(), Error> {
     let socket = socket
         .lock()
-        .map_err(|e| Error::TransportError(format!("Failed to lock socket: {}", e)))?;
+        .map_err(|e| Error::TransportError(format!("Failed to lock socket: {e}")))?;
 
     socket.send(data)?;
     Ok(())
@@ -59,7 +59,7 @@ fn send_impl(socket: &Mutex<UdpSocket>, data: &[u8]) -> Result<(), Error> {
 fn recv_impl(socket: &Mutex<UdpSocket>) -> Result<bytes::Bytes, Error> {
     let socket = socket
         .lock()
-        .map_err(|e| Error::TransportError(format!("Failed to lock socket: {}", e)))?;
+        .map_err(|e| Error::TransportError(format!("Failed to lock socket: {e}")))?;
 
     let mut buffer = vec![0u8; 1024];
 

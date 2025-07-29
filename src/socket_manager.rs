@@ -704,9 +704,8 @@ impl SocketManagerActor {
                 self.check_timeouts().await;
 
                 // Check for commands first
-                let command = self.command_receiver.recv().ok();
-                if let Some(cmd) = command {
-                    match cmd {
+                match self.command_receiver.recv() {
+                    Ok(cmd) => match cmd {
                         SocketManagerCommand::SendCommand {
                             bytes,
                             category,
@@ -722,18 +721,21 @@ impl SocketManagerActor {
                         } => {
                             self.handle_cancel_command(socket, response_sender).await;
                         }
+                    },
+                    Err(_) => {
+                        // Channel closed, break the loop
+                        debug!("Socket manager command channel closed");
+                        break;
                     }
-                } else {
-                    // If no command, try to receive response
-                    // Note: This is a simplified approach and may not be optimal
-                    // In a real implementation, we'd want proper event-driven handling
-                    match self.transport.recv().await {
-                        Ok(bytes) => {
-                            self.handle_raw_response(bytes).await;
-                        }
-                        Err(_) => {
-                            // No response available, continue
-                        }
+                }
+
+                // Try to receive response
+                match self.transport.recv().await {
+                    Ok(bytes) => {
+                        self.handle_raw_response(bytes).await;
+                    }
+                    Err(_) => {
+                        // No response available, continue
                     }
                 }
             }
@@ -822,10 +824,10 @@ impl SocketManagerActor {
         #[cfg(feature = "tokio")] response_sender: oneshot::Sender<Result<()>>,
         #[cfg(not(feature = "tokio"))] response_sender: Sender<Result<()>>,
     ) {
-        trace!("Handling cancel command for {:?}", socket);
+        trace!("Handling cancel command for {socket:?}");
 
         if self.inner.sockets[socket.as_index()].is_free() {
-            warn!("Attempted to cancel command on free socket {:?}", socket);
+            warn!("Attempted to cancel command on free socket {socket:?}");
             let _ = response_sender.send(Err(Error::InvalidRequest(
                 "No command active on socket".to_string(),
             )));
@@ -835,7 +837,7 @@ impl SocketManagerActor {
         let cancel_cmd = CommandCancelCommand::new(socket);
         let mut bytes = Vec::new();
         if let Err(e) = cancel_cmd.encode_into(self.inner.camera_id, &mut bytes) {
-            error!("Failed to encode cancel command for {:?}: {}", socket, e);
+            error!("Failed to encode cancel command for {socket:?}: {e}");
             let _ = response_sender.send(Err(Error::InvalidRequest(
                 "Failed to encode cancel command".to_string(),
             )));
@@ -844,18 +846,18 @@ impl SocketManagerActor {
 
         match self.transport.send(&bytes).await {
             Ok(()) => {
-                trace!("Cancel command sent for {:?}", socket);
+                trace!("Cancel command sent for {socket:?}");
                 let _ = response_sender.send(Ok(()));
             }
             Err(e) => {
-                error!("Failed to send cancel command for {:?}: {}", socket, e);
+                error!("Failed to send cancel command for {socket:?}: {e}");
                 let _ = response_sender.send(Err(e));
             }
         }
     }
 
     async fn handle_raw_response(&mut self, bytes: bytes::Bytes) {
-        trace!("Handling raw response: {:02X?}", bytes);
+        trace!("Handling raw response: {bytes:02X?}");
 
         if bytes.is_empty() {
             warn!("Empty response received");
@@ -872,53 +874,47 @@ impl SocketManagerActor {
                 if let Some(socket) = socket {
                     self.handle_ack_response(socket).await;
                 } else {
-                    warn!("Invalid socket byte in ACK response: 0x{:02x}", socket_byte);
+                    warn!("Invalid socket byte in ACK response: 0x{socket_byte:02x}");
                 }
             }
             Ok(Response::Completion) => {
                 if let Some(socket) = socket {
                     self.handle_completion_response(socket).await;
                 } else {
-                    warn!(
-                        "Invalid socket byte in completion response: 0x{:02x}",
-                        socket_byte
-                    );
+                    warn!("Invalid socket byte in completion response: 0x{socket_byte:02x}");
                 }
             }
             Ok(Response::Error(error)) => {
                 if let Some(socket) = socket {
                     self.handle_error_response(socket, error).await;
                 } else {
-                    warn!(
-                        "Invalid socket byte in error response: 0x{:02x}",
-                        socket_byte
-                    );
+                    warn!("Invalid socket byte in error response: 0x{socket_byte:02x}");
                 }
             }
             Ok(Response::Inquiry(data)) => {
                 self.handle_inquiry_response(data).await;
             }
             Ok(other) => {
-                warn!("Unhandled response type: {:?}", other);
+                warn!("Unhandled response type: {other:?}");
             }
             Err(e) => {
                 // Try to parse as inquiry response
-                warn!("Failed to parse response: {:?}", e);
+                warn!("Failed to parse response: {e:?}");
             }
         }
     }
 
     async fn handle_ack_response(&mut self, socket: Socket) {
-        trace!("Received ACK for {:?}", socket);
+        trace!("Received ACK for {socket:?}");
         if let Some(command) = self.inner.get_active_command(socket) {
             debug!("ACK received for command {} on {:?}", command.id, socket);
         } else {
-            warn!("Received ACK for {:?} but no active command", socket);
+            warn!("Received ACK for {socket:?} but no active command");
         }
     }
 
     async fn handle_completion_response(&mut self, socket: Socket) {
-        trace!("Received completion for {:?}", socket);
+        trace!("Received completion for {socket:?}");
         if let Some(command) = self.inner.take_active_command(socket) {
             debug!(
                 "Completion received for command {} on {:?}",
@@ -928,12 +924,12 @@ impl SocketManagerActor {
             self.inner.mark_socket_free(socket);
             self.try_dispatch_next_command().await;
         } else {
-            warn!("Received completion for {:?} but no active command", socket);
+            warn!("Received completion for {socket:?} but no active command");
         }
     }
 
     async fn handle_error_response(&mut self, socket: Socket, error: Error) {
-        trace!("Received error for {:?}: {:?}", socket, error);
+        trace!("Received error for {socket:?}: {error:?}");
         if let Some(mut command) = self.inner.take_active_command(socket) {
             debug!(
                 "Error received for command {} on {:?}: {:?}",
@@ -967,12 +963,12 @@ impl SocketManagerActor {
             self.inner.mark_socket_free(socket);
             self.try_dispatch_next_command().await;
         } else {
-            warn!("Received error for {:?} but no active command", socket);
+            warn!("Received error for {socket:?} but no active command");
         }
     }
 
     async fn handle_inquiry_response(&mut self, data: crate::command::InquiryResponse) {
-        trace!("Received inquiry response: {:?}", data);
+        trace!("Received inquiry response: {data:?}");
         if let Some(command) = self.inner.take_pending_inquiry() {
             debug!("Inquiry response received for command {}", command.id);
             command.complete(Ok(Response::Inquiry(data)));
@@ -1025,12 +1021,9 @@ impl SocketManagerActor {
         for socket in timed_out_sockets {
             let socket_state = &self.inner.sockets[socket.as_index()];
             if let Some(command_id) = socket_state.command_id() {
-                warn!(
-                    "Command {} timeout on {:?}, sending cancel command",
-                    command_id, socket
-                );
+                warn!("Command {command_id} timeout on {socket:?}, sending cancel command");
             } else {
-                warn!("Command timeout on {:?}, sending cancel command", socket);
+                warn!("Command timeout on {socket:?}, sending cancel command");
             }
             self.handle_command_timeout(socket).await;
         }
@@ -1054,22 +1047,19 @@ impl SocketManagerActor {
         let mut cancel_bytes = vec![0u8; CommandCancelCommand::MAX_SIZE];
 
         if let Some(cmd_id) = command_id {
-            debug!(
-                "Sending cancel command for timed out command {} on socket {:?}",
-                cmd_id, socket
-            );
+            debug!("Sending cancel command for timed out command {cmd_id} on socket {socket:?}");
         } else {
-            debug!("Sending cancel command for timed out socket {:?}", socket);
+            debug!("Sending cancel command for timed out socket {socket:?}");
         }
         match cancel_command.encode_into(self.inner.camera_id, &mut cancel_bytes) {
             Ok(size) => {
                 cancel_bytes.truncate(size);
                 if let Err(e) = self.transport.send(&cancel_bytes).await {
-                    error!("Failed to send cancel command: {}", e);
+                    error!("Failed to send cancel command: {e}");
                 }
             }
             Err(e) => {
-                error!("Failed to encode cancel command: {}", e);
+                error!("Failed to encode cancel command: {e}");
             }
         }
 

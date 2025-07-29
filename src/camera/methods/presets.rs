@@ -11,6 +11,7 @@ use crate::{
 };
 
 /// Presets operations (async).
+#[cfg(feature = "async")]
 pub trait PresetsOps: Sized {
     /// Recall a preset position.
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
@@ -35,6 +36,7 @@ pub trait PresetsOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl PresetsOps for Camera {
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
         // Validate preset number (0 is valid - it's the home position)

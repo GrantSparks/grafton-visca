@@ -881,7 +881,7 @@ impl fmt::Display for G2Gain {
             G2Gain::Gain21dB => "21dB",
             G2Gain::Gain24dB => "24dB",
         };
-        write!(f, "{}", db)
+        write!(f, "{db}")
     }
 }
 

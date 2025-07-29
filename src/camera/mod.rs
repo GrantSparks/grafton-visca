@@ -21,9 +21,11 @@ use crate::{
     },
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
-    socket_manager::SocketManagerHandle,
     transport::{core::Transport, TransportEnvelope},
 };
+
+#[cfg(feature = "async")]
+use crate::socket_manager::SocketManagerHandle;
 
 #[cfg(feature = "async")]
 use crate::executor::Spawner;
@@ -259,6 +261,12 @@ pub trait UnifiedTransport: Send + Sync {
 
     /// Receive raw bytes from the device.
     async fn recv(&self) -> Result<bytes::Bytes, Error>;
+
+    /// Send raw bytes to the device (blocking).
+    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error>;
+
+    /// Receive raw bytes from the device with timeout (blocking).
+    fn recv_blocking_timeout(&self, timeout: Duration) -> Result<bytes::Bytes, Error>;
 }
 
 /// Wrapper for async transports.
@@ -279,6 +287,35 @@ where
 
     async fn recv(&self) -> Result<bytes::Bytes, Error> {
         self.transport.recv().await.map_err(Into::into)
+    }
+
+    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+        // For async transports, use futures::executor to block
+        futures::executor::block_on(self.send(bytes))
+    }
+
+    fn recv_blocking_timeout(&self, timeout: Duration) -> Result<bytes::Bytes, Error> {
+        // For async transports, use futures::executor with timeout
+        #[cfg(feature = "tokio")]
+        {
+            futures::executor::block_on(async {
+                tokio::time::timeout(timeout, self.recv())
+                    .await
+                    .map_err(|_| Error::Timeout)?
+            })
+        }
+
+        #[cfg(not(feature = "tokio"))]
+        {
+            // Without tokio, use a simpler timeout approach
+            use std::time::Instant;
+            let _start = Instant::now();
+
+            // For non-tokio async transports, we just block on recv without timeout
+            // This is a limitation when not using tokio
+            log::warn!("Timeout not supported without tokio feature - blocking on recv");
+            futures::executor::block_on(self.recv())
+        }
     }
 }
 
@@ -336,6 +373,7 @@ pub struct Camera {
     profile: CameraProfile,
     transport: Arc<dyn UnifiedTransport>,
     camera_id: CameraId,
+    #[cfg(feature = "async")]
     socket_manager: Option<SocketManagerHandle>,
     envelope: TransportEnvelope,
     #[cfg(feature = "async")]
@@ -348,6 +386,7 @@ impl Clone for Camera {
             profile: self.profile,
             transport: Arc::clone(&self.transport),
             camera_id: self.camera_id,
+            #[cfg(feature = "async")]
             socket_manager: self.socket_manager.clone(),
             envelope: TransportEnvelope::new(self.profile.protocol_style()),
             #[cfg(feature = "async")]
@@ -358,12 +397,14 @@ impl Clone for Camera {
 
 impl std::fmt::Debug for Camera {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Camera")
+        let mut debug = f.debug_struct("Camera");
+        debug
             .field("profile", &self.profile)
             .field("camera_id", &self.camera_id)
-            .field("transport", &"<dyn UnifiedTransport>")
-            .field("socket_manager", &self.socket_manager.is_some())
-            .finish()
+            .field("transport", &"<dyn UnifiedTransport>");
+        #[cfg(feature = "async")]
+        debug.field("socket_manager", &self.socket_manager.is_some());
+        debug.finish()
     }
 }
 
@@ -442,6 +483,7 @@ impl Camera {
             profile,
             transport,
             camera_id,
+            #[cfg(feature = "async")]
             socket_manager: None,
             #[cfg(feature = "async")]
             spawner: None,
@@ -471,6 +513,7 @@ impl Camera {
             profile,
             transport,
             camera_id,
+            #[cfg(feature = "async")]
             socket_manager: None,
             spawner,
         };
@@ -513,6 +556,7 @@ impl Camera {
     /// Initialize the socket manager for this camera.
     /// This enables queued command processing for proper two-socket management.
     pub fn initialize_socket_manager(&mut self) -> Result<(), Error> {
+        #[cfg(feature = "async")]
         if self.socket_manager.is_some() {
             return Ok(()); // Already initialized
         }
@@ -571,6 +615,7 @@ impl Camera {
     /// Cancel a command on a specific socket.
     ///
     /// This sends a VISCA command cancel request to the camera for the specified socket.
+    #[cfg(feature = "async")]
     pub async fn cancel_command(
         &self,
         socket: crate::command::system::Socket,
@@ -593,6 +638,7 @@ impl Camera {
     /// Send a command asynchronously and wait for response.
     ///
     /// This is the primary async interface for sending commands to the camera.
+    #[cfg(feature = "async")]
     pub async fn send_command<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca,
@@ -609,6 +655,7 @@ impl Camera {
     }
 
     /// Send command via socket manager (new queued approach)
+    #[cfg(feature = "async")]
     async fn send_command_via_socket_manager<C>(
         &self,
         command: &C,
@@ -631,10 +678,7 @@ impl Camera {
         let is_inquiry = command.response_type().is_some();
         let framed_bytes = self.envelope.frame_command(&cmd_bytes, is_inquiry);
 
-        log::debug!(
-            "Sending VISCA command via socket manager: {:02X?}",
-            framed_bytes
-        );
+        log::debug!("Sending VISCA command via socket manager: {framed_bytes:02X?}");
 
         // Get timeout category from command
         let category = command.timeout_kind();
@@ -684,6 +728,7 @@ impl Camera {
     /// This method first validates that the command is supported by the camera,
     /// then sends it. Use this for safer command execution that prevents sending
     /// unsupported commands to cameras.
+    #[cfg(feature = "async")]
     pub async fn send_command_validated<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca + CommandFeatures,
@@ -693,6 +738,7 @@ impl Camera {
     }
 
     /// Send command directly via transport (legacy approach)
+    #[cfg(feature = "async")]
     async fn send_command_direct<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca,
@@ -712,7 +758,7 @@ impl Camera {
         let is_inquiry = command.response_type().is_some();
         let framed_bytes = self.envelope.frame_command(&cmd_bytes, is_inquiry);
 
-        log::debug!("Sending VISCA command: {:02X?}", framed_bytes);
+        log::debug!("Sending VISCA command: {framed_bytes:02X?}");
 
         // Send command
         self.transport.send(&framed_bytes).await?;
@@ -734,8 +780,7 @@ impl Camera {
                     }
                     Response::Error(e) => Err(e),
                     _ => Err(Error::ParseError(format!(
-                        "Unexpected response: {:?}",
-                        ack_response
+                        "Unexpected response: {ack_response:?}"
                     ))),
                 }
             }
@@ -749,6 +794,7 @@ impl Camera {
     }
 
     /// Wait for any response with timeout.
+    #[cfg(feature = "async")]
     async fn wait_for_response(&self, _timeout: Duration) -> Result<Response, Error> {
         // TODO: Implement proper timeout handling based on runtime
         // For now, just receive without timeout
@@ -771,6 +817,7 @@ impl Camera {
     }
 
     /// Wait for a specific type of response with timeout.
+    #[cfg(feature = "async")]
     async fn wait_for_response_with_type(
         &self,
         expected_type: ResponseType,
@@ -832,8 +879,165 @@ impl Camera {
     where
         C: EncodeVisca,
     {
-        // Use a minimal executor to block on the async method
-        futures::executor::block_on(self.send_command(command))
+        #[cfg(feature = "async")]
+        {
+            // Use a minimal executor to block on the async method
+            futures::executor::block_on(self.send_command(command))
+        }
+
+        #[cfg(not(feature = "async"))]
+        {
+            // Direct blocking implementation
+            self.send_command_blocking_direct(command)
+        }
+    }
+
+    /// Direct blocking implementation without async
+    #[cfg(not(feature = "async"))]
+    fn send_command_blocking_direct<C>(&self, command: &C) -> Result<Response, Error>
+    where
+        C: EncodeVisca,
+    {
+        // Get command bytes using EncodeVisca
+        let mut buffer = [0u8; 64]; // Use a reasonable max size
+        let size = command.encode_into(self.camera_id, &mut buffer)?;
+        let mut cmd_bytes = buffer[..size].to_vec();
+
+        // Add VISCA terminator if not present
+        if cmd_bytes.last() != Some(&crate::command::const_encoding::VISCA_TERMINATOR) {
+            cmd_bytes.push(crate::command::const_encoding::VISCA_TERMINATOR);
+        }
+
+        // Apply protocol-specific framing using transport envelope
+        let is_inquiry = command.response_type().is_some();
+        let framed_bytes = self.envelope.frame_command(&cmd_bytes, is_inquiry);
+
+        log::debug!("Sending VISCA command: {framed_bytes:02X?}");
+
+        // Send command using blocking transport
+        self.transport.send_blocking(&framed_bytes)?;
+
+        // Handle response based on command type
+        match command.response_type() {
+            None => {
+                // Action command - wait for ACK then Completion
+                let ack_response = self.wait_for_response_blocking(self.profile.ack_timeout())?;
+                match ack_response {
+                    Response::CmdAck => {
+                        // Wait for completion
+                        self.wait_for_response_blocking(self.profile.completion_timeout())
+                    }
+                    Response::Completion => {
+                        // Some cameras send completion directly
+                        Ok(Response::Completion)
+                    }
+                    Response::Error(e) => Err(e),
+                    _ => Err(Error::ParseError(format!(
+                        "Unexpected response: {ack_response:?}"
+                    ))),
+                }
+            }
+            Some(expected_type) => {
+                // Inquiry command - wait for specific response with type
+                self.wait_for_response_with_type_blocking(
+                    expected_type,
+                    self.profile.completion_timeout(),
+                )
+            }
+        }
+    }
+
+    /// Wait for a specific type of response with timeout (blocking version).
+    #[cfg(not(feature = "async"))]
+    fn wait_for_response_with_type_blocking(
+        &self,
+        expected_type: ResponseType,
+        timeout: Duration,
+    ) -> Result<Response, Error> {
+        let start = std::time::Instant::now();
+        loop {
+            // Try to receive a response
+            match self.transport.recv_blocking_timeout(timeout) {
+                Ok(bytes) => {
+                    log::debug!("Received response: {:02X?}", bytes);
+
+                    // Deframe the response
+                    let response_bytes = self.envelope.extract_response(&bytes)?;
+
+                    // First try to parse as a regular response
+                    match Response::parse(&response_bytes) {
+                        Ok(Response::CmdAck) => {
+                            // Skip ACK for inquiry commands and wait for the actual response
+                            log::debug!("Skipping ACK response for inquiry command");
+                            continue;
+                        }
+                        Ok(Response::Error(e)) => return Err(e),
+                        Ok(Response::Completion) => {
+                            // Unexpected completion for inquiry
+                            return Err(Error::UnexpectedResponseType);
+                        }
+                        Ok(other) => {
+                            // This shouldn't happen with parse() but handle it
+                            return Ok(other);
+                        }
+                        Err(_) => {
+                            // If regular parse fails, it might be an inquiry response
+                            // Try parsing with the expected type
+                            match Response::parse_with_type(&response_bytes, &expected_type) {
+                                Ok(response) => return Ok(response),
+                                Err(e) => return Err(e),
+                            }
+                        }
+                    }
+                }
+                Err(Error::CommandTimeout { .. }) => {
+                    if start.elapsed() >= timeout {
+                        return Err(Error::CommandTimeout {
+                            duration: timeout,
+                            command: "wait_for_response_with_type_blocking".to_string(),
+                        });
+                    }
+                    // If we haven't exceeded our timeout, continue waiting
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// Wait for a response with timeout (blocking version)
+    #[cfg(not(feature = "async"))]
+    fn wait_for_response_blocking(&self, timeout: Duration) -> Result<Response, Error> {
+        let start = std::time::Instant::now();
+        loop {
+            // Try to receive a response
+            match self.transport.recv_blocking_timeout(timeout) {
+                Ok(bytes) => {
+                    log::debug!("Received response: {:02X?}", bytes);
+
+                    // Deframe the response
+                    let response_bytes = self.envelope.extract_response(&bytes)?;
+
+                    // Parse using the generic Response parser
+                    match Response::parse(&response_bytes) {
+                        Ok(response) => return Ok(response),
+                        Err(e) => {
+                            log::warn!("Failed to parse response: {:?}", e);
+                            // Continue waiting for a valid response
+                        }
+                    }
+                }
+                Err(Error::CommandTimeout { .. }) => {
+                    if start.elapsed() >= timeout {
+                        return Err(Error::CommandTimeout {
+                            duration: Duration::from_secs(5),
+                            command: "recv_blocking_timeout".to_string(),
+                        });
+                    }
+                    // Continue waiting
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     /// Check if the camera supports a specific capability.
@@ -1285,6 +1489,7 @@ impl Camera {
     /// This provides an async API without consuming the camera instance,
     /// allowing you to obtain both blocking and async views.
     #[must_use]
+    #[cfg(feature = "async")]
     pub fn async_ref(&self) -> crate::r#async::Camera {
         crate::r#async::Camera::new(self.clone())
     }
@@ -1315,6 +1520,7 @@ impl Camera {
     /// # }
     /// ```
     #[must_use]
+    #[cfg(feature = "async")]
     pub fn r#async(self) -> crate::r#async::Camera {
         crate::r#async::Camera::new(self)
     }

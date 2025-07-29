@@ -123,12 +123,11 @@ impl TransportEnvelope {
                 // Expected for camera responses
             }
             Some(other) => {
-                log::warn!("Unexpected Sony payload type in response: {:?}", other);
+                log::warn!("Unexpected Sony payload type in response: {other:?}");
             }
             None => {
                 return Err(crate::Error::ParseError(format!(
-                    "Invalid Sony payload type: {:02X?}",
-                    payload_type_bytes
+                    "Invalid Sony payload type: {payload_type_bytes:02X?}"
                 )));
             }
         }
@@ -137,8 +136,7 @@ impl TransportEnvelope {
         let expected_payload_len = framed_bytes.len() - 8;
         if length as usize != expected_payload_len {
             return Err(crate::Error::ParseError(format!(
-                "Sony header length mismatch: header says {}, actual payload is {}",
-                length, expected_payload_len
+                "Sony header length mismatch: header says {length}, actual payload is {expected_payload_len}"
             )));
         }
 

@@ -13,6 +13,7 @@ use crate::{
 };
 
 /// Zoom operations (async).
+#[cfg(feature = "async")]
 pub trait ZoomOps: Sized {
     /// Stop zooming.
     async fn zoom_stop(&self) -> Result<(), Error>;
@@ -67,6 +68,7 @@ pub trait ZoomOpsBlocking: Sized {
 }
 
 // Async implementation
+#[cfg(feature = "async")]
 impl ZoomOps for Camera {
     async fn zoom_stop(&self) -> Result<(), Error> {
         let command = ZoomCommand::Stop;

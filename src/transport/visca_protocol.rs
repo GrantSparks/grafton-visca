@@ -48,7 +48,7 @@ impl<T: Transport> ViscaProtocol<T> {
         let size = command.encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)?;
         let cmd_bytes = &buffer[..size];
 
-        log::debug!("Sending VISCA command: {:02X?}", cmd_bytes);
+        log::debug!("Sending VISCA command: {cmd_bytes:02X?}");
 
         // Send command
         self.transport.send(cmd_bytes).await.map_err(Into::into)?;
@@ -67,7 +67,7 @@ impl<T: Transport> ViscaProtocol<T> {
                         // Some cameras send completion directly
                         Ok(Response::Completion)
                     }
-                    _ => Err(Error::ParseError(format!("{:?}", ack))),
+                    _ => Err(Error::ParseError(format!("{ack:?}"))),
                 }
             }
             Some(response_type) => {
@@ -91,7 +91,7 @@ impl<T: Transport> ViscaProtocol<T> {
         match response {
             Response::Completion => Ok(response),
             Response::Error(e) => Err(e),
-            _ => Err(Error::ParseError(format!("{:?}", response))),
+            _ => Err(Error::ParseError(format!("{response:?}"))),
         }
     }
 
@@ -109,8 +109,7 @@ impl<T: Transport> ViscaProtocol<T> {
             Ok(response)
         } else {
             Err(Error::ParseError(format!(
-                "Expected {:?}, got {:?}",
-                expected_type, response
+                "Expected {expected_type:?}, got {response:?}"
             )))
         }
     }
