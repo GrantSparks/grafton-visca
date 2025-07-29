@@ -1769,6 +1769,8 @@ impl FeatureDetection for Camera {
 
 // Internal trait for camera wrapper access
 
+pub mod generic;
+pub mod generic_methods;
 pub mod methods;
 pub mod profiles;
 
