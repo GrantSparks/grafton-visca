@@ -7,11 +7,7 @@
 //! - Use profile-aware unit conversions
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{
-    r#async::{InquiryOps, PanTiltInquiryOps},
-    transport::tokio::Tcp,
-    Camera, Error,
-};
+use grafton_visca::{prelude::r#async::*, transport::tokio::Tcp};
 
 // Include the transport implementation from the example file
 
@@ -36,7 +32,7 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Tcp::connect(&camera_addr).await?;
-    let camera = Camera::new(transport).r#async();
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Query power state
     println!("\n--- Power State ---");

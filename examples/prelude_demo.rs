@@ -3,11 +3,13 @@
 //! The prelude module provides a convenient way to import all camera operation traits
 //! without having to list them individually.
 
-use grafton_visca::prelude::*;
-use grafton_visca::transport::blocking::Tcp;
 use std::env;
 
-fn main() -> Result<(), Error> {
+#[cfg(not(feature = "tokio"))]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use grafton_visca::prelude::blocking::*;
+    use grafton_visca::transport::blocking::Tcp;
+
     // Initialize logging
     env_logger::init();
 
@@ -20,34 +22,35 @@ fn main() -> Result<(), Error> {
 
     // Create camera - all operation traits are available through prelude
     let transport = Tcp::connect(&camera_addr)?;
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
-    println!("Camera model: {}", camera.model_name());
-
-    // The blocking wrapper gives us access to all blocking trait methods
-    let camera = camera.blocking();
+    println!("Using PTZOptics G2 camera");
 
     // All camera operations are available without individual trait imports:
 
-    // Power operations
+    // Power operations (PowerOps trait)
+    println!("Powering on...");
     camera.power_on()?;
 
-    // Zoom operations
+    // Zoom operations (ZoomOps trait)
+    println!("Testing zoom...");
     camera.zoom_stop()?;
 
-    // Pan/Tilt operations
+    // Pan/Tilt operations (PanTiltOps trait)
+    println!("Moving to home position...");
     camera.pan_tilt_home()?;
 
-    // Focus operations
+    // Focus operations (FocusOps trait)
+    println!("Setting auto focus...");
     camera.focus_auto()?;
 
-    // Preset operations
-    camera.preset_recall(PresetNumber::new(1).unwrap())?;
+    // Preset operations (PresetsOps trait)
+    println!("Recalling preset 1...");
+    camera.preset_recall(PresetNumber::new(1)?)?;
 
-    // Exposure operations
-    camera.exposure_auto()?;
-
-    // And many more...
+    // White balance operations (WhiteBalanceOps trait)
+    println!("Setting white balance to auto...");
+    camera.white_balance_auto()?;
 
     println!("All operations completed successfully!");
 
@@ -56,20 +59,34 @@ fn main() -> Result<(), Error> {
 
 #[cfg(feature = "tokio")]
 #[tokio::main]
-#[allow(dead_code)]
-async fn async_example() -> Result<(), Error> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use grafton_visca::prelude::r#async::*;
     use grafton_visca::transport::tokio::Tcp;
 
-    // For async operations, use the async prelude
-    use grafton_visca::r#async::prelude::*;
+    // Initialize logging
+    env_logger::init();
 
-    let transport = Tcp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).r#async();
+    // Get camera address from command line or use default
+    let camera_addr = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
+
+    println!("Connecting to camera at {} (async mode)...", camera_addr);
+
+    let transport = Tcp::connect(&camera_addr).await?;
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // All async operations available
+    println!("Powering on...");
     camera.power_on().await?;
+
+    println!("Testing zoom...");
     camera.zoom_stop().await?;
+
+    println!("Moving to home position...");
     camera.pan_tilt_home().await?;
+
+    println!("All operations completed successfully!");
 
     Ok(())
 }

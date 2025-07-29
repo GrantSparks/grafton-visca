@@ -1,7 +1,6 @@
 //! Tally light control methods for cameras.
 
 use crate::{
-    camera::Camera,
     command::{
         tally::{Tally, TallyInquiry},
         InquiryResponse, Response,
@@ -90,7 +89,9 @@ pub trait TallyOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl TallyOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> TallyOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn tally_red_on(&self) -> Result<(), Error> {
         let command = Tally::RedOn;
         let response = self.send_command(&command).await?;
@@ -208,7 +209,9 @@ impl TallyOps for Camera {
 }
 
 // Blocking implementation
-impl TallyOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> TallyOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn tally_red_on(&self) -> Result<(), Error> {
         let command = Tally::RedOn;
         let response = self.send_command_blocking(&command)?;
@@ -327,13 +330,15 @@ impl TallyOpsBlocking for Camera {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_tally_methods_compile() {
         // This test demonstrates that tally methods are available for all cameras
 
-        fn _test_tally_methods(_camera: &Camera) {
+        fn _test_tally_methods<P, T>(_camera: &crate::Camera<P, T>)
+        where
+            P: crate::capabilities::Profile,
+            T: crate::transport::UnifiedTransport,
+        {
             // All cameras can use tally methods
         }
     }

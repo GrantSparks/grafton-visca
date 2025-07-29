@@ -7,16 +7,18 @@
 
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::{
-    blocking::{Camera, FocusOps, PanTiltOps, PresetsOps, ZoomOps},
+    prelude::blocking::*,
     types::SpeedLevel,
-    CameraModel, Degrees, Error, Normalized, PresetNumber,
+    units::{Degrees, Normalized},
+    Error, PresetNumber,
 };
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    r#async::{FocusOps, PanTiltOps, PresetsOps, ZoomOps},
+    prelude::r#async::*,
     types::SpeedLevel,
-    Camera, CameraModel, Degrees, Error, Normalized, PresetNumber,
+    units::{Degrees, Normalized},
+    Error, PresetNumber,
 };
 use std::env;
 
@@ -42,8 +44,7 @@ fn main() -> Result<(), Error> {
     println!("Connecting to camera at {} (blocking mode)...", camera_addr);
 
     let transport = Udp::connect(camera_addr)?;
-    let mut camera =
-        grafton_visca::Camera::with_profile(CameraModel::PTZOpticsG2, transport).blocking();
+    let mut camera = PTZOpticsG2Cam::new(transport);
 
     println!("\n=== Camera Control Demo (Blocking) ===");
     println!("Using profile: PTZOpticsG2\n");
@@ -81,7 +82,8 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to camera at {} (async mode)...", camera_addr);
 
     let transport = Udp::connect(camera_addr).await?;
-    let mut camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    let inner_camera = PTZOpticsG2Cam::new(transport);
+    let mut camera = grafton_visca::r#async::Camera::new(inner_camera);
 
     println!("\n=== Camera Control Demo (Async) ===");
     println!("Using profile: PTZOpticsG2\n");
@@ -103,7 +105,11 @@ async fn main() -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "tokio"))]
-fn demonstrate_pan_tilt(camera: &mut Camera) -> Result<(), Error> {
+fn demonstrate_pan_tilt<P, T>(camera: &mut grafton_visca::Camera<P, T>) -> Result<(), Error>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     use std::{thread, time::Duration};
 
     println!("1. Pan/Tilt Control");
@@ -112,18 +118,28 @@ fn demonstrate_pan_tilt(camera: &mut Camera) -> Result<(), Error> {
     thread::sleep(Duration::from_secs(3));
 
     println!("   - Moving to absolute position (20°, -10°)...");
-    camera.pan_tilt_absolute(Degrees(20.0), Degrees(-10.0), SpeedLevel::from(10))?;
+    camera.pan_tilt_absolute(
+        Degrees::new(20.0),
+        Degrees::new(-10.0),
+        SpeedLevel::from(10),
+    )?;
     thread::sleep(Duration::from_secs(2));
 
     println!("   - Relative movement (pan right, tilt up)...");
-    camera.pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::from(15))?;
+    camera.pan_tilt_relative(Degrees::new(10.0), Degrees::new(5.0), SpeedLevel::from(15))?;
     thread::sleep(Duration::from_secs(2));
 
     Ok(())
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_pan_tilt(camera: &mut Camera) -> Result<(), Error> {
+async fn demonstrate_pan_tilt<P, T>(
+    camera: &mut grafton_visca::r#async::Camera<P, T>,
+) -> Result<(), Error>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     use tokio::time::{sleep, Duration};
 
     println!("1. Pan/Tilt Control");
@@ -133,13 +149,17 @@ async fn demonstrate_pan_tilt(camera: &mut Camera) -> Result<(), Error> {
 
     println!("   - Moving to absolute position (20°, -10°)...");
     camera
-        .pan_tilt_absolute(Degrees(20.0), Degrees(-10.0), SpeedLevel::from(10))
+        .pan_tilt_absolute(
+            Degrees::new(20.0),
+            Degrees::new(-10.0),
+            SpeedLevel::from(10),
+        )
         .await?;
     sleep(Duration::from_secs(2)).await;
 
     println!("   - Relative movement (pan right, tilt up)...");
     camera
-        .pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::from(15))
+        .pan_tilt_relative(Degrees::new(10.0), Degrees::new(5.0), SpeedLevel::from(15))
         .await?;
     sleep(Duration::from_secs(2)).await;
 
@@ -147,7 +167,11 @@ async fn demonstrate_pan_tilt(camera: &mut Camera) -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "tokio"))]
-fn demonstrate_zoom(camera: &mut Camera) -> Result<(), Error> {
+fn demonstrate_zoom<P, T>(camera: &mut grafton_visca::Camera<P, T>) -> Result<(), Error>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     use std::{thread, time::Duration};
 
     println!("\n2. Zoom Control");
@@ -170,7 +194,13 @@ fn demonstrate_zoom(camera: &mut Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_zoom(camera: &mut Camera) -> Result<(), Error> {
+async fn demonstrate_zoom<P, T>(
+    camera: &mut grafton_visca::r#async::Camera<P, T>,
+) -> Result<(), Error>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     use tokio::time::{sleep, Duration};
 
     println!("\n2. Zoom Control");
@@ -193,7 +223,11 @@ async fn demonstrate_zoom(camera: &mut Camera) -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "tokio"))]
-fn demonstrate_focus(camera: &mut Camera) -> Result<(), Error> {
+fn demonstrate_focus<P, T>(camera: &mut grafton_visca::Camera<P, T>) -> Result<(), Error>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     use std::{thread, time::Duration};
 
     println!("\n3. Focus Control");
@@ -218,7 +252,13 @@ fn demonstrate_focus(camera: &mut Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_focus(camera: &mut Camera) -> Result<(), Error> {
+async fn demonstrate_focus<P, T>(
+    camera: &mut grafton_visca::r#async::Camera<P, T>,
+) -> Result<(), Error>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     use tokio::time::{sleep, Duration};
 
     println!("\n3. Focus Control");
@@ -243,7 +283,11 @@ async fn demonstrate_focus(camera: &mut Camera) -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "tokio"))]
-fn demonstrate_presets(camera: &mut Camera) -> Result<(), Error> {
+fn demonstrate_presets<P, T>(camera: &mut grafton_visca::Camera<P, T>) -> Result<(), Error>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     use std::{thread, time::Duration};
 
     println!("\n4. Preset Control");
@@ -256,7 +300,7 @@ fn demonstrate_presets(camera: &mut Camera) -> Result<(), Error> {
         thread::sleep(Duration::from_millis(500));
 
         println!("   - Moving to a different position...");
-        camera.pan_tilt_absolute(Degrees(-20.0), Degrees(6.0), SpeedLevel::from(10))?;
+        camera.pan_tilt_absolute(Degrees::new(-20.0), Degrees::new(6.0), SpeedLevel::from(10))?;
         camera.zoom_absolute(Normalized::new(0.75))?;
         thread::sleep(Duration::from_secs(3));
 
@@ -283,7 +327,13 @@ fn demonstrate_presets(camera: &mut Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_presets(camera: &mut Camera) -> Result<(), Error> {
+async fn demonstrate_presets<P, T>(
+    camera: &mut grafton_visca::r#async::Camera<P, T>,
+) -> Result<(), Error>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     use tokio::time::{sleep, Duration};
 
     println!("\n4. Preset Control");
@@ -297,7 +347,7 @@ async fn demonstrate_presets(camera: &mut Camera) -> Result<(), Error> {
 
         println!("   - Moving to a different position...");
         camera
-            .pan_tilt_absolute(Degrees(-20.0), Degrees(6.0), SpeedLevel::from(10))
+            .pan_tilt_absolute(Degrees::new(-20.0), Degrees::new(6.0), SpeedLevel::from(10))
             .await?;
         camera.zoom_absolute(Normalized::new(0.75)).await?;
         sleep(Duration::from_secs(3)).await;

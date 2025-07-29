@@ -1,7 +1,6 @@
 //! Inquiry methods for querying camera state using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     command::{
         inquiry::*, AutoFocusSensitivity, ExposureMode, FocusZone, InquiryResponse, Response,
         SharpnessMode, WhiteBalanceMode,
@@ -218,7 +217,9 @@ pub trait InquiryOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl InquiryOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> InquiryOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn get_power_state(&self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
         let response = self.send_command(&cmd).await?;
@@ -553,7 +554,9 @@ impl InquiryOps for Camera {
 }
 
 // Blocking implementation
-impl InquiryOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> InquiryOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn get_power_state(&self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
         let response = self.send_command_blocking(&cmd)?;
@@ -906,7 +909,9 @@ pub trait PanTiltInquiryOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl PanTiltInquiryOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PanTiltInquiryOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;
         let response = self.send_command(&cmd).await?;
@@ -925,7 +930,9 @@ impl PanTiltInquiryOps for Camera {
 }
 
 // Blocking implementation
-impl PanTiltInquiryOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport>
+    PanTiltInquiryOpsBlocking for crate::camera::generic::Camera<P, T>
+{
     fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;
         let response = self.send_command_blocking(&cmd)?;

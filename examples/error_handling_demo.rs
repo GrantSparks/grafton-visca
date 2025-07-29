@@ -11,17 +11,17 @@ use grafton_visca::transport::tokio::Tcp;
 use grafton_visca::Error;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::prelude::*,
     camera::profiles::G2PresetId,
+    prelude::blocking::*,
     types::{PanSpeed, TiltSpeed},
-    Camera, PanTiltDirection, PresetNumber,
+    PanTiltDirection, PresetNumber,
 };
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::profiles::G2PresetId,
-    r#async::prelude::*,
+    prelude::r#async::*,
     types::{PanSpeed, TiltSpeed},
-    Camera, PanTiltDirection, PresetNumber,
+    PanTiltDirection, PresetNumber,
 };
 use std::time::Duration;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
@@ -175,7 +175,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = Camera::new(transport).blocking();
+    let camera = GenericViscaCam::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -327,7 +327,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = Camera::new(transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

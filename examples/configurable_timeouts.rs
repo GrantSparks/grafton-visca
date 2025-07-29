@@ -16,7 +16,7 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{FocusOps, PanTiltOps, PowerOps, PresetsOps},
+    prelude::blocking::*,
     transport::blocking::Tcp,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::Degrees,
@@ -49,7 +49,7 @@ fn main() -> Result<(), Error> {
 fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Tcp::connect(camera_addr)?;
-    let camera = grafton_visca::Camera::new(transport).blocking();
+    let camera = GenericViscaCam::new(transport);
 
     println!("Note: The Camera API doesn't have built-in timeout support.");
     println!("These examples show execution timing patterns.\n");

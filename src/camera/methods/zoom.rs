@@ -1,7 +1,6 @@
 //! Zoom methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     capabilities::ValidationError,
     command::{
         zoom::{DigitalZoom, DigitalZoomCommand, Zoom as ZoomCommand, ZoomSpeed},
@@ -69,7 +68,9 @@ pub trait ZoomOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl ZoomOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ZoomOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn zoom_stop(&self) -> Result<(), Error> {
         let command = ZoomCommand::Stop;
         let response = self.send_command(&command).await?;
@@ -175,7 +176,9 @@ impl ZoomOps for Camera {
 }
 
 // Blocking implementation
-impl ZoomOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ZoomOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn zoom_stop(&self) -> Result<(), Error> {
         let command = ZoomCommand::Stop;
         let response = self.send_command_blocking(&command)?;

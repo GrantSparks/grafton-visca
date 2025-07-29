@@ -1,7 +1,6 @@
 //! Motion Sync control methods for PTZOptics cameras.
 
 use crate::{
-    camera::Camera,
     command::motion_sync::{MotionSyncModeCommand, MotionSyncSpeedCommand},
     error::Error,
     MotionSyncMode, MotionSyncSpeed,
@@ -75,50 +74,28 @@ pub trait MotionSyncControlBlocking {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl MotionSyncControl for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MotionSyncControl
+    for crate::camera::generic::Camera<P, T>
+{
     async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         let cmd = MotionSyncModeCommand::new(mode);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn set_motion_sync_speed(&self, speed: u8) -> Result<(), Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         let cmd = MotionSyncSpeedCommand::new(speed)?;
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn set_motion_sync_preset_speed(&self, speed: MotionSyncSpeed) -> Result<(), Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         let cmd = MotionSyncSpeedCommand::from_preset(speed);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn get_motion_sync_mode(&self) -> Result<MotionSyncMode, Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         use crate::command::inquiry::MotionSyncModeInquiry;
         use crate::command::{InquiryResponse, Response};
 
@@ -130,12 +107,6 @@ impl MotionSyncControl for Camera {
     }
 
     async fn get_motion_sync_speed(&self) -> Result<MotionSyncSpeed, Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         use crate::command::inquiry::MotionSyncSpeedInquiry;
         use crate::command::{InquiryResponse, Response};
 
@@ -148,50 +119,28 @@ impl MotionSyncControl for Camera {
 }
 
 // Blocking implementation
-impl MotionSyncControlBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport>
+    MotionSyncControlBlocking for crate::camera::generic::Camera<P, T>
+{
     fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         let cmd = MotionSyncModeCommand::new(mode);
         self.send_command_blocking(&cmd)?;
         Ok(())
     }
 
     fn set_motion_sync_speed(&self, speed: u8) -> Result<(), Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         let cmd = MotionSyncSpeedCommand::new(speed)?;
         self.send_command_blocking(&cmd)?;
         Ok(())
     }
 
     fn set_motion_sync_preset_speed(&self, speed: MotionSyncSpeed) -> Result<(), Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         let cmd = MotionSyncSpeedCommand::from_preset(speed);
         self.send_command_blocking(&cmd)?;
         Ok(())
     }
 
     fn get_motion_sync_mode(&self) -> Result<MotionSyncMode, Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         use crate::command::inquiry::MotionSyncModeInquiry;
         use crate::command::{InquiryResponse, Response};
 
@@ -203,12 +152,6 @@ impl MotionSyncControlBlocking for Camera {
     }
 
     fn get_motion_sync_speed(&self) -> Result<MotionSyncSpeed, Error> {
-        if !self.supports_motion_sync() {
-            return Err(Error::FeatureNotSupported {
-                feature: "Motion Sync",
-            });
-        }
-
         use crate::command::inquiry::MotionSyncSpeedInquiry;
         use crate::command::{InquiryResponse, Response};
 

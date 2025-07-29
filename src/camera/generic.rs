@@ -12,7 +12,7 @@ use crate::{
     capabilities::{CameraFeature, FeatureDetection, Profile},
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
-    transport::{core::Transport, TransportEnvelope},
+    transport::{core::Transport, AsyncTransportWrapper, TransportEnvelope, UnifiedTransport},
 };
 
 #[cfg(feature = "async")]
@@ -97,78 +97,6 @@ where
     }
 }
 
-/// Type-erased transport trait for unified camera.
-///
-/// This trait provides a unified interface for both async and blocking transports,
-/// using async as the base and providing a blocking wrapper.
-#[async_trait::async_trait]
-pub trait UnifiedTransport: Send + Sync {
-    /// Send raw bytes to the device.
-    async fn send(&self, bytes: &[u8]) -> Result<(), Error>;
-
-    /// Receive raw bytes from the device.
-    async fn recv(&self) -> Result<bytes::Bytes, Error>;
-
-    /// Send raw bytes to the device (blocking).
-    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error>;
-
-    /// Receive raw bytes from the device with timeout (blocking).
-    fn recv_blocking_timeout(&self, timeout: Duration) -> Result<bytes::Bytes, Error>;
-}
-
-/// Wrapper for async transports.
-struct AsyncTransportWrapper<T: Transport> {
-    transport: T,
-}
-
-#[async_trait::async_trait]
-impl<T> UnifiedTransport for AsyncTransportWrapper<T>
-where
-    T: Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
-        self.transport.send(bytes).await.map_err(Into::into)
-    }
-
-    async fn recv(&self) -> Result<bytes::Bytes, Error> {
-        self.transport.recv().await.map_err(Into::into)
-    }
-
-    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
-        // For async transports, use futures::executor to block
-        futures::executor::block_on(self.send(bytes))
-    }
-
-    fn recv_blocking_timeout(&self, timeout: Duration) -> Result<bytes::Bytes, Error> {
-        // For async transports, use futures::executor with timeout
-        #[cfg(feature = "tokio")]
-        {
-            futures::executor::block_on(async {
-                tokio::time::timeout(timeout, self.recv())
-                    .await
-                    .map_err(|_| Error::Timeout)?
-            })
-        }
-
-        #[cfg(not(feature = "tokio"))]
-        {
-            // Without tokio, use a simpler timeout approach
-            use std::time::Instant;
-            let _start = Instant::now();
-
-            // For non-tokio async transports, we just block on recv without timeout
-            // This is a limitation when not using tokio
-            log::warn!(
-                "Timeout ({:?}) not supported without tokio feature - blocking on recv",
-                timeout
-            );
-            futures::executor::block_on(self.recv())
-        }
-    }
-}
-
 impl<P, T> Camera<P, T>
 where
     P: Profile,
@@ -177,7 +105,7 @@ where
     /// Create a new camera from a unified transport.
     pub fn from_transport(transport: T) -> Self {
         let camera_id = CameraId::new(P::DEFAULT_ADDRESS).unwrap_or(CameraId::CAMERA_1);
-        
+
         Self {
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
             transport: Arc::new(transport),
@@ -301,7 +229,7 @@ where
     /// Validate pan position.
     pub fn validate_pan(&self, pan_units: i16) -> Result<i16, Error> {
         use crate::capabilities::ValidationError;
-        
+
         if P::PAN_RANGE.contains(&pan_units) {
             Ok(pan_units)
         } else {
@@ -317,7 +245,7 @@ where
     /// Validate tilt position.
     pub fn validate_tilt(&self, tilt_units: i16) -> Result<i16, Error> {
         use crate::capabilities::ValidationError;
-        
+
         if P::TILT_RANGE.contains(&tilt_units) {
             Ok(tilt_units)
         } else {
@@ -345,7 +273,8 @@ where
     /// Convert camera-specific coordinates to logical pan/tilt coordinates.
     #[must_use]
     pub fn from_camera_coords(&self, pan: u16, tilt: u16) -> (i16, i16) {
-        self.coordinate_system().convert_from_camera_coords(pan, tilt)
+        self.coordinate_system()
+            .convert_from_camera_coords(pan, tilt)
     }
 
     /// Send a command asynchronously and wait for response.
@@ -599,10 +528,7 @@ where
             }
             Some(expected_type) => {
                 // Inquiry command - wait for specific response with type
-                self.wait_for_response_with_type_blocking(
-                    expected_type,
-                    P::COMPLETION_TIMEOUT,
-                )
+                self.wait_for_response_with_type_blocking(expected_type, P::COMPLETION_TIMEOUT)
             }
         }
     }
@@ -723,12 +649,12 @@ where
         let wrapped = AsyncTransportWrapper { transport };
         let mut camera = Self::from_transport(wrapped);
         camera.spawner = Some(Arc::new(spawner));
-        
+
         // Initialize socket manager automatically for better reliability
         if let Err(e) = camera.initialize_socket_manager() {
             log::warn!("Failed to initialize socket manager: {}", e);
         }
-        
+
         camera
     }
 
@@ -758,6 +684,8 @@ where
             let actor = crate::socket_manager::SocketManagerActor::new(
                 transport,
                 command_receiver,
+                P::ACK_TIMEOUT,
+                P::COMPLETION_TIMEOUT,
                 self.camera_id,
             );
 
@@ -809,7 +737,7 @@ where
             CameraFeature::Power => true,   // All profiles must implement Power
             CameraFeature::Presets => true, // All profiles must implement Presets
             CameraFeature::MenuControl => true, // All profiles must implement MenuControl
-            
+
             // Optional features - we can't detect these at runtime with the current design
             // These would need to be handled by profile-specific implementations
             _ => false,

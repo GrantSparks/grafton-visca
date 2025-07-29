@@ -22,7 +22,11 @@ fn test_blocking_compilation() {
     use blocking::{ColorOps, PowerOps, WhiteBalanceOps, ZoomOps};
 
     // This function just needs to compile - we're verifying trait implementations exist
-    fn _test_trait_methods(camera: &blocking::Camera) {
+    fn _test_trait_methods<P, T>(camera: &blocking::Camera<P, T>)
+    where
+        P: grafton_visca::capabilities::Profile,
+        T: grafton_visca::transport::UnifiedTransport,
+    {
         // ZoomOps
         let _ = camera.zoom_stop();
         let _ = camera.zoom_in();
@@ -46,7 +50,11 @@ fn test_async_compilation() {
     use grafton_visca::r#async::{ColorOps, PowerOps, WhiteBalanceOps, ZoomOps};
 
     // This function just needs to compile - we're verifying trait implementations exist
-    async fn _test_trait_methods(camera: &grafton_visca::r#async::Camera) {
+    async fn _test_trait_methods<P, T>(camera: &grafton_visca::r#async::Camera<P, T>)
+    where
+        P: grafton_visca::capabilities::Profile,
+        T: grafton_visca::transport::UnifiedTransport,
+    {
         // ZoomOps
         let _ = camera.zoom_stop().await;
         let _ = camera.zoom_in().await;

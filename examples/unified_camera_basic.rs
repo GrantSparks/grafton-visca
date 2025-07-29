@@ -3,7 +3,13 @@
 //! This example demonstrates the simplicity of the new Camera API
 //! which eliminates the need for generic type parameters.
 
-use grafton_visca::{Camera, CameraModel, Error};
+use grafton_visca::Error;
+
+#[cfg(not(feature = "tokio"))]
+use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam};
+
+#[cfg(feature = "tokio")]
+use grafton_visca::prelude::r#async::{GenericViscaCam, PTZOpticsG2Cam};
 
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::transport::blocking::Tcp;
@@ -19,14 +25,13 @@ fn main() -> Result<(), Error> {
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
     let transport = Tcp::connect("192.168.1.100:52381")?;
-    let _camera = Camera::new(transport).blocking();
+    let _camera = GenericViscaCam::new(transport);
 
-    // Note: profile info methods not available on blocking camera
-    println!("Using default profile");
+    println!("Using default profile: GenericVisca");
 
     // Create a camera with specific profile
     let transport = Tcp::connect("192.168.1.100:52381")?;
-    let _camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).blocking();
+    let _camera = PTZOpticsG2Cam::new(transport);
 
     println!("\nUsing specific profile: PTZOpticsG2");
 
@@ -56,14 +61,13 @@ async fn main() -> Result<(), Error> {
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
     let transport = Tcp::connect("192.168.1.100:52381").await?;
-    let _camera = Camera::new(transport);
+    let _camera = GenericViscaCam::new(transport);
 
-    // Note: profile info methods not yet implemented for async camera
-    println!("Using default profile");
+    println!("Using default profile: GenericVisca");
 
     // Create a camera with specific profile
     let transport = Tcp::connect("192.168.1.100:52381").await?;
-    let _camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    let _camera = PTZOpticsG2Cam::new(transport);
 
     println!("\nUsing specific profile: PTZOpticsG2");
 

@@ -6,11 +6,7 @@
 //! provided by the InquiryMethodsExt trait.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::{
-    blocking::{InquiryOps, PanTiltInquiryOps},
-    transport::blocking::Tcp,
-    Error,
-};
+use grafton_visca::{prelude::blocking::*, transport::blocking::Tcp, Error};
 #[cfg(not(feature = "async"))]
 use std::env;
 
@@ -31,7 +27,7 @@ fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(camera_addr)?;
-    let mut camera = grafton_visca::Camera::new(transport).blocking();
+    let mut camera = GenericViscaCam::new(transport);
 
     // Run inquiries using blocking methods
     run_inquiries(&mut camera)?;
@@ -40,7 +36,11 @@ fn main() -> Result<(), Error> {
 }
 
 #[cfg(not(feature = "async"))]
-fn run_inquiries(camera: &mut grafton_visca::blocking::Camera) -> Result<(), Error> {
+fn run_inquiries<P, T>(camera: &mut grafton_visca::Camera<P, T>) -> Result<(), Error>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     println!(
         "
 === VISCA Inquiry Command Demo ==="

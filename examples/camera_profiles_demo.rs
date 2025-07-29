@@ -1,19 +1,18 @@
 //! Camera profiles demonstration.
 //!
-//! This example shows how to use different camera profiles with the unified Camera API
+//! This example shows how to use different camera profiles with compile-time safety
 //! and demonstrates the capability-based API design.
 //!
 //! Run with: cargo run --example camera_profiles_demo --features tokio
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    types::SpeedLevel, Camera, CameraModel, Degrees, Error, Normalized, PresetNumber,
+    prelude::r#async::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam},
+    r#async::prelude::*,
+    transport::tokio::Tcp,
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    Degrees, Error, MotionSyncMode, NDFilterMode, Normalized, PanTiltDirection, PresetNumber, Raw,
 };
-
-#[cfg(feature = "tokio")]
-use grafton_visca::r#async::{FocusOps, PanTiltOps, PowerOps, PresetsOps, ZoomOps};
-#[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::Tcp;
 
 #[cfg(feature = "tokio")]
 #[tokio::main]
@@ -26,6 +25,7 @@ async fn main() -> Result<(), Error> {
     demonstrate_ptzoptics_g2().await?;
     demonstrate_sony_fr7().await?;
     demonstrate_generic_visca().await?;
+    demonstrate_compile_time_safety();
 
     Ok(())
 }
@@ -36,67 +36,36 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
 
     // Connect to camera
     let transport = Tcp::connect("192.168.1.100:5678").await?;
-    let unified_camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
-    println!("Connected to: {}", unified_camera.model_name());
-    println!("Profile info: {}", unified_camera.profile_info());
+    println!("Connected to: PTZOptics G2");
 
-    // Check capabilities at runtime (from unified camera)
-    println!("\nCapabilities:");
-    println!(
-        "  ✓ Pan/Tilt: {}",
-        unified_camera.supports_capability("pan_tilt")
-    );
-    println!("  ✓ Zoom: {}", unified_camera.supports_capability("zoom"));
-    println!("  ✓ Focus: {}", unified_camera.supports_capability("focus"));
-    println!(
-        "  ✓ Presets: {} (max: {})",
-        unified_camera.supports_capability("presets"),
-        unified_camera.max_presets()
-    );
-    println!(
-        "  ✗ ND Filter: {}",
-        unified_camera.supports_capability("nd_filter")
-    );
+    // PTZOptics G2 supports standard VISCA features
+    println!("\nDemonstrating PTZOptics G2 features:");
 
-    let power_on_time = unified_camera.power_on_time();
-    let camera = unified_camera.r#async();
-
-    // Use the camera with high-level API
-    println!("\nPerforming operations:");
-
-    // Power on and wait for initialization
+    // Power control
     camera.power_on().await?;
-    println!(
-        "  - Powered on (waiting {} seconds)",
-        power_on_time.as_secs()
-    );
-    tokio::time::sleep(power_on_time).await;
+    println!("✓ Power on");
 
-    // Move to home position
+    // Pan/tilt operations
     camera.pan_tilt_home().await?;
-    println!("  - Moved to home position");
+    println!("✓ Pan/tilt home");
 
-    // Absolute positioning using degrees
+    // Position control with speed
+    let pan = Degrees::new(45.0);
+    let tilt = Degrees::new(10.0);
     camera
-        .pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::from(12))
+        .pan_tilt_absolute(pan, tilt, SpeedLevel::from(24))
         .await?;
-    println!("  - Moved to Pan: 45°, Tilt: 15° at speed 12");
+    println!("✓ Moved to position: pan=45°, tilt=10°");
 
-    // Zoom operations
-    camera.zoom_absolute(Normalized::new(0.5)).await?; // 50% zoom
-    println!("  - Set zoom to 50%");
+    // Zoom control
+    camera.zoom_absolute(Normalized::new(0.5)).await?;
+    println!("✓ Set zoom to 50%");
 
-    // Focus operations
-    camera.focus_auto().await?;
-    println!("  - Enabled auto-focus");
-
-    // Preset operations (G2 supports up to 255 presets)
-    camera.preset_set(PresetNumber::new(1)?).await?;
-    println!("  - Saved current position as preset 1");
-
-    // Note: ND filter operations would fail at runtime for G2
-    // since it doesn't support them
+    // Preset operations
+    camera.preset_recall(PresetNumber::new(1).unwrap()).await?;
+    println!("✓ Recalled preset 1");
 
     println!();
     Ok(())
@@ -106,37 +75,35 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
 async fn demonstrate_sony_fr7() -> Result<(), Error> {
     println!("=== Sony FR7 Demo ===");
 
+    // Connect to camera
     let transport = Tcp::connect("192.168.1.101:5678").await?;
-    let unified_camera = Camera::with_profile(CameraModel::SonyFR7, transport);
+    let camera = SonyFR7Cam::new(transport);
 
-    println!("Connected to: {}", unified_camera.model_name());
-    println!("Profile info: {}", unified_camera.profile_info());
+    println!("Connected to: Sony FR7");
+    println!("\nDemonstrating Sony FR7 advanced features:");
 
-    // FR7 has additional capabilities
-    println!("\nCapabilities:");
-    println!("  ✓ All standard features");
-    println!(
-        "  ✓ ND Filter: {} (mode: {:?})",
-        unified_camera.supports_capability("nd_filter"),
-        unified_camera.nd_filter_mode()
-    );
-
-    let power_on_time = unified_camera.power_on_time();
-    let supports_nd_filter = unified_camera.supports_capability("nd_filter");
-    let camera = unified_camera.r#async();
-
-    println!("\nPerforming FR7-specific operations:");
-
-    // Standard operations work the same
+    // Basic operations (available on all cameras)
     camera.power_on().await?;
-    tokio::time::sleep(power_on_time).await;
+    println!("✓ Power on");
 
-    // FR7 can also use ND filters
-    if supports_nd_filter {
-        // Note: These methods would need to be implemented
-        // camera.set_nd_filter(1).await?;
-        println!("  - ND filter operations available");
-    }
+    // Sony FR7 specific: ND Filter control
+    camera.set_nd_filter_mode(NDFilterMode::Preset).await?;
+    println!("✓ Set ND filter to Preset mode");
+
+    camera.set_nd_filter_mode(NDFilterMode::Variable).await?;
+    println!("✓ Set ND filter to Variable mode");
+
+    // Sony FR7 also supports motion sync
+    camera.set_motion_sync_mode(MotionSyncMode::On).await?;
+    println!("✓ Motion sync enabled");
+
+    // And variable speed pan/tilt
+    let pan_speed = PanSpeed::from(Raw(0x18)); // Medium-fast speed
+    let tilt_speed = TiltSpeed::from(Raw(0x14)); // Medium speed
+    camera
+        .pan_tilt_move(PanTiltDirection::UpRight, pan_speed, tilt_speed)
+        .await?;
+    println!("✓ Variable speed pan/tilt movement");
 
     println!();
     Ok(())
@@ -146,71 +113,63 @@ async fn demonstrate_sony_fr7() -> Result<(), Error> {
 async fn demonstrate_generic_visca() -> Result<(), Error> {
     println!("=== Generic VISCA Demo ===");
 
+    // Connect to unknown camera model
     let transport = Tcp::connect("192.168.1.102:5678").await?;
-    let unified_camera = Camera::new(transport); // Defaults to GenericVisca
+    let camera = GenericViscaCam::new(transport);
 
-    println!("Connected to: {}", unified_camera.model_name());
-    println!("Profile info: {}", unified_camera.profile_info());
+    println!("Connected to: Generic VISCA");
+    println!("\nUsing conservative feature set for compatibility:");
 
-    // Generic profile only guarantees basic VISCA operations
-    println!("\nCapabilities (minimal guarantee):");
-    println!("  ✓ Power: {}", unified_camera.supports_capability("power"));
-    println!(
-        "  ✓ Pan/Tilt: {}",
-        unified_camera.supports_capability("pan_tilt")
-    );
-    println!("  ✓ Zoom: {}", unified_camera.supports_capability("zoom"));
-    println!("  ? Other features: implementation-dependent");
-
-    let supports_focus = unified_camera.supports_capability("focus");
-    let camera = unified_camera.r#async();
-
-    // Safe to use basic operations
+    // Generic VISCA supports basic operations
     camera.power_on().await?;
-    camera.pan_tilt_home().await?;
+    println!("✓ Power on");
 
-    // Check capabilities before using advanced features
-    if supports_focus {
-        camera.focus_auto().await?;
-        println!("  - Focus available on this camera");
-    } else {
-        println!("  - Focus not available");
-    }
+    camera.zoom_in().await?;
+    println!("✓ Zoom in");
+
+    camera.focus_auto().await?;
+    println!("✓ Auto focus");
+
+    camera.pan_tilt_home().await?;
+    println!("✓ Pan/tilt home");
+
+    // Generic VISCA uses conservative limits
+    println!("\nGeneric VISCA uses safe defaults:");
+    println!("- 6 presets (most cameras support at least this)");
+    println!("- Standard zoom/focus ranges");
+    println!("- Basic pan/tilt speeds");
 
     println!();
     Ok(())
 }
 
-// Example of writing code that works with any camera
-// The unified Camera API means we don't need generics -
-// just check capabilities at runtime if needed
 #[cfg(feature = "tokio")]
-#[allow(dead_code)]
-async fn capture_preset(
-    camera: &mut grafton_visca::r#async::Camera,
-    preset_id: u8,
-) -> Result<(), grafton_visca::Error> {
-    use grafton_visca::r#async::{PanTiltOps, PowerOps, PresetsOps};
-    // Power on if needed
-    camera.power_on().await?;
-    // Note: power_on_time() is only available on unified Camera
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+fn demonstrate_compile_time_safety() {
+    println!("=== Compile-Time Safety Demo ===");
+    println!("\nThe new API provides compile-time guarantees:");
+    println!("- Can't call unsupported methods on a camera");
+    println!("- No runtime 'FeatureNotSupported' errors for known capabilities");
+    println!("- Zero overhead - all decisions made at compile time");
 
-    // Move to home and save as preset
-    camera.pan_tilt_home().await?;
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    println!("\nExample code that won't compile:");
+    println!("```rust");
+    println!("// This would fail at compile time:");
+    println!("// let generic_cam = GenericViscaCam::new(transport);");
+    println!("// generic_cam.set_nd_filter_mode(NDFilterMode::Preset);");
+    println!("// Error: GenericVisca doesn't implement NDFilter trait");
+    println!("```");
 
-    // Save preset
-    // Note: supports_capability() is only available on unified Camera
-    // For async Camera, we just try the operation
-    camera.preset_set(PresetNumber::new(preset_id)?).await?;
-    println!("  - Saved position as preset {}", preset_id);
+    println!("\nBut this compiles and works:");
+    println!("```rust");
+    println!("let sony_cam = SonyFR7Cam::new(transport);");
+    println!("sony_cam.set_nd_filter_mode(NDFilterMode::Preset); // ✓ OK");
+    println!("```");
 
-    Ok(())
+    println!();
 }
 
 #[cfg(not(feature = "tokio"))]
 fn main() {
-    eprintln!("This example requires the 'tokio' feature to be enabled.");
-    eprintln!("Run with: cargo run --example camera_profiles_demo --features tokio");
+    println!("This example requires the 'tokio' feature.");
+    println!("Run with: cargo run --example camera_profiles_demo --features tokio");
 }

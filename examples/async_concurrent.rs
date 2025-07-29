@@ -9,9 +9,10 @@
 
 use grafton_visca::r#async::prelude::*;
 use grafton_visca::{
+    prelude::r#async::PTZOpticsG2Cam,
     transport::tokio::Udp,
     types::{PanSpeed, TiltSpeed},
-    Camera, Error, PanTiltDirection, PresetNumber,
+    Error, PanTiltDirection, PresetNumber,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -37,7 +38,7 @@ async fn main() -> Result<(), Error> {
 
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Udp::connect(&camera_addr).await?;
-    let camera = Camera::new(transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Example 1: Sequential commands with timing
     println!("\n=== Sequential Command Execution ===");
@@ -187,7 +188,7 @@ async fn main() -> Result<(), Error> {
             let start = Instant::now();
             let cam = camera.lock().await;
             // Alternate between different commands
-            let result = if i % 2 == 0 {
+            let result: Result<(), Error> = if i % 2 == 0 {
                 cam.zoom_in().await
             } else {
                 cam.zoom_out().await

@@ -3,8 +3,11 @@
 //! This example demonstrates common camera operations using the async API.
 
 use grafton_visca::{
+    capabilities::Profile,
+    prelude::r#async::PTZOpticsG2Cam,
     r#async::prelude::*,
     transport::tokio::Tcp,
+    transport::UnifiedTransport,
     types::{PanSpeed, TiltSpeed},
     Camera, Degrees, Error, Normalized, PanTiltDirection,
 };
@@ -25,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create async transport
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = Camera::new(transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Demo 1: Power Control
     demo_power_control(&camera).await?;
@@ -53,7 +56,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_power_control(camera: &Camera) -> Result<(), Error> {
+async fn demo_power_control<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("📍 Demo 1: Power Control");
     println!("Powering on camera...");
     camera.power_on().await?;
@@ -63,7 +70,11 @@ async fn demo_power_control(camera: &Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_pan_tilt_movement(camera: &Camera) -> Result<(), Error> {
+async fn demo_pan_tilt_movement<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("\n📍 Demo 2: Pan/Tilt Movement");
 
     println!("Moving to home position...");
@@ -86,7 +97,11 @@ async fn demo_pan_tilt_movement(camera: &Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_zoom_control(camera: &Camera) -> Result<(), Error> {
+async fn demo_zoom_control<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("\n📍 Demo 3: Zoom Control");
 
     println!("Zooming in...");
@@ -106,7 +121,11 @@ async fn demo_zoom_control(camera: &Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_focus_control(camera: &Camera) -> Result<(), Error> {
+async fn demo_focus_control<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("\n📍 Demo 4: Focus Control");
 
     println!("Setting auto-focus mode...");
@@ -119,7 +138,11 @@ async fn demo_focus_control(camera: &Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_exposure_settings(camera: &Camera) -> Result<(), Error> {
+async fn demo_exposure_settings<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("\n📍 Demo 5: Exposure Settings");
 
     println!("Setting exposure to auto...");
@@ -132,7 +155,11 @@ async fn demo_exposure_settings(camera: &Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_white_balance(camera: &Camera) -> Result<(), Error> {
+async fn demo_white_balance<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("\n📍 Demo 6: White Balance");
 
     println!("Setting white balance to auto...");
@@ -144,7 +171,11 @@ async fn demo_white_balance(camera: &Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demo_position_control(camera: &Camera) -> Result<(), Error> {
+async fn demo_position_control<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("\n📍 Demo 7: Position Control");
 
     println!("Moving to specific position (45°, 20°)...");
