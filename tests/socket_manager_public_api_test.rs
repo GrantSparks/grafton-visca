@@ -1,8 +1,5 @@
 //! Tests for socket manager functionality through the public Camera API
 
-use grafton_visca::r#async::prelude::*;
-use grafton_visca::{Camera, CameraModel, Error, PanTiltDirection, PresetNumber};
-use std::time::Duration;
 
 #[cfg(feature = "tokio")]
 mod tokio_tests {

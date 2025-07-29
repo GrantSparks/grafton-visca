@@ -97,8 +97,8 @@ pub mod prelude {
 // Re-export async traits with unsuffixed names
 pub use crate::camera::methods::{
     ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlMethods,
-    MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps,
-    TallyOps, VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
+    MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
+    StreamingMethods, SystemOps, TallyOps, VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
 };
 
 // Implement all async traits for the wrapper type
@@ -306,6 +306,18 @@ impl ExposureOps for Camera {
     async fn disable_spotlight(&self) -> crate::Result<()> {
         self.0.disable_spotlight().await
     }
+
+    async fn enable_auto_slow_shutter(&self) -> crate::Result<()> {
+        self.0.enable_auto_slow_shutter().await
+    }
+
+    async fn disable_auto_slow_shutter(&self) -> crate::Result<()> {
+        self.0.disable_auto_slow_shutter().await
+    }
+
+    async fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> crate::Result<()> {
+        self.0.set_brightness_direct(level).await
+    }
 }
 
 impl FocusOps for Camera {
@@ -451,6 +463,10 @@ impl ImageProcessingOps for Camera {
 
     async fn disable_black_white(&self) -> crate::Result<()> {
         self.0.disable_black_white().await
+    }
+
+    async fn set_picture_effect(&self, mode: crate::PictureEffectMode) -> crate::Result<()> {
+        self.0.set_picture_effect(mode).await
     }
 }
 
@@ -850,5 +866,19 @@ impl VariableSpeedMethods for Camera {
         mode: crate::command::VariableSpeedMode,
     ) -> crate::Result<()> {
         self.0.set_variable_speed_mode(mode).await
+    }
+}
+
+impl StreamingMethods for Camera {
+    async fn enable_multicast(&self) -> crate::Result<()> {
+        self.0.enable_multicast().await
+    }
+
+    async fn disable_multicast(&self) -> crate::Result<()> {
+        self.0.disable_multicast().await
+    }
+
+    async fn set_ndi_quality(&self, quality: crate::types::NDIQuality) -> crate::Result<()> {
+        self.0.set_ndi_quality(quality).await
     }
 }

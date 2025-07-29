@@ -5,8 +5,9 @@ use crate::{
     command::{
         color::{HueCommand, SaturationCommand},
         flip::{Flip, ImageFlipCommand},
-        image::{ImageFlipCombinedCommand, NoiseReduction2D, NoiseReduction3D},
+        image::{ImageFlipCombinedCommand, NoiseReduction2D, NoiseReduction3D, PictureEffectCommand},
         image_adjustment::{ContrastCommand, LuminanceCommand, Sharpness},
+        resolution::PictureEffectMode,
         ImageFlipMode,
     },
     types::{
@@ -87,6 +88,11 @@ pub trait ImageProcessingOps: Sized {
     /// Disable black and white mode.
     /// Switches the camera output to color mode.
     async fn disable_black_white(&self) -> Result<(), Error>;
+
+    /// Set picture effect mode.
+    /// Controls various artistic effects like negative, sepia, sketch, etc.
+    /// Note that not all effects are supported on all camera models.
+    async fn set_picture_effect(&self, mode: PictureEffectMode) -> Result<(), Error>;
 }
 
 /// Image processing operations (blocking).
@@ -160,6 +166,11 @@ pub trait ImageProcessingOpsBlocking: Sized {
     /// Disable black and white mode.
     /// Switches the camera output to color mode.
     fn disable_black_white(&self) -> Result<(), Error>;
+
+    /// Set picture effect mode.
+    /// Controls various artistic effects like negative, sepia, sketch, etc.
+    /// Note that not all effects are supported on all camera models.
+    fn set_picture_effect(&self, mode: PictureEffectMode) -> Result<(), Error>;
 }
 
 // Async implementation
@@ -300,6 +311,12 @@ impl ImageProcessingOps for Camera {
         self.send_command(&cmd).await?;
         Ok(())
     }
+
+    async fn set_picture_effect(&self, mode: PictureEffectMode) -> Result<(), Error> {
+        let cmd = PictureEffectCommand { mode };
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
 }
 
 // Blocking implementation
@@ -437,6 +454,12 @@ impl ImageProcessingOpsBlocking for Camera {
     fn disable_black_white(&self) -> Result<(), Error> {
         use crate::command::image::BlackWhiteCommand;
         let cmd = BlackWhiteCommand::new(false);
+        self.send_command_blocking(&cmd)?;
+        Ok(())
+    }
+
+    fn set_picture_effect(&self, mode: PictureEffectMode) -> Result<(), Error> {
+        let cmd = PictureEffectCommand { mode };
         self.send_command_blocking(&cmd)?;
         Ok(())
     }

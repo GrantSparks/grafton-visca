@@ -444,6 +444,22 @@ impl TryFrom<NoiseReductionStrength> for NoiseReduction3DLevel {
     }
 }
 
+/// NDI streaming quality settings for PTZOptics cameras.
+///
+/// Controls the bandwidth and quality of NDI HX video streaming.
+/// This is a vendor-specific feature for PTZOptics NDI cameras.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NDIQuality {
+    /// High quality NDI streaming (highest bandwidth)
+    High,
+    /// Medium quality NDI streaming (balanced bandwidth)
+    Medium,
+    /// Low quality NDI streaming (lowest bandwidth)
+    Low,
+    /// NDI streaming disabled
+    Off,
+}
+
 // Zoom and Focus positions with special constants
 /// Zoom position value for direct zoom control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]

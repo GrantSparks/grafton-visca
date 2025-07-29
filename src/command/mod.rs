@@ -23,6 +23,7 @@ pub mod power;
 pub mod preset;
 pub mod resolution;
 pub mod response;
+pub mod streaming;
 pub mod system;
 pub mod tally;
 pub mod variable_speed;
@@ -53,6 +54,7 @@ pub use self::{
     power::*,
     preset::*,
     response::{Response, ResponseType}, // Removed parse_response - unused
+    streaming::*,
     system::{MotionSyncMode, MotionSyncSpeed, Socket},
     // tally::*,  // Commented out - unused
     variable_speed::*,

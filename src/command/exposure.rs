@@ -479,6 +479,9 @@ pub enum Bright {
     Down,
     /// Set brightness to specific level.
     SetLevel(BrightnessLevel),
+    /// Set brightness directly (Bright Direct mode).
+    /// This is supported on Sony models but not on FR7.
+    Direct(BrightnessLevel),
 }
 
 impl EncodeVisca for Bright {
@@ -533,6 +536,28 @@ impl EncodeVisca for Bright {
                 buffer[8] = 0xFF;
                 Ok(Self::MAX_SIZE)
             }
+            Self::Direct(level) => {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err(Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len(),
+                    });
+                }
+                let value = level.value();
+                let high = ((value >> 4) & 0x0F) as u8;
+                let low = (value & 0x0F) as u8;
+
+                buffer[0] = camera_id.to_address_byte();
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x0D;
+                buffer[4] = 0x00;
+                buffer[5] = 0x00;
+                buffer[6] = high;
+                buffer[7] = low;
+                buffer[8] = 0xFF;
+                Ok(Self::MAX_SIZE)
+            }
         }
     }
 
@@ -577,7 +602,40 @@ visca_command! {
     }
 }
 
+visca_command! {
+    /// Auto Slow Shutter command.
+    ///
+    /// Controls the auto slow shutter feature which automatically reduces shutter speed
+    /// in low light conditions to maintain proper exposure. This feature is supported
+    /// on Sony cameras and FR7, but PTZOptics only supports it via HTTP API.
+    category = "Quick",
+    enum AutoSlowShutter {
+        /// Turn auto slow shutter on
+        On => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(&[0x81, 0x01, 0x04, 0x5A])
+                .append(&[0x02])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+        /// Turn auto slow shutter off
+        Off => {
+            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+                .append(&[0x81, 0x01, 0x04, 0x5A])
+                .append(&[0x03])
+                .build();
+            Ok::<Vec<u8>, Error>(cmd.to_vec())
+        },
+    }
+}
+
 impl CommandFeatures for Spotlight {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Exposure]
+    }
+}
+
+impl CommandFeatures for AutoSlowShutter {
     fn required_features(&self) -> &[CameraFeature] {
         &[CameraFeature::Exposure]
     }
@@ -958,6 +1016,21 @@ mod tests {
                 vec![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, high, low, 0xFF]
             );
         }
+
+        // Test Direct command (Bright Direct mode) with valid values
+        let test_values = vec![0x00u16, 0x08, 0x0F, 0x10, 0x11];
+        for value in test_values {
+            let level = BrightnessLevel::new(value)
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+            let cmd = Bright::Direct(level);
+            let high = ((value >> 4) & 0x0F) as u8;
+            let low = (value & 0x0F) as u8;
+            assert_eq!(
+                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+                vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, high, low, 0xFF]
+            );
+        }
     }
 
     #[test]
@@ -1023,5 +1096,24 @@ mod tests {
         assert!(Iris::Reset.response_type().is_none());
         assert!(Shutter::Reset.response_type().is_none());
         assert!(Bright::Reset.response_type().is_none());
+    }
+
+    #[test]
+    fn test_auto_slow_shutter_commands() {
+        // Test On command
+        let cmd = AutoSlowShutter::On;
+        assert_eq!(
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            vec![0x81, 0x01, 0x04, 0x5A, 0x02, 0xFF]
+        );
+
+        // Test Off command
+        let cmd = AutoSlowShutter::Off;
+        assert_eq!(
+            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            vec![0x81, 0x01, 0x04, 0x5A, 0x03, 0xFF]
+        );
     }
 }

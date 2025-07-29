@@ -1005,6 +1005,7 @@ impl SocketManagerActor {
                         CommandCategory::Movement => self.profile.completion_timeout(),
                         CommandCategory::Preset => self.profile.completion_timeout(),
                         CommandCategory::LongRunning => self.profile.completion_timeout(),
+                        CommandCategory::Network => self.profile.ack_timeout(),
                         CommandCategory::Custom => self.profile.completion_timeout(),
                     };
 

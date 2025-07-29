@@ -1489,6 +1489,21 @@ impl FeatureDetection for Camera {
                 // System commands are supported by all VISCA cameras
                 true
             }
+            CameraFeature::PictureEffect => {
+                // Picture effects are supported by most cameras
+                true
+            }
+            CameraFeature::NDI => match &self.profile {
+                CameraProfile::PTZOpticsG2(_) => true, // NDI model variants
+                CameraProfile::PTZOpticsG3(_) => true, // NDI model variants
+                CameraProfile::PTZOptics30X(_) => false,
+                CameraProfile::SonyFR7(_) => false,
+                CameraProfile::SonyBRCH900(_) => false,
+                CameraProfile::SonyEVIH100(_) => false,
+                CameraProfile::SonyBRC300(_) => false,
+                CameraProfile::NearusBRC300(_) => false,
+                CameraProfile::GenericVisca(_) => false,
+            },
         }
     }
 

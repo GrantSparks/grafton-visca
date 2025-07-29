@@ -94,6 +94,18 @@ pub trait ExposureOps: Sized {
 
     /// Disable spotlight mode (Sony models).
     async fn disable_spotlight(&self) -> Result<(), Error>;
+
+    /// Enable auto slow shutter mode.
+    /// Automatically reduces shutter speed in low light conditions.
+    /// Supported on Sony cameras and FR7, PTZOptics only via HTTP API.
+    async fn enable_auto_slow_shutter(&self) -> Result<(), Error>;
+
+    /// Disable auto slow shutter mode.
+    async fn disable_auto_slow_shutter(&self) -> Result<(), Error>;
+
+    /// Set brightness using direct mode.
+    /// This is supported on Sony models but not on FR7.
+    async fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>;
 }
 
 /// Exposure operations (blocking).
@@ -188,6 +200,18 @@ pub trait ExposureOpsBlocking: Sized {
 
     /// Disable spotlight mode (Sony models).
     fn disable_spotlight(&self) -> Result<(), Error>;
+
+    /// Enable auto slow shutter mode.
+    /// Automatically reduces shutter speed in low light conditions.
+    /// Supported on Sony cameras and FR7, PTZOptics only via HTTP API.
+    fn enable_auto_slow_shutter(&self) -> Result<(), Error>;
+
+    /// Disable auto slow shutter mode.
+    fn disable_auto_slow_shutter(&self) -> Result<(), Error>;
+
+    /// Set brightness using direct mode.
+    /// This is supported on Sony models but not on FR7.
+    fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>;
 }
 
 // Async implementation
@@ -416,6 +440,28 @@ impl ExposureOps for Camera {
         self.send_command(&Spotlight::Off).await?;
         Ok(())
     }
+
+    async fn enable_auto_slow_shutter(&self) -> Result<(), Error> {
+        use crate::command::exposure::AutoSlowShutter;
+
+        self.send_command(&AutoSlowShutter::On).await?;
+        Ok(())
+    }
+
+    async fn disable_auto_slow_shutter(&self) -> Result<(), Error> {
+        use crate::command::exposure::AutoSlowShutter;
+
+        self.send_command(&AutoSlowShutter::Off).await?;
+        Ok(())
+    }
+
+    async fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+
+        let command = Bright::Direct(level);
+        self.send_command(&command).await?;
+        Ok(())
+    }
 }
 
 // Blocking implementation
@@ -641,6 +687,28 @@ impl ExposureOpsBlocking for Camera {
         use crate::command::exposure::Spotlight;
 
         self.send_command_blocking(&Spotlight::Off)?;
+        Ok(())
+    }
+
+    fn enable_auto_slow_shutter(&self) -> Result<(), Error> {
+        use crate::command::exposure::AutoSlowShutter;
+
+        self.send_command_blocking(&AutoSlowShutter::On)?;
+        Ok(())
+    }
+
+    fn disable_auto_slow_shutter(&self) -> Result<(), Error> {
+        use crate::command::exposure::AutoSlowShutter;
+
+        self.send_command_blocking(&AutoSlowShutter::Off)?;
+        Ok(())
+    }
+
+    fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+
+        let command = Bright::Direct(level);
+        self.send_command_blocking(&command)?;
         Ok(())
     }
 }

@@ -24,6 +24,8 @@ pub enum CommandCategory {
     Preset,
     /// Long operations like preset discovery (2-5 minutes).
     LongRunning,
+    /// Network commands like multicast/NDI settings (1-2 seconds).
+    Network,
     /// Custom timeout for specific commands.
     Custom,
 }
@@ -37,6 +39,7 @@ impl CommandCategory {
             Self::Movement => Duration::from_secs(10),
             Self::Preset => Duration::from_secs(60),
             Self::LongRunning => Duration::from_secs(300),
+            Self::Network => Duration::from_secs(2),
             Self::Custom => Duration::from_secs(30),
         }
     }
@@ -53,6 +56,8 @@ pub struct TimeoutConfig {
     pub preset_timeout: Duration,
     /// Timeout for long-running operations
     pub long_timeout: Duration,
+    /// Timeout for network commands (multicast, NDI)
+    pub network_timeout: Duration,
     /// Default timeout for uncategorized commands
     pub default_timeout: Duration,
 }
@@ -64,6 +69,7 @@ impl Default for TimeoutConfig {
             movement_timeout: Duration::from_secs(10),
             preset_timeout: Duration::from_secs(60),
             long_timeout: Duration::from_secs(300),
+            network_timeout: Duration::from_secs(2),
             default_timeout: Duration::from_secs(30),
         }
     }
@@ -78,6 +84,7 @@ impl TimeoutConfig {
             movement_timeout: timeout,
             preset_timeout: timeout,
             long_timeout: timeout,
+            network_timeout: timeout,
             default_timeout: timeout,
         }
     }
@@ -90,6 +97,7 @@ impl TimeoutConfig {
             CommandCategory::Movement => self.movement_timeout,
             CommandCategory::Preset => self.preset_timeout,
             CommandCategory::LongRunning => self.long_timeout,
+            CommandCategory::Network => self.network_timeout,
             CommandCategory::Custom => self.default_timeout,
         }
     }
@@ -137,6 +145,14 @@ impl TimeoutConfigBuilder {
     #[must_use]
     pub fn long_timeout(mut self, timeout: Duration) -> Self {
         self.config.long_timeout = timeout;
+        self
+    }
+
+    /// Sets the timeout for network commands.
+    #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[must_use]
+    pub fn network_timeout(mut self, timeout: Duration) -> Self {
+        self.config.network_timeout = timeout;
         self
     }
 

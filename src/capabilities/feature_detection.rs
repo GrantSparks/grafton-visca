@@ -64,6 +64,8 @@ pub enum CameraFeature {
     ImageFreeze,
     /// Image flip
     ImageFlip,
+    /// Picture effects (negative, sepia, B&W, etc.)
+    PictureEffect,
 
     // Advanced features
     /// ND filter control (Sony FR7)
@@ -80,6 +82,8 @@ pub enum CameraFeature {
     SystemReset,
     /// Command cancel
     CommandCancel,
+    /// NDI streaming features (PTZOptics)
+    NDI,
 }
 
 impl CameraFeature {
@@ -115,6 +119,8 @@ impl CameraFeature {
             Self::Privacy => "Privacy Mode",
             Self::SystemReset => "System Reset",
             Self::CommandCancel => "Command Cancel",
+            Self::PictureEffect => "Picture Effect",
+            Self::NDI => "NDI Streaming",
         }
     }
 
@@ -150,6 +156,8 @@ impl CameraFeature {
             Self::Privacy => "Enable/disable privacy mode",
             Self::SystemReset => "Reset camera to factory defaults",
             Self::CommandCancel => "Cancel pending commands",
+            Self::PictureEffect => "Apply picture effects (negative, sepia, B&W, etc.)",
+            Self::NDI => "Control NDI streaming settings",
         }
     }
 }
