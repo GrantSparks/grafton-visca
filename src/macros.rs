@@ -451,7 +451,7 @@ macro_rules! forward_facade {
     // Blocking variant with optional trait disambiguation
     ($wrapper:ident, blocking, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(
-            impl $trait_name for $wrapper {
+            impl<P: $crate::capabilities::Profile, T: $crate::transport::UnifiedTransport> $trait_name for $wrapper<P, T> {
                 $(
                     fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
                         forward_facade!(@call $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
@@ -464,7 +464,7 @@ macro_rules! forward_facade {
     // Async variant with optional trait disambiguation
     ($wrapper:ident, async, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(
-            impl $trait_name for $wrapper {
+            impl<P: $crate::capabilities::Profile, T: $crate::transport::UnifiedTransport> $trait_name for $wrapper<P, T> {
                 $(
                     async fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
                         forward_facade!(@call_async $($disambiguate_trait)?, $method, self.0, $($($param),*)?)

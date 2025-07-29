@@ -6,7 +6,8 @@
 #[cfg(feature = "async")]
 use grafton_visca::{
     executor::{SpawnableFuture, Spawner},
-    Camera, CameraModel,
+    prelude::r#async::*,
+    r#async,
 };
 
 // Example 1: A minimal spawner using std::thread
@@ -54,7 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let transport = Tcp::connect("192.168.1.100:52381").await?;
         let handle = tokio::runtime::Handle::current();
-        let _camera = Camera::new_with_spawner(transport, handle);
+        // For tokio feature, use the underlying camera directly
+        let inner_camera = crate::Camera::<PTZOpticsG2, _>::new_with_spawner(transport, handle);
+        let _camera = r#async::Camera::new(inner_camera);
 
         println!("Created camera with Tokio spawner");
         // camera.power_on().await?;
@@ -82,8 +85,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let transport = DummyTransport;
         let spawner = ThreadSpawner;
-        let _camera =
-            Camera::with_profile_and_spawner(CameraModel::PTZOpticsG2, transport, spawner);
+        let inner_camera = Camera::<PTZOpticsG2, _>::new_with_spawner(transport, spawner);
+        let _camera = r#async::Camera::new(inner_camera);
 
         println!("Created camera with thread-based spawner");
     }
@@ -111,7 +114,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let custom_spawner = CustomExecutorSpawner {
             _executor: std::sync::Arc::new(()),
         };
-        let _camera = Camera::new_with_spawner(transport, custom_spawner);
+        let inner_camera = Camera::<PTZOpticsG2, _>::new_with_spawner(transport, custom_spawner);
+        let _camera = r#async::Camera::new(inner_camera);
 
         println!("Created camera with custom executor spawner");
     }

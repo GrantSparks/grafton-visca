@@ -4,15 +4,16 @@
 //! implements specific optional capability traits.
 
 use crate::{
-    camera::generic::{Camera, UnifiedTransport},
-    capabilities::{NDFilter, Profile, MotionSync, VariableSpeed},
+    camera::generic::Camera,
+    capabilities::{MotionSync, NDFilter, Profile, VariableSpeed},
     command::{
-        nd_filter::NDFilterModeCommand,
         motion_sync::MotionSyncModeCommand,
+        nd_filter::NDFilterModeCommand,
         variable_speed::{VariableSpeedMode, VariableSpeedModeCommand},
         Response,
     },
     error::Error,
+    transport::UnifiedTransport,
     MotionSyncMode,
 };
 
@@ -37,7 +38,10 @@ where
     }
 
     /// Set the ND filter mode (blocking).
-    pub fn set_nd_filter_mode_blocking(&self, mode: CommandNDFilterMode) -> Result<Response, Error> {
+    pub fn set_nd_filter_mode_blocking(
+        &self,
+        mode: CommandNDFilterMode,
+    ) -> Result<Response, Error> {
         let command = NDFilterModeCommand::new(mode);
         self.send_command_blocking(&command)
     }
@@ -102,13 +106,19 @@ where
     ///
     /// This method is only available for cameras that support variable speed mode.
     #[cfg(feature = "async")]
-    pub async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<Response, Error> {
+    pub async fn set_variable_speed_mode(
+        &self,
+        mode: VariableSpeedMode,
+    ) -> Result<Response, Error> {
         let command = VariableSpeedModeCommand::new(mode);
         self.send_command(&command).await
     }
 
     /// Set the variable speed mode (blocking).
-    pub fn set_variable_speed_mode_blocking(&self, mode: VariableSpeedMode) -> Result<Response, Error> {
+    pub fn set_variable_speed_mode_blocking(
+        &self,
+        mode: VariableSpeedMode,
+    ) -> Result<Response, Error> {
         let command = VariableSpeedModeCommand::new(mode);
         self.send_command_blocking(&command)
     }
@@ -121,7 +131,7 @@ where
 }
 
 // Example of how to add more capability-gated methods:
-// 
+//
 // impl<P, T> Camera<P, T>
 // where
 //     P: Profile + PresetTour, // Hypothetical marker trait for preset tour support
@@ -134,18 +144,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::camera::profiles::{PTZOpticsG2, SonyFR7};
 
     #[test]
     fn test_nd_filter_compilation() {
         // This test verifies that ND filter methods are only available for cameras
         // that implement the NDFilter trait.
-        
+
         // The following would not compile because PTZOpticsG2 doesn't implement NDFilter:
         // let camera: Camera<PTZOpticsG2, _> = unimplemented!();
         // camera.set_nd_filter_mode_blocking(NDFilterMode::Off); // Compile error!
-        
+
         // But this would compile for SonyFR7:
         // let camera: Camera<SonyFR7, _> = unimplemented!();
         // camera.set_nd_filter_mode_blocking(CommandNDFilterMode::Variable); // OK!

@@ -6,10 +6,11 @@
 use bytes::Bytes;
 use grafton_visca::{
     camera::methods::PanTiltOps,
+    prelude::r#async::PTZOpticsG2Cam,
     transport::{core::Transport, tokio::Tcp},
     types::SpeedLevel,
     units::Degrees,
-    Camera, Error,
+    Error,
 };
 use std::future::{ready, Ready};
 
@@ -25,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connected via TCP");
 
     // Create camera using the transport
-    let camera = Camera::new(visca);
+    let camera = PTZOpticsG2Cam::new(visca);
 
     // Stop any ongoing movement
     println!("Stopping camera movement...");
@@ -44,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demo using custom transport implementation
     println!("\n=== Custom Transport Demo ===");
     let custom_transport = CustomTransport::new("Demo transport".to_string());
-    let custom_camera = Camera::new(custom_transport);
+    let custom_camera = PTZOpticsG2Cam::new(custom_transport);
 
     println!("Testing custom transport...");
     // This will use the custom transport's send/receive methods

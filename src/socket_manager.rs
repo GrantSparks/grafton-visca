@@ -347,6 +347,7 @@ pub(crate) enum SocketManagerCommand {
         response_sender: Sender<Result<Response>>,
     },
     /// Cancel a command on a specific socket.
+    #[allow(dead_code)]
     CancelCommand {
         /// Socket to cancel the command on.
         socket: Socket,
@@ -441,6 +442,7 @@ impl SocketManagerHandle {
     /// Cancel a command on a specific socket.
     ///
     /// This sends a cancel command to the camera for the specified socket.
+    #[allow(dead_code)]
     pub async fn cancel_command(&self, socket: Socket) -> Result<()> {
         let (response_sender, response_receiver) = oneshot::channel();
 
@@ -476,9 +478,9 @@ impl SocketManagerHandle {
     }
 }
 
-use crate::camera::UnifiedTransport;
 use crate::command::system::CommandCancelCommand;
 use crate::command::EncodeVisca;
+use crate::transport::UnifiedTransport;
 use log::{debug, error, trace, warn};
 
 /// Trait for handling retry decisions for commands.
@@ -589,7 +591,8 @@ pub(crate) struct SocketManagerActor {
     command_receiver: mpsc::UnboundedReceiver<SocketManagerCommand>,
     #[cfg(not(feature = "tokio"))]
     command_receiver: mpsc::Receiver<SocketManagerCommand>,
-    profile: crate::camera::DynamicProfile,
+    ack_timeout: std::time::Duration,
+    completion_timeout: std::time::Duration,
     retry_hook: Box<dyn RetryHook + Send + Sync>,
 }
 
@@ -598,7 +601,8 @@ impl std::fmt::Debug for SocketManagerActor {
         f.debug_struct("SocketManagerActor")
             .field("inner", &self.inner)
             .field("transport", &"Arc<dyn UnifiedTransport>")
-            .field("profile", &self.profile)
+            .field("ack_timeout", &self.ack_timeout)
+            .field("completion_timeout", &self.completion_timeout)
             .field("retry_hook", &"Box<dyn RetryHook>")
             .finish()
     }
@@ -610,7 +614,8 @@ impl SocketManagerActor {
     pub fn new(
         transport: Arc<dyn UnifiedTransport>,
         command_receiver: mpsc::UnboundedReceiver<SocketManagerCommand>,
-        profile: crate::camera::DynamicProfile,
+        ack_timeout: std::time::Duration,
+        completion_timeout: std::time::Duration,
         camera_id: CameraId,
     ) -> Self {
         let mut inner = SocketManagerInner::new();
@@ -619,7 +624,8 @@ impl SocketManagerActor {
             inner,
             transport,
             command_receiver,
-            profile,
+            ack_timeout,
+            completion_timeout,
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
     }
@@ -628,7 +634,8 @@ impl SocketManagerActor {
     pub fn new(
         transport: Arc<dyn UnifiedTransport>,
         command_receiver: mpsc::Receiver<SocketManagerCommand>,
-        profile: crate::camera::DynamicProfile,
+        ack_timeout: std::time::Duration,
+        completion_timeout: std::time::Duration,
         camera_id: CameraId,
     ) -> Self {
         let mut inner = SocketManagerInner::new();
@@ -637,7 +644,8 @@ impl SocketManagerActor {
             inner,
             transport,
             command_receiver,
-            profile,
+            ack_timeout,
+            completion_timeout,
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
     }
@@ -997,12 +1005,12 @@ impl SocketManagerActor {
                     (socket_state.started_at(), socket_state.category())
                 {
                     let timeout_duration = match category {
-                        CommandCategory::Quick => self.profile.ack_timeout(),
-                        CommandCategory::Movement => self.profile.completion_timeout(),
-                        CommandCategory::Preset => self.profile.completion_timeout(),
-                        CommandCategory::LongRunning => self.profile.completion_timeout(),
-                        CommandCategory::Network => self.profile.ack_timeout(),
-                        CommandCategory::Custom => self.profile.completion_timeout(),
+                        CommandCategory::Quick => self.ack_timeout,
+                        CommandCategory::Movement => self.completion_timeout,
+                        CommandCategory::Preset => self.completion_timeout,
+                        CommandCategory::LongRunning => self.completion_timeout,
+                        CommandCategory::Network => self.ack_timeout,
+                        CommandCategory::Custom => self.completion_timeout,
                     };
 
                     if now.duration_since(started_at) > timeout_duration {
@@ -1030,7 +1038,7 @@ impl SocketManagerActor {
 
         // Check for inquiry timeout
         if let Some(ref inquiry) = self.inner.pending_inquiry {
-            let timeout_duration = self.profile.completion_timeout();
+            let timeout_duration = self.completion_timeout;
             if now.duration_since(inquiry.enqueued_at) > timeout_duration {
                 warn!("Inquiry command timeout for command {}", inquiry.id);
                 self.handle_inquiry_timeout().await;
@@ -1066,7 +1074,7 @@ impl SocketManagerActor {
         // Complete the active command with a timeout error
         if let Some(command) = self.inner.take_active_command(socket) {
             let timeout_error = Error::CommandTimeout {
-                duration: self.profile.completion_timeout(),
+                duration: self.completion_timeout,
                 command: format!("Command {} on {:?}", command.id, socket),
             };
             command.complete(Err(timeout_error));
@@ -1082,7 +1090,7 @@ impl SocketManagerActor {
     async fn handle_inquiry_timeout(&mut self) {
         if let Some(inquiry) = self.inner.take_pending_inquiry() {
             let timeout_error = Error::CommandTimeout {
-                duration: self.profile.completion_timeout(),
+                duration: self.completion_timeout,
                 command: format!("Inquiry command {}", inquiry.id),
             };
             inquiry.complete(Err(timeout_error));

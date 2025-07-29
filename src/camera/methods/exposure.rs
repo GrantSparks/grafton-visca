@@ -1,6 +1,6 @@
 //! Exposure methods for cameras using the new GAT architecture.
 
-use crate::{camera::Camera, Error};
+use crate::Error;
 
 /// Exposure operations (async).
 #[cfg(feature = "async")]
@@ -220,7 +220,9 @@ pub trait ExposureOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl ExposureOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn exposure_auto(&self) -> Result<(), Error> {
         use crate::command::exposure::{ExposureCommand, ExposureMode};
 
@@ -473,7 +475,9 @@ impl ExposureOps for Camera {
 }
 
 // Blocking implementation
-impl ExposureOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn exposure_auto(&self) -> Result<(), Error> {
         use crate::command::exposure::{ExposureCommand, ExposureMode};
 

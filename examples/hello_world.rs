@@ -7,10 +7,9 @@
 //! - Async: cargo run --example hello_world --features tokio <camera_ip:port>
 
 #[cfg(not(feature = "tokio"))]
-use grafton_visca::blocking::prelude::*;
+use grafton_visca::prelude::blocking::*;
 #[cfg(feature = "tokio")]
-use grafton_visca::r#async::prelude::*;
-use grafton_visca::{Camera, CameraModel, Error};
+use grafton_visca::prelude::r#async::*;
 use std::env;
 
 #[cfg(not(feature = "tokio"))]
@@ -33,7 +32,7 @@ fn main() -> Result<(), Error> {
 
     // Create camera with blocking TCP transport
     let transport = Tcp::connect(&camera_addr)?;
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).blocking();
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Power on the camera
     println!("Powering on camera...");
@@ -66,7 +65,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera with async TCP transport
     let transport = Tcp::connect(&camera_addr).await?;
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Power on the camera
     println!("Powering on camera...");

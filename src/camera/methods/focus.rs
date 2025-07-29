@@ -1,7 +1,6 @@
 //! Focus methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     command::focus::{Focus as FocusCommand, FocusSpeed},
     types::{FocusPosition, SpeedLevel},
     Error,
@@ -96,7 +95,9 @@ pub trait FocusOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl FocusOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> FocusOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn focus_auto(&self) -> Result<(), Error> {
         self.send_command(&FocusCommand::Auto).await?;
         Ok(())
@@ -181,7 +182,9 @@ impl FocusOps for Camera {
 }
 
 // Blocking implementation
-impl FocusOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> FocusOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn focus_auto(&self) -> Result<(), Error> {
         self.send_command_blocking(&FocusCommand::Auto)?;
         Ok(())

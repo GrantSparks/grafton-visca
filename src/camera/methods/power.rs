@@ -1,7 +1,6 @@
 //! Power methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     command::{PowerCommand, Response},
     Error,
 };
@@ -27,7 +26,9 @@ pub trait PowerOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl PowerOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PowerOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn power_on(&self) -> Result<(), Error> {
         let command = PowerCommand::On;
         let response = self.send_command(&command).await?;
@@ -60,7 +61,9 @@ impl PowerOps for Camera {
 }
 
 // Blocking implementation
-impl PowerOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PowerOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn power_on(&self) -> Result<(), Error> {
         let command = PowerCommand::On;
         let response = self.send_command_blocking(&command)?;

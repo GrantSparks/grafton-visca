@@ -79,7 +79,7 @@ pub trait StreamingOpsBlocking: Sized {
     /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
     /// # let transport = Tcp::connect("192.168.1.100:52381")?;
-    /// # let inner_camera = grafton_visca::Camera::new(transport);
+    /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
     /// # let camera = Camera::new(inner_camera);
     /// camera.enable_multicast()?;
     /// # Ok(())
@@ -98,7 +98,7 @@ pub trait StreamingOpsBlocking: Sized {
     /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
     /// # let transport = Tcp::connect("192.168.1.100:52381")?;
-    /// # let inner_camera = grafton_visca::Camera::new(transport);
+    /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
     /// # let camera = Camera::new(inner_camera);
     /// camera.disable_multicast()?;
     /// # Ok(())
@@ -118,7 +118,7 @@ pub trait StreamingOpsBlocking: Sized {
     /// # use grafton_visca::transport::blocking::Tcp;
     /// # use grafton_visca::types::NDIQuality;
     /// # let transport = Tcp::connect("192.168.1.100:52381")?;
-    /// # let inner_camera = grafton_visca::Camera::new(transport);
+    /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
     /// # let camera = Camera::new(inner_camera);
     /// camera.set_ndi_quality(NDIQuality::High)?;
     /// # Ok(())
@@ -129,7 +129,9 @@ pub trait StreamingOpsBlocking: Sized {
 
 // Implementation for async Camera
 #[cfg(feature = "async")]
-impl StreamingOps for crate::camera::Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> StreamingOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn enable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::On;
         let response = self.send_command(&command).await?;
@@ -162,7 +164,9 @@ impl StreamingOps for crate::camera::Camera {
 }
 
 // Implementation for blocking Camera
-impl StreamingOpsBlocking for crate::camera::Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> StreamingOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn enable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::On;
         let response = self.send_command_blocking(&command)?;

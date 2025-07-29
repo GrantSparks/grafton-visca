@@ -12,7 +12,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let transport = Tcp::connect("192.168.1.100:52381").await?;
-//!     let camera = grafton_visca::Camera::new(transport).r#async();
+//!     let camera = grafton_visca::r#async::Camera::new(grafton_visca::Camera::new(transport));
 //!
 //!     // Use async API
 //!     camera.power_on().await?;
@@ -21,61 +21,26 @@
 //! }
 //! ```
 
+// Import only the traits we're implementing delegates for
+// These are needed for the delegation implementations
+#[cfg(feature = "async")]
+use crate::camera::methods::{ColorOps as CameraColorOps, ExposureOps as CameraExposureOps};
+
 /// A newtype wrapper around the root Camera that exposes only async methods.
 #[derive(Debug)]
-pub struct Camera(pub(super) crate::Camera);
+pub struct Camera<P, T>(pub(super) crate::Camera<P, T>)
+where
+    P: crate::capabilities::Profile,
+    T: crate::transport::UnifiedTransport;
 
-impl Camera {
+impl<P, T> Camera<P, T>
+where
+    P: crate::capabilities::Profile,
+    T: crate::transport::UnifiedTransport,
+{
     /// Create a new async camera wrapper.
     #[must_use]
-    pub fn new(inner: crate::Camera) -> Self {
-        Self(inner)
-    }
-
-    /// Create a new async camera with a custom spawner.
-    ///
-    /// This is a convenience method that creates a camera with a custom spawner
-    /// and wraps it in the async interface. Use this when integrating with
-    /// async runtimes other than Tokio.
-    ///
-    /// This method is only available when the `async` feature is enabled but
-    /// `tokio` is not, as Tokio users can rely on the automatic runtime detection.
-    ///
-    /// # Example with custom spawner
-    /// ```ignore
-    /// # use grafton_visca::r#async::Camera;
-    /// # use grafton_visca::executor::{Spawner, SpawnableFuture};
-    /// # use grafton_visca::CameraModel;
-    /// # use grafton_visca::r#async::PanTiltOps;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// #[derive(Clone)]
-    /// struct MySpawner;
-    ///
-    /// impl Spawner for MySpawner {
-    ///     fn spawn(&self, task: SpawnableFuture) {
-    ///         // Spawn task with your runtime
-    ///         // e.g., async_std::task::spawn(task);
-    ///     }
-    /// }
-    ///
-    /// # let transport = todo!();
-    /// let spawner = MySpawner;
-    /// let camera = Camera::with_spawner(CameraModel::PTZOpticsG2, transport, spawner);
-    ///
-    /// // Ready to control camera with your async runtime
-    /// camera.pan_tilt_home().await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(all(feature = "async", not(feature = "tokio")))]
-    pub fn with_spawner<T, S>(profile: crate::CameraModel, transport: T, spawner: S) -> Self
-    where
-        T: crate::transport::core::Transport + Send + Sync + 'static,
-        S: crate::executor::Spawner,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
-    {
-        let inner = crate::Camera::with_profile_and_spawner(profile, transport, spawner);
+    pub fn new(inner: crate::Camera<P, T>) -> Self {
         Self(inner)
     }
 }
@@ -104,7 +69,9 @@ pub use crate::camera::methods::{
 };
 
 // Implement all async traits for the wrapper type
-impl ZoomOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ZoomOps
+    for Camera<P, T>
+{
     async fn zoom_stop(&self) -> crate::Result<()> {
         self.0.zoom_stop().await
     }
@@ -138,13 +105,15 @@ impl ZoomOps for Camera {
     }
 }
 
-impl ColorOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ColorOps
+    for Camera<P, T>
+{
     async fn one_push_trigger(&self) -> crate::Result<()> {
         self.0.one_push_trigger().await
     }
 
     async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> crate::Result<()> {
-        ColorOps::set_color_temperature(&self.0, temp).await
+        CameraColorOps::set_color_temperature(&self.0, temp).await
     }
 
     async fn reset_color_temperature(&self) -> crate::Result<()> {
@@ -188,7 +157,9 @@ impl ColorOps for Camera {
     }
 }
 
-impl ExposureOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOps
+    for Camera<P, T>
+{
     async fn exposure_auto(&self) -> crate::Result<()> {
         self.0.exposure_auto().await
     }
@@ -258,7 +229,7 @@ impl ExposureOps for Camera {
     }
 
     async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> crate::Result<()> {
-        ExposureOps::set_color_temperature(&self.0, temp).await
+        CameraExposureOps::set_color_temperature(&self.0, temp).await
     }
 
     async fn enable_exposure_compensation(&self) -> crate::Result<()> {
@@ -325,7 +296,9 @@ impl ExposureOps for Camera {
     }
 }
 
-impl FocusOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> FocusOps
+    for Camera<P, T>
+{
     async fn focus_auto(&self) -> crate::Result<()> {
         self.0.focus_auto().await
     }
@@ -375,7 +348,9 @@ impl FocusOps for Camera {
     }
 }
 
-impl ImageProcessingOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ImageProcessingOps
+    for Camera<P, T>
+{
     async fn enable_flip(&self) -> crate::Result<()> {
         self.0.enable_flip().await
     }
@@ -475,7 +450,9 @@ impl ImageProcessingOps for Camera {
     }
 }
 
-impl InquiryOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> InquiryOps
+    for Camera<P, T>
+{
     async fn get_power_state(&self) -> crate::Result<bool> {
         self.0.get_power_state().await
     }
@@ -611,7 +588,9 @@ impl InquiryOps for Camera {
     }
 }
 
-impl NDFilterOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDFilterOps
+    for Camera<P, T>
+{
     async fn set_nd_filter_mode(&self, mode: crate::command::NDFilterMode) -> crate::Result<()> {
         self.0.set_nd_filter_mode(mode).await
     }
@@ -637,7 +616,9 @@ impl NDFilterOps for Camera {
     }
 }
 
-impl MotionSyncControl for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MotionSyncControl
+    for Camera<P, T>
+{
     async fn set_motion_sync_mode(&self, mode: crate::MotionSyncMode) -> crate::Result<()> {
         self.0.set_motion_sync_mode(mode).await
     }
@@ -663,7 +644,9 @@ impl MotionSyncControl for Camera {
 }
 
 #[async_trait::async_trait]
-impl MenuControlOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MenuControlOps
+    for Camera<P, T>
+{
     async fn set_menu_display(&self, display: bool) -> crate::Result<crate::command::Response> {
         self.0.set_menu_display(display).await
     }
@@ -695,7 +678,9 @@ impl MenuControlOps for Camera {
     }
 }
 
-impl PanTiltOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PanTiltOps
+    for Camera<P, T>
+{
     async fn pan_tilt_stop(&self) -> crate::Result<()> {
         self.0.pan_tilt_stop().await
     }
@@ -752,7 +737,9 @@ impl PanTiltOps for Camera {
     }
 }
 
-impl PanTiltInquiryOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PanTiltInquiryOps
+    for Camera<P, T>
+{
     async fn get_pan_tilt_position(&self) -> crate::Result<(i16, i16)> {
         self.0.get_pan_tilt_position().await
     }
@@ -764,7 +751,9 @@ impl PanTiltInquiryOps for Camera {
     }
 }
 
-impl PowerOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PowerOps
+    for Camera<P, T>
+{
     async fn power_on(&self) -> crate::Result<()> {
         self.0.power_on().await
     }
@@ -774,7 +763,9 @@ impl PowerOps for Camera {
     }
 }
 
-impl PresetsOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PresetsOps
+    for Camera<P, T>
+{
     async fn preset_recall(&self, preset: crate::command::PresetNumber) -> crate::Result<()> {
         self.0.preset_recall(preset).await
     }
@@ -788,7 +779,9 @@ impl PresetsOps for Camera {
     }
 }
 
-impl SystemOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> SystemOps
+    for Camera<P, T>
+{
     async fn trigger_address_assignment(&self) -> crate::Result<()> {
         self.0.trigger_address_assignment().await
     }
@@ -802,7 +795,9 @@ impl SystemOps for Camera {
     }
 }
 
-impl TallyOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> TallyOps
+    for Camera<P, T>
+{
     async fn tally_red_on(&self) -> crate::Result<()> {
         self.0.tally_red_on().await
     }
@@ -852,7 +847,9 @@ impl TallyOps for Camera {
     }
 }
 
-impl WhiteBalanceOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> WhiteBalanceOps
+    for Camera<P, T>
+{
     async fn white_balance_auto(&self) -> crate::Result<()> {
         self.0.white_balance_auto().await
     }
@@ -865,7 +862,9 @@ impl WhiteBalanceOps for Camera {
     }
 }
 
-impl VariableSpeedOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> VariableSpeedOps
+    for Camera<P, T>
+{
     async fn set_variable_speed_mode(
         &self,
         mode: crate::command::VariableSpeedMode,
@@ -874,7 +873,9 @@ impl VariableSpeedOps for Camera {
     }
 }
 
-impl StreamingOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> StreamingOps
+    for Camera<P, T>
+{
     async fn enable_multicast(&self) -> crate::Result<()> {
         self.0.enable_multicast().await
     }

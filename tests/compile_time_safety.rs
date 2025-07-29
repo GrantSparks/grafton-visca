@@ -3,18 +3,25 @@
 use grafton_visca::{
     camera::{
         generic::Camera,
-        profiles::{PTZOpticsG2, SonyFR7},
+        profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
     },
-    capabilities::Profile,
-    prelude::*,
+    capabilities::{PanTilt, Profile, ProfileMetadata, Zoom},
 };
+
+// Import type aliases from prelude for testing
+// Using cfg to conditionally import based on features
+#[cfg(feature = "async")]
+use grafton_visca::prelude::r#async::{PTZOpticsG2Cam, SonyFR7Cam};
+
+#[cfg(not(feature = "async"))]
+use grafton_visca::prelude::blocking::{PTZOpticsG2Cam, SonyFR7Cam};
 
 // This test verifies that the Profile super-trait works correctly
 #[test]
 fn test_profile_super_trait() {
     // These types should compile because they implement Profile
     fn accepts_profile<P: Profile>() {}
-    
+
     accepts_profile::<PTZOpticsG2>();
     accepts_profile::<SonyFR7>();
     accepts_profile::<GenericVisca>();
@@ -26,10 +33,10 @@ fn test_profile_constants() {
     assert_eq!(PTZOpticsG2::MODEL_NAME, "PTZOptics G2");
     assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
     assert_eq!(GenericVisca::MODEL_NAME, "Generic VISCA Camera");
-    
+
     assert_eq!(PTZOpticsG2::ZOOM_SPEED_RANGE, 0..8);
     assert_eq!(SonyFR7::ZOOM_SPEED_RANGE, 0..8);
-    
+
     assert_eq!(PTZOpticsG2::MAX_PAN_SPEED, 24);
     assert_eq!(SonyFR7::MAX_PAN_SPEED, 24);
 }
@@ -38,13 +45,13 @@ fn test_profile_constants() {
 #[test]
 fn test_generic_camera_methods() {
     // We can't actually create a camera without a transport, but we can test the types compile
-    type G2Camera<T> = Camera<PTZOpticsG2, T>;
-    type FR7Camera<T> = Camera<SonyFR7, T>;
-    
+    type _G2Camera<T> = Camera<PTZOpticsG2, T>;
+    type _FR7Camera<T> = Camera<SonyFR7, T>;
+
     // Test that type aliases work
-    type G2Alias<T> = PTZOpticsG2Cam<T>;
-    type FR7Alias<T> = SonyFR7Cam<T>;
-    
+    type _G2Alias<T> = PTZOpticsG2Cam<T>;
+    type _FR7Alias<T> = SonyFR7Cam<T>;
+
     // If we had a camera instance, we could call these methods:
     // camera.model_name()
     // camera.zoom_speed_range()
@@ -65,7 +72,7 @@ fn test_nd_filter_compile_error() {
     {
         // ND filter methods would be available here
     }
-    
+
     // This would fail to compile:
     // let g2_camera: Camera<PTZOpticsG2, _> = unimplemented!();
     // requires_nd_filter(&g2_camera); // ERROR: PTZOpticsG2 doesn't implement NDFilter
@@ -83,7 +90,7 @@ fn test_variable_speed_compile_error() {
     {
         // Variable speed methods would be available here
     }
-    
+
     // This would fail to compile:
     // let g2_camera: Camera<PTZOpticsG2, _> = unimplemented!();
     // requires_variable_speed(&g2_camera); // ERROR: PTZOpticsG2 doesn't implement VariableSpeed

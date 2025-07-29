@@ -1,7 +1,6 @@
 //! Color adjustment methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     command::{
         color::{
             BlueGain, BlueTuningCommand, ColorTemperature, OnePushTriggerCommand, RedGain,
@@ -94,7 +93,9 @@ pub trait ColorOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl ColorOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ColorOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn one_push_trigger(&self) -> Result<(), Error> {
         self.send_command(&OnePushTriggerCommand::new()).await?;
         Ok(())
@@ -164,7 +165,9 @@ impl ColorOps for Camera {
 }
 
 // Blocking implementation
-impl ColorOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ColorOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn one_push_trigger(&self) -> Result<(), Error> {
         self.send_command_blocking(&OnePushTriggerCommand::new())?;
         Ok(())

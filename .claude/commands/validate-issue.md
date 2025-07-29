@@ -70,7 +70,7 @@ Based on your validation:
    - **Recommended Improvements**: Concrete suggestions with examples
    - **Next Steps**: Clear action items for completion
 
-2. Post comment: `gh issue comment $ARGUMENTS --body-file /tmp/gh-validation-$ARGUMENTS.md`
+2. Post it as a comment to github.
 
 ### If Implementation is Complete and High Quality:
 1. Final verification:
@@ -79,21 +79,9 @@ Based on your validation:
    - Run `cargo test` to ensure all tests pass
    - Run `cargo build --release` to verify release build works
 
-2. Commit and push:
-   - `git add` relevant files
-   - `git commit -m "Complete implementation of #$ARGUMENTS: [brief description]"`
-   - Never mention Claude or AI assistance in commit messages
-   - `git push`
+2. Commit and push.
 
-3. Draft closing comment in `/tmp/gh-close-$ARGUMENTS.md`:
-   - **Validation Summary**: What was verified
-   - **Implementation Highlights**: Key achievements
-   - **Test Coverage**: Confirmation of comprehensive testing
-   - **Quality Notes**: Any exceptional aspects of the implementation
-
-4. Post comment and close:
-   - `gh issue comment $ARGUMENTS --body-file /tmp/gh-close-$ARGUMENTS.md`
-   - `gh issue close $ARGUMENTS`
+3. Either Post a comment and close the issue if you are already on the main branch, or in the case where you are on a feature branch create a PR instead of closing the issue directly.
 
 ## Validation Standards
 - **Completeness**: Every requirement explicitly stated or reasonably implied is implemented

@@ -11,8 +11,7 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{ExposureOps, PanTiltOps, PresetsOps},
-
+    prelude::blocking::*,
     transport::blocking::Udp,
     types::SpeedLevel,
     units::Degrees,
@@ -29,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to camera using the new Camera API
     let transport = Udp::connect("192.168.1.100:5678")?;
-    let camera = grafton_visca::Camera::new(transport).blocking();
+    let camera = PTZOpticsG2Cam::new(transport);
 
     println!("=== Type-Safe Camera API Demo ===\n");
 

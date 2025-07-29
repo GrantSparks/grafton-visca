@@ -1,7 +1,6 @@
 //! Preset methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     capabilities::ValidationError,
     command::{
         preset::{PresetAction, PresetCommand, PresetNumber},
@@ -37,7 +36,9 @@ pub trait PresetsOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl PresetsOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PresetsOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
         // Validate preset number (0 is valid - it's the home position)
         if preset.value() > self.max_presets() {
@@ -115,7 +116,9 @@ impl PresetsOps for Camera {
 }
 
 // Blocking implementation
-impl PresetsOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PresetsOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
         // Validate preset number (0 is valid - it's the home position)
         if preset.value() > self.max_presets() {

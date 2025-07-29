@@ -1,7 +1,6 @@
 //! Menu control methods for cameras.
 
 use crate::{
-    camera::Camera,
     command::{
         DirectMenuControlCommand, MenuAction, MenuActionCommand, MenuDirection, MenuDisplayCommand,
         MenuNavigateCommand, Response,
@@ -50,7 +49,9 @@ pub trait MenuControlOpsBlocking {
 /// Implementation for async cameras with menu control.
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
-impl MenuControlOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MenuControlOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn set_menu_display(&self, display: bool) -> Result<Response, Error> {
         let cmd = MenuDisplayCommand::new(display);
         self.send_command(&cmd).await
@@ -68,7 +69,7 @@ impl MenuControlOps for Camera {
 
     async fn direct_menu_control(&self, control1: u8, control2: u8) -> Result<Response, Error> {
         // Check if camera supports direct menu control (FR7 only)
-        if !matches!(self.profile, crate::camera::CameraProfile::SonyFR7(_)) {
+        if self.model_name() != "Sony FR7" {
             return Err(Error::FeatureNotSupported {
                 feature: "Direct menu control",
             });
@@ -79,7 +80,7 @@ impl MenuControlOps for Camera {
 
     async fn toggle_menu(&self) -> Result<Response, Error> {
         // Check if camera supports direct menu control (FR7 only)
-        if !matches!(self.profile, crate::camera::CameraProfile::SonyFR7(_)) {
+        if self.model_name() != "Sony FR7" {
             return Err(Error::FeatureNotSupported {
                 feature: "Direct menu control",
             });
@@ -90,7 +91,9 @@ impl MenuControlOps for Camera {
 }
 
 /// Implementation for blocking cameras with menu control.
-impl MenuControlOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MenuControlOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn set_menu_display(&self, display: bool) -> Result<Response, Error> {
         let cmd = MenuDisplayCommand::new(display);
         self.send_command_blocking(&cmd)
@@ -108,7 +111,7 @@ impl MenuControlOpsBlocking for Camera {
 
     fn direct_menu_control(&self, control1: u8, control2: u8) -> Result<Response, Error> {
         // Check if camera supports direct menu control (FR7 only)
-        if !matches!(self.profile, crate::camera::CameraProfile::SonyFR7(_)) {
+        if self.model_name() != "Sony FR7" {
             return Err(Error::FeatureNotSupported {
                 feature: "Direct menu control",
             });
@@ -119,7 +122,7 @@ impl MenuControlOpsBlocking for Camera {
 
     fn toggle_menu(&self) -> Result<Response, Error> {
         // Check if camera supports direct menu control (FR7 only)
-        if !matches!(self.profile, crate::camera::CameraProfile::SonyFR7(_)) {
+        if self.model_name() != "Sony FR7" {
             return Err(Error::FeatureNotSupported {
                 feature: "Direct menu control",
             });

@@ -42,23 +42,20 @@
 //!
 //! ### Camera - No Generics Required!
 //! ```ignore
-//! use grafton_visca::{Camera, CameraModel, Error};
+//! use grafton_visca::{Error, prelude::*};
 //! use grafton_visca::transport::blocking::Tcp;
-//! // Use the prelude to import all camera operation traits
-//! use grafton_visca::blocking::prelude::*;
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera with default profile (GenericVisca)
 //!     let transport = Tcp::connect("192.168.1.100:52381")?;
-//!     let camera = Camera::new(transport).blocking();
+//!     let camera = GenericViscaCam::new(transport);
 //!
-//!     // Or specify a profile explicitly
+//!     // Or create a specific camera model
 //!     let transport = Tcp::connect("192.168.1.100:52381")?;
-//!     let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).blocking();
+//!     let camera = PTZOpticsG2Cam::new(transport);
 //!
-//!     // Check camera info
-//!     println!("Camera: {}", camera.model_name());
-//!     println!("Supports zoom: {}", camera.supports_capability("zoom"));
+//!     // Camera model is known at compile time
+//!     println!("Using PTZOptics G2 camera");
 //!
 //!     // Send commands with clean API
 //!     camera.power_on()?;
@@ -70,16 +67,14 @@
 //!
 //! ### Async Example
 //! ```ignore
-//! use grafton_visca::{Camera, CameraModel, Error};
+//! use grafton_visca::{Error, r#async::prelude::*};
 //! use grafton_visca::transport::tokio::Tcp;
-//! // Use the async prelude
-//! use grafton_visca::r#async::prelude::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
 //!     // Create camera with specific profile
 //!     let transport = Tcp::connect("192.168.1.100:52381").await?;
-//!     let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).r#async();
+//!     let camera = PTZOpticsG2Cam::new(transport);
 //!
 //!     // Same API, just with .await
 //!     camera.power_on().await?;
@@ -91,28 +86,33 @@
 //!
 //! ## Camera Profiles
 //!
-//! The library includes pre-defined profiles accessible via `CameraModel`:
-//! - `CameraModel::PTZOpticsG2` - PTZOptics G2 series cameras  
-//! - `CameraModel::SonyFR7` - Sony FR7 cameras with ND filter support
-//! - `CameraModel::GenericVisca` - Generic VISCA-compatible cameras (default)
+//! The library includes pre-defined profiles with type aliases:
+//! - `PTZOpticsG2Cam<T>` - PTZOptics G2 series cameras  
+//! - `SonyFR7Cam<T>` - Sony FR7 cameras with ND filter support
+//! - `GenericViscaCam<T>` - Generic VISCA-compatible cameras (conservative feature set)
 //!
-//! ### Custom Camera Profiles
+//! ### Compile-Time Type Safety
 //!
-//! Create profiles for cameras not included in the library:
+//! The generic API ensures type safety at compile time:
 //!
 //! ```ignore
-//! use grafton_visca::{Camera, camera::CustomProfileBuilder};
-//! use grafton_visca::transport::blocking::create;
+//! use grafton_visca::prelude::*;
 //!
-//! let profile = CustomProfileBuilder::new("My Custom Camera")
-//!     .pan_range(-170..=170)
-//!     .tilt_range(-90..=90)
-//!     .zoom_range(0x0000..=0xA000)
-//!     .build();
+//! // This function only accepts cameras with ND filter support
+//! fn adjust_nd_filter<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+//! where
+//!     P: Profile + NDFilter,
+//!     T: UnifiedTransport,
+//! {
+//!     camera.set_nd_filter_mode(NDFilterMode::Clear)
+//! }
 //!
-//! // Create blocking transport
-//! let transport = create::udp("192.168.1.100:52381")?;
-//! let mut camera = Camera::with_profile(transport, profile);
+//! // This would compile for SonyFR7 but not for PTZOpticsG2
+//! let sony = SonyFR7Cam::new(transport);
+//! adjust_nd_filter(&sony)?; // OK - Sony FR7 has ND filter
+//!
+//! let g2 = PTZOpticsG2Cam::new(transport);
+//! // adjust_nd_filter(&g2)?; // Compile error - G2 doesn't have ND filter
 //! ```
 //!
 //! ## Transport Implementation
@@ -165,7 +165,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let transport = Tcp::connect("192.168.1.100:5678").await?;
-//!     let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+//!     let camera = PTZOpticsG2Cam::new(transport);
 //!
 //!     camera.power_on().await?;
 //!     camera.pan_tilt_home().await?;
@@ -327,7 +327,7 @@ pub mod r#async;
 
 // Prelude for convenient imports
 pub mod prelude;
-pub use camera::{Camera, CameraModel};
+pub use camera::Camera;
 pub use camera_id::CameraId;
 
 // Re-export unit types for convenience
@@ -342,6 +342,7 @@ pub use command::{
     exposure::ExposureMode,
     focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone},
     image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
+    nd_filter::NDFilterMode,
     pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
     preset::PresetNumber,
     resolution::{NDFilterPosition, PictureEffectMode, ResolutionMode},

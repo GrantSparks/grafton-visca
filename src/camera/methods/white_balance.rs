@@ -1,7 +1,6 @@
 //! White balance methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     command::{
         white_balance::{
             AWBSensitivity, AWBSensitivityCommand, WhiteBalanceCommand, WhiteBalanceMode,
@@ -32,7 +31,9 @@ pub trait WhiteBalanceOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl WhiteBalanceOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> WhiteBalanceOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn white_balance_auto(&self) -> Result<(), Error> {
         let command = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto,
@@ -57,7 +58,9 @@ impl WhiteBalanceOps for Camera {
 }
 
 // Blocking implementation
-impl WhiteBalanceOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> WhiteBalanceOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn white_balance_auto(&self) -> Result<(), Error> {
         let command = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto,
