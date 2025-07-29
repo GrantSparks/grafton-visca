@@ -5,7 +5,9 @@ use crate::{
     command::{
         color::{HueCommand, SaturationCommand},
         flip::{Flip, ImageFlipCommand},
-        image::{ImageFlipCombinedCommand, NoiseReduction2D, NoiseReduction3D, PictureEffectCommand},
+        image::{
+            ImageFlipCombinedCommand, NoiseReduction2D, NoiseReduction3D, PictureEffectCommand,
+        },
         image_adjustment::{ContrastCommand, LuminanceCommand, Sharpness},
         resolution::PictureEffectMode,
         ImageFlipMode,

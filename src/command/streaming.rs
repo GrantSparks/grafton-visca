@@ -33,11 +33,7 @@ impl EncodeVisca for MulticastStreaming {
     type Response = ();
     const MAX_SIZE: usize = 6;
 
-    fn encode_into(
-        &self,
-        camera_id: CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
+    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -51,14 +47,14 @@ impl EncodeVisca for MulticastStreaming {
             MulticastStreaming::On => 0x01,
             MulticastStreaming::Off => 0x02,
         };
-        
+
         buffer[0] = 0x80 | camera_id.id();
         buffer[1] = 0x0B;
         buffer[2] = 0x01;
         buffer[3] = 0x23;
         buffer[4] = mode;
         buffer[5] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
 
@@ -97,11 +93,7 @@ impl EncodeVisca for NDIQualityCommand {
     type Response = ();
     const MAX_SIZE: usize = 6;
 
-    fn encode_into(
-        &self,
-        camera_id: CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
+    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
             return Err(Error::BufferTooSmall {
                 required: Self::MAX_SIZE,
@@ -117,14 +109,14 @@ impl EncodeVisca for NDIQualityCommand {
             NDIQuality::Low => 0x03,
             NDIQuality::Off => 0x04,
         };
-        
+
         buffer[0] = 0x80 | camera_id.id();
         buffer[1] = 0x0B;
         buffer[2] = 0x01;
         buffer[3] = 0x01;
         buffer[4] = quality_value;
         buffer[5] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
 
@@ -145,13 +137,16 @@ impl CommandFeatures for NDIQualityCommand {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::panic)]
     use super::*;
 
     #[test]
     fn test_multicast_on_encoding() {
         let cmd = MulticastStreaming::On;
         let mut buffer = [0u8; 6];
-        let len = cmd.encode_into(CameraId::CAMERA_1, &mut buffer).unwrap();
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed with sufficient buffer");
         assert_eq!(len, 6);
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x23, 0x01, 0xFF]);
     }
@@ -160,7 +155,9 @@ mod tests {
     fn test_multicast_off_encoding() {
         let cmd = MulticastStreaming::Off;
         let mut buffer = [0u8; 6];
-        let len = cmd.encode_into(CameraId::CAMERA_1, &mut buffer).unwrap();
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed with sufficient buffer");
         assert_eq!(len, 6);
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x23, 0x02, 0xFF]);
     }
@@ -169,7 +166,9 @@ mod tests {
     fn test_ndi_quality_high_encoding() {
         let cmd = NDIQualityCommand::new(NDIQuality::High);
         let mut buffer = [0u8; 6];
-        let len = cmd.encode_into(CameraId::CAMERA_1, &mut buffer).unwrap();
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed with sufficient buffer");
         assert_eq!(len, 6);
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x01, 0x01, 0xFF]);
     }
@@ -178,7 +177,9 @@ mod tests {
     fn test_ndi_quality_medium_encoding() {
         let cmd = NDIQualityCommand::new(NDIQuality::Medium);
         let mut buffer = [0u8; 6];
-        let len = cmd.encode_into(CameraId::CAMERA_1, &mut buffer).unwrap();
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed with sufficient buffer");
         assert_eq!(len, 6);
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x01, 0x02, 0xFF]);
     }
@@ -187,7 +188,9 @@ mod tests {
     fn test_ndi_quality_low_encoding() {
         let cmd = NDIQualityCommand::new(NDIQuality::Low);
         let mut buffer = [0u8; 6];
-        let len = cmd.encode_into(CameraId::CAMERA_1, &mut buffer).unwrap();
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed with sufficient buffer");
         assert_eq!(len, 6);
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x01, 0x03, 0xFF]);
     }
@@ -196,7 +199,9 @@ mod tests {
     fn test_ndi_quality_off_encoding() {
         let cmd = NDIQualityCommand::new(NDIQuality::Off);
         let mut buffer = [0u8; 6];
-        let len = cmd.encode_into(CameraId::CAMERA_1, &mut buffer).unwrap();
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed with sufficient buffer");
         assert_eq!(len, 6);
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x01, 0x04, 0xFF]);
     }

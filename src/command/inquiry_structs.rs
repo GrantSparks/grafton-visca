@@ -803,7 +803,7 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
                 actual: buffer.len(),
             });
         }
-        
+
         // Special format for green tally inquiry
         buffer[0] = 0x81;
         buffer[1] = 0x09;
@@ -812,7 +812,7 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
         buffer[4] = 0x1A;
         buffer[5] = 0x00;
         buffer[6] = 0xFF;
-        
+
         Ok(Self::MAX_SIZE)
     }
 
