@@ -287,8 +287,8 @@ pub mod camera;
 /// Camera ID type for VISCA protocol addressing.
 pub mod camera_id;
 
-// Internal: capability traits for camera feature composition (hidden from public API)
-pub(crate) mod capabilities;
+/// Capability traits for camera feature composition
+pub mod capabilities;
 
 // Internal: VISCA command definitions (hidden from public API)
 pub(crate) mod command;
