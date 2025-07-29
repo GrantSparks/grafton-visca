@@ -37,9 +37,9 @@ impl Camera {
 /// ```
 pub mod prelude {
     pub use super::{
-        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,
-        PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps, WhiteBalanceOps,
-        ZoomOps,
+        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControl,
+        MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
+        SystemOps, TallyOps, VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
     };
 }
 
@@ -47,9 +47,11 @@ pub mod prelude {
 pub use crate::camera::methods::{
     ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
     ImageProcessingOpsBlocking as ImageProcessingOps, InquiryOpsBlocking as InquiryOps,
+    MenuControlMethodsBlocking as MenuControl, MotionSyncControlBlocking as MotionSyncControl,
     NDFilterOpsBlocking as NDFilterOps, PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
     PanTiltOpsBlocking as PanTiltOps, PowerOpsBlocking as PowerOps,
     PresetsOpsBlocking as PresetsOps, SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
+    VariableSpeedMethodsBlocking as VariableSpeedMethods,
     WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
 };
 
@@ -94,8 +96,24 @@ forward_facade!(Camera, blocking,
         interface_clear() -> crate::Result<()>,
         cancel_command@SystemOpsBlocking(socket: crate::command::system::Socket) -> crate::Result<()>;
     NDFilterOps:
-        set_nd_filter(level: u8) -> crate::Result<()>,
+        set_nd_filter_mode(mode: crate::command::NDFilterMode) -> crate::Result<()>,
+        set_nd_filter_value(value: u16) -> crate::Result<()>,
+        set_nd_filter_stops(stops: f32) -> crate::Result<()>,
+        step_nd_filter(direction: crate::command::NDFilterStep) -> crate::Result<()>,
+        set_auto_nd(enabled: bool) -> crate::Result<()>,
         get_nd_filter() -> crate::Result<u8>;
+    MotionSyncControl:
+        set_motion_sync_mode(mode: crate::MotionSyncMode) -> crate::Result<()>,
+        set_motion_sync_speed(speed: u8) -> crate::Result<()>,
+        set_motion_sync_preset_speed(speed: crate::MotionSyncSpeed) -> crate::Result<()>,
+        get_motion_sync_mode() -> crate::Result<crate::MotionSyncMode>,
+        get_motion_sync_speed() -> crate::Result<crate::MotionSyncSpeed>;
+    MenuControl:
+        set_menu_display(display: bool) -> crate::Result<crate::command::Response>,
+        menu_navigate(direction: crate::command::MenuDirection) -> crate::Result<crate::command::Response>,
+        menu_action(action: crate::command::MenuAction) -> crate::Result<crate::command::Response>,
+        direct_menu_control(control1: u8, control2: u8) -> crate::Result<crate::command::Response>,
+        toggle_menu() -> crate::Result<crate::command::Response>;
     PanTiltOps:
         pan_tilt_stop() -> crate::Result<()>,
         pan_tilt_home() -> crate::Result<()>,
@@ -224,4 +242,6 @@ forward_facade!(Camera, blocking,
         get_tally_status() -> crate::Result<bool>,
         get_red_tally_status() -> crate::Result<bool>,
         get_green_tally_status() -> crate::Result<bool>;
+    VariableSpeedMethods:
+        set_variable_speed_mode(mode: crate::command::VariableSpeedMode) -> crate::Result<()>;
 );

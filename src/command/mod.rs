@@ -15,6 +15,9 @@ pub mod image;
 pub mod image_adjustment;
 pub mod inquiry;
 mod inquiry_structs; // Internal module for macro-generated inquiry commands
+pub mod menu;
+pub mod motion_sync;
+pub mod nd_filter;
 pub mod pan_tilt;
 pub mod power;
 pub mod preset;
@@ -22,6 +25,7 @@ pub mod resolution;
 pub mod response;
 pub mod system;
 pub mod tally;
+pub mod variable_speed;
 pub mod white_balance;
 pub mod zoom;
 
@@ -30,11 +34,6 @@ pub mod const_encoding;
 
 // New unified EncodeVisca trait
 pub mod encode_visca;
-
-// Ergonomic command builders (zero dead code approach) - commented out for demo
-// pub mod ergonomic_pan_tilt;
-// pub mod ergonomic_power;
-// pub mod ergonomic_zoom;
 
 // Re-export command types
 pub use self::{
@@ -47,12 +46,16 @@ pub use self::{
     image::*,
     image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
     // inquiry::*,  // Individual types are re-exported from inquiry module
+    menu::*,
+    // motion_sync::*,  // Commands are internal only
+    nd_filter::*,
     pan_tilt::*,
     power::*,
     preset::*,
     response::{Response, ResponseType}, // Removed parse_response - unused
     system::{MotionSyncMode, MotionSyncSpeed, Socket},
     // tally::*,  // Commented out - unused
+    variable_speed::*,
     white_balance::*,
     // zoom::*,  // Commented out - unused
 };

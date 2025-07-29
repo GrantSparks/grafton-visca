@@ -2,7 +2,11 @@
 //!
 //! This module provides commands for controlling camera power state.
 
-use crate::{command::const_encoding::constants, visca_command};
+use crate::{
+    capabilities::{CameraFeature, CommandFeatures},
+    command::const_encoding::constants,
+    visca_command,
+};
 
 visca_command! {
     /// Command to control camera power state.
@@ -22,6 +26,12 @@ visca_command! {
                 .build();
             Ok::<Vec<u8>, crate::Error>(cmd.to_vec())
         },
+    }
+}
+
+impl CommandFeatures for PowerCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Power]
     }
 }
 

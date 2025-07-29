@@ -5,6 +5,7 @@
 
 // Crate imports
 use crate::{
+    capabilities::{CameraFeature, CommandFeatures},
     command::const_encoding::CommandBuilder,
     error::Error,
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
@@ -20,6 +21,12 @@ visca_bool_command! {
         prefix: [0x81, 0x01, 0x04, 0x33],
         on: 0x02,
         off: 0x03,
+    }
+}
+
+impl CommandFeatures for BacklightCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Backlight]
     }
 }
 
@@ -50,6 +57,12 @@ visca_command! {
     }
 }
 
+impl CommandFeatures for NoiseReduction2D {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::NoiseReduction]
+    }
+}
+
 visca_command! {
     /// 3D Noise Reduction command.
     ///
@@ -77,6 +90,12 @@ visca_command! {
     }
 }
 
+impl CommandFeatures for NoiseReduction3D {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::NoiseReduction]
+    }
+}
+
 visca_bool_command! {
     /// Black and White Mode command.
     ///
@@ -85,6 +104,12 @@ visca_bool_command! {
         prefix: [0x81, 0x01, 0x04, 0x01],
         on: 0x04,
         off: 0x00,
+    }
+}
+
+impl CommandFeatures for BlackWhiteCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::BlackWhiteMode]
     }
 }
 

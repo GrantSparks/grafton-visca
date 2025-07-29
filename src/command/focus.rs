@@ -18,6 +18,7 @@
 
 // Workspace / local-crate imports
 use crate::{
+    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -258,6 +259,12 @@ impl EncodeVisca for Focus {
     }
 }
 
+impl CommandFeatures for Focus {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Focus]
+    }
+}
+
 /// Focus Zone selection (baseline VISCA).
 ///
 /// Determines which area of the image the camera uses for auto focus.
@@ -407,6 +414,13 @@ visca_command! {
     }
 }
 
+impl CommandFeatures for FocusLock {
+    fn required_features(&self) -> &[CameraFeature] {
+        // Focus lock is a PTZOptics-specific focus feature
+        &[CameraFeature::Focus, CameraFeature::FocusLock]
+    }
+}
+
 /// Push AF command.
 ///
 /// Controls the Push Auto Focus feature which temporarily activates
@@ -458,6 +472,13 @@ impl EncodeVisca for PushAF {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
+    }
+}
+
+impl CommandFeatures for PushAF {
+    fn required_features(&self) -> &[CameraFeature] {
+        // Push AF is a Sony FR7-specific focus feature
+        &[CameraFeature::Focus]
     }
 }
 

@@ -354,6 +354,9 @@ pub use grafton_visca_macros::ViscaValue;
 // Re-export ProfileMetadata for camera profile introspection
 pub use capabilities::ProfileMetadata;
 
+// Re-export feature detection API
+pub use capabilities::{CameraFeature, FeatureDetection};
+
 // Macros are already exported with #[macro_export] so we don't need to re-export them
 
 /// Camera profiles with compositional capabilities

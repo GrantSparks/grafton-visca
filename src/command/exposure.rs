@@ -11,6 +11,7 @@ use std::convert::TryFrom;
 
 // Workspace / local-crate imports
 use crate::{
+    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -64,6 +65,12 @@ crate::visca_param_command! {
     prefix = [0x81, 0x01, 0x04, 0x39];
     param_byte = *mode as u8;
     timeout = Quick;
+}
+
+impl CommandFeatures for ExposureCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Exposure]
+    }
 }
 
 /// Exposure compensation level.
@@ -217,6 +224,12 @@ impl EncodeVisca for ExposureCompensation {
     }
 }
 
+impl CommandFeatures for ExposureCompensation {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Exposure]
+    }
+}
+
 /// Commands for controlling the camera's dynamic range.
 ///
 /// Dynamic range control adjusts the camera's ability to capture detail
@@ -268,6 +281,12 @@ impl EncodeVisca for DynamicRange {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
+    }
+}
+
+impl CommandFeatures for DynamicRange {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Exposure]
     }
 }
 
@@ -354,6 +373,12 @@ impl EncodeVisca for Iris {
     }
 }
 
+impl CommandFeatures for Iris {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Iris]
+    }
+}
+
 /// Commands for controlling shutter speed values.
 ///
 /// Provides standard VISCA control operations:
@@ -437,6 +462,12 @@ impl EncodeVisca for Shutter {
     }
 }
 
+impl CommandFeatures for Shutter {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Shutter]
+    }
+}
+
 /// Brightness control command.
 #[derive(Debug, Clone, Copy)]
 pub enum Bright {
@@ -514,6 +545,13 @@ impl EncodeVisca for Bright {
     }
 }
 
+impl CommandFeatures for Bright {
+    fn required_features(&self) -> &[CameraFeature] {
+        // Brightness is part of the general Exposure feature
+        &[CameraFeature::Exposure]
+    }
+}
+
 visca_command! {
     /// Spotlight command (Sony models).
     ///
@@ -536,6 +574,12 @@ visca_command! {
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
         },
+    }
+}
+
+impl CommandFeatures for Spotlight {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Exposure]
     }
 }
 

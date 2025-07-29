@@ -3,7 +3,7 @@
 use std::ops::Range;
 use std::time::Duration;
 
-use crate::capabilities::ValidationError;
+use crate::capabilities::{CoordinateSystem, ValidationError};
 
 /// Trait for cameras that support pan and tilt movement.
 ///
@@ -39,6 +39,10 @@ pub trait PanTilt {
     /// Conversion factor from degrees to VISCA units for tilt.
     /// This is camera-specific based on the tilt range and degrees coverage.
     const TILT_DEGREES_TO_UNITS: f32;
+
+    /// Coordinate system used by the camera.
+    /// Most cameras use SignedCentered, but some legacy models use UnsignedCentered.
+    const COORDINATE_SYSTEM: CoordinateSystem = CoordinateSystem::SignedCentered;
 }
 
 /// Extension trait that adds validation methods to cameras with pan/tilt support.

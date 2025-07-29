@@ -137,8 +137,12 @@ impl PanTiltOps for Camera {
         let pan_speed_val = speed.to_pan_speed();
         let tilt_speed_val = speed.to_tilt_speed();
 
-        let pan_pos = PanPosition::new(pan_validated)?;
-        let tilt_pos = TiltPosition::new(tilt_validated)?;
+        // Convert logical coordinates to camera coordinates
+        let (cam_pan, cam_tilt) = self.to_camera_coords(pan_validated, tilt_validated);
+
+        // Create position objects using camera coordinates
+        let pan_pos = PanPosition::new(cam_pan as i16)?;
+        let tilt_pos = TiltPosition::new(cam_tilt as i16)?;
         let pan_spd = PanSpeed::new(pan_speed_val)?;
         let tilt_spd = TiltSpeed::new(tilt_speed_val)?;
 
@@ -254,8 +258,12 @@ impl PanTiltOpsBlocking for Camera {
         let pan_speed_val = speed.to_pan_speed();
         let tilt_speed_val = speed.to_tilt_speed();
 
-        let pan_pos = PanPosition::new(pan_validated)?;
-        let tilt_pos = TiltPosition::new(tilt_validated)?;
+        // Convert logical coordinates to camera coordinates
+        let (cam_pan, cam_tilt) = self.to_camera_coords(pan_validated, tilt_validated);
+
+        // Create position objects using camera coordinates
+        let pan_pos = PanPosition::new(cam_pan as i16)?;
+        let tilt_pos = TiltPosition::new(cam_tilt as i16)?;
         let pan_spd = PanSpeed::new(pan_speed_val)?;
         let tilt_spd = TiltSpeed::new(tilt_speed_val)?;
 

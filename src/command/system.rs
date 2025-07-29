@@ -18,6 +18,7 @@
 
 // Workspace / local-crate imports
 use crate::{
+    capabilities::{CameraFeature, CommandFeatures},
     command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -80,6 +81,13 @@ impl EncodeVisca for AddressSetCommand {
     }
 }
 
+impl CommandFeatures for AddressSetCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        // System commands are always supported
+        &[CameraFeature::SystemReset]
+    }
+}
+
 /// Command to clear the interface (broadcast, serial only).
 ///
 /// This resets the command buffer and clears any pending commands.
@@ -134,6 +142,13 @@ impl EncodeVisca for InterfaceClearCommand {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
+    }
+}
+
+impl CommandFeatures for InterfaceClearCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        // System commands are always supported
+        &[CameraFeature::SystemReset]
     }
 }
 
@@ -249,6 +264,12 @@ impl EncodeVisca for CommandCancelCommand {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
+    }
+}
+
+impl CommandFeatures for CommandCancelCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::CommandCancel]
     }
 }
 
