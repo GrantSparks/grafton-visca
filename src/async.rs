@@ -88,17 +88,17 @@ impl Camera {
 /// ```
 pub mod prelude {
     pub use super::{
-        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,
-        PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps, WhiteBalanceOps,
-        ZoomOps,
+        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlMethods,
+        NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps,
+        VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
     };
 }
 
 // Re-export async traits with unsuffixed names
 pub use crate::camera::methods::{
-    ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, NDFilterOps,
-    PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps, TallyOps, WhiteBalanceOps,
-    ZoomOps,
+    ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlMethods,
+    MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, SystemOps,
+    TallyOps, VariableSpeedMethods, WhiteBalanceOps, ZoomOps,
 };
 
 // Implement all async traits for the wrapper type
@@ -591,12 +591,86 @@ impl InquiryOps for Camera {
 }
 
 impl NDFilterOps for Camera {
-    async fn set_nd_filter(&self, level: u8) -> crate::Result<()> {
-        self.0.set_nd_filter(level).await
+    async fn set_nd_filter_mode(&self, mode: crate::command::NDFilterMode) -> crate::Result<()> {
+        self.0.set_nd_filter_mode(mode).await
+    }
+
+    async fn set_nd_filter_value(&self, value: u16) -> crate::Result<()> {
+        self.0.set_nd_filter_value(value).await
+    }
+
+    async fn set_nd_filter_stops(&self, stops: f32) -> crate::Result<()> {
+        self.0.set_nd_filter_stops(stops).await
+    }
+
+    async fn step_nd_filter(&self, direction: crate::command::NDFilterStep) -> crate::Result<()> {
+        self.0.step_nd_filter(direction).await
+    }
+
+    async fn set_auto_nd(&self, enabled: bool) -> crate::Result<()> {
+        self.0.set_auto_nd(enabled).await
     }
 
     async fn get_nd_filter(&self) -> crate::Result<u8> {
         self.0.get_nd_filter().await
+    }
+}
+
+impl MotionSyncControl for Camera {
+    async fn set_motion_sync_mode(&self, mode: crate::MotionSyncMode) -> crate::Result<()> {
+        self.0.set_motion_sync_mode(mode).await
+    }
+
+    async fn set_motion_sync_speed(&self, speed: u8) -> crate::Result<()> {
+        self.0.set_motion_sync_speed(speed).await
+    }
+
+    async fn set_motion_sync_preset_speed(
+        &self,
+        speed: crate::MotionSyncSpeed,
+    ) -> crate::Result<()> {
+        self.0.set_motion_sync_preset_speed(speed).await
+    }
+
+    async fn get_motion_sync_mode(&self) -> crate::Result<crate::MotionSyncMode> {
+        self.0.get_motion_sync_mode().await
+    }
+
+    async fn get_motion_sync_speed(&self) -> crate::Result<crate::MotionSyncSpeed> {
+        self.0.get_motion_sync_speed().await
+    }
+}
+
+#[async_trait::async_trait]
+impl MenuControlMethods for Camera {
+    async fn set_menu_display(&self, display: bool) -> crate::Result<crate::command::Response> {
+        self.0.set_menu_display(display).await
+    }
+
+    async fn menu_navigate(
+        &self,
+        direction: crate::command::MenuDirection,
+    ) -> crate::Result<crate::command::Response> {
+        self.0.menu_navigate(direction).await
+    }
+
+    async fn menu_action(
+        &self,
+        action: crate::command::MenuAction,
+    ) -> crate::Result<crate::command::Response> {
+        self.0.menu_action(action).await
+    }
+
+    async fn direct_menu_control(
+        &self,
+        control1: u8,
+        control2: u8,
+    ) -> crate::Result<crate::command::Response> {
+        self.0.direct_menu_control(control1, control2).await
+    }
+
+    async fn toggle_menu(&self) -> crate::Result<crate::command::Response> {
+        self.0.toggle_menu().await
     }
 }
 
@@ -767,5 +841,14 @@ impl WhiteBalanceOps for Camera {
         sensitivity: crate::command::white_balance::AWBSensitivity,
     ) -> crate::Result<()> {
         self.0.set_awb_sensitivity(sensitivity).await
+    }
+}
+
+impl VariableSpeedMethods for Camera {
+    async fn set_variable_speed_mode(
+        &self,
+        mode: crate::command::VariableSpeedMode,
+    ) -> crate::Result<()> {
+        self.0.set_variable_speed_mode(mode).await
     }
 }

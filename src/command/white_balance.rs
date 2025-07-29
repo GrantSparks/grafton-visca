@@ -15,6 +15,7 @@ use std::convert::TryFrom;
 
 // Crate imports
 use crate::{
+    capabilities::{CameraFeature, CommandFeatures},
     command::{
         const_encoding::{CommandBuilder, DEFAULT_ADDRESS},
         encode_visca::EncodeVisca,
@@ -72,6 +73,12 @@ crate::visca_param_command! {
     timeout = Quick;
 }
 
+impl CommandFeatures for WhiteBalanceCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::WhiteBalance]
+    }
+}
+
 /// AWB Sensitivity levels.
 ///
 /// **Vendor-Specific**: This feature is specific to PTZOptics cameras.
@@ -119,6 +126,12 @@ impl EncodeVisca for AWBSensitivityCommand {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
+    }
+}
+
+impl CommandFeatures for AWBSensitivityCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::WhiteBalance]
     }
 }
 

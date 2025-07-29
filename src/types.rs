@@ -180,13 +180,19 @@ macro_rules! speed_enum {
     (
         $(#[$meta:meta])*
         pub enum $name:ident {
-            $($variant:ident => { pan: $pan:expr, tilt: $tilt:expr, zoom: $zoom:expr, focus: $focus:expr }),* $(,)?
+            $(
+                $(#[$variant_meta:meta])*
+                $variant:ident => { pan: $pan:expr, tilt: $tilt:expr, zoom: $zoom:expr, focus: $focus:expr }
+            ),* $(,)?
         }
     ) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub enum $name {
-            $($variant),*
+            $(
+                $(#[$variant_meta])*
+                $variant
+            ),*
         }
 
         impl $name {
@@ -250,10 +256,15 @@ speed_enum! {
     /// camera movement types (pan, tilt, zoom, focus) based on VISCA protocol ranges.
     /// The variants range from `Slowest` (most precise) to `Fastest` (maximum speed).
     pub enum SpeedLevel {
+        /// Slowest speed - most precise movements (pan: 1, tilt: 1, zoom: 0, focus: 0)
         Slowest => { pan: 1, tilt: 1, zoom: 0, focus: 0 },
+        /// Slow speed - fine control (pan: 6, tilt: 5, zoom: 2, focus: 2)
         Slow    => { pan: 6, tilt: 5, zoom: 2, focus: 2 },
+        /// Medium speed - balanced speed and control (pan: 12, tilt: 10, zoom: 4, focus: 4)
         Medium  => { pan: 12, tilt: 10, zoom: 4, focus: 4 },
+        /// Fast speed - quick movements (pan: 18, tilt: 15, zoom: 6, focus: 6)
         Fast    => { pan: 18, tilt: 15, zoom: 6, focus: 6 },
+        /// Fastest speed - maximum speed (pan: 24, tilt: 20, zoom: 7, focus: 7)
         Fastest => { pan: 24, tilt: 20, zoom: 7, focus: 7 },
     }
 }
@@ -263,13 +274,19 @@ macro_rules! fstop_enum {
     (
         $(#[$meta:meta])*
         pub enum $name:ident {
-            $($variant:ident $(($display:literal))? => $value:expr),* $(,)?
+            $(
+                $(#[$variant_meta:meta])*
+                $variant:ident $(($display:literal))? => $value:expr
+            ),* $(,)?
         }
     ) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub enum $name {
-            $($variant),*
+            $(
+                $(#[$variant_meta])*
+                $variant
+            ),*
         }
 
         impl $name {
@@ -316,18 +333,31 @@ fstop_enum! {
     /// These correspond to typical camera aperture settings. Lower numbers mean wider
     /// aperture (more light).
     pub enum FStop {
+        /// Iris completely closed - no light passes through
         Closed => 0x00,
+        /// F/11 - Smallest aperture opening
         F11 => 0x01,
+        /// F/9.6
         F9_6("F9.6") => 0x02,
+        /// F/8
         F8 => 0x03,
+        /// F/6.8
         F6_8("F6.8") => 0x04,
+        /// F/5.6
         F5_6("F5.6") => 0x05,
+        /// F/4.8
         F4_8("F4.8") => 0x06,
+        /// F/4
         F4 => 0x07,
+        /// F/3.4
         F3_4("F3.4") => 0x08,
+        /// F/2.8
         F2_8("F2.8") => 0x09,
+        /// F/2.4
         F2_4("F2.4") => 0x0A,
+        /// F/2
         F2("F2.0") => 0x0B,
+        /// F/1.8 - Widest aperture opening, maximum light
         F1_8("F1.8") => 0x0C,
     }
 }

@@ -56,6 +56,7 @@ fn main() -> Result<(), Error> {
 
 #[cfg(feature = "tokio")]
 #[tokio::main]
+#[allow(dead_code)]
 async fn async_example() -> Result<(), Error> {
     use grafton_visca::transport::tokio::Tcp;
 

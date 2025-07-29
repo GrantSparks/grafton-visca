@@ -9,7 +9,12 @@
 // (none)
 
 // Workspace / local-crate imports
-use crate::{command::const_encoding::CommandBuilder, error::Error, visca_command};
+use crate::{
+    capabilities::{CameraFeature, CommandFeatures},
+    command::const_encoding::CommandBuilder,
+    error::Error,
+    visca_command,
+};
 
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -52,6 +57,12 @@ impl ImageFlipCommand {
             Flip::On => Self::On,
             Flip::Off => Self::Off,
         }
+    }
+}
+
+impl CommandFeatures for ImageFlipCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::ImageFlip]
     }
 }
 
@@ -99,6 +110,12 @@ impl HorizontalFlipCommand {
     }
 }
 
+impl CommandFeatures for HorizontalFlipCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::ImageFlip]
+    }
+}
+
 /// Image freeze state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Freeze {
@@ -140,6 +157,12 @@ impl ImageFreezeCommand {
             Freeze::On => Self::On,
             Freeze::Off => Self::Off,
         }
+    }
+}
+
+impl CommandFeatures for ImageFreezeCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::ImageFreeze]
     }
 }
 

@@ -11,6 +11,7 @@
 
 // Workspace / local-crate imports
 use crate::{
+    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -30,10 +31,16 @@ pub enum PresetAction {
 crate::visca_bounded_param! {
     /// Preset number with validation.
     ///
-    /// Valid range: 0 to 89 (0x00 to 0x59).
+    /// Valid range: 0 to 255 (0x00 to 0xFF).
+    /// Note: Actual valid range depends on camera model:
+    /// - PTZOptics G2: 0-89
+    /// - PTZOptics G3: 0-255
+    /// - Sony FR7: 0-255
+    /// - Sony EVI-H100: 0-6
+    /// Camera-specific validation is performed when sending commands.
     PresetNumber: u8 {
         min: 0,
-        max: 89
+        max: 255
     }
 }
 
@@ -87,6 +94,12 @@ impl EncodeVisca for PresetCommand {
     }
 }
 
+impl CommandFeatures for PresetCommand {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::Presets]
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
@@ -98,16 +111,10 @@ mod tests {
         assert!(PresetNumber::new(0).is_ok());
         assert!(PresetNumber::new(45).is_ok());
         assert!(PresetNumber::new(89).is_ok());
+        assert!(PresetNumber::new(90).is_ok());
+        assert!(PresetNumber::new(255).is_ok());
 
-        // Invalid preset numbers
-        assert!(matches!(
-            PresetNumber::new(90),
-            Err(Error::InvalidParameter { .. })
-        ));
-        assert!(matches!(
-            PresetNumber::new(255),
-            Err(Error::InvalidParameter { .. })
-        ));
+        // No longer has invalid numbers since max is now 255
     }
 
     #[test]
@@ -117,8 +124,14 @@ mod tests {
             PresetNumber::try_from(50).unwrap_or_else(|e| panic!("Valid preset number: {e:?}"));
         assert_eq!(preset.value(), 50);
 
-        // Invalid conversion
-        assert!(PresetNumber::try_from(90).is_err());
+        // Test higher values are now valid
+        let preset =
+            PresetNumber::try_from(90).unwrap_or_else(|e| panic!("Valid preset number: {e:?}"));
+        assert_eq!(preset.value(), 90);
+
+        let preset =
+            PresetNumber::try_from(255).unwrap_or_else(|e| panic!("Valid preset number: {e:?}"));
+        assert_eq!(preset.value(), 255);
     }
 
     #[test]

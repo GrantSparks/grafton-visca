@@ -35,6 +35,7 @@
 
 // Workspace / local-crate imports
 use crate::{
+    capabilities::{CameraFeature, CommandFeatures},
     command::{
         const_encoding::{CommandBuilder, DEFAULT_ADDRESS},
         encode_visca::EncodeVisca,
@@ -381,5 +382,12 @@ impl EncodeVisca for PanTilt {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Movement
+    }
+}
+
+impl CommandFeatures for PanTilt {
+    fn required_features(&self) -> &[CameraFeature] {
+        // All PanTilt commands require the PanTilt feature
+        &[CameraFeature::PanTilt]
     }
 }

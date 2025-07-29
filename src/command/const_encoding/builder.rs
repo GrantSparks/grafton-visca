@@ -47,36 +47,6 @@ impl<const N: usize> CommandBuilder<N> {
         }
     }
 
-    /// Add a single byte.
-    pub const fn byte(mut self, b: u8) -> Self {
-        if self.position < N {
-            self.buffer[self.position] = b;
-            self.position += 1;
-        }
-        self
-    }
-
-    /// Add VISCA-encoded 16-bit value (4 bytes).
-    ///
-    /// VISCA encoding splits a 16-bit value into 4 nibbles.
-    pub const fn visca_u16(mut self, value: u16) -> Self {
-        if self.position + 4 <= N {
-            self.buffer[self.position] = ((value >> 12) & 0x0F) as u8;
-            self.buffer[self.position + 1] = ((value >> 8) & 0x0F) as u8;
-            self.buffer[self.position + 2] = ((value >> 4) & 0x0F) as u8;
-            self.buffer[self.position + 3] = (value & 0x0F) as u8;
-            self.position += 4;
-        }
-        self
-    }
-
-    /// Add VISCA-encoded 14-bit value (4 bytes).
-    ///
-    /// Used for zoom and focus positions.
-    pub const fn visca_u14(self, value: u16) -> Self {
-        self.visca_u16(value & 0x3FFF)
-    }
-
     /// Finalize with terminator and return the complete array.
     pub const fn build(mut self) -> [u8; N] {
         if self.position < N {
@@ -164,28 +134,4 @@ impl<const N: usize> Default for CommandBuilder<N> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_builder_from_prefix() {
-        const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x47];
-        let builder = CommandBuilder::<9>::from_prefix(PREFIX);
-        let cmd = builder.visca_u16(0x4000).build();
-
-        assert_eq!(cmd, [0x81, 0x01, 0x04, 0x47, 0x04, 0x00, 0x00, 0x00, 0xFF]);
-    }
-
-    #[test]
-    fn test_const_construction() {
-        const CMD: [u8; 6] = CommandBuilder::<6>::new()
-            .byte(0x81)
-            .byte(0x01)
-            .byte(0x04)
-            .byte(0x00)
-            .byte(0x02)
-            .build();
-
-        assert_eq!(CMD, [0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
-    }
-}
+mod tests {}

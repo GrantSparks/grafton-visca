@@ -9,10 +9,11 @@ pub use super::inquiry_structs::{
     BrightInquiry, ColorTemperatureInquiry, ContrastInquiry, ExposureCompensationInquiry,
     ExposureCompensationModeInquiry, ExposureModeInquiry, FocusNearLimitInquiry,
     FocusPositionInquiry, FocusZoneInquiry, GainInquiry, GainLimitInquiry, GammaInquiry,
-    HueInquiry, IrisInquiry, NdFilterInquiry, NoiseReduction2DInquiry, NoiseReduction3DInquiry,
-    PanTiltPositionInquiry, PictureEffectInquiry, PowerInquiry, RedGainInquiry, RedTuningInquiry,
-    ResolutionInquiry, SaturationInquiry, SharpnessInquiry, SharpnessModeInquiry, ShutterInquiry,
-    WhiteBalanceModeInquiry, ZoomPositionInquiry,
+    HueInquiry, IrisInquiry, MotionSyncModeInquiry, MotionSyncSpeedInquiry, NdFilterInquiry,
+    NoiseReduction2DInquiry, NoiseReduction3DInquiry, PanTiltPositionInquiry, PictureEffectInquiry,
+    PowerInquiry, RedGainInquiry, RedTuningInquiry, ResolutionInquiry, SaturationInquiry,
+    SharpnessInquiry, SharpnessModeInquiry, ShutterInquiry, WhiteBalanceModeInquiry,
+    ZoomPositionInquiry,
 };
 
 // The following inquiry structs are available but currently unused:

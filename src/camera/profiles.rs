@@ -7,8 +7,9 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::capabilities::{
-    Exposure, Focus, ImageProcessing, NDFilter, NDFilterMode, PanTilt, Power, Presets,
-    ProfileMetadata, ProtocolStyle, ShutterSpeed, WhiteBalance, Zoom,
+    CoordinateSystem, Exposure, Focus, ImageProcessing, MenuControl, MotionSync, NDFilter,
+    NDFilterMode, PanTilt, Power, Presets, ProfileMetadata, ProtocolStyle, ShutterSpeed,
+    VariableSpeed, WhiteBalance, Zoom,
 };
 use crate::error::Error;
 use crate::WhiteBalanceMode;
@@ -62,6 +63,14 @@ const PTZOPTICS_G2_WB_MODES: &[WhiteBalanceMode] = &[
 ];
 
 const GENERIC_WB_MODES: &[WhiteBalanceMode] = &[
+    WhiteBalanceMode::Auto,
+    WhiteBalanceMode::Indoor,
+    WhiteBalanceMode::Outdoor,
+    WhiteBalanceMode::OnePush,
+    WhiteBalanceMode::Manual,
+];
+
+const SONY_BRC_WB_MODES: &[WhiteBalanceMode] = &[
     WhiteBalanceMode::Auto,
     WhiteBalanceMode::Indoor,
     WhiteBalanceMode::Outdoor,
@@ -165,6 +174,14 @@ impl Power for PTZOpticsG2 {
     const SUPPORTS_STANDBY: bool = true;
 }
 
+// Motion Sync capabilities (firmware 1.1.6+)
+impl MotionSync for PTZOpticsG2 {
+    const SUPPORTS_MOTION_SYNC: bool = true;
+    const MAX_MOTION_SYNC_SPEED: u8 = 24;
+}
+// Basic menu control support
+impl MenuControl for PTZOpticsG2 {}
+
 // Note: PTZOpticsG2 does NOT implement NDFilter
 
 /// Generic VISCA camera profile.
@@ -203,6 +220,8 @@ impl Power for GenericVisca {
     const POWER_ON_TIME: Duration = Duration::from_secs(30);
     const SUPPORTS_STANDBY: bool = false;
 }
+// Basic menu control support
+impl MenuControl for GenericVisca {}
 
 // Generic cameras usually support basic exposure control
 impl Exposure for GenericVisca {
@@ -316,6 +335,464 @@ impl Power for SonyFR7 {
 impl NDFilter for SonyFR7 {
     const ND_MODE: NDFilterMode = NDFilterMode::Variable;
     const ND_STEPS: Option<u8> = None; // Continuous adjustment
+}
+// FR7 has advanced menu control including direct control
+impl MenuControl for SonyFR7 {
+    const SUPPORTS_DIRECT_CONTROL: bool = true;
+}
+
+// FR7 supports variable speed mode (24-step and 50-step)
+impl VariableSpeed for SonyFR7 {
+    const SUPPORTS_VARIABLE_SPEED: bool = true;
+}
+
+/// Sony BRC-H900 camera profile.
+///
+/// Professional pan-tilt-zoom camera with advanced features.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SonyBRCH900;
+
+impl ProfileMetadata for SonyBRCH900 {
+    const MODEL_NAME: &'static str = "Sony BRC-H900";
+    const DEFAULT_ADDRESS: u8 = 1;
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::SonyEncapsulated {
+        use_sequence: false,
+    };
+    const ACK_TIMEOUT: Duration = Duration::from_millis(150);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(6000);
+}
+
+impl PanTilt for SonyBRCH900 {
+    const PAN_RANGE: std::ops::Range<i16> = -2700..2701; // ±170°
+    const TILT_RANGE: std::ops::Range<i16> = -300..1201; // -20° to +80°
+    const MAX_PAN_SPEED: u8 = 24;
+    const MAX_TILT_SPEED: u8 = 24;
+    const PAN_DEGREES_TO_UNITS: f32 = 15.88;
+    const TILT_DEGREES_TO_UNITS: f32 = 15.0;
+}
+
+impl Zoom for SonyBRCH900 {
+    const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
+    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
+}
+
+impl Focus for SonyBRCH900 {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xF000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+}
+
+impl Exposure for SonyBRCH900 {
+    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1F;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..16;
+    const SUPPORTS_AUTO_EXPOSURE: bool = true;
+    const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_WDR: bool = true;
+}
+
+impl WhiteBalance for SonyBRCH900 {
+    const WB_MODES: &'static [WhiteBalanceMode] = SONY_BRC_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = true;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+}
+
+impl ImageProcessing for SonyBRCH900 {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_FLIP: bool = true;
+    const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_NOISE_REDUCTION: bool = true;
+    const SUPPORTS_2D_NR: bool = true;
+    const SUPPORTS_3D_NR: bool = true;
+}
+
+impl Presets for SonyBRCH900 {
+    const MAX_PRESETS: u8 = 100;
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
+    const SUPPORTS_PRESET_TOUR: bool = true;
+}
+
+impl Power for SonyBRCH900 {
+    const POWER_ON_TIME: Duration = Duration::from_secs(12);
+    const SUPPORTS_STANDBY: bool = true;
+}
+// Basic menu control support
+impl MenuControl for SonyBRCH900 {}
+
+/// Sony EVI-H100 camera profile.
+///
+/// Compact HD camera with limited preset support.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SonyEVIH100;
+
+impl ProfileMetadata for SonyEVIH100 {
+    const MODEL_NAME: &'static str = "Sony EVI-H100";
+    const DEFAULT_ADDRESS: u8 = 1;
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    const ACK_TIMEOUT: Duration = Duration::from_millis(100);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+}
+
+impl PanTilt for SonyEVIH100 {
+    const PAN_RANGE: std::ops::Range<i16> = -1440..1441; // ±90°
+    const TILT_RANGE: std::ops::Range<i16> = -480..481; // ±30°
+    const MAX_PAN_SPEED: u8 = 18;
+    const MAX_TILT_SPEED: u8 = 18;
+    const PAN_DEGREES_TO_UNITS: f32 = 16.0;
+    const TILT_DEGREES_TO_UNITS: f32 = 16.0;
+}
+
+impl Zoom for SonyEVIH100 {
+    const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
+    const DIGITAL_ZOOM_MAX: Option<u16> = None;
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
+}
+
+impl Focus for SonyEVIH100 {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xF000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+}
+
+impl Exposure for SonyEVIH100 {
+    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1C;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..8;
+    const SUPPORTS_AUTO_EXPOSURE: bool = true;
+    const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_WDR: bool = false;
+}
+
+impl WhiteBalance for SonyEVIH100 {
+    const WB_MODES: &'static [WhiteBalanceMode] = SONY_BRC_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = true;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+}
+
+impl Presets for SonyEVIH100 {
+    const MAX_PRESETS: u8 = 6; // Limited preset support
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..20;
+    const SUPPORTS_PRESET_TOUR: bool = false;
+}
+
+impl Power for SonyEVIH100 {
+    const POWER_ON_TIME: Duration = Duration::from_secs(8);
+    const SUPPORTS_STANDBY: bool = true;
+}
+// Basic menu control support
+impl MenuControl for SonyEVIH100 {}
+
+/// Sony BRC-300 camera profile.
+///
+/// Legacy camera with unsigned coordinate system.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SonyBRC300;
+
+impl ProfileMetadata for SonyBRC300 {
+    const MODEL_NAME: &'static str = "Sony BRC-300";
+    const DEFAULT_ADDRESS: u8 = 1;
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    const ACK_TIMEOUT: Duration = Duration::from_millis(100);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+}
+
+impl PanTilt for SonyBRC300 {
+    const PAN_RANGE: std::ops::Range<i16> = -1170..1171; // Logical range (±90°)
+    const TILT_RANGE: std::ops::Range<i16> = -390..391; // Logical range (±30°)
+    const MAX_PAN_SPEED: u8 = 18;
+    const MAX_TILT_SPEED: u8 = 17;
+    const PAN_DEGREES_TO_UNITS: f32 = 13.0;
+    const TILT_DEGREES_TO_UNITS: f32 = 13.0;
+    const COORDINATE_SYSTEM: CoordinateSystem = CoordinateSystem::UnsignedCentered;
+}
+
+impl Zoom for SonyBRC300 {
+    const OPTICAL_ZOOM_MAX: u16 = 0x1068; // 10x optical
+    const DIGITAL_ZOOM_MAX: Option<u16> = None;
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 455.1; // 0x1068 / (10-1)
+}
+
+impl Focus for SonyBRC300 {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xC000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
+}
+
+impl Exposure for SonyBRC300 {
+    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x11;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..7;
+    const SUPPORTS_AUTO_EXPOSURE: bool = true;
+    const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_WDR: bool = false;
+}
+
+impl WhiteBalance for SonyBRC300 {
+    const WB_MODES: &'static [WhiteBalanceMode] = GENERIC_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = false;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
+}
+
+impl Presets for SonyBRC300 {
+    const MAX_PRESETS: u8 = 16;
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..18;
+    const SUPPORTS_PRESET_TOUR: bool = false;
+}
+
+impl Power for SonyBRC300 {
+    const POWER_ON_TIME: Duration = Duration::from_secs(10);
+    const SUPPORTS_STANDBY: bool = false;
+}
+// Basic menu control support
+impl MenuControl for SonyBRC300 {}
+
+/// Nearus BRC-300 camera profile.
+///
+/// Rebranded Sony BRC-300 with slight variations.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NearusBRC300;
+
+impl ProfileMetadata for NearusBRC300 {
+    const MODEL_NAME: &'static str = "Nearus BRC-300";
+    const DEFAULT_ADDRESS: u8 = 1;
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    const ACK_TIMEOUT: Duration = Duration::from_millis(100);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+}
+
+// Nearus BRC-300 shares most characteristics with Sony BRC-300
+impl PanTilt for NearusBRC300 {
+    const PAN_RANGE: std::ops::Range<i16> = -1170..1171;
+    const TILT_RANGE: std::ops::Range<i16> = -390..391;
+    const MAX_PAN_SPEED: u8 = 18;
+    const MAX_TILT_SPEED: u8 = 17;
+    const PAN_DEGREES_TO_UNITS: f32 = 13.0;
+    const TILT_DEGREES_TO_UNITS: f32 = 13.0;
+    const COORDINATE_SYSTEM: CoordinateSystem = CoordinateSystem::UnsignedCentered;
+}
+
+impl Zoom for NearusBRC300 {
+    const OPTICAL_ZOOM_MAX: u16 = 0x1068;
+    const DIGITAL_ZOOM_MAX: Option<u16> = None;
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 455.1;
+}
+
+impl Focus for NearusBRC300 {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xC000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
+}
+
+impl Exposure for NearusBRC300 {
+    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x11;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..7;
+    const SUPPORTS_AUTO_EXPOSURE: bool = true;
+    const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_WDR: bool = false;
+}
+
+impl WhiteBalance for NearusBRC300 {
+    const WB_MODES: &'static [WhiteBalanceMode] = GENERIC_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = false;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
+}
+
+impl Presets for NearusBRC300 {
+    const MAX_PRESETS: u8 = 16;
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..18;
+    const SUPPORTS_PRESET_TOUR: bool = false;
+}
+
+impl Power for NearusBRC300 {
+    const POWER_ON_TIME: Duration = Duration::from_secs(10);
+    const SUPPORTS_STANDBY: bool = false;
+}
+// Basic menu control support
+impl MenuControl for NearusBRC300 {}
+
+/// PTZOptics G3 camera profile.
+///
+/// Latest generation PTZOptics camera with enhanced features.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PTZOpticsG3;
+
+impl ProfileMetadata for PTZOpticsG3 {
+    const MODEL_NAME: &'static str = "PTZOptics G3";
+    const DEFAULT_ADDRESS: u8 = 1;
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    const ACK_TIMEOUT: Duration = Duration::from_millis(100);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+}
+
+impl PanTilt for PTZOpticsG3 {
+    const PAN_RANGE: std::ops::Range<i16> = -2448..2449;
+    const TILT_RANGE: std::ops::Range<i16> = -432..1297;
+    const MAX_PAN_SPEED: u8 = 24;
+    const MAX_TILT_SPEED: u8 = 20;
+    const PAN_DEGREES_TO_UNITS: f32 = 14.4;
+    const TILT_DEGREES_TO_UNITS: f32 = 14.4;
+}
+
+impl Zoom for PTZOpticsG3 {
+    const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
+    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
+}
+
+impl Focus for PTZOpticsG3 {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xF000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+}
+
+impl Exposure for PTZOpticsG3 {
+    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..9;
+    const SUPPORTS_AUTO_EXPOSURE: bool = true;
+    const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_WDR: bool = true;
+}
+
+impl WhiteBalance for PTZOpticsG3 {
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = true;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+}
+
+impl ImageProcessing for PTZOpticsG3 {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_FLIP: bool = true;
+    const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_NOISE_REDUCTION: bool = true;
+    const SUPPORTS_2D_NR: bool = true;
+    const SUPPORTS_3D_NR: bool = true;
+}
+
+impl Presets for PTZOpticsG3 {
+    const MAX_PRESETS: u8 = 255; // G3 has more presets than G2
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
+    const SUPPORTS_PRESET_TOUR: bool = true;
+}
+
+impl Power for PTZOpticsG3 {
+    const POWER_ON_TIME: Duration = Duration::from_secs(10);
+    const SUPPORTS_STANDBY: bool = true;
+}
+// Basic menu control support
+impl MenuControl for PTZOpticsG3 {}
+
+// Motion Sync capabilities (firmware 1.1.6+)
+impl MotionSync for PTZOpticsG3 {
+    const SUPPORTS_MOTION_SYNC: bool = true;
+    const MAX_MOTION_SYNC_SPEED: u8 = 24;
+}
+
+/// PTZOptics 30X camera profile.
+///
+/// High-end PTZOptics camera with 30x optical zoom.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PTZOptics30X;
+
+impl ProfileMetadata for PTZOptics30X {
+    const MODEL_NAME: &'static str = "PTZOptics 30X";
+    const DEFAULT_ADDRESS: u8 = 1;
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    const ACK_TIMEOUT: Duration = Duration::from_millis(100);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+}
+
+impl PanTilt for PTZOptics30X {
+    const PAN_RANGE: std::ops::Range<i16> = -2448..2449;
+    const TILT_RANGE: std::ops::Range<i16> = -432..1297;
+    const MAX_PAN_SPEED: u8 = 24;
+    const MAX_TILT_SPEED: u8 = 20;
+    const PAN_DEGREES_TO_UNITS: f32 = 14.4;
+    const TILT_DEGREES_TO_UNITS: f32 = 14.4;
+}
+
+impl Zoom for PTZOptics30X {
+    const OPTICAL_ZOOM_MAX: u16 = 0x7AC0; // 30x optical
+    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7FFF);
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1043.0; // 0x7AC0 / (30-1)
+}
+
+impl Focus for PTZOptics30X {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xF000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+}
+
+impl Exposure for PTZOptics30X {
+    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..9;
+    const SUPPORTS_AUTO_EXPOSURE: bool = true;
+    const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_WDR: bool = true;
+}
+
+impl WhiteBalance for PTZOptics30X {
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = true;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+}
+
+impl ImageProcessing for PTZOptics30X {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_FLIP: bool = true;
+    const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_NOISE_REDUCTION: bool = true;
+    const SUPPORTS_2D_NR: bool = true;
+    const SUPPORTS_3D_NR: bool = true;
+}
+
+impl Presets for PTZOptics30X {
+    const MAX_PRESETS: u8 = 100;
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
+    const SUPPORTS_PRESET_TOUR: bool = false;
+}
+
+impl Power for PTZOptics30X {
+    const POWER_ON_TIME: Duration = Duration::from_secs(10);
+    const SUPPORTS_STANDBY: bool = true;
+}
+// Basic menu control support
+impl MenuControl for PTZOptics30X {}
+
+// Motion Sync capabilities (firmware 1.1.6+)
+impl MotionSync for PTZOptics30X {
+    const SUPPORTS_MOTION_SYNC: bool = true;
+    const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
 
 // Associated types for presets and gain (keeping compatibility)

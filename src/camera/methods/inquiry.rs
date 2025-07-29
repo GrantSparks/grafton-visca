@@ -303,9 +303,7 @@ impl InquiryOps for Camera {
         let cmd = ExposureCompensationModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => {
-                Ok(on)
-            }
+            Response::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -640,9 +638,7 @@ impl InquiryOpsBlocking for Camera {
         let cmd = ExposureCompensationModeInquiry;
         let response = self.send_command_blocking(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => {
-                Ok(on)
-            }
+            Response::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
