@@ -10,7 +10,7 @@ use grafton_visca::{
 
 fn main() {
     if let Err(e) = run_examples() {
-        eprintln!("Error: {}", e);
+        eprintln!("Error: {e}");
     }
 }
 
@@ -44,13 +44,13 @@ fn run_examples() -> Result<(), Error> {
         PanSpeed::try_from(pan_speed_raw).map_err(|_| Error::InvalidParameter {
             parameter: "pan_speed",
             value: pan_speed_raw.to_string(),
-            reason: format!("Invalid pan speed: {}", pan_speed_raw),
+            reason: format!("Invalid pan speed: {pan_speed_raw}"),
         })?;
     let _tilt_speed_old =
         TiltSpeed::try_from(tilt_speed_raw).map_err(|_| Error::InvalidParameter {
             parameter: "tilt_speed",
             value: tilt_speed_raw.to_string(),
-            reason: format!("Invalid tilt speed: {}", tilt_speed_raw),
+            reason: format!("Invalid tilt speed: {tilt_speed_raw}"),
         })?;
 
     // Note: validate_all! macro was removed as it was unused
@@ -84,27 +84,26 @@ fn run_examples() -> Result<(), Error> {
     let invalid_tilt = 25; // Max is 20 (0x14)
 
     println!(
-        "  Trying to create PanSpeed({}) and TiltSpeed({})...",
-        invalid_pan, invalid_tilt
+        "  Trying to create PanSpeed({invalid_pan}) and TiltSpeed({invalid_tilt})..."
     );
     // Try to create both speeds and handle the error
     let result = (|| {
         let _pan = PanSpeed::try_from(invalid_pan).map_err(|_| Error::InvalidParameter {
             parameter: "pan_speed",
             value: invalid_pan.to_string(),
-            reason: format!("Invalid pan speed: {}", invalid_pan),
+            reason: format!("Invalid pan speed: {invalid_pan}"),
         })?;
         let _tilt = TiltSpeed::try_from(invalid_tilt).map_err(|_| Error::InvalidParameter {
             parameter: "tilt_speed",
             value: invalid_tilt.to_string(),
-            reason: format!("Invalid tilt speed: {}", invalid_tilt),
+            reason: format!("Invalid tilt speed: {invalid_tilt}"),
         })?;
         Ok::<_, Error>(())
     })();
 
     match result {
         Ok(_) => println!("  Unexpected success"),
-        Err(e) => println!("  ✓ Got expected error: {}", e),
+        Err(e) => println!("  ✓ Got expected error: {e}"),
     }
 
     println!();
@@ -115,13 +114,13 @@ fn run_examples() -> Result<(), Error> {
     // Valid values
     match GainLevel::new(10) {
         Ok(gain) => println!("  ✓ Created valid GainLevel({})", gain.value()),
-        Err(e) => println!("  Error: {}", e),
+        Err(e) => println!("  Error: {e}"),
     }
 
     // Invalid values
     match GainLevel::new(20) {
         Ok(_) => println!("  Unexpected success"),
-        Err(e) => println!("  ✓ Got expected error for GainLevel(20): {}", e),
+        Err(e) => println!("  ✓ Got expected error for GainLevel(20): {e}"),
     }
 
     println!();

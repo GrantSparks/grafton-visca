@@ -62,7 +62,7 @@ where
 
     // Position
     let (pan_pos, tilt_pos) = camera.get_pan_tilt_position()?;
-    println!("Position: pan=0x{:04X}, tilt=0x{:04X}", pan_pos, tilt_pos);
+    println!("Position: pan=0x{pan_pos:04X}, tilt=0x{tilt_pos:04X}");
 
     // Zoom
     let zoom = camera.get_zoom_position()?;
