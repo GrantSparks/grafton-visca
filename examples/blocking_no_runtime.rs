@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Camera IP address with port
     let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
-    println!("Connecting to camera at {}", camera_ip);
+    println!("Connecting to camera at {camera_ip}");
 
     // Create transport using the blocking API
     let transport = Tcp::connect(&camera_ip)?;
