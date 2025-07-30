@@ -74,7 +74,7 @@ where
             println!("   ✗ Power on command failed: {}", e);
         }
         Err(_) => {
-            println!("   ✗ Power on command timed out after {:?}", quick_timeout);
+            println!("   ✗ Power on command timed out after {quick_timeout:?}");
         }
     }
 
@@ -87,7 +87,7 @@ where
             println!("   ✗ Home command failed: {}", e);
         }
         Err(_) => {
-            println!("   ✗ Home command timed out after {:?}", quick_timeout);
+            println!("   ✗ Home command timed out after {quick_timeout:?}");
         }
     }
 
@@ -165,13 +165,13 @@ where
     match timeout(preset_timeout, camera.preset_recall(preset)).await {
         Ok(Ok(_)) => {
             let elapsed = start.elapsed();
-            println!("   ✓ Preset recalled successfully in {:?}", elapsed);
+            println!("   ✓ Preset recalled successfully in {elapsed:?}");
         }
         Ok(Err(e)) => {
             println!("   ✗ Preset recall failed: {}", e);
         }
         Err(_) => {
-            println!("   ✗ Preset recall timed out after {:?}", preset_timeout);
+            println!("   ✗ Preset recall timed out after {preset_timeout:?}");
         }
     }
 
@@ -251,7 +251,7 @@ where
                 match timeout(custom_timeout, tcp_camera.power_on()).await {
                     Ok(Ok(_)) => println!("   ✓ TCP camera powered on"),
                     Ok(Err(e)) => println!("   ✗ TCP camera error: {}", e),
-                    Err(_) => println!("   ✗ Operation timed out after {:?}", custom_timeout),
+                    Err(_) => println!("   ✗ Operation timed out after {custom_timeout:?}"),
                 }
             }
             Err(e) => {

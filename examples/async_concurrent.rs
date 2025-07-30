@@ -70,7 +70,8 @@ async fn main() -> Result<(), Error> {
     let stop_start = Instant::now();
     camera.pan_tilt_stop().await?;
     camera.zoom_stop().await?;
-    println!("Stop commands completed in {:?}", stop_start.elapsed());
+    let stop_elapsed = stop_start.elapsed();
+    println!("Stop commands completed in {stop_elapsed:?}");
 
     // Example 2: True concurrent operations using Arc<Mutex<Camera>>
     println!("\n=== True Concurrent Operations ===");
@@ -100,7 +101,8 @@ async fn main() -> Result<(), Error> {
     // Wait for both tasks to complete
     let (move_result, zoom_result) = tokio::join!(move_task, zoom_task);
 
-    println!("Concurrent operations completed in {:?}", start.elapsed());
+    let elapsed = start.elapsed();
+    println!("Concurrent operations completed in {elapsed:?}");
     println!(
         "Move result: {:?}",
         move_result

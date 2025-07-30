@@ -129,7 +129,7 @@ impl<T: Transport> ViscaProtocol<T> {
             // For runtime-agnostic async, we can't implement timeout internally.
             // Users should wrap the entire send_command operation with their runtime's timeout.
             // We document this limitation and provide the duration for informational purposes.
-            log::debug!("Timeout of {:?} requested, but no runtime-specific timeout available. Users should wrap operations with their runtime's timeout mechanism.", duration);
+            log::debug!("Timeout of {duration:?} requested, but no runtime-specific timeout available. Users should wrap operations with their runtime's timeout mechanism.");
             self.transport.recv().await.map_err(Into::into)
         }
 

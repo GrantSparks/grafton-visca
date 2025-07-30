@@ -786,7 +786,7 @@ impl SocketManagerActor {
     }
 
     async fn send_command_on_socket(&mut self, pending_cmd: PendingCmd, socket: Socket) {
-        trace!("Sending command {} on {:?}", pending_cmd.id, socket);
+        trace!("Sending command {} on {socket:?}", pending_cmd.id);
 
         match self.transport.send(&pending_cmd.bytes).await {
             Ok(()) => {
@@ -930,7 +930,7 @@ impl SocketManagerActor {
     async fn handle_ack_response(&mut self, socket: Socket) {
         trace!("Received ACK for {socket:?}");
         if let Some(command) = self.inner.get_active_command(socket) {
-            debug!("ACK received for command {} on {:?}", command.id, socket);
+            debug!("ACK received for command {} on {socket:?}", command.id);
         } else {
             warn!("Received ACK for {socket:?} but no active command");
         }
@@ -1003,7 +1003,7 @@ impl SocketManagerActor {
     async fn try_dispatch_next_command(&mut self) {
         if let Some(socket) = self.inner.get_free_socket() {
             if let Some(command) = self.inner.dequeue_command() {
-                trace!("Dispatching queued command {} on {:?}", command.id, socket);
+                trace!("Dispatching queued command {} on {socket:?}", command.id);
                 self.send_command_on_socket(command, socket).await;
             }
         }
@@ -1090,7 +1090,7 @@ impl SocketManagerActor {
         if let Some(command) = self.inner.take_active_command(socket) {
             let timeout_error = Error::CommandTimeout {
                 duration: self.completion_timeout,
-                command: format!("Command {} on {:?}", command.id, socket),
+                command: format!("Command {} on {socket:?}", command.id),
             };
             command.complete(Err(timeout_error));
         }
