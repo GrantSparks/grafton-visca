@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "192.168.1.100:52381";
     match Udp::connect(addr).await {
         Ok(transport) => {
-            println!("✓ UDP transport created for {}", addr);
+            println!("✓ UDP transport created for {addr}");
 
             // Create a camera using the transport
             let camera = PTZOpticsG2Cam::new(transport);
@@ -34,13 +34,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("✓ Zoom stop command sent successfully!");
                 }
                 Err(e) => {
-                    println!("✗ Command failed: {}", e);
+                    println!("✗ Command failed: {e}");
                 }
             }
         }
         Err(e) => {
-            println!("✗ Failed to create UDP transport: {}", e);
-            println!("Note: Make sure a VISCA camera is available at {}.", addr);
+            println!("✗ Failed to create UDP transport: {e}");
+            println!("Note: Make sure a VISCA camera is available at {addr}.");
         }
     }
 

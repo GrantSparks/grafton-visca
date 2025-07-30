@@ -27,6 +27,8 @@ fn main() {
 
     // Verify the formula: 0x80 | camera_id
     println!("\nFormula verification:");
-    println!("0x80 | 0x01 = 0x{:02X}", 0x80 | 0x01);
-    println!("This matches our Camera 1 address: {}", addr1 == 0x81);
+    let result = 0x80 | 0x01;
+    println!("0x80 | 0x01 = 0x{result:02X}");
+    let matches = addr1 == 0x81;
+    println!("This matches our Camera 1 address: {matches}");
 }

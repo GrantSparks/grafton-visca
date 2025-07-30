@@ -159,9 +159,7 @@ fn demonstrate_camera_timing(camera_addr: &str) -> Result<(), Error> {
         match camera.focus_auto() {
             Ok(_) => {
                 let elapsed = start.elapsed();
-                println!(
-                    "   ✓ Success on attempt {attempt} in {elapsed:?}: focus set to auto"
-                );
+                println!("   ✓ Success on attempt {attempt} in {elapsed:?}: focus set to auto");
                 break;
             }
             Err(e) => {
