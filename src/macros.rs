@@ -192,15 +192,51 @@ macro_rules! visca_bounded_param {
 ///         off: 0x03,
 ///     }
 /// }
+/// 
+/// // With custom address and response type
+/// visca_bool_command! {
+///     /// Multicast streaming control
+///     struct MulticastStreamingCommand {
+///         prefix: [0x80, 0x0B, 0x01, 0x23],
+///         on: 0x01,
+///         off: 0x02,
+///         address: 0x80,
+///         response: Some(ResponseType::Multicast),
+///     }
+/// }
 /// ```
 #[macro_export]
 macro_rules! visca_bool_command {
+    // Original form without optional parameters
     (
         $(#[$meta:meta])*
         struct $name:ident {
             prefix: [$($prefix:expr),+],
             on: $on:expr,
             off: $off:expr,
+        }
+    ) => {
+        visca_bool_command! {
+            $(#[$meta])*
+            struct $name {
+                prefix: [$($prefix),+],
+                on: $on,
+                off: $off,
+                address: 0x81,
+                response: None,
+            }
+        }
+    };
+    
+    // Extended form with optional parameters
+    (
+        $(#[$meta:meta])*
+        struct $name:ident {
+            prefix: [$($prefix:expr),+],
+            on: $on:expr,
+            off: $off:expr,
+            address: $address:expr,
+            response: $response:expr,
         }
     ) => {
         $(#[$meta])*
@@ -230,8 +266,9 @@ macro_rules! visca_bool_command {
 
                 let mut prefix = [$($prefix),+];
                 // Replace hardcoded camera ID with dynamic one
-                if !prefix.is_empty() && prefix[0] == 0x81 {
-                    prefix[0] = camera_id.to_address_byte();
+                // Use the address parameter instead of hardcoded 0x81
+                if !prefix.is_empty() && prefix[0] == $address {
+                    prefix[0] = ($address & 0xF0) | camera_id.id();
                 }
 
                 buffer[..prefix.len()].copy_from_slice(&prefix);
@@ -242,7 +279,7 @@ macro_rules! visca_bool_command {
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
-                None
+                $response
             }
 
             fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
@@ -372,9 +409,23 @@ macro_rules! visca_builder {
 ///     param_byte = mode as u8;
 ///     timeout = Quick;
 /// }
+/// 
+/// // With custom address and response type
+/// visca_param_command! {
+///     /// Custom network command
+///     pub(crate) struct NetworkCommand {
+///         mode: NetworkMode,
+///     }
+///     prefix = [0x80, 0x0B, 0x01, 0x01];
+///     param_byte = mode as u8;
+///     timeout = Network;
+///     address = 0x80;
+///     response = Some(ResponseType::Network);
+/// }
 /// ```
 #[macro_export]
 macro_rules! visca_param_command {
+    // Original form without optional parameters
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
@@ -383,6 +434,31 @@ macro_rules! visca_param_command {
         prefix = [$($prefix:expr),+ $(,)?];
         param_byte = $param_expr:expr;
         timeout = $category:ident;
+    ) => {
+        visca_param_command! {
+            $(#[$meta])*
+            $vis struct $name {
+                $field: $ftype,
+            }
+            prefix = [$($prefix),+];
+            param_byte = $param_expr;
+            timeout = $category;
+            address = 0x81;
+            response = None;
+        }
+    };
+    
+    // Extended form with optional parameters
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $field:ident: $ftype:ty,
+        }
+        prefix = [$($prefix:expr),+ $(,)?];
+        param_byte = $param_expr:expr;
+        timeout = $category:ident;
+        address = $address:expr;
+        response = $response:expr;
     ) => {
         $(#[$meta])*
         #[derive(Debug, Copy, Clone)]
@@ -405,8 +481,9 @@ macro_rules! visca_param_command {
 
                 let mut prefix = [$($prefix),+];
                 // Replace hardcoded camera ID with dynamic one
-                if !prefix.is_empty() && prefix[0] == 0x81 {
-                    prefix[0] = camera_id.to_address_byte();
+                // Use the address parameter instead of hardcoded 0x81
+                if !prefix.is_empty() && prefix[0] == $address {
+                    prefix[0] = ($address & 0xF0) | camera_id.id();
                 }
                 buffer[..prefix.len()].copy_from_slice(&prefix);
 
@@ -418,7 +495,7 @@ macro_rules! visca_param_command {
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
-                None
+                $response
             }
 
             fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
@@ -493,4 +570,150 @@ macro_rules! forward_facade {
     (@call_async , $method:ident, $receiver:expr, $($param:expr),*) => {
         $receiver.$method($($param),*).await
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        camera_id::CameraId,
+        command::{encode_visca::EncodeVisca, response::ResponseType},
+    };
+
+    // Test the extended bool command with custom address
+    visca_bool_command! {
+        /// Test command with 0x80 address
+        struct TestNetworkBoolCommand {
+            prefix: [0x80, 0x0B, 0x01, 0x23],
+            on: 0x01,
+            off: 0x02,
+            address: 0x80,
+            response: None,
+        }
+    }
+
+    #[test]
+    fn test_bool_command_with_custom_address() {
+        let cmd = TestNetworkBoolCommand::new(true);
+        let mut buffer = [0u8; 6];
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed");
+        assert_eq!(len, 6);
+        assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x23, 0x01, 0xFF]);
+
+        let cmd_off = TestNetworkBoolCommand::new(false);
+        let len = cmd_off
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed");
+        assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x23, 0x02, 0xFF]);
+    }
+
+    // Test regular bool command still works
+    visca_bool_command! {
+        /// Test standard bool command
+        struct TestStandardBoolCommand {
+            prefix: [0x81, 0x01, 0x04, 0x33],
+            on: 0x02,
+            off: 0x03,
+        }
+    }
+
+    #[test]
+    fn test_bool_command_backwards_compatibility() {
+        let cmd = TestStandardBoolCommand::new(true);
+        let mut buffer = [0u8; 6];
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed");
+        assert_eq!(len, 6);
+        assert_eq!(&buffer[..len], &[0x81, 0x01, 0x04, 0x33, 0x02, 0xFF]);
+    }
+
+    // Test enum for param command
+    #[derive(Debug, Copy, Clone)]
+    enum TestMode {
+        Mode1,
+        Mode2,
+        Mode3,
+    }
+
+    impl From<TestMode> for u8 {
+        fn from(mode: TestMode) -> u8 {
+            match mode {
+                TestMode::Mode1 => 0x01,
+                TestMode::Mode2 => 0x02,
+                TestMode::Mode3 => 0x03,
+            }
+        }
+    }
+
+    // Test the extended param command with custom address
+    visca_param_command! {
+        /// Test param command with 0x80 address
+        struct TestNetworkParamCommand {
+            mode: TestMode,
+        }
+        prefix = [0x80, 0x0B, 0x01, 0x01];
+        param_byte = u8::from(*mode);
+        timeout = Network;
+        address = 0x80;
+        response = None;
+    }
+
+    #[test]
+    fn test_param_command_with_custom_address() {
+        let cmd = TestNetworkParamCommand {
+            mode: TestMode::Mode2,
+        };
+        let mut buffer = [0u8; 6];
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed");
+        assert_eq!(len, 6);
+        assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x01, 0x02, 0xFF]);
+    }
+
+    // Test regular param command still works
+    visca_param_command! {
+        /// Test standard param command
+        struct TestStandardParamCommand {
+            mode: TestMode,
+        }
+        prefix = [0x81, 0x01, 0x04, 0x39];
+        param_byte = u8::from(*mode);
+        timeout = Quick;
+    }
+
+    #[test]
+    fn test_param_command_backwards_compatibility() {
+        let cmd = TestStandardParamCommand {
+            mode: TestMode::Mode3,
+        };
+        let mut buffer = [0u8; 6];
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed");
+        assert_eq!(len, 6);
+        assert_eq!(&buffer[..len], &[0x81, 0x01, 0x04, 0x39, 0x03, 0xFF]);
+    }
+
+    #[test]
+    fn test_camera_id_encoding() {
+        // Test that camera ID is correctly encoded in the address byte
+        let cmd = TestNetworkBoolCommand::new(true);
+        let mut buffer = [0u8; 6];
+        
+        // Test with CAMERA_3 (ID = 3)
+        let len = cmd
+            .encode_into(CameraId::CAMERA_3, &mut buffer)
+            .expect("encode should succeed");
+        assert_eq!(&buffer[..len], &[0x83, 0x0B, 0x01, 0x23, 0x01, 0xFF]);
+        
+        // Test with CAMERA_7 (ID = 7)
+        let len = cmd
+            .encode_into(CameraId::CAMERA_7, &mut buffer)
+            .expect("encode should succeed");
+        assert_eq!(&buffer[..len], &[0x87, 0x0B, 0x01, 0x23, 0x01, 0xFF]);
+    }
 }
