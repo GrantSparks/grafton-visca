@@ -66,7 +66,7 @@ async fn main() -> Result<(), Error> {
     // Query exposure settings
     println!("\n--- Exposure ---");
     match camera.get_exposure_mode().await {
-        Ok(mode) => println!("Exposure Mode: {:?}", mode),
+        Ok(mode) => println!("Exposure Mode: {mode:?}"),
         Err(e) => println!("Failed to get exposure mode: {}", e),
     }
 
@@ -80,7 +80,7 @@ async fn main() -> Result<(), Error> {
     // Query white balance
     println!("\n--- White Balance ---");
     match camera.get_white_balance_mode().await {
-        Ok(mode) => println!("White Balance Mode: {:?}", mode),
+        Ok(mode) => println!("White Balance Mode: {mode:?}"),
         Err(e) => println!("Failed to get WB mode: {}", e),
     }
 

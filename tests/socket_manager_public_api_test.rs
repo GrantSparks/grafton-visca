@@ -328,14 +328,14 @@ mod tokio_tests {
         let (r1, r2) = tokio::join!(camera.zoom_in(), camera.zoom_out(),);
 
         // Print debug info to understand what's happening
-        eprintln!("Result 1: {:?}", r1);
-        eprintln!("Result 2: {:?}", r2);
+        eprintln!("Result 1: {r1:?}");
+        eprintln!("Result 2: {r2:?}");
 
         // Verify both commands were sent
         let sent_commands = transport.get_sent_commands();
         eprintln!("Sent commands count: {}", sent_commands.len());
         for (i, cmd) in sent_commands.iter().enumerate() {
-            eprintln!("Command {}: {:02x?}", i, cmd);
+            eprintln!("Command {i}: {cmd:02x?}");
         }
 
         assert!(r1.is_ok(), "First command should succeed");
