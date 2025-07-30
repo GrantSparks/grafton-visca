@@ -41,7 +41,7 @@ fn main() -> Result<(), Error> {
     }
 
     let camera_addr = &args[1];
-    println!("Connecting to camera at {} (blocking mode)...", camera_addr);
+    println!("Connecting to camera at {camera_addr} (blocking mode)...");
 
     let transport = Udp::connect(camera_addr)?;
     let mut camera = PTZOpticsG2Cam::new(transport);
