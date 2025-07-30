@@ -16,7 +16,7 @@ use grafton_visca::transport::blocking::Udp;
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::prelude::*,
+    prelude::blocking::*,
     types::{FocusPosition, PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     PanTiltDirection, PresetNumber,
@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a type-safe camera instance with PTZOpticsG2 profile
     let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
     let transport = Udp::connect(&camera_ip)?;
-    let mut camera = grafton_visca::Camera::new(transport).blocking();
+    let mut camera = PTZOpticsG2Cam::new(transport);
     println!("Connected to PTZOptics G2 camera");
 
     // Demonstrate sequential command execution with type-safe units
@@ -144,9 +144,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Helper function demonstrating sequential command patterns
 #[cfg(not(feature = "async"))]
-fn perform_scan_sequence(
-    camera: &mut grafton_visca::blocking::Camera,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn perform_scan_sequence<P, T>(
+    camera: &mut grafton_visca::Camera<P, T>,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    P: grafton_visca::capabilities::Profile,
+    T: grafton_visca::transport::UnifiedTransport,
+{
     // Return to home
     camera.pan_tilt_home()?;
     thread::sleep(Duration::from_secs(1));
@@ -178,8 +182,11 @@ fn perform_scan_sequence(
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::profiles::G2PresetId,
+    capabilities::Profile,
+    prelude::r#async::PTZOpticsG2Cam,
     r#async::prelude::*,
     transport::tokio::Udp,
+    transport::UnifiedTransport,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Camera, PanTiltDirection, PresetNumber,
@@ -197,7 +204,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create async camera with type-safe profile
     let transport = Udp::connect("192.168.1.100:52381").await?;
-    let camera = Camera::new(transport);
+    let camera = PTZOpticsG2Cam::new(transport);
     println!("Connected to PTZOptics G2 camera (async)");
 
     // Demonstrate async operations with type-safe units
@@ -293,7 +300,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Async helper function for scan sequence
 #[cfg(feature = "tokio")]
-async fn perform_async_scan_sequence(camera: &Camera) -> Result<(), Box<dyn std::error::Error>> {
+async fn perform_async_scan_sequence<P, T>(
+    camera: &Camera<P, T>,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     // Return to home
     camera.pan_tilt_home().await?;
     tokio::time::sleep(Duration::from_secs(1)).await;

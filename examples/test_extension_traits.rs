@@ -9,13 +9,14 @@ use grafton_visca::{
         ExposureOps, FocusOps, ImageProcessingOps, PanTiltOps, PowerOps, PresetsOps,
         WhiteBalanceOps, ZoomOps,
     },
+    prelude::r#async::PTZOpticsG2Cam,
     transport::tokio::Udp,
     types::{
         BrightnessLevel, ColorTemp, ContrastLevel, DynamicRangeLevel, GainLevel, GainLimit,
         HueLevel, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed,
         SaturationLevel, SharpnessLevel, TiltSpeed,
     },
-    Camera, Degrees, Error, Normalized, PanTiltDirection, PresetNumber,
+    Degrees, Error, Normalized, PanTiltDirection, PresetNumber,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -29,7 +30,7 @@ async fn main() -> Result<(), Error> {
 
     // Create a camera with the new API
     let transport = Udp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::new(transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
     println!("=== Testing Comprehensive Camera API ===\n");
 

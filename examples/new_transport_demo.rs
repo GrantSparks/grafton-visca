@@ -5,8 +5,8 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
+    prelude::r#async::*,
     transport::tokio::{Tcp, Udp},
-    Camera,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -31,10 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("   ✓ TCP transport created");
 
             // Create camera with the transport
-            let camera = Camera::new(transport);
+            let camera = PTZOpticsG2Cam::new(transport);
 
             // Use camera methods - note we use &camera, not &mut camera
-            use grafton_visca::camera::methods::ZoomOps;
             match camera.zoom_stop().await {
                 Ok(_) => println!("   ✓ Zoom stop command sent"),
                 Err(e) => println!("   ✗ Error: {e}"),
@@ -52,10 +51,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("   ✓ UDP transport created");
 
             // Create camera with the transport
-            let camera = Camera::new(transport);
+            let camera = PTZOpticsG2Cam::new(transport);
 
             // Use camera methods - using &camera (interior mutability)
-            use grafton_visca::camera::methods::ZoomOps;
             match camera.zoom_stop().await {
                 Ok(_) => println!("   ✓ Zoom stop command sent"),
                 Err(e) => println!("   ✗ Error: {e}"),

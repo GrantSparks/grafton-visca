@@ -19,7 +19,7 @@ fn main() {
     println!();
     println!(
         r#"
-use grafton_visca::{{Camera, CameraModel, transport::Transport}};
+use grafton_visca::{{prelude::*, transport::Transport}};
 use async_std::net::TcpStream;
 use async_std::io::{{ReadExt, WriteExt}};
 use async_std::future::timeout;
@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {{
     let transport = AsyncStdTcp {{ stream }};
     
     // Create camera with the transport
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    let camera = PTZOpticsG2Cam::new(transport);
     
     // Use timeout from async-std for operations
     let timeout_duration = Duration::from_secs(5);

@@ -29,7 +29,7 @@ pub use focus::Focus;
 pub use image_processing::ImageProcessing;
 pub use menu_control::MenuControl;
 pub use motion_sync::MotionSync;
-pub use nd_filter::NDFilter;
+pub use nd_filter::{NDFilter, NDFilterMode};
 pub use pan_tilt::PanTilt;
 pub use power::Power;
 pub use presets::Presets;
@@ -48,3 +48,53 @@ pub use validation::ValidationError;
 // Feature detection API
 mod feature_detection;
 pub use feature_detection::{CameraFeature, CommandFeatures, FeatureDetection};
+
+/// Super-trait that encompasses all camera capabilities.
+///
+/// This trait allows a single generic bound to ensure a type has all the
+/// necessary camera capabilities. It combines metadata with all feature traits.
+///
+/// # Example
+/// ```ignore
+/// fn use_camera<P: Profile>(camera: &Camera<P>) {
+///     // All capability traits are available
+///     let model = P::MODEL_NAME;
+///     let zoom_range = P::ZOOM_SPEED_RANGE;
+/// }
+/// ```
+pub trait Profile:
+    ProfileMetadata
+    + PanTilt
+    + Zoom
+    + Focus
+    + Exposure
+    + WhiteBalance
+    + ImageProcessing
+    + Presets
+    + Power
+    + MenuControl
+    + Sized
+    + Send
+    + Sync
+    + 'static
+{
+}
+
+// Blanket implementation for any type that implements all required traits
+impl<T> Profile for T where
+    T: ProfileMetadata
+        + PanTilt
+        + Zoom
+        + Focus
+        + Exposure
+        + WhiteBalance
+        + ImageProcessing
+        + Presets
+        + Power
+        + MenuControl
+        + Sized
+        + Send
+        + Sync
+        + 'static
+{
+}

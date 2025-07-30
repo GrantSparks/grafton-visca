@@ -19,12 +19,19 @@
 
 /// A newtype wrapper around the root Camera that exposes only blocking methods.
 #[derive(Debug)]
-pub struct Camera(pub(super) crate::Camera);
+pub struct Camera<P, T>(pub(super) crate::Camera<P, T>)
+where
+    P: crate::capabilities::Profile,
+    T: crate::transport::UnifiedTransport;
 
-impl Camera {
+impl<P, T> Camera<P, T>
+where
+    P: crate::capabilities::Profile,
+    T: crate::transport::UnifiedTransport,
+{
     /// Create a new blocking camera wrapper.
     #[must_use]
-    pub fn new(inner: crate::Camera) -> Self {
+    pub fn new(inner: crate::Camera<P, T>) -> Self {
         Self(inner)
     }
 }

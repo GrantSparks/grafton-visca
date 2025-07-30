@@ -12,11 +12,7 @@ fn main() {
 #[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::Tcp;
 #[cfg(not(feature = "async"))]
-use grafton_visca::{
-    blocking::{PanTiltOps, PowerOps, ZoomOps},
-    types::SpeedLevel,
-    units::Degrees,
-};
+use grafton_visca::{prelude::blocking::*, types::SpeedLevel, units::Degrees};
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
 
@@ -33,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = Tcp::connect(&camera_ip)?;
 
     // Create camera with PTZOpticsG2 profile
-    let camera = grafton_visca::Camera::new(transport).blocking();
+    let camera = GenericViscaCam::new(transport);
 
     println!("Camera created successfully with blocking transport!");
     println!("Running without any async runtime - pure blocking I/O!");
@@ -57,12 +53,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test absolute position movement
     println!("Moving to position (30°, -10°)...");
-    camera.pan_tilt_absolute(Degrees(30.0), Degrees(-10.0), SpeedLevel::from(10))?;
+    camera.pan_tilt_absolute(
+        Degrees::new(30.0),
+        Degrees::new(-10.0),
+        SpeedLevel::from(10),
+    )?;
     std::thread::sleep(Duration::from_secs(3));
 
     // Test relative movement
     println!("Moving relative: pan left 20°...");
-    camera.pan_tilt_relative(Degrees(-20.0), Degrees(0.0), SpeedLevel::from(10))?;
+    camera.pan_tilt_relative(Degrees::new(-20.0), Degrees::new(0.0), SpeedLevel::from(10))?;
     std::thread::sleep(Duration::from_secs(2));
 
     // Test zoom

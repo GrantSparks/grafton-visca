@@ -10,11 +10,12 @@
 //! Timeouts are handled at the transport level or using tokio::time::timeout.
 
 use grafton_visca::{
-    camera::methods::{PanTiltOps, PowerOps, PresetsOps},
+    capabilities::Profile,
+    prelude::r#async::*,
     transport::tokio::{Tcp, Udp},
+    transport::UnifiedTransport,
     types::SpeedLevel,
     units::Degrees,
-    Camera, Error,
 };
 use std::time::Duration;
 use tokio::time::timeout;
@@ -42,7 +43,7 @@ async fn main() -> Result<(), Error> {
     // Create camera with async transport
     println!("Connecting to camera at {}...", camera_addr);
     let transport = Udp::connect(&camera_addr).await?;
-    let camera = Camera::new(transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Demonstrate different timeout scenarios
     demonstrate_quick_timeout(&camera).await?;
@@ -54,7 +55,11 @@ async fn main() -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_quick_timeout(camera: &Camera) -> Result<(), Error> {
+async fn demonstrate_quick_timeout<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("1. Quick Commands with Short Timeout:");
     println!("   Using 1 second timeout for status checks\n");
 
@@ -91,7 +96,11 @@ async fn demonstrate_quick_timeout(camera: &Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_movement_timeout(camera: &Camera) -> Result<(), Error> {
+async fn demonstrate_movement_timeout<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("2. Movement Commands with Medium Timeout:");
     println!("   Using 5 second timeout for movement commands\n");
 
@@ -137,7 +146,11 @@ async fn demonstrate_movement_timeout(camera: &Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_preset_timeout(camera: &Camera) -> Result<(), Error> {
+async fn demonstrate_preset_timeout<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("3. Preset Commands with Long Timeout:");
     println!("   Using 30 second timeout for preset operations\n");
 
@@ -167,7 +180,11 @@ async fn demonstrate_preset_timeout(camera: &Camera) -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-async fn demonstrate_timeout_recovery(camera: &Camera) -> Result<(), Error> {
+async fn demonstrate_timeout_recovery<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+where
+    P: Profile,
+    T: UnifiedTransport,
+{
     println!("4. Timeout Recovery Strategies:");
     println!("   Demonstrating retry logic with exponential backoff\n");
 
@@ -227,7 +244,7 @@ async fn demonstrate_timeout_recovery(camera: &Camera) -> Result<(), Error> {
         match Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(10)).await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");
-                let tcp_camera = Camera::new(transport);
+                let tcp_camera = PTZOpticsG2Cam::new(transport);
 
                 // For custom timeout, wrap the operation
                 let custom_timeout = Duration::from_secs(30);

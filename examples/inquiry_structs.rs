@@ -8,7 +8,7 @@ fn main() {
     println!();
     println!("// Create a camera with a specific profile:");
     println!("let transport = Tcp::connect(\"192.168.1.100:5678\")?;");
-    println!("let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport).blocking();");
+    println!("let camera = PTZOpticsG2Cam::new(transport);");
     println!();
     println!("// Query camera state using high-level methods:");
     println!("let power_on = camera.is_powered_on()?;");

@@ -1,7 +1,6 @@
 //! System control methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     command::{
         system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand, Socket},
         Response,
@@ -38,7 +37,9 @@ pub trait SystemOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl SystemOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> SystemOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn trigger_address_assignment(&self) -> Result<(), Error> {
         let cmd = AddressSetCommand::new();
         let response = self.send_command(&cmd).await?;
@@ -71,7 +72,9 @@ impl SystemOps for Camera {
 }
 
 // Blocking implementation
-impl SystemOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> SystemOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn trigger_address_assignment(&self) -> Result<(), Error> {
         let cmd = AddressSetCommand::new();
         let response = self.send_command_blocking(&cmd)?;
@@ -105,13 +108,15 @@ impl SystemOpsBlocking for Camera {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_system_methods_compile() {
         // This test demonstrates that system methods are available for all cameras
 
-        fn _test_system_methods(_camera: &Camera) {
+        fn _test_system_methods<P, T>(_camera: &crate::Camera<P, T>)
+        where
+            P: crate::capabilities::Profile,
+            T: crate::transport::UnifiedTransport,
+        {
             // All cameras can use system methods
         }
     }

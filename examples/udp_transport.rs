@@ -4,7 +4,7 @@
 //! For most use cases, prefer using the Camera API instead.
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{camera::methods::ZoomOps, transport::tokio::Udp, Camera};
+use grafton_visca::{prelude::r#async::*, transport::tokio::Udp};
 
 #[cfg(not(feature = "tokio"))]
 fn main() {
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✓ UDP transport created for {}", addr);
 
             // Create a camera using the transport
-            let camera = Camera::new(transport);
+            let camera = PTZOpticsG2Cam::new(transport);
 
             // Send a VISCA command using high-level API
             match camera.zoom_stop().await {

@@ -3,11 +3,12 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::profiles::G2PresetId,
+    prelude::r#async::PTZOpticsG2Cam,
     r#async::prelude::*,
     transport::tokio::Tcp,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    Camera, CameraModel, Error, PresetNumber,
+    Error, PresetNumber,
 };
 #[cfg(feature = "tokio")]
 use std::time::Duration;
@@ -26,19 +27,17 @@ async fn main() -> Result<(), Error> {
 
     // Create a G2 camera with TCP transport
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
-    // Display camera capabilities using public API
-    println!("Camera Model: {}", camera.model_name());
-    println!(
-        "Supports Pan/Tilt: {}",
-        camera.supports_capability("pan_tilt")
-    );
-    println!("Supports Zoom: {}", camera.supports_capability("zoom"));
-    println!(
-        "Supports Presets: {}",
-        camera.supports_capability("presets")
-    );
+    // Display camera model (compile-time known)
+    println!("Camera Model: PTZOptics G2");
+    println!("All capabilities are compile-time verified:");
+    println!("  ✓ Pan/Tilt");
+    println!("  ✓ Zoom");
+    println!("  ✓ Presets");
+    println!("  ✓ Focus");
+    println!("  ✓ Exposure");
+    println!("  ✓ White Balance");
     println!();
 
     // Power on the camera

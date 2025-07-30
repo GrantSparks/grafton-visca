@@ -3,7 +3,6 @@
 //! These methods ONLY exist for cameras that implement NDFilter.
 
 use crate::{
-    camera::Camera,
     command::{
         nd_filter::{
             AutoNDCommand, NDFilterModeCommand, NDFilterStepCommand, NDFilterValueCommand,
@@ -58,95 +57,40 @@ pub trait NDFilterOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl NDFilterOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDFilterOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = NDFilterModeCommand::new(mode);
         self.send_command(&command).await?;
         Ok(())
     }
 
     async fn set_nd_filter_value(&self, value: u16) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = NDFilterValueCommand::new(value)?;
         self.send_command(&command).await?;
         Ok(())
     }
 
     async fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = NDFilterValueCommand::from_stops(stops)?;
         self.send_command(&command).await?;
         Ok(())
     }
 
     async fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = NDFilterStepCommand::new(direction);
         self.send_command(&command).await?;
         Ok(())
     }
 
     async fn set_auto_nd(&self, enabled: bool) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = AutoNDCommand::new(enabled);
         self.send_command(&command).await?;
         Ok(())
     }
 
     async fn get_nd_filter(&self) -> Result<u8, Error> {
-        // Check if camera has ND filter support
-        if self.nd_filter_mode().is_none() {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let inquiry = crate::command::inquiry::NdFilterInquiry;
         let response = self.send_command(&inquiry).await?;
 
@@ -159,95 +103,40 @@ impl NDFilterOps for Camera {
 }
 
 // Blocking implementation
-impl NDFilterOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDFilterOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = NDFilterModeCommand::new(mode);
         self.send_command_blocking(&command)?;
         Ok(())
     }
 
     fn set_nd_filter_value(&self, value: u16) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = NDFilterValueCommand::new(value)?;
         self.send_command_blocking(&command)?;
         Ok(())
     }
 
     fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = NDFilterValueCommand::from_stops(stops)?;
         self.send_command_blocking(&command)?;
         Ok(())
     }
 
     fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = NDFilterStepCommand::new(direction);
         self.send_command_blocking(&command)?;
         Ok(())
     }
 
     fn set_auto_nd(&self, enabled: bool) -> Result<(), Error> {
-        // Check if camera has ND filter support
-        if !matches!(
-            self.nd_filter_mode(),
-            Some(crate::capabilities::NDFilterMode::Variable)
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let command = AutoNDCommand::new(enabled);
         self.send_command_blocking(&command)?;
         Ok(())
     }
 
     fn get_nd_filter(&self) -> Result<u8, Error> {
-        // Check if camera has ND filter support
-        if self.nd_filter_mode().is_none() {
-            return Err(Error::FeatureNotSupported {
-                feature: "ND filter",
-            });
-        }
-
         let inquiry = crate::command::inquiry::NdFilterInquiry;
         let response = self.send_command_blocking(&inquiry)?;
 

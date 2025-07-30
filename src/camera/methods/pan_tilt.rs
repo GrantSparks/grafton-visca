@@ -1,7 +1,6 @@
 //! Pan/Tilt methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     command::pan_tilt::{PanTilt, PanTiltDirection, PanTiltLimitCorner},
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
     units::Degrees,
@@ -105,7 +104,9 @@ pub trait PanTiltOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl PanTiltOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PanTiltOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn pan_tilt_stop(&self) -> Result<(), Error> {
         let cmd = PanTilt::Move {
             direction: PanTiltDirection::Stop,
@@ -226,7 +227,9 @@ impl PanTiltOps for Camera {
 }
 
 // Blocking implementation
-impl PanTiltOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PanTiltOpsBlocking
+    for crate::camera::generic::Camera<P, T>
+{
     fn pan_tilt_stop(&self) -> Result<(), Error> {
         let cmd = PanTilt::Move {
             direction: PanTiltDirection::Stop,
