@@ -6,61 +6,19 @@
 
 use crate::{
     capabilities::{CameraFeature, CommandFeatures},
-    command::{encode_visca::EncodeVisca, ResponseType},
-    error::Error,
-    timeout::CommandCategory,
+    visca_bool_command, visca_builder, visca_param_command,
 };
 
-/// Menu display control command.
-///
-/// Toggles the camera's on-screen menu display on or off.
-///
-/// VISCA format: `81 01 06 06 0p FF` where p = 2 (On) or 3 (Off)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MenuDisplayCommand {
-    /// Whether to show the menu
-    pub display: bool,
-}
-
-impl MenuDisplayCommand {
-    /// Create a new menu display command.
-    pub fn new(display: bool) -> Self {
-        Self { display }
-    }
-}
-
-impl EncodeVisca for MenuDisplayCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 6 {
-            return Err(Error::BufferTooSmall {
-                required: 6,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x06;
-        buffer[3] = 0x06;
-        buffer[4] = if self.display { 0x02 } else { 0x03 };
-        buffer[5] = 0xFF;
-
-        Ok(6)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_bool_command! {
+    /// Menu display control command.
+    ///
+    /// Toggles the camera's on-screen menu display on or off.
+    ///
+    /// VISCA format: `81 01 06 06 0p FF` where p = 2 (On) or 3 (Off)
+    struct MenuDisplayCommand {
+        prefix: [0x81, 0x01, 0x06, 0x06],
+        on: 0x02,
+        off: 0x03,
     }
 }
 
@@ -68,20 +26,6 @@ impl CommandFeatures for MenuDisplayCommand {
     fn required_features(&self) -> &[CameraFeature] {
         &[CameraFeature::MenuControl]
     }
-}
-
-/// Menu navigation command for cursor movement.
-///
-/// Moves the menu cursor in the specified direction.
-///
-/// VISCA format: `81 01 06 01 VV WW XX YY FF` where:
-/// - VV = Pan speed (0x0E for menu)
-/// - WW = Tilt speed (0x0E for menu)
-/// - XX YY = Direction codes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MenuNavigateCommand {
-    /// Navigation direction
-    pub direction: MenuDirection,
 }
 
 /// Menu navigation direction.
@@ -97,6 +41,42 @@ pub enum MenuDirection {
     Right,
 }
 
+visca_builder! {
+    /// Menu navigation command for cursor movement.
+    ///
+    /// Moves the menu cursor in the specified direction.
+    ///
+    /// VISCA format: `81 01 06 01 VV WW XX YY FF` where:
+    /// - VV = Pan speed (0x0E for menu)
+    /// - WW = Tilt speed (0x0E for menu)
+    /// - XX YY = Direction codes
+    pub struct MenuNavigateCommand {
+        direction: MenuDirection,
+    }
+    builder<9> => |builder, direction| {
+        let _ = builder.append(&[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E]);
+        match *direction {
+            MenuDirection::Up => {
+                let _ = builder.push(0x03);
+                let _ = builder.push(0x01);
+            }
+            MenuDirection::Down => {
+                let _ = builder.push(0x03);
+                let _ = builder.push(0x02);
+            }
+            MenuDirection::Left => {
+                let _ = builder.push(0x01);
+                let _ = builder.push(0x03);
+            }
+            MenuDirection::Right => {
+                let _ = builder.push(0x02);
+                let _ = builder.push(0x03);
+            }
+        }
+    }
+    timeout = Quick;
+}
+
 impl MenuNavigateCommand {
     /// Create a new menu navigation command.
     pub fn new(direction: MenuDirection) -> Self {
@@ -104,78 +84,10 @@ impl MenuNavigateCommand {
     }
 }
 
-impl EncodeVisca for MenuNavigateCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 10;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 10 {
-            return Err(Error::BufferTooSmall {
-                required: 10,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x06;
-        buffer[3] = 0x01;
-        buffer[4] = 0x0E; // Pan speed
-        buffer[5] = 0x0E; // Tilt speed
-
-        // Direction codes
-        match self.direction {
-            MenuDirection::Up => {
-                buffer[6] = 0x03;
-                buffer[7] = 0x01;
-            }
-            MenuDirection::Down => {
-                buffer[6] = 0x03;
-                buffer[7] = 0x02;
-            }
-            MenuDirection::Left => {
-                buffer[6] = 0x01;
-                buffer[7] = 0x03;
-            }
-            MenuDirection::Right => {
-                buffer[6] = 0x02;
-                buffer[7] = 0x03;
-            }
-        }
-
-        buffer[8] = 0xFF;
-
-        Ok(9)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
-}
-
 impl CommandFeatures for MenuNavigateCommand {
     fn required_features(&self) -> &[CameraFeature] {
         &[CameraFeature::MenuControl]
     }
-}
-
-/// Menu action command for select/cancel operations.
-///
-/// Performs menu selection (Enter) or cancellation (Back) actions.
-///
-/// VISCA format: `81 01 06 06 0p FF` where p = 5 (Select) or 4 (Cancel)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MenuActionCommand {
-    /// The action to perform
-    pub action: MenuAction,
 }
 
 /// Menu action type.
@@ -187,48 +99,33 @@ pub enum MenuAction {
     Cancel,
 }
 
+impl From<MenuAction> for u8 {
+    fn from(action: MenuAction) -> u8 {
+        match action {
+            MenuAction::Select => 0x05,
+            MenuAction::Cancel => 0x04,
+        }
+    }
+}
+
+visca_param_command! {
+    /// Menu action command for select/cancel operations.
+    ///
+    /// Performs menu selection (Enter) or cancellation (Back) actions.
+    ///
+    /// VISCA format: `81 01 06 06 0p FF` where p = 5 (Select) or 4 (Cancel)
+    pub struct MenuActionCommand {
+        action: MenuAction,
+    }
+    prefix = [0x81, 0x01, 0x06, 0x06];
+    param_byte = u8::from(*action);
+    timeout = Quick;
+}
+
 impl MenuActionCommand {
     /// Create a new menu action command.
     pub fn new(action: MenuAction) -> Self {
         Self { action }
-    }
-}
-
-impl EncodeVisca for MenuActionCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 6 {
-            return Err(Error::BufferTooSmall {
-                required: 6,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x06;
-        buffer[3] = 0x06;
-        buffer[4] = match self.action {
-            MenuAction::Select => 0x05,
-            MenuAction::Cancel => 0x04,
-        };
-        buffer[5] = 0xFF;
-
-        Ok(6)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -238,18 +135,25 @@ impl CommandFeatures for MenuActionCommand {
     }
 }
 
-/// Direct menu control command for Sony FR7.
-///
-/// Provides direct control over the FR7's advanced menu system using
-/// manufacturer-specific codes for button presses and dial turns.
-///
-/// VISCA format: `81 01 7E 04 72 pp qq FF`
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DirectMenuControlCommand {
-    /// First control byte (pp)
-    pub control1: u8,
-    /// Second control byte (qq)
-    pub control2: u8,
+visca_builder! {
+    /// Direct menu control command for Sony FR7.
+    ///
+    /// Provides direct control over the FR7's advanced menu system using
+    /// manufacturer-specific codes for button presses and dial turns.
+    ///
+    /// VISCA format: `81 01 7E 04 72 pp qq FF`
+    pub struct DirectMenuControlCommand {
+        /// First control byte (pp)
+        control1: u8,
+        /// Second control byte (qq)
+        control2: u8,
+    }
+    builder<8> => |builder, control1, control2| {
+        let _ = builder.append(&[0x81, 0x01, 0x7E, 0x04, 0x72]);
+        let _ = builder.push(*control1);
+        let _ = builder.push(*control2);
+    }
+    timeout = Quick;
 }
 
 impl DirectMenuControlCommand {
@@ -264,43 +168,6 @@ impl DirectMenuControlCommand {
     }
 }
 
-impl EncodeVisca for DirectMenuControlCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 8;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 8 {
-            return Err(Error::BufferTooSmall {
-                required: 8,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x04;
-        buffer[4] = 0x72;
-        buffer[5] = self.control1;
-        buffer[6] = self.control2;
-        buffer[7] = 0xFF;
-
-        Ok(8)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
-}
-
 impl CommandFeatures for DirectMenuControlCommand {
     fn required_features(&self) -> &[CameraFeature] {
         &[CameraFeature::MenuControl]
@@ -311,6 +178,7 @@ impl CommandFeatures for DirectMenuControlCommand {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::command::encode_visca::EncodeVisca;
 
     #[test]
     fn test_menu_display_on() {

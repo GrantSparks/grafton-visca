@@ -785,6 +785,10 @@ mod tests {
 // Manual implementation for TallyGreenInquiry due to special format
 /// Inquiry command to get the green tally light status (FR7 only).
 /// Returns 0x02 for On, 0x03 for Off.
+///
+/// Note: This uses a special extended inquiry format (0x7E 0x04 0x1A 0x00)
+/// instead of the standard inquiry format, which is why it cannot use
+/// the InquiryCommand derive macro.
 #[derive(Debug, Copy, Clone)]
 pub struct TallyGreenInquiry;
 
