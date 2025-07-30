@@ -32,13 +32,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔍 Zoom Conversions:");
     let zoom_50_percent = ZoomPosition::try_from(0.5f32)?;
     let zoom_back: f32 = zoom_50_percent.into();
-    println!("  • Zoom 50%: {} -> {:.2}", zoom_50_percent, zoom_back);
+    println!("  • Zoom 50%: {zoom_50_percent} -> {zoom_back:.2}");
 
     // Test focus conversions
     println!("\n🎯 Focus Conversions:");
     let focus_75_percent = FocusPosition::try_from(0.75f32)?;
     let focus_back: f32 = focus_75_percent.into();
-    println!("  • Focus 75%: {} -> {:.2}", focus_75_percent, focus_back);
+    println!("  • Focus 75%: {focus_75_percent} -> {focus_back:.2}");
 
     // Test iris conversions
     println!("\n📸 Iris Conversions:");
