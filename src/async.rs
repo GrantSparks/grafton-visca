@@ -623,6 +623,140 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Inq
     ) -> crate::Result<crate::command::resolution::NDFilterPosition> {
         self.0.get_nd_filter_position().await
     }
+
+    async fn get_version(&self) -> crate::Result<crate::command::Version> {
+        self.0.get_version().await
+    }
+
+    async fn get_luminance(&self) -> crate::Result<u8> {
+        self.0.get_luminance().await
+    }
+
+    async fn get_backlight_enabled(&self) -> crate::Result<bool> {
+        self.0.get_backlight_enabled().await
+    }
+
+    async fn get_image_flip(&self) -> crate::Result<crate::command::ImageFlipStatus> {
+        self.0.get_image_flip().await
+    }
+
+    async fn get_dynamic_range(&self) -> crate::Result<u8> {
+        self.0.get_dynamic_range().await
+    }
+
+    async fn get_focus_mode(&self) -> crate::Result<crate::command::FocusMode> {
+        self.0.get_focus_mode().await
+    }
+
+    async fn get_menu_status(&self) -> crate::Result<bool> {
+        self.0.get_menu_status().await
+    }
+
+    async fn get_auto_focus_enabled(&self) -> crate::Result<bool> {
+        self.0.get_auto_focus_enabled().await
+    }
+
+    async fn get_tally_light_status(&self) -> crate::Result<crate::command::TallyStatus> {
+        self.0.get_tally_light_status().await
+    }
+
+    async fn get_night_day_mode(&self) -> crate::Result<crate::command::NightDayMode> {
+        self.0.get_night_day_mode().await
+    }
+
+    async fn get_flip_mode(&self) -> crate::Result<crate::command::FlipMode> {
+        self.0.get_flip_mode().await
+    }
+
+    async fn get_standby_enabled(&self) -> crate::Result<bool> {
+        self.0.get_standby_enabled().await
+    }
+
+    async fn get_focus_range(&self) -> crate::Result<crate::command::FocusRange> {
+        self.0.get_focus_range().await
+    }
+
+    async fn get_iris_control(&self) -> crate::Result<crate::command::IrisControl> {
+        self.0.get_iris_control().await
+    }
+
+    async fn get_defog_mode(&self) -> crate::Result<bool> {
+        self.0.get_defog_mode().await
+    }
+
+    async fn get_defog_level(&self) -> crate::Result<u8> {
+        self.0.get_defog_level().await
+    }
+
+    async fn get_digital_ptz_enabled(&self) -> crate::Result<bool> {
+        self.0.get_digital_ptz_enabled().await
+    }
+
+    async fn get_auto_white_balance_sensitivity(
+        &self,
+    ) -> crate::Result<crate::command::AutoWhiteBalanceSensitivity> {
+        self.0.get_auto_white_balance_sensitivity().await
+    }
+
+    async fn get_exposure_compensation_position(&self) -> crate::Result<u16> {
+        self.0.get_exposure_compensation_position().await
+    }
+
+    async fn get_auto_trace_enabled(&self) -> crate::Result<bool> {
+        self.0.get_auto_trace_enabled().await
+    }
+
+    async fn get_focus_unlock(&self) -> crate::Result<bool> {
+        self.0.get_focus_unlock().await
+    }
+
+    async fn get_sharpness_position(&self) -> crate::Result<u16> {
+        self.0.get_sharpness_position().await
+    }
+
+    async fn get_noise_reduction_level(&self) -> crate::Result<u8> {
+        self.0.get_noise_reduction_level().await
+    }
+
+    async fn get_broadcast_domain(&self) -> crate::Result<u8> {
+        self.0.get_broadcast_domain().await
+    }
+
+    async fn get_noise_reduction_mode(&self) -> crate::Result<crate::command::NrMode> {
+        self.0.get_noise_reduction_mode().await
+    }
+
+    async fn get_noise_reduction_speed(&self) -> crate::Result<crate::command::NrSpeed> {
+        self.0.get_noise_reduction_speed().await
+    }
+
+    async fn get_black_white_mode(&self) -> crate::Result<crate::command::BlackWhiteMode> {
+        self.0.get_black_white_mode().await
+    }
+
+    async fn get_usb_audio_enabled(&self) -> crate::Result<bool> {
+        self.0.get_usb_audio_enabled().await
+    }
+
+    async fn get_two_tone_mode_enabled(&self) -> crate::Result<bool> {
+        self.0.get_two_tone_mode_enabled().await
+    }
+
+    async fn get_nd_filter_preset(&self) -> crate::Result<u8> {
+        self.0.get_nd_filter_preset().await
+    }
+
+    async fn get_digital_mode_enabled(&self) -> crate::Result<bool> {
+        self.0.get_digital_mode_enabled().await
+    }
+
+    async fn get_tally_auto_adjust_enabled(&self) -> crate::Result<bool> {
+        self.0.get_tally_auto_adjust_enabled().await
+    }
+
+    async fn get_tally_green_enabled(&self) -> crate::Result<bool> {
+        self.0.get_tally_green_enabled().await
+    }
 }
 
 impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDFilterOps

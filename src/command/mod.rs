@@ -15,6 +15,7 @@ pub mod image;
 pub mod image_adjustment;
 pub mod inquiry;
 mod inquiry_structs; // Internal module for macro-generated inquiry commands
+pub mod inquiry_types;
 pub mod menu;
 pub mod motion_sync;
 pub mod nd_filter;
@@ -47,6 +48,7 @@ pub use self::{
     image::*,
     image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
     // inquiry::*,  // Individual types are re-exported from inquiry module
+    inquiry_types::{FlipMode, ImageFlipStatus, IrisControl, NightDayMode, TallyStatus, Version},
     menu::*,
     // motion_sync::*,  // Commands are internal only
     nd_filter::*,
