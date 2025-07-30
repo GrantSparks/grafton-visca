@@ -36,7 +36,7 @@ async fn main() -> Result<(), Error> {
         .or_else(|| std::env::var("CAMERA_IP").ok())
         .unwrap_or_else(|| "192.168.0.100:5678".to_string());
 
-    println!("Connecting to camera at {}...", camera_addr);
+    println!("Connecting to camera at {camera_addr}...");
     let transport = Udp::connect(&camera_addr).await?;
     let camera = PTZOpticsG2Cam::new(transport);
 
@@ -58,9 +58,10 @@ async fn main() -> Result<(), Error> {
     camera.zoom_in().await?;
     let zoom_time = start.elapsed();
 
-    println!("Move command completed in {:?}", move_time);
-    println!("Zoom command completed in {:?}", zoom_time);
-    println!("Total time: {:?}", start.elapsed());
+    println!("Move command completed in {move_time:?}");
+    println!("Zoom command completed in {zoom_time:?}");
+    let total_elapsed = start.elapsed();
+    println!("Total time: {total_elapsed:?}");
 
     // Wait a moment then stop both
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -164,16 +165,16 @@ async fn main() -> Result<(), Error> {
 
     match preset_result {
         Ok(Ok(_)) => println!("Preset saved successfully"),
-        Ok(Err(e)) => println!("Failed to save preset: {}", e),
-        Err(e) => println!("Task failed: {}", e),
+        Ok(Err(e)) => println!("Failed to save preset: {e}"),
+        Err(e) => println!("Task failed: {e}"),
     }
 
     match inquiry_result {
         Ok(Ok(zoom_pos)) => {
-            println!("Current zoom position: 0x{:04X}", zoom_pos);
+            println!("Current zoom position: 0x{zoom_pos:04X}");
         }
-        Ok(Err(e)) => println!("Failed to query zoom position: {}", e),
-        Err(e) => println!("Inquiry task failed: {}", e),
+        Ok(Err(e)) => println!("Failed to query zoom position: {e}"),
+        Err(e) => println!("Inquiry task failed: {e}"),
     }
 
     // Example 4: Maximizing throughput with many operations
@@ -212,9 +213,10 @@ async fn main() -> Result<(), Error> {
         .filter(|r| r.as_ref().map(|(res, _)| res.is_ok()).unwrap_or(false))
         .count();
 
-    println!("Sent 10 commands in {:?}", elapsed);
-    println!("Successful: {}/10", successful);
-    println!("Average time per command: {:?}", elapsed / 10);
+    println!("Sent 10 commands in {elapsed:?}");
+    println!("Successful: {successful}/10");
+    let avg_time = elapsed / 10;
+    println!("Average time per command: {avg_time:?}");
 
     // Stop any ongoing zoom
     camera.lock().await.zoom_stop().await?;
@@ -282,10 +284,10 @@ async fn main() -> Result<(), Error> {
     let (pan_result, zoom_result) = tokio::join!(pan_task, zoom_task);
 
     if let Err(e) = pan_result {
-        println!("Pan task failed: {}", e);
+        println!("Pan task failed: {e}");
     }
     if let Err(e) = zoom_result {
-        println!("Zoom task failed: {}", e);
+        println!("Zoom task failed: {e}");
     }
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -310,10 +312,10 @@ async fn main() -> Result<(), Error> {
     let (stop_pan_result, stop_zoom_result) = tokio::join!(stop_pan_task, stop_zoom_task);
 
     if let Err(e) = stop_pan_result {
-        println!("Stop pan task failed: {}", e);
+        println!("Stop pan task failed: {e}");
     }
     if let Err(e) = stop_zoom_result {
-        println!("Stop zoom task failed: {}", e);
+        println!("Stop zoom task failed: {e}");
     }
 
     println!("\nConcurrent operations demo completed!");
