@@ -4,13 +4,21 @@
 //! on PTZOptics NDI cameras. These are not part of the baseline VISCA standard.
 
 use crate::{
-    camera_id::CameraId,
     capabilities::{CameraFeature, CommandFeatures},
-    command::{encode_visca::EncodeVisca, response::ResponseType},
-    error::Error,
-    timeout::CommandCategory,
     types::NDIQuality,
+    visca_bool_command, visca_param_command,
 };
+
+visca_bool_command! {
+    /// Internal multicast streaming command
+    struct MulticastStreamingInternal {
+        prefix: [0x80, 0x0B, 0x01, 0x23],
+        on: 0x01,
+        off: 0x02,
+        address: 0x80,
+        response: None,
+    }
+}
 
 /// Multicast streaming control for PTZOptics NDI cameras
 ///
@@ -19,51 +27,44 @@ use crate::{
 pub enum MulticastStreaming {
     /// Enable multicast streaming
     On,
-    /// Disable multicast streaming
+    /// Disable multicast streaming  
     Off,
 }
 
-impl From<MulticastStreaming> for bool {
+impl From<MulticastStreaming> for MulticastStreamingInternal {
     fn from(value: MulticastStreaming) -> Self {
-        matches!(value, MulticastStreaming::On)
+        match value {
+            MulticastStreaming::On => MulticastStreamingInternal::new(true),
+            MulticastStreaming::Off => MulticastStreamingInternal::new(false),
+        }
     }
 }
 
-impl EncodeVisca for MulticastStreaming {
+impl CommandFeatures for MulticastStreamingInternal {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::NDI]
+    }
+}
+
+impl crate::command::encode_visca::EncodeVisca for MulticastStreaming {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = MulticastStreamingInternal::MAX_SIZE;
 
-    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        // Commands use 0x0B prefix (extended command space)
-        // Format: 81 0B 01 23 0p FF where p=1 for On, p=2 for Off
-        let mode = match self {
-            MulticastStreaming::On => 0x01,
-            MulticastStreaming::Off => 0x02,
-        };
-
-        buffer[0] = 0x80 | camera_id.id();
-        buffer[1] = 0x0B;
-        buffer[2] = 0x01;
-        buffer[3] = 0x23;
-        buffer[4] = mode;
-        buffer[5] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
+    fn encode_into(
+        &self,
+        camera_id: crate::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::Error> {
+        let internal: MulticastStreamingInternal = (*self).into();
+        internal.encode_into(camera_id, buffer)
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
-        None // Standard ACK/Completion response
+    fn response_type(&self) -> Option<crate::command::ResponseType> {
+        MulticastStreamingInternal::new(true).response_type()
     }
 
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Network
+    fn timeout_kind(&self) -> crate::timeout::CommandCategory {
+        MulticastStreamingInternal::new(true).timeout_kind()
     }
 }
 
@@ -71,6 +72,23 @@ impl CommandFeatures for MulticastStreaming {
     fn required_features(&self) -> &[CameraFeature] {
         &[CameraFeature::NDI]
     }
+}
+
+visca_param_command! {
+    /// Internal NDI quality command
+    struct NDIQualityCommandInternal {
+        quality: NDIQuality,
+    }
+    prefix = [0x80, 0x0B, 0x01, 0x01];
+    param_byte = match quality {
+        NDIQuality::High => 0x01,
+        NDIQuality::Medium => 0x02,
+        NDIQuality::Low => 0x03,
+        NDIQuality::Off => 0x04,
+    };
+    timeout = Network;
+    address = 0x80;
+    response = None;
 }
 
 /// NDI streaming quality control command
@@ -82,50 +100,39 @@ pub struct NDIQualityCommand {
     pub quality: NDIQuality,
 }
 
-impl NDIQualityCommand {
-    /// Create a new NDI quality command
-    pub fn new(quality: NDIQuality) -> Self {
-        Self { quality }
+impl CommandFeatures for NDIQualityCommandInternal {
+    fn required_features(&self) -> &[CameraFeature] {
+        &[CameraFeature::NDI]
     }
 }
 
-impl EncodeVisca for NDIQualityCommand {
+impl crate::command::encode_visca::EncodeVisca for NDIQualityCommand {
     type Response = ();
-    const MAX_SIZE: usize = 6;
+    const MAX_SIZE: usize = NDIQualityCommandInternal::MAX_SIZE;
 
-    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        // Format: 81 0B 01 01 0p FF
-        // where p=1 (High), 2 (Medium), 3 (Low), 4 (Off)
-        let quality_value = match self.quality {
-            NDIQuality::High => 0x01,
-            NDIQuality::Medium => 0x02,
-            NDIQuality::Low => 0x03,
-            NDIQuality::Off => 0x04,
+    fn encode_into(
+        &self,
+        camera_id: crate::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::Error> {
+        let internal = NDIQualityCommandInternal {
+            quality: self.quality,
         };
-
-        buffer[0] = 0x80 | camera_id.id();
-        buffer[1] = 0x0B;
-        buffer[2] = 0x01;
-        buffer[3] = 0x01;
-        buffer[4] = quality_value;
-        buffer[5] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
+        internal.encode_into(camera_id, buffer)
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
-        None // Standard ACK/Completion response
+    fn response_type(&self) -> Option<crate::command::ResponseType> {
+        NDIQualityCommandInternal {
+            quality: self.quality,
+        }
+        .response_type()
     }
 
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Network
+    fn timeout_kind(&self) -> crate::timeout::CommandCategory {
+        NDIQualityCommandInternal {
+            quality: self.quality,
+        }
+        .timeout_kind()
     }
 }
 
@@ -135,10 +142,18 @@ impl CommandFeatures for NDIQualityCommand {
     }
 }
 
+impl NDIQualityCommand {
+    /// Create a new NDI quality command
+    pub fn new(quality: NDIQuality) -> Self {
+        Self { quality }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
     use super::*;
+    use crate::{command::encode_visca::EncodeVisca, CameraId};
 
     #[test]
     fn test_multicast_on_encoding() {

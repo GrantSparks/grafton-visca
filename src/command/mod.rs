@@ -53,8 +53,7 @@ pub use self::{
     pan_tilt::*,
     power::*,
     preset::*,
-    response::{Response, ResponseType}, // Removed parse_response - unused
-    // streaming::{MulticastStreaming, NDIQualityCommand},  // Not public - used internally
+    response::{Response, ResponseType},
     system::{MotionSyncMode, MotionSyncSpeed},
     // tally::*,  // Commented out - unused
     variable_speed::*,

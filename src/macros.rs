@@ -192,7 +192,7 @@ macro_rules! visca_bounded_param {
 ///         off: 0x03,
 ///     }
 /// }
-/// 
+///
 /// // With custom address and response type
 /// visca_bool_command! {
 ///     /// Multicast streaming control
@@ -227,7 +227,7 @@ macro_rules! visca_bool_command {
             }
         }
     };
-    
+
     // Extended form with optional parameters
     (
         $(#[$meta:meta])*
@@ -409,7 +409,7 @@ macro_rules! visca_builder {
 ///     param_byte = mode as u8;
 ///     timeout = Quick;
 /// }
-/// 
+///
 /// // With custom address and response type
 /// visca_param_command! {
 ///     /// Custom network command
@@ -447,7 +447,7 @@ macro_rules! visca_param_command {
             response = None;
         }
     };
-    
+
     // Extended form with optional parameters
     (
         $(#[$meta:meta])*
@@ -572,13 +572,119 @@ macro_rules! forward_facade {
     };
 }
 
+/// Create a simple constant byte command.
+///
+/// This macro generates commands that always send the same fixed byte sequence,
+/// typically used for commands with no parameters like "Cancel", "Menu Open", etc.
+///
+/// # Example
+/// ```ignore
+/// visca_const_command! {
+///     /// Cancel command to abort current operation
+///     pub struct CommandCancel;
+///     bytes = [0x81, 0x21, 0xFF];
+///     timeout = Quick;
+/// }
+///
+/// // With custom address and response type
+/// visca_const_command! {
+///     /// Interface clear command
+///     pub(crate) struct InterfaceClearCommand;
+///     bytes = [0x88, 0x01, 0x00, 0x01, 0xFF];
+///     timeout = Network;
+///     address = 0x88;
+///     response = Some(ResponseType::Network);
+/// }
+/// ```
+#[macro_export]
+macro_rules! visca_const_command {
+    // Original form without optional parameters
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident;
+        bytes = [$($byte:expr),+ $(,)?];
+        timeout = $category:ident;
+    ) => {
+        visca_const_command! {
+            $(#[$meta])*
+            $vis struct $name;
+            bytes = [$($byte),+];
+            timeout = $category;
+            address = 0x81;
+            response = None;
+        }
+    };
+
+    // Extended form with optional parameters
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident;
+        bytes = [$($byte:expr),+ $(,)?];
+        timeout = $category:ident;
+        address = $address:expr;
+        response = $response:expr;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        $vis struct $name;
+
+        impl $name {
+            /// Create a new instance of this command.
+            pub fn new() -> Self {
+                Self
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl $crate::command::encode_visca::EncodeVisca for $name {
+            type Response = ();
+            const MAX_SIZE: usize = $crate::visca_bytes!($($byte),+).len();
+
+            fn encode_into(
+                &self,
+                camera_id: $crate::camera_id::CameraId,
+                buffer: &mut [u8],
+            ) -> Result<usize, $crate::error::Error> {
+                const BYTES: &[u8] = &$crate::visca_bytes!($($byte),+);
+                if buffer.len() < BYTES.len() {
+                    return Err($crate::error::Error::BufferTooSmall {
+                        required: BYTES.len(),
+                        actual: buffer.len(),
+                    });
+                }
+
+                // Copy the command bytes
+                buffer[..BYTES.len()].copy_from_slice(BYTES);
+
+                // Update the first byte with camera ID if needed
+                if $address == 0x81 {
+                    buffer[0] = $address | camera_id.id();
+                }
+
+                Ok(BYTES.len())
+            }
+
+            fn response_type(&self) -> Option<$crate::command::response::ResponseType> {
+                $response
+            }
+
+            fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
+                $crate::timeout::CommandCategory::$category
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        camera_id::CameraId,
-        command::{encode_visca::EncodeVisca, response::ResponseType},
-    };
+    #![allow(clippy::expect_used)]
+
+    use crate::{camera_id::CameraId, command::encode_visca::EncodeVisca};
 
     // Test the extended bool command with custom address
     visca_bool_command! {
@@ -672,6 +778,15 @@ mod tests {
             .expect("encode should succeed");
         assert_eq!(len, 6);
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x01, 0x02, 0xFF]);
+
+        // Test Mode1 to avoid dead code warning
+        let cmd_mode1 = TestNetworkParamCommand {
+            mode: TestMode::Mode1,
+        };
+        let len = cmd_mode1
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("encode should succeed");
+        assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x01, 0x01, 0xFF]);
     }
 
     // Test regular param command still works
@@ -703,13 +818,13 @@ mod tests {
         // Test that camera ID is correctly encoded in the address byte
         let cmd = TestNetworkBoolCommand::new(true);
         let mut buffer = [0u8; 6];
-        
+
         // Test with CAMERA_3 (ID = 3)
         let len = cmd
             .encode_into(CameraId::CAMERA_3, &mut buffer)
             .expect("encode should succeed");
         assert_eq!(&buffer[..len], &[0x83, 0x0B, 0x01, 0x23, 0x01, 0xFF]);
-        
+
         // Test with CAMERA_7 (ID = 7)
         let len = cmd
             .encode_into(CameraId::CAMERA_7, &mut buffer)

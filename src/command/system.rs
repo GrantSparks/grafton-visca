@@ -19,69 +19,21 @@
 // Workspace / local-crate imports
 use crate::{
     capabilities::{CameraFeature, CommandFeatures},
-    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
+    command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
 };
 
-/// Command to set camera address (broadcast, serial only).
-///
-/// This is used during initial setup of VISCA cameras on a serial bus.
-/// Note: This is a broadcast command that affects all cameras on the bus.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct AddressSetCommand {
-    /// Internal command bytes.
-    command: [u8; 4],
-}
-
-impl AddressSetCommand {
-    /// Create a new address set command.
-    pub fn new() -> Self {
-        let mut cmd = CommandBuilder::<4>::new();
-        cmd.append(crate::command::const_encoding::constants::system::ADDRESS_SET);
-        Self {
-            command: cmd.build(),
-        }
-    }
-}
-
-impl Default for AddressSetCommand {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl EncodeVisca for AddressSetCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 4;
-
-    fn encode_into(
-        &self,
-        #[allow(unused_variables)] camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        // ADDRESS_SET is always broadcast (0x88), camera_id is not used
-        // The command bytes already contain the broadcast address
-        // INTERFACE_CLEAR is always broadcast (0x88), camera_id is not used
-        // The command bytes already contain the broadcast address
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
+crate::visca_const_command! {
+    /// Command to set camera address (broadcast, serial only).
+    ///
+    /// This is used during initial setup of VISCA cameras on a serial bus.
+    /// Note: This is a broadcast command that affects all cameras on the bus.
+    pub(crate) struct AddressSetCommand;
+    bytes = [0x88, 0x30, 0x01];
+    timeout = Quick;
+    address = 0x88;
+    response = None;
 }
 
 impl CommandFeatures for AddressSetCommand {
@@ -91,62 +43,16 @@ impl CommandFeatures for AddressSetCommand {
     }
 }
 
-/// Command to clear the interface (broadcast, serial only).
-///
-/// This resets the command buffer and clears any pending commands.
-/// Note: This is a broadcast command that affects all cameras on the bus.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct InterfaceClearCommand {
-    /// Internal command bytes.
-    command: [u8; 5],
-}
-
-impl InterfaceClearCommand {
-    /// Create a new interface clear command.
-    pub fn new() -> Self {
-        let mut cmd = CommandBuilder::<5>::new();
-        cmd.append(crate::command::const_encoding::constants::system::INTERFACE_CLEAR);
-        Self {
-            command: cmd.build(),
-        }
-    }
-}
-
-impl Default for InterfaceClearCommand {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl EncodeVisca for InterfaceClearCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 5;
-
-    fn encode_into(
-        &self,
-        #[allow(unused_variables)] camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        // INTERFACE_CLEAR is always broadcast (0x88), camera_id is not used
-        // The command bytes already contain the broadcast address
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
+crate::visca_const_command! {
+    /// Command to clear the interface (broadcast, serial only).
+    ///
+    /// This resets the command buffer and clears any pending commands.
+    /// Note: This is a broadcast command that affects all cameras on the bus.
+    pub(crate) struct InterfaceClearCommand;
+    bytes = [0x88, 0x01, 0x00, 0x01];
+    timeout = Quick;
+    address = 0x88;
+    response = None;
 }
 
 impl CommandFeatures for InterfaceClearCommand {
@@ -221,22 +127,14 @@ pub enum Socket {
 /// This cancels any in-progress commands on the specified socket.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct CommandCancelCommand {
-    /// Internal command bytes.
-    command: [u8; 3],
+    /// The socket to cancel commands on.
+    socket: Socket,
 }
 
 impl CommandCancelCommand {
     /// Create a new command cancel command.
     pub fn new(socket: Socket) -> Self {
-        let mut cmd = CommandBuilder::<3>::new();
-        cmd.append(crate::command::const_encoding::constants::system::COMMAND_CANCEL_PREFIX);
-        cmd.push(match socket {
-            Socket::Socket1 => 0x21,
-            Socket::Socket2 => 0x22,
-        });
-        Self {
-            command: cmd.build(),
-        }
+        Self { socket }
     }
 }
 
@@ -256,9 +154,12 @@ impl EncodeVisca for CommandCancelCommand {
             });
         }
 
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        // Replace the camera ID for cancel command
         buffer[0] = camera_id.to_address_byte();
+        buffer[1] = match self.socket {
+            Socket::Socket1 => 0x21,
+            Socket::Socket2 => 0x22,
+        };
+        buffer[2] = 0xFF;
         Ok(Self::MAX_SIZE)
     }
 
