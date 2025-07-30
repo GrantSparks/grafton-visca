@@ -652,7 +652,7 @@ where
 
         // Initialize socket manager automatically for better reliability
         if let Err(e) = camera.initialize_socket_manager() {
-            log::warn!("Failed to initialize socket manager: {}", e);
+            log::warn!("Failed to initialize socket manager: {e}");
         }
 
         camera
@@ -693,7 +693,7 @@ where
                 // Use the provided spawner
                 let future = Box::pin(async move {
                     if let Err(e) = actor.run().await {
-                        log::error!("Socket manager actor failed: {}", e);
+                        log::error!("Socket manager actor failed: {e}");
                     }
                 });
                 spawner.spawn(future);
