@@ -41,7 +41,7 @@ async fn main() -> Result<(), Error> {
         .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
     // Create camera with async transport
-    println!("Connecting to camera at {}...", camera_addr);
+    println!("Connecting to camera at {camera_addr}...");
     let transport = Udp::connect(&camera_addr).await?;
     let camera = PTZOpticsG2Cam::new(transport);
 
@@ -71,7 +71,7 @@ where
             println!("   ✓ Power on command succeeded");
         }
         Ok(Err(e)) => {
-            println!("   ✗ Power on command failed: {}", e);
+            println!("   ✗ Power on command failed: {e}");
         }
         Err(_) => {
             println!("   ✗ Power on command timed out after {quick_timeout:?}");
@@ -84,7 +84,7 @@ where
             println!("   ✓ Home command succeeded");
         }
         Ok(Err(e)) => {
-            println!("   ✗ Home command failed: {}", e);
+            println!("   ✗ Home command failed: {e}");
         }
         Err(_) => {
             println!("   ✗ Home command timed out after {quick_timeout:?}");
@@ -126,17 +126,16 @@ where
             // Stop movement
             match timeout(movement_timeout, camera.pan_tilt_stop()).await {
                 Ok(Ok(_)) => println!("   ✓ Movement stopped"),
-                Ok(Err(e)) => println!("   ✗ Stop command failed: {}", e),
+                Ok(Err(e)) => println!("   ✗ Stop command failed: {e}"),
                 Err(_) => println!("   ✗ Stop command timed out"),
             }
         }
         Ok(Err(e)) => {
-            println!("   ✗ Movement command failed: {}", e);
+            println!("   ✗ Movement command failed: {e}");
         }
         Err(_) => {
             println!(
-                "   ✗ Movement command timed out after {:?}",
-                movement_timeout
+                "   ✗ Movement command timed out after {movement_timeout:?}"
             );
         }
     }
@@ -168,7 +167,7 @@ where
             println!("   ✓ Preset recalled successfully in {elapsed:?}");
         }
         Ok(Err(e)) => {
-            println!("   ✗ Preset recall failed: {}", e);
+            println!("   ✗ Preset recall failed: {e}");
         }
         Err(_) => {
             println!("   ✗ Preset recall timed out after {preset_timeout:?}");
@@ -199,8 +198,7 @@ where
     for attempt in 1..=max_retries {
         let current_timeout = initial_timeout * attempt as u32;
         println!(
-            "   Attempt {}/{} with timeout {:?}",
-            attempt, max_retries, current_timeout
+            "   Attempt {attempt}/{max_retries} with timeout {current_timeout:?}"
         );
 
         match timeout(
@@ -210,18 +208,18 @@ where
         .await
         {
             Ok(Ok(_)) => {
-                println!("   ✓ Success on attempt {}: moved to position", attempt);
+                println!("   ✓ Success on attempt {attempt}: moved to position");
                 return Ok(());
             }
             Ok(Err(e)) => {
-                println!("   ✗ Command error on attempt {}: {}", attempt, e);
+                println!("   ✗ Command error on attempt {attempt}: {e}");
                 if attempt < max_retries {
                     println!("   Retrying...");
                     tokio::time::sleep(Duration::from_millis(100 * attempt as u64)).await;
                 }
             }
             Err(_) => {
-                println!("   ✗ Timeout on attempt {}", attempt);
+                println!("   ✗ Timeout on attempt {attempt}");
                 if attempt < max_retries {
                     println!("   Retrying with longer timeout...");
                     tokio::time::sleep(Duration::from_millis(100 * attempt as u64)).await;
@@ -250,12 +248,12 @@ where
                 let custom_timeout = Duration::from_secs(30);
                 match timeout(custom_timeout, tcp_camera.power_on()).await {
                     Ok(Ok(_)) => println!("   ✓ TCP camera powered on"),
-                    Ok(Err(e)) => println!("   ✗ TCP camera error: {}", e),
+                    Ok(Err(e)) => println!("   ✗ TCP camera error: {e}"),
                     Err(_) => println!("   ✗ Operation timed out after {custom_timeout:?}"),
                 }
             }
             Err(e) => {
-                println!("   ✗ Failed to create TCP transport: {}", e);
+                println!("   ✗ Failed to create TCP transport: {e}");
             }
         }
     }
