@@ -57,12 +57,12 @@ fn run_examples() -> Result<(), Error> {
     let pan_speed = PanSpeed::try_from(pan_speed_raw).map_err(|_| Error::InvalidParameter {
         parameter: "pan_speed",
         value: pan_speed_raw.to_string(),
-        reason: format!("Invalid pan speed: {}", pan_speed_raw),
+        reason: format!("Invalid pan speed: {pan_speed_raw}"),
     })?;
     let tilt_speed = TiltSpeed::try_from(tilt_speed_raw).map_err(|_| Error::InvalidParameter {
         parameter: "tilt_speed",
         value: tilt_speed_raw.to_string(),
-        reason: format!("Invalid tilt speed: {}", tilt_speed_raw),
+        reason: format!("Invalid tilt speed: {tilt_speed_raw}"),
     })?;
 
     println!(
