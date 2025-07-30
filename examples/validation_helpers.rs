@@ -73,7 +73,7 @@ fn run_examples() -> Result<(), Error> {
 
     // These validated values can now be used with Camera methods
     println!("  These values can be used with camera.pan_tilt_move()");
-    println!("  Direction: {PanTiltDirection::Up:?}");
+    println!("  Direction: {:?}", PanTiltDirection::Up);
 
     println!();
 
