@@ -3,11 +3,8 @@
 //! This example shows how the Camera API works with compile-time profiles
 //! providing type safety and zero runtime overhead.
 
-use grafton_visca::{
-    capabilities::{NDFilter, Profile},
-    transport::UnifiedTransport,
-    Camera, Error, NDFilterMode,
-};
+#[cfg(any(all(not(feature = "tokio"), not(feature = "async")), feature = "tokio"))]
+use grafton_visca::Error;
 
 #[cfg(all(not(feature = "tokio"), not(feature = "async")))]
 use grafton_visca::transport::blocking::{Tcp, Udp};
@@ -20,6 +17,7 @@ use grafton_visca::transport::tokio::{Tcp, Udp};
 #[cfg(all(not(feature = "tokio"), not(feature = "async")))]
 fn blocking_examples() -> Result<(), Error> {
     use grafton_visca::prelude::blocking::*;
+    use grafton_visca::NDFilterMode;
 
     println!("=== Unified Camera with Blocking Transport ===\n");
 
@@ -69,6 +67,7 @@ fn blocking_examples() -> Result<(), Error> {
 #[cfg(feature = "tokio")]
 async fn async_examples() -> Result<(), Error> {
     use grafton_visca::prelude::r#async::*;
+    use grafton_visca::NDFilterMode;
     println!("=== Unified Camera with Async Transport ===\n");
 
     // Example 1: Create camera with GenericVisca profile
@@ -119,6 +118,7 @@ async fn async_examples() -> Result<(), Error> {
 
 // ==================== ADVANCED EXAMPLE ====================
 
+#[cfg(any(all(not(feature = "tokio"), not(feature = "async")), feature = "tokio"))]
 fn advanced_example() {
     println!("=== Advanced: Working with Generic Functions ===\n");
 
@@ -127,6 +127,11 @@ fn advanced_example() {
 
     #[cfg(all(not(feature = "tokio"), not(feature = "async")))]
     {
+        use grafton_visca::{
+            capabilities::{NDFilter, Profile},
+            transport::UnifiedTransport,
+            Camera, NDFilterMode,
+        };
         // Blocking version - You can write generic functions that work with any camera profile
         fn _operate_any_camera<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
         where
@@ -156,6 +161,12 @@ fn advanced_example() {
 
     #[cfg(feature = "tokio")]
     {
+        use grafton_visca::{
+            capabilities::{NDFilter, Profile},
+            transport::UnifiedTransport,
+            Camera, NDFilterMode,
+        };
+
         // Async version - You can write generic functions that work with any camera profile
         async fn _operate_any_camera<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
         where
@@ -177,7 +188,14 @@ fn advanced_example() {
             T: UnifiedTransport,
         {
             // This function can only be called with cameras that support ND filter
-            camera.set_nd_filter_mode(NDFilterMode::Preset).await?;
+            // The NDFilterOps trait methods are available through the Profile + NDFilter bound
+
+            // Using UFCS to explicitly call the trait method
+            <Camera<P, T> as grafton_visca::camera::methods::NDFilterOps>::set_nd_filter_mode(
+                camera,
+                NDFilterMode::Preset,
+            )
+            .await?;
             Ok(())
         }
     }

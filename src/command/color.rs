@@ -6,68 +6,22 @@
 // Crate imports
 use crate::{
     capabilities::{CameraFeature, CommandFeatures},
-    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType},
+    command::{encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
+    visca_const_command,
 };
 
-/// One-Push White Balance Trigger command.
-///
-/// Performs a one-time automatic white balance adjustment based on
-/// the current scene. The camera will analyze the image and set the
-/// white balance to achieve neutral colors.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct OnePushTriggerCommand {
-    /// Internal command bytes.
-    command: [u8; 6],
-}
-
-impl OnePushTriggerCommand {
-    /// Create a new one-push white balance trigger command.
-    pub fn new() -> Self {
-        let mut cmd = CommandBuilder::<6>::new();
-        cmd.append(crate::command::const_encoding::constants::color::WB_ONE_PUSH_TRIGGER);
-        Self {
-            command: cmd.build(),
-        }
-    }
-}
-
-impl Default for OnePushTriggerCommand {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl EncodeVisca for OnePushTriggerCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        buffer[0] = camera_id.to_address_byte();
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
+visca_const_command! {
+    /// One-Push White Balance Trigger command.
+    ///
+    /// Performs a one-time automatic white balance adjustment based on
+    /// the current scene. The camera will analyze the image and set the
+    /// white balance to achieve neutral colors.
+    pub(crate) struct OnePushTriggerCommand;
+    bytes = [0x81, 0x01, 0x04, 0x10, 0x05];
+    timeout = Quick;
 }
 
 impl CommandFeatures for OnePushTriggerCommand {
@@ -76,22 +30,17 @@ impl CommandFeatures for OnePushTriggerCommand {
     }
 }
 
-/// Red Channel Tuning command.
-///
-/// Fine-tunes the red channel gain for white balance adjustment.
-/// This is typically used after setting a base white balance mode
-/// to make small corrections.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct RedTuningCommand {
-    /// Internal command bytes.
-    command: [u8; 9],
-}
-
-impl RedTuningCommand {
-    /// Create a new red tuning command.
-    pub fn new(level: RedTuning) -> Self {
-        let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX);
+crate::visca_builder! {
+    /// Red Channel Tuning command.
+    ///
+    /// Fine-tunes the red channel gain for white balance adjustment.
+    /// This is typically used after setting a base white balance mode
+    /// to make small corrections.
+    pub(crate) struct RedTuningCommand {
+        level: RedTuning,
+    }
+    builder<9> => |builder, level| {
+        let _ = builder.append(&[0x81, 0x01, 0x04, 0x43, 0x00, 0x00]);
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -99,42 +48,16 @@ impl RedTuningCommand {
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
-        // Split into two nibbles for 0p 0q format
-        cmd.push(0x00); // High nibble always 0 for range 0x00-0x14
-        cmd.push(encoded);
-        Self {
-            command: cmd.build(),
-        }
+        let _ = builder.push(0x00); // High nibble always 0 for range 0x00-0x14
+        let _ = builder.push(encoded);
     }
+    timeout = Quick;
 }
 
-impl EncodeVisca for RedTuningCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 9;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        buffer[0] = camera_id.to_address_byte();
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+impl RedTuningCommand {
+    /// Create a new red tuning command.
+    pub fn new(level: RedTuning) -> Self {
+        Self { level }
     }
 }
 
@@ -144,22 +67,17 @@ impl CommandFeatures for RedTuningCommand {
     }
 }
 
-/// Blue Channel Tuning command.
-///
-/// Fine-tunes the blue channel gain for white balance adjustment.
-/// This is typically used after setting a base white balance mode
-/// to make small corrections.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct BlueTuningCommand {
-    /// Internal command bytes.
-    command: [u8; 9],
-}
-
-impl BlueTuningCommand {
-    /// Create a new blue tuning command.
-    pub fn new(level: BlueTuning) -> Self {
-        let mut cmd = CommandBuilder::<9>::new();
-        cmd.append(crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX);
+crate::visca_builder! {
+    /// Blue Channel Tuning command.
+    ///
+    /// Fine-tunes the blue channel gain for white balance adjustment.
+    /// This is typically used after setting a base white balance mode
+    /// to make small corrections.
+    pub(crate) struct BlueTuningCommand {
+        level: BlueTuning,
+    }
+    builder<9> => |builder, level| {
+        let _ = builder.append(&[0x81, 0x01, 0x04, 0x44, 0x00, 0x00]);
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -167,42 +85,16 @@ impl BlueTuningCommand {
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
-        // Split into two nibbles for 0p 0q format
-        cmd.push(0x00); // High nibble always 0 for range 0x00-0x14
-        cmd.push(encoded);
-        Self {
-            command: cmd.build(),
-        }
+        let _ = builder.push(0x00); // High nibble always 0 for range 0x00-0x14
+        let _ = builder.push(encoded);
     }
+    timeout = Quick;
 }
 
-impl EncodeVisca for BlueTuningCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 9;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[..Self::MAX_SIZE].copy_from_slice(&self.command);
-        buffer[0] = camera_id.to_address_byte();
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+impl BlueTuningCommand {
+    /// Create a new blue tuning command.
+    pub fn new(level: BlueTuning) -> Self {
+        Self { level }
     }
 }
 

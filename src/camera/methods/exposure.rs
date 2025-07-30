@@ -403,7 +403,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Exp
     async fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error> {
         use crate::command::exposure::DynamicRange;
 
-        let command = DynamicRange::SetLevel(level);
+        let command = DynamicRange::new(level);
         self.send_command(&command).await?;
         Ok(())
     }
@@ -676,7 +676,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Exp
     fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error> {
         use crate::command::exposure::DynamicRange;
 
-        let command = DynamicRange::SetLevel(level);
+        let command = DynamicRange::new(level);
         self.send_command_blocking(&command)?;
         Ok(())
     }
