@@ -1,7 +1,7 @@
 //! Focus methods for cameras using the new GAT architecture.
 
 use crate::{
-    command::focus::{Focus as FocusCommand, FocusSpeed},
+    command::focus::{AutoFocusSensitivity, Focus as FocusCommand, FocusSpeed, FocusZone},
     types::{FocusPosition, SpeedLevel},
     Error,
 };
@@ -48,6 +48,21 @@ pub trait FocusOps: Sized {
     /// Release Push AF button.
     /// Returns to previous focus mode after temporary auto focus.
     async fn push_af_release(&self) -> Result<(), Error>;
+
+    /// Set the focus zone.
+    /// Determines which area of the image the camera uses for auto focus.
+    async fn set_focus_zone(&self, zone: FocusZone) -> Result<(), Error>;
+
+    /// Set auto focus sensitivity.
+    /// Controls how responsive the auto focus system is to changes in the scene.
+    async fn set_auto_focus_sensitivity(
+        &self,
+        sensitivity: AutoFocusSensitivity,
+    ) -> Result<(), Error>;
+
+    /// Set the focus near limit.
+    /// Sets the minimum focus distance to prevent the camera from focusing on objects too close to the lens.
+    async fn set_focus_near_limit(&self, position: FocusPosition) -> Result<(), Error>;
 }
 
 /// Focus operations (blocking).
@@ -91,6 +106,18 @@ pub trait FocusOpsBlocking: Sized {
     /// Release Push AF button.
     /// Returns to previous focus mode after temporary auto focus.
     fn push_af_release(&self) -> Result<(), Error>;
+
+    /// Set the focus zone.
+    /// Determines which area of the image the camera uses for auto focus.
+    fn set_focus_zone(&self, zone: FocusZone) -> Result<(), Error>;
+
+    /// Set auto focus sensitivity.
+    /// Controls how responsive the auto focus system is to changes in the scene.
+    fn set_auto_focus_sensitivity(&self, sensitivity: AutoFocusSensitivity) -> Result<(), Error>;
+
+    /// Set the focus near limit.
+    /// Sets the minimum focus distance to prevent the camera from focusing on objects too close to the lens.
+    fn set_focus_near_limit(&self, position: FocusPosition) -> Result<(), Error>;
 }
 
 // Async implementation
@@ -179,6 +206,29 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Foc
         self.send_command(&PushAF::Release).await?;
         Ok(())
     }
+
+    async fn set_focus_zone(&self, zone: FocusZone) -> Result<(), Error> {
+        use crate::command::focus::FocusZoneCommand;
+        self.send_command(&FocusZoneCommand { zone }).await?;
+        Ok(())
+    }
+
+    async fn set_auto_focus_sensitivity(
+        &self,
+        sensitivity: AutoFocusSensitivity,
+    ) -> Result<(), Error> {
+        use crate::command::focus::AutoFocusSensitivityCommand;
+        self.send_command(&AutoFocusSensitivityCommand { sensitivity })
+            .await?;
+        Ok(())
+    }
+
+    async fn set_focus_near_limit(&self, position: FocusPosition) -> Result<(), Error> {
+        use crate::command::focus::FocusNearLimitCommand;
+        self.send_command(&FocusNearLimitCommand { position })
+            .await?;
+        Ok(())
+    }
 }
 
 // Blocking implementation
@@ -262,6 +312,24 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Foc
     fn push_af_release(&self) -> Result<(), Error> {
         use crate::command::focus::PushAF;
         self.send_command_blocking(&PushAF::Release)?;
+        Ok(())
+    }
+
+    fn set_focus_zone(&self, zone: FocusZone) -> Result<(), Error> {
+        use crate::command::focus::FocusZoneCommand;
+        self.send_command_blocking(&FocusZoneCommand { zone })?;
+        Ok(())
+    }
+
+    fn set_auto_focus_sensitivity(&self, sensitivity: AutoFocusSensitivity) -> Result<(), Error> {
+        use crate::command::focus::AutoFocusSensitivityCommand;
+        self.send_command_blocking(&AutoFocusSensitivityCommand { sensitivity })?;
+        Ok(())
+    }
+
+    fn set_focus_near_limit(&self, position: FocusPosition) -> Result<(), Error> {
+        use crate::command::focus::FocusNearLimitCommand;
+        self.send_command_blocking(&FocusNearLimitCommand { position })?;
         Ok(())
     }
 }
