@@ -25,7 +25,8 @@ fn main() -> Result<(), Error> {
     println!("Testing camera ID to VISCA address byte conversion:");
     for (name, camera_id, expected_addr) in cameras {
         let addr_byte = camera_id.to_address_byte();
-        println!("  {name} (ID {}): 0x{addr_byte:02X}", camera_id.id());
+        let id = camera_id.id();
+        println!("  {name} (ID {id}): 0x{addr_byte:02X}");
 
         assert_eq!(
             addr_byte, expected_addr,

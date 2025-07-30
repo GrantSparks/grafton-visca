@@ -342,7 +342,11 @@ impl TryFrom<Fraction> for ShutterSpeed {
             _ => {
                 return Err(Error::InvalidParameter {
                     parameter: "shutter_speed",
-                    value: format!("{}/{}", fraction.numerator, fraction.denominator),
+                    value: {
+                        let num = fraction.numerator;
+                        let den = fraction.denominator;
+                        format!("{num}/{den}")
+                    },
                     reason: "Unsupported shutter speed value".to_string(),
                 })
             }
