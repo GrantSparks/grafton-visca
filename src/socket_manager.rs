@@ -544,9 +544,11 @@ impl RetryHook for DefaultRetryHook {
 }
 
 /// No-op retry hook that never retries.
+#[cfg(test)]
 #[derive(Debug, Copy, Clone)]
 pub struct NoRetryHook;
 
+#[cfg(test)]
 impl RetryHook for NoRetryHook {
     fn should_retry(&self, _error: &Error, _attempt: u32) -> bool {
         false
