@@ -541,7 +541,7 @@ where
             // Try to receive a response
             match self.transport.recv_blocking_timeout(timeout) {
                 Ok(bytes) => {
-                    log::debug!("Received response: {:02X?}", bytes);
+                    log::debug!("Received response: {bytes:02X?}");
 
                     // Deframe the response
                     let response_bytes = self.envelope.extract_response(&bytes)?;
@@ -550,7 +550,7 @@ where
                     match Response::parse(&response_bytes) {
                         Ok(response) => return Ok(response),
                         Err(e) => {
-                            log::warn!("Failed to parse response: {:?}", e);
+                            log::warn!("Failed to parse response: {e:?}");
                             // Continue waiting for a valid response
                         }
                     }
@@ -581,7 +581,7 @@ where
             // Try to receive a response
             match self.transport.recv_blocking_timeout(timeout) {
                 Ok(bytes) => {
-                    log::debug!("Received response: {:02X?}", bytes);
+                    log::debug!("Received response: {bytes:02X?}");
 
                     // Deframe the response
                     let response_bytes = self.envelope.extract_response(&bytes)?;
