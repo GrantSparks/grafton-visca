@@ -18,8 +18,9 @@ fn main() -> Result<(), Error> {
     // Get camera address from command line arguments
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
-        eprintln!("Usage: {} <camera_ip:port>", args[0]);
-        eprintln!("Example: {} 192.168.1.100:5678", args[0]);
+        let prog_name = &args[0];
+        eprintln!("Usage: {prog_name} <camera_ip:port>");
+        eprintln!("Example: {prog_name} 192.168.1.100:5678");
         std::process::exit(1);
     }
 
@@ -54,7 +55,8 @@ where
     // Example 1: Query power state
     println!("1. Querying power state...");
     let power_on = camera.get_power_state()?;
-    println!("   Power is: {}", if power_on { "ON" } else { "OFF" });
+    let power_state = if power_on { "ON" } else { "OFF" };
+    println!("   Power is: {power_state}");
 
     if !power_on {
         println!("Camera is powered off. Some queries may not work.");
@@ -122,7 +124,8 @@ where
 
     // Note: B&W mode inquiry not yet implemented
     let bw_mode = false;
-    println!("Black & White Mode: {}", if bw_mode { "ON" } else { "OFF" });
+    let bw_state = if bw_mode { "ON" } else { "OFF" };
+    println!("Black & White Mode: {bw_state}");
 
     println!("\nInquiry demo completed successfully!");
     Ok(())

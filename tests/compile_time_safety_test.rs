@@ -190,7 +190,7 @@ fn test_generic_functions_with_trait_bounds() {
     println!("Testing FR7 camera...");
     let fr7_result = basic_control(&fr7);
     if let Err(e) = &fr7_result {
-        println!("FR7 error: {:?}", e);
+        println!("FR7 error: {e:?}");
     }
     assert!(fr7_result.is_ok());
 

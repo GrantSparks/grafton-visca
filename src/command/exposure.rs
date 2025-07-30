@@ -124,10 +124,10 @@ impl TryFrom<i8> for ExposureCompensationLevel {
 /// Exposure compensation commands.
 ///
 /// # Example
-/// ```ignore
-/// // This type is used internally by the camera methods.
-/// // Users should use the high-level camera API instead:
-/// // camera.set_exposure_compensation(true).await?;
+/// ```text
+/// This type is used internally by the camera methods.
+/// Users should use the high-level camera API instead:
+/// camera.set_exposure_compensation(true).await?;
 /// ```
 #[derive(Debug, Copy, Clone)]
 pub enum ExposureCompensation {
@@ -230,57 +230,28 @@ impl CommandFeatures for ExposureCompensation {
     }
 }
 
-/// Commands for controlling the camera's dynamic range.
-///
-/// Dynamic range control adjusts the camera's ability to capture detail
-/// in both bright and dark areas of a scene simultaneously. Higher values
-/// increase the dynamic range, allowing better detail retention in scenes
-/// with high contrast.
-#[derive(Debug, Copy, Clone)]
-pub enum DynamicRange {
-    /// Set dynamic range to a specific level (0-8).
-    SetLevel(DynamicRangeLevel),
+crate::visca_builder! {
+    /// Commands for controlling the camera's dynamic range.
+    ///
+    /// Dynamic range control adjusts the camera's ability to capture detail
+    /// in both bright and dark areas of a scene simultaneously. Higher values
+    /// increase the dynamic range, allowing better detail retention in scenes
+    /// with high contrast.
+    pub struct DynamicRange {
+        /// Dynamic range level (0-8).
+        level: DynamicRangeLevel,
+    }
+    builder<9> => |builder, level| {
+        let _ = builder.append(&[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00]);
+        let _ = builder.push(level.value());
+    }
+    timeout = Quick;
 }
 
-impl EncodeVisca for DynamicRange {
-    type Response = ();
-    const MAX_SIZE: usize = 9;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        let level = match self {
-            Self::SetLevel(level) => level,
-        };
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x25;
-        buffer[4] = 0x00;
-        buffer[5] = 0x00;
-        buffer[6] = 0x00;
-        buffer[7] = level.value();
-        buffer[8] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+impl DynamicRange {
+    /// Set dynamic range to a specific level (0-8).
+    pub fn new(level: DynamicRangeLevel) -> Self {
+        Self { level }
     }
 }
 
@@ -834,7 +805,7 @@ mod tests {
         for value in 0..=8 {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = DynamicRange::SetLevel(level);
+            let cmd = DynamicRange::new(level);
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -849,7 +820,7 @@ mod tests {
         for value in 0..=8 {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = DynamicRange::SetLevel(level);
+            let cmd = DynamicRange::new(level);
             assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
         }
     }
@@ -1067,7 +1038,7 @@ mod tests {
             CommandCategory::Quick
         );
         assert_eq!(
-            DynamicRange::SetLevel(
+            DynamicRange::new(
                 DynamicRangeLevel::new(5)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
@@ -1088,7 +1059,7 @@ mod tests {
         .response_type()
         .is_none());
         assert!(ExposureCompensation::On.response_type().is_none());
-        assert!(DynamicRange::SetLevel(
+        assert!(DynamicRange::new(
             DynamicRangeLevel::new(5).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
         .response_type()

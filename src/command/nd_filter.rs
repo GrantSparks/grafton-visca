@@ -12,9 +12,8 @@
 
 use crate::{
     capabilities::{CameraFeature, CommandFeatures},
-    command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
-    timeout::CommandCategory,
+    visca_bool_command, visca_builder, visca_param_command,
 };
 
 /// ND filter mode for Sony FR7.
@@ -26,15 +25,28 @@ pub enum NDFilterMode {
     Variable,
 }
 
-/// Set the ND filter mode (preset or variable).
-///
-/// # Sony FR7 Specific
-/// Command: `8x 01 7E 04 52 0p FF`
-/// - p = 0 (Preset mode)
-/// - p = 1 (Variable mode)
-#[derive(Debug, Clone)]
-pub struct NDFilterModeCommand {
-    mode: NDFilterMode,
+impl From<NDFilterMode> for u8 {
+    fn from(mode: NDFilterMode) -> u8 {
+        match mode {
+            NDFilterMode::Preset => 0x00,
+            NDFilterMode::Variable => 0x01,
+        }
+    }
+}
+
+visca_param_command! {
+    /// Set the ND filter mode (preset or variable).
+    ///
+    /// # Sony FR7 Specific
+    /// Command: `8x 01 7E 04 52 0p FF`
+    /// - p = 0 (Preset mode)
+    /// - p = 1 (Variable mode)
+    pub struct NDFilterModeCommand {
+        mode: NDFilterMode,
+    }
+    prefix = [0x81, 0x01, 0x7E, 0x04, 0x52];
+    param_byte = u8::from(*mode);
+    timeout = Quick;
 }
 
 impl NDFilterModeCommand {
@@ -44,63 +56,28 @@ impl NDFilterModeCommand {
     }
 }
 
-impl EncodeVisca for NDFilterModeCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 7;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 7 {
-            return Err(Error::BufferTooSmall {
-                required: 7,
-                actual: buffer.len(),
-            });
-        }
-
-        let mode_byte = match self.mode {
-            NDFilterMode::Preset => 0x00,
-            NDFilterMode::Variable => 0x01,
-        };
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x04;
-        buffer[4] = 0x52;
-        buffer[5] = mode_byte;
-        buffer[6] = 0xFF;
-
-        Ok(7)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
-}
-
 impl CommandFeatures for NDFilterModeCommand {
     fn required_features(&self) -> &[CameraFeature] {
         &[CameraFeature::NDFilter]
     }
 }
 
-/// Direct ND filter value command for variable mode.
-///
-/// # Sony FR7 Specific
-/// Command: `8x 01 7E 04 42 00 0p 0q FF`
-/// - Value 0x0000 = ND 1/4 (2 stops, minimum ND)
-/// - Value 0x0014 = ND 1/128 (7 stops, maximum density)
-/// - Linear scale for optical density (each increment ~0.5 stop)
-#[derive(Debug, Clone)]
-pub struct NDFilterValueCommand {
-    value: u16,
+visca_builder! {
+    /// Direct ND filter value command for variable mode.
+    ///
+    /// # Sony FR7 Specific
+    /// Command: `8x 01 7E 04 42 00 0p 0q FF`
+    /// - Value 0x0000 = ND 1/4 (2 stops, minimum ND)
+    /// - Value 0x0014 = ND 1/128 (7 stops, maximum density)
+    /// - Linear scale for optical density (each increment ~0.5 stop)
+    pub struct NDFilterValueCommand {
+        value: u16,
+    }
+    builder<9> => |builder, value| {
+        let _ = builder.append(&[0x81, 0x01, 0x7E, 0x04, 0x42, 0x00]);
+        let _ = builder.push_nibble_pair(*value);
+    }
+    timeout = Quick;
 }
 
 impl NDFilterValueCommand {
@@ -137,47 +114,6 @@ impl NDFilterValueCommand {
     }
 }
 
-impl EncodeVisca for NDFilterValueCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 9;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 9 {
-            return Err(Error::BufferTooSmall {
-                required: 9,
-                actual: buffer.len(),
-            });
-        }
-
-        let high = ((self.value >> 4) & 0x0F) as u8;
-        let low = (self.value & 0x0F) as u8;
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x04;
-        buffer[4] = 0x42;
-        buffer[5] = 0x00;
-        buffer[6] = high;
-        buffer[7] = low;
-        buffer[8] = 0xFF;
-
-        Ok(9)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
-}
-
 impl CommandFeatures for NDFilterValueCommand {
     fn required_features(&self) -> &[CameraFeature] {
         &[CameraFeature::NDFilter]
@@ -193,16 +129,29 @@ pub enum NDFilterStep {
     Down,
 }
 
-/// ND filter step adjustment command.
-///
-/// # Sony FR7 Specific
-/// Command: `8x 01 7E 04 12 0p FF`
-/// - p = 02 (ND Filter Up - increase ND one step)
-/// - p = 03 (ND Filter Down - decrease ND one step)
-///   Works in Variable mode to bump ND in small increments.
-#[derive(Debug, Clone)]
-pub struct NDFilterStepCommand {
-    direction: NDFilterStep,
+impl From<NDFilterStep> for u8 {
+    fn from(step: NDFilterStep) -> u8 {
+        match step {
+            NDFilterStep::Up => 0x02,
+            NDFilterStep::Down => 0x03,
+        }
+    }
+}
+
+visca_param_command! {
+    /// ND filter step adjustment command.
+    ///
+    /// # Sony FR7 Specific
+    /// Command: `8x 01 7E 04 12 0p FF`
+    /// - p = 02 (ND Filter Up - increase ND one step)
+    /// - p = 03 (ND Filter Down - decrease ND one step)
+    ///   Works in Variable mode to bump ND in small increments.
+    pub struct NDFilterStepCommand {
+        direction: NDFilterStep,
+    }
+    prefix = [0x81, 0x01, 0x7E, 0x04, 0x12];
+    param_byte = u8::from(*direction);
+    timeout = Quick;
 }
 
 impl NDFilterStepCommand {
@@ -212,108 +161,25 @@ impl NDFilterStepCommand {
     }
 }
 
-impl EncodeVisca for NDFilterStepCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 7;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 7 {
-            return Err(Error::BufferTooSmall {
-                required: 7,
-                actual: buffer.len(),
-            });
-        }
-
-        let direction_byte = match self.direction {
-            NDFilterStep::Up => 0x02,
-            NDFilterStep::Down => 0x03,
-        };
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x04;
-        buffer[4] = 0x12;
-        buffer[5] = direction_byte;
-        buffer[6] = 0xFF;
-
-        Ok(7)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
-}
-
 impl CommandFeatures for NDFilterStepCommand {
     fn required_features(&self) -> &[CameraFeature] {
         &[CameraFeature::NDFilter]
     }
 }
 
-/// Auto ND filter control.
-///
-/// # Sony FR7 Specific
-/// Command: `8x 01 7E 04 53 0p FF`
-/// - p = 02 (Auto ND On)
-/// - p = 03 (Auto ND Off)
-///   When Auto ND is On, the camera automatically engages the ND filter
-///   to maintain exposure (like auto-iris, but using ND).
-#[derive(Debug, Clone)]
-pub struct AutoNDCommand {
-    enabled: bool,
-}
-
-impl AutoNDCommand {
-    /// Create a new auto ND command.
-    pub fn new(enabled: bool) -> Self {
-        Self { enabled }
-    }
-}
-
-impl EncodeVisca for AutoNDCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 7;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 7 {
-            return Err(Error::BufferTooSmall {
-                required: 7,
-                actual: buffer.len(),
-            });
-        }
-
-        let state_byte = if self.enabled { 0x02 } else { 0x03 };
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x04;
-        buffer[4] = 0x53;
-        buffer[5] = state_byte;
-        buffer[6] = 0xFF;
-
-        Ok(7)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+visca_bool_command! {
+    /// Auto ND filter control.
+    ///
+    /// # Sony FR7 Specific
+    /// Command: `8x 01 7E 04 53 0p FF`
+    /// - p = 02 (Auto ND On)
+    /// - p = 03 (Auto ND Off)
+    ///   When Auto ND is On, the camera automatically engages the ND filter
+    ///   to maintain exposure (like auto-iris, but using ND).
+    struct AutoNDCommand {
+        prefix: [0x81, 0x01, 0x7E, 0x04, 0x53],
+        on: 0x02,
+        off: 0x03,
     }
 }
 
@@ -327,6 +193,7 @@ impl CommandFeatures for AutoNDCommand {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::command::encode_visca::EncodeVisca;
 
     #[test]
     fn test_nd_filter_mode_command() {

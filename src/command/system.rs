@@ -19,9 +19,8 @@
 // Workspace / local-crate imports
 use crate::{
     capabilities::{CameraFeature, CommandFeatures},
-    command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
-    timeout::CommandCategory,
+    visca_param_command,
 };
 
 crate::visca_const_command! {
@@ -122,53 +121,31 @@ pub enum Socket {
     Socket2,
 }
 
-/// Command to cancel pending commands on a specific socket.
-///
-/// This cancels any in-progress commands on the specified socket.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct CommandCancelCommand {
-    /// The socket to cancel commands on.
-    socket: Socket,
+impl From<Socket> for u8 {
+    fn from(socket: Socket) -> u8 {
+        match socket {
+            Socket::Socket1 => 0x21,
+            Socket::Socket2 => 0x22,
+        }
+    }
+}
+
+visca_param_command! {
+    /// Command to cancel pending commands on a specific socket.
+    ///
+    /// This cancels any in-progress commands on the specified socket.
+    pub(crate) struct CommandCancelCommand {
+        socket: Socket,
+    }
+    prefix = [0x81];
+    param_byte = u8::from(*socket);
+    timeout = Quick;
 }
 
 impl CommandCancelCommand {
     /// Create a new command cancel command.
     pub fn new(socket: Socket) -> Self {
         Self { socket }
-    }
-}
-
-impl EncodeVisca for CommandCancelCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 3;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = match self.socket {
-            Socket::Socket1 => 0x21,
-            Socket::Socket2 => 0x22,
-        };
-        buffer[2] = 0xFF;
-        Ok(Self::MAX_SIZE)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -182,6 +159,7 @@ impl CommandFeatures for CommandCancelCommand {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory};
 
     #[test]
     fn test_address_set_command() {

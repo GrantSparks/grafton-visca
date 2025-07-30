@@ -57,11 +57,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set specific F-stop values
     camera.set_iris(IrisLevel::new(FStop::F2_8.to_iris_level())?)?;
-    println!("Iris set to {}", FStop::F2_8);
+    let f_stop = FStop::F2_8;
+    println!("Iris set to {f_stop}");
     std::thread::sleep(Duration::from_secs(1));
 
     camera.set_iris(IrisLevel::new(FStop::F5_6.to_iris_level())?)?;
-    println!("Iris set to {}", FStop::F5_6);
+    let f_stop = FStop::F5_6;
+    println!("Iris set to {f_stop}");
     std::thread::sleep(Duration::from_secs(1));
 
     // Example 3: Using NoiseReductionStrength

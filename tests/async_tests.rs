@@ -220,7 +220,7 @@ mod async_tests {
             Response::InquiryResponse(_inquiry) => {
                 // Inquiry responses are parsed correctly
             }
-            _ => panic!("Expected inquiry response, got {:?}", response),
+            _ => panic!("Expected inquiry response, got {response:?}"),
         }
     }
 
@@ -309,7 +309,7 @@ mod async_tests {
 
         match result {
             Err(Error::SyntaxError) => {}
-            _ => panic!("Expected SyntaxError, got {:?}", result),
+            _ => panic!("Expected SyntaxError, got {result:?}"),
         }
 
         // Verify command count

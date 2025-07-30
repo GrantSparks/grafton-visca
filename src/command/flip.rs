@@ -215,8 +215,10 @@ mod tests {
 
     #[test]
     fn test_flip_enum_debug() {
-        assert_eq!(format!("{:?}", Flip::On), "On");
-        assert_eq!(format!("{:?}", Flip::Off), "Off");
+        let on = Flip::On;
+        assert_eq!(format!("{on:?}"), "On");
+        let off = Flip::Off;
+        assert_eq!(format!("{off:?}"), "Off");
     }
 
     #[test]
@@ -233,12 +235,12 @@ mod tests {
     #[test]
     fn test_image_flip_command_debug() {
         let cmd = ImageFlipCommand::new(Flip::On);
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         // With the macro-generated enum, debug output will be "On" or "Off"
         assert!(debug_str == "On" || debug_str.contains("On"));
 
         let cmd = ImageFlipCommand::new(Flip::Off);
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str == "Off" || debug_str.contains("Off"));
     }
 

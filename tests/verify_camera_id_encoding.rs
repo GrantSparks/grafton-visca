@@ -19,7 +19,7 @@ fn test_camera_id_produces_correct_address_bytes() {
 fn test_camera_id_validation() {
     // Test valid ID range (1-7 for individual cameras, 8 for broadcast)
     for id in 1..=7 {
-        assert!(CameraId::try_from(id).is_ok(), "ID {} should be valid", id);
+        assert!(CameraId::try_from(id).is_ok(), "ID {id} should be valid");
     }
     assert!(
         CameraId::try_from(8).is_ok(),
