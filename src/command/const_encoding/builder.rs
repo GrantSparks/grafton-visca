@@ -112,6 +112,17 @@ impl<const N: usize> CommandBuilder<N> {
         self.position
     }
 
+    /// Add a nibble pair (2 bytes) from a u16 value.
+    /// The high nibble (bits 4-7) and low nibble (bits 0-3) are stored as separate bytes.
+    pub fn push_nibble_pair(&mut self, value: u16) -> &mut Self {
+        if self.position + 2 <= N {
+            self.buffer[self.position] = ((value >> 4) & 0x0F) as u8;
+            self.buffer[self.position + 1] = (value & 0x0F) as u8;
+            self.position += 2;
+        }
+        self
+    }
+
     /// Copy the built command into the provided buffer.
     /// Returns the number of bytes written.
     pub fn copy_to(&self, buffer: &mut [u8]) -> Result<usize, crate::Error> {

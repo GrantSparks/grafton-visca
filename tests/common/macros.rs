@@ -20,7 +20,7 @@ macro_rules! assert_command_bytes {
         let cmd = $cmd;
         let bytes = cmd
             .try_into_vec()
-            .unwrap_or_else(|e| panic!("Failed to convert command to bytes: {:?}", e));
+            .unwrap_or_else(|e| panic!("Failed to convert command to bytes: {e:?}"));
         let expected = &$expected[..];
         if bytes != expected {
             panic!(
@@ -46,7 +46,7 @@ macro_rules! assert_response_ok {
     ($result:expr) => {{
         match $result {
             Ok(response) => response,
-            Err(e) => panic!("Expected Ok response, got error: {:?}", e),
+            Err(e) => panic!("Expected Ok response, got error: {e:?}"),
         }
     }};
     ($result:expr, $expected:expr) => {{
@@ -59,13 +59,13 @@ macro_rules! assert_response_ok {
                 );
                 response
             }
-            Err(e) => panic!("Expected Ok({:?}), got error: {:?}", $expected, e),
+            Err(e) => panic!("Expected Ok({:?}), got error: {e:?}", $expected),
         }
     }};
     ($result:expr, $msg:expr) => {{
         match $result {
             Ok(response) => response,
-            Err(e) => panic!("{}: {:?}", $msg, e),
+            Err(e) => panic!("{}: {e:?}", $msg),
         }
     }};
 }
@@ -83,13 +83,13 @@ macro_rules! assert_response_ok {
 macro_rules! assert_response_err {
     ($result:expr) => {{
         match $result {
-            Ok(response) => panic!("Expected error, got Ok({:?})", response),
+            Ok(response) => panic!("Expected error, got Ok({response:?})"),
             Err(e) => e,
         }
     }};
     ($result:expr, $expected_err:pat) => {{
         match $result {
-            Ok(response) => panic!("Expected error, got Ok({:?})", response),
+            Ok(response) => panic!("Expected error, got Ok({response:?})"),
             Err($expected_err) => {}
             Err(e) => panic!(
                 "Expected error {:?}, got {:?}",
@@ -151,11 +151,11 @@ macro_rules! assert_inquiry_response {
 macro_rules! create_test_client {
     (udp, $addr:expr) => {{
         $crate::Client::connect_udp($addr)
-            .unwrap_or_else(|e| panic!("Failed to create UDP client at {}: {:?}", $addr, e))
+            .unwrap_or_else(|e| panic!("Failed to create UDP client at {}: {e:?}", $addr))
     }};
     (tcp, $addr:expr) => {{
         $crate::Client::connect_tcp($addr)
-            .unwrap_or_else(|e| panic!("Failed to create TCP client at {}: {:?}", $addr, e))
+            .unwrap_or_else(|e| panic!("Failed to create TCP client at {}: {e:?}", $addr))
     }};
 }
 
@@ -176,7 +176,7 @@ macro_rules! assert_send_ok {
     ($client:expr, $command:expr) => {{
         match $client.send(&$command) {
             Ok(response) => response,
-            Err(e) => panic!("Failed to send command {:?}: {:?}", stringify!($command), e),
+            Err(e) => panic!("Failed to send command {:?}: {e:?}", stringify!($command)),
         }
     }};
     ($client:expr, $command:expr, $expected:expr) => {{
@@ -190,7 +190,7 @@ macro_rules! assert_send_ok {
                 );
                 response
             }
-            Err(e) => panic!("Failed to send command {:?}: {:?}", stringify!($command), e),
+            Err(e) => panic!("Failed to send command {:?}: {e:?}", stringify!($command)),
         }
     }};
 }

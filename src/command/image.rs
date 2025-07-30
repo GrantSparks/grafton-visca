@@ -332,7 +332,7 @@ mod tests {
         ];
 
         for cmd in cmds {
-            let _ = format!("{:?}", cmd);
+            let _ = format!("{cmd:?}");
         }
 
         // Test Clone
@@ -373,10 +373,14 @@ mod tests {
 
     #[test]
     fn test_image_flip_mode_debug() {
-        assert!(format!("{:?}", ImageFlipMode::Off).contains("Off"));
-        assert!(format!("{:?}", ImageFlipMode::Horizontal).contains("Horizontal"));
-        assert!(format!("{:?}", ImageFlipMode::Vertical).contains("Vertical"));
-        assert!(format!("{:?}", ImageFlipMode::Both).contains("Both"));
+        let mode = ImageFlipMode::Off;
+        assert!(format!("{mode:?}").contains("Off"));
+        let mode = ImageFlipMode::Horizontal;
+        assert!(format!("{mode:?}").contains("Horizontal"));
+        let mode = ImageFlipMode::Vertical;
+        assert!(format!("{mode:?}").contains("Vertical"));
+        let mode = ImageFlipMode::Both;
+        assert!(format!("{mode:?}").contains("Both"));
     }
 
     #[test]
@@ -467,26 +471,26 @@ mod tests {
     #[test]
     fn test_backlight_command_debug() {
         let cmd = BacklightCommand::new(true);
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("BacklightCommand"));
         // The debug output will show the field name
         assert!(debug_str.contains("enabled"));
 
         let cmd = BacklightCommand::new(false);
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("BacklightCommand"));
     }
 
     #[test]
     fn test_black_white_command_debug() {
         let cmd = BlackWhiteCommand::new(true);
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("BlackWhiteCommand"));
         // The debug output will show the field name
         assert!(debug_str.contains("enabled"));
 
         let cmd = BlackWhiteCommand::new(false);
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("BlackWhiteCommand"));
     }
 

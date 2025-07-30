@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| s.as_str())
         .unwrap_or("192.168.1.100:5678");
 
-    println!("Connecting to camera at {}...", camera_addr);
+    println!("Connecting to camera at {camera_addr}...");
 
     // Create UDP transport and Camera with PTZOpticsG2 profile
     let transport = Udp::connect(camera_addr)?;
@@ -147,7 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cam = camera.lock().unwrap();
         match cam.zoom_in() {
             Ok(_) => println!("[Main] Successfully sent command"),
-            Err(e) => println!("[Main] Error: {:?}", e),
+            Err(e) => println!("[Main] Error: {e:?}"),
         }
     }
 

@@ -101,6 +101,7 @@ pub mod color {
     use super::*;
 
     /// One push white balance trigger.
+    #[allow(dead_code)]
     pub const WB_ONE_PUSH_TRIGGER: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x10, 0x05];
 
     /// Color saturation prefix.
@@ -110,9 +111,11 @@ pub mod color {
     pub const HUE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00];
 
     /// Red gain direct prefix (for WB fine-tuning).
+    #[allow(dead_code)]
     pub const RED_GAIN_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x43, 0x00, 0x00];
 
     /// Blue gain direct prefix (for WB fine-tuning).
+    #[allow(dead_code)]
     pub const BLUE_GAIN_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x44, 0x00, 0x00];
 }
 

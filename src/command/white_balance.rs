@@ -16,13 +16,7 @@ use std::convert::TryFrom;
 // Crate imports
 use crate::{
     capabilities::{CameraFeature, CommandFeatures},
-    command::{
-        const_encoding::{CommandBuilder, DEFAULT_ADDRESS},
-        encode_visca::EncodeVisca,
-        ResponseType,
-    },
     error::Error,
-    timeout::CommandCategory,
     visca_param_command,
 };
 
@@ -93,40 +87,25 @@ pub enum AWBSensitivity {
     Low,
 }
 
-/// Command to set AWB sensitivity.
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct AWBSensitivityCommand {
-    /// The sensitivity level to set.
-    pub sensitivity: AWBSensitivity,
+crate::visca_param_command! {
+    /// Command to set AWB sensitivity.
+    pub(crate) struct AWBSensitivityCommand {
+        sensitivity: AWBSensitivity,
+    }
+    prefix = [0x81, 0x01, 0x04, 0xA9];
+    param_byte = match *sensitivity {
+        AWBSensitivity::High => 0x00,
+        AWBSensitivity::Normal => 0x01,
+        AWBSensitivity::Low => 0x02,
+    };
+    timeout = Quick;
 }
 
-impl EncodeVisca for AWBSensitivityCommand {
-    type Response = ();
-    const MAX_SIZE: usize = 6;
-
-    fn encode_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        let level = match self.sensitivity {
-            AWBSensitivity::High => 0x00,
-            AWBSensitivity::Normal => 0x01,
-            AWBSensitivity::Low => 0x02,
-        };
-
-        let mut builder = CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0xA9]);
-        builder.with_camera_id(camera_id);
-        builder.push(level).finalize();
-        builder.copy_to(buffer)
-    }
-
-    fn response_type(&self) -> Option<ResponseType> {
-        None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
+impl AWBSensitivityCommand {
+    /// Create a new AWB sensitivity command.
+    #[allow(dead_code)]
+    pub fn new(sensitivity: AWBSensitivity) -> Self {
+        Self { sensitivity }
     }
 }
 
@@ -161,6 +140,7 @@ impl TryFrom<u8> for WhiteBalanceMode {
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::timeout::CommandCategory;
     use crate::visca_test;
 
     #[test]
@@ -374,9 +354,7 @@ mod tests {
     #[test]
     fn test_awb_sensitivity_commands() {
         // Test High sensitivity
-        let cmd = AWBSensitivityCommand {
-            sensitivity: AWBSensitivity::High,
-        };
+        let cmd = AWBSensitivityCommand::new(AWBSensitivity::High);
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -384,9 +362,7 @@ mod tests {
         );
 
         // Test Normal sensitivity
-        let cmd = AWBSensitivityCommand {
-            sensitivity: AWBSensitivity::Normal,
-        };
+        let cmd = AWBSensitivityCommand::new(AWBSensitivity::Normal);
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -394,9 +370,7 @@ mod tests {
         );
 
         // Test Low sensitivity
-        let cmd = AWBSensitivityCommand {
-            sensitivity: AWBSensitivity::Low,
-        };
+        let cmd = AWBSensitivityCommand::new(AWBSensitivity::Low);
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),

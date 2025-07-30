@@ -544,9 +544,11 @@ impl RetryHook for DefaultRetryHook {
 }
 
 /// No-op retry hook that never retries.
+#[cfg(test)]
 #[derive(Debug, Copy, Clone)]
 pub struct NoRetryHook;
 
+#[cfg(test)]
 impl RetryHook for NoRetryHook {
     fn should_retry(&self, _error: &Error, _attempt: u32) -> bool {
         false
@@ -672,7 +674,7 @@ impl SocketManagerActor {
                                 self.handle_raw_response(bytes).await;
                             }
                             Err(e) => {
-                                warn!("Failed to receive response from transport: {}", e);
+                                warn!("Failed to receive response from transport: {e}");
                                 // Continue processing other commands
                             }
                         }
@@ -752,7 +754,8 @@ impl SocketManagerActor {
     }
 
     async fn handle_inquiry_command(&mut self, pending_cmd: PendingCmd) {
-        trace!("Handling inquiry command {}", pending_cmd.id);
+        let id = pending_cmd.id;
+        trace!("Handling inquiry command {id}");
 
         if self.inner.pending_inquiry.is_some() {
             warn!("Inquiry already in progress, completing with error");
@@ -766,25 +769,28 @@ impl SocketManagerActor {
                 self.inner.set_pending_inquiry(pending_cmd);
             }
             Err(e) => {
-                error!("Failed to send inquiry command {}: {}", pending_cmd.id, e);
+                let id = pending_cmd.id;
+                error!("Failed to send inquiry command {id}: {e}");
                 pending_cmd.complete(Err(e));
             }
         }
     }
 
     async fn handle_action_command(&mut self, pending_cmd: PendingCmd) {
-        trace!("Handling action command {}", pending_cmd.id);
+        let id = pending_cmd.id;
+        trace!("Handling action command {id}");
 
         if let Some(socket) = self.inner.get_free_socket() {
             self.send_command_on_socket(pending_cmd, socket).await;
         } else {
-            trace!("No free sockets, queueing command {}", pending_cmd.id);
+            let id = pending_cmd.id;
+            trace!("No free sockets, queueing command {id}");
             self.inner.enqueue_command(pending_cmd);
         }
     }
 
     async fn send_command_on_socket(&mut self, pending_cmd: PendingCmd, socket: Socket) {
-        trace!("Sending command {} on {:?}", pending_cmd.id, socket);
+        trace!("Sending command {} on {socket:?}", pending_cmd.id);
 
         match self.transport.send(&pending_cmd.bytes).await {
             Ok(()) => {
@@ -798,10 +804,8 @@ impl SocketManagerActor {
                 self.inner.set_active_command(socket, pending_cmd);
             }
             Err(e) => {
-                error!(
-                    "Failed to send command {} on {:?}: {}",
-                    pending_cmd.id, socket, e
-                );
+                let id = pending_cmd.id;
+                error!("Failed to send command {id} on {socket:?}: {e}");
                 pending_cmd.complete(Err(e));
             }
         }
@@ -867,7 +871,7 @@ impl SocketManagerActor {
                         };
                         self.handle_ack_response(socket).await;
                     } else {
-                        warn!("Invalid socket number in ACK response: {}", socket_num);
+                        warn!("Invalid socket number in ACK response: {socket_num}");
                     }
                 } else {
                     warn!("ACK response too short to extract socket");
@@ -885,10 +889,7 @@ impl SocketManagerActor {
                         };
                         self.handle_completion_response(socket).await;
                     } else {
-                        warn!(
-                            "Invalid socket number in completion response: {}",
-                            socket_num
-                        );
+                        warn!("Invalid socket number in completion response: {socket_num}");
                     }
                 } else {
                     warn!("Completion response too short to extract socket");
@@ -907,9 +908,9 @@ impl SocketManagerActor {
                         self.handle_error_response(socket, error).await;
                     } else if socket_num == 0 {
                         // Socket 0 errors are for inquiries or general errors
-                        warn!("Error response for inquiry or general error: {:?}", error);
+                        warn!("Error response for inquiry or general error: {error:?}");
                     } else {
-                        warn!("Invalid socket number in error response: {}", socket_num);
+                        warn!("Invalid socket number in error response: {socket_num}");
                     }
                 } else {
                     warn!("Error response too short to extract socket");
@@ -931,7 +932,7 @@ impl SocketManagerActor {
     async fn handle_ack_response(&mut self, socket: Socket) {
         trace!("Received ACK for {socket:?}");
         if let Some(command) = self.inner.get_active_command(socket) {
-            debug!("ACK received for command {} on {:?}", command.id, socket);
+            debug!("ACK received for command {} on {socket:?}", command.id);
         } else {
             warn!("Received ACK for {socket:?} but no active command");
         }
@@ -994,7 +995,8 @@ impl SocketManagerActor {
     async fn handle_inquiry_response(&mut self, data: crate::command::InquiryResponse) {
         trace!("Received inquiry response: {data:?}");
         if let Some(command) = self.inner.take_pending_inquiry() {
-            debug!("Inquiry response received for command {}", command.id);
+            let id = command.id;
+            debug!("Inquiry response received for command {id}");
             command.complete(Ok(Response::Inquiry(data)));
         } else {
             warn!("Received inquiry response but no pending inquiry");
@@ -1004,7 +1006,7 @@ impl SocketManagerActor {
     async fn try_dispatch_next_command(&mut self) {
         if let Some(socket) = self.inner.get_free_socket() {
             if let Some(command) = self.inner.dequeue_command() {
-                trace!("Dispatching queued command {} on {:?}", command.id, socket);
+                trace!("Dispatching queued command {} on {socket:?}", command.id);
                 self.send_command_on_socket(command, socket).await;
             }
         }
@@ -1056,7 +1058,8 @@ impl SocketManagerActor {
         if let Some(ref inquiry) = self.inner.pending_inquiry {
             let timeout_duration = self.completion_timeout;
             if now.duration_since(inquiry.enqueued_at) > timeout_duration {
-                warn!("Inquiry command timeout for command {}", inquiry.id);
+                let id = inquiry.id;
+                warn!("Inquiry command timeout for command {id}");
                 self.handle_inquiry_timeout().await;
             }
         }
@@ -1091,7 +1094,7 @@ impl SocketManagerActor {
         if let Some(command) = self.inner.take_active_command(socket) {
             let timeout_error = Error::CommandTimeout {
                 duration: self.completion_timeout,
-                command: format!("Command {} on {:?}", command.id, socket),
+                command: format!("Command {} on {socket:?}", command.id),
             };
             command.complete(Err(timeout_error));
         }
@@ -1105,9 +1108,10 @@ impl SocketManagerActor {
 
     async fn handle_inquiry_timeout(&mut self) {
         if let Some(inquiry) = self.inner.take_pending_inquiry() {
+            let id = inquiry.id;
             let timeout_error = Error::CommandTimeout {
                 duration: self.completion_timeout,
-                command: format!("Inquiry command {}", inquiry.id),
+                command: format!("Inquiry command {id}"),
             };
             inquiry.complete(Err(timeout_error));
         }

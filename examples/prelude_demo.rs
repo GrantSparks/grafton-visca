@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-    println!("Connecting to camera at {}...", camera_addr);
+    println!("Connecting to camera at {camera_addr}...");
 
     // Create camera - all operation traits are available through prelude
     let transport = Tcp::connect(&camera_addr)?;
@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-    println!("Connecting to camera at {} (async mode)...", camera_addr);
+    println!("Connecting to camera at {camera_addr} (async mode)...");
 
     let transport = Tcp::connect(&camera_addr).await?;
     let camera = PTZOpticsG2Cam::new(transport);
