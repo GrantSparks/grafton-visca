@@ -29,8 +29,7 @@ fn main() -> Result<(), Error> {
 
         assert_eq!(
             addr_byte, expected_addr,
-            "{} should produce address byte 0x{:02X}",
-            name, expected_addr
+            "{name} should produce address byte 0x{expected_addr:02X}"
         );
     }
 
@@ -47,7 +46,7 @@ fn main() -> Result<(), Error> {
     // Test valid ID range
     println!("\nTesting ID validation:");
     for id in 1..=7 {
-        assert!(CameraId::try_from(id).is_ok(), "ID {} should be valid", id);
+        assert!(CameraId::try_from(id).is_ok(), "ID {id} should be valid");
     }
     assert!(
         CameraId::try_from(8).is_ok(),

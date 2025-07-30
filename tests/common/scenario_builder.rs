@@ -106,7 +106,7 @@ impl ScenarioBuilder {
                 MockResponse::Immediate(ResponseBuilder::ack(1)),
                 MockResponse::Delayed(ResponseBuilder::completion(1), Duration::from_millis(2000)),
             ],
-            description: format!("Recall preset {}", preset),
+            description: format!("Recall preset {preset}"),
         });
 
         // Add settling delay for cameras that need it
