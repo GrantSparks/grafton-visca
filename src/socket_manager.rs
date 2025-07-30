@@ -674,7 +674,7 @@ impl SocketManagerActor {
                                 self.handle_raw_response(bytes).await;
                             }
                             Err(e) => {
-                                warn!("Failed to receive response from transport: {}", e);
+                                warn!("Failed to receive response from transport: {e}");
                                 // Continue processing other commands
                             }
                         }
@@ -869,7 +869,7 @@ impl SocketManagerActor {
                         };
                         self.handle_ack_response(socket).await;
                     } else {
-                        warn!("Invalid socket number in ACK response: {}", socket_num);
+                        warn!("Invalid socket number in ACK response: {socket_num}");
                     }
                 } else {
                     warn!("ACK response too short to extract socket");
@@ -888,8 +888,7 @@ impl SocketManagerActor {
                         self.handle_completion_response(socket).await;
                     } else {
                         warn!(
-                            "Invalid socket number in completion response: {}",
-                            socket_num
+                            "Invalid socket number in completion response: {socket_num}"
                         );
                     }
                 } else {
@@ -909,9 +908,9 @@ impl SocketManagerActor {
                         self.handle_error_response(socket, error).await;
                     } else if socket_num == 0 {
                         // Socket 0 errors are for inquiries or general errors
-                        warn!("Error response for inquiry or general error: {:?}", error);
+                        warn!("Error response for inquiry or general error: {error:?}");
                     } else {
-                        warn!("Invalid socket number in error response: {}", socket_num);
+                        warn!("Invalid socket number in error response: {socket_num}");
                     }
                 } else {
                     warn!("Error response too short to extract socket");
