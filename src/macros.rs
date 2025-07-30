@@ -146,8 +146,12 @@ macro_rules! visca_bounded_param {
                 if !(Self::MIN..=Self::MAX).contains(&value) {
                     return Err($crate::Error::InvalidParameter {
                         parameter: stringify!($name),
-                        value: format!("{}", value),
-                        reason: format!("must be between {} and {}", Self::MIN, Self::MAX),
+                        value: format!("{value}"),
+                        reason: {
+                            let min = Self::MIN;
+                            let max = Self::MAX;
+                            format!("must be between {min} and {max}")
+                        },
                     });
                 }
                 Ok(Self(value))

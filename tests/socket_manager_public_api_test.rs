@@ -333,7 +333,8 @@ mod tokio_tests {
 
         // Verify both commands were sent
         let sent_commands = transport.get_sent_commands();
-        eprintln!("Sent commands count: {}", sent_commands.len());
+        let count = sent_commands.len();
+        eprintln!("Sent commands count: {count}");
         for (i, cmd) in sent_commands.iter().enumerate() {
             eprintln!("Command {i}: {cmd:02x?}");
         }

@@ -743,7 +743,7 @@ mod tests {
         ];
 
         for cmd in cmds {
-            let _ = format!("{:?}", cmd);
+            let _ = format!("{cmd:?}");
         }
 
         // Test Clone
