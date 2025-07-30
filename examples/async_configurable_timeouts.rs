@@ -134,9 +134,7 @@ where
             println!("   ✗ Movement command failed: {e}");
         }
         Err(_) => {
-            println!(
-                "   ✗ Movement command timed out after {movement_timeout:?}"
-            );
+            println!("   ✗ Movement command timed out after {movement_timeout:?}");
         }
     }
 
@@ -197,9 +195,7 @@ where
 
     for attempt in 1..=max_retries {
         let current_timeout = initial_timeout * attempt as u32;
-        println!(
-            "   Attempt {attempt}/{max_retries} with timeout {current_timeout:?}"
-        );
+        println!("   Attempt {attempt}/{max_retries} with timeout {current_timeout:?}");
 
         match timeout(
             current_timeout,
