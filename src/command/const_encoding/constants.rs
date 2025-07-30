@@ -90,16 +90,10 @@ pub mod image {
 
 /// System command constants.
 pub mod system {
-    use super::*;
-
-    /// Address set command (broadcast, serial only).
-    pub const ADDRESS_SET: &[u8] = visca_bytes![0x88, 0x30, 0x01];
-
-    /// Interface clear command (broadcast, serial only).
-    pub const INTERFACE_CLEAR: &[u8] = visca_bytes![0x88, 0x01, 0x00, 0x01];
-
-    /// Command cancel prefix (needs socket number).
-    pub const COMMAND_CANCEL_PREFIX: &[u8] = visca_prefix![0x81];
+    // Constants moved to macro-based implementations in system.rs:
+    // - ADDRESS_SET → AddressSetCommand using visca_const_command!
+    // - INTERFACE_CLEAR → InterfaceClearCommand using visca_const_command!
+    // - COMMAND_CANCEL_PREFIX → CommandCancelCommand with direct encoding
 }
 
 /// Color adjustment command constants.

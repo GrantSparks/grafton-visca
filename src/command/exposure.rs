@@ -16,7 +16,7 @@ use crate::{
     error::Error,
     timeout::CommandCategory,
     types::{BrightnessLevel, DynamicRangeLevel, IrisLevel, ShutterSpeed},
-    visca_command,
+    visca_command, visca_param_command,
 };
 
 /// Camera exposure control modes.
@@ -54,7 +54,7 @@ impl TryFrom<u8> for ExposureMode {
     }
 }
 
-crate::visca_param_command! {
+visca_param_command! {
     /// Command to set the camera's exposure mode.
     ///
     /// This command allows switching between different exposure modes such as

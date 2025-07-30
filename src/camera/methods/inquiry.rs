@@ -112,6 +112,107 @@ pub trait InquiryOps: Sized {
     async fn get_nd_filter_position(
         &self,
     ) -> Result<crate::command::resolution::NDFilterPosition, Error>;
+
+    /// Get the camera version information.
+    async fn get_version(&self) -> Result<crate::command::Version, Error>;
+
+    /// Get the luminance level.
+    async fn get_luminance(&self) -> Result<u8, Error>;
+
+    /// Check if backlight compensation is enabled.
+    async fn get_backlight_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the image flip settings (mirror/reverse).
+    async fn get_image_flip(&self) -> Result<crate::command::ImageFlipStatus, Error>;
+
+    /// Get the dynamic range mode/level.
+    async fn get_dynamic_range(&self) -> Result<u8, Error>;
+
+    /// Get the current focus mode (Auto/Manual).
+    async fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error>;
+
+    /// Get the menu open/close status.
+    async fn get_menu_status(&self) -> Result<bool, Error>;
+
+    /// Get the auto focus on/off status.
+    async fn get_auto_focus_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the tally light status (red and green).
+    async fn get_tally_light_status(&self) -> Result<crate::command::TallyStatus, Error>;
+
+    /// Get the night/day mode status.
+    async fn get_night_day_mode(&self) -> Result<crate::command::NightDayMode, Error>;
+
+    /// Get the current flip mode (combined horizontal/vertical).
+    async fn get_flip_mode(&self) -> Result<crate::command::FlipMode, Error>;
+
+    /// Get the standby mode status.
+    async fn get_standby_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the focus range setting.
+    async fn get_focus_range(&self) -> Result<crate::command::FocusRange, Error>;
+
+    /// Get the iris control mode.
+    async fn get_iris_control(&self) -> Result<crate::command::IrisControl, Error>;
+
+    /// Get the defog mode status.
+    async fn get_defog_mode(&self) -> Result<bool, Error>;
+
+    /// Get the defog level.
+    async fn get_defog_level(&self) -> Result<u8, Error>;
+
+    /// Get the digital PTZ mode status.
+    async fn get_digital_ptz_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the auto white balance sensitivity setting.
+    async fn get_auto_white_balance_sensitivity(
+        &self,
+    ) -> Result<crate::command::AutoWhiteBalanceSensitivity, Error>;
+
+    /// Get the exposure compensation position.
+    async fn get_exposure_compensation_position(&self) -> Result<u16, Error>;
+
+    /// Get the auto trace mode status.
+    async fn get_auto_trace_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the focus unlock state.
+    async fn get_focus_unlock(&self) -> Result<bool, Error>;
+
+    /// Get the current sharpness position.
+    async fn get_sharpness_position(&self) -> Result<u16, Error>;
+
+    /// Get the noise reduction level.
+    async fn get_noise_reduction_level(&self) -> Result<u8, Error>;
+
+    /// Get the broadcast domain setting.
+    async fn get_broadcast_domain(&self) -> Result<u8, Error>;
+
+    /// Get the noise reduction mode setting.
+    async fn get_noise_reduction_mode(&self) -> Result<crate::command::NrMode, Error>;
+
+    /// Get the noise reduction speed setting.
+    async fn get_noise_reduction_speed(&self) -> Result<crate::command::NrSpeed, Error>;
+
+    /// Get the black and white mode setting.
+    async fn get_black_white_mode(&self) -> Result<crate::command::BlackWhiteMode, Error>;
+
+    /// Get the USB audio state.
+    async fn get_usb_audio_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the two tone mode state.
+    async fn get_two_tone_mode_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the ND filter preset setting.
+    async fn get_nd_filter_preset(&self) -> Result<u8, Error>;
+
+    /// Get the digital mode state.
+    async fn get_digital_mode_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the tally auto adjust state.
+    async fn get_tally_auto_adjust_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the green tally light status (FR7 only).
+    async fn get_tally_green_enabled(&self) -> Result<bool, Error>;
 }
 
 /// Inquiry operations (blocking).
@@ -213,6 +314,107 @@ pub trait InquiryOpsBlocking: Sized {
     /// Get the current ND filter position (Sony FR7 only).
     fn get_nd_filter_position(&self)
         -> Result<crate::command::resolution::NDFilterPosition, Error>;
+
+    /// Get the camera version information.
+    fn get_version(&self) -> Result<crate::command::Version, Error>;
+
+    /// Get the luminance level.
+    fn get_luminance(&self) -> Result<u8, Error>;
+
+    /// Check if backlight compensation is enabled.
+    fn get_backlight_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the image flip settings (mirror/reverse).
+    fn get_image_flip(&self) -> Result<crate::command::ImageFlipStatus, Error>;
+
+    /// Get the dynamic range mode/level.
+    fn get_dynamic_range(&self) -> Result<u8, Error>;
+
+    /// Get the current focus mode (Auto/Manual).
+    fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error>;
+
+    /// Get the menu open/close status.
+    fn get_menu_status(&self) -> Result<bool, Error>;
+
+    /// Get the auto focus on/off status.
+    fn get_auto_focus_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the tally light status (red and green).
+    fn get_tally_light_status(&self) -> Result<crate::command::TallyStatus, Error>;
+
+    /// Get the night/day mode status.
+    fn get_night_day_mode(&self) -> Result<crate::command::NightDayMode, Error>;
+
+    /// Get the current flip mode (combined horizontal/vertical).
+    fn get_flip_mode(&self) -> Result<crate::command::FlipMode, Error>;
+
+    /// Get the standby mode status.
+    fn get_standby_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the focus range setting.
+    fn get_focus_range(&self) -> Result<crate::command::FocusRange, Error>;
+
+    /// Get the iris control mode.
+    fn get_iris_control(&self) -> Result<crate::command::IrisControl, Error>;
+
+    /// Get the defog mode status.
+    fn get_defog_mode(&self) -> Result<bool, Error>;
+
+    /// Get the defog level.
+    fn get_defog_level(&self) -> Result<u8, Error>;
+
+    /// Get the digital PTZ mode status.
+    fn get_digital_ptz_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the auto white balance sensitivity setting.
+    fn get_auto_white_balance_sensitivity(
+        &self,
+    ) -> Result<crate::command::AutoWhiteBalanceSensitivity, Error>;
+
+    /// Get the exposure compensation position.
+    fn get_exposure_compensation_position(&self) -> Result<u16, Error>;
+
+    /// Get the auto trace mode status.
+    fn get_auto_trace_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the focus unlock state.
+    fn get_focus_unlock(&self) -> Result<bool, Error>;
+
+    /// Get the current sharpness position.
+    fn get_sharpness_position(&self) -> Result<u16, Error>;
+
+    /// Get the noise reduction level.
+    fn get_noise_reduction_level(&self) -> Result<u8, Error>;
+
+    /// Get the broadcast domain setting.
+    fn get_broadcast_domain(&self) -> Result<u8, Error>;
+
+    /// Get the noise reduction mode setting.
+    fn get_noise_reduction_mode(&self) -> Result<crate::command::NrMode, Error>;
+
+    /// Get the noise reduction speed setting.
+    fn get_noise_reduction_speed(&self) -> Result<crate::command::NrSpeed, Error>;
+
+    /// Get the black and white mode setting.
+    fn get_black_white_mode(&self) -> Result<crate::command::BlackWhiteMode, Error>;
+
+    /// Get the USB audio state.
+    fn get_usb_audio_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the two tone mode state.
+    fn get_two_tone_mode_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the ND filter preset setting.
+    fn get_nd_filter_preset(&self) -> Result<u8, Error>;
+
+    /// Get the digital mode state.
+    fn get_digital_mode_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the tally auto adjust state.
+    fn get_tally_auto_adjust_enabled(&self) -> Result<bool, Error>;
+
+    /// Get the green tally light status (FR7 only).
+    fn get_tally_green_enabled(&self) -> Result<bool, Error>;
 }
 
 // Async implementation
@@ -551,6 +753,374 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Inq
             _ => Err(Error::UnexpectedResponseType),
         }
     }
+
+    async fn get_version(&self) -> Result<crate::command::Version, Error> {
+        let cmd = VersionInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::Version {
+                vendor,
+                model,
+                rom_version,
+                max_socket,
+            }) => Ok(crate::command::Version {
+                vendor,
+                model,
+                rom_version,
+                max_socket,
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_luminance(&self) -> Result<u8, Error> {
+        let cmd = LuminanceInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::Luminance(value)) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_backlight_enabled(&self) -> Result<bool, Error> {
+        let cmd = BacklightInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::Backlight { status }) => Ok(status),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_image_flip(&self) -> Result<crate::command::ImageFlipStatus, Error> {
+        let cmd = ImageFlipInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            }) => Ok(crate::command::ImageFlipStatus {
+                vertical,
+                horizontal,
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_dynamic_range(&self) -> Result<u8, Error> {
+        let cmd = DynamicRangeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::DynamicRange { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error> {
+        let cmd = FocusModeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_menu_status(&self) -> Result<bool, Error> {
+        let cmd = MenuOpenCloseInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::MenuOpenClose { is_open }) => Ok(is_open),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_auto_focus_enabled(&self) -> Result<bool, Error> {
+        let cmd = AutoFocusInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::AutoFocus { enabled }) => Ok(enabled),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_tally_light_status(&self) -> Result<crate::command::TallyStatus, Error> {
+        let cmd = TallyStatusInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyStatus { red_on, green_on }) => {
+                Ok(crate::command::TallyStatus { red_on, green_on })
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_night_day_mode(&self) -> Result<crate::command::NightDayMode, Error> {
+        let cmd = NightDayModeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::NightDayMode { is_night }) => Ok(if is_night {
+                crate::command::NightDayMode::Night
+            } else {
+                crate::command::NightDayMode::Day
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_flip_mode(&self) -> Result<crate::command::FlipMode, Error> {
+        let cmd = FlipModeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::FlipMode {
+                horizontal,
+                vertical,
+            }) => Ok(crate::command::FlipMode {
+                horizontal,
+                vertical,
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_standby_enabled(&self) -> Result<bool, Error> {
+        let cmd = StandbyInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::Standby { in_standby }) => Ok(in_standby),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_focus_range(&self) -> Result<crate::command::FocusRange, Error> {
+        let cmd = FocusRangeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::FocusRange { range }) => Ok(range),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_iris_control(&self) -> Result<crate::command::IrisControl, Error> {
+        let cmd = IrisControlInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::IrisControl { auto }) => Ok(if auto {
+                crate::command::IrisControl::Auto
+            } else {
+                crate::command::IrisControl::Manual
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_defog_mode(&self) -> Result<bool, Error> {
+        let cmd = DefogModeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::DefogMode { enabled }) => Ok(enabled),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_defog_level(&self) -> Result<u8, Error> {
+        let cmd = DefogLevelInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::DefogLevel { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_digital_ptz_enabled(&self) -> Result<bool, Error> {
+        let cmd = DigitalPtzInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_auto_white_balance_sensitivity(
+        &self,
+    ) -> Result<crate::command::AutoWhiteBalanceSensitivity, Error> {
+        let cmd = AutoWhiteBalanceSensitivityInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity }) => {
+                Ok(sensitivity)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_exposure_compensation_position(&self) -> Result<u16, Error> {
+        let cmd = ExposureCompensationPositionInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::ExposureCompensationPosition { position }) => {
+                Ok(position)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_auto_trace_enabled(&self) -> Result<bool, Error> {
+        let cmd = AutoTraceInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_focus_unlock(&self) -> Result<bool, Error> {
+        let cmd = FocusUnlockInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_sharpness_position(&self) -> Result<u16, Error> {
+        let cmd = SharpnessPositionInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::SharpnessPosition { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_noise_reduction_level(&self) -> Result<u8, Error> {
+        let cmd = NrLevelInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::NrLevel(level)) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_broadcast_domain(&self) -> Result<u8, Error> {
+        let cmd = BroadcastDomainInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::BroadcastDomain(domain)) => Ok(domain),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_noise_reduction_mode(&self) -> Result<crate::command::NrMode, Error> {
+        let cmd = NrModeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::NrMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_noise_reduction_speed(&self) -> Result<crate::command::NrSpeed, Error> {
+        let cmd = NrSpeedInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::NrSpeed { speed }) => Ok(speed),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_black_white_mode(&self) -> Result<crate::command::BlackWhiteMode, Error> {
+        let cmd = BlackWhiteModeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::BlackWhiteMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_usb_audio_enabled(&self) -> Result<bool, Error> {
+        let cmd = UsbAudioInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::UsbAudio { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_two_tone_mode_enabled(&self) -> Result<bool, Error> {
+        let cmd = TwoToneModeInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::TwoToneMode { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_nd_filter_preset(&self) -> Result<u8, Error> {
+        let cmd = NdFilterPresetInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::NdFilterPreset { preset }) => Ok(preset),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_digital_mode_enabled(&self) -> Result<bool, Error> {
+        let cmd = DigitalInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::Digital { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_tally_auto_adjust_enabled(&self) -> Result<bool, Error> {
+        let cmd = TallyAutoAdjustInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyAutoAdjust { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    async fn get_tally_green_enabled(&self) -> Result<bool, Error> {
+        let cmd = TallyGreenInquiry;
+        let response = self.send_command(&cmd).await?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
 }
 
 // Blocking implementation
@@ -882,6 +1452,374 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Inq
             Response::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
                 crate::command::resolution::NDFilterPosition::from_byte(position),
             ),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_version(&self) -> Result<crate::command::Version, Error> {
+        let cmd = VersionInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::Version {
+                vendor,
+                model,
+                rom_version,
+                max_socket,
+            }) => Ok(crate::command::Version {
+                vendor,
+                model,
+                rom_version,
+                max_socket,
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_luminance(&self) -> Result<u8, Error> {
+        let cmd = LuminanceInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::Luminance(value)) => Ok(value),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_backlight_enabled(&self) -> Result<bool, Error> {
+        let cmd = BacklightInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::Backlight { status }) => Ok(status),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_image_flip(&self) -> Result<crate::command::ImageFlipStatus, Error> {
+        let cmd = ImageFlipInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            }) => Ok(crate::command::ImageFlipStatus {
+                vertical,
+                horizontal,
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_dynamic_range(&self) -> Result<u8, Error> {
+        let cmd = DynamicRangeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::DynamicRange { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error> {
+        let cmd = FocusModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_menu_status(&self) -> Result<bool, Error> {
+        let cmd = MenuOpenCloseInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::MenuOpenClose { is_open }) => Ok(is_open),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_auto_focus_enabled(&self) -> Result<bool, Error> {
+        let cmd = AutoFocusInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::AutoFocus { enabled }) => Ok(enabled),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_tally_light_status(&self) -> Result<crate::command::TallyStatus, Error> {
+        let cmd = TallyStatusInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyStatus { red_on, green_on }) => {
+                Ok(crate::command::TallyStatus { red_on, green_on })
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_night_day_mode(&self) -> Result<crate::command::NightDayMode, Error> {
+        let cmd = NightDayModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::NightDayMode { is_night }) => Ok(if is_night {
+                crate::command::NightDayMode::Night
+            } else {
+                crate::command::NightDayMode::Day
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_flip_mode(&self) -> Result<crate::command::FlipMode, Error> {
+        let cmd = FlipModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::FlipMode {
+                horizontal,
+                vertical,
+            }) => Ok(crate::command::FlipMode {
+                horizontal,
+                vertical,
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_standby_enabled(&self) -> Result<bool, Error> {
+        let cmd = StandbyInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::Standby { in_standby }) => Ok(in_standby),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_focus_range(&self) -> Result<crate::command::FocusRange, Error> {
+        let cmd = FocusRangeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::FocusRange { range }) => Ok(range),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_iris_control(&self) -> Result<crate::command::IrisControl, Error> {
+        let cmd = IrisControlInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::IrisControl { auto }) => Ok(if auto {
+                crate::command::IrisControl::Auto
+            } else {
+                crate::command::IrisControl::Manual
+            }),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_defog_mode(&self) -> Result<bool, Error> {
+        let cmd = DefogModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::DefogMode { enabled }) => Ok(enabled),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_defog_level(&self) -> Result<u8, Error> {
+        let cmd = DefogLevelInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::DefogLevel { level }) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_digital_ptz_enabled(&self) -> Result<bool, Error> {
+        let cmd = DigitalPtzInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_auto_white_balance_sensitivity(
+        &self,
+    ) -> Result<crate::command::AutoWhiteBalanceSensitivity, Error> {
+        let cmd = AutoWhiteBalanceSensitivityInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity }) => {
+                Ok(sensitivity)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_exposure_compensation_position(&self) -> Result<u16, Error> {
+        let cmd = ExposureCompensationPositionInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::ExposureCompensationPosition { position }) => {
+                Ok(position)
+            }
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_auto_trace_enabled(&self) -> Result<bool, Error> {
+        let cmd = AutoTraceInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_focus_unlock(&self) -> Result<bool, Error> {
+        let cmd = FocusUnlockInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_sharpness_position(&self) -> Result<u16, Error> {
+        let cmd = SharpnessPositionInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::SharpnessPosition { position }) => Ok(position),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_noise_reduction_level(&self) -> Result<u8, Error> {
+        let cmd = NrLevelInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::NrLevel(level)) => Ok(level),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_broadcast_domain(&self) -> Result<u8, Error> {
+        let cmd = BroadcastDomainInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::BroadcastDomain(domain)) => Ok(domain),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_noise_reduction_mode(&self) -> Result<crate::command::NrMode, Error> {
+        let cmd = NrModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::NrMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_noise_reduction_speed(&self) -> Result<crate::command::NrSpeed, Error> {
+        let cmd = NrSpeedInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::NrSpeed { speed }) => Ok(speed),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_black_white_mode(&self) -> Result<crate::command::BlackWhiteMode, Error> {
+        let cmd = BlackWhiteModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::BlackWhiteMode { mode }) => Ok(mode),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_usb_audio_enabled(&self) -> Result<bool, Error> {
+        let cmd = UsbAudioInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::UsbAudio { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_two_tone_mode_enabled(&self) -> Result<bool, Error> {
+        let cmd = TwoToneModeInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::TwoToneMode { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_nd_filter_preset(&self) -> Result<u8, Error> {
+        let cmd = NdFilterPresetInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::NdFilterPreset { preset }) => Ok(preset),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_digital_mode_enabled(&self) -> Result<bool, Error> {
+        let cmd = DigitalInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::Digital { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_tally_auto_adjust_enabled(&self) -> Result<bool, Error> {
+        let cmd = TallyAutoAdjustInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyAutoAdjust { on }) => Ok(on),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    fn get_tally_green_enabled(&self) -> Result<bool, Error> {
+        let cmd = TallyGreenInquiry;
+        let response = self.send_command_blocking(&cmd)?;
+        match response {
+            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }

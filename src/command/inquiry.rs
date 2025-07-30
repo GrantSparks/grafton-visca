@@ -3,26 +3,23 @@
 //! This module provides commands for querying the current state of various camera settings,
 //! including power status, position, zoom, focus, and other camera parameters.
 
-// Re-export all inquiry command structs from the internal module
+// Re-export inquiry command structs that are used by the public API
 pub use super::inquiry_structs::{
-    AutoFocusSensitivityInquiry, BlackWhiteInquiry, BlueGainInquiry, BlueTuningInquiry,
-    BrightInquiry, ColorTemperatureInquiry, ContrastInquiry, ExposureCompensationInquiry,
-    ExposureCompensationModeInquiry, ExposureModeInquiry, FocusNearLimitInquiry,
-    FocusPositionInquiry, FocusZoneInquiry, GainInquiry, GainLimitInquiry, GammaInquiry,
-    HueInquiry, IrisInquiry, MotionSyncModeInquiry, MotionSyncSpeedInquiry, NdFilterInquiry,
-    NoiseReduction2DInquiry, NoiseReduction3DInquiry, PanTiltPositionInquiry, PictureEffectInquiry,
+    AutoFocusInquiry, AutoFocusSensitivityInquiry, AutoTraceInquiry,
+    AutoWhiteBalanceSensitivityInquiry, BacklightInquiry, BlackWhiteInquiry, BlackWhiteModeInquiry,
+    BlueGainInquiry, BlueTuningInquiry, BrightInquiry, BroadcastDomainInquiry,
+    ColorTemperatureInquiry, ContrastInquiry, DefogLevelInquiry, DefogModeInquiry, DigitalInquiry,
+    DigitalPtzInquiry, DynamicRangeInquiry, ExposureCompensationInquiry,
+    ExposureCompensationModeInquiry, ExposureCompensationPositionInquiry, ExposureModeInquiry,
+    FlipModeInquiry, FocusModeInquiry, FocusNearLimitInquiry, FocusPositionInquiry,
+    FocusRangeInquiry, FocusUnlockInquiry, FocusZoneInquiry, GainInquiry, GainLimitInquiry,
+    GammaInquiry, HueInquiry, ImageFlipInquiry, IrisControlInquiry, IrisInquiry, LuminanceInquiry,
+    MenuOpenCloseInquiry, MotionSyncModeInquiry, MotionSyncSpeedInquiry, NdFilterInquiry,
+    NdFilterPresetInquiry, NightDayModeInquiry, NoiseReduction2DInquiry, NoiseReduction3DInquiry,
+    NrLevelInquiry, NrModeInquiry, NrSpeedInquiry, PanTiltPositionInquiry, PictureEffectInquiry,
     PowerInquiry, RedGainInquiry, RedTuningInquiry, ResolutionInquiry, SaturationInquiry,
-    SharpnessInquiry, SharpnessModeInquiry, ShutterInquiry, WhiteBalanceModeInquiry,
+    SharpnessInquiry, SharpnessModeInquiry, SharpnessPositionInquiry, ShutterInquiry,
+    StandbyInquiry, TallyAutoAdjustInquiry, TallyGreenInquiry, TallyStatusInquiry,
+    TwoToneModeInquiry, UsbAudioInquiry, VersionInquiry, WhiteBalanceModeInquiry,
     ZoomPositionInquiry,
 };
-
-// The following inquiry structs are available but currently unused:
-// AutoFocusInquiry, AutoTraceInquiry, AutoWhiteBalanceSensitivityInquiry,
-// BacklightInquiry, BlackWhiteModeInquiry, BroadcastDomainInquiry, DefogLevelInquiry,
-// DefogModeInquiry, DigitalInquiry, DigitalPtzInquiry, DynamicRangeInquiry,
-// ExposureCompensationPositionInquiry, FlipModeInquiry, FocusModeInquiry,
-// FocusRangeInquiry, FocusUnlockInquiry, ImageFlipInquiry, IrisControlInquiry,
-// LuminanceInquiry, MenuOpenCloseInquiry, MotionSyncModeInquiry, MotionSyncSpeedInquiry,
-// NdFilterPresetInquiry, NightDayModeInquiry, NrLevelInquiry,
-// NrModeInquiry, NrSpeedInquiry, SharpnessPositionInquiry, StandbyInquiry,
-// TallyAutoAdjustInquiry, TallyStatusInquiry, TwoToneModeInquiry, UsbAudioInquiry
