@@ -54,7 +54,8 @@ where
     // Example 1: Query power state
     println!("1. Querying power state...");
     let power_on = camera.get_power_state()?;
-    println!("   Power is: {}", if power_on { "ON" } else { "OFF" });
+    let power_state = if power_on { "ON" } else { "OFF" };
+    println!("   Power is: {power_state}");
 
     if !power_on {
         println!("Camera is powered off. Some queries may not work.");
@@ -122,7 +123,8 @@ where
 
     // Note: B&W mode inquiry not yet implemented
     let bw_mode = false;
-    println!("Black & White Mode: {}", if bw_mode { "ON" } else { "OFF" });
+    let bw_state = if bw_mode { "ON" } else { "OFF" };
+    println!("Black & White Mode: {bw_state}");
 
     println!("\nInquiry demo completed successfully!");
     Ok(())
