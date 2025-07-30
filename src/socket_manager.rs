@@ -887,9 +887,7 @@ impl SocketManagerActor {
                         };
                         self.handle_completion_response(socket).await;
                     } else {
-                        warn!(
-                            "Invalid socket number in completion response: {socket_num}"
-                        );
+                        warn!("Invalid socket number in completion response: {socket_num}");
                     }
                 } else {
                     warn!("Completion response too short to extract socket");
