@@ -23,6 +23,7 @@ use crate::{
     },
     error::Error,
     timeout::CommandCategory,
+    visca_param_command,
 };
 
 /// White balance modes.
@@ -63,7 +64,7 @@ pub enum AutoWhiteBalanceSensitivity {
     High = 0x02,
 }
 
-crate::visca_param_command! {
+visca_param_command! {
     /// Command to set the white balance mode.
     pub(crate) struct WhiteBalanceCommand {
         mode: WhiteBalanceMode,

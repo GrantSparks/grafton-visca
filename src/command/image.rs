@@ -9,7 +9,7 @@ use crate::{
     command::const_encoding::CommandBuilder,
     error::Error,
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
-    visca_bool_command, visca_command,
+    visca_bool_command, visca_command, visca_param_command,
 };
 
 visca_bool_command! {
@@ -129,7 +129,7 @@ pub enum ImageFlipMode {
     Both,
 }
 
-crate::visca_param_command! {
+visca_param_command! {
     /// Command to set the combined image flip mode.
     pub(crate) struct ImageFlipCombinedCommand {
         mode: ImageFlipMode,
@@ -154,7 +154,7 @@ impl ImageFlipCombinedCommand {
 // Import PictureEffectMode from resolution module
 use crate::command::resolution::PictureEffectMode;
 
-crate::visca_param_command! {
+visca_param_command! {
     /// Command to set picture effect mode.
     ///
     /// Controls various artistic effects like negative, sepia, sketch, etc.
