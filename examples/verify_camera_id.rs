@@ -11,8 +11,7 @@ fn main() {
         let camera_id = CameraId::new(id).unwrap();
         let address_byte = camera_id.to_address_byte();
         println!(
-            "CameraId({}) -> 0x{:02X} (binary: 0b{:08b})",
-            id, address_byte, address_byte
+            "CameraId({id}) -> 0x{address_byte:02X} (binary: 0b{address_byte:08b})"
         );
     }
 
@@ -22,7 +21,7 @@ fn main() {
     // The user's specific concern: Camera 1 should produce 0x81
     let camera1 = CameraId::CAMERA_1;
     let addr1 = camera1.to_address_byte();
-    println!("CameraId::CAMERA_1.to_address_byte() = 0x{:02X}", addr1);
+    println!("CameraId::CAMERA_1.to_address_byte() = 0x{addr1:02X}");
     assert_eq!(addr1, 0x81, "Camera 1 should produce 0x81");
 
     // PTZOptics default
