@@ -44,7 +44,7 @@ pub fn test_speeds_with(pan: u8, tilt: u8) -> (u8, u8) {
 pub fn assert_ok<T, E: Debug>(result: Result<T, E>, context: &str) -> T {
     match result {
         Ok(value) => value,
-        Err(e) => panic!("{}: {:?}", context, e),
+        Err(e) => panic!("{context}: {e:?}"),
     }
 }
 
@@ -53,7 +53,7 @@ pub fn assert_ok<T, E: Debug>(result: Result<T, E>, context: &str) -> T {
 /// Useful for testing error conditions with better failure messages.
 pub fn assert_err<T: Debug, E>(result: Result<T, E>, context: &str) -> E {
     match result {
-        Ok(value) => panic!("{}: Expected error but got Ok({:?})", context, value),
+        Ok(value) => panic!("{context}: Expected error but got Ok({value:?})"),
         Err(e) => e,
     }
 }
@@ -64,8 +64,7 @@ pub fn assert_err<T: Debug, E>(result: Result<T, E>, context: &str) -> E {
 pub fn assert_bytes_eq(actual: &[u8], expected: &[u8], context: &str) {
     if actual != expected {
         panic!(
-            "{}\nExpected: {:02X?}\nActual:   {:02X?}",
-            context, expected, actual
+            "{context}\nExpected: {expected:02X?}\nActual:   {actual:02X?}"
         );
     }
 }
@@ -74,8 +73,7 @@ pub fn assert_bytes_eq(actual: &[u8], expected: &[u8], context: &str) {
 pub fn assert_bytes_start_with(actual: &[u8], prefix: &[u8], context: &str) {
     if !actual.starts_with(prefix) {
         panic!(
-            "{}\nExpected to start with: {:02X?}\nActual: {:02X?}",
-            context, prefix, actual
+            "{context}\nExpected to start with: {prefix:02X?}\nActual: {actual:02X?}"
         );
     }
 }

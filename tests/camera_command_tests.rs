@@ -103,13 +103,13 @@ mod blocking_tests {
 
         // Test zoom commands
         let stop_result = camera.zoom_stop();
-        assert!(stop_result.is_ok(), "zoom_stop failed: {:?}", stop_result);
+        assert!(stop_result.is_ok(), "zoom_stop failed: {stop_result:?}");
 
         let in_result = camera.zoom_in();
-        assert!(in_result.is_ok(), "zoom_in failed: {:?}", in_result);
+        assert!(in_result.is_ok(), "zoom_in failed: {in_result:?}");
 
         let out_result = camera.zoom_out();
-        assert!(out_result.is_ok(), "zoom_out failed: {:?}", out_result);
+        assert!(out_result.is_ok(), "zoom_out failed: {out_result:?}");
 
         // MockTransportBuilder automatically verifies expectations when dropped
 
@@ -140,7 +140,7 @@ mod blocking_tests {
         let camera = PTZOpticsG2Cam::new(mock.clone());
 
         let result = camera.zoom_in();
-        assert!(result.is_ok(), "zoom_in failed: {:?}", result);
+        assert!(result.is_ok(), "zoom_in failed: {result:?}");
     }
 
     #[test]
@@ -196,7 +196,7 @@ mod blocking_tests {
             Err(Error::SyntaxError) => {
                 // Expected error type
             }
-            _ => panic!("Expected SyntaxError, got {:?}", result),
+            _ => panic!("Expected SyntaxError, got {result:?}"),
         }
 
         // MockTransportBuilder automatically verifies expectations when dropped
@@ -220,7 +220,7 @@ mod blocking_tests {
             Err(Error::Io(e)) if e.to_string().contains("timed out") => {
                 // Also accept IO error with timeout message
             }
-            _ => panic!("Expected Timeout or IO timeout error, got {:?}", result),
+            _ => panic!("Expected Timeout or IO timeout error, got {result:?}"),
         }
     }
 

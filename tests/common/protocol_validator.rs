@@ -41,13 +41,13 @@ impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)?;
         if let Some(idx) = self.byte_index {
-            write!(f, " at byte {}", idx)?;
+            write!(f, " at byte {idx}")?;
         }
         if let Some(ref expected) = self.expected {
-            write!(f, ", expected {:02X?}", expected)?;
+            write!(f, ", expected {expected:02X?}")?;
         }
         if let Some(ref actual) = self.actual {
-            write!(f, ", got {:02X?}", actual)?;
+            write!(f, ", got {actual:02X?}")?;
         }
         Ok(())
     }

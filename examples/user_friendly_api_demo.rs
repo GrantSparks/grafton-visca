@@ -70,12 +70,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set 2D noise reduction to medium
     let nr_2d_level = NoiseReductionStrength::Medium.to_2d_level()?;
     camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(nr_2d_level)?)?;
-    println!("2D Noise Reduction set to Medium (level {})", nr_2d_level);
+    println!("2D Noise Reduction set to Medium (level {nr_2d_level})");
 
     // Set 3D noise reduction to strong
     let nr_3d_level = NoiseReductionStrength::Strong.to_3d_level()?;
     camera.set_noise_reduction_3d(NoiseReduction3DLevel::new(nr_3d_level)?)?;
-    println!("3D Noise Reduction set to Strong (level {})", nr_3d_level);
+    println!("3D Noise Reduction set to Strong (level {nr_3d_level})");
 
     // Example 4: Zoom with speed levels
     println!("\n=== Zoom Speed Demo ===");
@@ -91,9 +91,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let iris = camera.get_iris()?;
     if let Some(iris_level) = FStop::from_iris_level(iris) {
-        println!("Current iris setting: {}", iris_level);
+        println!("Current iris setting: {iris_level}");
     } else {
-        println!("Current iris level: {}", iris);
+        println!("Current iris level: {iris}");
     }
 
     println!("\nDemo completed successfully!");
