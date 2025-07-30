@@ -5,11 +5,29 @@ use crate::Error;
 /// Exposure operations (async).
 #[cfg(feature = "async")]
 pub trait ExposureOps: Sized {
+    /// Set exposure mode to any supported mode.
+    async fn set_exposure_mode(
+        &self,
+        mode: crate::command::exposure::ExposureMode,
+    ) -> Result<(), Error>;
+
     /// Set auto exposure mode.
     async fn exposure_auto(&self) -> Result<(), Error>;
 
     /// Set manual exposure mode.
     async fn exposure_manual(&self) -> Result<(), Error>;
+
+    /// Set shutter priority exposure mode.
+    /// User controls shutter speed, camera adjusts other parameters.
+    async fn exposure_shutter_priority(&self) -> Result<(), Error>;
+
+    /// Set iris priority exposure mode.
+    /// User controls iris/aperture, camera adjusts other parameters.
+    async fn exposure_iris_priority(&self) -> Result<(), Error>;
+
+    /// Set brightness priority exposure mode.
+    /// User controls brightness level, camera adjusts other parameters.
+    async fn exposure_bright_mode(&self) -> Result<(), Error>;
 
     /// Set iris level.
     async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error>;
@@ -114,11 +132,26 @@ pub trait ExposureOps: Sized {
 
 /// Exposure operations (blocking).
 pub trait ExposureOpsBlocking: Sized {
+    /// Set exposure mode to any supported mode.
+    fn set_exposure_mode(&self, mode: crate::command::exposure::ExposureMode) -> Result<(), Error>;
+
     /// Set auto exposure mode.
     fn exposure_auto(&self) -> Result<(), Error>;
 
     /// Set manual exposure mode.
     fn exposure_manual(&self) -> Result<(), Error>;
+
+    /// Set shutter priority exposure mode.
+    /// User controls shutter speed, camera adjusts other parameters.
+    fn exposure_shutter_priority(&self) -> Result<(), Error>;
+
+    /// Set iris priority exposure mode.
+    /// User controls iris/aperture, camera adjusts other parameters.
+    fn exposure_iris_priority(&self) -> Result<(), Error>;
+
+    /// Set brightness priority exposure mode.
+    /// User controls brightness level, camera adjusts other parameters.
+    fn exposure_bright_mode(&self) -> Result<(), Error>;
 
     /// Set iris level.
     fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error>;
@@ -223,24 +256,45 @@ pub trait ExposureOpsBlocking: Sized {
 impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOps
     for crate::camera::generic::Camera<P, T>
 {
-    async fn exposure_auto(&self) -> Result<(), Error> {
-        use crate::command::exposure::{ExposureCommand, ExposureMode};
+    async fn set_exposure_mode(
+        &self,
+        mode: crate::command::exposure::ExposureMode,
+    ) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCommand;
 
-        let command = ExposureCommand {
-            mode: ExposureMode::Auto,
-        };
+        let command = ExposureCommand { mode };
         self.send_command(&command).await?;
         Ok(())
     }
 
-    async fn exposure_manual(&self) -> Result<(), Error> {
-        use crate::command::exposure::{ExposureCommand, ExposureMode};
+    async fn exposure_auto(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
 
-        let command = ExposureCommand {
-            mode: ExposureMode::Manual,
-        };
-        self.send_command(&command).await?;
-        Ok(())
+        ExposureOps::set_exposure_mode(self, ExposureMode::Auto).await
+    }
+
+    async fn exposure_manual(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
+
+        ExposureOps::set_exposure_mode(self, ExposureMode::Manual).await
+    }
+
+    async fn exposure_shutter_priority(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
+
+        ExposureOps::set_exposure_mode(self, ExposureMode::Shutter).await
+    }
+
+    async fn exposure_iris_priority(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
+
+        ExposureOps::set_exposure_mode(self, ExposureMode::Iris).await
+    }
+
+    async fn exposure_bright_mode(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
+
+        ExposureOps::set_exposure_mode(self, ExposureMode::Bright).await
     }
 
     async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {
@@ -478,24 +532,42 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Exp
 impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOpsBlocking
     for crate::camera::generic::Camera<P, T>
 {
-    fn exposure_auto(&self) -> Result<(), Error> {
-        use crate::command::exposure::{ExposureCommand, ExposureMode};
+    fn set_exposure_mode(&self, mode: crate::command::exposure::ExposureMode) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCommand;
 
-        let command = ExposureCommand {
-            mode: ExposureMode::Auto,
-        };
+        let command = ExposureCommand { mode };
         self.send_command_blocking(&command)?;
         Ok(())
     }
 
-    fn exposure_manual(&self) -> Result<(), Error> {
-        use crate::command::exposure::{ExposureCommand, ExposureMode};
+    fn exposure_auto(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
 
-        let command = ExposureCommand {
-            mode: ExposureMode::Manual,
-        };
-        self.send_command_blocking(&command)?;
-        Ok(())
+        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Auto)
+    }
+
+    fn exposure_manual(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
+
+        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Manual)
+    }
+
+    fn exposure_shutter_priority(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
+
+        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Shutter)
+    }
+
+    fn exposure_iris_priority(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
+
+        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Iris)
+    }
+
+    fn exposure_bright_mode(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureMode;
+
+        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Bright)
     }
 
     fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {

@@ -97,7 +97,10 @@ forward_facade!(Camera, blocking,
         enable_focus_lock() -> crate::Result<()>,
         disable_focus_lock() -> crate::Result<()>,
         push_af_press() -> crate::Result<()>,
-        push_af_release() -> crate::Result<()>;
+        push_af_release() -> crate::Result<()>,
+        set_focus_zone(zone: crate::command::focus::FocusZone) -> crate::Result<()>,
+        set_auto_focus_sensitivity(sensitivity: crate::command::focus::AutoFocusSensitivity) -> crate::Result<()>,
+        set_focus_near_limit(position: crate::types::FocusPosition) -> crate::Result<()>;
     PowerOps:
         power_on() -> crate::Result<()>,
         power_off() -> crate::Result<()>;
@@ -141,7 +144,14 @@ forward_facade!(Camera, blocking,
         get_pan_tilt_position() -> crate::Result<(i16, i16)>,
         get_pan_tilt_degrees() -> crate::Result<(crate::units::Degrees, crate::units::Degrees)>;
     WhiteBalanceOps:
+        set_white_balance_mode(mode: crate::command::white_balance::WhiteBalanceMode) -> crate::Result<()>,
         white_balance_auto() -> crate::Result<()>,
+        white_balance_indoor() -> crate::Result<()>,
+        white_balance_outdoor() -> crate::Result<()>,
+        white_balance_one_push() -> crate::Result<()>,
+        white_balance_atw() -> crate::Result<()>,
+        white_balance_manual() -> crate::Result<()>,
+        white_balance_color_temperature() -> crate::Result<()>,
         set_awb_sensitivity(sensitivity: crate::command::white_balance::AWBSensitivity) -> crate::Result<()>;
     ColorOps:
         one_push_trigger() -> crate::Result<()>,
@@ -157,8 +167,12 @@ forward_facade!(Camera, blocking,
         set_red_tuning(tuning: crate::types::RedTuning) -> crate::Result<()>,
         set_blue_tuning(tuning: crate::types::BlueTuning) -> crate::Result<()>;
     ExposureOps:
+        set_exposure_mode(mode: crate::command::exposure::ExposureMode) -> crate::Result<()>,
         exposure_auto() -> crate::Result<()>,
         exposure_manual() -> crate::Result<()>,
+        exposure_shutter_priority() -> crate::Result<()>,
+        exposure_iris_priority() -> crate::Result<()>,
+        exposure_bright_mode() -> crate::Result<()>,
         set_iris(level: crate::types::IrisLevel) -> crate::Result<()>,
         reset_iris() -> crate::Result<()>,
         increase_iris() -> crate::Result<()>,

@@ -160,12 +160,31 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Col
 impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOps
     for Camera<P, T>
 {
+    async fn set_exposure_mode(
+        &self,
+        mode: crate::command::exposure::ExposureMode,
+    ) -> crate::Result<()> {
+        self.0.set_exposure_mode(mode).await
+    }
+
     async fn exposure_auto(&self) -> crate::Result<()> {
         self.0.exposure_auto().await
     }
 
     async fn exposure_manual(&self) -> crate::Result<()> {
         self.0.exposure_manual().await
+    }
+
+    async fn exposure_shutter_priority(&self) -> crate::Result<()> {
+        self.0.exposure_shutter_priority().await
+    }
+
+    async fn exposure_iris_priority(&self) -> crate::Result<()> {
+        self.0.exposure_iris_priority().await
+    }
+
+    async fn exposure_bright_mode(&self) -> crate::Result<()> {
+        self.0.exposure_bright_mode().await
     }
 
     async fn set_iris(&self, level: crate::types::IrisLevel) -> crate::Result<()> {
@@ -345,6 +364,24 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Foc
 
     async fn push_af_release(&self) -> crate::Result<()> {
         self.0.push_af_release().await
+    }
+
+    async fn set_focus_zone(&self, zone: crate::command::focus::FocusZone) -> crate::Result<()> {
+        self.0.set_focus_zone(zone).await
+    }
+
+    async fn set_auto_focus_sensitivity(
+        &self,
+        sensitivity: crate::command::focus::AutoFocusSensitivity,
+    ) -> crate::Result<()> {
+        self.0.set_auto_focus_sensitivity(sensitivity).await
+    }
+
+    async fn set_focus_near_limit(
+        &self,
+        position: crate::types::FocusPosition,
+    ) -> crate::Result<()> {
+        self.0.set_focus_near_limit(position).await
     }
 }
 
@@ -850,8 +887,39 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Tal
 impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> WhiteBalanceOps
     for Camera<P, T>
 {
+    async fn set_white_balance_mode(
+        &self,
+        mode: crate::command::white_balance::WhiteBalanceMode,
+    ) -> crate::Result<()> {
+        self.0.set_white_balance_mode(mode).await
+    }
+
     async fn white_balance_auto(&self) -> crate::Result<()> {
         self.0.white_balance_auto().await
+    }
+
+    async fn white_balance_indoor(&self) -> crate::Result<()> {
+        self.0.white_balance_indoor().await
+    }
+
+    async fn white_balance_outdoor(&self) -> crate::Result<()> {
+        self.0.white_balance_outdoor().await
+    }
+
+    async fn white_balance_one_push(&self) -> crate::Result<()> {
+        self.0.white_balance_one_push().await
+    }
+
+    async fn white_balance_atw(&self) -> crate::Result<()> {
+        self.0.white_balance_atw().await
+    }
+
+    async fn white_balance_manual(&self) -> crate::Result<()> {
+        self.0.white_balance_manual().await
+    }
+
+    async fn white_balance_color_temperature(&self) -> crate::Result<()> {
+        self.0.white_balance_color_temperature().await
     }
 
     async fn set_awb_sensitivity(
