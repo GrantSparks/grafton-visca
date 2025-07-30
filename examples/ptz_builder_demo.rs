@@ -96,9 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Degrees::new(tilt_degrees),
         SpeedLevel::Medium,
     ) {
-        Ok(_) => println!(
-            "   ✓ Set position to pan={pan_degrees}°, tilt={tilt_degrees}°"
-        ),
+        Ok(_) => println!("   ✓ Set position to pan={pan_degrees}°, tilt={tilt_degrees}°"),
         Err(e) => println!("   ✗ Position out of range: {e}"),
     }
     thread::sleep(Duration::from_secs(2));
