@@ -10,9 +10,7 @@ fn main() {
     for id in 1..=8 {
         let camera_id = CameraId::new(id).unwrap();
         let address_byte = camera_id.to_address_byte();
-        println!(
-            "CameraId({id}) -> 0x{address_byte:02X} (binary: 0b{address_byte:08b})"
-        );
+        println!("CameraId({id}) -> 0x{address_byte:02X} (binary: 0b{address_byte:08b})");
     }
 
     println!("\nSpecific important cases:");

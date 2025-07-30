@@ -83,9 +83,7 @@ fn run_examples() -> Result<(), Error> {
     let invalid_pan = 30; // Max is 24 (0x18)
     let invalid_tilt = 25; // Max is 20 (0x14)
 
-    println!(
-        "  Trying to create PanSpeed({invalid_pan}) and TiltSpeed({invalid_tilt})..."
-    );
+    println!("  Trying to create PanSpeed({invalid_pan}) and TiltSpeed({invalid_tilt})...");
     // Try to create both speeds and handle the error
     let result = (|| {
         let _pan = PanSpeed::try_from(invalid_pan).map_err(|_| Error::InvalidParameter {
