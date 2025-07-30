@@ -63,18 +63,14 @@ pub fn assert_err<T: Debug, E>(result: Result<T, E>, context: &str) -> E {
 /// Provides better output for debugging protocol-level issues.
 pub fn assert_bytes_eq(actual: &[u8], expected: &[u8], context: &str) {
     if actual != expected {
-        panic!(
-            "{context}\nExpected: {expected:02X?}\nActual:   {actual:02X?}"
-        );
+        panic!("{context}\nExpected: {expected:02X?}\nActual:   {actual:02X?}");
     }
 }
 
 /// Assert that a byte array starts with the given prefix.
 pub fn assert_bytes_start_with(actual: &[u8], prefix: &[u8], context: &str) {
     if !actual.starts_with(prefix) {
-        panic!(
-            "{context}\nExpected to start with: {prefix:02X?}\nActual: {actual:02X?}"
-        );
+        panic!("{context}\nExpected to start with: {prefix:02X?}\nActual: {actual:02X?}");
     }
 }
 
