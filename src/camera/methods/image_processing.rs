@@ -1,7 +1,6 @@
 //! Image processing methods for cameras using the new GAT architecture.
 
 use crate::{
-    camera::Camera,
     command::{
         color::{HueCommand, SaturationCommand},
         flip::{Flip, ImageFlipCommand},
@@ -178,7 +177,9 @@ pub trait ImageProcessingOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl ImageProcessingOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ImageProcessingOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn enable_flip(&self) -> Result<(), Error> {
         let cmd = ImageFlipCommand::new(Flip::On);
         self.send_command(&cmd).await?;
@@ -324,7 +325,9 @@ impl ImageProcessingOps for Camera {
 }
 
 // Blocking implementation
-impl ImageProcessingOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport>
+    ImageProcessingOpsBlocking for crate::camera::generic::Camera<P, T>
+{
     fn enable_flip(&self) -> Result<(), Error> {
         let cmd = ImageFlipCommand::new(Flip::On);
         self.send_command_blocking(&cmd)?;

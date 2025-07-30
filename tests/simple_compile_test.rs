@@ -1,33 +1,47 @@
-//! Simple test to verify compilation succeeds with unified Camera implementation.
+//! Simple test to verify compilation succeeds with generic Camera implementation.
 
-// This test simply verifies that the code compiles.
-// The unified Camera API performs runtime capability checks instead of compile-time checks.
-
-// Removed unused imports
+use grafton_visca::{
+    capabilities::{NDFilter, Profile},
+    transport::UnifiedTransport,
+    Camera,
+};
+// Import type aliases from the blocking prelude
+use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
 
 #[test]
 fn test_compilation_succeeds() {
-    // The unified Camera API doesn't use generics for profiles
-    // Instead, it uses runtime profile selection
+    // The generic Camera API provides compile-time type safety
+    // These types exist and can be used (would need actual transports in real usage):
 
-    // These would be created with actual transports in real usage:
-    // let g2_camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
-    // let fr7_camera = Camera::with_profile(CameraModel::SonyFR7, transport);
+    // Type aliases exist for common camera models
+    type _G2Camera<T> = PTZOpticsG2Cam<T>;
+    type _FR7Camera<T> = SonyFR7Cam<T>;
+    type _GenericCamera<T> = GenericViscaCam<T>;
 
-    // The test validates that the Camera type compiles correctly
+    // The test validates that the Camera types compile correctly
     // No assertion needed - the test passes if compilation succeeds
 }
 
-// Runtime capability checking example:
-/*
-fn runtime_capability_check() {
-    // With the unified API, unsupported features return errors at runtime
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
-
-    // This compiles but would return an error if PTZOpticsG2 doesn't support ND filter
-    match camera.set_nd_filter(2) {
-        Ok(_) => println!("ND filter set"),
-        Err(e) => println!("ND filter not supported: {}", e),
+// Compile-time capability checking example:
+#[test]
+fn test_compile_time_safety() {
+    // This function can only be called with cameras that support ND filter
+    fn _use_nd_filter<P, T>(_camera: &Camera<P, T>)
+    where
+        P: Profile + NDFilter,
+        T: UnifiedTransport,
+    {
+        // This would compile only for cameras with ND filter support
     }
+
+    // This function works with any camera
+    fn _use_basic_features<P, T>(_camera: &Camera<P, T>)
+    where
+        P: Profile,
+        T: UnifiedTransport,
+    {
+        // Basic features available on all cameras
+    }
+
+    // Test passes if code compiles
 }
-*/

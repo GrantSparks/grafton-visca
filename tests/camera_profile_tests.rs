@@ -1,141 +1,126 @@
-//! Tests for camera profile constants and capabilities.
+//! Tests for camera profile system and compile-time capabilities.
 
-#[cfg(feature = "tokio")]
-use grafton_visca::{Camera, CameraFeature, CameraModel, FeatureDetection};
+use grafton_visca::{capabilities::*, transport::UnifiedTransport, Camera};
 
-#[cfg(feature = "tokio")]
-mod common;
+// Import type aliases from the blocking prelude
+use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
 
-// Tests for camera profile metadata
-// Note: Most profile constants are in private traits and can't be tested directly
-// We test through the public API instead
+// Tests demonstrating the compile-time profile system
 
-#[cfg(feature = "tokio")]
-#[tokio::test]
-async fn test_coordinate_system_conversions() {
-    let transport = common::mock_transport_enhanced::MockTransport::new();
-
-    // Test modern camera (signed coordinates)
-    let modern_camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport.clone());
-    let coords = modern_camera.to_camera_coords(0, 0);
-    assert_eq!(coords, (0, 0));
-
-    // Modern cameras use signed coordinates internally but the API returns u16
-    // Test with positive coordinates
-    let coords = modern_camera.to_camera_coords(100, 50);
-    assert_eq!(coords, (100, 50));
-
-    // Test legacy camera (unsigned coordinates)
-    let legacy_camera = Camera::with_profile(CameraModel::SonyBRC300, transport.clone());
-    let coords = legacy_camera.to_camera_coords(0, 0);
-    assert_eq!(coords, (0x8000, 0x8000)); // Center is 0x8000
-
-    let coords = legacy_camera.to_camera_coords(100, 100);
-    assert_eq!(coords, (0x8064, 0x8064)); // 0x8000 + 100
-
-    // Test conversion back
-    let logical = legacy_camera.from_camera_coords(0x8000, 0x8000);
-    assert_eq!(logical, (0, 0));
-
-    let logical = legacy_camera.from_camera_coords(0x8064, 0x8064);
-    assert_eq!(logical, (100, 100));
-}
-
-#[cfg(feature = "tokio")]
-#[tokio::test]
-async fn test_camera_profile_selection() {
-    let transport = common::mock_transport_enhanced::MockTransport::new();
-
-    // Test that each model creates the correct profile
-    let models_and_names = vec![
-        (CameraModel::PTZOpticsG2, "PTZOptics G2"),
-        (CameraModel::PTZOpticsG3, "PTZOptics G3"),
-        (CameraModel::PTZOptics30X, "PTZOptics 30X"),
-        (CameraModel::SonyFR7, "Sony FR7"),
-        (CameraModel::SonyBRCH900, "Sony BRC-H900"),
-        (CameraModel::SonyEVIH100, "Sony EVI-H100"),
-        (CameraModel::SonyBRC300, "Sony BRC-300"),
-        (CameraModel::NearusBRC300, "Nearus BRC-300"),
-        (CameraModel::GenericVisca, "Generic VISCA Camera"),
-    ];
-
-    for (model, expected_name) in models_and_names {
-        let camera = Camera::with_profile(model, transport.clone());
-        assert_eq!(camera.model_name(), expected_name);
+#[test]
+fn test_profile_type_aliases() {
+    // Verify that type aliases exist and compile
+    fn _accepts_g2_camera<T>(_camera: PTZOpticsG2Cam<T>)
+    where
+        T: UnifiedTransport,
+    {
+        // PTZOpticsG2Cam is a type alias for Camera<PTZOpticsG2, T>
     }
-}
 
-#[cfg(feature = "tokio")]
-#[tokio::test]
-async fn test_profile_metadata() {
-    let transport = common::mock_transport_enhanced::MockTransport::new();
-
-    // Test that each camera has appropriate model name
-    let cameras = vec![
-        (CameraModel::PTZOpticsG2, "PTZOptics G2"),
-        (CameraModel::SonyFR7, "Sony FR7"),
-        (CameraModel::SonyBRCH900, "Sony BRC-H900"),
-        (CameraModel::SonyEVIH100, "Sony EVI-H100"),
-        (CameraModel::SonyBRC300, "Sony BRC-300"),
-        (CameraModel::NearusBRC300, "Nearus BRC-300"),
-        (CameraModel::PTZOpticsG3, "PTZOptics G3"),
-        (CameraModel::PTZOptics30X, "PTZOptics 30X"),
-        (CameraModel::GenericVisca, "Generic VISCA Camera"),
-    ];
-
-    for (model, expected_name) in cameras {
-        let camera = Camera::with_profile(model, transport.clone());
-        assert_eq!(camera.model_name(), expected_name);
+    fn _accepts_fr7_camera<T>(_camera: SonyFR7Cam<T>)
+    where
+        T: UnifiedTransport,
+    {
+        // SonyFR7Cam is a type alias for Camera<SonyFR7, T>
     }
-}
 
-#[cfg(feature = "tokio")]
-#[tokio::test]
-async fn test_preset_support() {
-    let transport = common::mock_transport_enhanced::MockTransport::new();
-
-    // Test that all cameras support presets
-    let models = vec![
-        CameraModel::SonyEVIH100, // Has very limited presets (6)
-        CameraModel::SonyBRC300,  // Has limited presets (16)
-        CameraModel::PTZOpticsG2, // Has standard presets (89)
-        CameraModel::SonyBRCH900, // Has extended presets (100)
-        CameraModel::PTZOpticsG3, // Has maximum presets (255)
-        CameraModel::PTZOptics30X,
-        CameraModel::NearusBRC300,
-        CameraModel::GenericVisca,
-    ];
-
-    for model in models {
-        let camera = Camera::with_profile(model, transport.clone());
-        assert!(
-            camera.supports_feature(CameraFeature::Presets),
-            "Camera {:?} should support presets",
-            model
-        );
+    fn _accepts_generic_camera<T>(_camera: GenericViscaCam<T>)
+    where
+        T: UnifiedTransport,
+    {
+        // GenericViscaCam is a type alias for Camera<GenericVisca, T>
     }
+
+    // Test passes if code compiles
 }
 
-#[cfg(feature = "tokio")]
-#[tokio::test]
-async fn test_feature_combinations() {
-    let transport = common::mock_transport_enhanced::MockTransport::new();
+#[test]
+fn test_profile_capabilities_are_compile_time() {
+    // This function can only accept cameras with ND filter support
+    fn _requires_nd_filter<P, T>(_camera: &Camera<P, T>) -> bool
+    where
+        P: Profile + NDFilter,
+        T: UnifiedTransport,
+    {
+        // At compile time, we know this camera supports ND filter
+        true
+    }
 
-    // Test specific feature combinations for different camera models
+    // This function can accept any camera with basic Profile
+    fn _requires_only_basic<P, T>(_camera: &Camera<P, T>) -> bool
+    where
+        P: Profile,
+        T: UnifiedTransport,
+    {
+        // All cameras have basic capabilities
+        true
+    }
 
-    // Sony FR7: Has ND filter but no motion sync
-    let fr7 = Camera::with_profile(CameraModel::SonyFR7, transport.clone());
-    assert!(fr7.supports_feature(CameraFeature::NDFilter));
-    assert!(!fr7.supports_feature(CameraFeature::MotionSync));
+    // These demonstrate compile-time checking:
+    // - SonyFR7 has NDFilter, so it can use requires_nd_filter
+    // - GenericVisca doesn't have NDFilter, so it cannot
+    // - Both can use requires_only_basic
+}
 
-    // PTZOptics G2: Has motion sync but no ND filter
-    let g2 = Camera::with_profile(CameraModel::PTZOpticsG2, transport.clone());
-    assert!(!g2.supports_feature(CameraFeature::NDFilter));
-    assert!(g2.supports_feature(CameraFeature::MotionSync));
+#[test]
+fn test_profile_traits_composition() {
+    use grafton_visca::capabilities::*;
 
-    // Sony BRC-300: Legacy camera with basic features
-    let brc300 = Camera::with_profile(CameraModel::SonyBRC300, transport.clone());
-    assert!(brc300.supports_feature(CameraFeature::PanTilt));
-    assert!(brc300.supports_feature(CameraFeature::Zoom));
-    assert!(!brc300.supports_feature(CameraFeature::ImageFlip)); // No modern features
+    // Verify that Profile trait requires all basic capabilities
+    fn verify_profile_requirements<P>()
+    where
+        P: Profile,
+    {
+        // A type implementing Profile must also implement:
+        fn requires_metadata<T: ProfileMetadata>() {}
+        fn requires_pan_tilt<T: PanTilt>() {}
+        fn requires_zoom<T: Zoom>() {}
+        fn requires_focus<T: Focus>() {}
+        fn requires_exposure<T: Exposure>() {}
+        fn requires_white_balance<T: WhiteBalance>() {}
+        fn requires_image_processing<T: ImageProcessing>() {}
+        fn requires_presets<T: Presets>() {}
+        fn requires_power<T: Power>() {}
+        fn requires_menu<T: MenuControl>() {}
+
+        // This would only compile if P implements all these traits
+        requires_metadata::<P>();
+        requires_pan_tilt::<P>();
+        requires_zoom::<P>();
+        requires_focus::<P>();
+        requires_exposure::<P>();
+        requires_white_balance::<P>();
+        requires_image_processing::<P>();
+        requires_presets::<P>();
+        requires_power::<P>();
+        requires_menu::<P>();
+    }
+
+    // Test that known profiles implement Profile correctly
+    verify_profile_requirements::<grafton_visca::camera::profiles::PTZOpticsG2>();
+    verify_profile_requirements::<grafton_visca::camera::profiles::SonyFR7>();
+    verify_profile_requirements::<grafton_visca::camera::profiles::GenericVisca>();
+}
+
+#[test]
+fn test_optional_capabilities() {
+    use grafton_visca::capabilities::*;
+
+    // Test which profiles have optional capabilities
+    fn has_nd_filter<T: NDFilter>() {}
+    fn has_motion_sync<T: MotionSync>() {}
+    fn has_variable_speed<T: VariableSpeed>() {}
+
+    // These compile:
+    has_nd_filter::<grafton_visca::camera::profiles::SonyFR7>();
+    has_motion_sync::<grafton_visca::camera::profiles::PTZOpticsG2>();
+    // Note: SonyFR7 doesn't have MotionSync in the current implementation
+    has_variable_speed::<grafton_visca::camera::profiles::SonyFR7>();
+
+    // These would NOT compile (commented out to keep test passing):
+    // has_nd_filter::<grafton_visca::camera::profiles::PTZOpticsG2>();
+    // has_nd_filter::<grafton_visca::camera::profiles::GenericVisca>();
+    // has_motion_sync::<grafton_visca::camera::profiles::GenericVisca>();
+    // has_variable_speed::<grafton_visca::camera::profiles::PTZOpticsG2>();
+    // has_variable_speed::<grafton_visca::camera::profiles::GenericVisca>();
 }

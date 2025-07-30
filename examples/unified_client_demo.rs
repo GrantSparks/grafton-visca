@@ -1,9 +1,13 @@
 //! Demo of the unified Camera API in both blocking and async contexts.
 //!
-//! This example shows how the Camera API works seamlessly without
-//! requiring generic type parameters for profile or transport.
+//! This example shows how the Camera API works with compile-time profiles
+//! providing type safety and zero runtime overhead.
 
-use grafton_visca::{Camera, CameraModel, Error};
+use grafton_visca::{
+    capabilities::{NDFilter, Profile},
+    transport::UnifiedTransport,
+    Camera, Error, NDFilterMode,
+};
 
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::transport::blocking::{Tcp, Udp};
@@ -15,40 +19,47 @@ use grafton_visca::transport::tokio::{Tcp, Udp};
 
 #[cfg(not(feature = "tokio"))]
 fn blocking_examples() -> Result<(), Error> {
+    use grafton_visca::prelude::blocking::*;
+
     println!("=== Unified Camera with Blocking Transport ===\n");
 
-    // Example 1: Create camera with default profile (GenericVisca)
-    println!("Example 1: Default profile with UDP");
+    // Example 1: Create camera with GenericVisca profile
+    println!("Example 1: GenericVisca profile with UDP");
     let udp_transport = Udp::connect("192.168.1.100:52381")?;
-    let camera = Camera::new(udp_transport);
-    println!("Created camera: {}", camera.model_name());
-    println!("Profile info: {}", camera.profile_info());
+    let camera = GenericViscaCam::new(udp_transport);
+    println!("Created GenericVisca camera");
 
-    // Example 2: Create camera with specific profile
+    // Basic operations available on all cameras
+    camera.power_on()?;
+    camera.zoom_stop()?;
+
+    // Example 2: Create camera with PTZOptics G2 profile
     println!("\nExample 2: PTZOptics G2 profile with TCP");
     let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, tcp_transport);
-    println!("Created camera: {}", camera.model_name());
-    println!("Profile info: {}", camera.profile_info());
+    let camera = PTZOpticsG2Cam::new(tcp_transport);
+    println!("Created PTZOptics G2 camera");
+
+    // PTZOptics G2 specific operations (compile-time checked)
+    camera.power_on()?;
+    camera.preset_recall(PresetNumber::new(1).unwrap())?;
 
     // Example 3: Create Sony FR7 camera
     println!("\nExample 3: Sony FR7 profile");
     let transport = Udp::connect("192.168.1.200:52381")?;
-    let camera = Camera::with_profile(CameraModel::SonyFR7, transport);
-    println!("Created camera: {}", camera.model_name());
-    println!("Profile info: {}", camera.profile_info());
+    let camera = SonyFR7Cam::new(transport);
+    println!("Created Sony FR7 camera");
 
-    // Example 4: Check capabilities at runtime
-    println!("\nExample 4: Runtime capability checking");
-    let transport = Tcp::connect("192.168.1.100:5678")?;
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    // Sony FR7 supports advanced features
+    camera.set_nd_filter_mode(NDFilterMode::Preset)?;
 
-    println!("Capabilities for {}:", camera.model_name());
-    println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
-    println!("  - Zoom: {}", camera.supports_capability("zoom"));
-    println!("  - Focus: {}", camera.supports_capability("focus"));
-    println!("  - ND Filter: {}", camera.supports_capability("nd_filter"));
-    println!("  - Presets: {}", camera.supports_capability("presets"));
+    // Example 4: Compile-time type safety
+    println!("\nExample 4: Compile-time type safety");
+    println!("Each camera type has access to only its supported features.");
+    println!("Attempting to call unsupported methods results in compile errors.");
+
+    // This would not compile if uncommented:
+    // let generic_cam = GenericViscaCam::new(udp_transport);
+    // generic_cam.set_nd_filter_mode(NDFilterMode::Clear)?; // Error: GenericVisca doesn't support ND filter
 
     Ok(())
 }
@@ -57,40 +68,51 @@ fn blocking_examples() -> Result<(), Error> {
 
 #[cfg(feature = "tokio")]
 async fn async_examples() -> Result<(), Error> {
+    use grafton_visca::prelude::r#async::*;
     println!("=== Unified Camera with Async Transport ===\n");
 
-    // Example 1: Create camera with default profile (GenericVisca)
-    println!("Example 1: Default profile with UDP");
+    // Example 1: Create camera with GenericVisca profile
+    println!("Example 1: GenericVisca profile with UDP");
     let udp_transport = Udp::connect("192.168.1.100:52381").await?;
-    let camera = Camera::new(udp_transport);
-    println!("Created camera: {}", camera.model_name());
-    println!("Profile info: {}", camera.profile_info());
+    let camera = GenericViscaCam::new(udp_transport);
+    println!("Created GenericVisca camera");
 
-    // Example 2: Create camera with specific profile
+    // Basic operations available on all cameras
+    {
+        // PowerOps and ZoomOps already imported from prelude
+        camera.power_on().await?;
+        camera.zoom_stop().await?;
+    }
+
+    // Example 2: Create camera with PTZOptics G2 profile
     println!("\nExample 2: PTZOptics G2 profile with TCP");
     let tcp_transport = Tcp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, tcp_transport);
-    println!("Created camera: {}", camera.model_name());
-    println!("Profile info: {}", camera.profile_info());
+    let camera = PTZOpticsG2Cam::new(tcp_transport);
+    println!("Created PTZOptics G2 camera");
+
+    // PTZOptics G2 specific operations
+    {
+        // PowerOps and PresetsOps already imported from prelude
+        camera.power_on().await?;
+        camera.preset_recall(PresetNumber::new(1).unwrap()).await?;
+    }
 
     // Example 3: Create Sony FR7 camera
     println!("\nExample 3: Sony FR7 profile");
     let transport = Udp::connect("192.168.1.200:52381").await?;
-    let camera = Camera::with_profile(CameraModel::SonyFR7, transport);
-    println!("Created camera: {}", camera.model_name());
-    println!("Profile info: {}", camera.profile_info());
+    let camera = SonyFR7Cam::new(transport);
+    println!("Created Sony FR7 camera");
 
-    // Example 4: Check capabilities at runtime
-    println!("\nExample 4: Runtime capability checking");
-    let transport = Tcp::connect("192.168.1.100:5678").await?;
-    let camera = Camera::with_profile(CameraModel::PTZOpticsG2, transport);
+    // Sony FR7 supports advanced features
+    {
+        // NDFilterOps already imported from prelude
+        camera.set_nd_filter_mode(NDFilterMode::Preset).await?;
+    }
 
-    println!("Capabilities for {}:", camera.model_name());
-    println!("  - Pan/Tilt: {}", camera.supports_capability("pan_tilt"));
-    println!("  - Zoom: {}", camera.supports_capability("zoom"));
-    println!("  - Focus: {}", camera.supports_capability("focus"));
-    println!("  - ND Filter: {}", camera.supports_capability("nd_filter"));
-    println!("  - Presets: {}", camera.supports_capability("presets"));
+    // Example 4: Compile-time type safety
+    println!("\nExample 4: Compile-time type safety");
+    println!("Each camera type has access to only its supported features.");
+    println!("Attempting to call unsupported methods results in compile errors.");
 
     Ok(())
 }
@@ -98,46 +120,81 @@ async fn async_examples() -> Result<(), Error> {
 // ==================== ADVANCED EXAMPLE ====================
 
 fn advanced_example() {
-    println!("\n=== Advanced Camera Features ===\n");
+    println!("=== Advanced: Working with Generic Functions ===\n");
 
-    // Show the benefits of the unified API
-    println!("Benefits of Camera:");
-    println!("1. No generic type parameters needed");
-    println!("2. Profile selected at runtime via enum");
-    println!("3. Works with any transport (async or blocking)");
-    println!("4. Runtime capability introspection");
-    println!("5. Simplified API for new users");
+    // NOTE: These are example function signatures showing how to write generic functions.
+    // In practice, you would use either blocking or async versions.
 
-    println!("\nComparison with generic API:");
-    println!("OLD: CameraAsync<PTZOpticsG2, Tcp>");
-    println!("NEW: Camera (profile and transport hidden)");
+    #[cfg(not(feature = "tokio"))]
+    {
+        // Blocking version - You can write generic functions that work with any camera profile
+        fn _operate_any_camera<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+        where
+            P: Profile,
+            T: UnifiedTransport,
+        {
+            use grafton_visca::blocking::{PanTiltOps, PowerOps, ZoomOps};
+            // All cameras support basic operations
+            camera.power_on()?;
+            camera.zoom_stop()?;
+            camera.pan_tilt_home()?;
+            Ok(())
+        }
 
-    println!("\nProfile options:");
-    println!("- CameraModel::GenericVisca (default)");
-    println!("- CameraModel::PTZOpticsG2");
-    println!("- CameraModel::SonyFR7");
+        // Or functions that require specific capabilities
+        fn _operate_nd_filter_camera<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+        where
+            P: Profile + NDFilter,
+            T: UnifiedTransport,
+        {
+            use grafton_visca::blocking::NDFilterOps;
+            // This function can only be called with cameras that support ND filter
+            camera.set_nd_filter_mode(NDFilterMode::Preset)?;
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "tokio")]
+    {
+        // Async version - You can write generic functions that work with any camera profile
+        async fn _operate_any_camera<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+        where
+            P: Profile,
+            T: UnifiedTransport,
+        {
+            use grafton_visca::camera::methods::{PanTiltOps, PowerOps, ZoomOps};
+            // All cameras support basic operations
+            camera.power_on().await?;
+            camera.zoom_stop().await?;
+            camera.pan_tilt_home().await?;
+            Ok(())
+        }
+
+        // Or functions that require specific capabilities
+        async fn _operate_nd_filter_camera<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
+        where
+            P: Profile + NDFilter,
+            T: UnifiedTransport,
+        {
+            // This function can only be called with cameras that support ND filter
+            camera.set_nd_filter_mode(NDFilterMode::Preset).await?;
+            Ok(())
+        }
+    }
+
+    println!("Generic functions provide flexibility while maintaining type safety.");
 }
 
-// ==================== MAIN FUNCTIONS ====================
+// ==================== MAIN ====================
 
 #[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Error> {
     env_logger::init();
 
-    println!("=== Camera Demo (Blocking Mode) ===\n");
-    println!("This demo shows the new Camera API that eliminates generics.\n");
-
     blocking_examples()?;
     advanced_example();
 
-    println!("\n=== Demo Complete ===");
-    println!("\nKey takeaways:");
-    println!("• Camera provides a single type for all cameras");
-    println!("• No generic parameters required");
-    println!("• Profile selection is done at runtime");
-    println!("• Works with both async and blocking transports");
-    println!("• Provides runtime capability introspection");
-
+    println!("\n✅ All examples completed successfully!");
     Ok(())
 }
 
@@ -146,19 +203,9 @@ fn main() -> Result<(), Error> {
 async fn main() -> Result<(), Error> {
     env_logger::init();
 
-    println!("=== Camera Demo (Async Mode) ===\n");
-    println!("This demo shows the new Camera API that eliminates generics.\n");
-
     async_examples().await?;
     advanced_example();
 
-    println!("\n=== Demo Complete ===");
-    println!("\nKey takeaways:");
-    println!("• Camera provides a single type for all cameras");
-    println!("• No generic parameters required");
-    println!("• Profile selection is done at runtime");
-    println!("• Works with both async and blocking transports");
-    println!("• Provides runtime capability introspection");
-
+    println!("\n✅ All examples completed successfully!");
     Ok(())
 }

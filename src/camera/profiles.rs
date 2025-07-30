@@ -244,6 +244,39 @@ impl WhiteBalance for GenericVisca {
     const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = None;
 }
 
+// Basic focus support
+impl Focus for GenericVisca {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xE000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
+    const SUPPORTS_FOCUS_ZONE: bool = false;
+    const SUPPORTS_AF_SENSITIVITY: bool = false;
+}
+
+// Basic image processing support
+impl ImageProcessing for GenericVisca {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = None;
+    const SUPPORTS_FLIP: bool = false;
+    const SUPPORTS_MIRROR: bool = false;
+    const SUPPORTS_HUE: bool = false;
+    const HUE_RANGE: Option<std::ops::Range<u8>> = None;
+    const SUPPORTS_NOISE_REDUCTION: bool = false;
+    const SUPPORTS_2D_NR: bool = false;
+    const SUPPORTS_3D_NR: bool = false;
+}
+
+// Basic preset support
+impl Presets for GenericVisca {
+    const MAX_PRESETS: u8 = 6; // Conservative - most cameras have at least 6
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..24;
+    const SUPPORTS_PRESET_TOUR: bool = false;
+    const SUPPORTS_PRESET_THUMBNAIL: bool = false;
+}
+
 /// Sony FR7 camera profile (example with ND filter).
 ///
 /// Professional camera with all features including variable ND filter.
@@ -624,6 +657,17 @@ impl Power for NearusBRC300 {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = false;
 }
+
+impl ImageProcessing for NearusBRC300 {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..16;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..16;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..16;
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..16);
+    const SUPPORTS_FLIP: bool = false;
+    const SUPPORTS_MIRROR: bool = false;
+    const SUPPORTS_NOISE_REDUCTION: bool = false;
+}
+
 // Basic menu control support
 impl MenuControl for NearusBRC300 {}
 

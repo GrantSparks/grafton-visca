@@ -7,7 +7,6 @@ use crate::{
     capabilities::FeatureDetection,
     command::{Response, VariableSpeedMode, VariableSpeedModeCommand},
     error::Error,
-    Camera,
 };
 
 /// Async methods for variable speed mode control.
@@ -27,7 +26,9 @@ pub trait VariableSpeedOps {
 }
 
 #[cfg(feature = "async")]
-impl VariableSpeedOps for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> VariableSpeedOps
+    for crate::camera::generic::Camera<P, T>
+{
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // Check if camera supports variable speed mode
         if !self.supports_feature(crate::CameraFeature::VariableSpeedMode) {
@@ -59,7 +60,9 @@ pub trait VariableSpeedOpsBlocking {
     fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error>;
 }
 
-impl VariableSpeedOpsBlocking for Camera {
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport>
+    VariableSpeedOpsBlocking for crate::camera::generic::Camera<P, T>
+{
     fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // Check if camera supports variable speed mode
         if !self.supports_feature(crate::CameraFeature::VariableSpeedMode) {

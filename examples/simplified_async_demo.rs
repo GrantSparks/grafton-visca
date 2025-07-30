@@ -3,9 +3,7 @@
 //! This example shows how to use the new simplified AsyncTransport trait
 //! which avoids the complexity of the full runtime abstraction layer.
 
-use grafton_visca::{
-    camera::methods::PresetsOps, transport::tokio::Tcp, Camera, Error, PresetNumber,
-};
+use grafton_visca::{prelude::r#async::*, transport::tokio::Tcp, PresetNumber};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -15,7 +13,7 @@ async fn main() -> Result<(), Error> {
     let visca_transport = Tcp::connect("192.168.1.100:1259").await?;
 
     // Create camera using the transport
-    let camera = Camera::new(visca_transport);
+    let camera = PTZOpticsG2Cam::new(visca_transport);
 
     // Use the camera normally
     println!("Recalling preset 1...");

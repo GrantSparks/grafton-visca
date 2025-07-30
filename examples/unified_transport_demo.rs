@@ -2,13 +2,16 @@
 
 #[cfg(not(feature = "async"))]
 fn blocking_example() -> Result<(), grafton_visca::Error> {
-    use grafton_visca::{camera::methods::PowerOpsBlocking, transport::blocking::Tcp, Camera};
+    use grafton_visca::{
+        camera::methods::PowerOpsBlocking, prelude::blocking::PTZOpticsG2Cam,
+        transport::blocking::Tcp,
+    };
 
     println!("=== Blocking Transport Example ===");
 
     // Create a blocking TCP transport with VISCA protocol handling
     let transport = Tcp::connect("192.168.1.100:5678")?;
-    let camera = Camera::new(transport).blocking();
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Use the high-level camera API
     camera.power_on()?;
@@ -19,14 +22,16 @@ fn blocking_example() -> Result<(), grafton_visca::Error> {
 
 #[cfg(feature = "tokio")]
 async fn async_example() -> Result<(), grafton_visca::Error> {
-    use grafton_visca::{camera::methods::PowerOps, transport::tokio::Tcp, Camera};
+    use grafton_visca::{
+        camera::methods::PowerOps, prelude::r#async::PTZOpticsG2Cam, transport::tokio::Tcp,
+    };
     use std::time::Duration;
 
     println!("=== Async Transport Example ===");
 
     // Create an async TCP transport with VISCA protocol handling
     let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = Camera::new(transport);
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Use the high-level camera API - same methods as blocking!
     camera.power_on().await?;

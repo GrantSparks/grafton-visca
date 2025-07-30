@@ -5,7 +5,7 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    blocking::{ExposureOps, ImageProcessingOps, InquiryOps, PanTiltOps, ZoomOps},
+    prelude::blocking::*,
     transport::blocking::Udp,
     types::{
         FStop, IrisLevel, NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionStrength,
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create camera with default address
     let transport = Udp::connect("192.168.1.100:1259")?;
-    let camera = grafton_visca::Camera::new(transport).blocking();
+    let camera = PTZOpticsG2Cam::new(transport);
 
     // Example 1: Using SpeedLevel for intuitive movement control
     println!("=== Speed Level Demo ===");
