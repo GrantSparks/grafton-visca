@@ -97,10 +97,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SpeedLevel::Medium,
     ) {
         Ok(_) => println!(
-            "   ✓ Set position to pan={}°, tilt={}°",
-            pan_degrees, tilt_degrees
+            "   ✓ Set position to pan={pan_degrees}°, tilt={tilt_degrees}°"
         ),
-        Err(e) => println!("   ✗ Position out of range: {}", e),
+        Err(e) => println!("   ✗ Position out of range: {e}"),
     }
     thread::sleep(Duration::from_secs(2));
 
@@ -110,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Save current position to preset
     let preset_id = 1;
     camera.preset_set(PresetNumber::new(preset_id)?)?;
-    println!("   ✓ Saved current position to preset {}", preset_id);
+    println!("   ✓ Saved current position to preset {preset_id}");
 
     // Move to a different position
     camera.pan_tilt_absolute(Degrees::new(-45.0), Degrees::new(0.0), SpeedLevel::Medium)?;
@@ -118,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Recall the saved preset
     camera.preset_recall(PresetNumber::new(preset_id)?)?;
-    println!("   ✓ Recalled preset {}", preset_id);
+    println!("   ✓ Recalled preset {preset_id}");
     thread::sleep(Duration::from_secs(2));
 
     // Demonstrate capability queries

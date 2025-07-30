@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("This example shows how to use transports in both async and blocking contexts.\n");
 
     if let Err(e) = blocking_example() {
-        eprintln!("Blocking example error: {}", e);
+        eprintln!("Blocking example error: {e}");
     }
     println!();
 
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("This example shows how to use transports in both async and blocking contexts.\n");
 
     if let Err(e) = async_example().await {
-        eprintln!("Async example error: {}", e);
+        eprintln!("Async example error: {e}");
     }
 
     Ok(())
