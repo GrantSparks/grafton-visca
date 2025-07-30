@@ -57,25 +57,6 @@ impl<T> Receiver<T> {
 }
 
 impl Socket {
-    /// Convert a VISCA response byte to a Socket enum.
-    ///
-    /// This function maps the socket identifier bytes used in VISCA responses
-    /// (0x90 for Socket1, 0x91 for Socket2) to the corresponding Socket enum variants.
-    ///
-    /// # Arguments
-    /// * `byte` - The response byte from a VISCA message
-    ///
-    /// # Returns
-    /// * `Some(Socket)` if the byte corresponds to a valid socket
-    /// * `None` if the byte is not a recognized socket identifier
-    pub fn from_response_byte(byte: u8) -> Option<Socket> {
-        match byte {
-            0x90 => Some(Socket::Socket1),
-            0x91 => Some(Socket::Socket2),
-            _ => None,
-        }
-    }
-
     /// Get the socket as a zero-based array index.
     ///
     /// This is useful for indexing into arrays where sockets are tracked by position.
@@ -872,31 +853,66 @@ impl SocketManagerActor {
             return;
         }
 
-        // Extract socket information from raw bytes
-        let socket_byte = bytes[0];
-        let socket = Socket::from_response_byte(socket_byte);
-
-        // Parse the response
+        // Parse the response first to determine its type
         match Response::parse(&bytes) {
             Ok(Response::CmdAck) => {
-                if let Some(socket) = socket {
-                    self.handle_ack_response(socket).await;
+                // For ACK: 90 4y FF, extract socket from second byte
+                if bytes.len() >= 2 {
+                    let socket_num = bytes[1] & 0x0F; // Extract y from 4y
+                    if socket_num == 1 || socket_num == 2 {
+                        let socket = if socket_num == 1 {
+                            Socket::Socket1
+                        } else {
+                            Socket::Socket2
+                        };
+                        self.handle_ack_response(socket).await;
+                    } else {
+                        warn!("Invalid socket number in ACK response: {}", socket_num);
+                    }
                 } else {
-                    warn!("Invalid socket byte in ACK response: 0x{socket_byte:02x}");
+                    warn!("ACK response too short to extract socket");
                 }
             }
             Ok(Response::Completion) => {
-                if let Some(socket) = socket {
-                    self.handle_completion_response(socket).await;
+                // For Completion: 90 5y FF, extract socket from second byte
+                if bytes.len() >= 2 {
+                    let socket_num = bytes[1] & 0x0F; // Extract y from 5y
+                    if socket_num == 1 || socket_num == 2 {
+                        let socket = if socket_num == 1 {
+                            Socket::Socket1
+                        } else {
+                            Socket::Socket2
+                        };
+                        self.handle_completion_response(socket).await;
+                    } else {
+                        warn!(
+                            "Invalid socket number in completion response: {}",
+                            socket_num
+                        );
+                    }
                 } else {
-                    warn!("Invalid socket byte in completion response: 0x{socket_byte:02x}");
+                    warn!("Completion response too short to extract socket");
                 }
             }
             Ok(Response::Error(error)) => {
-                if let Some(socket) = socket {
-                    self.handle_error_response(socket, error).await;
+                // For Error: 90 6y EE FF, extract socket from second byte
+                if bytes.len() >= 2 {
+                    let socket_num = bytes[1] & 0x0F; // Extract y from 6y
+                    if socket_num == 1 || socket_num == 2 {
+                        let socket = if socket_num == 1 {
+                            Socket::Socket1
+                        } else {
+                            Socket::Socket2
+                        };
+                        self.handle_error_response(socket, error).await;
+                    } else if socket_num == 0 {
+                        // Socket 0 errors are for inquiries or general errors
+                        warn!("Error response for inquiry or general error: {:?}", error);
+                    } else {
+                        warn!("Invalid socket number in error response: {}", socket_num);
+                    }
                 } else {
-                    warn!("Invalid socket byte in error response: 0x{socket_byte:02x}");
+                    warn!("Error response too short to extract socket");
                 }
             }
             Ok(Response::Inquiry(data)) => {
@@ -1200,14 +1216,6 @@ mod tests {
     }
 
     #[test]
-    fn test_socket_from_response_byte() {
-        assert_eq!(Socket::from_response_byte(0x90), Some(Socket::Socket1));
-        assert_eq!(Socket::from_response_byte(0x91), Some(Socket::Socket2));
-        assert_eq!(Socket::from_response_byte(0x92), None);
-        assert_eq!(Socket::from_response_byte(0x80), None);
-    }
-
-    #[test]
     fn test_socket_as_index() {
         assert_eq!(Socket::Socket1.as_index(), 0);
         assert_eq!(Socket::Socket2.as_index(), 1);
@@ -1413,11 +1421,7 @@ mod tests {
     fn test_socket_response_byte_parsing() {
         use crate::command::system::Socket;
 
-        assert_eq!(Socket::from_response_byte(0x90), Some(Socket::Socket1));
-        assert_eq!(Socket::from_response_byte(0x91), Some(Socket::Socket2));
-        assert_eq!(Socket::from_response_byte(0x92), None);
-        assert_eq!(Socket::from_response_byte(0x80), None);
-
+        // Test socket index conversion
         assert_eq!(Socket::Socket1.as_index(), 0);
         assert_eq!(Socket::Socket2.as_index(), 1);
     }

@@ -9,7 +9,7 @@ use grafton_visca::{
     Camera, Error, NDFilterMode,
 };
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(all(not(feature = "tokio"), not(feature = "async")))]
 use grafton_visca::transport::blocking::{Tcp, Udp};
 
 #[cfg(feature = "tokio")]
@@ -17,7 +17,7 @@ use grafton_visca::transport::tokio::{Tcp, Udp};
 
 // ==================== BLOCKING EXAMPLES ====================
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(all(not(feature = "tokio"), not(feature = "async")))]
 fn blocking_examples() -> Result<(), Error> {
     use grafton_visca::prelude::blocking::*;
 
@@ -125,7 +125,7 @@ fn advanced_example() {
     // NOTE: These are example function signatures showing how to write generic functions.
     // In practice, you would use either blocking or async versions.
 
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(all(not(feature = "tokio"), not(feature = "async")))]
     {
         // Blocking version - You can write generic functions that work with any camera profile
         fn _operate_any_camera<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
@@ -187,7 +187,7 @@ fn advanced_example() {
 
 // ==================== MAIN ====================
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(all(not(feature = "tokio"), not(feature = "async")))]
 fn main() -> Result<(), Error> {
     env_logger::init();
 
@@ -208,4 +208,14 @@ async fn main() -> Result<(), Error> {
 
     println!("\n✅ All examples completed successfully!");
     Ok(())
+}
+
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+fn main() {
+    eprintln!("This example requires either no features (for blocking) or the 'tokio' feature (for async).");
+    eprintln!("The 'async' feature alone is not sufficient to run this example.");
+    eprintln!("");
+    eprintln!("Try one of:");
+    eprintln!("  cargo run --example unified_client_demo");
+    eprintln!("  cargo run --example unified_client_demo --features tokio");
 }
