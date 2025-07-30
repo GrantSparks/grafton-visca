@@ -20,7 +20,7 @@ pub enum DemoError {
 impl std::fmt::Display for DemoError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DemoError::InvalidParameter(msg) => write!(f, "Invalid parameter: {}", msg),
+            DemoError::InvalidParameter(msg) => write!(f, "Invalid parameter: {msg}"),
         }
     }
 }
@@ -233,16 +233,16 @@ fn demonstrate_command_builders() -> Result<(), DemoError> {
 
     println!("Creating pan/tilt home command...");
     let home_bytes = PanTilt::home();
-    println!("  → {:?}", home_bytes);
+    println!("  → {home_bytes:?}");
 
     println!("Creating power on command...");
     let power_on_bytes = Power::on();
-    println!("  → {:?}", power_on_bytes);
+    println!("  → {power_on_bytes:?}");
 
     println!("Creating zoom telephoto command...");
     let zoom_speed = ZoomSpeed::new(7)?;
     let zoom_bytes = Zoom::tele(zoom_speed)?;
-    println!("  → {:?}", zoom_bytes);
+    println!("  → {zoom_bytes:?}");
 
     println!("Creating absolute position command...");
     let absolute_bytes = PanTilt::absolute(
@@ -251,7 +251,7 @@ fn demonstrate_command_builders() -> Result<(), DemoError> {
         PanSpeed::new(20)?,
         TiltSpeed::new(18)?,
     )?;
-    println!("  → {:?}", absolute_bytes);
+    println!("  → {absolute_bytes:?}");
 
     Ok(())
 }
@@ -274,22 +274,22 @@ fn demonstrate_type_safety() -> Result<(), DemoError> {
 
     match PanSpeed::new(25) {
         Ok(_) => println!("  ❌ ERROR: Should have failed!"),
-        Err(e) => println!("  ✓ Pan speed validation: {}", e),
+        Err(e) => println!("  ✓ Pan speed validation: {e}"),
     }
 
     match TiltSpeed::new(25) {
         Ok(_) => println!("  ❌ ERROR: Should have failed!"),
-        Err(e) => println!("  ✓ Tilt speed validation: {}", e),
+        Err(e) => println!("  ✓ Tilt speed validation: {e}"),
     }
 
     match ZoomSpeed::new(10) {
         Ok(_) => println!("  ❌ ERROR: Should have failed!"),
-        Err(e) => println!("  ✓ Zoom speed validation: {}", e),
+        Err(e) => println!("  ✓ Zoom speed validation: {e}"),
     }
 
     match ZoomPercentage::new(150.0) {
         Ok(_) => println!("  ❌ ERROR: Should have failed!"),
-        Err(e) => println!("  ✓ Zoom percentage validation: {}", e),
+        Err(e) => println!("  ✓ Zoom percentage validation: {e}"),
     }
 
     Ok(())

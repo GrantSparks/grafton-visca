@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2. Camera Connection and Error Handling:");
     match demonstrate_camera_errors(&camera_addr) {
         Ok(_) => println!("   ✓ Camera demonstration completed"),
-        Err(e) => println!("   ✗ Camera demonstration failed: {}", e),
+        Err(e) => println!("   ✗ Camera demonstration failed: {e}"),
     }
 
     println!("\n✅ Error handling demonstration completed!");
@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2. Camera Connection and Error Handling:");
     match demonstrate_camera_errors(&camera_addr).await {
         Ok(_) => println!("   ✓ Camera demonstration completed"),
-        Err(e) => println!("   ✗ Camera demonstration failed: {}", e),
+        Err(e) => println!("   ✗ Camera demonstration failed: {e}"),
     }
 
     println!("\n✅ Error handling demonstration completed!");
@@ -127,7 +127,7 @@ fn demonstrate_error_classification() {
     ];
 
     for (name, error) in errors {
-        println!("   {}: {}", name, error);
+        println!("   {name}: {error}");
 
         // Check if error is transient (might succeed on retry)
         let is_transient = matches!(
@@ -139,7 +139,7 @@ fn demonstrate_error_classification() {
                 | Error::Timeout
         );
 
-        println!("     Transient (retryable): {}", is_transient);
+        println!("     Transient (retryable): {is_transient}");
 
         // Suggest retry delay based on error type
         let suggested_delay = match error {
@@ -152,7 +152,7 @@ fn demonstrate_error_classification() {
         };
 
         if let Some(delay) = suggested_delay {
-            println!("     Suggested retry delay: {:?}", delay);
+            println!("     Suggested retry delay: {delay:?}");
         }
         println!();
     }
@@ -160,7 +160,7 @@ fn demonstrate_error_classification() {
 
 #[cfg(not(feature = "async"))]
 fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
-    println!("   Attempting to connect to camera at {}...", camera_addr);
+    println!("   Attempting to connect to camera at {camera_addr}...");
 
     // Try to create transport
     let transport = match Tcp::connect(camera_addr) {
@@ -169,7 +169,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
             t
         }
         Err(e) => {
-            println!("   ✗ Failed to create transport: {}", e);
+            println!("   ✗ Failed to create transport: {e}");
             println!("   💡 This is expected if the address is invalid");
             return Err(e);
         }
@@ -188,18 +188,18 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     let result = loop {
         attempt += 1;
-        println!("   Attempt {}/{}: Power on", attempt, max_attempts);
+        println!("   Attempt {attempt}/{max_attempts}: Power on");
 
         let start = Instant::now();
         match camera.power_on() {
             Ok(_) => {
                 let elapsed = start.elapsed();
-                println!("   ✓ Power on succeeded in {:?}", elapsed);
+                println!("   ✓ Power on succeeded in {elapsed:?}");
                 break Ok(());
             }
             Err(e) => {
                 let elapsed = start.elapsed();
-                println!("   ✗ Power on failed after {:?}: {}", elapsed, e);
+                println!("   ✗ Power on failed after {elapsed:?}: {e}");
 
                 // Check if error is retryable
                 let is_retryable = matches!(
@@ -220,7 +220,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                     break Err(e);
                 }
 
-                println!("   ⏱️  Waiting {:?} before retry...", backoff);
+                println!("   ⏱️  Waiting {backoff:?} before retry...");
                 std::thread::sleep(backoff);
                 backoff *= 2; // Exponential backoff
             }
@@ -265,13 +265,13 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                     // Retry zoom
                     match camera.zoom_in() {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
-                        Err(e) => println!("   ✗ Zoom still failed: {}", e),
+                        Err(e) => println!("   ✗ Zoom still failed: {e}"),
                     }
                 }
-                Err(e) => println!("   ✗ Unexpected error: {}", e),
+                Err(e) => println!("   ✗ Unexpected error: {e}"),
             }
         }
-        Err(e) => println!("   ✗ Failed to start movement: {}", e),
+        Err(e) => println!("   ✗ Failed to start movement: {e}"),
     }
 
     // Scenario 2: Invalid preset
@@ -282,10 +282,10 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Ok(preset_id) => match camera.preset_recall(PresetNumber::new(u8::from(preset_id))?) {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
-                println!("   ⚠️  Preset {} not found (expected)", id);
+                println!("   ⚠️  Preset {id} not found (expected)");
                 println!("   💡 Save preset first or use a different ID");
             }
-            Err(e) => println!("   ✗ Unexpected error: {}", e),
+            Err(e) => println!("   ✗ Unexpected error: {e}"),
         },
         Err(_) => {
             println!("   ⚠️  Preset ID 99 is out of range for this camera");
@@ -312,7 +312,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 #[cfg(feature = "tokio")]
 async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     use std::time::Duration;
-    println!("   Attempting to connect to camera at {}...", camera_addr);
+    println!("   Attempting to connect to camera at {camera_addr}...");
 
     // Try to create transport
     let transport = match Tcp::connect_timeout(camera_addr, Duration::from_secs(5)).await {
@@ -321,7 +321,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
             t
         }
         Err(e) => {
-            println!("   ✗ Failed to create transport: {}", e);
+            println!("   ✗ Failed to create transport: {e}");
             println!("   💡 This is expected if the address is invalid");
             return Err(e);
         }
@@ -340,18 +340,18 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     let result = loop {
         attempt += 1;
-        println!("   Attempt {}/{}: Power on", attempt, max_attempts);
+        println!("   Attempt {attempt}/{max_attempts}: Power on");
 
         let start = Instant::now();
         match camera.power_on().await {
             Ok(_) => {
                 let elapsed = start.elapsed();
-                println!("   ✓ Power on succeeded in {:?}", elapsed);
+                println!("   ✓ Power on succeeded in {elapsed:?}");
                 break Ok(());
             }
             Err(e) => {
                 let elapsed = start.elapsed();
-                println!("   ✗ Power on failed after {:?}: {}", elapsed, e);
+                println!("   ✗ Power on failed after {elapsed:?}: {e}");
 
                 // Check if error is retryable
                 let is_retryable = matches!(
@@ -367,7 +367,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                     break Err(e);
                 }
 
-                println!("   ⏳ Waiting {:?} before retry...", backoff);
+                println!("   ⏳ Waiting {backoff:?} before retry...");
                 tokio::time::sleep(backoff).await;
                 backoff *= 2; // Exponential backoff
             }
@@ -375,8 +375,8 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     };
 
     match result {
-        Ok(_) => println!("   ✓ Power on successful after {} attempt(s)", attempt),
-        Err(e) => println!("   ✗ Power on failed after {} attempts: {}", attempt, e),
+        Ok(_) => println!("   ✓ Power on successful after {attempt} attempt(s)"),
+        Err(e) => println!("   ✗ Power on failed after {attempt} attempts: {e}"),
     }
 
     // Scenario 1: Camera busy handling
@@ -409,13 +409,13 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                     // Retry zoom
                     match camera.zoom_in().await {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
-                        Err(e) => println!("   ✗ Zoom still failed: {}", e),
+                        Err(e) => println!("   ✗ Zoom still failed: {e}"),
                     }
                 }
-                Err(e) => println!("   ✗ Unexpected error: {}", e),
+                Err(e) => println!("   ✗ Unexpected error: {e}"),
             }
         }
-        Err(e) => println!("   ✗ Failed to start movement: {}", e),
+        Err(e) => println!("   ✗ Failed to start movement: {e}"),
     }
 
     // Scenario 2: Invalid preset
@@ -429,10 +429,10 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
-                println!("   ⚠️  Preset {} not found (expected)", id);
+                println!("   ⚠️  Preset {id} not found (expected)");
                 println!("   💡 Save preset first or use a different ID");
             }
-            Err(e) => println!("   ✗ Unexpected error: {}", e),
+            Err(e) => println!("   ✗ Unexpected error: {e}"),
         },
         Err(_) => {
             println!("   ⚠️  Preset ID 99 is out of range for this camera");
