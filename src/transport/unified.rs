@@ -68,8 +68,7 @@ where
             // For non-tokio async transports, we just block on recv without timeout
             // This is a limitation when not using tokio
             log::warn!(
-                "Timeout ({:?}) not supported without tokio feature - blocking on recv",
-                timeout
+                "Timeout ({timeout:?}) not supported without tokio feature - blocking on recv"
             );
             futures::executor::block_on(self.recv())
         }
