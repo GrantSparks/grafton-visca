@@ -315,7 +315,7 @@ where
         camera
             .pan_tilt_absolute(Degrees::new(pan_pos), Degrees::new(0.0), SpeedLevel::Medium)
             .await?;
-        println!("      → Scanning at pan={}°", pan_pos);
+        println!("      → Scanning at pan={pan_pos}°");
         tokio::time::sleep(Duration::from_millis(800)).await;
     }
 

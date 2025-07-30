@@ -43,7 +43,7 @@ async fn main() -> Result<(), Error> {
 
     // Connect to camera
     let camera_addr = &args[1];
-    println!("Connecting to camera at {}...", camera_addr);
+    println!("Connecting to camera at {camera_addr}...");
     let transport = Udp::connect(camera_addr).await?;
     let camera = PTZOpticsG2Cam::new(transport);
 
