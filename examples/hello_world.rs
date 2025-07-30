@@ -28,7 +28,7 @@ fn main() -> Result<(), Error> {
         .nth(1)
         .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-    println!("Connecting to camera at {} (blocking mode)", camera_addr);
+    println!("Connecting to camera at {camera_addr} (blocking mode)");
 
     // Create camera with blocking TCP transport
     let transport = Tcp::connect(&camera_addr)?;
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Error> {
         .nth(1)
         .unwrap_or_else(|| "192.168.1.100:5678".to_string());
 
-    println!("Connecting to camera at {} (async mode)", camera_addr);
+    println!("Connecting to camera at {camera_addr} (async mode)");
 
     // Create camera with async TCP transport
     let transport = Tcp::connect(&camera_addr).await?;
