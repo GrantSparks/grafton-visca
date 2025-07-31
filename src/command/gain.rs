@@ -5,7 +5,6 @@
 
 // Crate imports
 use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -102,12 +101,6 @@ impl EncodeVisca for Gain {
     }
 }
 
-impl CommandFeatures for Gain {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::Gain]
-    }
-}
-
 crate::visca_builder! {
     /// Command to set the automatic gain control limit.
     pub(crate) struct GainLimitCommand {
@@ -125,12 +118,6 @@ impl GainLimitCommand {
     /// Create a new gain limit command.
     pub fn new(limit: GainLimit) -> Self {
         Self { limit }
-    }
-}
-
-impl CommandFeatures for GainLimitCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::Gain]
     }
 }
 

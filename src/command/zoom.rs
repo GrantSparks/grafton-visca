@@ -29,7 +29,6 @@
 
 // Workspace / local-crate imports
 use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
     command::{
         const_encoding::{constants, CommandBuilder, DEFAULT_ADDRESS},
         encode_visca::EncodeVisca,
@@ -155,13 +154,6 @@ impl EncodeVisca for Zoom {
     }
 }
 
-impl CommandFeatures for Zoom {
-    fn required_features(&self) -> &[CameraFeature] {
-        // All Zoom commands require the Zoom feature
-        &[CameraFeature::Zoom]
-    }
-}
-
 /// Command to control digital zoom.
 ///
 /// This command enables or disables digital zoom capability.
@@ -211,11 +203,5 @@ impl EncodeVisca for DigitalZoomCommand {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-}
-
-impl CommandFeatures for DigitalZoomCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::Zoom]
     }
 }

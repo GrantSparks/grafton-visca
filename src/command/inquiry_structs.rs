@@ -828,9 +828,3 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
         crate::timeout::CommandCategory::Quick
     }
 }
-
-impl crate::capabilities::CommandFeatures for TallyGreenInquiry {
-    fn required_features(&self) -> &[crate::capabilities::CameraFeature] {
-        &[crate::capabilities::CameraFeature::Tally]
-    }
-}
