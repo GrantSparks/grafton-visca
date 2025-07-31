@@ -38,7 +38,7 @@ async fn test_async_wrapper_api() {
 
     // The async wrapper should expose async methods
     #[allow(dead_code)]
-    async fn example<P: Profile, T: UnifiedTransport>(
+    async fn example<P: Profile, T: UnifiedTransport + 'static>(
         camera: &Camera<P, T>,
     ) -> Result<(), grafton_visca::Error> {
         camera.zoom_stop().await?;

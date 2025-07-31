@@ -68,7 +68,7 @@ pub trait ZoomOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ZoomOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> ZoomOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn zoom_stop(&self) -> Result<(), Error> {

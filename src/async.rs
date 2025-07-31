@@ -69,7 +69,7 @@ pub use crate::camera::methods::{
 };
 
 // Implement all async traits for the wrapper type
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ZoomOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> ZoomOps
     for Camera<P, T>
 {
     async fn zoom_stop(&self) -> crate::Result<()> {
@@ -105,7 +105,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Zoo
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ColorOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> ColorOps
     for Camera<P, T>
 {
     async fn one_push_trigger(&self) -> crate::Result<()> {
@@ -157,7 +157,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Col
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> ExposureOps
     for Camera<P, T>
 {
     async fn set_exposure_mode(
@@ -291,7 +291,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Exp
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> FocusOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> FocusOps
     for Camera<P, T>
 {
     async fn focus_auto(&self) -> crate::Result<()> {
@@ -361,8 +361,8 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Foc
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ImageProcessingOps
-    for Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    ImageProcessingOps for Camera<P, T>
 {
     async fn enable_flip(&self) -> crate::Result<()> {
         self.0.enable_flip().await
@@ -463,7 +463,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Ima
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> InquiryOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> InquiryOps
     for Camera<P, T>
 {
     async fn get_power_state(&self) -> crate::Result<bool> {
@@ -735,7 +735,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Inq
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDFilterOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> NDFilterOps
     for Camera<P, T>
 {
     async fn set_nd_filter_mode(&self, mode: crate::command::NDFilterMode) -> crate::Result<()> {
@@ -763,8 +763,8 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDF
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MotionSyncControl
-    for Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    MotionSyncControl for Camera<P, T>
 {
     async fn set_motion_sync_mode(&self, mode: crate::MotionSyncMode) -> crate::Result<()> {
         self.0.set_motion_sync_mode(mode).await
@@ -791,8 +791,8 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Mot
 }
 
 #[async_trait::async_trait]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MenuControlOps
-    for Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    MenuControlOps for Camera<P, T>
 {
     async fn set_menu_display(&self, display: bool) -> crate::Result<crate::command::Response> {
         self.0.set_menu_display(display).await
@@ -825,7 +825,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Men
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PanTiltOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> PanTiltOps
     for Camera<P, T>
 {
     async fn pan_tilt_stop(&self) -> crate::Result<()> {
@@ -884,8 +884,8 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pan
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PanTiltInquiryOps
-    for Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    PanTiltInquiryOps for Camera<P, T>
 {
     async fn get_pan_tilt_position(&self) -> crate::Result<(i16, i16)> {
         self.0.get_pan_tilt_position().await
@@ -898,7 +898,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pan
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PowerOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> PowerOps
     for Camera<P, T>
 {
     async fn power_on(&self) -> crate::Result<()> {
@@ -910,7 +910,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pow
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PresetsOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> PresetsOps
     for Camera<P, T>
 {
     async fn preset_recall(&self, preset: crate::command::PresetNumber) -> crate::Result<()> {
@@ -926,7 +926,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pre
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> SystemOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> SystemOps
     for Camera<P, T>
 {
     async fn trigger_address_assignment(&self) -> crate::Result<()> {
@@ -942,7 +942,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Sys
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> TallyOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> TallyOps
     for Camera<P, T>
 {
     async fn tally_red_on(&self) -> crate::Result<()> {
@@ -994,8 +994,8 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Tal
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> WhiteBalanceOps
-    for Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    WhiteBalanceOps for Camera<P, T>
 {
     async fn set_white_balance_mode(
         &self,
@@ -1045,7 +1045,7 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::UnifiedTransport + 'static,
 {
     async fn set_variable_speed_mode(
         &self,
@@ -1061,7 +1061,7 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::Exposure
         + crate::capabilities::HasExposureCompensation,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::UnifiedTransport + 'static,
 {
     async fn enable_exposure_compensation(&self) -> crate::Result<()> {
         use crate::camera::methods::exposure::ExposureCompensationOps as InnerOps;
@@ -1094,7 +1094,7 @@ where
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> StreamingOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> StreamingOps
     for Camera<P, T>
 {
     async fn enable_multicast(&self) -> crate::Result<()> {

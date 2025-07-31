@@ -37,7 +37,7 @@ pub trait PresetsOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PresetsOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> PresetsOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {

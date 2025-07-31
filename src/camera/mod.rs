@@ -8,6 +8,7 @@
 //! - `SonyFR7Cam<T>` for Sony FR7 cameras
 //! - etc.
 
+// generic is now a directory module
 pub mod generic;
 pub mod generic_methods;
 pub mod methods;

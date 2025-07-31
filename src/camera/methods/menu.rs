@@ -49,8 +49,8 @@ pub trait MenuControlOpsBlocking {
 /// Implementation for async cameras with menu control.
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MenuControlOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    MenuControlOps for crate::camera::generic::Camera<P, T>
 {
     async fn set_menu_display(&self, display: bool) -> Result<Response, Error> {
         let cmd = MenuDisplayCommand::new(display);

@@ -419,7 +419,7 @@ pub trait InquiryOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> InquiryOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> InquiryOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn get_power_state(&self) -> Result<bool, Error> {
@@ -1847,8 +1847,8 @@ pub trait PanTiltInquiryOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PanTiltInquiryOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    PanTiltInquiryOps for crate::camera::generic::Camera<P, T>
 {
     async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;

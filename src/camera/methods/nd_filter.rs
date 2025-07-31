@@ -57,7 +57,7 @@ pub trait NDFilterOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDFilterOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> NDFilterOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {

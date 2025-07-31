@@ -77,8 +77,8 @@ pub trait WhiteBalanceOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> WhiteBalanceOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    WhiteBalanceOps for crate::camera::generic::Camera<P, T>
 {
     async fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
         let command = WhiteBalanceCommand { mode };

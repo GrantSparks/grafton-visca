@@ -171,7 +171,7 @@ fn advanced_example() {
         async fn _operate_any_camera<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
         where
             P: Profile,
-            T: UnifiedTransport,
+            T: UnifiedTransport + 'static,
         {
             use grafton_visca::camera::methods::{PanTiltOps, PowerOps, ZoomOps};
             // All cameras support basic operations
@@ -185,7 +185,7 @@ fn advanced_example() {
         async fn _operate_nd_filter_camera<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
         where
             P: Profile + NDFilter,
-            T: UnifiedTransport,
+            T: UnifiedTransport + 'static,
         {
             // This function can only be called with cameras that support ND filter
             // The NDFilterOps trait methods are available through the Profile + NDFilter bound

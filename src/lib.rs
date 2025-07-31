@@ -18,7 +18,9 @@
     clippy::expect_used,
     clippy::panic,
     clippy::unimplemented,
-    clippy::todo
+    clippy::todo,
+    unreachable_code,
+    dead_code
 )]
 #![allow(async_fn_in_trait)]
 
@@ -317,7 +319,7 @@ pub mod timeout; // Public for use in macros
 #[cfg(feature = "async")]
 pub(crate) mod socket_manager;
 
-// Minimal blocking executor
+// Executor abstraction for async task spawning
 pub mod executor;
 
 // Wrapper modules for clean API

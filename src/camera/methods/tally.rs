@@ -89,7 +89,7 @@ pub trait TallyOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> TallyOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> TallyOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn tally_red_on(&self) -> Result<(), Error> {

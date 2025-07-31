@@ -93,7 +93,7 @@ pub trait ColorOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ColorOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> ColorOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn one_push_trigger(&self) -> Result<(), Error> {

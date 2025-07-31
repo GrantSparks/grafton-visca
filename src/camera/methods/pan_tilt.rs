@@ -104,7 +104,7 @@ pub trait PanTiltOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PanTiltOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> PanTiltOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn pan_tilt_stop(&self) -> Result<(), Error> {

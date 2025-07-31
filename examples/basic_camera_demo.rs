@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn demo_power_control<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: UnifiedTransport + 'static,
 {
     println!("📍 Demo 1: Power Control");
     println!("Powering on camera...");
@@ -73,7 +73,7 @@ where
 async fn demo_pan_tilt_movement<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: UnifiedTransport + 'static,
 {
     println!("\n📍 Demo 2: Pan/Tilt Movement");
 
@@ -100,7 +100,7 @@ where
 async fn demo_zoom_control<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: UnifiedTransport + 'static,
 {
     println!("\n📍 Demo 3: Zoom Control");
 
@@ -124,7 +124,7 @@ where
 async fn demo_focus_control<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: UnifiedTransport + 'static,
 {
     println!("\n📍 Demo 4: Focus Control");
 
@@ -141,7 +141,7 @@ where
 async fn demo_exposure_settings<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: UnifiedTransport + 'static,
 {
     println!("\n📍 Demo 5: Exposure Settings");
 
@@ -158,7 +158,7 @@ where
 async fn demo_white_balance<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: UnifiedTransport + 'static,
 {
     println!("\n📍 Demo 6: White Balance");
 
@@ -174,7 +174,7 @@ where
 async fn demo_position_control<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: UnifiedTransport + 'static,
 {
     println!("\n📍 Demo 7: Position Control");
 

@@ -110,7 +110,7 @@ async fn main() -> Result<(), Error> {
 fn demonstrate_pan_tilt<P, T>(camera: &mut grafton_visca::Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
-    T: grafton_visca::transport::UnifiedTransport,
+    T: grafton_visca::transport::UnifiedTransport + 'static,
 {
     use std::{thread, time::Duration};
 
@@ -140,7 +140,7 @@ async fn demonstrate_pan_tilt<P, T>(
 ) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
-    T: grafton_visca::transport::UnifiedTransport,
+    T: grafton_visca::transport::UnifiedTransport + 'static,
 {
     use tokio::time::{sleep, Duration};
 
@@ -172,7 +172,7 @@ where
 fn demonstrate_zoom<P, T>(camera: &mut grafton_visca::Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
-    T: grafton_visca::transport::UnifiedTransport,
+    T: grafton_visca::transport::UnifiedTransport + 'static,
 {
     use std::{thread, time::Duration};
 
@@ -201,7 +201,7 @@ async fn demonstrate_zoom<P, T>(
 ) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
-    T: grafton_visca::transport::UnifiedTransport,
+    T: grafton_visca::transport::UnifiedTransport + 'static,
 {
     use tokio::time::{sleep, Duration};
 
@@ -228,7 +228,7 @@ where
 fn demonstrate_focus<P, T>(camera: &mut grafton_visca::Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
-    T: grafton_visca::transport::UnifiedTransport,
+    T: grafton_visca::transport::UnifiedTransport + 'static,
 {
     use std::{thread, time::Duration};
 
@@ -259,7 +259,7 @@ async fn demonstrate_focus<P, T>(
 ) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
-    T: grafton_visca::transport::UnifiedTransport,
+    T: grafton_visca::transport::UnifiedTransport + 'static,
 {
     use tokio::time::{sleep, Duration};
 
@@ -288,7 +288,7 @@ where
 fn demonstrate_presets<P, T>(camera: &mut grafton_visca::Camera<P, T>) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
-    T: grafton_visca::transport::UnifiedTransport,
+    T: grafton_visca::transport::UnifiedTransport + 'static,
 {
     use std::{thread, time::Duration};
 
@@ -334,7 +334,7 @@ async fn demonstrate_presets<P, T>(
 ) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
-    T: grafton_visca::transport::UnifiedTransport,
+    T: grafton_visca::transport::UnifiedTransport + 'static,
 {
     use tokio::time::{sleep, Duration};
 

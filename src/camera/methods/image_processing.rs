@@ -177,8 +177,8 @@ pub trait ImageProcessingOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ImageProcessingOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    ImageProcessingOps for crate::camera::generic::Camera<P, T>
 {
     async fn enable_flip(&self) -> Result<(), Error> {
         let cmd = ImageFlipCommand::new(Flip::On);

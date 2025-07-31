@@ -30,7 +30,7 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::UnifiedTransport + 'static,
 {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait

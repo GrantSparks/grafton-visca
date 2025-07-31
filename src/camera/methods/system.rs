@@ -37,7 +37,7 @@ pub trait SystemOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> SystemOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> SystemOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn trigger_address_assignment(&self) -> Result<(), Error> {
