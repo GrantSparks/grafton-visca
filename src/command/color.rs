@@ -5,7 +5,6 @@
 
 // Crate imports
 use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -22,12 +21,6 @@ visca_const_command! {
     pub(crate) struct OnePushTriggerCommand;
     bytes = [0x81, 0x01, 0x04, 0x10, 0x05, 0xFF];
     timeout = Quick;
-}
-
-impl CommandFeatures for OnePushTriggerCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::WhiteBalance]
-    }
 }
 
 crate::visca_builder! {
@@ -58,12 +51,6 @@ impl RedTuningCommand {
     /// Create a new red tuning command.
     pub fn new(level: RedTuning) -> Self {
         Self { level }
-    }
-}
-
-impl CommandFeatures for RedTuningCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::WhiteBalance]
     }
 }
 
@@ -98,12 +85,6 @@ impl BlueTuningCommand {
     }
 }
 
-impl CommandFeatures for BlueTuningCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::WhiteBalance]
-    }
-}
-
 crate::visca_builder! {
     /// Saturation control command.
     ///
@@ -128,12 +109,6 @@ impl SaturationCommand {
     }
 }
 
-impl CommandFeatures for SaturationCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::ColorSaturation]
-    }
-}
-
 crate::visca_builder! {
     /// Hue adjustment command.
     ///
@@ -155,13 +130,6 @@ impl HueCommand {
     /// Create a new hue command.
     pub fn new(level: HueLevel) -> Self {
         Self { level }
-    }
-}
-
-impl CommandFeatures for HueCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        // Hue is part of general image processing
-        &[CameraFeature::ImageProcessing]
     }
 }
 
@@ -248,12 +216,6 @@ impl EncodeVisca for ColorTemperature {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-}
-
-impl CommandFeatures for ColorTemperature {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::WhiteBalance]
     }
 }
 
@@ -344,12 +306,6 @@ impl EncodeVisca for RedGain {
     }
 }
 
-impl CommandFeatures for RedGain {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::WhiteBalance]
-    }
-}
-
 /// Blue Channel Direct command (different from tuning).
 ///
 /// Controls the blue channel gain in manual white balance mode.
@@ -434,12 +390,6 @@ impl EncodeVisca for BlueGain {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-}
-
-impl CommandFeatures for BlueGain {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::WhiteBalance]
     }
 }
 

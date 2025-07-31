@@ -4,7 +4,6 @@
 //! When in 50-step mode, pan/tilt speed values can range from 1-50 for finer control.
 
 use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -76,12 +75,6 @@ impl EncodeVisca for VariableSpeedModeCommand {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-}
-
-impl CommandFeatures for VariableSpeedModeCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::VariableSpeedMode]
     }
 }
 

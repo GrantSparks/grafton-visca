@@ -10,11 +10,7 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
-use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
-    error::Error,
-    visca_bool_command, visca_builder, visca_param_command,
-};
+use crate::{error::Error, visca_bool_command, visca_builder, visca_param_command};
 
 /// ND filter mode for Sony FR7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,12 +49,6 @@ impl NDFilterModeCommand {
     /// Create a new ND filter mode command.
     pub fn new(mode: NDFilterMode) -> Self {
         Self { mode }
-    }
-}
-
-impl CommandFeatures for NDFilterModeCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::NDFilter]
     }
 }
 
@@ -114,12 +104,6 @@ impl NDFilterValueCommand {
     }
 }
 
-impl CommandFeatures for NDFilterValueCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::NDFilter]
-    }
-}
-
 /// ND filter step adjustment direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NDFilterStep {
@@ -161,12 +145,6 @@ impl NDFilterStepCommand {
     }
 }
 
-impl CommandFeatures for NDFilterStepCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::NDFilter]
-    }
-}
-
 visca_bool_command! {
     /// Auto ND filter control.
     ///
@@ -180,12 +158,6 @@ visca_bool_command! {
         prefix: [0x81, 0x01, 0x7E, 0x04, 0x53],
         on: 0x02,
         off: 0x03,
-    }
-}
-
-impl CommandFeatures for AutoNDCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::NDFilter]
     }
 }
 

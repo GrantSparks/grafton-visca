@@ -15,11 +15,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 
 // Crate imports
-use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
-    error::Error,
-    visca_param_command,
-};
+use crate::{error::Error, visca_param_command};
 
 /// White balance modes.
 ///
@@ -84,12 +80,6 @@ visca_param_command! {
     timeout = Quick;
 }
 
-impl CommandFeatures for WhiteBalanceCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::WhiteBalance]
-    }
-}
-
 crate::visca_param_command! {
     /// Command to set AWB sensitivity.
     pub(crate) struct AWBSensitivityCommand {
@@ -105,12 +95,6 @@ impl AWBSensitivityCommand {
     #[allow(dead_code)]
     pub fn new(sensitivity: AutoWhiteBalanceSensitivity) -> Self {
         Self { sensitivity }
-    }
-}
-
-impl CommandFeatures for AWBSensitivityCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::WhiteBalance]
     }
 }
 

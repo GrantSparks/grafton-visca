@@ -17,11 +17,7 @@ use std::borrow::Cow;
 // (none)
 
 // Workspace / local-crate imports
-use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
-    error::Error,
-    visca_param_command,
-};
+use crate::{error::Error, visca_param_command};
 
 crate::visca_const_command! {
     /// Command to set camera address (broadcast, serial only).
@@ -35,13 +31,6 @@ crate::visca_const_command! {
     response = None;
 }
 
-impl CommandFeatures for AddressSetCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        // System commands are always supported
-        &[CameraFeature::SystemReset]
-    }
-}
-
 crate::visca_const_command! {
     /// Command to clear the interface (broadcast, serial only).
     ///
@@ -52,13 +41,6 @@ crate::visca_const_command! {
     timeout = Quick;
     address = 0x88;
     response = None;
-}
-
-impl CommandFeatures for InterfaceClearCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        // System commands are always supported
-        &[CameraFeature::SystemReset]
-    }
 }
 
 /// Motion sync modes for coordinated camera movement.
@@ -146,12 +128,6 @@ impl CommandCancelCommand {
     /// Create a new command cancel command.
     pub fn new(socket: Socket) -> Self {
         Self { socket }
-    }
-}
-
-impl CommandFeatures for CommandCancelCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::CommandCancel]
     }
 }
 

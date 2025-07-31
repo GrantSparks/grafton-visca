@@ -5,7 +5,6 @@
 //! This provides smoother and more synchronized arrival on preset positions.
 
 use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, MotionSyncMode, MotionSyncSpeed, ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -61,12 +60,6 @@ impl EncodeVisca for MotionSyncModeCommand {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-}
-
-impl CommandFeatures for MotionSyncModeCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::MotionSync]
     }
 }
 
@@ -142,12 +135,6 @@ impl EncodeVisca for MotionSyncSpeedCommand {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-}
-
-impl CommandFeatures for MotionSyncSpeedCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::MotionSync]
     }
 }
 
