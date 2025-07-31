@@ -5,6 +5,7 @@ use crate::{
     transport::core::Transport,
     Error,
 };
+use std::borrow::Cow;
 use std::time::Duration;
 
 /// VISCA protocol constants.
@@ -67,7 +68,7 @@ impl<T: Transport> ViscaProtocol<T> {
                         // Some cameras send completion directly
                         Ok(Response::Completion)
                     }
-                    _ => Err(Error::ParseError(format!("{ack:?}"))),
+                    _ => Err(Error::ParseError(Cow::Owned(format!("{ack:?}")))),
                 }
             }
             Some(response_type) => {
@@ -91,7 +92,7 @@ impl<T: Transport> ViscaProtocol<T> {
         match response {
             Response::Completion => Ok(response),
             Response::Error(e) => Err(e),
-            _ => Err(Error::ParseError(format!("{response:?}"))),
+            _ => Err(Error::ParseError(Cow::Owned(format!("{response:?}")))),
         }
     }
 
@@ -108,9 +109,9 @@ impl<T: Transport> ViscaProtocol<T> {
         if response.matches_type(expected_type) {
             Ok(response)
         } else {
-            Err(Error::ParseError(format!(
+            Err(Error::ParseError(Cow::Owned(format!(
                 "Expected {expected_type:?}, got {response:?}"
-            )))
+            ))))
         }
     }
 

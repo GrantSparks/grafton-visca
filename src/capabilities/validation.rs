@@ -1,6 +1,6 @@
 //! Validation error types for capability traits.
 
-use std::fmt;
+use std::{borrow::Cow, fmt};
 
 /// Errors that can occur during parameter validation.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,7 +22,7 @@ pub enum ValidationError {
         /// Name of the parameter.
         parameter: &'static str,
         /// Description of why the value is invalid.
-        message: String,
+        message: Cow<'static, str>,
     },
 
     /// Feature is not supported by this camera.
@@ -75,7 +75,7 @@ mod tests {
     fn test_invalid_value_display() {
         let err = ValidationError::InvalidValue {
             parameter: "shutter speed",
-            message: "Must be one of the predefined values".to_string(),
+            message: Cow::Borrowed("Must be one of the predefined values"),
         };
 
         assert_eq!(

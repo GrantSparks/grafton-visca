@@ -7,6 +7,7 @@ use crate::error::Error;
 use crate::types::{
     ColorTemp, FocusPosition, IrisLevel, PanSpeed, ShutterSpeed, TiltSpeed, ZoomPosition,
 };
+use std::borrow::Cow;
 use std::convert::TryFrom;
 
 /// Position in degrees.
@@ -345,9 +346,9 @@ impl TryFrom<Fraction> for ShutterSpeed {
                     value: {
                         let num = fraction.numerator;
                         let den = fraction.denominator;
-                        format!("{num}/{den}")
+                        Cow::Owned(format!("{num}/{den}"))
                     },
-                    reason: "Unsupported shutter speed value".to_string(),
+                    reason: Cow::Borrowed("Unsupported shutter speed value"),
                 })
             }
         };

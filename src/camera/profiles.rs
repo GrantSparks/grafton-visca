@@ -3,6 +3,7 @@
 //! This module contains camera profiles composed from capability traits,
 //! enabling compile-time feature detection and type-safe operations.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::time::Duration;
 
@@ -184,6 +185,14 @@ impl MenuControl for PTZOpticsG2 {}
 
 // Note: PTZOpticsG2 does NOT implement NDFilter
 
+// Marker trait implementations for specific features
+impl crate::capabilities::HasAutoExposure for PTZOpticsG2 {}
+impl crate::capabilities::HasBacklightCompensation for PTZOpticsG2 {}
+impl crate::capabilities::HasWDR for PTZOpticsG2 {}
+impl crate::capabilities::HasOnePushWhiteBalance for PTZOpticsG2 {}
+impl crate::capabilities::HasAutoFocus for PTZOpticsG2 {}
+impl crate::capabilities::HasOnePushFocus for PTZOpticsG2 {}
+
 /// Generic VISCA camera profile.
 ///
 /// Conservative profile for unknown VISCA cameras with basic features only.
@@ -276,6 +285,11 @@ impl Presets for GenericVisca {
     const SUPPORTS_PRESET_TOUR: bool = false;
     const SUPPORTS_PRESET_THUMBNAIL: bool = false;
 }
+
+// Marker trait implementations for specific features
+impl crate::capabilities::HasAutoExposure for GenericVisca {}
+impl crate::capabilities::HasOnePushWhiteBalance for GenericVisca {}
+impl crate::capabilities::HasAutoFocus for GenericVisca {}
 
 /// Sony FR7 camera profile (example with ND filter).
 ///
@@ -378,6 +392,18 @@ impl MenuControl for SonyFR7 {
 impl VariableSpeed for SonyFR7 {
     const SUPPORTS_VARIABLE_SPEED: bool = true;
 }
+
+// Marker trait implementations for specific features
+impl crate::capabilities::HasAutoExposure for SonyFR7 {}
+impl crate::capabilities::HasBacklightCompensation for SonyFR7 {}
+impl crate::capabilities::HasWDR for SonyFR7 {}
+impl crate::capabilities::HasExposureCompensation for SonyFR7 {}
+impl crate::capabilities::HasOnePushWhiteBalance for SonyFR7 {}
+impl crate::capabilities::HasColorTemperature for SonyFR7 {}
+impl crate::capabilities::HasRGBGain for SonyFR7 {}
+impl crate::capabilities::HasAutoFocus for SonyFR7 {}
+impl crate::capabilities::HasOnePushFocus for SonyFR7 {}
+impl crate::capabilities::HasHue for SonyFR7 {}
 
 /// Sony BRC-H900 camera profile.
 ///
@@ -951,8 +977,8 @@ impl TryFrom<u8> for G2Gain {
             8 => Ok(G2Gain::Gain24dB),
             _ => Err(Error::InvalidParameter {
                 parameter: "gain",
-                value: value.to_string(),
-                reason: "Invalid G2 gain value".to_string(),
+                value: Cow::Owned(value.to_string()),
+                reason: Cow::Borrowed("Invalid G2 gain value"),
             }),
         }
     }

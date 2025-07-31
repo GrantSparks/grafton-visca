@@ -1,6 +1,7 @@
 //! Neutral Density (ND) filter capability trait and associated types.
 
 use crate::capabilities::ValidationError;
+use std::borrow::Cow;
 
 /// Trait for cameras that support ND filter control.
 ///
@@ -28,7 +29,9 @@ pub trait NDFilterExt: NDFilter {
                 } else {
                     Err(ValidationError::InvalidValue {
                         parameter: "ND filter",
-                        message: format!("Only 0 (off) or {fixed_value} (on) are valid"),
+                        message: Cow::Owned(format!(
+                            "Only 0 (off) or {fixed_value} (on) are valid"
+                        )),
                     })
                 }
             }

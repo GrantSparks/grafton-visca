@@ -38,7 +38,6 @@ use crate::{
     error::Error,
     timeout::CommandCategory,
     types::{SpeedLevel, ZoomPosition},
-    visca_command,
 };
 
 crate::visca_bounded_param! {
@@ -163,54 +162,60 @@ impl CommandFeatures for Zoom {
     }
 }
 
-/// Digital zoom control state.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum DigitalZoom {
-    /// Enable digital zoom.
-    On = 0x02,
-    /// Disable digital zoom.
-    Off = 0x03,
-}
-
-visca_command! {
-    /// Command to control digital zoom.
-    ///
-    /// This command enables or disables digital zoom capability.
-    /// When enabled, zoom can continue past the optical zoom limit using digital processing.
-    category = "Quick",
-    enum DigitalZoomCommand {
-        /// Enable digital zoom.
-        On => {
-            let cmd = CommandBuilder::<6>::new()
-                .append(constants::zoom::DIGITAL_ZOOM_PREFIX)
-                .push(0x02)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
-        },
-        /// Disable digital zoom.
-        Off => {
-            let cmd = CommandBuilder::<6>::new()
-                .append(constants::zoom::DIGITAL_ZOOM_PREFIX)
-                .push(0x03)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
-        },
-    }
+/// Command to control digital zoom.
+///
+/// This command enables or disables digital zoom capability.
+/// When enabled, zoom can continue past the optical zoom limit using digital processing.
+#[derive(Debug, Copy, Clone)]
+pub struct DigitalZoomCommand {
+    enabled: bool,
 }
 
 impl DigitalZoomCommand {
     /// Create a new digital zoom command.
-    pub fn new(zoom: DigitalZoom) -> Self {
-        match zoom {
-            DigitalZoom::On => Self::On,
-            DigitalZoom::Off => Self::Off,
+    pub const fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+}
+
+impl EncodeVisca for DigitalZoomCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        if buffer.len() < Self::MAX_SIZE {
+            return Err(Error::BufferTooSmall {
+                required: Self::MAX_SIZE,
+                actual: buffer.len(),
+            });
         }
+
+        // Build command: [0x81, 0x01, 0x04, 0x06, on/off, 0xFF]
+        buffer[..4].copy_from_slice(constants::zoom::DIGITAL_ZOOM_PREFIX);
+        buffer[4] = if self.enabled { 0x02 } else { 0x03 };
+        buffer[5] = 0xFF;
+
+        // Replace camera ID
+        buffer[0] = camera_id.to_address_byte();
+
+        Ok(Self::MAX_SIZE)
+    }
+
+    fn response_type(&self) -> Option<ResponseType> {
+        None
+    }
+
+    fn timeout_kind(&self) -> CommandCategory {
+        CommandCategory::Quick
     }
 }
 
 impl CommandFeatures for DigitalZoomCommand {
     fn required_features(&self) -> &[CameraFeature] {
-        // Digital zoom is part of the Zoom feature
         &[CameraFeature::Zoom]
     }
 }

@@ -307,7 +307,7 @@ fn generate_parser_body(
             let parser_type_str = &parser_info.parser_type;
             quote! {
                 return Err(#crate_path::Error::InvalidResponse {
-                    expected: format!("Unknown parser type: {}", #parser_type_str),
+                    expected: ::std::borrow::Cow::Owned(format!("Unknown parser type: {}", #parser_type_str)),
                     actual: data.to_vec(),
                 })
             }

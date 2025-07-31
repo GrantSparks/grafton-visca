@@ -8,6 +8,7 @@ use crate::{
     },
     Error,
 };
+use std::borrow::Cow;
 
 /// Presets operations (async).
 #[cfg(feature = "async")]
@@ -44,11 +45,11 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pre
         if preset.value() > self.max_presets() {
             return Err(Error::ValidationError(ValidationError::InvalidValue {
                 parameter: "preset",
-                message: format!(
+                message: Cow::Owned(format!(
                     "Preset {} is invalid, must be 0-{}",
                     preset.value(),
                     self.max_presets()
-                ),
+                )),
             }));
         }
 
@@ -69,11 +70,11 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pre
         if preset.value() > self.max_presets() {
             return Err(Error::ValidationError(ValidationError::InvalidValue {
                 parameter: "preset",
-                message: format!(
+                message: Cow::Owned(format!(
                     "Preset {} is invalid, must be 0-{}",
                     preset.value(),
                     self.max_presets()
-                ),
+                )),
             }));
         }
 
@@ -94,11 +95,11 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pre
         if preset.value() > self.max_presets() {
             return Err(Error::ValidationError(ValidationError::InvalidValue {
                 parameter: "preset",
-                message: format!(
+                message: Cow::Owned(format!(
                     "Preset {} is invalid, must be 0-{}",
                     preset.value(),
                     self.max_presets()
-                ),
+                )),
             }));
         }
 
@@ -124,11 +125,11 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pre
         if preset.value() > self.max_presets() {
             return Err(Error::ValidationError(ValidationError::InvalidValue {
                 parameter: "preset",
-                message: format!(
+                message: Cow::Owned(format!(
                     "Preset {} is invalid, must be 0-{}",
                     preset.value(),
                     self.max_presets()
-                ),
+                )),
             }));
         }
 
@@ -149,11 +150,11 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pre
         if preset.value() > self.max_presets() {
             return Err(Error::ValidationError(ValidationError::InvalidValue {
                 parameter: "preset",
-                message: format!(
+                message: Cow::Owned(format!(
                     "Preset {} is invalid, must be 0-{}",
                     preset.value(),
                     self.max_presets()
-                ),
+                )),
             }));
         }
 
@@ -174,11 +175,11 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pre
         if preset.value() > self.max_presets() {
             return Err(Error::ValidationError(ValidationError::InvalidValue {
                 parameter: "preset",
-                message: format!(
+                message: Cow::Owned(format!(
                     "Preset {} is invalid, must be 0-{}",
                     preset.value(),
                     self.max_presets()
-                ),
+                )),
             }));
         }
 

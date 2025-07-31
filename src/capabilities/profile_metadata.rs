@@ -45,6 +45,79 @@ pub enum ProtocolStyle {
     },
 }
 
+// Marker traits for compile-time capability detection.
+// These traits have no methods - they just mark a type as having a capability.
+
+/// Marker trait indicating support for pan/tilt movement.
+pub trait HasPanTilt {}
+
+/// Marker trait indicating support for zoom control.
+pub trait HasZoom {}
+
+/// Marker trait indicating support for focus control.
+pub trait HasFocus {}
+
+/// Marker trait indicating support for exposure control.
+pub trait HasExposure {}
+
+/// Marker trait indicating support for white balance.
+pub trait HasWhiteBalance {}
+
+/// Marker trait indicating support for image processing.
+pub trait HasImageProcessing {}
+
+/// Marker trait indicating support for presets.
+pub trait HasPresets {}
+
+/// Marker trait indicating support for power control.
+pub trait HasPower {}
+
+/// Marker trait indicating support for menu control.
+pub trait HasMenuControl {}
+
+/// Marker trait indicating support for motion sync.
+pub trait HasMotionSync {}
+
+/// Marker trait indicating support for variable speed.
+pub trait HasVariableSpeed {}
+
+/// Marker trait indicating support for ND filter.
+pub trait HasNDFilter {}
+
+// Specific feature marker traits
+/// Marker trait indicating support for exposure compensation.
+pub trait HasExposureCompensation {}
+
+/// Marker trait indicating support for color temperature control.
+pub trait HasColorTemperature {}
+
+/// Marker trait indicating support for RGB gain control.
+pub trait HasRGBGain {}
+
+/// Marker trait indicating support for hue control.
+pub trait HasHue {}
+
+/// Marker trait indicating support for luminance control.
+pub trait HasLuminance {}
+
+/// Marker trait indicating support for backlight compensation.
+pub trait HasBacklightCompensation {}
+
+/// Marker trait indicating support for WDR (Wide Dynamic Range).
+pub trait HasWDR {}
+
+/// Marker trait indicating support for auto focus.
+pub trait HasAutoFocus {}
+
+/// Marker trait indicating support for one push focus.
+pub trait HasOnePushFocus {}
+
+/// Marker trait indicating support for one push white balance.
+pub trait HasOnePushWhiteBalance {}
+
+/// Marker trait indicating support for auto exposure.
+pub trait HasAutoExposure {}
+
 /// Extension trait for profile introspection.
 ///
 /// This trait provides runtime capability discovery methods. While the
@@ -98,7 +171,7 @@ pub trait ProfileIntrospection: ProfileMetadata {
 
     /// Get a human-readable summary of camera capabilities.
     fn capability_summary(&self) -> String {
-        let mut capabilities = Vec::new();
+        let mut capabilities: Vec<&str> = Vec::new();
 
         if self.supports_pan_tilt() {
             capabilities.push("Pan/Tilt");
@@ -142,11 +215,36 @@ pub trait ProfileIntrospection: ProfileMetadata {
 }
 
 // Blanket implementation for all types with ProfileMetadata
+// Note: Since Rust doesn't support trait specialization, the introspection
+// methods will need to be implemented manually for each profile based on
+// which capability traits it implements.
 impl<T: ProfileMetadata> ProfileIntrospection for T {}
 
-// Note: We can't add specialization for specific capabilities due to
-// Rust's orphan rule and lack of trait specialization. The introspection
-// methods will need to return false by default in the trait definition.
+// Specialized blanket implementations for each marker trait.
+// These automatically implement the marker trait for any type that implements
+// both ProfileMetadata and the corresponding capability trait.
+
+impl<T: ProfileMetadata + crate::capabilities::PanTilt> HasPanTilt for T {}
+impl<T: ProfileMetadata + crate::capabilities::Zoom> HasZoom for T {}
+impl<T: ProfileMetadata + crate::capabilities::Focus> HasFocus for T {}
+impl<T: ProfileMetadata + crate::capabilities::Exposure> HasExposure for T {}
+impl<T: ProfileMetadata + crate::capabilities::WhiteBalance> HasWhiteBalance for T {}
+impl<T: ProfileMetadata + crate::capabilities::ImageProcessing> HasImageProcessing for T {}
+impl<T: ProfileMetadata + crate::capabilities::Presets> HasPresets for T {}
+impl<T: ProfileMetadata + crate::capabilities::Power> HasPower for T {}
+impl<T: ProfileMetadata + crate::capabilities::MenuControl> HasMenuControl for T {}
+impl<T: ProfileMetadata + crate::capabilities::MotionSync> HasMotionSync for T {}
+impl<T: ProfileMetadata + crate::capabilities::VariableSpeed> HasVariableSpeed for T {}
+impl<T: ProfileMetadata + crate::capabilities::NDFilter> HasNDFilter for T {}
+
+// Note: Unlike the capability marker traits (HasPanTilt, HasZoom, etc.) which have
+// blanket implementations, these specific feature marker traits must be manually
+// implemented for each camera profile that supports them. This is because Rust
+// doesn't support const equality in trait bounds in stable Rust.
+//
+// Example implementation in camera profiles:
+// impl HasExposureCompensation for PTZOpticsG2 {}
+// impl HasAutoExposure for PTZOpticsG2 {}
 
 #[cfg(test)]
 mod tests {

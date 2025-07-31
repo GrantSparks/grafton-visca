@@ -54,18 +54,18 @@ where
 pub mod prelude {
     #[cfg(feature = "async")]
     pub use crate::camera::methods::{
-        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlOps,
-        MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
-        StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
+        ColorOps, ExposureCompensationOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps,
+        MenuControlOps, MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps,
+        PresetsOps, StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
     };
 }
 
 // Re-export async traits with unsuffixed names
 #[cfg(feature = "async")]
 pub use crate::camera::methods::{
-    ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlOps,
-    MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
-    StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
+    ColorOps, ExposureCompensationOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps,
+    MenuControlOps, MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps,
+    PresetsOps, StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
 };
 
 // Implement all async traits for the wrapper type
@@ -249,30 +249,6 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Exp
 
     async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> crate::Result<()> {
         CameraExposureOps::set_color_temperature(&self.0, temp).await
-    }
-
-    async fn enable_exposure_compensation(&self) -> crate::Result<()> {
-        self.0.enable_exposure_compensation().await
-    }
-
-    async fn disable_exposure_compensation(&self) -> crate::Result<()> {
-        self.0.disable_exposure_compensation().await
-    }
-
-    async fn reset_exposure_compensation(&self) -> crate::Result<()> {
-        self.0.reset_exposure_compensation().await
-    }
-
-    async fn increase_exposure_compensation(&self) -> crate::Result<()> {
-        self.0.increase_exposure_compensation().await
-    }
-
-    async fn decrease_exposure_compensation(&self) -> crate::Result<()> {
-        self.0.decrease_exposure_compensation().await
-    }
-
-    async fn set_exposure_compensation_level(&self, level: i8) -> crate::Result<()> {
-        self.0.set_exposure_compensation_level(level).await
     }
 
     async fn set_shutter_speed(&self, speed: crate::types::ShutterSpeed) -> crate::Result<()> {
@@ -1058,20 +1034,63 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Whi
 
     async fn set_awb_sensitivity(
         &self,
-        sensitivity: crate::command::white_balance::AWBSensitivity,
+        sensitivity: crate::command::white_balance::AutoWhiteBalanceSensitivity,
     ) -> crate::Result<()> {
         self.0.set_awb_sensitivity(sensitivity).await
     }
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> VariableSpeedOps
-    for Camera<P, T>
+impl<P, T> VariableSpeedOps for Camera<P, T>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::VariableSpeed
+        + crate::capabilities::HasVariableSpeed,
+    T: crate::transport::UnifiedTransport,
 {
     async fn set_variable_speed_mode(
         &self,
         mode: crate::command::VariableSpeedMode,
     ) -> crate::Result<()> {
-        self.0.set_variable_speed_mode(mode).await
+        use crate::camera::methods::variable_speed::VariableSpeedOps as InnerOps;
+        InnerOps::set_variable_speed_mode(&self.0, mode).await
+    }
+}
+
+impl<P, T> ExposureCompensationOps for Camera<P, T>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::Exposure
+        + crate::capabilities::HasExposureCompensation,
+    T: crate::transport::UnifiedTransport,
+{
+    async fn enable_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOps as InnerOps;
+        InnerOps::enable_exposure_compensation(&self.0).await
+    }
+
+    async fn disable_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOps as InnerOps;
+        InnerOps::disable_exposure_compensation(&self.0).await
+    }
+
+    async fn reset_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOps as InnerOps;
+        InnerOps::reset_exposure_compensation(&self.0).await
+    }
+
+    async fn increase_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOps as InnerOps;
+        InnerOps::increase_exposure_compensation(&self.0).await
+    }
+
+    async fn decrease_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOps as InnerOps;
+        InnerOps::decrease_exposure_compensation(&self.0).await
+    }
+
+    async fn set_exposure_compensation_level(&self, level: i8) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOps as InnerOps;
+        InnerOps::set_exposure_compensation_level(&self.0, level).await
     }
 }
 

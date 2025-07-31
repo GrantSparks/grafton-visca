@@ -77,24 +77,6 @@ pub trait ExposureOps: Sized {
     /// Set color temperature.
     async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> Result<(), Error>;
 
-    /// Enable exposure compensation.
-    async fn enable_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Disable exposure compensation.
-    async fn disable_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Reset exposure compensation to default.
-    async fn reset_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Increase exposure compensation by one step.
-    async fn increase_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Decrease exposure compensation by one step.
-    async fn decrease_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Set exposure compensation level (-7 to +7).
-    async fn set_exposure_compensation_level(&self, level: i8) -> Result<(), Error>;
-
     /// Set shutter speed.
     async fn set_shutter_speed(&self, speed: crate::types::ShutterSpeed) -> Result<(), Error>;
 
@@ -201,24 +183,6 @@ pub trait ExposureOpsBlocking: Sized {
     /// Set color temperature.
     fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> Result<(), Error>;
 
-    /// Enable exposure compensation.
-    fn enable_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Disable exposure compensation.
-    fn disable_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Reset exposure compensation to default.
-    fn reset_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Increase exposure compensation by one step.
-    fn increase_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Decrease exposure compensation by one step.
-    fn decrease_exposure_compensation(&self) -> Result<(), Error>;
-
-    /// Set exposure compensation level (-7 to +7).
-    fn set_exposure_compensation_level(&self, level: i8) -> Result<(), Error>;
-
     /// Set shutter speed.
     fn set_shutter_speed(&self, speed: crate::types::ShutterSpeed) -> Result<(), Error>;
 
@@ -249,6 +213,53 @@ pub trait ExposureOpsBlocking: Sized {
     /// Set brightness using direct mode.
     /// This is supported on Sony models but not on FR7.
     fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>;
+}
+
+/// Exposure compensation operations (async).
+///
+/// These methods are only available for cameras that support exposure compensation.
+#[cfg(feature = "async")]
+pub trait ExposureCompensationOps: Sized {
+    /// Enable exposure compensation.
+    async fn enable_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Disable exposure compensation.
+    async fn disable_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Reset exposure compensation to default.
+    async fn reset_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Increase exposure compensation by one step.
+    async fn increase_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Decrease exposure compensation by one step.
+    async fn decrease_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Set exposure compensation level (-7 to +7).
+    async fn set_exposure_compensation_level(&self, level: i8) -> Result<(), Error>;
+}
+
+/// Exposure compensation operations (blocking).
+///
+/// These methods are only available for cameras that support exposure compensation.
+pub trait ExposureCompensationOpsBlocking: Sized {
+    /// Enable exposure compensation.
+    fn enable_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Disable exposure compensation.
+    fn disable_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Reset exposure compensation to default.
+    fn reset_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Increase exposure compensation by one step.
+    fn increase_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Decrease exposure compensation by one step.
+    fn decrease_exposure_compensation(&self) -> Result<(), Error>;
+
+    /// Set exposure compensation level (-7 to +7).
+    fn set_exposure_compensation_level(&self, level: i8) -> Result<(), Error>;
 }
 
 // Async implementation
@@ -413,50 +424,6 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Exp
 
         let command = ColorTemperature::SetTemperature(temp);
         self.send_command(&command).await?;
-        Ok(())
-    }
-
-    async fn enable_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command(&ExposureCompensation::On).await?;
-        Ok(())
-    }
-
-    async fn disable_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command(&ExposureCompensation::Off).await?;
-        Ok(())
-    }
-
-    async fn reset_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command(&ExposureCompensation::Reset).await?;
-        Ok(())
-    }
-
-    async fn increase_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command(&ExposureCompensation::Up).await?;
-        Ok(())
-    }
-
-    async fn decrease_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command(&ExposureCompensation::Down).await?;
-        Ok(())
-    }
-
-    async fn set_exposure_compensation_level(&self, level: i8) -> Result<(), Error> {
-        use crate::command::exposure::{ExposureCompensation, ExposureCompensationLevel};
-
-        let level = ExposureCompensationLevel::new(level)?;
-        self.send_command(&ExposureCompensation::SetLevel(level))
-            .await?;
         Ok(())
     }
 
@@ -689,49 +656,6 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Exp
         Ok(())
     }
 
-    fn enable_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command_blocking(&ExposureCompensation::On)?;
-        Ok(())
-    }
-
-    fn disable_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command_blocking(&ExposureCompensation::Off)?;
-        Ok(())
-    }
-
-    fn reset_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command_blocking(&ExposureCompensation::Reset)?;
-        Ok(())
-    }
-
-    fn increase_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command_blocking(&ExposureCompensation::Up)?;
-        Ok(())
-    }
-
-    fn decrease_exposure_compensation(&self) -> Result<(), Error> {
-        use crate::command::exposure::ExposureCompensation;
-
-        self.send_command_blocking(&ExposureCompensation::Down)?;
-        Ok(())
-    }
-
-    fn set_exposure_compensation_level(&self, level: i8) -> Result<(), Error> {
-        use crate::command::exposure::{ExposureCompensation, ExposureCompensationLevel};
-
-        let level = ExposureCompensationLevel::new(level)?;
-        self.send_command_blocking(&ExposureCompensation::SetLevel(level))?;
-        Ok(())
-    }
-
     fn set_shutter_speed(&self, speed: crate::types::ShutterSpeed) -> Result<(), Error> {
         use crate::command::exposure::Shutter;
 
@@ -793,6 +717,114 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Exp
 
         let command = Bright::Direct(level);
         self.send_command_blocking(&command)?;
+        Ok(())
+    }
+}
+
+// Async implementation for exposure compensation - requires HasExposureCompensation marker trait
+#[cfg(feature = "async")]
+impl<P, T> ExposureCompensationOps for crate::camera::generic::Camera<P, T>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::Exposure
+        + crate::capabilities::HasExposureCompensation,
+    T: crate::transport::UnifiedTransport,
+{
+    async fn enable_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command(&ExposureCompensation::On).await?;
+        Ok(())
+    }
+
+    async fn disable_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command(&ExposureCompensation::Off).await?;
+        Ok(())
+    }
+
+    async fn reset_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command(&ExposureCompensation::Reset).await?;
+        Ok(())
+    }
+
+    async fn increase_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command(&ExposureCompensation::Up).await?;
+        Ok(())
+    }
+
+    async fn decrease_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command(&ExposureCompensation::Down).await?;
+        Ok(())
+    }
+
+    async fn set_exposure_compensation_level(&self, level: i8) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        use crate::types::ExposureCompensationLevel;
+
+        let level = ExposureCompensationLevel::new(level)?;
+        self.send_command(&ExposureCompensation::SetLevel(level))
+            .await?;
+        Ok(())
+    }
+}
+
+// Blocking implementation for exposure compensation - requires HasExposureCompensation marker trait
+impl<P, T> ExposureCompensationOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::Exposure
+        + crate::capabilities::HasExposureCompensation,
+    T: crate::transport::UnifiedTransport,
+{
+    fn enable_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command_blocking(&ExposureCompensation::On)?;
+        Ok(())
+    }
+
+    fn disable_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command_blocking(&ExposureCompensation::Off)?;
+        Ok(())
+    }
+
+    fn reset_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command_blocking(&ExposureCompensation::Reset)?;
+        Ok(())
+    }
+
+    fn increase_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command_blocking(&ExposureCompensation::Up)?;
+        Ok(())
+    }
+
+    fn decrease_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+
+        self.send_command_blocking(&ExposureCompensation::Down)?;
+        Ok(())
+    }
+
+    fn set_exposure_compensation_level(&self, level: i8) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        use crate::types::ExposureCompensationLevel;
+
+        let level = ExposureCompensationLevel::new(level)?;
+        self.send_command_blocking(&ExposureCompensation::SetLevel(level))?;
         Ok(())
     }
 }
