@@ -30,14 +30,14 @@ pub struct ProtocolValidator {
 
 /// Protocol validation error
 #[derive(Debug, Clone)]
-pub struct ValidationError {
+pub struct ProtocolValidationError {
     pub message: String,
     pub byte_index: Option<usize>,
     pub expected: Option<Vec<u8>>,
     pub actual: Option<Vec<u8>>,
 }
 
-impl std::fmt::Display for ValidationError {
+impl std::fmt::Display for ProtocolValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)?;
         if let Some(idx) = self.byte_index {
@@ -53,7 +53,7 @@ impl std::fmt::Display for ValidationError {
     }
 }
 
-impl std::error::Error for ValidationError {}
+impl std::error::Error for ProtocolValidationError {}
 
 impl ProtocolValidator {
     /// Create a new protocol validator
@@ -72,13 +72,13 @@ impl ProtocolValidator {
     }
 
     /// Validate a VISCA command
-    pub fn validate_command(&mut self, command: &[u8]) -> Result<(), ValidationError> {
+    pub fn validate_command(&mut self, command: &[u8]) -> Result<(), ProtocolValidationError> {
         self.commands_sent += 1;
 
         // Basic structure validation
         if command.len() < 3 {
             self.errors_detected += 1;
-            return Err(ValidationError {
+            return Err(ProtocolValidationError {
                 message: "Command too short".to_string(),
                 byte_index: None,
                 expected: Some(vec![0x81, 0x01, 0xFF]),
@@ -90,7 +90,7 @@ impl ProtocolValidator {
         let header = command[0];
         if header & 0xF0 != 0x80 {
             self.errors_detected += 1;
-            return Err(ValidationError {
+            return Err(ProtocolValidationError {
                 message: "Invalid header byte".to_string(),
                 byte_index: Some(0),
                 expected: Some(vec![0x81]),
@@ -101,7 +101,7 @@ impl ProtocolValidator {
         // Check terminator
         if command[command.len() - 1] != 0xFF {
             self.errors_detected += 1;
-            return Err(ValidationError {
+            return Err(ProtocolValidationError {
                 message: "Missing terminator".to_string(),
                 byte_index: Some(command.len() - 1),
                 expected: Some(vec![0xFF]),
@@ -118,7 +118,7 @@ impl ProtocolValidator {
                     0x09 => self.validate_inquiry_packet(command)?,
                     _ => {
                         self.errors_detected += 1;
-                        return Err(ValidationError {
+                        return Err(ProtocolValidationError {
                             message: "Invalid command type".to_string(),
                             byte_index: Some(1),
                             expected: Some(vec![0x01, 0x09]),
@@ -133,13 +133,13 @@ impl ProtocolValidator {
     }
 
     /// Validate a VISCA response
-    pub fn validate_response(&mut self, response: &[u8]) -> Result<(), ValidationError> {
+    pub fn validate_response(&mut self, response: &[u8]) -> Result<(), ProtocolValidationError> {
         self.responses_received += 1;
 
         // Basic structure validation
         if response.len() < 3 {
             self.errors_detected += 1;
-            return Err(ValidationError {
+            return Err(ProtocolValidationError {
                 message: "Response too short".to_string(),
                 byte_index: None,
                 expected: None,
@@ -151,7 +151,7 @@ impl ProtocolValidator {
         let header = response[0];
         if header & 0xF0 != 0x90 {
             self.errors_detected += 1;
-            return Err(ValidationError {
+            return Err(ProtocolValidationError {
                 message: "Invalid response header".to_string(),
                 byte_index: Some(0),
                 expected: Some(vec![0x90]),
@@ -162,7 +162,7 @@ impl ProtocolValidator {
         // Check terminator
         if response[response.len() - 1] != 0xFF {
             self.errors_detected += 1;
-            return Err(ValidationError {
+            return Err(ProtocolValidationError {
                 message: "Missing terminator in response".to_string(),
                 byte_index: Some(response.len() - 1),
                 expected: Some(vec![0xFF]),
@@ -192,7 +192,7 @@ impl ProtocolValidator {
                     // Error response
                     if self.mode == ValidationMode::Strict && response.len() != 4 {
                         self.errors_detected += 1;
-                        return Err(ValidationError {
+                        return Err(ProtocolValidationError {
                             message: "Invalid error response length".to_string(),
                             byte_index: None,
                             expected: Some(vec![0x90, 0x60, 0x00, 0xFF]),
@@ -203,7 +203,7 @@ impl ProtocolValidator {
                 _ => {
                     if self.mode == ValidationMode::Strict {
                         self.errors_detected += 1;
-                        return Err(ValidationError {
+                        return Err(ProtocolValidationError {
                             message: "Invalid response type".to_string(),
                             byte_index: Some(1),
                             expected: None,
@@ -253,10 +253,10 @@ impl ProtocolValidator {
 
     // Private helper methods
 
-    fn validate_command_packet(&self, command: &[u8]) -> Result<(), ValidationError> {
+    fn validate_command_packet(&self, command: &[u8]) -> Result<(), ProtocolValidationError> {
         // Command packets should have at least 4 bytes: header, command, data, terminator
         if command.len() < 4 {
-            return Err(ValidationError {
+            return Err(ProtocolValidationError {
                 message: "Command packet too short".to_string(),
                 byte_index: None,
                 expected: None,
@@ -269,7 +269,7 @@ impl ProtocolValidator {
             for (i, &byte) in command[2..command.len() - 1].iter().enumerate() {
                 // Some commands use full bytes, so only check obvious nibble positions
                 if command.len() > 6 && i > 2 && byte > 0x0F && byte < 0x80 {
-                    return Err(ValidationError {
+                    return Err(ProtocolValidationError {
                         message: "Invalid nibble value in command".to_string(),
                         byte_index: Some(i + 2),
                         expected: Some(vec![0x00, 0x0F]),
@@ -282,10 +282,10 @@ impl ProtocolValidator {
         Ok(())
     }
 
-    fn validate_inquiry_packet(&self, command: &[u8]) -> Result<(), ValidationError> {
+    fn validate_inquiry_packet(&self, command: &[u8]) -> Result<(), ProtocolValidationError> {
         // Inquiry packets have specific structure
         if command.len() < 5 {
-            return Err(ValidationError {
+            return Err(ProtocolValidationError {
                 message: "Inquiry packet too short".to_string(),
                 byte_index: None,
                 expected: None,

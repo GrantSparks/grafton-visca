@@ -1,5 +1,6 @@
 //! White balance capability trait and associated types.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use crate::capabilities::ValidationError;
@@ -58,7 +59,7 @@ pub trait WhiteBalanceExt: WhiteBalance {
         } else {
             Err(ValidationError::InvalidValue {
                 parameter: "white balance mode",
-                message: format!("Mode {mode:?} not supported"),
+                message: Cow::Owned(format!("Mode {mode:?} not supported")),
             })
         }
     }
@@ -92,11 +93,10 @@ pub trait WhiteBalanceExt: WhiteBalance {
     }
 
     /// Validate color temperature in Kelvin.
+    ///
+    /// Note: This method should only be called on profiles that support color temperature.
+    /// The compile-time check is enforced by requiring HasColorTemperature marker trait.
     fn validate_color_temp(&self, kelvin: u16) -> Result<u16, ValidationError> {
-        if !Self::SUPPORTS_COLOR_TEMP {
-            return Err(ValidationError::NotSupported("color temperature"));
-        }
-
         match Self::COLOR_TEMP_RANGE {
             Some(ref range) if range.contains(&kelvin) => Ok(kelvin),
             Some(ref range) => Err(ValidationError::OutOfRange {
@@ -110,11 +110,10 @@ pub trait WhiteBalanceExt: WhiteBalance {
     }
 
     /// Validate red gain value.
+    ///
+    /// Note: This method should only be called on profiles that support RGB gain.
+    /// The compile-time check is enforced by requiring HasRGBGain marker trait.
     fn validate_red_gain(&self, gain: u8) -> Result<u8, ValidationError> {
-        if !Self::SUPPORTS_RGB_GAIN {
-            return Err(ValidationError::NotSupported("RGB gain"));
-        }
-
         match Self::RED_GAIN_RANGE {
             Some(ref range) if range.contains(&gain) => Ok(gain),
             Some(ref range) => Err(ValidationError::OutOfRange {
@@ -128,11 +127,10 @@ pub trait WhiteBalanceExt: WhiteBalance {
     }
 
     /// Validate blue gain value.
+    ///
+    /// Note: This method should only be called on profiles that support RGB gain.
+    /// The compile-time check is enforced by requiring HasRGBGain marker trait.
     fn validate_blue_gain(&self, gain: u8) -> Result<u8, ValidationError> {
-        if !Self::SUPPORTS_RGB_GAIN {
-            return Err(ValidationError::NotSupported("RGB gain"));
-        }
-
         match Self::BLUE_GAIN_RANGE {
             Some(ref range) if range.contains(&gain) => Ok(gain),
             Some(ref range) => Err(ValidationError::OutOfRange {

@@ -3,7 +3,7 @@
 use crate::{
     capabilities::ValidationError,
     command::{
-        zoom::{DigitalZoom, DigitalZoomCommand, Zoom as ZoomCommand, ZoomSpeed},
+        zoom::{DigitalZoomCommand, Zoom as ZoomCommand, ZoomSpeed},
         Response,
     },
     types::ZoomPosition,
@@ -155,7 +155,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Zoo
     }
 
     async fn enable_digital_zoom(&self) -> Result<(), Error> {
-        let command = DigitalZoomCommand::new(DigitalZoom::On);
+        let command = DigitalZoomCommand::new(true);
         let response = self.send_command(&command).await?;
         match response {
             Response::Completion => Ok(()),
@@ -165,7 +165,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Zoo
     }
 
     async fn disable_digital_zoom(&self) -> Result<(), Error> {
-        let command = DigitalZoomCommand::new(DigitalZoom::Off);
+        let command = DigitalZoomCommand::new(false);
         let response = self.send_command(&command).await?;
         match response {
             Response::Completion => Ok(()),
@@ -263,7 +263,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Zoo
     }
 
     fn enable_digital_zoom(&self) -> Result<(), Error> {
-        let command = DigitalZoomCommand::new(DigitalZoom::On);
+        let command = DigitalZoomCommand::new(true);
         let response = self.send_command_blocking(&command)?;
         match response {
             Response::Completion => Ok(()),
@@ -273,7 +273,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Zoo
     }
 
     fn disable_digital_zoom(&self) -> Result<(), Error> {
-        let command = DigitalZoomCommand::new(DigitalZoom::Off);
+        let command = DigitalZoomCommand::new(false);
         let response = self.send_command_blocking(&command)?;
         match response {
             Response::Completion => Ok(()),

@@ -4,7 +4,6 @@
 //! on cameras that support it (currently only Sony FR7).
 
 use crate::{
-    capabilities::FeatureDetection,
     command::{Response, VariableSpeedMode, VariableSpeedModeCommand},
     error::Error,
 };
@@ -26,17 +25,15 @@ pub trait VariableSpeedOps {
 }
 
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> VariableSpeedOps
-    for crate::camera::generic::Camera<P, T>
+impl<P, T> VariableSpeedOps for crate::camera::generic::Camera<P, T>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::VariableSpeed
+        + crate::capabilities::HasVariableSpeed,
+    T: crate::transport::UnifiedTransport,
 {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
-        // Check if camera supports variable speed mode
-        if !self.supports_feature(crate::CameraFeature::VariableSpeedMode) {
-            return Err(Error::FeatureNotSupported {
-                feature: "Variable speed mode",
-            });
-        }
-
+        // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
         let cmd = VariableSpeedModeCommand::new(mode);
         match self.send_command(&cmd).await? {
             Response::CmdAck | Response::Completion => Ok(()),
@@ -60,17 +57,15 @@ pub trait VariableSpeedOpsBlocking {
     fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error>;
 }
 
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport>
-    VariableSpeedOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<P, T> VariableSpeedOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::VariableSpeed
+        + crate::capabilities::HasVariableSpeed,
+    T: crate::transport::UnifiedTransport,
 {
     fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
-        // Check if camera supports variable speed mode
-        if !self.supports_feature(crate::CameraFeature::VariableSpeedMode) {
-            return Err(Error::FeatureNotSupported {
-                feature: "Variable speed mode",
-            });
-        }
-
+        // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
         let cmd = VariableSpeedModeCommand::new(mode);
         match self.send_command_blocking(&cmd)? {
             Response::CmdAck | Response::Completion => Ok(()),

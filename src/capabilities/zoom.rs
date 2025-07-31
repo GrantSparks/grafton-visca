@@ -1,5 +1,6 @@
 //! Zoom capability trait and associated types.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use crate::capabilities::ValidationError;
@@ -66,7 +67,7 @@ pub trait ZoomExt: Zoom {
         if !(0.0..=1.0).contains(&normalized) {
             return Err(ValidationError::InvalidValue {
                 parameter: "normalized zoom",
-                message: "Must be between 0.0 and 1.0".to_string(),
+                message: Cow::Borrowed("Must be between 0.0 and 1.0"),
             });
         }
 
@@ -85,7 +86,7 @@ pub trait ZoomExt: Zoom {
         if magnification < 1.0 {
             return Err(ValidationError::InvalidValue {
                 parameter: "zoom magnification",
-                message: "Must be at least 1.0x".to_string(),
+                message: Cow::Borrowed("Must be at least 1.0x"),
             });
         }
 

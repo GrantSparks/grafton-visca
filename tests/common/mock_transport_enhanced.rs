@@ -3,6 +3,7 @@
 //! Provides a highly configurable mock transport that can simulate various
 //! camera behaviors and network conditions for comprehensive testing.
 
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -179,12 +180,12 @@ impl MockTransport {
         for (i, expectation) in inner.expectations.iter().enumerate() {
             if !expectation.met {
                 let desc = expectation.description.as_deref().unwrap_or("");
-                return Err(Error::InvalidState(format!(
+                return Err(Error::InvalidState(std::borrow::Cow::Owned(format!(
                     "Expectation {} not met: expected command {:02X?} {}",
                     i + 1,
                     expectation.command,
                     desc
-                )));
+                ))));
             }
         }
 
@@ -252,22 +253,22 @@ impl Transport for MockTransport {
 
         if !inner.connected {
             return std::future::ready(Err(Error::ConnectionLost {
-                reason: "Mock transport disconnected".to_string(),
+                reason: Cow::Borrowed("Mock transport disconnected"),
             }));
         }
 
         // Validate frame format if enabled
         if inner.validate_frames && data.len() >= 3 {
             if data[0] & 0xF0 != 0x80 {
-                return std::future::ready(Err(Error::InvalidState(format!(
+                return std::future::ready(Err(Error::InvalidState(Cow::Owned(format!(
                     "Invalid address byte: {:02X}",
                     data[0]
-                ))));
+                )))));
             }
             if data[data.len() - 1] != 0xFF {
-                return std::future::ready(Err(Error::InvalidState(
-                    "Missing terminator FF".to_string(),
-                )));
+                return std::future::ready(Err(Error::InvalidState(Cow::Borrowed(
+                    "Missing terminator FF",
+                ))));
             }
         }
 
@@ -308,7 +309,7 @@ impl Transport for MockTransport {
 
         if !inner.connected {
             return std::future::ready(Err(Error::ConnectionLost {
-                reason: "Mock transport disconnected".to_string(),
+                reason: Cow::Borrowed("Mock transport disconnected"),
             }));
         }
 

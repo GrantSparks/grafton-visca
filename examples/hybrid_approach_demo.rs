@@ -30,6 +30,9 @@ impl std::error::Error for DemoError {}
 #[derive(Debug)]
 pub struct Degrees(pub f64);
 
+// Using types from the main crate would be:
+// use grafton_visca::types::{PanSpeed, TiltSpeed, ZoomSpeed};
+// But for demo purposes, we'll define simple versions here
 #[derive(Debug)]
 pub struct PanSpeed(u8);
 

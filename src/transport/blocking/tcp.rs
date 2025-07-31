@@ -3,6 +3,7 @@
 use crate::transport::core::{blocking::ready, BlockingTransport, Transport};
 use crate::Error;
 use core::future::Ready;
+use std::borrow::Cow;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Mutex;
@@ -25,7 +26,7 @@ impl Tcp {
         let stream = TcpStream::connect_timeout(
             &address
                 .parse()
-                .map_err(|e| Error::TransportError(format!("Invalid address: {e}")))?,
+                .map_err(|e| Error::TransportError(Cow::Owned(format!("Invalid address: {e}"))))?,
             timeout,
         )?;
 
@@ -59,7 +60,7 @@ impl BlockingTransport for Tcp {}
 fn send_impl(stream: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
     let mut stream = stream
         .lock()
-        .map_err(|e| Error::TransportError(format!("Failed to lock stream: {e}")))?;
+        .map_err(|e| Error::TransportError(Cow::Owned(format!("Failed to lock stream: {e}"))))?;
 
     stream.write_all(data)?;
     stream.flush()?;
@@ -69,7 +70,7 @@ fn send_impl(stream: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
 fn recv_impl(stream: &Mutex<TcpStream>) -> Result<bytes::Bytes, Error> {
     let mut stream = stream
         .lock()
-        .map_err(|e| Error::TransportError(format!("Failed to lock stream: {e}")))?;
+        .map_err(|e| Error::TransportError(Cow::Owned(format!("Failed to lock stream: {e}"))))?;
 
     let mut buffer = vec![0u8; 1024];
     let mut total_read = 0;
@@ -77,11 +78,11 @@ fn recv_impl(stream: &Mutex<TcpStream>) -> Result<bytes::Bytes, Error> {
     // Read until we find a VISCA terminator (0xFF)
     loop {
         if total_read >= buffer.len() {
-            return Err(Error::TransportError("Response too large".to_string()));
+            return Err(Error::TransportError(Cow::Borrowed("Response too large")));
         }
 
         match stream.read(&mut buffer[total_read..total_read + 1]) {
-            Ok(0) => return Err(Error::TransportError("Connection closed".to_string())),
+            Ok(0) => return Err(Error::TransportError(Cow::Borrowed("Connection closed"))),
             Ok(1) => {
                 total_read += 1;
                 if buffer[total_read - 1] == 0xFF {

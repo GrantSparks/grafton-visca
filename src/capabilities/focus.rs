@@ -1,6 +1,7 @@
 //! Focus capability trait and associated types.
 
 use crate::capabilities::ValidationError;
+use std::borrow::Cow;
 
 /// Trait for cameras that support focus control.
 ///
@@ -58,7 +59,7 @@ pub trait FocusExt: Focus {
         if !(0.0..=1.0).contains(&normalized) {
             return Err(ValidationError::InvalidValue {
                 parameter: "normalized focus",
-                message: "Must be between 0.0 and 1.0".to_string(),
+                message: Cow::Borrowed("Must be between 0.0 and 1.0"),
             });
         }
 

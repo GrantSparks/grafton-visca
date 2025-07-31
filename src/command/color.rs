@@ -20,7 +20,7 @@ visca_const_command! {
     /// the current scene. The camera will analyze the image and set the
     /// white balance to achieve neutral colors.
     pub(crate) struct OnePushTriggerCommand;
-    bytes = [0x81, 0x01, 0x04, 0x10, 0x05];
+    bytes = [0x81, 0x01, 0x04, 0x10, 0x05, 0xFF];
     timeout = Quick;
 }
 

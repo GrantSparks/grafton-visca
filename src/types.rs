@@ -1,5 +1,6 @@
 //! Type-safe wrappers for VISCA protocol values.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::error::Error;
@@ -174,6 +175,54 @@ pub struct ContrastLevel(u8);
     model_constraints = "PTZOpticsG2"
 )]
 pub struct DynamicRangeLevel(u8);
+
+/// Exposure compensation level (-7 to +7).
+///
+/// Valid range: -7 to +7.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ExposureCompensationLevel(i8);
+
+impl ExposureCompensationLevel {
+    /// Minimum exposure compensation level.
+    pub const MIN: i8 = -7;
+    /// Maximum exposure compensation level.
+    pub const MAX: i8 = 7;
+
+    /// Creates a new `ExposureCompensationLevel` with validation.
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidParameter` if value is outside -7 to +7 range.
+    pub fn new(value: i8) -> Result<Self, Error> {
+        if (Self::MIN..=Self::MAX).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(Error::InvalidParameter {
+                parameter: "value",
+                value: Cow::Owned(value.to_string()),
+                reason: Cow::Owned(format!(
+                    "Exposure compensation level must be between {} and {}",
+                    Self::MIN,
+                    Self::MAX
+                )),
+            })
+        }
+    }
+
+    /// Convert to protocol value (0x0 to 0xE).
+    #[allow(clippy::cast_sign_loss)]
+    #[must_use]
+    pub const fn to_protocol_value(self) -> u8 {
+        (self.0 + 7) as u8
+    }
+}
+
+impl TryFrom<i8> for ExposureCompensationLevel {
+    type Error = Error;
+
+    fn try_from(value: i8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
 
 // Macro for creating speed mapping enums
 macro_rules! speed_enum {
@@ -395,9 +444,10 @@ impl NoiseReductionStrength {
         match self {
             Self::Off => Err(Error::InvalidParameter {
                 parameter: "strength",
-                value: "Off".to_string(),
-                reason: "2D noise reduction cannot be turned off, use level 1 for minimal"
-                    .to_string(),
+                value: Cow::Borrowed("Off"),
+                reason: Cow::Borrowed(
+                    "2D noise reduction cannot be turned off, use level 1 for minimal",
+                ),
             }),
             Self::Minimal => Ok(1),
             Self::Light => Ok(2),
@@ -416,9 +466,10 @@ impl NoiseReductionStrength {
         match self {
             Self::Off => Err(Error::InvalidParameter {
                 parameter: "strength",
-                value: "Off".to_string(),
-                reason: "3D noise reduction cannot be turned off, use level 1 for minimal"
-                    .to_string(),
+                value: Cow::Borrowed("Off"),
+                reason: Cow::Borrowed(
+                    "3D noise reduction cannot be turned off, use level 1 for minimal",
+                ),
             }),
             Self::Minimal => Ok(1),
             Self::Light => Ok(2),
@@ -504,11 +555,11 @@ macro_rules! impl_normalized_conversion {
                 if !(0.0..=1.0).contains(&normalized) {
                     return Err(Error::InvalidParameter {
                         parameter: "normalized",
-                        value: normalized.to_string(),
-                        reason: format!(
+                        value: Cow::Owned(normalized.to_string()),
+                        reason: Cow::Owned(format!(
                             "Normalized {} must be between 0.0 and 1.0",
                             stringify!($type)
-                        ),
+                        )),
                     });
                 }
                 let range = Self::$max_field.value() - Self::$min_field.value();
@@ -560,8 +611,8 @@ impl ColorTemp {
         } else {
             Err(Error::InvalidParameter {
                 parameter: "kelvin",
-                value: kelvin.to_string(),
-                reason: "Color temperature must be between 2500K and 8000K".to_string(),
+                value: Cow::Owned(kelvin.to_string()),
+                reason: Cow::Borrowed("Color temperature must be between 2500K and 8000K"),
             })
         }
     }
@@ -652,8 +703,8 @@ impl PanPosition {
         if !(-170.0..=170.0).contains(&degrees) {
             return Err(Error::InvalidParameter {
                 parameter: "degrees",
-                value: degrees.to_string(),
-                reason: "Pan degrees must be between -170° and +170°".to_string(),
+                value: Cow::Owned(degrees.to_string()),
+                reason: Cow::Borrowed("Pan degrees must be between -170° and +170°"),
             });
         }
         Self::new((degrees * 2448.0 / 170.0).round() as i16)
@@ -696,8 +747,8 @@ impl TiltPosition {
         if !(-30.0..=90.0).contains(&degrees) {
             return Err(Error::InvalidParameter {
                 parameter: "degrees",
-                value: degrees.to_string(),
-                reason: "Tilt degrees must be between -30° and +90°".to_string(),
+                value: Cow::Owned(degrees.to_string()),
+                reason: Cow::Borrowed("Tilt degrees must be between -30° and +90°"),
             });
         }
         let value = if degrees >= 0.0 {

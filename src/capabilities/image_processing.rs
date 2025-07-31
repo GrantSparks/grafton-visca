@@ -109,11 +109,10 @@ pub trait ImageProcessingExt: ImageProcessing {
     }
 
     /// Validate hue value.
+    ///
+    /// Note: This method should only be called on profiles that support hue.
+    /// The compile-time check is enforced by requiring HasHue marker trait.
     fn validate_hue(&self, value: u8) -> Result<u8, ValidationError> {
-        if !Self::SUPPORTS_HUE {
-            return Err(ValidationError::NotSupported("hue"));
-        }
-
         match Self::HUE_RANGE {
             Some(ref range) if range.contains(&value) => Ok(value),
             Some(ref range) => Err(ValidationError::OutOfRange {
@@ -127,11 +126,10 @@ pub trait ImageProcessingExt: ImageProcessing {
     }
 
     /// Validate luminance value.
+    ///
+    /// Note: This method should only be called on profiles that support luminance.
+    /// The compile-time check is enforced by requiring HasLuminance marker trait.
     fn validate_luminance(&self, value: u8) -> Result<u8, ValidationError> {
-        if !Self::SUPPORTS_LUMINANCE {
-            return Err(ValidationError::NotSupported("luminance"));
-        }
-
         match Self::LUMINANCE_RANGE {
             Some(ref range) if range.contains(&value) => Ok(value),
             Some(ref range) => Err(ValidationError::OutOfRange {

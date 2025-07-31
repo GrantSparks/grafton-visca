@@ -5,13 +5,8 @@
 
 use crate::{
     camera::generic::Camera,
-    capabilities::{MotionSync, NDFilter, Profile, VariableSpeed},
-    command::{
-        motion_sync::MotionSyncModeCommand,
-        nd_filter::NDFilterModeCommand,
-        variable_speed::{VariableSpeedMode, VariableSpeedModeCommand},
-        Response,
-    },
+    capabilities::{MotionSync, NDFilter, Profile},
+    command::{motion_sync::MotionSyncModeCommand, nd_filter::NDFilterModeCommand, Response},
     error::Error,
     transport::UnifiedTransport,
     MotionSyncMode,
@@ -96,39 +91,7 @@ where
     }
 }
 
-// Variable Speed methods - only available when P implements VariableSpeed
-impl<P, T> Camera<P, T>
-where
-    P: Profile + VariableSpeed,
-    T: UnifiedTransport,
-{
-    /// Set the variable speed mode.
-    ///
-    /// This method is only available for cameras that support variable speed mode.
-    #[cfg(feature = "async")]
-    pub async fn set_variable_speed_mode(
-        &self,
-        mode: VariableSpeedMode,
-    ) -> Result<Response, Error> {
-        let command = VariableSpeedModeCommand::new(mode);
-        self.send_command(&command).await
-    }
-
-    /// Set the variable speed mode (blocking).
-    pub fn set_variable_speed_mode_blocking(
-        &self,
-        mode: VariableSpeedMode,
-    ) -> Result<Response, Error> {
-        let command = VariableSpeedModeCommand::new(mode);
-        self.send_command_blocking(&command)
-    }
-
-    /// Check if variable speed mode is supported.
-    #[must_use]
-    pub fn supports_variable_speed(&self) -> bool {
-        P::SUPPORTS_VARIABLE_SPEED
-    }
-}
+// Variable Speed methods moved to methods/variable_speed.rs to use marker traits
 
 // Example of how to add more capability-gated methods:
 //

@@ -7,6 +7,7 @@ use grafton_visca::{
     types::{GainLevel, PanSpeed, TiltSpeed},
     Error, PanTiltDirection,
 };
+use std::borrow::Cow;
 
 fn main() {
     if let Err(e) = run_examples() {
@@ -43,26 +44,26 @@ fn run_examples() -> Result<(), Error> {
     let _pan_speed_old =
         PanSpeed::try_from(pan_speed_raw).map_err(|_| Error::InvalidParameter {
             parameter: "pan_speed",
-            value: pan_speed_raw.to_string(),
-            reason: format!("Invalid pan speed: {pan_speed_raw}"),
+            value: Cow::Owned(pan_speed_raw.to_string()),
+            reason: Cow::Owned(format!("Invalid pan speed: {pan_speed_raw}")),
         })?;
     let _tilt_speed_old =
         TiltSpeed::try_from(tilt_speed_raw).map_err(|_| Error::InvalidParameter {
             parameter: "tilt_speed",
-            value: tilt_speed_raw.to_string(),
-            reason: format!("Invalid tilt speed: {tilt_speed_raw}"),
+            value: Cow::Owned(tilt_speed_raw.to_string()),
+            reason: Cow::Owned(format!("Invalid tilt speed: {tilt_speed_raw}")),
         })?;
 
     // Note: validate_all! macro was removed as it was unused
     let pan_speed = PanSpeed::try_from(pan_speed_raw).map_err(|_| Error::InvalidParameter {
         parameter: "pan_speed",
-        value: pan_speed_raw.to_string(),
-        reason: format!("Invalid pan speed: {pan_speed_raw}"),
+        value: Cow::Owned(pan_speed_raw.to_string()),
+        reason: Cow::Owned(format!("Invalid pan speed: {pan_speed_raw}")),
     })?;
     let tilt_speed = TiltSpeed::try_from(tilt_speed_raw).map_err(|_| Error::InvalidParameter {
         parameter: "tilt_speed",
-        value: tilt_speed_raw.to_string(),
-        reason: format!("Invalid tilt speed: {tilt_speed_raw}"),
+        value: Cow::Owned(tilt_speed_raw.to_string()),
+        reason: Cow::Owned(format!("Invalid tilt speed: {tilt_speed_raw}")),
     })?;
 
     println!(
@@ -88,13 +89,13 @@ fn run_examples() -> Result<(), Error> {
     let result = (|| {
         let _pan = PanSpeed::try_from(invalid_pan).map_err(|_| Error::InvalidParameter {
             parameter: "pan_speed",
-            value: invalid_pan.to_string(),
-            reason: format!("Invalid pan speed: {invalid_pan}"),
+            value: Cow::Owned(invalid_pan.to_string()),
+            reason: Cow::Owned(format!("Invalid pan speed: {invalid_pan}")),
         })?;
         let _tilt = TiltSpeed::try_from(invalid_tilt).map_err(|_| Error::InvalidParameter {
             parameter: "tilt_speed",
-            value: invalid_tilt.to_string(),
-            reason: format!("Invalid tilt speed: {invalid_tilt}"),
+            value: Cow::Owned(invalid_tilt.to_string()),
+            reason: Cow::Owned(format!("Invalid tilt speed: {invalid_tilt}")),
         })?;
         Ok::<_, Error>(())
     })();

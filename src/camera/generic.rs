@@ -3,6 +3,7 @@
 //! This module provides the new generic Camera<P, T> struct that uses
 //! compile-time profile selection for zero-cost abstractions.
 
+use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -369,9 +370,9 @@ where
                         Ok(Response::Completion)
                     }
                     Response::Error(e) => Err(e),
-                    _ => Err(Error::ParseError(format!(
+                    _ => Err(Error::ParseError(Cow::Owned(format!(
                         "Unexpected response: {ack_response:?}"
-                    ))),
+                    )))),
                 }
             }
             Some(response_type) => {
@@ -521,9 +522,9 @@ where
                         Ok(Response::Completion)
                     }
                     Response::Error(e) => Err(e),
-                    _ => Err(Error::ParseError(format!(
+                    _ => Err(Error::ParseError(Cow::Owned(format!(
                         "Unexpected response: {ack_response:?}"
-                    ))),
+                    )))),
                 }
             }
             Some(expected_type) => {
@@ -559,7 +560,7 @@ where
                     if start.elapsed() >= timeout {
                         return Err(Error::CommandTimeout {
                             duration: timeout,
-                            command: "wait_for_response_blocking".to_string(),
+                            command: Cow::Borrowed("wait_for_response_blocking"),
                         });
                     }
                     // Continue waiting
@@ -616,7 +617,7 @@ where
                     if start.elapsed() >= timeout {
                         return Err(Error::CommandTimeout {
                             duration: timeout,
-                            command: "wait_for_response_with_type_blocking".to_string(),
+                            command: Cow::Borrowed("wait_for_response_with_type_blocking"),
                         });
                     }
                     // If we haven't exceeded our timeout, continue waiting
@@ -669,11 +670,7 @@ where
         #[cfg(feature = "async")]
         {
             // Create socket manager components
-            #[cfg(feature = "tokio")]
-            let (command_sender, command_receiver) = tokio::sync::mpsc::unbounded_channel();
-
-            #[cfg(not(feature = "tokio"))]
-            let (command_sender, command_receiver) = std::sync::mpsc::channel();
+            let (command_sender, command_receiver) = crate::channels::unbounded();
 
             // Store the handle
             let handle = SocketManagerHandle::new(command_sender);
@@ -701,7 +698,7 @@ where
                 // No spawner provided - this is expected when using standard constructors
                 log::error!("Cannot initialize socket manager without a spawner");
                 return Err(Error::InvalidState(
-                    "Socket manager requires a spawner. Use Camera::new_with_spawner() to provide one.".to_string(),
+                    Cow::Borrowed("Socket manager requires a spawner. Use Camera::new_with_spawner() to provide one."),
                 ));
             }
         }
