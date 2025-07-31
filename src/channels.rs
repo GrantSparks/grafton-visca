@@ -229,7 +229,7 @@ mod tests {
         // Blocking receive should work
         #[cfg(not(feature = "tokio"))]
         assert_eq!(rx.recv().unwrap(), 42);
-        
+
         // For tokio builds, we can't test async recv in a sync test
         #[cfg(feature = "tokio")]
         drop(rx);
