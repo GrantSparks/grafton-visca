@@ -7,6 +7,30 @@ use std::time::Duration;
 ///
 /// This trait provides a unified interface for both async and blocking transports,
 /// using async as the base and providing a blocking wrapper.
+///
+/// # Async Safety
+///
+/// When using async code paths (with the `tokio` feature), implementations of this
+/// trait must satisfy the `'static` lifetime bound. This is required because async
+/// operations may spawn tasks that outlive the current stack frame.
+///
+/// ## Example
+///
+/// ```no_run
+/// # #[cfg(feature = "tokio")]
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// use grafton_visca::{Camera, transport::tokio::Udp};
+/// use grafton_visca::camera::profiles::PTZOpticsG2;
+///
+/// // Create a transport that owns its socket (satisfies 'static)
+/// let transport = Udp::bind("0.0.0.0:0").await?;
+/// let camera = Camera::<PTZOpticsG2, _>::new(transport);
+///
+/// // Now we can use async methods
+/// camera.power_on().await?;
+/// # Ok(())
+/// # }
+/// ```
 #[async_trait::async_trait]
 pub trait UnifiedTransport: Send + Sync {
     /// Send raw bytes to the device.

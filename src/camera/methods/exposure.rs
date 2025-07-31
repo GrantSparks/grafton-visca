@@ -264,7 +264,7 @@ pub trait ExposureCompensationOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> ExposureOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn set_exposure_mode(
@@ -728,7 +728,7 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::Exposure
         + crate::capabilities::HasExposureCompensation,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::UnifiedTransport + 'static,
 {
     async fn enable_exposure_compensation(&self) -> Result<(), Error> {
         use crate::command::exposure::ExposureCompensation;

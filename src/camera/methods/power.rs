@@ -26,7 +26,7 @@ pub trait PowerOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PowerOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> PowerOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn power_on(&self) -> Result<(), Error> {

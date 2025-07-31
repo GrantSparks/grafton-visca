@@ -122,7 +122,7 @@ pub trait FocusOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> FocusOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> FocusOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn focus_auto(&self) -> Result<(), Error> {

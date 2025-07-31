@@ -129,7 +129,7 @@ pub trait StreamingOpsBlocking: Sized {
 
 // Implementation for async Camera
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> StreamingOps
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static> StreamingOps
     for crate::camera::generic::Camera<P, T>
 {
     async fn enable_multicast(&self) -> Result<()> {

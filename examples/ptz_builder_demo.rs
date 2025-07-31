@@ -302,7 +302,7 @@ async fn perform_async_scan_sequence<P, T>(
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: UnifiedTransport + 'static,
 {
     // Return to home
     camera.pan_tilt_home().await?;

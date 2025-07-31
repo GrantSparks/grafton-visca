@@ -74,8 +74,8 @@ pub trait MotionSyncControlBlocking {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MotionSyncControl
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport + 'static>
+    MotionSyncControl for crate::camera::generic::Camera<P, T>
 {
     async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
         let cmd = MotionSyncModeCommand::new(mode);

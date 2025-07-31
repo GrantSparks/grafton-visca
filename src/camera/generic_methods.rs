@@ -27,7 +27,10 @@ where
     ///
     /// This method is only available for cameras that support ND filters.
     #[cfg(feature = "async")]
-    pub async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<Response, Error> {
+    pub async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<Response, Error>
+    where
+        T: 'static,
+    {
         let command = NDFilterModeCommand::new(mode);
         self.send_command(&command).await
     }
@@ -67,7 +70,10 @@ where
     ///
     /// This method is only available for cameras that support motion sync.
     #[cfg(feature = "async")]
-    pub async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<Response, Error> {
+    pub async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<Response, Error>
+    where
+        T: 'static,
+    {
         let command = MotionSyncModeCommand::new(mode);
         self.send_command(&command).await
     }
