@@ -11,7 +11,6 @@
 
 // Workspace / local-crate imports
 use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -91,12 +90,6 @@ impl EncodeVisca for PresetCommand {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Preset
-    }
-}
-
-impl CommandFeatures for PresetCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::Presets]
     }
 }
 

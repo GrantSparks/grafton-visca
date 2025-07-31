@@ -8,7 +8,6 @@ use std::borrow::Cow;
 
 // Crate imports
 use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -233,12 +232,6 @@ impl EncodeVisca for Sharpness {
     }
 }
 
-impl CommandFeatures for Sharpness {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::Sharpness]
-    }
-}
-
 crate::visca_builder! {
     /// Command to set the luminance (brightness) level.
     pub(crate) struct LuminanceCommand {
@@ -259,12 +252,6 @@ impl LuminanceCommand {
     }
 }
 
-impl CommandFeatures for LuminanceCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::ImageProcessing]
-    }
-}
-
 crate::visca_builder! {
     /// Command to set the contrast level.
     pub(crate) struct ContrastCommand {
@@ -282,12 +269,6 @@ impl ContrastCommand {
     /// Create a new contrast command.
     pub fn new(value: ContrastLevel) -> Self {
         Self { value }
-    }
-}
-
-impl CommandFeatures for ContrastCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::ImageProcessing]
     }
 }
 

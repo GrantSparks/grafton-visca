@@ -4,10 +4,7 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
-    visca_bool_command, visca_builder, visca_param_command,
-};
+use crate::{visca_bool_command, visca_builder, visca_param_command};
 
 visca_bool_command! {
     /// Menu display control command.
@@ -19,12 +16,6 @@ visca_bool_command! {
         prefix: [0x81, 0x01, 0x06, 0x06],
         on: 0x02,
         off: 0x03,
-    }
-}
-
-impl CommandFeatures for MenuDisplayCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::MenuControl]
     }
 }
 
@@ -84,12 +75,6 @@ impl MenuNavigateCommand {
     }
 }
 
-impl CommandFeatures for MenuNavigateCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::MenuControl]
-    }
-}
-
 /// Menu action type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
@@ -129,12 +114,6 @@ impl MenuActionCommand {
     }
 }
 
-impl CommandFeatures for MenuActionCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::MenuControl]
-    }
-}
-
 visca_builder! {
     /// Direct menu control command for Sony FR7.
     ///
@@ -165,12 +144,6 @@ impl DirectMenuControlCommand {
     /// Menu open/close toggle (FR7).
     pub fn open_close() -> Self {
         Self::new(0x00, 0x01)
-    }
-}
-
-impl CommandFeatures for DirectMenuControlCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::MenuControl]
     }
 }
 

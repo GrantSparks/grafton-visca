@@ -1,9 +1,7 @@
-//! Feature detection API for runtime command validation.
+//! Camera feature enumeration for documentation and logging.
 //!
-//! This module provides an enumeration of all camera features and traits
-//! for runtime validation of commands against camera capabilities.
-
-use std::any::Any;
+//! This module provides an enumeration of all camera features that can be
+//! used for logging, documentation, and human-readable output.
 
 /// Enumeration of all camera features that can be queried.
 ///
@@ -160,35 +158,4 @@ impl CameraFeature {
             Self::NDI => "Control NDI streaming settings",
         }
     }
-}
-
-/// Trait for feature detection on camera profiles.
-///
-/// This trait provides methods to check if a camera supports specific features
-/// or commands at runtime.
-pub trait FeatureDetection {
-    /// Check if the camera supports a specific feature.
-    fn supports_feature(&self, feature: CameraFeature) -> bool;
-
-    /// Check if a specific command is supported by this camera.
-    ///
-    /// This method determines if the given command can be executed on this camera
-    /// based on its capabilities. For now, this returns true for all commands
-    /// as we don't have CommandFeatures implemented yet.
-    fn supports_command(&self, command: &dyn Any) -> bool;
-
-    /// Get a list of all supported features.
-    fn supported_features(&self) -> Vec<CameraFeature>;
-}
-
-/// Trait for commands to declare their required features.
-///
-/// Commands implement this trait to specify which camera features they require.
-/// This enables runtime validation of commands against camera capabilities.
-pub trait CommandFeatures {
-    /// Returns the features required by this command.
-    ///
-    /// If a command requires multiple features, all must be supported
-    /// for the command to be valid.
-    fn required_features(&self) -> &[CameraFeature];
 }

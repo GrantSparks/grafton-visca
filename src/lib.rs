@@ -359,8 +359,16 @@ pub use grafton_visca_macros::ViscaValue;
 // Re-export ProfileMetadata for camera profile introspection
 pub use capabilities::ProfileMetadata;
 
-// Re-export feature detection API
-pub use capabilities::{CameraFeature, FeatureDetection};
+// Re-export feature enumeration for documentation
+pub use capabilities::CameraFeature;
+
+// Re-export capability marker traits for downstream usage
+pub use capabilities::{
+    HasAutoExposure, HasAutoFocus, HasBacklightCompensation, HasColorTemperature, HasExposure,
+    HasExposureCompensation, HasFocus, HasHue, HasImageProcessing, HasLuminance, HasMenuControl,
+    HasMotionSync, HasNDFilter, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPower,
+    HasPresets, HasRGBGain, HasVariableSpeed, HasWDR, HasWhiteBalance, HasZoom,
+};
 
 // Macros are already exported with #[macro_export] so we don't need to re-export them
 

@@ -108,12 +108,11 @@ fn test_generic_visca_limited_features() {
 
 #[cfg(feature = "tokio")]
 #[tokio::test]
-async fn test_runtime_feature_detection_limitation() {
-    // Note: The FeatureDetection trait still exists for backward compatibility,
-    // but it returns conservative results that don't reflect actual compile-time capabilities
+async fn test_compile_time_feature_detection() {
+    // Note: The library now uses compile-time feature detection exclusively.
+    // Camera capabilities are determined by the marker traits implemented by each profile.
 
-    // In the future, we might add profile introspection capabilities,
-    // but for now, compile-time checking is the recommended approach
+    // This approach provides better type safety and zero runtime overhead.
 
     // Example of compile-time safety in action:
     async fn _control_nd_filter<P, T>(_camera: &Camera<P, T>) -> Result<(), Error>

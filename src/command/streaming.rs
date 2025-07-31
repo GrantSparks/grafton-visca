@@ -3,11 +3,7 @@
 //! This module contains vendor-specific commands for controlling network and streaming features
 //! on PTZOptics NDI cameras. These are not part of the baseline VISCA standard.
 
-use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
-    types::NDIQuality,
-    visca_bool_command, visca_param_command,
-};
+use crate::{types::NDIQuality, visca_bool_command, visca_param_command};
 
 visca_bool_command! {
     /// Internal multicast streaming command
@@ -27,7 +23,7 @@ visca_bool_command! {
 pub enum MulticastStreaming {
     /// Enable multicast streaming
     On,
-    /// Disable multicast streaming  
+    /// Disable multicast streaming
     Off,
 }
 
@@ -37,12 +33,6 @@ impl From<MulticastStreaming> for MulticastStreamingInternal {
             MulticastStreaming::On => MulticastStreamingInternal::new(true),
             MulticastStreaming::Off => MulticastStreamingInternal::new(false),
         }
-    }
-}
-
-impl CommandFeatures for MulticastStreamingInternal {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::NDI]
     }
 }
 
@@ -65,12 +55,6 @@ impl crate::command::encode_visca::EncodeVisca for MulticastStreaming {
 
     fn timeout_kind(&self) -> crate::timeout::CommandCategory {
         MulticastStreamingInternal::new(true).timeout_kind()
-    }
-}
-
-impl CommandFeatures for MulticastStreaming {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::NDI]
     }
 }
 
@@ -100,12 +84,6 @@ pub struct NDIQualityCommand {
     pub quality: NDIQuality,
 }
 
-impl CommandFeatures for NDIQualityCommandInternal {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::NDI]
-    }
-}
-
 impl crate::command::encode_visca::EncodeVisca for NDIQualityCommand {
     type Response = ();
     const MAX_SIZE: usize = NDIQualityCommandInternal::MAX_SIZE;
@@ -133,12 +111,6 @@ impl crate::command::encode_visca::EncodeVisca for NDIQualityCommand {
             quality: self.quality,
         }
         .timeout_kind()
-    }
-}
-
-impl CommandFeatures for NDIQualityCommand {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::NDI]
     }
 }
 

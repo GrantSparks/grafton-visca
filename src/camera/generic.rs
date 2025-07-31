@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::{
     camera_id::CameraId,
-    capabilities::{CameraFeature, FeatureDetection, Profile},
+    capabilities::Profile,
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
     transport::{core::Transport, AsyncTransportWrapper, TransportEnvelope, UnifiedTransport},
@@ -711,55 +711,5 @@ where
         }
 
         Ok(())
-    }
-}
-
-// Feature detection support for generic camera
-impl<P, T> FeatureDetection for Camera<P, T>
-where
-    P: Profile,
-    T: UnifiedTransport,
-{
-    fn supports_feature(&self, feature: CameraFeature) -> bool {
-        // For compile-time profiles, we need to check against the profile's capabilities
-        // This is a limitation of the current design - we can't introspect traits at runtime
-        // In the future, we might add a ProfileIntrospection trait that profiles can implement
-        match feature {
-            CameraFeature::PanTilt => true, // All profiles must implement PanTilt
-            CameraFeature::Zoom => true,    // All profiles must implement Zoom
-            CameraFeature::Focus => true,   // All profiles must implement Focus
-            CameraFeature::Exposure => true, // All profiles must implement Exposure
-            CameraFeature::WhiteBalance => true, // All profiles must implement WhiteBalance
-            CameraFeature::ImageProcessing => true, // All profiles must implement ImageProcessing
-            CameraFeature::Power => true,   // All profiles must implement Power
-            CameraFeature::Presets => true, // All profiles must implement Presets
-            CameraFeature::MenuControl => true, // All profiles must implement MenuControl
-
-            // Optional features - we can't detect these at runtime with the current design
-            // These would need to be handled by profile-specific implementations
-            _ => false,
-        }
-    }
-
-    fn supports_command(&self, _command: &dyn std::any::Any) -> bool {
-        // For now, we can't determine command support without CommandFeatures trait
-        // This would require all commands to implement CommandFeatures
-        // Return true for backward compatibility
-        true
-    }
-
-    fn supported_features(&self) -> Vec<CameraFeature> {
-        // Return the features that all profiles must support
-        vec![
-            CameraFeature::PanTilt,
-            CameraFeature::Zoom,
-            CameraFeature::Focus,
-            CameraFeature::Exposure,
-            CameraFeature::WhiteBalance,
-            CameraFeature::ImageProcessing,
-            CameraFeature::Power,
-            CameraFeature::Presets,
-            CameraFeature::MenuControl,
-        ]
     }
 }
