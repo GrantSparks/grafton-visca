@@ -3,7 +3,8 @@
 use crate::{
     command::{
         white_balance::{
-            AWBSensitivity, AWBSensitivityCommand, WhiteBalanceCommand, WhiteBalanceMode,
+            AWBSensitivityCommand, AutoWhiteBalanceSensitivity, WhiteBalanceCommand,
+            WhiteBalanceMode,
         },
         Response,
     },
@@ -38,7 +39,10 @@ pub trait WhiteBalanceOps: Sized {
     async fn white_balance_color_temperature(&self) -> Result<(), Error>;
 
     /// Set AWB sensitivity level (PTZOptics specific).
-    async fn set_awb_sensitivity(&self, sensitivity: AWBSensitivity) -> Result<(), Error>;
+    async fn set_awb_sensitivity(
+        &self,
+        sensitivity: AutoWhiteBalanceSensitivity,
+    ) -> Result<(), Error>;
 }
 
 /// White balance operations (blocking).
@@ -68,7 +72,7 @@ pub trait WhiteBalanceOpsBlocking: Sized {
     fn white_balance_color_temperature(&self) -> Result<(), Error>;
 
     /// Set AWB sensitivity level (PTZOptics specific).
-    fn set_awb_sensitivity(&self, sensitivity: AWBSensitivity) -> Result<(), Error>;
+    fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error>;
 }
 
 // Async implementation
@@ -114,7 +118,10 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Whi
         WhiteBalanceOps::set_white_balance_mode(self, WhiteBalanceMode::ColorTemperature).await
     }
 
-    async fn set_awb_sensitivity(&self, sensitivity: AWBSensitivity) -> Result<(), Error> {
+    async fn set_awb_sensitivity(
+        &self,
+        sensitivity: AutoWhiteBalanceSensitivity,
+    ) -> Result<(), Error> {
         let command = AWBSensitivityCommand { sensitivity };
         let response = self.send_command(&command).await?;
         match response {
@@ -167,7 +174,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Whi
         WhiteBalanceOpsBlocking::set_white_balance_mode(self, WhiteBalanceMode::ColorTemperature)
     }
 
-    fn set_awb_sensitivity(&self, sensitivity: AWBSensitivity) -> Result<(), Error> {
+    fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error> {
         let command = AWBSensitivityCommand { sensitivity };
         let response = self.send_command_blocking(&command)?;
         match response {

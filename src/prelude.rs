@@ -74,7 +74,7 @@ pub mod r#async {
 
     // Re-export command enums that users need
     pub use crate::{
-        AWBSensitivity, ExposureMode, MotionSyncMode, NDFilterMode, PanTiltDirection,
+        AutoWhiteBalanceSensitivity, ExposureMode, MotionSyncMode, NDFilterMode, PanTiltDirection,
         PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
     };
 
@@ -146,7 +146,7 @@ pub mod blocking {
 
     // Re-export command enums that users need
     pub use crate::{
-        AWBSensitivity, ExposureMode, MotionSyncMode, NDFilterMode, PanTiltDirection,
+        AutoWhiteBalanceSensitivity, ExposureMode, MotionSyncMode, NDFilterMode, PanTiltDirection,
         PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
     };
 

@@ -43,7 +43,7 @@ pub fn generate_bool_parser(response_variant: &Ident, crate_path: &TokenStream) 
                 0x02 => Ok(#crate_path::command::InquiryResponse::#response_variant { #field_name: true }),
                 0x03 => Ok(#crate_path::command::InquiryResponse::#response_variant { #field_name: false }),
                 _ => Err(#crate_path::Error::InvalidResponse {
-                    expected: "0x02 (on) or 0x03 (off)".to_string(),
+                    expected: ::std::borrow::Cow::Borrowed("0x02 (on) or 0x03 (off)"),
                     actual: vec![data[0]],
                 }),
             }
@@ -173,7 +173,7 @@ pub fn generate_mode_enum_parser(
         {
             let value = <#crate_path::command::#mode_type as TryFrom<u8>>::try_from(data[0])
                 .map_err(|_| #crate_path::Error::InvalidResponse {
-                    expected: format!("Valid {} value", stringify!(#mode_type)),
+                    expected: ::std::borrow::Cow::Owned(format!("Valid {} value", stringify!(#mode_type))),
                     actual: vec![data[0]],
                 })?;
             Ok(#crate_path::command::InquiryResponse::#response_variant { #field_name: value })

@@ -243,7 +243,9 @@ mod tokio_tests {
                 // Otherwise, check the manual response queue
                 let mut responses = responses.lock().unwrap();
                 responses.pop_front().unwrap_or_else(|| {
-                    Err(Error::TransportError("No response available".to_string()))
+                    Err(Error::TransportError(std::borrow::Cow::Borrowed(
+                        "No response available",
+                    )))
                 })
             })
         }

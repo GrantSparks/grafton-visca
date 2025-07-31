@@ -4,6 +4,7 @@
 //! including exposure mode, exposure compensation, iris, shutter, and brightness.
 
 // Standard library imports
+use std::borrow::Cow;
 use std::convert::TryFrom;
 
 // Third-party crate imports
@@ -15,7 +16,9 @@ use crate::{
     command::{encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
-    types::{BrightnessLevel, DynamicRangeLevel, IrisLevel, ShutterSpeed},
+    types::{
+        BrightnessLevel, DynamicRangeLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed,
+    },
     visca_command, visca_param_command,
 };
 
@@ -45,9 +48,9 @@ impl TryFrom<u8> for ExposureMode {
             0x0B => Ok(ExposureMode::Iris),
             0x0D => Ok(ExposureMode::Bright),
             _ => Err(Error::InvalidResponse {
-                expected:
-                    "0x00 (Auto), 0x03 (Manual), 0x0A (Shutter), 0x0B (Iris), or 0x0D (Bright)"
-                        .to_string(),
+                expected: Cow::Borrowed(
+                    "0x00 (Auto), 0x03 (Manual), 0x0A (Shutter), 0x0B (Iris), or 0x0D (Bright)",
+                ),
                 actual: vec![value],
             }),
         }
@@ -70,54 +73,6 @@ visca_param_command! {
 impl CommandFeatures for ExposureCommand {
     fn required_features(&self) -> &[CameraFeature] {
         &[CameraFeature::Exposure]
-    }
-}
-
-/// Exposure compensation level.
-///
-/// Valid range: -7 to +7.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ExposureCompensationLevel(i8);
-
-impl ExposureCompensationLevel {
-    /// Minimum exposure compensation level.
-    pub const MIN: i8 = -7;
-    /// Maximum exposure compensation level.
-    pub const MAX: i8 = 7;
-
-    /// Creates a new `ExposureCompensationLevel` with validation.
-    ///
-    /// # Errors
-    /// Returns `Error::InvalidParameter` if value is outside -7 to +7 range.
-    pub fn new(value: i8) -> Result<Self, Error> {
-        if (Self::MIN..=Self::MAX).contains(&value) {
-            Ok(Self(value))
-        } else {
-            Err(Error::InvalidParameter {
-                parameter: "value",
-                value: value.to_string(),
-                reason: format!(
-                    "Exposure compensation level must be between {} and {}",
-                    Self::MIN,
-                    Self::MAX
-                ),
-            })
-        }
-    }
-
-    /// Convert to protocol value (0x0 to 0xE).
-    #[allow(clippy::cast_sign_loss)]
-    #[must_use]
-    pub const fn to_protocol_value(self) -> u8 {
-        (self.0 + 7) as u8
-    }
-}
-
-impl TryFrom<i8> for ExposureCompensationLevel {
-    type Error = Error;
-
-    fn try_from(value: i8) -> Result<Self, Self::Error> {
-        Self::new(value)
     }
 }
 

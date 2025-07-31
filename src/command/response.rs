@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 // Standard library imports
-// (none)
+use std::borrow::Cow;
 
 // Third-party crate imports
 
@@ -57,7 +57,7 @@ impl Response {
             Response::Error(e) => Err(e),
             Response::Inquiry(_) => Ok(()), // Inquiry responses are success
             Response::Unknown { data, .. } => Err(Error::InvalidResponse {
-                expected: "Known response type".to_string(),
+                expected: Cow::Borrowed("Known response type"),
                 actual: data,
             }),
         }
@@ -71,7 +71,7 @@ impl Response {
         // Check for common non-inquiry responses first
         if bytes.is_empty() {
             return Err(Error::InvalidResponse {
-                expected: "Non-empty response".to_string(),
+                expected: Cow::Borrowed("Non-empty response"),
                 actual: bytes.to_vec(),
             });
         }
@@ -102,7 +102,7 @@ impl Response {
         // If it's an inquiry response (9x 50 ...), it needs a specific type
         if bytes.len() > 3 && (bytes[0] & 0xF0) == 0x90 && bytes[1] == 0x50 {
             return Err(Error::InvalidResponse {
-                expected: "Use parse_with_type for inquiry responses".to_string(),
+                expected: Cow::Borrowed("Use parse_with_type for inquiry responses"),
                 actual: bytes.to_vec(),
             });
         }
@@ -388,8 +388,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "exposure_mode",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Unknown exposure mode value".to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Unknown exposure mode value"),
                     })
                 }
             };
@@ -409,8 +409,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "white_balance_mode",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Unknown white balance mode value".to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Unknown white balance mode value"),
                     })
                 }
             };
@@ -429,8 +429,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "focus_zone",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Unknown focus zone value".to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Unknown focus zone value"),
                     })
                 }
             };
@@ -447,8 +447,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "auto_focus_sensitivity",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Unknown auto focus sensitivity value".to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Unknown auto focus sensitivity value"),
                     })
                 }
             };
@@ -476,8 +476,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "sharpness_mode",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Unknown sharpness mode value".to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Unknown sharpness mode value"),
                     })
                 }
             };
@@ -663,8 +663,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "focus_mode",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Unknown focus mode value".to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Unknown focus mode value"),
                     })
                 }
             };
@@ -713,9 +713,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "menu_status",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)"
-                            .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)",
+                        ),
                     })
                 }
             };
@@ -735,9 +736,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "autofocus_status",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)"
-                            .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)",
+                        ),
                     })
                 }
             };
@@ -756,9 +758,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "tally_red_status",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)"
-                            .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)",
+                        ),
                     })
                 }
             };
@@ -768,9 +771,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "tally_green_status",
-                        value: format!("{:02X}", payload[1]),
-                        reason: "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)"
-                            .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[1])),
+                        reason: Cow::Borrowed(
+                            "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)",
+                        ),
                     })
                 }
             };
@@ -804,9 +808,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "night_day_mode",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)"
-                            .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)",
+                        ),
                     })
                 }
             };
@@ -875,10 +880,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     0x03 => true,  // Standby
                     _ => return Err(Error::InvalidParameter {
                         parameter: "standby_mode",
-                        value: format!("{:02X}", payload[0]),
-                        reason:
-                            "Invalid standby mode value. Expected 0x02 (active) or 0x03 (standby)"
-                                .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid standby mode value. Expected 0x02 (active) or 0x03 (standby)",
+                        ),
                     }),
                 };
             Ok(Response::Inquiry(InquiryResponse::Standby { in_standby }))
@@ -904,9 +909,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "iris_control",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)"
-                            .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)",
+                        ),
                     })
                 }
             };
@@ -924,9 +930,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "defog_mode",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Invalid defog mode value. Expected 0x02 (off) or 0x03 (on)"
-                            .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid defog mode value. Expected 0x02 (off) or 0x03 (on)",
+                        ),
                     })
                 }
             };
@@ -954,9 +961,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "digital_ptz",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Invalid digital PTZ value. Expected 0x02 (off) or 0x03 (on)"
-                            .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid digital PTZ value. Expected 0x02 (off) or 0x03 (on)",
+                        ),
                     })
                 }
             };
@@ -975,8 +983,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "auto_wb_sensitivity",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Invalid auto white balance sensitivity. Expected 0x00 (Low), 0x01 (Normal), or 0x02 (High)".to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Invalid auto white balance sensitivity. Expected 0x00 (Low), 0x01 (Normal), or 0x02 (High)"),
                     })
                 }
             };
@@ -1037,9 +1045,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "auto_trace",
-                        value: format!("{:02X}", payload[0]),
-                        reason: "Invalid auto trace value. Expected 0x02 (off) or 0x03 (on)"
-                            .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid auto trace value. Expected 0x02 (off) or 0x03 (on)",
+                        ),
                     })
                 }
             };
@@ -1057,10 +1066,10 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     0x03 => true,  // Focus unlocked
                     _ => return Err(Error::InvalidParameter {
                         parameter: "focus_unlock",
-                        value: format!("{:02X}", payload[0]),
-                        reason:
-                            "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)"
-                                .to_string(),
+                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)",
+                        ),
                     }),
                 };
             Ok(Response::Inquiry(InquiryResponse::FocusUnlock { unlocked }))
@@ -1135,8 +1144,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "UsbAudio status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     })
                 }
             };
@@ -1152,8 +1161,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "TwoToneMode status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     })
                 }
             };
@@ -1177,8 +1186,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "Digital mode status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     })
                 }
             };
@@ -1194,8 +1203,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "TallyAutoAdjust status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     })
                 }
             };
@@ -1211,8 +1220,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "RTMP status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (off) or 0x03 (on)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     })
                 }
             };
@@ -1228,8 +1237,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "ZoomOut status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (inactive) or 0x03 (active)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     })
                 }
             };
@@ -1245,8 +1254,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "ZoomIn status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (inactive) or 0x03 (active)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     })
                 }
             };
@@ -1262,8 +1271,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "IrisUp status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (inactive) or 0x03 (active)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     })
                 }
             };
@@ -1279,8 +1288,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "IrisDown status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (inactive) or 0x03 (active)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     })
                 }
             };
@@ -1305,8 +1314,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "FocusNearFar status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (far) or 0x03 (near)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (far) or 0x03 (near)"),
                     })
                 }
             };
@@ -1322,8 +1331,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "ZoomTeleWide status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (wide) or 0x03 (tele)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (wide) or 0x03 (tele)"),
                     })
                 }
             };
@@ -1339,8 +1348,8 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "NightDaySwitch status",
-                        value: format!("0x{:02X}", payload[0]),
-                        reason: "Expected 0x02 (disabled) or 0x03 (enabled)".to_string(),
+                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        reason: Cow::Borrowed("Expected 0x02 (disabled) or 0x03 (enabled)"),
                     })
                 }
             };
@@ -1465,7 +1474,7 @@ pub fn parse_sharpness_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
             mode: SharpnessMode::Manual,
         }),
         _ => Err(Error::InvalidResponse {
-            expected: "0x02 (Auto) or 0x03 (Manual)".to_string(),
+            expected: Cow::Borrowed("0x02 (Auto) or 0x03 (Manual)"),
             actual: vec![data[0]],
         }),
     }
@@ -1482,9 +1491,10 @@ pub fn parse_menu_open_close(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "menu_status",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)"
-                    .to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed(
+                    "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)",
+                ),
             })
         }
     };
@@ -1502,9 +1512,10 @@ pub fn parse_auto_focus(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "autofocus_status",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)"
-                    .to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed(
+                    "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)",
+                ),
             })
         }
     };
@@ -1522,8 +1533,10 @@ pub fn parse_tally_status(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "tally_red_status",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed(
+                    "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)",
+                ),
             })
         }
     };
@@ -1533,8 +1546,10 @@ pub fn parse_tally_status(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "tally_green_status",
-                value: format!("{:02X}", data[1]),
-                reason: "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+                value: Cow::Owned(format!("{:02X}", data[1])),
+                reason: Cow::Borrowed(
+                    "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)",
+                ),
             })
         }
     };
@@ -1552,9 +1567,10 @@ pub fn parse_night_day_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "night_day_mode",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)"
-                    .to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed(
+                    "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)",
+                ),
             })
         }
     };
@@ -1591,9 +1607,10 @@ pub fn parse_standby(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "standby_mode",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid standby mode value. Expected 0x02 (active) or 0x03 (standby)"
-                    .to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed(
+                    "Invalid standby mode value. Expected 0x02 (active) or 0x03 (standby)",
+                ),
             })
         }
     };
@@ -1611,9 +1628,10 @@ pub fn parse_tally_green(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "tally_green_status",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid green tally status value. Expected 0x02 (on) or 0x03 (off)"
-                    .to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed(
+                    "Invalid green tally status value. Expected 0x02 (on) or 0x03 (off)",
+                ),
             })
         }
     };
@@ -1647,9 +1665,10 @@ pub fn parse_iris_control(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "iris_control",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)"
-                    .to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed(
+                    "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)",
+                ),
             })
         }
     };
@@ -1667,8 +1686,8 @@ pub fn parse_defog_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "defog_mode",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid defog mode value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed("Invalid defog mode value. Expected 0x02 (off) or 0x03 (on)"),
             })
         }
     };
@@ -1686,8 +1705,10 @@ pub fn parse_digital_ptz(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "digital_ptz",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid digital PTZ value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed(
+                    "Invalid digital PTZ value. Expected 0x02 (off) or 0x03 (on)",
+                ),
             })
         }
     };
@@ -1714,8 +1735,8 @@ pub fn parse_auto_wb_sensitivity(data: &[u8]) -> Result<InquiryResponse, Error> 
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "auto_wb_sensitivity",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid auto white balance sensitivity. Expected 0x00 (Low), 0x01 (Normal), or 0x02 (High)".to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed("Invalid auto white balance sensitivity. Expected 0x00 (Low), 0x01 (Normal), or 0x02 (High)"),
             })
         }
     };
@@ -1766,8 +1787,8 @@ pub fn parse_auto_trace(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "auto_trace",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid auto trace value. Expected 0x02 (off) or 0x03 (on)".to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed("Invalid auto trace value. Expected 0x02 (off) or 0x03 (on)"),
             })
         }
     };
@@ -1785,9 +1806,10 @@ pub fn parse_focus_unlock(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "focus_unlock",
-                value: format!("{:02X}", data[0]),
-                reason: "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)"
-                    .to_string(),
+                value: Cow::Owned(format!("{:02X}", data[0])),
+                reason: Cow::Borrowed(
+                    "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)",
+                ),
             })
         }
     };

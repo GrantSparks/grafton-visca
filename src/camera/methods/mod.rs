@@ -25,7 +25,7 @@ pub mod zoom;
 #[cfg(feature = "async")]
 pub use color::ColorOps;
 #[cfg(feature = "async")]
-pub use exposure::ExposureOps;
+pub use exposure::{ExposureCompensationOps, ExposureOps};
 #[cfg(feature = "async")]
 pub use focus::FocusOps;
 #[cfg(feature = "async")]
@@ -61,7 +61,7 @@ pub use zoom::ZoomOps;
 
 // Re-export blocking traits
 pub use color::ColorOpsBlocking;
-pub use exposure::ExposureOpsBlocking;
+pub use exposure::{ExposureCompensationOpsBlocking, ExposureOpsBlocking};
 pub use focus::FocusOpsBlocking;
 pub use image_processing::ImageProcessingOpsBlocking;
 pub use inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking};

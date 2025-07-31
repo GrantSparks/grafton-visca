@@ -4,6 +4,7 @@
 //! handling Sony's 8-byte encapsulated VISCA protocol vs raw VISCA bytes.
 
 use crate::capabilities::ProtocolStyle;
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Transport envelope that handles protocol-specific framing.
@@ -102,9 +103,9 @@ impl TransportEnvelope {
     /// Extract VISCA payload from Sony encapsulated response.
     fn sony_extract_payload(&self, framed_bytes: &[u8]) -> Result<Vec<u8>, crate::Error> {
         if framed_bytes.len() < 8 {
-            return Err(crate::Error::ParseError(
-                "Sony response too short for header".to_string(),
-            ));
+            return Err(crate::Error::ParseError(Cow::Borrowed(
+                "Sony response too short for header",
+            )));
         }
 
         // Parse header
@@ -126,18 +127,18 @@ impl TransportEnvelope {
                 log::warn!("Unexpected Sony payload type in response: {other:?}");
             }
             None => {
-                return Err(crate::Error::ParseError(format!(
+                return Err(crate::Error::ParseError(Cow::Owned(format!(
                     "Invalid Sony payload type: {payload_type_bytes:02X?}"
-                )));
+                ))));
             }
         }
 
         // Validate length
         let expected_payload_len = framed_bytes.len() - 8;
         if length as usize != expected_payload_len {
-            return Err(crate::Error::ParseError(format!(
+            return Err(crate::Error::ParseError(Cow::Owned(format!(
                 "Sony header length mismatch: header says {length}, actual payload is {expected_payload_len}"
-            )));
+            ))));
         }
 
         // Extract VISCA payload

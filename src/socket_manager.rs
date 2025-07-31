@@ -1,60 +1,13 @@
 use crate::camera_id::CameraId;
+use crate::channels::{self, OneshotSender, UnboundedReceiver, UnboundedSender};
 use crate::command::response::Response;
 use crate::command::system::Socket;
 use crate::error::{Error, Result};
 use crate::timeout::CommandCategory;
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
-
-// Use conditional compilation for async support
-#[cfg(feature = "tokio")]
-use tokio::sync::{mpsc, oneshot};
-
-#[cfg(not(feature = "tokio"))]
-use std::sync::mpsc;
-
-#[cfg(not(feature = "tokio"))]
-pub mod oneshot {
-    use super::*;
-
-    pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
-        let (tx, rx) = mpsc::channel();
-        (Sender(tx), Receiver(rx))
-    }
-
-    pub type Sender<T> = super::Sender<T>;
-    pub type Receiver<T> = super::Receiver<T>;
-}
-
-#[cfg(not(feature = "tokio"))]
-#[derive(Debug)]
-pub struct Sender<T>(mpsc::Sender<T>);
-
-#[cfg(not(feature = "tokio"))]
-impl<T> Sender<T> {
-    pub fn send(self, value: T) -> Result<(), T> {
-        match self.0.send(value) {
-            Ok(()) => Ok(()),
-            Err(mpsc::SendError(original_value)) => Err(original_value),
-        }
-    }
-}
-
-#[cfg(not(feature = "tokio"))]
-#[derive(Debug)]
-pub struct Receiver<T>(mpsc::Receiver<T>);
-
-#[cfg(not(feature = "tokio"))]
-impl<T> Receiver<T> {
-    pub fn recv(self) -> Result<T, Error> {
-        self.0.recv().map_err(|_| Error::ChannelClosed)
-    }
-
-    pub async fn recv_async(self) -> Result<T, Error> {
-        self.recv()
-    }
-}
 
 impl Socket {
     /// Get the socket as a zero-based array index.
@@ -137,11 +90,7 @@ pub struct PendingCmd {
     /// Category of the command for timeout and retry logic.
     pub category: CommandCategory,
     /// Channel to send the response back to the caller.
-    #[cfg(feature = "tokio")]
-    pub response_sender: oneshot::Sender<Result<Response>>,
-    /// Channel to send the response back to the caller.
-    #[cfg(not(feature = "tokio"))]
-    pub response_sender: Sender<Result<Response>>,
+    pub response_sender: OneshotSender<Result<Response>>,
     /// Whether this is an inquiry command (query) or action command.
     pub is_inquiry: bool,
     /// When this command was first enqueued.
@@ -152,31 +101,11 @@ pub struct PendingCmd {
 
 impl PendingCmd {
     /// Create a new pending command.
-    #[cfg(feature = "tokio")]
     pub fn new(
         id: u32,
         bytes: Vec<u8>,
         category: CommandCategory,
-        response_sender: oneshot::Sender<Result<Response>>,
-        is_inquiry: bool,
-    ) -> Self {
-        Self {
-            id,
-            bytes,
-            category,
-            response_sender,
-            is_inquiry,
-            enqueued_at: Instant::now(),
-            retry_attempt: 0,
-        }
-    }
-
-    #[cfg(not(feature = "tokio"))]
-    pub fn new(
-        id: u32,
-        bytes: Vec<u8>,
-        category: CommandCategory,
-        response_sender: Sender<Result<Response>>,
+        response_sender: OneshotSender<Result<Response>>,
         is_inquiry: bool,
     ) -> Self {
         Self {
@@ -321,11 +250,7 @@ pub(crate) enum SocketManagerCommand {
         /// Whether this is an inquiry (query) command.
         is_inquiry: bool,
         /// Channel to send the response back to the caller.
-        #[cfg(feature = "tokio")]
-        response_sender: oneshot::Sender<Result<Response>>,
-        /// Channel to send the response back to the caller.
-        #[cfg(not(feature = "tokio"))]
-        response_sender: Sender<Result<Response>>,
+        response_sender: OneshotSender<Result<Response>>,
     },
     /// Cancel a command on a specific socket.
     #[allow(dead_code)]
@@ -333,11 +258,7 @@ pub(crate) enum SocketManagerCommand {
         /// Socket to cancel the command on.
         socket: Socket,
         /// Channel to send the cancellation result.
-        #[cfg(feature = "tokio")]
-        response_sender: oneshot::Sender<Result<()>>,
-        /// Channel to send the cancellation result.
-        #[cfg(not(feature = "tokio"))]
-        response_sender: Sender<Result<()>>,
+        response_sender: OneshotSender<Result<()>>,
     },
 }
 
@@ -347,10 +268,7 @@ pub(crate) enum SocketManagerCommand {
 /// to the socket manager from multiple locations.
 #[derive(Debug)]
 pub(crate) struct SocketManagerHandle {
-    #[cfg(feature = "tokio")]
-    command_sender: mpsc::UnboundedSender<SocketManagerCommand>,
-    #[cfg(not(feature = "tokio"))]
-    command_sender: mpsc::Sender<SocketManagerCommand>,
+    command_sender: UnboundedSender<SocketManagerCommand>,
 }
 
 impl Clone for SocketManagerHandle {
@@ -363,13 +281,7 @@ impl Clone for SocketManagerHandle {
 
 impl SocketManagerHandle {
     /// Create a new socket manager handle.
-    #[cfg(feature = "tokio")]
-    pub fn new(command_sender: mpsc::UnboundedSender<SocketManagerCommand>) -> Self {
-        Self { command_sender }
-    }
-
-    #[cfg(not(feature = "tokio"))]
-    pub fn new(command_sender: mpsc::Sender<SocketManagerCommand>) -> Self {
+    pub fn new(command_sender: UnboundedSender<SocketManagerCommand>) -> Self {
         Self { command_sender }
     }
 
@@ -383,9 +295,8 @@ impl SocketManagerHandle {
         category: CommandCategory,
         is_inquiry: bool,
     ) -> Result<Response> {
-        let (response_sender, response_receiver) = oneshot::channel();
+        let (response_sender, response_receiver) = channels::oneshot();
 
-        #[cfg(feature = "tokio")]
         let send_result = self
             .command_sender
             .send(SocketManagerCommand::SendCommand {
@@ -394,25 +305,12 @@ impl SocketManagerHandle {
                 is_inquiry,
                 response_sender,
             })
-            .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
-
-        #[cfg(not(feature = "tokio"))]
-        let send_result = self
-            .command_sender
-            .send(SocketManagerCommand::SendCommand {
-                bytes,
-                category,
-                is_inquiry,
-                response_sender,
-            })
-            .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
+            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager unavailable")));
 
         send_result?;
 
         #[cfg(feature = "tokio")]
-        let result = response_receiver
-            .await
-            .map_err(|_| Error::TransportError("Response channel closed".to_string()))?;
+        let result = response_receiver.recv().await?;
 
         #[cfg(not(feature = "tokio"))]
         let result = response_receiver.recv_async().await?;
@@ -425,7 +323,7 @@ impl SocketManagerHandle {
     /// This sends a cancel command to the camera for the specified socket.
     #[allow(dead_code)]
     pub async fn cancel_command(&self, socket: Socket) -> Result<()> {
-        let (response_sender, response_receiver) = oneshot::channel();
+        let (response_sender, response_receiver) = channels::oneshot();
 
         #[cfg(feature = "tokio")]
         let send_result = self
@@ -434,7 +332,7 @@ impl SocketManagerHandle {
                 socket,
                 response_sender,
             })
-            .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
+            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager unavailable")));
 
         #[cfg(not(feature = "tokio"))]
         let send_result = self
@@ -443,14 +341,12 @@ impl SocketManagerHandle {
                 socket,
                 response_sender,
             })
-            .map_err(|_| Error::TransportError("Socket manager unavailable".to_string()));
+            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager unavailable")));
 
         send_result?;
 
         #[cfg(feature = "tokio")]
-        let result = response_receiver
-            .await
-            .map_err(|_| Error::TransportError("Response channel closed".to_string()))?;
+        let result = response_receiver.recv().await?;
 
         #[cfg(not(feature = "tokio"))]
         let result = response_receiver.recv_async().await?;
@@ -570,10 +466,7 @@ impl RetryHook for NoRetryHook {
 pub(crate) struct SocketManagerActor {
     inner: SocketManagerInner,
     transport: Arc<dyn UnifiedTransport>,
-    #[cfg(feature = "tokio")]
-    command_receiver: mpsc::UnboundedReceiver<SocketManagerCommand>,
-    #[cfg(not(feature = "tokio"))]
-    command_receiver: mpsc::Receiver<SocketManagerCommand>,
+    command_receiver: UnboundedReceiver<SocketManagerCommand>,
     ack_timeout: std::time::Duration,
     completion_timeout: std::time::Duration,
     retry_hook: Box<dyn RetryHook + Send + Sync>,
@@ -593,30 +486,9 @@ impl std::fmt::Debug for SocketManagerActor {
 
 impl SocketManagerActor {
     /// Create a new socket manager actor.
-    #[cfg(feature = "tokio")]
     pub fn new(
         transport: Arc<dyn UnifiedTransport>,
-        command_receiver: mpsc::UnboundedReceiver<SocketManagerCommand>,
-        ack_timeout: std::time::Duration,
-        completion_timeout: std::time::Duration,
-        camera_id: CameraId,
-    ) -> Self {
-        let mut inner = SocketManagerInner::new();
-        inner.camera_id = camera_id;
-        Self {
-            inner,
-            transport,
-            command_receiver,
-            ack_timeout,
-            completion_timeout,
-            retry_hook: Box::new(DefaultRetryHook::new()),
-        }
-    }
-
-    #[cfg(not(feature = "tokio"))]
-    pub fn new(
-        transport: Arc<dyn UnifiedTransport>,
-        command_receiver: mpsc::Receiver<SocketManagerCommand>,
+        command_receiver: UnboundedReceiver<SocketManagerCommand>,
         ack_timeout: std::time::Duration,
         completion_timeout: std::time::Duration,
         camera_id: CameraId,
@@ -638,6 +510,9 @@ impl SocketManagerActor {
     /// This method runs until shutdown is requested or an error occurs.
     pub async fn run(mut self) -> Result<()> {
         debug!("Socket manager starting");
+
+        #[cfg(not(feature = "tokio"))]
+        let mut empty_iterations = 0;
 
         loop {
             #[cfg(feature = "tokio")]
@@ -689,46 +564,99 @@ impl SocketManagerActor {
             #[cfg(not(feature = "tokio"))]
             {
                 // For non-tokio, we need to handle both command and response channels
-                // This is a simplified implementation that alternates between checking both
+                // with non-blocking operations to ensure proper event handling
 
                 // Check for timeouts first
                 self.check_timeouts().await;
 
-                // Check for commands first
-                match self.command_receiver.recv() {
-                    Ok(cmd) => match cmd {
-                        SocketManagerCommand::SendCommand {
-                            bytes,
-                            category,
-                            is_inquiry,
-                            response_sender,
-                        } => {
-                            self.handle_send_command(bytes, category, is_inquiry, response_sender)
+                // Try to receive commands without blocking
+                let mut activity = false;
+                match self.command_receiver.try_recv() {
+                    Some(cmd) => {
+                        activity = true;
+                        empty_iterations = 0;
+                        match cmd {
+                            SocketManagerCommand::SendCommand {
+                                bytes,
+                                category,
+                                is_inquiry,
+                                response_sender,
+                            } => {
+                                self.handle_send_command(
+                                    bytes,
+                                    category,
+                                    is_inquiry,
+                                    response_sender,
+                                )
                                 .await;
+                            }
+                            SocketManagerCommand::CancelCommand {
+                                socket,
+                                response_sender,
+                            } => {
+                                self.handle_cancel_command(socket, response_sender).await;
+                            }
                         }
-                        SocketManagerCommand::CancelCommand {
-                            socket,
-                            response_sender,
-                        } => {
-                            self.handle_cancel_command(socket, response_sender).await;
-                        }
-                    },
-                    Err(_) => {
-                        // Channel closed, break the loop
-                        debug!("Socket manager command channel closed");
-                        break;
+                    }
+                    None => {
+                        // No command available, continue to check for responses
                     }
                 }
 
                 // Try to receive response
                 match self.transport.recv().await {
                     Ok(bytes) => {
+                        activity = true;
+                        empty_iterations = 0;
                         self.handle_raw_response(bytes).await;
                     }
                     Err(_) => {
                         // No response available, continue
                     }
                 }
+
+                if !activity {
+                    empty_iterations += 1;
+                    // If we've had many empty iterations, do a blocking recv to check if channel is closed
+                    if empty_iterations > 1000 {
+                        match self.command_receiver.recv() {
+                            Some(cmd) => {
+                                empty_iterations = 0;
+                                // Process the command
+                                match cmd {
+                                    SocketManagerCommand::SendCommand {
+                                        bytes,
+                                        category,
+                                        is_inquiry,
+                                        response_sender,
+                                    } => {
+                                        self.handle_send_command(
+                                            bytes,
+                                            category,
+                                            is_inquiry,
+                                            response_sender,
+                                        )
+                                        .await;
+                                    }
+                                    SocketManagerCommand::CancelCommand {
+                                        socket,
+                                        response_sender,
+                                    } => {
+                                        self.handle_cancel_command(socket, response_sender).await;
+                                    }
+                                }
+                            }
+                            None => {
+                                // Channel closed
+                                debug!("Socket manager command channel closed");
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Small sleep to prevent busy-waiting
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
         }
 
@@ -741,7 +669,7 @@ impl SocketManagerActor {
         bytes: Vec<u8>,
         category: CommandCategory,
         is_inquiry: bool,
-        response_sender: oneshot::Sender<Result<Response>>,
+        response_sender: OneshotSender<Result<Response>>,
     ) {
         let command_id = self.inner.get_next_command_id();
         let pending_cmd = PendingCmd::new(command_id, bytes, category, response_sender, is_inquiry);
@@ -814,16 +742,15 @@ impl SocketManagerActor {
     async fn handle_cancel_command(
         &mut self,
         socket: Socket,
-        #[cfg(feature = "tokio")] response_sender: oneshot::Sender<Result<()>>,
-        #[cfg(not(feature = "tokio"))] response_sender: Sender<Result<()>>,
+        response_sender: OneshotSender<Result<()>>,
     ) {
         trace!("Handling cancel command for {socket:?}");
 
         if self.inner.sockets[socket.as_index()].is_free() {
             warn!("Attempted to cancel command on free socket {socket:?}");
-            let _ = response_sender.send(Err(Error::InvalidRequest(
-                "No command active on socket".to_string(),
-            )));
+            let _ = response_sender.send(Err(Error::InvalidRequest(Cow::Borrowed(
+                "No command active on socket",
+            ))));
             return;
         }
 
@@ -831,9 +758,9 @@ impl SocketManagerActor {
         let mut bytes = Vec::new();
         if let Err(e) = cancel_cmd.encode_into(self.inner.camera_id, &mut bytes) {
             error!("Failed to encode cancel command for {socket:?}: {e}");
-            let _ = response_sender.send(Err(Error::InvalidRequest(
-                "Failed to encode cancel command".to_string(),
-            )));
+            let _ = response_sender.send(Err(Error::InvalidRequest(Cow::Borrowed(
+                "Failed to encode cancel command",
+            ))));
             return;
         }
 
@@ -1094,7 +1021,7 @@ impl SocketManagerActor {
         if let Some(command) = self.inner.take_active_command(socket) {
             let timeout_error = Error::CommandTimeout {
                 duration: self.completion_timeout,
-                command: format!("Command {} on {socket:?}", command.id),
+                command: Cow::Owned(format!("Command {} on {socket:?}", command.id)),
             };
             command.complete(Err(timeout_error));
         }
@@ -1111,7 +1038,7 @@ impl SocketManagerActor {
             let id = inquiry.id;
             let timeout_error = Error::CommandTimeout {
                 duration: self.completion_timeout,
-                command: format!("Inquiry command {id}"),
+                command: Cow::Owned(format!("Inquiry command {id}")),
             };
             inquiry.complete(Err(timeout_error));
         }
@@ -1257,7 +1184,7 @@ mod tests {
     #[cfg(feature = "tokio")]
     #[test]
     fn test_pending_cmd_creation() {
-        let (tx, _rx) = oneshot::channel();
+        let (tx, _rx) = channels::oneshot();
         let bytes = vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
         let cmd = PendingCmd::new(1, bytes.clone(), CommandCategory::Movement, tx, false);
 
@@ -1303,7 +1230,7 @@ mod tests {
 
         // Should not retry other errors
         assert!(!hook.should_retry(&Error::CameraBusy, 0));
-        assert!(!hook.should_retry(&Error::TransportError("test".to_string()), 0));
+        assert!(!hook.should_retry(&Error::TransportError(Cow::Borrowed("test")), 0));
 
         // Test retry delay calculation
         let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
@@ -1352,7 +1279,7 @@ mod tests {
     fn test_pending_cmd_retry_tracking() {
         #[cfg(feature = "tokio")]
         {
-            let (tx, _rx) = oneshot::channel();
+            let (tx, _rx) = channels::oneshot();
             let mut cmd = PendingCmd::new(
                 1,
                 vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],

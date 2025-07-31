@@ -146,11 +146,11 @@ macro_rules! visca_bounded_param {
                 if !(Self::MIN..=Self::MAX).contains(&value) {
                     return Err($crate::Error::InvalidParameter {
                         parameter: stringify!($name),
-                        value: format!("{value}"),
+                        value: ::std::borrow::Cow::Owned(format!("{value}")),
                         reason: {
                             let min = Self::MIN;
                             let max = Self::MAX;
-                            format!("must be between {min} and {max}")
+                            ::std::borrow::Cow::Owned(format!("must be between {min} and {max}"))
                         },
                     });
                 }
@@ -634,9 +634,12 @@ macro_rules! visca_const_command {
 
         impl $name {
             /// Create a new instance of this command.
-            pub fn new() -> Self {
+            pub const fn new() -> Self {
                 Self
             }
+
+            /// Command bytes as a const array (without terminator).
+            const BYTES: &'static [u8] = &[$($byte),+];
         }
 
         impl Default for $name {
@@ -647,30 +650,33 @@ macro_rules! visca_const_command {
 
         impl $crate::command::encode_visca::EncodeVisca for $name {
             type Response = ();
-            const MAX_SIZE: usize = $crate::visca_bytes!($($byte),+).len();
+            const MAX_SIZE: usize = { [$($byte),+].len() };
 
             fn encode_into(
                 &self,
                 camera_id: $crate::camera_id::CameraId,
                 buffer: &mut [u8],
             ) -> Result<usize, $crate::error::Error> {
-                const BYTES: &[u8] = &$crate::visca_bytes!($($byte),+);
-                if buffer.len() < BYTES.len() {
+                const BYTES: &[u8] = $name::BYTES;
+                const LEN: usize = BYTES.len();
+
+                if buffer.len() < LEN {
                     return Err($crate::error::Error::BufferTooSmall {
-                        required: BYTES.len(),
+                        required: LEN,
                         actual: buffer.len(),
                     });
                 }
 
                 // Copy the command bytes
-                buffer[..BYTES.len()].copy_from_slice(BYTES);
+                buffer[..LEN].copy_from_slice(BYTES);
 
                 // Update the first byte with camera ID if needed
-                if $address == 0x81 {
-                    buffer[0] = $address | camera_id.id();
+                // Only replace if it's the default camera address (0x81)
+                if $address == 0x81 && BYTES[0] == 0x81 {
+                    buffer[0] = camera_id.to_address_byte();
                 }
 
-                Ok(BYTES.len())
+                Ok(LEN)
             }
 
             fn response_type(&self) -> Option<$crate::command::response::ResponseType> {

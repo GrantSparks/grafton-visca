@@ -11,7 +11,7 @@
 //!   These features coordinate pan, tilt, and zoom movements for smoother preset recalls.
 
 // Standard library imports
-// (none)
+use std::borrow::Cow;
 
 // Third-party crate imports
 // (none)
@@ -29,7 +29,7 @@ crate::visca_const_command! {
     /// This is used during initial setup of VISCA cameras on a serial bus.
     /// Note: This is a broadcast command that affects all cameras on the bus.
     pub(crate) struct AddressSetCommand;
-    bytes = [0x88, 0x30, 0x01];
+    bytes = [0x88, 0x30, 0x01, 0xFF];
     timeout = Quick;
     address = 0x88;
     response = None;
@@ -48,7 +48,7 @@ crate::visca_const_command! {
     /// This resets the command buffer and clears any pending commands.
     /// Note: This is a broadcast command that affects all cameras on the bus.
     pub(crate) struct InterfaceClearCommand;
-    bytes = [0x88, 0x01, 0x00, 0x01];
+    bytes = [0x88, 0x01, 0x00, 0x01, 0xFF];
     timeout = Quick;
     address = 0x88;
     response = None;
@@ -78,7 +78,7 @@ impl TryFrom<u8> for MotionSyncMode {
             0x02 => Ok(MotionSyncMode::Off),
             0x03 => Ok(MotionSyncMode::On),
             _ => Err(Error::InvalidResponse {
-                expected: "0x02 (Off) or 0x03 (On)".to_string(),
+                expected: Cow::Borrowed("0x02 (Off) or 0x03 (On)"),
                 actual: vec![value],
             }),
         }
@@ -105,7 +105,7 @@ impl TryFrom<u8> for MotionSyncSpeed {
             0x01 => Ok(MotionSyncSpeed::Normal),
             0x02 => Ok(MotionSyncSpeed::Fast),
             _ => Err(Error::InvalidResponse {
-                expected: "0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)".to_string(),
+                expected: Cow::Borrowed("0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)"),
                 actual: vec![value],
             }),
         }

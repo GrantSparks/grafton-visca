@@ -3,6 +3,9 @@
 //! This module provides commands for adjusting image quality parameters such as
 //! sharpness, brightness (luminance), and contrast levels.
 
+// Standard library imports
+use std::borrow::Cow;
+
 // Crate imports
 use crate::{
     capabilities::{CameraFeature, CommandFeatures},
@@ -29,7 +32,7 @@ impl TryFrom<u8> for SharpnessMode {
             0x02 => Ok(SharpnessMode::Auto),
             0x03 => Ok(SharpnessMode::Manual),
             _ => Err(Error::InvalidResponse {
-                expected: "0x02 (Auto) or 0x03 (Manual)".to_string(),
+                expected: Cow::Borrowed("0x02 (Auto) or 0x03 (Manual)"),
                 actual: vec![value],
             }),
         }
@@ -53,7 +56,7 @@ impl TryFrom<u8> for NrMode {
             0x02 => Ok(NrMode::Off),
             0x03 => Ok(NrMode::On),
             _ => Err(Error::InvalidResponse {
-                expected: "0x02 (Off) or 0x03 (On)".to_string(),
+                expected: Cow::Borrowed("0x02 (Off) or 0x03 (On)"),
                 actual: vec![value],
             }),
         }
@@ -80,7 +83,7 @@ impl TryFrom<u8> for NrSpeed {
             0x01 => Ok(NrSpeed::Normal),
             0x02 => Ok(NrSpeed::Fast),
             _ => Err(Error::InvalidResponse {
-                expected: "0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)".to_string(),
+                expected: Cow::Borrowed("0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)"),
                 actual: vec![value],
             }),
         }
@@ -104,7 +107,7 @@ impl TryFrom<u8> for BlackWhiteMode {
             0x02 => Ok(BlackWhiteMode::Color),
             0x03 => Ok(BlackWhiteMode::BlackWhite),
             _ => Err(Error::InvalidResponse {
-                expected: "0x02 (Color) or 0x03 (BlackWhite)".to_string(),
+                expected: Cow::Borrowed("0x02 (Color) or 0x03 (BlackWhite)"),
                 actual: vec![value],
             }),
         }
@@ -193,8 +196,8 @@ impl EncodeVisca for Sharpness {
                 if *value > 11 {
                     return Err(Error::InvalidParameter {
                         parameter: "value",
-                        value: value.to_string(),
-                        reason: "Sharpness value must be in the range 0..=11".to_string(),
+                        value: Cow::Owned(value.to_string()),
+                        reason: Cow::Borrowed("Sharpness value must be in the range 0..=11"),
                     });
                 }
                 let high = (*value >> 4) & 0x0F;
