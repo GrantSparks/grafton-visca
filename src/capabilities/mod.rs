@@ -74,9 +74,9 @@ pub use types::*;
 mod validation;
 pub use validation::ValidationError;
 
-// Feature detection API
+// Feature enumeration for documentation/logging
 mod feature_detection;
-pub use feature_detection::{CameraFeature, CommandFeatures, FeatureDetection};
+pub use feature_detection::CameraFeature;
 
 /// Super-trait that encompasses all camera capabilities.
 ///

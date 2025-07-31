@@ -11,7 +11,6 @@
 //! - Flash/solid modes (`Flash`, `On`, `Off`) - PTZOptics specific
 
 use crate::{
-    capabilities::{CameraFeature, CommandFeatures},
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
@@ -100,12 +99,6 @@ visca_command! {
     }
 }
 
-impl CommandFeatures for Tally {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::Tally]
-    }
-}
-
 /// Tally inquiry commands.
 ///
 /// Queries the current state of tally lights.
@@ -153,11 +146,5 @@ impl EncodeVisca for TallyInquiry {
 
     fn timeout_kind(&self) -> CommandCategory {
         CommandCategory::Quick
-    }
-}
-
-impl CommandFeatures for TallyInquiry {
-    fn required_features(&self) -> &[CameraFeature] {
-        &[CameraFeature::Tally]
     }
 }
