@@ -11,6 +11,7 @@
 //! - `AWBSensitivity` - PTZOptics specific
 
 // Standard library imports
+use std::borrow::Cow;
 use std::convert::TryFrom;
 
 // Crate imports
@@ -48,6 +49,10 @@ pub enum WhiteBalanceMode {
 ///
 /// Controls how aggressively the automatic white balance algorithm
 /// adjusts to changing lighting conditions.
+///
+/// Note: The byte values differ between inquiry responses and commands:
+/// - In inquiry responses: Low=0x00, Normal=0x01, High=0x02
+/// - In commands: High=0x00, Normal=0x01, Low=0x02
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AutoWhiteBalanceSensitivity {
     /// Low sensitivity - slower, more stable adjustments.
@@ -56,6 +61,17 @@ pub enum AutoWhiteBalanceSensitivity {
     Normal = 0x01,
     /// High sensitivity - faster adjustments to changing conditions.
     High = 0x02,
+}
+
+impl AutoWhiteBalanceSensitivity {
+    /// Convert to command byte value (reversed from inquiry values).
+    pub fn to_command_byte(self) -> u8 {
+        match self {
+            Self::High => 0x00,
+            Self::Normal => 0x01,
+            Self::Low => 0x02,
+        }
+    }
 }
 
 visca_param_command! {
@@ -74,37 +90,20 @@ impl CommandFeatures for WhiteBalanceCommand {
     }
 }
 
-/// AWB Sensitivity levels.
-///
-/// **Vendor-Specific**: This feature is specific to PTZOptics cameras.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum AWBSensitivity {
-    /// High sensitivity.
-    High,
-    /// Normal sensitivity (default).
-    Normal,
-    /// Low sensitivity.
-    Low,
-}
-
 crate::visca_param_command! {
     /// Command to set AWB sensitivity.
     pub(crate) struct AWBSensitivityCommand {
-        sensitivity: AWBSensitivity,
+        sensitivity: AutoWhiteBalanceSensitivity,
     }
     prefix = [0x81, 0x01, 0x04, 0xA9];
-    param_byte = match *sensitivity {
-        AWBSensitivity::High => 0x00,
-        AWBSensitivity::Normal => 0x01,
-        AWBSensitivity::Low => 0x02,
-    };
+    param_byte = sensitivity.to_command_byte();
     timeout = Quick;
 }
 
 impl AWBSensitivityCommand {
     /// Create a new AWB sensitivity command.
     #[allow(dead_code)]
-    pub fn new(sensitivity: AWBSensitivity) -> Self {
+    pub fn new(sensitivity: AutoWhiteBalanceSensitivity) -> Self {
         Self { sensitivity }
     }
 }
@@ -128,7 +127,7 @@ impl TryFrom<u8> for WhiteBalanceMode {
             0x05 => Ok(Self::Manual),
             0x20 => Ok(Self::ColorTemperature),
             _ => Err(Error::InvalidResponse {
-                expected: "0x00 (Auto), 0x01 (Indoor), 0x02 (Outdoor), 0x03 (OnePush), 0x04 (ATW), 0x05 (Manual), or 0x20 (ColorTemperature)".to_string(),
+                expected: Cow::Borrowed("0x00 (Auto), 0x01 (Indoor), 0x02 (Outdoor), 0x03 (OnePush), 0x04 (ATW), 0x05 (Manual), or 0x20 (ColorTemperature)"),
                 actual: vec![v],
             }),
         }
@@ -354,7 +353,7 @@ mod tests {
     #[test]
     fn test_awb_sensitivity_commands() {
         // Test High sensitivity
-        let cmd = AWBSensitivityCommand::new(AWBSensitivity::High);
+        let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::High);
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -362,7 +361,7 @@ mod tests {
         );
 
         // Test Normal sensitivity
-        let cmd = AWBSensitivityCommand::new(AWBSensitivity::Normal);
+        let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::Normal);
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -370,7 +369,7 @@ mod tests {
         );
 
         // Test Low sensitivity
-        let cmd = AWBSensitivityCommand::new(AWBSensitivity::Low);
+        let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::Low);
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),

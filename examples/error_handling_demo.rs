@@ -23,6 +23,7 @@ use grafton_visca::{
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection, PresetNumber,
 };
+use std::borrow::Cow;
 use std::time::Duration;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
 use std::time::Instant;
@@ -110,7 +111,7 @@ fn demonstrate_error_classification() {
             "CommandTimeout",
             Error::CommandTimeout {
                 duration: Duration::from_secs(5),
-                command: "zoom".to_string(),
+                command: Cow::Borrowed("zoom"),
             },
         ),
         ("CommandBufferFull", Error::CommandBufferFull),

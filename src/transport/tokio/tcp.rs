@@ -2,6 +2,7 @@
 
 use crate::transport::core::Transport;
 use crate::Error;
+use std::borrow::Cow;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -9,6 +10,79 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
+
+/// Future type for TCP send operations.
+#[derive(Debug)]
+pub struct TcpSendFut<'a> {
+    stream: &'a Arc<Mutex<TcpStream>>,
+    data: &'a [u8],
+}
+
+impl Future for TcpSendFut<'_> {
+    type Output = Result<(), Error>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = self.get_mut();
+        let fut = async {
+            let mut stream = this.stream.lock().await;
+            stream.write_all(this.data).await?;
+            stream.flush().await?;
+            Ok(())
+        };
+        // Create a pinned future and poll it
+        let mut pinned = Box::pin(fut);
+        Future::poll(Pin::new(&mut pinned), cx)
+    }
+}
+
+/// Future type for TCP receive operations.
+#[derive(Debug)]
+pub struct TcpRecvFut<'a> {
+    stream: &'a Arc<Mutex<TcpStream>>,
+}
+
+impl Future for TcpRecvFut<'_> {
+    type Output = Result<bytes::Bytes, Error>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let stream = self.get_mut().stream;
+        let fut = async {
+            let mut stream = stream.lock().await;
+            let mut buffer = vec![0u8; 1024];
+            let mut total_read = 0;
+
+            // Read until we find a VISCA terminator (0xFF)
+            loop {
+                if total_read >= buffer.len() {
+                    return Err(Error::TransportError(Cow::Borrowed("Response too large")));
+                }
+
+                match stream.read(&mut buffer[total_read..total_read + 1]).await {
+                    Ok(0) => return Err(Error::TransportError(Cow::Borrowed("Connection closed"))),
+                    Ok(1) => {
+                        total_read += 1;
+                        if buffer[total_read - 1] == 0xFF {
+                            // Found terminator
+                            buffer.truncate(total_read);
+                            return Ok(bytes::Bytes::from(buffer));
+                        }
+                    }
+                    Ok(_) => unreachable!(),
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        };
+        // Create a pinned future and poll it
+        let mut pinned = Box::pin(fut);
+        Future::poll(Pin::new(&mut pinned), cx)
+    }
+}
 
 /// TCP transport for async VISCA communication using tokio.
 #[derive(Debug)]
@@ -39,44 +113,19 @@ impl Tcp {
 
 impl Transport for Tcp {
     type Error = Error;
-    type SendFut<'a> = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
-    type RecvFut<'a> = Pin<Box<dyn Future<Output = Result<bytes::Bytes, Self::Error>> + Send + 'a>>;
+    type SendFut<'a> = TcpSendFut<'a>;
+    type RecvFut<'a> = TcpRecvFut<'a>;
 
     fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
-        Box::pin(async move {
-            let mut stream = self.stream.lock().await;
-            stream.write_all(data).await?;
-            stream.flush().await?;
-            Ok(())
-        })
+        TcpSendFut {
+            stream: &self.stream,
+            data,
+        }
     }
 
     fn recv(&self) -> Self::RecvFut<'_> {
-        Box::pin(async move {
-            let mut stream = self.stream.lock().await;
-            let mut buffer = vec![0u8; 1024];
-            let mut total_read = 0;
-
-            // Read until we find a VISCA terminator (0xFF)
-            loop {
-                if total_read >= buffer.len() {
-                    return Err(Error::TransportError("Response too large".to_string()));
-                }
-
-                match stream.read(&mut buffer[total_read..total_read + 1]).await {
-                    Ok(0) => return Err(Error::TransportError("Connection closed".to_string())),
-                    Ok(1) => {
-                        total_read += 1;
-                        if buffer[total_read - 1] == 0xFF {
-                            // Found terminator
-                            buffer.truncate(total_read);
-                            return Ok(bytes::Bytes::from(buffer));
-                        }
-                    }
-                    Ok(_) => unreachable!(),
-                    Err(e) => return Err(e.into()),
-                }
-            }
-        })
+        TcpRecvFut {
+            stream: &self.stream,
+        }
     }
 }

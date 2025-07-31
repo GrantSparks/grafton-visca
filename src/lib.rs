@@ -301,6 +301,8 @@ pub use error::{Error, Result};
 pub mod transport;
 
 // Internal modules - not part of public API
+#[cfg(feature = "async")]
+mod channels;
 mod constants;
 mod macros;
 /// Type definitions and abstractions
@@ -335,7 +337,7 @@ pub use units::{
     Degrees, Fraction, Kelvin, Magnification, Normalized, Percentage, Raw, ViscaUnits,
 };
 // Re-export FStop from types
-pub use types::{FStop, IntoIrisLevel, NDIQuality};
+pub use types::{ExposureCompensationLevel, FStop, IntoIrisLevel, NDIQuality};
 
 // Re-export commonly used command types through a cleaner namespace
 pub use command::{
@@ -347,7 +349,7 @@ pub use command::{
     preset::PresetNumber,
     resolution::{NDFilterPosition, PictureEffectMode, ResolutionMode},
     system::{MotionSyncMode, MotionSyncSpeed},
-    white_balance::{AWBSensitivity, AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+    white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 
 // Re-export only the ViscaValue macro publicly

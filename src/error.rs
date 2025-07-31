@@ -1,4 +1,4 @@
-use std::{convert::Infallible, io, time::Duration};
+use std::{borrow::Cow, convert::Infallible, io, time::Duration};
 
 use thiserror::Error as ThisError;
 
@@ -16,7 +16,7 @@ pub enum Error {
     #[error("Connection failed to {addr}: {source}")]
     ConnectionFailed {
         /// The address that failed to connect.
-        addr: String,
+        addr: Cow<'static, str>,
         /// The underlying IO error.
         source: io::Error,
     },
@@ -25,7 +25,7 @@ pub enum Error {
     #[error("Connection lost: {reason}")]
     ConnectionLost {
         /// Reason for the connection loss.
-        reason: String,
+        reason: Cow<'static, str>,
     },
 
     /// Command execution exceeded the configured timeout.
@@ -34,7 +34,7 @@ pub enum Error {
         /// Duration of the timeout.
         duration: Duration,
         /// Description of the command that timed out.
-        command: String,
+        command: Cow<'static, str>,
     },
 
     /// Camera is busy executing another command and cannot accept new commands.
@@ -64,7 +64,7 @@ pub enum Error {
     #[error("Invalid response: expected {expected}, got {actual:?}")]
     InvalidResponse {
         /// Description of expected response.
-        expected: String,
+        expected: Cow<'static, str>,
         /// Actual bytes received.
         actual: Vec<u8>,
     },
@@ -73,7 +73,7 @@ pub enum Error {
     #[error("Command rejected by camera: {reason}")]
     CommandRejected {
         /// Reason for rejection.
-        reason: String,
+        reason: Cow<'static, str>,
     },
 
     /// Requested preset position does not exist.
@@ -132,7 +132,7 @@ pub enum Error {
 
     /// Invalid request to socket manager.
     #[error("Invalid request: {0}")]
-    InvalidRequest(String),
+    InvalidRequest(Cow<'static, str>),
 
     /// Message length error (0x01): Message length is incorrect.
     #[error("Message length error")]
@@ -140,11 +140,11 @@ pub enum Error {
 
     /// Failed to parse response data.
     #[error("Parse error: {0}")]
-    ParseError(String),
+    ParseError(Cow<'static, str>),
 
     /// Transport layer communication error.
     #[error("Transport error: {0}")]
-    TransportError(String),
+    TransportError(Cow<'static, str>),
 
     /// Invalid parameter provided to a command.
     #[error("Invalid parameter '{parameter}': {reason} (value: {value})")]
@@ -152,9 +152,9 @@ pub enum Error {
         /// The parameter name that was invalid.
         parameter: &'static str,
         /// The value that was provided.
-        value: String,
+        value: Cow<'static, str>,
         /// The reason why it's invalid.
-        reason: String,
+        reason: Cow<'static, str>,
     },
 
     /// Buffer provided is too small for encoding.
@@ -194,7 +194,7 @@ pub enum Error {
 
     /// Operation cannot be performed in current state.
     #[error("Invalid state: {0}")]
-    InvalidState(String),
+    InvalidState(Cow<'static, str>),
 
     /// Command validation failed for the specified camera model.
     #[error("Command '{command}' not valid for {model:?}: {reason}")]
@@ -202,9 +202,9 @@ pub enum Error {
         /// The camera model that failed validation.
         model: crate::constants::CameraVariant,
         /// The command that failed validation.
-        command: String,
+        command: Cow<'static, str>,
         /// Reason for the validation failure.
-        reason: String,
+        reason: Cow<'static, str>,
     },
 
     /// No response received from camera.
@@ -223,7 +223,7 @@ pub enum Error {
     #[error("Unknown inquiry response type '{response_type}' with data: {data:?}")]
     UnknownResponse {
         /// The response type that was not recognized.
-        response_type: String,
+        response_type: Cow<'static, str>,
         /// The raw response data.
         data: Vec<u8>,
     },
@@ -282,7 +282,7 @@ impl Error {
 
 impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
     fn from(err: nom::Err<nom::error::Error<&[u8]>>) -> Self {
-        Self::ParseError(err.to_string())
+        Self::ParseError(Cow::Owned(err.to_string()))
     }
 }
 
@@ -331,8 +331,8 @@ mod tests {
         assert_eq!(
             Error::InvalidParameter {
                 parameter: "test",
-                value: "invalid".to_string(),
-                reason: "test reason".to_string(),
+                value: Cow::Borrowed("invalid"),
+                reason: Cow::Borrowed("test reason"),
             }
             .to_string(),
             "Invalid parameter 'test': test reason (value: invalid)"
@@ -361,7 +361,7 @@ mod tests {
         assert!(Error::CameraMoving { pan: 100, tilt: 50 }.is_retryable());
         assert!(Error::CommandTimeout {
             duration: Duration::from_secs(5),
-            command: "test".to_string()
+            command: Cow::Borrowed("test")
         }
         .is_retryable());
         assert!(Error::CommandBufferFull.is_retryable());
@@ -371,8 +371,8 @@ mod tests {
         assert!(!Error::CommandNotExecutable.is_retryable());
         assert!(!Error::InvalidParameter {
             parameter: "test",
-            value: "invalid".to_string(),
-            reason: "test reason".to_string(),
+            value: Cow::Borrowed("invalid"),
+            reason: Cow::Borrowed("test reason"),
         }
         .is_retryable());
         assert!(!Error::PresetNotFound { id: 1 }.is_retryable());
@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(
             Error::CommandTimeout {
                 duration: Duration::from_secs(5),
-                command: "test".to_string()
+                command: Cow::Borrowed("test")
             }
             .suggested_retry_delay(),
             Some(Duration::from_secs(1))
@@ -409,8 +409,8 @@ mod tests {
         assert_eq!(
             Error::InvalidParameter {
                 parameter: "test",
-                value: "invalid".to_string(),
-                reason: "test reason".to_string(),
+                value: Cow::Borrowed("invalid"),
+                reason: Cow::Borrowed("test reason"),
             }
             .suggested_retry_delay(),
             None
@@ -425,7 +425,7 @@ mod tests {
             Error::CameraMoving { pan: 0, tilt: 0 },
             Error::CommandTimeout {
                 duration: Duration::from_secs(1),
-                command: "test".to_string(),
+                command: Cow::Borrowed("test"),
             },
             Error::CommandBufferFull,
             Error::Timeout,
@@ -447,8 +447,8 @@ mod tests {
             Error::FeatureNotSupported { feature: "test" },
             Error::InvalidParameter {
                 parameter: "test",
-                value: "invalid".to_string(),
-                reason: "test reason".to_string(),
+                value: Cow::Borrowed("invalid"),
+                reason: Cow::Borrowed("test reason"),
             },
         ];
 

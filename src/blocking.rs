@@ -44,21 +44,22 @@ where
 /// ```
 pub mod prelude {
     pub use crate::camera::methods::{
-        ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps,
-        FocusOpsBlocking as FocusOps, ImageProcessingOpsBlocking as ImageProcessingOps,
-        InquiryOpsBlocking as InquiryOps, MenuControlOpsBlocking as MenuControl,
-        MotionSyncControlBlocking as MotionSyncControl, NDFilterOpsBlocking as NDFilterOps,
-        PanTiltInquiryOpsBlocking as PanTiltInquiryOps, PanTiltOpsBlocking as PanTiltOps,
-        PowerOpsBlocking as PowerOps, PresetsOpsBlocking as PresetsOps,
-        SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
-        VariableSpeedOpsBlocking as VariableSpeedOps, WhiteBalanceOpsBlocking as WhiteBalanceOps,
-        ZoomOpsBlocking as ZoomOps,
+        ColorOpsBlocking as ColorOps, ExposureCompensationOpsBlocking as ExposureCompensationOps,
+        ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
+        ImageProcessingOpsBlocking as ImageProcessingOps, InquiryOpsBlocking as InquiryOps,
+        MenuControlOpsBlocking as MenuControl, MotionSyncControlBlocking as MotionSyncControl,
+        NDFilterOpsBlocking as NDFilterOps, PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
+        PanTiltOpsBlocking as PanTiltOps, PowerOpsBlocking as PowerOps,
+        PresetsOpsBlocking as PresetsOps, SystemOpsBlocking as SystemOps,
+        TallyOpsBlocking as TallyOps, VariableSpeedOpsBlocking as VariableSpeedOps,
+        WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
     };
 }
 
 // Re-export blocking traits with unsuffixed names
 pub use crate::camera::methods::{
-    ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
+    ColorOpsBlocking as ColorOps, ExposureCompensationOpsBlocking as ExposureCompensationOps,
+    ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
     ImageProcessingOpsBlocking as ImageProcessingOps, InquiryOpsBlocking as InquiryOps,
     MenuControlOpsBlocking as MenuControl, MotionSyncControlBlocking as MotionSyncControl,
     NDFilterOpsBlocking as NDFilterOps, PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
@@ -152,7 +153,7 @@ forward_facade!(Camera, blocking,
         white_balance_atw() -> crate::Result<()>,
         white_balance_manual() -> crate::Result<()>,
         white_balance_color_temperature() -> crate::Result<()>,
-        set_awb_sensitivity(sensitivity: crate::command::white_balance::AWBSensitivity) -> crate::Result<()>;
+        set_awb_sensitivity(sensitivity: crate::command::white_balance::AutoWhiteBalanceSensitivity) -> crate::Result<()>;
     ColorOps:
         one_push_trigger() -> crate::Result<()>,
         set_color_temperature@ColorOpsBlocking(temp: crate::types::ColorTemp) -> crate::Result<()>,
@@ -189,12 +190,6 @@ forward_facade!(Camera, blocking,
         set_gain_limit(limit: crate::types::GainLimit) -> crate::Result<()>,
         set_dynamic_range(level: crate::types::DynamicRangeLevel) -> crate::Result<()>,
         set_color_temperature@ExposureOpsBlocking(temp: crate::types::ColorTemp) -> crate::Result<()>,
-        enable_exposure_compensation() -> crate::Result<()>,
-        disable_exposure_compensation() -> crate::Result<()>,
-        reset_exposure_compensation() -> crate::Result<()>,
-        increase_exposure_compensation() -> crate::Result<()>,
-        decrease_exposure_compensation() -> crate::Result<()>,
-        set_exposure_compensation_level(level: i8) -> crate::Result<()>,
         set_shutter_speed(speed: crate::types::ShutterSpeed) -> crate::Result<()>,
         reset_shutter_speed() -> crate::Result<()>,
         increase_shutter_speed() -> crate::Result<()>,
@@ -307,10 +302,64 @@ forward_facade!(Camera, blocking,
         get_tally_status() -> crate::Result<bool>,
         get_red_tally_status() -> crate::Result<bool>,
         get_green_tally_status() -> crate::Result<bool>;
-    VariableSpeedOps:
-        set_variable_speed_mode(mode: crate::command::VariableSpeedMode) -> crate::Result<()>;
     StreamingOps:
         enable_multicast() -> crate::Result<()>,
         disable_multicast() -> crate::Result<()>,
         set_ndi_quality(quality: crate::types::NDIQuality) -> crate::Result<()>;
 );
+
+// Manual implementation of VariableSpeedOps with marker trait bounds
+impl<P, T> VariableSpeedOps for Camera<P, T>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::VariableSpeed
+        + crate::capabilities::HasVariableSpeed,
+    T: crate::transport::UnifiedTransport,
+{
+    fn set_variable_speed_mode(
+        &self,
+        mode: crate::command::VariableSpeedMode,
+    ) -> crate::Result<()> {
+        use crate::camera::methods::variable_speed::VariableSpeedOpsBlocking as InnerOps;
+        InnerOps::set_variable_speed_mode(&self.0, mode)
+    }
+}
+
+// Manual implementation of ExposureCompensationOps with marker trait bounds
+impl<P, T> ExposureCompensationOps for Camera<P, T>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::Exposure
+        + crate::capabilities::HasExposureCompensation,
+    T: crate::transport::UnifiedTransport,
+{
+    fn enable_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOpsBlocking as InnerOps;
+        InnerOps::enable_exposure_compensation(&self.0)
+    }
+
+    fn disable_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOpsBlocking as InnerOps;
+        InnerOps::disable_exposure_compensation(&self.0)
+    }
+
+    fn reset_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOpsBlocking as InnerOps;
+        InnerOps::reset_exposure_compensation(&self.0)
+    }
+
+    fn increase_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOpsBlocking as InnerOps;
+        InnerOps::increase_exposure_compensation(&self.0)
+    }
+
+    fn decrease_exposure_compensation(&self) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOpsBlocking as InnerOps;
+        InnerOps::decrease_exposure_compensation(&self.0)
+    }
+
+    fn set_exposure_compensation_level(&self, level: i8) -> crate::Result<()> {
+        use crate::camera::methods::exposure::ExposureCompensationOpsBlocking as InnerOps;
+        InnerOps::set_exposure_compensation_level(&self.0, level)
+    }
+}

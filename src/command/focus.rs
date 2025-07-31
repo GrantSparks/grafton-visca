@@ -11,7 +11,7 @@
 //! - `PushAF` - Sony FR7 specific
 
 // Standard library imports
-// (none)
+use std::borrow::Cow;
 
 // Third-party crate imports
 // (none)
@@ -43,7 +43,7 @@ impl TryFrom<u8> for FocusMode {
             0x02 => Ok(FocusMode::Auto),
             0x03 => Ok(FocusMode::Manual),
             _ => Err(Error::InvalidResponse {
-                expected: "0x02 (Auto) or 0x03 (Manual)".to_string(),
+                expected: Cow::Borrowed("0x02 (Auto) or 0x03 (Manual)"),
                 actual: vec![value],
             }),
         }
@@ -79,7 +79,7 @@ impl TryFrom<u8> for FocusRange {
             0x04 => Ok(FocusRange::Range1x),
             0x05 => Ok(FocusRange::Range0_35x),
             _ => Err(Error::InvalidResponse {
-                expected: "0x00-0x05 (focus range)".to_string(),
+                expected: Cow::Borrowed("0x00-0x05 (focus range)"),
                 actual: vec![value],
             }),
         }
@@ -287,7 +287,7 @@ impl TryFrom<u8> for FocusZone {
             0x01 => Ok(FocusZone::Center),
             0x02 => Ok(FocusZone::Bottom),
             _ => Err(Error::InvalidResponse {
-                expected: "0x00 (Top), 0x01 (Center), or 0x02 (Bottom)".to_string(),
+                expected: Cow::Borrowed("0x00 (Top), 0x01 (Center), or 0x02 (Bottom)"),
                 actual: vec![value],
             }),
         }
@@ -335,7 +335,7 @@ impl TryFrom<u8> for AutoFocusSensitivity {
             0x01 => Ok(AutoFocusSensitivity::Normal),
             0x00 => Ok(AutoFocusSensitivity::Low),
             _ => Err(Error::InvalidResponse {
-                expected: "0x00 (Low), 0x01 (Normal), or 0x02 (High)".to_string(),
+                expected: Cow::Borrowed("0x00 (Low), 0x01 (Normal), or 0x02 (High)"),
                 actual: vec![value],
             }),
         }

@@ -21,7 +21,36 @@ pub mod zoom;
 
 // Core profile metadata trait
 mod profile_metadata;
-pub use profile_metadata::{ProfileIntrospection, ProfileMetadata, ProtocolStyle};
+pub use profile_metadata::{
+    HasAutoExposure,
+    HasAutoFocus,
+    HasBacklightCompensation,
+    HasColorTemperature,
+    HasExposure,
+    // Specific feature marker traits
+    HasExposureCompensation,
+    HasFocus,
+    HasHue,
+    HasImageProcessing,
+    HasLuminance,
+    HasMenuControl,
+    HasMotionSync,
+    HasNDFilter,
+    HasOnePushFocus,
+    HasOnePushWhiteBalance,
+    // Marker traits for compile-time capability detection
+    HasPanTilt,
+    HasPower,
+    HasPresets,
+    HasRGBGain,
+    HasVariableSpeed,
+    HasWDR,
+    HasWhiteBalance,
+    HasZoom,
+    ProfileIntrospection,
+    ProfileMetadata,
+    ProtocolStyle,
+};
 
 // Re-export all capability traits
 pub use exposure::Exposure;

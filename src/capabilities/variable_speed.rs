@@ -9,6 +9,6 @@
 pub trait VariableSpeed {
     /// Whether the camera supports variable speed mode switching.
     ///
-    /// Only Sony FR7 returns true.
-    const SUPPORTS_VARIABLE_SPEED: bool = true;
+    /// Defaults to false. Only Sony FR7 overrides this to true.
+    const SUPPORTS_VARIABLE_SPEED: bool = false;
 }

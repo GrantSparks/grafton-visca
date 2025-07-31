@@ -1,5 +1,6 @@
 //! Exposure capability trait and associated types.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use crate::capabilities::ValidationError;
@@ -82,17 +83,17 @@ pub trait ExposureExt: Exposure {
         } else {
             Err(ValidationError::InvalidValue {
                 parameter: "shutter speed",
-                message: format!("Unsupported shutter speed value: {value}"),
+                message: Cow::Owned(format!("Unsupported shutter speed value: {value}")),
             })
         }
     }
 
     /// Validate exposure compensation value.
+    ///
+    /// Note: This method should only be called on profiles that support exposure compensation.
+    /// The compile-time check is enforced by requiring HasExposureCompensation marker trait
+    /// on the methods that use exposure compensation.
     fn validate_exposure_comp(&self, value: i8) -> Result<i8, ValidationError> {
-        if !Self::SUPPORTS_EXPOSURE_COMP {
-            return Err(ValidationError::NotSupported("exposure compensation"));
-        }
-
         if Self::EXPOSURE_COMP_RANGE.contains(&value) {
             Ok(value)
         } else {
