@@ -4,9 +4,7 @@
 //! For most use cases, prefer using the Camera API instead.
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{prelude::r#async::*, transport::tokio::Tcp};
-#[cfg(feature = "tokio")]
-use std::time::Duration;
+use grafton_visca::{prelude::r#async::*, transport::TcpTransport};
 
 #[cfg(not(feature = "tokio"))]
 fn main() {
@@ -23,12 +21,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create TCP transport directly
     let addr = "192.168.1.100:5678";
-    match Tcp::connect_timeout(addr, Duration::from_secs(5)).await {
+    match TcpTransport::connect(addr).await {
         Ok(transport) => {
             println!("✓ TCP transport created for {addr}");
 
             // Create a camera using the transport
-            let camera = PTZOpticsG2Cam::new(transport);
+            let camera = PTZOpticsG2Cam::new_async(transport);
 
             // Send a VISCA command using camera methods
             match camera.zoom_stop().await {

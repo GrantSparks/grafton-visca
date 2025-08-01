@@ -6,7 +6,7 @@ use grafton_visca::{
     capabilities::Profile,
     prelude::r#async::PTZOpticsG2Cam,
     r#async::prelude::*,
-    transport::tokio::Tcp,
+    transport::TcpTransport,
     transport::UnifiedTransport,
     types::{PanSpeed, TiltSpeed},
     Camera, Degrees, Error, Normalized, PanTiltDirection,
@@ -27,8 +27,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("====================\n");
 
     // Create async transport
-    let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransport::connect("192.168.1.100:5678").await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // Demo 1: Power Control
     demo_power_control(&camera).await?;

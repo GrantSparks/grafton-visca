@@ -13,7 +13,7 @@ use crate::{
     capabilities::{CameraFeature, FeatureDetection, Profile},
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
-    transport::{core::Transport, AsyncTransportWrapper, TransportEnvelope, UnifiedTransport},
+    transport::{TransportEnvelope, UnifiedTransport},
 };
 
 #[cfg(feature = "async")]
@@ -628,26 +628,25 @@ where
     }
 }
 
-impl<P, T: Transport> Camera<P, AsyncTransportWrapper<T>>
+// New implementation for the new async-trait based transports
+impl<P, T> Camera<P, crate::transport::NewAsyncTransportWrapper<T>>
 where
     P: Profile,
-    T: Transport + Send + Sync + 'static,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    T: crate::transport::Transport + Send + Sync + 'static,
 {
-    /// Create a new camera with specific profile and transport.
-    pub fn new(transport: T) -> Self {
-        let wrapped = AsyncTransportWrapper { transport };
+    /// Create a new camera with the new async-trait based transport.
+    pub fn new_async(transport: T) -> Self {
+        let wrapped = crate::transport::NewAsyncTransportWrapper { transport };
         Self::from_transport(wrapped)
     }
 
     /// Create a new camera with a spawner for async operations.
     #[cfg(feature = "async")]
-    pub fn new_with_spawner<S>(transport: T, spawner: S) -> Self
+    pub fn new_async_with_spawner<S>(transport: T, spawner: S) -> Self
     where
         S: Spawner,
     {
-        let wrapped = AsyncTransportWrapper { transport };
+        let wrapped = crate::transport::NewAsyncTransportWrapper { transport };
         let mut camera = Self::from_transport(wrapped);
         camera.spawner = Some(Arc::new(spawner));
 
@@ -698,7 +697,7 @@ where
                 // No spawner provided - this is expected when using standard constructors
                 log::error!("Cannot initialize socket manager without a spawner");
                 return Err(Error::InvalidState(
-                    Cow::Borrowed("Socket manager requires a spawner. Use Camera::new_with_spawner() to provide one."),
+                    Cow::Borrowed("Socket manager requires a spawner. Use Camera::new_async_with_spawner() to provide one."),
                 ));
             }
         }
@@ -713,6 +712,20 @@ where
         Ok(())
     }
 }
+
+// New implementation for blocking transports
+impl<P, T> Camera<P, crate::transport::BlockingTransportWrapper<T>>
+where
+    P: Profile,
+    T: crate::transport::Transport + crate::transport::BlockingTransport + Send + Sync + 'static,
+{
+    /// Create a new camera with a blocking transport.
+    pub fn new_blocking(transport: T) -> Self {
+        let wrapped = crate::transport::BlockingTransportWrapper { transport };
+        Self::from_transport(wrapped)
+    }
+}
+
 
 // Feature detection support for generic camera
 impl<P, T> FeatureDetection for Camera<P, T>

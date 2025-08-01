@@ -10,7 +10,7 @@ fn main() {
 }
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::Tcp;
+use grafton_visca::transport::TcpTransportBlocking;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{prelude::blocking::*, types::SpeedLevel, units::Degrees};
 #[cfg(not(feature = "async"))]
@@ -26,10 +26,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at {camera_ip}");
 
     // Create blocking transport - no async runtime needed!
-    let transport = Tcp::connect(&camera_ip)?;
+    let transport = TcpTransportBlocking::connect(&camera_ip)?;
 
     // Create camera with PTZOpticsG2 profile
-    let camera = GenericViscaCam::new(transport);
+    let camera = GenericViscaCam::new_blocking(transport);
 
     println!("Camera created successfully with blocking transport!");
     println!("Running without any async runtime - pure blocking I/O!");

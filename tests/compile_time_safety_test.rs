@@ -2,11 +2,12 @@
 
 #![allow(clippy::expect_used)]
 
+use async_trait::async_trait;
 use grafton_visca::camera::methods::{
     FocusOpsBlocking, PanTiltOpsBlocking, PowerOpsBlocking, PresetsOpsBlocking, ZoomOpsBlocking,
 };
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
-use grafton_visca::transport::{unified::AsyncTransportWrapper, UnifiedTransport};
+use grafton_visca::transport::{unified::BlockingTransportWrapper, UnifiedTransport};
 use grafton_visca::{capabilities::*, Camera, Error, PresetNumber};
 use std::sync::Mutex;
 
@@ -60,22 +61,13 @@ impl MockTransport {
     }
 }
 
+#[async_trait]
 impl grafton_visca::transport::Transport for MockTransport {
-    type Error = Error;
-    type SendFut<'a>
-        = std::future::Ready<Result<(), Self::Error>>
-    where
-        Self: 'a;
-    type RecvFut<'a>
-        = std::future::Ready<Result<bytes::Bytes, Self::Error>>
-    where
-        Self: 'a;
-
-    fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
-        std::future::ready(Ok(()))
+    async fn send(&self, _data: &[u8]) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn recv(&self) -> Self::RecvFut<'_> {
+    async fn recv(&self) -> Result<bytes::Bytes, Error> {
         let sequence = self
             .response_sequence
             .lock()
@@ -94,15 +86,42 @@ impl grafton_visca::transport::Transport for MockTransport {
         };
 
         *index += 1;
-        std::future::ready(Ok(bytes::Bytes::from(response)))
+        Ok(bytes::Bytes::from(response))
     }
 }
 
-// No need to implement BlockingTransport - it's a marker trait
+impl grafton_visca::transport::BlockingTransport for MockTransport {
+    fn send_blocking(&self, _data: &[u8]) -> Result<(), Error> {
+        // For tests, just use the same logic as async send
+        Ok(())
+    }
+
+    fn recv_blocking(&self) -> Result<bytes::Bytes, Error> {
+        let sequence = self
+            .response_sequence
+            .lock()
+            .expect("MockTransport mutex poisoned");
+        let mut index = self
+            .response_index
+            .lock()
+            .expect("MockTransport mutex poisoned");
+
+        let response = if *index < sequence.len() {
+            sequence[*index].clone()
+        } else {
+            // Reset to beginning for next command
+            *index = 0;
+            sequence[0].clone()
+        };
+
+        *index += 1;
+        Ok(bytes::Bytes::from(response))
+    }
+}
 
 #[test]
 fn test_ptzoptics_g2_capabilities() {
-    let camera = PTZOpticsG2Cam::new(MockTransport::new());
+    let camera = PTZOpticsG2Cam::new_blocking(MockTransport::new());
 
     // These methods exist for PTZOpticsG2 - checked at compile time
     assert!(PowerOpsBlocking::power_on(&camera).is_ok());
@@ -117,7 +136,7 @@ fn test_ptzoptics_g2_capabilities() {
 
 #[test]
 fn test_sony_fr7_has_nd_filter() {
-    let camera = SonyFR7Cam::new(MockTransport::new_with_sony_envelope());
+    let camera = SonyFR7Cam::new_blocking(MockTransport::new_with_sony_envelope());
 
     // FR7 has all standard features
     assert!(camera.power_on().is_ok());
@@ -141,8 +160,8 @@ fn test_compile_time_capability_checking() {
         Ok(())
     }
 
-    let fr7 = SonyFR7Cam::new(MockTransport::new_with_sony_envelope());
-    let _g2 = PTZOpticsG2Cam::new(MockTransport::new());
+    let fr7 = SonyFR7Cam::new_blocking(MockTransport::new_with_sony_envelope());
+    let _g2 = PTZOpticsG2Cam::new_blocking(MockTransport::new());
 
     // This compiles - FR7 has NDFilter
     assert!(adjust_nd_filter(&fr7).is_ok());
@@ -157,7 +176,7 @@ fn test_compile_time_capability_checking() {
 fn test_generic_functions_with_trait_bounds() {
     // Function that works with any camera
     fn basic_control<P>(
-        camera: &Camera<P, AsyncTransportWrapper<MockTransport>>,
+        camera: &Camera<P, BlockingTransportWrapper<MockTransport>>,
     ) -> Result<(), Error>
     where
         P: Profile,
@@ -170,7 +189,7 @@ fn test_generic_functions_with_trait_bounds() {
 
     // Function that requires motion sync capability
     fn motion_sync_control<P>(
-        _camera: &Camera<P, AsyncTransportWrapper<MockTransport>>,
+        _camera: &Camera<P, BlockingTransportWrapper<MockTransport>>,
     ) -> Result<(), Error>
     where
         P: Profile + MotionSync,
@@ -179,9 +198,9 @@ fn test_generic_functions_with_trait_bounds() {
         Ok(())
     }
 
-    let g2 = PTZOpticsG2Cam::new(MockTransport::new());
-    let fr7 = SonyFR7Cam::new(MockTransport::new_with_sony_envelope());
-    let generic = GenericViscaCam::new(MockTransport::new());
+    let g2 = PTZOpticsG2Cam::new_blocking(MockTransport::new());
+    let fr7 = SonyFR7Cam::new_blocking(MockTransport::new_with_sony_envelope());
+    let generic = GenericViscaCam::new_blocking(MockTransport::new());
 
     // Test each camera individually to isolate the issue
     println!("Testing G2 camera...");

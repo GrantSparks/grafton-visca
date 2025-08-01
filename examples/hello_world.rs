@@ -13,10 +13,10 @@ use grafton_visca::prelude::r#async::*;
 use std::env;
 
 #[cfg(not(feature = "tokio"))]
-use grafton_visca::transport::blocking::Tcp;
+use grafton_visca::transport::TcpTransportBlocking;
 
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::Tcp;
+use grafton_visca::transport::TcpTransport;
 
 #[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Error> {
@@ -31,8 +31,8 @@ fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr} (blocking mode)");
 
     // Create camera with blocking TCP transport
-    let transport = Tcp::connect(&camera_addr)?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransportBlocking::connect(&camera_addr)?;
+    let camera = PTZOpticsG2Cam::new_blocking(transport);
 
     // Power on the camera
     println!("Powering on camera...");
@@ -64,8 +64,8 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr} (async mode)");
 
     // Create camera with async TCP transport
-    let transport = Tcp::connect(&camera_addr).await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransport::connect(&camera_addr).await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // Power on the camera
     println!("Powering on camera...");

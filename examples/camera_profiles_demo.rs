@@ -9,7 +9,7 @@
 use grafton_visca::{
     prelude::r#async::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam},
     r#async::prelude::*,
-    transport::tokio::Tcp,
+    transport::TcpTransport,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     Degrees, Error, MotionSyncMode, NDFilterMode, Normalized, PanTiltDirection, PresetNumber, Raw,
 };
@@ -35,8 +35,8 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     println!("=== PTZOptics G2 Demo ===");
 
     // Connect to camera
-    let transport = Tcp::connect("192.168.1.100:5678").await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransport::connect("192.168.1.100:5678").await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     println!("Connected to: PTZOptics G2");
 
@@ -76,8 +76,8 @@ async fn demonstrate_sony_fr7() -> Result<(), Error> {
     println!("=== Sony FR7 Demo ===");
 
     // Connect to camera
-    let transport = Tcp::connect("192.168.1.101:5678").await?;
-    let camera = SonyFR7Cam::new(transport);
+    let transport = TcpTransport::connect("192.168.1.101:5678").await?;
+    let camera = SonyFR7Cam::new_async(transport);
 
     println!("Connected to: Sony FR7");
     println!("\nDemonstrating Sony FR7 advanced features:");
@@ -114,8 +114,8 @@ async fn demonstrate_generic_visca() -> Result<(), Error> {
     println!("=== Generic VISCA Demo ===");
 
     // Connect to unknown camera model
-    let transport = Tcp::connect("192.168.1.102:5678").await?;
-    let camera = GenericViscaCam::new(transport);
+    let transport = TcpTransport::connect("192.168.1.102:5678").await?;
+    let camera = GenericViscaCam::new_async(transport);
 
     println!("Connected to: Generic VISCA");
     println!("\nUsing conservative feature set for compatibility:");

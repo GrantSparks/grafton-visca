@@ -10,7 +10,7 @@
 use grafton_visca::r#async::prelude::*;
 use grafton_visca::{
     prelude::r#async::PTZOpticsG2Cam,
-    transport::tokio::Udp,
+    transport::UdpTransport,
     types::{PanSpeed, TiltSpeed},
     Error, PanTiltDirection, PresetNumber,
 };
@@ -37,8 +37,8 @@ async fn main() -> Result<(), Error> {
         .unwrap_or_else(|| "192.168.0.100:5678".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
-    let transport = Udp::connect(&camera_addr).await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = UdpTransport::connect("0.0.0.0:0", &camera_addr).await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // Example 1: Sequential commands with timing
     println!("\n=== Sequential Command Execution ===");

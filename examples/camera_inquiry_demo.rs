@@ -7,7 +7,7 @@
 //! - Use profile-aware unit conversions
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{prelude::r#async::*, transport::tokio::Tcp};
+use grafton_visca::{prelude::r#async::*, transport::TcpTransport};
 
 // Include the transport implementation from the example file
 
@@ -31,8 +31,8 @@ async fn main() -> Result<(), Error> {
 
     // Connect to camera
     println!("Connecting to camera at {camera_addr}...");
-    let transport = Tcp::connect(&camera_addr).await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransport::connect(&camera_addr).await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // Query power state
     println!("\n--- Power State ---");

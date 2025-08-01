@@ -7,7 +7,7 @@ fn main() {
     println!("Camera inquiry API example:");
     println!();
     println!("// Create a camera with a specific profile:");
-    println!("let transport = Tcp::connect(\"192.168.1.100:5678\")?;");
+    println!("let transport = TcpTransport::connect(\"192.168.1.100:5678\")?;");
     println!("let camera = PTZOpticsG2Cam::new(transport);");
     println!();
     println!("// Query camera state using high-level methods:");

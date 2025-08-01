@@ -5,13 +5,11 @@ use grafton_visca::{
     camera::profiles::G2PresetId,
     prelude::r#async::PTZOpticsG2Cam,
     r#async::prelude::*,
-    transport::tokio::Tcp,
+    transport::TcpTransport,
     types::SpeedLevel,
     units::{Degrees, Normalized},
     Error, PresetNumber,
 };
-#[cfg(feature = "tokio")]
-use std::time::Duration;
 
 #[cfg(not(feature = "tokio"))]
 fn main() {
@@ -26,8 +24,8 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a G2 camera with TCP transport
-    let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransport::connect("192.168.1.100:5678").await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // Display camera model (compile-time known)
     println!("Camera Model: PTZOptics G2");

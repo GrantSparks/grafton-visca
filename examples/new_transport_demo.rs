@@ -6,10 +6,8 @@
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     prelude::r#async::*,
-    transport::tokio::{Tcp, Udp},
+    transport::{TcpTransport, UdpTransport},
 };
-#[cfg(feature = "tokio")]
-use std::time::Duration;
 
 #[cfg(not(feature = "tokio"))]
 fn main() {
@@ -26,12 +24,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: TCP transport with Camera API
     println!("1. Creating TCP transport session...");
-    match Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await {
+    match TcpTransport::connect("192.168.1.100:5678").await {
         Ok(transport) => {
             println!("   ✓ TCP transport created");
 
             // Create camera with the transport
-            let camera = PTZOpticsG2Cam::new(transport);
+            let camera = PTZOpticsG2Cam::new_async(transport);
 
             // Use camera methods - note we use &camera, not &mut camera
             match camera.zoom_stop().await {
@@ -46,12 +44,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 2: UDP transport with Camera API
     println!("2. Creating UDP transport session...");
-    match Udp::connect("192.168.1.100:52381").await {
+    match UdpTransport::connect("0.0.0.0:0", "192.168.1.100:52381").await {
         Ok(transport) => {
             println!("   ✓ UDP transport created");
 
             // Create camera with the transport
-            let camera = PTZOpticsG2Cam::new(transport);
+            let camera = PTZOpticsG2Cam::new_async(transport);
 
             // Use camera methods - using &camera (interior mutability)
             match camera.zoom_stop().await {

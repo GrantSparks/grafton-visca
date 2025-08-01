@@ -23,10 +23,10 @@ use grafton_visca::{
 use std::env;
 
 #[cfg(not(feature = "tokio"))]
-use grafton_visca::transport::blocking::Udp;
+use grafton_visca::transport::UdpTransportBlocking;
 
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::Udp;
+use grafton_visca::transport::UdpTransport;
 
 #[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Error> {
@@ -44,8 +44,8 @@ fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr} (blocking mode)...");
 
-    let transport = Udp::connect(camera_addr)?;
-    let mut camera = PTZOpticsG2Cam::new(transport);
+    let transport = UdpTransportBlocking::connect("0.0.0.0:0", camera_addr)?;
+    let mut camera = PTZOpticsG2Cam::new_blocking(transport);
 
     println!("\n=== Camera Control Demo (Blocking) ===");
     println!("Using profile: PTZOpticsG2\n");
@@ -83,9 +83,8 @@ async fn main() -> Result<(), Error> {
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr} (async mode)...");
 
-    let transport = Udp::connect(camera_addr).await?;
-    let inner_camera = PTZOpticsG2Cam::new(transport);
-    let mut camera = grafton_visca::r#async::Camera::new(inner_camera);
+    let transport = UdpTransport::connect("0.0.0.0:0", camera_addr).await?;
+    let mut camera = PTZOpticsG2Cam::new_async(transport);
 
     println!("\n=== Camera Control Demo (Async) ===");
     println!("Using profile: PTZOpticsG2\n");
@@ -136,7 +135,7 @@ where
 
 #[cfg(feature = "tokio")]
 async fn demonstrate_pan_tilt<P, T>(
-    camera: &mut grafton_visca::r#async::Camera<P, T>,
+    camera: &mut grafton_visca::Camera<P, T>,
 ) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
@@ -197,7 +196,7 @@ where
 
 #[cfg(feature = "tokio")]
 async fn demonstrate_zoom<P, T>(
-    camera: &mut grafton_visca::r#async::Camera<P, T>,
+    camera: &mut grafton_visca::Camera<P, T>,
 ) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
@@ -255,7 +254,7 @@ where
 
 #[cfg(feature = "tokio")]
 async fn demonstrate_focus<P, T>(
-    camera: &mut grafton_visca::r#async::Camera<P, T>,
+    camera: &mut grafton_visca::Camera<P, T>,
 ) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,
@@ -330,7 +329,7 @@ where
 
 #[cfg(feature = "tokio")]
 async fn demonstrate_presets<P, T>(
-    camera: &mut grafton_visca::r#async::Camera<P, T>,
+    camera: &mut grafton_visca::Camera<P, T>,
 ) -> Result<(), Error>
 where
     P: grafton_visca::capabilities::Profile,

@@ -12,7 +12,7 @@
 use grafton_visca::{
     capabilities::Profile,
     prelude::r#async::*,
-    transport::tokio::{Tcp, Udp},
+    transport::{TcpTransport, UdpTransport},
     transport::UnifiedTransport,
     types::SpeedLevel,
     units::Degrees,
@@ -42,8 +42,8 @@ async fn main() -> Result<(), Error> {
 
     // Create camera with async transport
     println!("Connecting to camera at {camera_addr}...");
-    let transport = Udp::connect(&camera_addr).await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = UdpTransport::connect("0.0.0.0:0", &camera_addr).await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // Demonstrate different timeout scenarios
     demonstrate_quick_timeout(&camera).await?;
@@ -235,10 +235,10 @@ where
         // TCP transport is already available via common module
 
         // Async Tcp has a fixed 10s timeout
-        match Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(10)).await {
+        match TcpTransport::connect("192.168.1.100:5678").await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");
-                let tcp_camera = PTZOpticsG2Cam::new(transport);
+                let tcp_camera = PTZOpticsG2Cam::new_async(transport);
 
                 // For custom timeout, wrap the operation
                 let custom_timeout = Duration::from_secs(30);

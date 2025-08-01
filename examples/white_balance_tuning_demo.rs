@@ -3,7 +3,7 @@
 //! Demonstrates white balance control commands.
 
 #[cfg(feature = "tokio")]
-use grafton_visca::{prelude::r#async::*, transport::tokio::Udp};
+use grafton_visca::{prelude::r#async::*, transport::UdpTransport};
 
 #[cfg(feature = "tokio")]
 #[tokio::main]
@@ -12,8 +12,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Create camera with PTZOptics G2 profile
-    let transport = Udp::connect("192.168.1.100:52381").await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = UdpTransport::connect("0.0.0.0:0", "192.168.1.100:52381").await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // Demonstrate white balance commands
     println!("Demonstrating white balance control...");

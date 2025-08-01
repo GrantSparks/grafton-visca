@@ -7,10 +7,10 @@
 use grafton_visca::Error;
 
 #[cfg(all(not(feature = "tokio"), not(feature = "async")))]
-use grafton_visca::transport::blocking::{Tcp, Udp};
+use grafton_visca::transport::{TcpTransportBlocking, UdpTransportBlocking};
 
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::{Tcp, Udp};
+use grafton_visca::transport::{TcpTransport, UdpTransport};
 
 // ==================== BLOCKING EXAMPLES ====================
 
@@ -23,8 +23,8 @@ fn blocking_examples() -> Result<(), Error> {
 
     // Example 1: Create camera with GenericVisca profile
     println!("Example 1: GenericVisca profile with UDP");
-    let udp_transport = Udp::connect("192.168.1.100:52381")?;
-    let camera = GenericViscaCam::new(udp_transport);
+    let udp_transport = UdpTransportBlocking::connect("0.0.0.0:0", "192.168.1.100:52381")?;
+    let camera = GenericViscaCam::new_blocking(udp_transport);
     println!("Created GenericVisca camera");
 
     // Basic operations available on all cameras
@@ -33,8 +33,8 @@ fn blocking_examples() -> Result<(), Error> {
 
     // Example 2: Create camera with PTZOptics G2 profile
     println!("\nExample 2: PTZOptics G2 profile with TCP");
-    let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
-    let camera = PTZOpticsG2Cam::new(tcp_transport);
+    let tcp_transport = TcpTransportBlocking::connect("192.168.1.100:5678")?;
+    let camera = PTZOpticsG2Cam::new_blocking(tcp_transport);
     println!("Created PTZOptics G2 camera");
 
     // PTZOptics G2 specific operations (compile-time checked)
@@ -43,8 +43,8 @@ fn blocking_examples() -> Result<(), Error> {
 
     // Example 3: Create Sony FR7 camera
     println!("\nExample 3: Sony FR7 profile");
-    let transport = Udp::connect("192.168.1.200:52381")?;
-    let camera = SonyFR7Cam::new(transport);
+    let transport = UdpTransportBlocking::connect("0.0.0.0:0", "192.168.1.200:52381")?;
+    let camera = SonyFR7Cam::new_blocking(transport);
     println!("Created Sony FR7 camera");
 
     // Sony FR7 supports advanced features
@@ -72,8 +72,8 @@ async fn async_examples() -> Result<(), Error> {
 
     // Example 1: Create camera with GenericVisca profile
     println!("Example 1: GenericVisca profile with UDP");
-    let udp_transport = Udp::connect("192.168.1.100:52381").await?;
-    let camera = GenericViscaCam::new(udp_transport);
+    let udp_transport = UdpTransport::connect("0.0.0.0:0", "192.168.1.100:52381").await?;
+    let camera = GenericViscaCam::new_async(udp_transport);
     println!("Created GenericVisca camera");
 
     // Basic operations available on all cameras
@@ -85,8 +85,8 @@ async fn async_examples() -> Result<(), Error> {
 
     // Example 2: Create camera with PTZOptics G2 profile
     println!("\nExample 2: PTZOptics G2 profile with TCP");
-    let tcp_transport = Tcp::connect("192.168.1.100:5678").await?;
-    let camera = PTZOpticsG2Cam::new(tcp_transport);
+    let tcp_transport = TcpTransport::connect("192.168.1.100:5678").await?;
+    let camera = PTZOpticsG2Cam::new_async(tcp_transport);
     println!("Created PTZOptics G2 camera");
 
     // PTZOptics G2 specific operations
@@ -98,8 +98,8 @@ async fn async_examples() -> Result<(), Error> {
 
     // Example 3: Create Sony FR7 camera
     println!("\nExample 3: Sony FR7 profile");
-    let transport = Udp::connect("192.168.1.200:52381").await?;
-    let camera = SonyFR7Cam::new(transport);
+    let transport = UdpTransport::connect("0.0.0.0:0", "192.168.1.200:52381").await?;
+    let camera = SonyFR7Cam::new_async(transport);
     println!("Created Sony FR7 camera");
 
     // Sony FR7 supports advanced features

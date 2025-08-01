@@ -12,7 +12,7 @@ fn main() {
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     prelude::blocking::*,
-    transport::blocking::Udp,
+    transport::UdpTransportBlocking,
     types::SpeedLevel,
     units::Degrees,
     // Note: Gain and GainLimit types are not exported in types module
@@ -27,8 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Connect to camera using the new Camera API
-    let transport = Udp::connect("192.168.1.100:5678")?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = UdpTransportBlocking::connect("0.0.0.0:0", "192.168.1.100:5678")?;
+    let camera = PTZOpticsG2Cam::new_blocking(transport);
 
     println!("=== Type-Safe Camera API Demo ===\n");
 
