@@ -6,10 +6,9 @@
 
 use crate::Error;
 use core::future::Future;
-use core::task::{Context, Poll, Waker};
+use core::task::{Context, Poll};
 #[cfg(feature = "async")]
 use std::pin::Pin;
-use std::sync::Arc;
 
 /// Type alias for a boxed future that can be spawned.
 ///
@@ -226,7 +225,7 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
     let mut fut = Box::pin(fut);
 
     // Create a no-op waker (blocking futures should be Ready)
-    let waker = noop_waker();
+    let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
 
     // Poll the future - for Ready futures this returns immediately
@@ -247,7 +246,7 @@ pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::O
 
     let deadline = Instant::now() + duration;
     let mut fut = Box::pin(fut);
-    let waker = noop_waker();
+    let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
 
     loop {
@@ -263,16 +262,4 @@ pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::O
             }
         }
     }
-}
-
-/// Create a no-op waker for blocking execution.
-fn noop_waker() -> Waker {
-    struct NoopWaker;
-
-    impl std::task::Wake for NoopWaker {
-        fn wake(self: Arc<Self>) {}
-        fn wake_by_ref(self: &Arc<Self>) {}
-    }
-
-    Arc::new(NoopWaker).into()
 }
