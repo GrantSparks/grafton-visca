@@ -4,14 +4,7 @@
 //! allowing fine-tuned control over command execution timeouts based on the expected duration
 //! of each operation type.
 
-// Standard library imports
 use std::time::Duration;
-
-// Third-party crate imports
-// (none)
-
-// Workspace / local-crate imports
-// (none)
 
 /// Categories of VISCA commands with different timeout requirements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -117,7 +110,7 @@ pub struct TimeoutConfigBuilder {
 
 impl TimeoutConfigBuilder {
     /// Sets the timeout for quick commands.
-    #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn quick_timeout(mut self, timeout: Duration) -> Self {
         self.config.quick_timeout = timeout;
@@ -125,7 +118,7 @@ impl TimeoutConfigBuilder {
     }
 
     /// Sets the timeout for movement commands.
-    #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn movement_timeout(mut self, timeout: Duration) -> Self {
         self.config.movement_timeout = timeout;
@@ -133,7 +126,7 @@ impl TimeoutConfigBuilder {
     }
 
     /// Sets the timeout for preset operations.
-    #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn preset_timeout(mut self, timeout: Duration) -> Self {
         self.config.preset_timeout = timeout;
@@ -141,7 +134,7 @@ impl TimeoutConfigBuilder {
     }
 
     /// Sets the timeout for long-running operations.
-    #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn long_timeout(mut self, timeout: Duration) -> Self {
         self.config.long_timeout = timeout;
@@ -149,7 +142,7 @@ impl TimeoutConfigBuilder {
     }
 
     /// Sets the timeout for network commands.
-    #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn network_timeout(mut self, timeout: Duration) -> Self {
         self.config.network_timeout = timeout;
@@ -157,7 +150,7 @@ impl TimeoutConfigBuilder {
     }
 
     /// Sets the default timeout for uncategorized commands.
-    #[allow(clippy::missing_const_for_fn)] // Builder methods mutate self
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn default_timeout(mut self, timeout: Duration) -> Self {
         self.config.default_timeout = timeout;
