@@ -185,13 +185,23 @@ mod tokio_tests {
         }
     }
 
-    impl Transport for MockTransport {
-        type Error = Error;
-        type SendFut<'a> = core::future::Ready<Result<(), Error>>;
-        type RecvFut<'a> =
-            std::pin::Pin<Box<dyn std::future::Future<Output = Result<Bytes, Error>> + Send + 'a>>;
+    use async_trait::async_trait;
 
-        fn send(&self, bytes: &[u8]) -> Self::SendFut<'_> {
+    impl grafton_visca::transport::BlockingTransport for MockTransport {
+        fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+            // For tests, delegate to async version
+            futures::executor::block_on(async { self.send(bytes).await })
+        }
+
+        fn recv_blocking(&self) -> Result<bytes::Bytes, Error> {
+            // For tests, delegate to async version
+            futures::executor::block_on(async { self.recv().await })
+        }
+    }
+
+    #[async_trait]
+    impl Transport for MockTransport {
+        async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
             let command_index = {
                 let mut commands = self.sent_commands.lock().unwrap();
                 commands.push(bytes.to_vec());
@@ -216,37 +226,35 @@ mod tokio_tests {
                 }
             }
 
-            core::future::ready(Ok(()))
+            Ok(())
         }
 
-        fn recv(&self) -> Self::RecvFut<'_> {
+        async fn recv(&self) -> Result<Bytes, Error> {
             let responses = self.responses.clone();
             let pending_responses = self.pending_responses.clone();
             let socket_states = self.socket_states.clone();
             let auto_respond = self.auto_respond;
 
-            Box::pin(async move {
-                // Simulate a short delay before response
-                tokio::time::sleep(Duration::from_millis(10)).await;
+            // Simulate a short delay before response
+            tokio::time::sleep(Duration::from_millis(10)).await;
 
-                // First check if we have any pending concurrent responses
-                if auto_respond {
-                    let response = MockTransport::get_next_response_static(
-                        pending_responses.clone(),
-                        socket_states.clone(),
-                    );
-                    if let Some(resp) = response {
-                        return Ok(resp);
-                    }
+            // First check if we have any pending concurrent responses
+            if auto_respond {
+                let response = MockTransport::get_next_response_static(
+                    pending_responses.clone(),
+                    socket_states.clone(),
+                );
+                if let Some(resp) = response {
+                    return Ok(resp);
                 }
+            }
 
-                // Otherwise, check the manual response queue
-                let mut responses = responses.lock().unwrap();
-                responses.pop_front().unwrap_or_else(|| {
-                    Err(Error::TransportError(std::borrow::Cow::Borrowed(
-                        "No response available",
-                    )))
-                })
+            // Otherwise, check the manual response queue
+            let mut responses = responses.lock().unwrap();
+            responses.pop_front().unwrap_or_else(|| {
+                Err(Error::TransportError(std::borrow::Cow::Borrowed(
+                    "No response available",
+                )))
             })
         }
     }
@@ -255,7 +263,7 @@ mod tokio_tests {
     async fn test_socket_manager_initialization() {
         let transport = MockTransport::new();
         let handle = tokio::runtime::Handle::current();
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::new_with_spawner(transport, handle);
+        let mut inner_camera = Camera::<PTZOpticsG2, _>::new_async_with_spawner(transport, handle);
 
         // Test initialization through public API
         let result = inner_camera.initialize_socket_manager();
@@ -274,7 +282,7 @@ mod tokio_tests {
         let transport = MockTransport::with_auto_respond();
         let handle = tokio::runtime::Handle::current();
         let mut inner_camera =
-            Camera::<PTZOpticsG2, _>::new_with_spawner(transport.clone(), handle);
+            Camera::<PTZOpticsG2, _>::new_async_with_spawner(transport.clone(), handle);
 
         // Initialize socket manager
         inner_camera
@@ -316,7 +324,7 @@ mod tokio_tests {
         let transport = MockTransport::with_concurrent_response();
         let handle = tokio::runtime::Handle::current();
         let mut inner_camera =
-            Camera::<PTZOpticsG2, _>::new_with_spawner(transport.clone(), handle);
+            Camera::<PTZOpticsG2, _>::new_async_with_spawner(transport.clone(), handle);
 
         inner_camera
             .initialize_socket_manager()
@@ -353,7 +361,7 @@ mod tokio_tests {
         transport.add_response(Ok(Bytes::from(vec![0x90, 0x51, 0xFF]))); // Completion
 
         let handle = tokio::runtime::Handle::current();
-        let inner_camera = Camera::<PTZOpticsG2, _>::new_with_spawner(transport.clone(), handle);
+        let inner_camera = Camera::<PTZOpticsG2, _>::new_async_with_spawner(transport.clone(), handle);
         let camera = r#async::Camera::new(inner_camera);
 
         // Don't initialize socket manager - commands should still work via direct transport
@@ -368,7 +376,7 @@ mod tokio_tests {
     async fn test_socket_manager_timeout_handling() {
         let transport = MockTransport::new(); // No auto-respond
         let handle = tokio::runtime::Handle::current();
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::new_with_spawner(transport, handle);
+        let mut inner_camera = Camera::<PTZOpticsG2, _>::new_async_with_spawner(transport, handle);
 
         inner_camera
             .initialize_socket_manager()

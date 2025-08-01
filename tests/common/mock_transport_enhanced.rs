@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use grafton_visca::transport::Transport;
 use grafton_visca::{Error, Result};
-use std::future::Ready;
 
 /// A mock transport for testing VISCA communication.
 ///
@@ -63,6 +62,99 @@ pub struct TransportExpectation {
     /// Optional description for better error messages
     pub description: Option<String>,
 }
+
+#[async_trait::async_trait]
+impl Transport for MockTransport {
+    async fn send(&self, data: &[u8]) -> Result<(), Error> {
+        let mut inner = self.inner.lock().unwrap();
+
+        if !inner.connected {
+            return Err(Error::ConnectionLost {
+                reason: Cow::Borrowed("Mock transport disconnected"),
+            });
+        }
+
+        // Validate VISCA framing
+        if inner.validate_frames {
+            if data.is_empty() || data[data.len() - 1] != 0xFF {
+                return Err(Error::ParseError(Cow::Borrowed(
+                    "Missing terminator FF",
+                )));
+            }
+        }
+
+        // Record the command
+        inner.sent_history.push((Instant::now(), data.to_vec()));
+
+        // Check expectations
+        let current_idx = inner.current_expectation;
+        let mut responses_to_queue = Vec::new();
+
+        if let Some(expectation) = inner.expectations.get_mut(current_idx) {
+            if expectation.command == data {
+                expectation.met = true;
+
+                // Collect responses to queue
+                responses_to_queue = expectation.responses.clone();
+            }
+        }
+
+        // Move to next expectation
+        inner.current_expectation += 1;
+
+        // Queue responses after releasing the lock (briefly)
+        drop(inner);
+        for response in responses_to_queue {
+            self.queue_response(response);
+        }
+
+        // Re-acquire lock for latency simulation
+        let inner = self.inner.lock().unwrap();
+        if let Some(latency) = inner.latency {
+            std::thread::sleep(latency);
+        }
+
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<Bytes, Error> {
+        let mut inner = self.inner.lock().unwrap();
+
+        if !inner.connected {
+            return Err(Error::ConnectionLost {
+                reason: Cow::Borrowed("Mock transport disconnected"),
+            });
+        }
+
+        if let Some(response) = inner.response_queue.pop_front() {
+            let result = match response {
+                MockResponse::Immediate(data) => {
+                    inner.response_history.push(data.clone());
+                    Ok(Bytes::from(data))
+                }
+                MockResponse::Delayed(data, _delay) => {
+                    // For blocking transport, we ignore delay in recv
+                    inner.response_history.push(data.clone());
+                    Ok(Bytes::from(data))
+                }
+                MockResponse::ErrorCode(code) => {
+                    let error_response = vec![0x90, 0x60, code, 0xFF];
+                    inner.response_history.push(error_response.clone());
+                    Ok(Bytes::from(error_response))
+                }
+                MockResponse::Timeout => Err(Error::Timeout),
+            };
+
+            return result;
+        }
+
+        // No response queued
+        Err(Error::Timeout)
+    }
+}
+
+// BlockingTransport is now private, so we can't implement it
+// impl BlockingTransport for MockTransport {}
 
 /// A mock response to return
 #[derive(Clone, Debug)]
@@ -142,7 +234,7 @@ impl MockTransport {
     }
 
     /// Queue a response to return (without expectation)
-    pub fn queue_response(&mut self, response: MockResponse) {
+    pub fn queue_response(&self, response: MockResponse) {
         let mut inner = self.inner.lock().unwrap();
         inner.response_queue.push_back(response);
     }
@@ -237,108 +329,6 @@ impl TransportExpectation {
     }
 }
 
-impl Transport for MockTransport {
-    type Error = Error;
-    type SendFut<'a>
-        = Ready<Result<(), Self::Error>>
-    where
-        Self: 'a;
-    type RecvFut<'a>
-        = Ready<Result<Bytes, Self::Error>>
-    where
-        Self: 'a;
-
-    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
-        let mut inner = self.inner.lock().unwrap();
-
-        if !inner.connected {
-            return std::future::ready(Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("Mock transport disconnected"),
-            }));
-        }
-
-        // Validate frame format if enabled
-        if inner.validate_frames && data.len() >= 3 {
-            if data[0] & 0xF0 != 0x80 {
-                return std::future::ready(Err(Error::InvalidState(Cow::Owned(format!(
-                    "Invalid address byte: {:02X}",
-                    data[0]
-                )))));
-            }
-            if data[data.len() - 1] != 0xFF {
-                return std::future::ready(Err(Error::InvalidState(Cow::Borrowed(
-                    "Missing terminator FF",
-                ))));
-            }
-        }
-
-        // Record the command
-        inner.sent_history.push((Instant::now(), data.to_vec()));
-
-        // Check expectations
-        let current_idx = inner.current_expectation;
-        let mut responses_to_queue = Vec::new();
-
-        if let Some(expectation) = inner.expectations.get_mut(current_idx) {
-            if expectation.command == data {
-                expectation.met = true;
-
-                // Collect responses to queue
-                responses_to_queue = expectation.responses.clone();
-            }
-        }
-
-        // Queue the responses after releasing the borrow
-        if !responses_to_queue.is_empty() {
-            for response in responses_to_queue {
-                inner.response_queue.push_back(response);
-            }
-            inner.current_expectation += 1;
-        }
-
-        // Simulate latency
-        if let Some(latency) = inner.latency {
-            std::thread::sleep(latency);
-        }
-
-        std::future::ready(Ok(()))
-    }
-
-    fn recv(&self) -> Self::RecvFut<'_> {
-        let mut inner = self.inner.lock().unwrap();
-
-        if !inner.connected {
-            return std::future::ready(Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("Mock transport disconnected"),
-            }));
-        }
-
-        if let Some(response) = inner.response_queue.pop_front() {
-            let result = match response {
-                MockResponse::Immediate(data) => {
-                    inner.response_history.push(data.clone());
-                    Ok(Bytes::from(data))
-                }
-                MockResponse::Delayed(data, _delay) => {
-                    // For blocking transport, we ignore delay in recv
-                    inner.response_history.push(data.clone());
-                    Ok(Bytes::from(data))
-                }
-                MockResponse::ErrorCode(code) => {
-                    let error_response = vec![0x90, 0x60, code, 0xFF];
-                    inner.response_history.push(error_response.clone());
-                    Ok(Bytes::from(error_response))
-                }
-                MockResponse::Timeout => Err(Error::Timeout),
-            };
-
-            return std::future::ready(result);
-        }
-
-        // No response queued
-        std::future::ready(Err(Error::Timeout))
-    }
-}
 
 // BlockingTransport is now private, so we can't implement it
 // impl BlockingTransport for MockTransport {}

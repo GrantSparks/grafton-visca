@@ -3,7 +3,7 @@
 //! This example demonstrates basic camera control using the new Camera API.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::Udp;
+use grafton_visca::transport::UdpTransportBlocking;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     prelude::blocking::*,
@@ -20,12 +20,12 @@ fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Connect to camera using UDP
-    let udp_transport = Udp::connect("192.168.1.100:1259")?;
-    let camera = PTZOpticsG2Cam::new(udp_transport);
+    let udp_transport = UdpTransportBlocking::connect("0.0.0.0:0", "192.168.1.100:1259")?;
+    let camera = PTZOpticsG2Cam::new_blocking(udp_transport);
     println!("Connected to camera via UDP");
 
     // Or connect using TCP
-    // let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
+    // let tcp_transport = TcpTransport::connect("192.168.1.100:5678")?;
     // let mut camera = PTZOpticsG2Cam::new(tcp_transport);
 
     // Camera capabilities are now checked at compile time through the PTZOpticsG2 profile

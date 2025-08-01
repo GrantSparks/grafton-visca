@@ -12,7 +12,7 @@ use grafton_visca::{
     camera::profiles::G2PresetId,
     prelude::r#async::PTZOpticsG2Cam,
     r#async::prelude::*,
-    transport::tokio::Udp,
+    transport::UdpTransport,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Error, PanTiltDirection, PresetNumber,
@@ -44,8 +44,8 @@ async fn main() -> Result<(), Error> {
     // Connect to camera
     let camera_addr = &args[1];
     println!("Connecting to camera at {camera_addr}...");
-    let transport = Udp::connect(camera_addr).await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = UdpTransport::connect("0.0.0.0:0", camera_addr).await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     println!("\n=== Async Camera Control Demo ===\n");
 

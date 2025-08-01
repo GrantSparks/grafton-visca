@@ -7,15 +7,15 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::methods::{FocusOps, PanTiltOps, ZoomOps},
-        transport::blocking::Udp,
+        transport::UdpTransportBlocking,
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, Normalized},
         Camera, PanTiltDirection,
     };
 
     // Connect to camera
-    let transport = Udp::connect("192.168.1.100:52381")?;
-    let mut camera = Camera::new(transport);
+    let transport = UdpTransportBlocking::connect("0.0.0.0:0", "192.168.1.100:52381")?;
+    let mut camera = Camera::new_blocking(transport);
 
     println!("=== Semantic API Demo ===\n");
 
@@ -91,15 +91,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::methods::{FocusOps, PanTiltOps, ZoomOps},
         prelude::r#async::PTZOpticsG2Cam,
-        transport::tokio::Udp,
+        transport::UdpTransport,
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, Normalized},
         PanTiltDirection,
     };
 
     // Connect to camera
-    let transport = Udp::connect("192.168.1.100:52381").await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = UdpTransport::connect("0.0.0.0:0", "192.168.1.100:52381").await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     println!("=== Semantic API Demo (Async) ===\n");
 

@@ -8,7 +8,7 @@ use std::env;
 #[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::prelude::blocking::*;
-    use grafton_visca::transport::blocking::Tcp;
+    use grafton_visca::transport::TcpTransportBlocking;
 
     // Initialize logging
     env_logger::init();
@@ -21,8 +21,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at {camera_addr}...");
 
     // Create camera - all operation traits are available through prelude
-    let transport = Tcp::connect(&camera_addr)?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransportBlocking::connect(&camera_addr)?;
+    let camera = PTZOpticsG2Cam::new_blocking(transport);
 
     println!("Using PTZOptics G2 camera");
 
@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::prelude::r#async::*;
-    use grafton_visca::transport::tokio::Tcp;
+    use grafton_visca::transport::TcpTransport;
 
     // Initialize logging
     env_logger::init();
@@ -73,8 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Connecting to camera at {camera_addr} (async mode)...");
 
-    let transport = Tcp::connect(&camera_addr).await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransport::connect(&camera_addr).await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // All async operations available
     println!("Powering on...");

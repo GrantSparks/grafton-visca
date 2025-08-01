@@ -76,11 +76,11 @@ pub trait StreamingOpsBlocking: Sized {
     /// # Example
     /// ```no_run
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::blocking::{Camera, StreamingOps};
-    /// # use grafton_visca::transport::blocking::Tcp;
-    /// # let transport = Tcp::connect("192.168.1.100:52381")?;
-    /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
-    /// # let camera = Camera::new(inner_camera);
+    /// # use grafton_visca::camera::methods::StreamingOpsBlocking;
+    /// # use grafton_visca::transport::TcpTransportBlocking;
+    /// # use grafton_visca::prelude::blocking::GenericViscaCam;
+    /// # let transport = TcpTransportBlocking::connect("192.168.1.100:52381")?;
+    /// # let camera = GenericViscaCam::new_blocking(transport);
     /// camera.enable_multicast()?;
     /// # Ok(())
     /// # }
@@ -95,11 +95,11 @@ pub trait StreamingOpsBlocking: Sized {
     /// # Example
     /// ```no_run
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::blocking::{Camera, StreamingOps};
-    /// # use grafton_visca::transport::blocking::Tcp;
-    /// # let transport = Tcp::connect("192.168.1.100:52381")?;
-    /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
-    /// # let camera = Camera::new(inner_camera);
+    /// # use grafton_visca::camera::methods::StreamingOpsBlocking;
+    /// # use grafton_visca::transport::TcpTransportBlocking;
+    /// # use grafton_visca::prelude::blocking::GenericViscaCam;
+    /// # let transport = TcpTransportBlocking::connect("192.168.1.100:52381")?;
+    /// # let camera = GenericViscaCam::new_blocking(transport);
     /// camera.disable_multicast()?;
     /// # Ok(())
     /// # }
@@ -114,12 +114,12 @@ pub trait StreamingOpsBlocking: Sized {
     /// # Example
     /// ```no_run
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::blocking::{Camera, StreamingOps};
-    /// # use grafton_visca::transport::blocking::Tcp;
+    /// # use grafton_visca::camera::methods::StreamingOpsBlocking;
+    /// # use grafton_visca::transport::TcpTransportBlocking;
+    /// # use grafton_visca::prelude::blocking::GenericViscaCam;
     /// # use grafton_visca::types::NDIQuality;
-    /// # let transport = Tcp::connect("192.168.1.100:52381")?;
-    /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
-    /// # let camera = Camera::new(inner_camera);
+    /// # let transport = TcpTransportBlocking::connect("192.168.1.100:52381")?;
+    /// # let camera = GenericViscaCam::new_blocking(transport);
     /// camera.set_ndi_quality(NDIQuality::High)?;
     /// # Ok(())
     /// # }

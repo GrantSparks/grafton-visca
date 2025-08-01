@@ -13,10 +13,10 @@
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(feature = "tokio")]
 //! # {
-//! use grafton_visca::transport::tokio::Tcp;
+//! use grafton_visca::transport::TcpTransport;
 //!
-//! let transport = Tcp::connect("192.168.1.100:52381").await?;
-//! let camera = PTZOpticsG2Cam::new(transport);
+//! let transport = TcpTransport::connect("192.168.1.100:52381").await?;
+//! let camera = PTZOpticsG2Cam::new_async(transport);
 //!
 //! // Async trait methods are available with clean names
 //! camera.power_on().await?;
@@ -35,10 +35,10 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(not(feature = "async"))]
 //! # {
-//! use grafton_visca::transport::blocking::Tcp;
+//! use grafton_visca::transport::TcpTransportBlocking;
 //!
-//! let transport = Tcp::connect("192.168.1.100:52381")?;
-//! let camera = PTZOpticsG2Cam::new(transport);
+//! let transport = TcpTransportBlocking::connect("192.168.1.100:52381")?;
+//! let camera = PTZOpticsG2Cam::new_blocking(transport);
 //!
 //! // Blocking trait methods are available with clean names
 //! camera.power_on()?;

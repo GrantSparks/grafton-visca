@@ -4,15 +4,15 @@
 //! that work directly with AsyncTransport without adapters.
 
 use bytes::Bytes;
+use async_trait::async_trait;
 use grafton_visca::{
     camera::methods::PanTiltOps,
     prelude::r#async::PTZOpticsG2Cam,
-    transport::{core::Transport, tokio::Tcp},
+    transport::{Transport, TcpTransport},
     types::SpeedLevel,
     units::Degrees,
     Error,
 };
-use std::future::{ready, Ready};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,11 +22,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Simplified Tokio Transport API ===");
 
     // Connect using the Tcp transport
-    let visca = Tcp::connect("192.168.1.100:1259").await?;
+    let visca = TcpTransport::connect("192.168.1.100:1259").await?;
     println!("Connected via TCP");
 
     // Create camera using the transport
-    let camera = PTZOpticsG2Cam::new(visca);
+    let camera = PTZOpticsG2Cam::new_async(visca);
 
     // Stop any ongoing movement
     println!("Stopping camera movement...");
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demo using custom transport implementation
     println!("\n=== Custom Transport Demo ===");
     let custom_transport = CustomTransport::new("Demo transport".to_string());
-    let custom_camera = PTZOpticsG2Cam::new(custom_transport);
+    let custom_camera = PTZOpticsG2Cam::new_async(custom_transport);
 
     println!("Testing custom transport...");
     // This will use the custom transport's send/receive methods
@@ -68,12 +68,9 @@ impl CustomTransport {
     }
 }
 
+#[async_trait]
 impl Transport for CustomTransport {
-    type Error = Error;
-    type SendFut<'a> = Ready<Result<(), Error>>;
-    type RecvFut<'a> = Ready<Result<Bytes, Error>>;
-
-    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
+    async fn send(&self, data: &[u8]) -> Result<(), Error> {
         println!(
             "{}: Custom transport sending {} bytes: {:02X?}",
             self.description,
@@ -81,11 +78,11 @@ impl Transport for CustomTransport {
             data
         );
         // Simulate sending
-        ready(Ok(()))
+        Ok(())
     }
 
-    fn recv(&self) -> Self::RecvFut<'_> {
+    async fn recv(&self) -> Result<Bytes, Error> {
         // Simulate receiving an ACK response
-        ready(Ok(Bytes::from_static(&[0x90, 0x41, 0xFF]))) // Simple ACK for socket 1
+        Ok(Bytes::from_static(&[0x90, 0x41, 0xFF])) // Simple ACK for socket 1
     }
 }

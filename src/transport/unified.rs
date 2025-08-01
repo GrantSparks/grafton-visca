@@ -22,25 +22,23 @@ pub trait UnifiedTransport: Send + Sync {
     fn recv_blocking_timeout(&self, timeout: Duration) -> Result<bytes::Bytes, Error>;
 }
 
-/// Wrapper for async transports.
+/// Wrapper for the new async-trait based transports.
 #[derive(Debug)]
-pub struct AsyncTransportWrapper<T: crate::transport::Transport> {
+pub struct NewAsyncTransportWrapper<T> {
     pub(crate) transport: T,
 }
 
 #[async_trait::async_trait]
-impl<T> UnifiedTransport for AsyncTransportWrapper<T>
+impl<T> UnifiedTransport for NewAsyncTransportWrapper<T>
 where
     T: crate::transport::Transport + Send + Sync,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
 {
     async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
-        self.transport.send(bytes).await.map_err(Into::into)
+        self.transport.send(bytes).await
     }
 
     async fn recv(&self) -> Result<bytes::Bytes, Error> {
-        self.transport.recv().await.map_err(Into::into)
+        self.transport.recv().await
     }
 
     fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
@@ -62,15 +60,39 @@ where
         #[cfg(not(feature = "tokio"))]
         {
             // Without tokio, use a simpler timeout approach
-            use std::time::Instant;
-            let _start = Instant::now();
-
-            // For non-tokio async transports, we just block on recv without timeout
-            // This is a limitation when not using tokio
             log::warn!(
                 "Timeout ({timeout:?}) not supported without tokio feature - blocking on recv"
             );
             futures::executor::block_on(self.recv())
         }
+    }
+}
+
+/// Wrapper for blocking transports that implement both async and blocking traits.
+#[derive(Debug)]
+pub struct BlockingTransportWrapper<T> {
+    pub(crate) transport: T,
+}
+
+#[async_trait::async_trait]
+impl<T> UnifiedTransport for BlockingTransportWrapper<T>
+where
+    T: crate::transport::Transport + crate::transport::BlockingTransport + Send + Sync,
+{
+    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
+        self.transport.send(bytes).await
+    }
+
+    async fn recv(&self) -> Result<bytes::Bytes, Error> {
+        self.transport.recv().await
+    }
+
+    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+        self.transport.send_blocking(bytes)
+    }
+
+    fn recv_blocking_timeout(&self, _timeout: Duration) -> Result<bytes::Bytes, Error> {
+        // Blocking transports don't support timeout in recv_blocking
+        self.transport.recv_blocking()
     }
 }

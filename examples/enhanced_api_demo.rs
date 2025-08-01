@@ -9,7 +9,7 @@ use grafton_visca::{
         ExposureOps, ImageProcessingOps, PanTiltOps, PowerOps, WhiteBalanceOps, ZoomOps,
     },
     prelude::r#async::PTZOpticsG2Cam,
-    transport::tokio::Udp,
+    transport::UdpTransport,
     Degrees, Error, Normalized,
 };
 #[cfg(feature = "tokio")]
@@ -23,8 +23,8 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Connect to camera using new Camera API with UDP transport
-    let transport = Udp::connect("192.168.1.100:5678").await?;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let transport = UdpTransport::connect("0.0.0.0:0", "192.168.1.100:5678").await?;
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     println!("=== Enhanced Camera API Demo ===\n");
 

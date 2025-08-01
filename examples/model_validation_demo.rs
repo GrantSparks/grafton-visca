@@ -6,7 +6,9 @@
 
 use bytes::Bytes;
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::core::Transport;
+use grafton_visca::transport::Transport;
+#[cfg(feature = "tokio")]
+use async_trait::async_trait;
 use grafton_visca::{
     camera::{
         methods::{PanTiltOps, PresetsOps, ZoomOps},
@@ -17,7 +19,6 @@ use grafton_visca::{
     units::Degrees,
     Error, Normalized, PresetNumber,
 };
-use std::future::{ready, Ready};
 
 /// Mock transport for demonstration purposes.
 /// In real usage, you would use Udp or Tcp.
@@ -26,17 +27,14 @@ use std::future::{ready, Ready};
 struct MockTransport;
 
 #[cfg(feature = "tokio")]
+#[async_trait]
 impl Transport for MockTransport {
-    type Error = Error;
-    type SendFut<'a> = Ready<Result<(), Error>>;
-    type RecvFut<'a> = Ready<Result<Bytes, Error>>;
-
-    fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
-        ready(Ok(()))
+    async fn send(&self, _data: &[u8]) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn recv(&self) -> Self::RecvFut<'_> {
-        ready(Ok(Bytes::from_static(&[0x90, 0x50, 0xFF]))) // Mock completion response
+    async fn recv(&self) -> Result<Bytes, Error> {
+        Ok(Bytes::from_static(&[0x90, 0x50, 0xFF])) // Mock completion response
     }
 }
 
@@ -67,7 +65,7 @@ async fn demo_ptzoptics_g2() -> Result<(), Error> {
     println!("----------------------");
 
     let transport = MockTransport;
-    let camera = PTZOpticsG2Cam::new(transport);
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // Get profile information
     println!("Model: PTZOptics G2");
@@ -104,7 +102,7 @@ async fn demo_sony_fr7() -> Result<(), Error> {
     println!("------------------");
 
     let transport = MockTransport;
-    let camera = SonyFR7Cam::new(transport);
+    let camera = SonyFR7Cam::new_async(transport);
 
     println!("Model: Sony FR7");
     println!("Using Sony FR7 profile");
@@ -132,7 +130,7 @@ async fn demo_generic_visca() -> Result<(), Error> {
     println!("-----------------------");
 
     let transport = MockTransport;
-    let camera = GenericViscaCam::new(transport);
+    let camera = GenericViscaCam::new_async(transport);
 
     println!("Model: Generic VISCA");
     println!("Using generic VISCA defaults for unknown camera models");

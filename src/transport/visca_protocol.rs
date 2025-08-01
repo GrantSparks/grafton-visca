@@ -1,8 +1,8 @@
-//! VISCA protocol handler using GAT Transport trait.
+//! VISCA protocol handler using async-trait Transport.
 
 use crate::{
     command::{encode_visca::EncodeVisca, InquiryResponse, Response, ResponseType},
-    transport::core::Transport,
+    transport::Transport,
     Error,
 };
 use std::borrow::Cow;
@@ -52,7 +52,7 @@ impl<T: Transport> ViscaProtocol<T> {
         log::debug!("Sending VISCA command: {cmd_bytes:02X?}");
 
         // Send command
-        self.transport.send(cmd_bytes).await.map_err(Into::into)?;
+        self.transport.send(cmd_bytes).await?;
 
         // Handle response based on command type
         match command.response_type() {
@@ -122,7 +122,7 @@ impl<T: Transport> ViscaProtocol<T> {
             tokio::time::timeout(duration, self.transport.recv())
                 .await
                 .map_err(|_| Error::Timeout)?
-                .map_err(Into::into)
+                .map_err(|e| Error::from(e))
         }
 
         #[cfg(all(feature = "async", not(feature = "tokio")))]
@@ -131,14 +131,14 @@ impl<T: Transport> ViscaProtocol<T> {
             // Users should wrap the entire send_command operation with their runtime's timeout.
             // We document this limitation and provide the duration for informational purposes.
             log::debug!("Timeout of {duration:?} requested, but no runtime-specific timeout available. Users should wrap operations with their runtime's timeout mechanism.");
-            self.transport.recv().await.map_err(Into::into)
+            self.transport.recv().await
         }
 
         #[cfg(not(feature = "async"))]
         {
             // This shouldn't be reachable in blocking mode as ViscaProtocol is async-only
             let _ = duration;
-            self.transport.recv().await.map_err(Into::into)
+            self.transport.recv().await
         }
     }
 }

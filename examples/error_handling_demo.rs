@@ -4,9 +4,9 @@
 //! including retry logic and error classification.
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::Tcp;
+use grafton_visca::transport::TcpTransportBlocking;
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::Tcp;
+use grafton_visca::transport::TcpTransport;
 
 use grafton_visca::Error;
 #[cfg(not(feature = "async"))]
@@ -164,7 +164,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 
     // Try to create transport
-    let transport = match Tcp::connect(camera_addr) {
+    let transport = match TcpTransportBlocking::connect(camera_addr) {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -176,7 +176,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = GenericViscaCam::new(transport);
+    let camera = GenericViscaCam::new_blocking(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -316,7 +316,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 
     // Try to create transport
-    let transport = match Tcp::connect_timeout(camera_addr, Duration::from_secs(5)).await {
+    let transport = match TcpTransport::connect(camera_addr).await {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -328,7 +328,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = PTZOpticsG2Cam::new(transport);
+    let camera = PTZOpticsG2Cam::new_async(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

@@ -12,10 +12,10 @@ use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam};
 use grafton_visca::prelude::r#async::{GenericViscaCam, PTZOpticsG2Cam};
 
 #[cfg(not(feature = "tokio"))]
-use grafton_visca::transport::blocking::Tcp;
+use grafton_visca::transport::TcpTransportBlocking;
 
 #[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::Tcp;
+use grafton_visca::transport::TcpTransport;
 
 #[cfg(not(feature = "tokio"))]
 fn main() -> Result<(), Error> {
@@ -24,14 +24,14 @@ fn main() -> Result<(), Error> {
     println!("=== Camera Basic Example (Blocking) ===\n");
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
-    let transport = Tcp::connect("192.168.1.100:52381")?;
-    let _camera = GenericViscaCam::new(transport);
+    let transport = TcpTransportBlocking::connect("192.168.1.100:52381")?;
+    let _camera = GenericViscaCam::new_blocking(transport);
 
     println!("Using default profile: GenericVisca");
 
     // Create a camera with specific profile
-    let transport = Tcp::connect("192.168.1.100:52381")?;
-    let _camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransportBlocking::connect("192.168.1.100:52381")?;
+    let _camera = PTZOpticsG2Cam::new_blocking(transport);
 
     println!("\nUsing specific profile: PTZOpticsG2");
 
@@ -60,14 +60,14 @@ async fn main() -> Result<(), Error> {
     println!("=== Camera Basic Example (Async) ===\n");
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
-    let transport = Tcp::connect("192.168.1.100:52381").await?;
-    let _camera = GenericViscaCam::new(transport);
+    let transport = TcpTransport::connect("192.168.1.100:52381").await?;
+    let _camera = GenericViscaCam::new_async(transport);
 
     println!("Using default profile: GenericVisca");
 
     // Create a camera with specific profile
-    let transport = Tcp::connect("192.168.1.100:52381").await?;
-    let _camera = PTZOpticsG2Cam::new(transport);
+    let transport = TcpTransport::connect("192.168.1.100:52381").await?;
+    let _camera = PTZOpticsG2Cam::new_async(transport);
 
     println!("\nUsing specific profile: PTZOpticsG2");
 
