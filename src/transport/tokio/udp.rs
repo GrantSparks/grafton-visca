@@ -1,10 +1,12 @@
 //! Tokio UDP transport implementation using GAT.
 
 use crate::transport::core::Transport;
+use crate::transport::UnifiedTransport;
 use crate::Error;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::UdpSocket;
 
 /// Future type for UDP send operations.
@@ -92,5 +94,34 @@ impl Transport for Udp {
         UdpRecvFut {
             socket: &self.socket,
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl UnifiedTransport for Udp {
+    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
+        self.socket.send(bytes).await?;
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<bytes::Bytes, Error> {
+        let mut buffer = vec![0u8; 1024];
+        let n = self.socket.recv(&mut buffer).await?;
+        buffer.truncate(n);
+        Ok(bytes::Bytes::from(buffer))
+    }
+
+    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+        // Block on the async version
+        futures::executor::block_on(UnifiedTransport::send(self, bytes))
+    }
+
+    fn recv_blocking_timeout(&self, timeout: Duration) -> Result<bytes::Bytes, Error> {
+        // Use tokio's block_on with timeout
+        futures::executor::block_on(async {
+            tokio::time::timeout(timeout, UnifiedTransport::recv(self))
+                .await
+                .map_err(|_| Error::Timeout)?
+        })
     }
 }

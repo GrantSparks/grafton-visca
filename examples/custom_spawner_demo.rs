@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let transport = Tcp::connect("192.168.1.100:52381").await?;
         let handle = tokio::runtime::Handle::current();
         // For tokio feature, use the underlying camera directly
-        let inner_camera = crate::Camera::<PTZOpticsG2, _>::new_with_spawner(transport, handle);
+        let inner_camera = crate::Camera::<PTZOpticsG2, _>::new(transport).with_spawner(handle);
         let _camera = r#async::Camera::new(inner_camera);
 
         println!("Created camera with Tokio spawner");
@@ -83,9 +83,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        #[async_trait::async_trait]
+        impl grafton_visca::transport::UnifiedTransport for DummyTransport {
+            async fn send(&self, _bytes: &[u8]) -> Result<(), grafton_visca::Error> {
+                Ok(())
+            }
+
+            async fn recv(&self) -> Result<bytes::Bytes, grafton_visca::Error> {
+                Ok(bytes::Bytes::new())
+            }
+
+            fn send_blocking(&self, _bytes: &[u8]) -> Result<(), grafton_visca::Error> {
+                Ok(())
+            }
+
+            fn recv_blocking_timeout(
+                &self,
+                _timeout: std::time::Duration,
+            ) -> Result<bytes::Bytes, grafton_visca::Error> {
+                Ok(bytes::Bytes::new())
+            }
+        }
+
         let transport = DummyTransport;
         let spawner = ThreadSpawner;
-        let inner_camera = Camera::<PTZOpticsG2, _>::new_with_spawner(transport, spawner);
+        let inner_camera = Camera::<PTZOpticsG2, _>::new(transport).with_spawner(spawner);
         let _camera = r#async::Camera::new(inner_camera);
 
         println!("Created camera with thread-based spawner");
@@ -110,11 +132,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        #[async_trait::async_trait]
+        impl grafton_visca::transport::UnifiedTransport for DummyTransport {
+            async fn send(&self, _bytes: &[u8]) -> Result<(), grafton_visca::Error> {
+                Ok(())
+            }
+
+            async fn recv(&self) -> Result<bytes::Bytes, grafton_visca::Error> {
+                Ok(bytes::Bytes::new())
+            }
+
+            fn send_blocking(&self, _bytes: &[u8]) -> Result<(), grafton_visca::Error> {
+                Ok(())
+            }
+
+            fn recv_blocking_timeout(
+                &self,
+                _timeout: std::time::Duration,
+            ) -> Result<bytes::Bytes, grafton_visca::Error> {
+                Ok(bytes::Bytes::new())
+            }
+        }
+
         let transport = DummyTransport;
         let custom_spawner = CustomExecutorSpawner {
             _executor: std::sync::Arc::new(()),
         };
-        let inner_camera = Camera::<PTZOpticsG2, _>::new_with_spawner(transport, custom_spawner);
+        let inner_camera = Camera::<PTZOpticsG2, _>::new(transport).with_spawner(custom_spawner);
         let _camera = r#async::Camera::new(inner_camera);
 
         println!("Created camera with custom executor spawner");

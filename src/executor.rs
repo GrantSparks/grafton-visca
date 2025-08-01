@@ -59,7 +59,7 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 ///     
 ///     // Create camera with custom spawner
 ///     let spawner = AsyncStdSpawner;
-///     let camera = Camera::new_with_spawner(transport, spawner);
+///     let camera = Camera::new(transport).with_spawner(spawner);
 ///     
 ///     // Use the camera as normal
 ///     camera.pan_tilt_home().await?;
@@ -93,7 +93,7 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 ///         
 ///         // Create camera with smol spawner
 ///         let spawner = SmolSpawner(ex.clone());
-///         let camera = Camera::new_with_spawner(transport, spawner);
+///         let camera = Camera::new(transport).with_spawner(spawner);
 ///         
 ///         // Use the camera
 ///         camera.power_on().await?;
@@ -129,7 +129,7 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 ///     
 ///     // Wrap embassy spawner
 ///     let spawner = EmbassySpawnerWrapper(spawner);
-///     let camera = Camera::new_with_spawner(transport, spawner);
+///     let camera = Camera::new(transport).with_spawner(spawner);
 ///     
 ///     // Control camera
 ///     camera.zoom_in().await.ok();
