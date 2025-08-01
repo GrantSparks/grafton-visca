@@ -280,7 +280,6 @@
 //! }
 //! ```
 
-// Public modules - only what's needed for Camera<P> API
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
 
@@ -290,7 +289,6 @@ pub mod camera_id;
 /// Capability traits for camera feature composition
 pub mod capabilities;
 
-// Internal: VISCA command definitions (hidden from public API)
 pub(crate) mod command;
 
 /// Error types
@@ -300,7 +298,6 @@ pub use error::{Error, Result};
 /// Transport layer (most users won't need direct access)
 pub mod transport;
 
-// Internal modules - not part of public API
 #[cfg(feature = "async")]
 mod channels;
 mod constants;
@@ -311,35 +308,27 @@ pub mod types;
 /// Semantic unit types for intuitive API usage
 pub mod units;
 
-pub mod timeout; // Public for use in macros
+pub mod timeout;
 
-// Internal: Socket manager for VISCA protocol two-socket state machine (hidden from public API)
 #[cfg(feature = "async")]
 pub(crate) mod socket_manager;
 
-// Minimal blocking executor
 pub mod executor;
 
-// Wrapper modules for clean API
 pub mod blocking;
 
-// Note: r#async is a reserved keyword, so we use the raw identifier syntax
 #[cfg(feature = "async")]
 pub mod r#async;
 
-// Prelude for convenient imports
 pub mod prelude;
 pub use camera::Camera;
 pub use camera_id::CameraId;
 
-// Re-export unit types for convenience
+pub use types::{ExposureCompensationLevel, FStop, IntoIrisLevel, NDIQuality};
 pub use units::{
     Degrees, Fraction, Kelvin, Magnification, Normalized, Percentage, Raw, ViscaUnits,
 };
-// Re-export FStop from types
-pub use types::{ExposureCompensationLevel, FStop, IntoIrisLevel, NDIQuality};
 
-// Re-export commonly used command types through a cleaner namespace
 pub use command::{
     exposure::ExposureMode,
     focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone},
@@ -352,25 +341,18 @@ pub use command::{
     white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 
-// Re-export only the ViscaValue macro publicly
-// InquiryCommand macro is now used internally only
 pub use grafton_visca_macros::ViscaValue;
 
-// Re-export ProfileMetadata for camera profile introspection
 pub use capabilities::ProfileMetadata;
 
-// Re-export feature enumeration for documentation
 pub use capabilities::CameraFeature;
 
-// Re-export capability marker traits for downstream usage
 pub use capabilities::{
     HasAutoExposure, HasAutoFocus, HasBacklightCompensation, HasColorTemperature, HasExposure,
     HasExposureCompensation, HasFocus, HasHue, HasImageProcessing, HasLuminance, HasMenuControl,
     HasMotionSync, HasNDFilter, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPower,
     HasPresets, HasRGBGain, HasVariableSpeed, HasWDR, HasWhiteBalance, HasZoom,
 };
-
-// Macros are already exported with #[macro_export] so we don't need to re-export them
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {
