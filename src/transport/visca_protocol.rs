@@ -148,9 +148,13 @@ impl<T: Transport> ViscaProtocol<T> {
         {
             if let Some(sleep_impl) = &self.sleep_impl {
                 // Use the provided Sleep implementation
-                crate::executor::timeout_with_sleep(sleep_impl.as_ref(), duration, self.transport.recv())
-                    .await
-                    .map_err(Into::into)
+                crate::executor::timeout_with_sleep(
+                    sleep_impl.as_ref(),
+                    duration,
+                    self.transport.recv(),
+                )
+                .await?
+                .map_err(Into::into)
             } else {
                 #[cfg(feature = "tokio")]
                 {

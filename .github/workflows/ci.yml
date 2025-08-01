@@ -53,46 +53,50 @@ jobs:
           # Only save cache on main branch to avoid cache thrashing
           save-if: ${{ github.ref == 'refs/heads/main' }}
       
-      # Test default features
-      - name: Test default features
-        run: cargo test --verbose
+      # Test the three main configurations
+      
+      # Configuration 1: Blocking mode (no features)
+      - name: Test blocking mode (no features)
+        run: |
+          echo "Testing blocking mode (no features)..."
+          cargo test --no-default-features --verbose
         env:
           TMPDIR: ${{ runner.temp }}
       
-      # Test no default features
-      - name: Test no-default-features
+      # Configuration 2: Runtime-agnostic async (async feature only)
+      - name: Test runtime-agnostic async (async feature only)
         run: |
-          echo "Rust version:"
-          rustc --version
-          echo "Cargo version:"
-          cargo --version
-          echo "Testing with no default features..."
-          cargo test --no-default-features --verbose
+          echo "Testing runtime-agnostic async (async feature only)..."
+          cargo test --no-default-features --features async --verbose
       
-      # Test all features
-      - name: Test all-features
+      # Configuration 3: Tokio runtime (tokio feature, which implies async)
+      - name: Test tokio runtime (tokio feature)
+        run: |
+          echo "Testing tokio runtime (tokio feature)..."
+          cargo test --no-default-features --features tokio --verbose
+      
+      # Also test all features for completeness
+      - name: Test all features
         run: cargo test --all-features --verbose
       
-      # Test individual features
-      - name: Test async feature only
-        run: cargo test --no-default-features --features async --verbose
-      
-      # Test blocking mode (no features)
-      - name: Test blocking mode
-        run: cargo test --no-default-features --verbose --tests
-      
-      # Build examples (only on stable)
-      - name: Build examples with default features
+      # Build examples for the three configurations (only on stable)
+      - name: Build blocking examples (no features)
         if: matrix.rust == 'stable'
-        run: cargo build --examples
+        run: |
+          echo "Building blocking examples..."
+          cargo build --examples --no-default-features
       
-      - name: Build examples with all features
+      - name: Build async examples (async feature only)
         if: matrix.rust == 'stable'
-        run: cargo build --examples --all-features
+        run: |
+          echo "Building async examples (runtime-agnostic)..."
+          cargo build --examples --no-default-features --features async
       
-      - name: Build examples with async only
+      - name: Build tokio examples (tokio feature)
         if: matrix.rust == 'stable'
-        run: cargo build --examples --no-default-features --features async
+        run: |
+          echo "Building tokio examples..."
+          cargo build --examples --no-default-features --features tokio
 
   # Combined lint and doc check
   lint-and-docs:
@@ -110,17 +114,21 @@ jobs:
           shared-key: "rust-cache-ubuntu-latest-stable"
           save-if: ${{ github.ref == 'refs/heads/main' }}
       
-      # Run Clippy on all feature combinations
-      - name: Clippy (default features)
-        run: cargo clippy --all-targets -- -D warnings
-      
-      - name: Clippy (all features)
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      
-      - name: Clippy (no default features)
+      # Run Clippy on the three main configurations
+      - name: Clippy blocking mode (no features)
         run: cargo clippy --all-targets --no-default-features -- -D warnings
       
-      # Also check examples specifically
+      - name: Clippy async mode (async feature only)
+        run: cargo clippy --all-targets --no-default-features --features async -- -D warnings
+      
+      - name: Clippy tokio mode (tokio feature)
+        run: cargo clippy --all-targets --no-default-features --features tokio -- -D warnings
+      
+      # Also check all features
+      - name: Clippy all features
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      
+      # Check examples specifically
       - name: Clippy examples
         run: cargo clippy --examples --all-features -- -D warnings
       

@@ -72,7 +72,7 @@ pub trait TransportExt: Transport {
         async move {
             if let Some(sleep) = sleep_impl {
                 crate::executor::timeout_with_sleep(sleep, duration, self.recv())
-                    .await
+                    .await?
                     .map_err(Into::into)
             } else {
                 #[cfg(feature = "tokio")]
