@@ -38,17 +38,17 @@ use crate::runtime::RuntimeSpawner;
 /// # Examples
 ///
 /// ```ignore
-/// use grafton_visca::camera::generic::Camera;
-/// use grafton_visca::camera::profiles::PTZOpticsG2;
-/// use grafton_visca::transport::blocking::Tcp;
+/// use grafton_visca::{CameraBuilder, camera::profiles::PTZOpticsG2};
 ///
-/// // Create a camera with explicit profile type
+/// // Create a camera using the builder pattern
+/// let camera = CameraBuilder::tcp("192.168.1.100:52381")
+///     .profile::<PTZOpticsG2>()
+///     .build()?;
+///
+/// // Or create directly with a transport
+/// use grafton_visca::transport::blocking::Tcp;
 /// let transport = Tcp::connect("192.168.1.100:52381")?;
 /// let camera = Camera::<PTZOpticsG2, _>::new(transport);
-///
-/// // Or use the type alias
-/// use grafton_visca::prelude::PTZOpticsG2Cam;
-/// let camera = PTZOpticsG2Cam::new(transport);
 /// ```
 pub struct Camera<P, T>
 where
@@ -631,95 +631,6 @@ where
     }
 }
 
-// Connection factory methods for specific transport types
-impl<P> Camera<P, crate::transport::blocking::Tcp>
-where
-    P: Profile,
-{
-    /// Connect to a camera via blocking TCP.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2};
-    /// # use grafton_visca::Result;
-    /// # fn example() -> Result<()> {
-    /// let camera = Camera::<PTZOpticsG2, _>::connect_tcp("192.168.1.100:52381")?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn connect_tcp(addr: &str) -> Result<Self, Error> {
-        let transport = crate::transport::blocking::Tcp::connect(addr)?;
-        Ok(Self::from_transport(transport))
-    }
-}
-
-impl<P> Camera<P, crate::transport::blocking::Udp>
-where
-    P: Profile,
-{
-    /// Connect to a camera via blocking UDP.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2};
-    /// # use grafton_visca::Result;
-    /// # fn example() -> Result<()> {
-    /// let camera = Camera::<PTZOpticsG2, _>::connect_udp("192.168.1.100:52381")?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn connect_udp(addr: &str) -> Result<Self, Error> {
-        let transport = crate::transport::blocking::Udp::connect(addr)?;
-        Ok(Self::from_transport(transport))
-    }
-}
-
-#[cfg(feature = "tokio")]
-impl<P> Camera<P, crate::transport::tokio::Tcp>
-where
-    P: Profile,
-{
-    /// Connect to a camera via async TCP (tokio).
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2};
-    /// # use grafton_visca::Result;
-    /// # #[tokio::main]
-    /// # async fn example() -> Result<()> {
-    /// let camera = Camera::<PTZOpticsG2, _>::connect_tokio_tcp("192.168.1.100:52381").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn connect_tokio_tcp(addr: &str) -> Result<Self, Error> {
-        let transport = crate::transport::tokio::Tcp::connect(addr).await?;
-        Ok(Self::from_transport(transport))
-    }
-}
-
-#[cfg(feature = "tokio")]
-impl<P> Camera<P, crate::transport::tokio::Udp>
-where
-    P: Profile,
-{
-    /// Connect to a camera via async UDP (tokio).
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2};
-    /// # use grafton_visca::Result;
-    /// # #[tokio::main]
-    /// # async fn example() -> Result<()> {
-    /// let camera = Camera::<PTZOpticsG2, _>::connect_tokio_udp("192.168.1.100:52381").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn connect_tokio_udp(addr: &str) -> Result<Self, Error> {
-        let transport = crate::transport::tokio::Udp::connect(addr).await?;
-        Ok(Self::from_transport(transport))
-    }
-}
-
 // Generic constructor for custom transports
 impl<P, T> Camera<P, T>
 where
@@ -728,11 +639,11 @@ where
 {
     /// Create a new camera with a custom transport.
     ///
-    /// For standard TCP/UDP transports, prefer using the connection factory methods:
-    /// - `connect_tcp()` for blocking TCP
-    /// - `connect_udp()` for blocking UDP
-    /// - `connect_tokio_tcp()` for async TCP with tokio
-    /// - `connect_tokio_udp()` for async UDP with tokio
+    /// For standard TCP/UDP transports, prefer using the CameraBuilder:
+    /// - `CameraBuilder::tcp()` for blocking TCP
+    /// - `CameraBuilder::udp()` for blocking UDP
+    /// - `CameraBuilder::tokio_tcp()` for async TCP with tokio
+    /// - `CameraBuilder::tokio_udp()` for async UDP with tokio
     pub fn new(transport: T) -> Self {
         Self::from_transport(transport)
     }

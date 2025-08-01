@@ -1082,5 +1082,5 @@ mod tests {
     }
 }
 
-// Connection helpers are now provided directly on the Camera struct.
-// Use Camera::<Profile, _>::connect_tcp() etc.
+// Connection helpers are now provided via CameraBuilder.
+// Use CameraBuilder::tcp() etc.

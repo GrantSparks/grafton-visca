@@ -1,0 +1,13 @@
+error[E0599]: no method named `profile` found for struct `TypedTcpBuilder` in the current scope
+ --> tests/ui/builder_double_profile.rs:9:10
+  |
+7 |       let _camera = CameraBuilder::tcp("192.168.1.100:52381")
+  |                     -----------------------------------------
+  |                     |
+  |  ___________________method `profile` is available on `TcpBuilder<'_>`
+  | |
+8 | |         .profile::<PTZOpticsG2>()
+9 | |         .profile::<GenericVisca>() // Error: no method named `profile` found
+  | |         -^^^^^^^ method not found in `TypedTcpBuilder<'_, PTZOpticsG2>`
+  | |_________|
+  |

@@ -42,17 +42,13 @@
 //!
 //! ### Camera - No Generics Required!
 //! ```ignore
-//! use grafton_visca::{Error, prelude::*};
-//! use grafton_visca::transport::blocking::Tcp;
+//! use grafton_visca::{CameraBuilder, Error, prelude::*};
 //!
 //! fn main() -> Result<(), Error> {
-//!     // Create camera with default profile (GenericVisca)
-//!     let transport = Tcp::connect("192.168.1.100:52381")?;
-//!     let camera = GenericViscaCam::new(transport);
-//!
-//!     // Or create a specific camera model
-//!     let transport = Tcp::connect("192.168.1.100:52381")?;
-//!     let camera = PTZOpticsG2Cam::new(transport);
+//!     // Create camera using the builder pattern
+//!     let camera = CameraBuilder::tcp("192.168.1.100:52381")
+//!         .profile::<PTZOpticsG2>()
+//!         .build()?;
 //!
 //!     // Camera model is known at compile time
 //!     println!("Using PTZOptics G2 camera");
@@ -67,14 +63,15 @@
 //!
 //! ### Async Example
 //! ```ignore
-//! use grafton_visca::{Error, r#async::prelude::*};
-//! use grafton_visca::transport::tokio::Tcp;
+//! use grafton_visca::{CameraBuilder, Error, r#async::prelude::*};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
-//!     // Create camera with specific profile
-//!     let transport = Tcp::connect("192.168.1.100:52381").await?;
-//!     let camera = PTZOpticsG2Cam::new(transport);
+//!     // Create camera using the builder pattern
+//!     let camera = CameraBuilder::tokio_tcp("192.168.1.100:52381")
+//!         .profile::<PTZOpticsG2>()
+//!         .build()
+//!         .await?;
 //!
 //!     // Same API, just with .await
 //!     camera.power_on().await?;
@@ -322,7 +319,7 @@ pub mod blocking;
 pub mod r#async;
 
 pub mod prelude;
-pub use camera::Camera;
+pub use camera::{Camera, CameraBuilder};
 pub use camera_id::CameraId;
 
 pub use types::{ExposureCompensationLevel, FStop, IntoIrisLevel, NDIQuality};
