@@ -146,12 +146,12 @@ impl TestScenario {
                     responses,
                     description,
                 } => {
-                    let expectation = transport.expect_command(command);
-                    expectation.described_as(description);
-
+                    let mut expectation = transport.expect_command(command).described_as(description);
+                    
                     for response in responses {
-                        expectation.will_respond(response.clone());
+                        expectation = expectation.will_respond(response.clone());
                     }
+                    // expectation will be committed when it drops here
                 }
 
                 ScenarioStep::Delay(duration) => {

@@ -64,6 +64,14 @@ pub struct TransportExpectation {
     pub description: Option<String>,
 }
 
+/// Builder for configuring transport expectations
+pub struct ExpectationBuilder {
+    transport: Arc<Mutex<MockTransportInner>>,
+    command: Vec<u8>,
+    responses: Vec<MockResponse>,
+    description: Option<String>,
+}
+
 /// A mock response to return
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
@@ -125,20 +133,13 @@ impl MockTransport {
     }
 
     /// Expect a specific command to be sent
-    pub fn expect_command(&mut self, command: &[u8]) -> &mut TransportExpectation {
-        let mut inner = self.inner.lock().unwrap();
-        inner.expectations.push_back(TransportExpectation {
+    pub fn expect_command(&mut self, command: &[u8]) -> ExpectationBuilder {
+        ExpectationBuilder {
+            transport: self.inner.clone(),
             command: command.to_vec(),
             responses: Vec::new(),
-            met: false,
             description: None,
-        });
-
-        // Return a mutable reference through unsafe pointer manipulation
-        // This is safe because we hold the mutex lock
-        let expectation_ptr = inner.expectations.back_mut().unwrap() as *mut TransportExpectation;
-        drop(inner); // Release the lock
-        unsafe { &mut *expectation_ptr }
+        }
     }
 
     /// Queue a response to return (without expectation)
@@ -194,29 +195,29 @@ impl MockTransport {
 }
 
 #[allow(dead_code)]
-impl TransportExpectation {
+impl ExpectationBuilder {
     /// Expect an ACK response with the given socket number
-    pub fn will_ack(&mut self, socket: u8) -> &mut Self {
+    pub fn will_ack(mut self, socket: u8) -> Self {
         self.responses
             .push(MockResponse::Immediate(vec![0x90, 0x40 | socket, 0xFF]));
         self
     }
 
     /// Expect a completion response after ACK
-    pub fn then_complete(&mut self, socket: u8) -> &mut Self {
+    pub fn then_complete(mut self, socket: u8) -> Self {
         self.responses
             .push(MockResponse::Immediate(vec![0x90, 0x50 | socket, 0xFF]));
         self
     }
 
     /// Expect an error response
-    pub fn will_error(&mut self, error_code: u8) -> &mut Self {
+    pub fn will_error(mut self, error_code: u8) -> Self {
         self.responses.push(MockResponse::ErrorCode(error_code));
         self
     }
 
     /// Expect an inquiry data response
-    pub fn will_return_data(&mut self, data: &[u8]) -> &mut Self {
+    pub fn will_return_data(mut self, data: &[u8]) -> Self {
         let mut response = vec![0x90, 0x50];
         response.extend_from_slice(data);
         response.push(0xFF);
@@ -225,15 +226,27 @@ impl TransportExpectation {
     }
 
     /// Add a custom response
-    pub fn will_respond(&mut self, response: MockResponse) -> &mut Self {
+    pub fn will_respond(mut self, response: MockResponse) -> Self {
         self.responses.push(response);
         self
     }
 
     /// Add a description for better error messages
-    pub fn described_as(&mut self, description: &str) -> &mut Self {
+    pub fn described_as(mut self, description: &str) -> Self {
         self.description = Some(description.to_string());
         self
+    }
+}
+
+impl Drop for ExpectationBuilder {
+    fn drop(&mut self) {
+        let mut inner = self.transport.lock().unwrap();
+        inner.expectations.push_back(TransportExpectation {
+            command: self.command.clone(),
+            responses: self.responses.clone(),
+            met: false,
+            description: self.description.clone(),
+        });
     }
 }
 

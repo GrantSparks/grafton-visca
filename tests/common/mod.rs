@@ -4,8 +4,6 @@
 //! This module provides shared mock implementations and utilities
 //! to avoid code duplication across test files.
 
-// Allow unsafe in tests for creating mock wakers
-#![allow(unsafe_code)]
 // Allow dead code in test utilities since not all utilities are used in every test file
 #![allow(dead_code)]
 
