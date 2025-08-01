@@ -24,7 +24,7 @@ fn main() -> Result<()> {
             // For example: camera.pan_tilt_home()?;
         }
         Err(e) => {
-            println!("Failed to create TCP camera: {}", e);
+            println!("Failed to create TCP camera: {e}");
         }
     }
 
@@ -40,7 +40,7 @@ fn main() -> Result<()> {
             // The GenericVisca profile supports a wide range of VISCA commands
         }
         Err(e) => {
-            println!("Failed to create UDP camera: {}", e);
+            println!("Failed to create UDP camera: {e}");
         }
     }
 
@@ -72,7 +72,7 @@ fn main() -> Result<()> {
         .build();
 
     if let Err(e) = result {
-        println!("Expected error for invalid address: {}", e);
+        println!("Expected error for invalid address: {e}");
     }
 
     Ok(())
