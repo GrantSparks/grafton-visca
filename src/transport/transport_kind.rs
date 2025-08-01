@@ -8,6 +8,7 @@ use bytes::Bytes;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
+use pin_project::pin_project;
 
 #[cfg(feature = "tokio")]
 use crate::transport::tokio::{tcp::Tcp as TokioTcp, udp::Udp as TokioUdp};
@@ -15,77 +16,63 @@ use crate::transport::tokio::{tcp::Tcp as TokioTcp, udp::Udp as TokioUdp};
 use crate::transport::blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 
 /// Future type for TransportKind send operations.
+#[pin_project(project = TransportKindSendFutProj)]
 #[derive(Debug)]
 pub enum TransportKindSendFut<'a> {
     /// Blocking TCP send future
-    BlockingTcp(<BlockingTcp as Transport>::SendFut<'a>),
+    BlockingTcp(#[pin] <BlockingTcp as Transport>::SendFut<'a>),
     /// Blocking UDP send future
-    BlockingUdp(<BlockingUdp as Transport>::SendFut<'a>),
+    BlockingUdp(#[pin] <BlockingUdp as Transport>::SendFut<'a>),
     #[cfg(feature = "tokio")]
     /// Tokio TCP send future
-    TokioTcp(<TokioTcp as Transport>::SendFut<'a>),
+    TokioTcp(#[pin] <TokioTcp as Transport>::SendFut<'a>),
     #[cfg(feature = "tokio")]
     /// Tokio UDP send future
-    TokioUdp(<TokioUdp as Transport>::SendFut<'a>),
+    TokioUdp(#[pin] <TokioUdp as Transport>::SendFut<'a>),
 }
-
-// Safety: The inner futures are Send, so the enum is Send
-#[allow(unsafe_code)]
-unsafe impl Send for TransportKindSendFut<'_> {}
 
 impl Future for TransportKindSendFut<'_> {
     type Output = Result<(), Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Safety: We're not moving the inner futures, just polling them
-        #[allow(unsafe_code)]
-        unsafe {
-            match self.get_unchecked_mut() {
-                TransportKindSendFut::BlockingTcp(f) => Pin::new_unchecked(f).poll(cx),
-                TransportKindSendFut::BlockingUdp(f) => Pin::new_unchecked(f).poll(cx),
-                #[cfg(feature = "tokio")]
-                TransportKindSendFut::TokioTcp(f) => Pin::new_unchecked(f).poll(cx),
-                #[cfg(feature = "tokio")]
-                TransportKindSendFut::TokioUdp(f) => Pin::new_unchecked(f).poll(cx),
-            }
+        match self.project() {
+            TransportKindSendFutProj::BlockingTcp(f) => f.poll(cx),
+            TransportKindSendFutProj::BlockingUdp(f) => f.poll(cx),
+            #[cfg(feature = "tokio")]
+            TransportKindSendFutProj::TokioTcp(f) => f.poll(cx),
+            #[cfg(feature = "tokio")]
+            TransportKindSendFutProj::TokioUdp(f) => f.poll(cx),
         }
     }
 }
 
 /// Future type for TransportKind receive operations.
+#[pin_project(project = TransportKindRecvFutProj)]
 #[derive(Debug)]
 pub enum TransportKindRecvFut<'a> {
     /// Blocking TCP receive future
-    BlockingTcp(<BlockingTcp as Transport>::RecvFut<'a>),
+    BlockingTcp(#[pin] <BlockingTcp as Transport>::RecvFut<'a>),
     /// Blocking UDP receive future
-    BlockingUdp(<BlockingUdp as Transport>::RecvFut<'a>),
+    BlockingUdp(#[pin] <BlockingUdp as Transport>::RecvFut<'a>),
     #[cfg(feature = "tokio")]
     /// Tokio TCP receive future
-    TokioTcp(<TokioTcp as Transport>::RecvFut<'a>),
+    TokioTcp(#[pin] <TokioTcp as Transport>::RecvFut<'a>),
     #[cfg(feature = "tokio")]
     /// Tokio UDP receive future
-    TokioUdp(<TokioUdp as Transport>::RecvFut<'a>),
+    TokioUdp(#[pin] <TokioUdp as Transport>::RecvFut<'a>),
 }
-
-// Safety: The inner futures are Send, so the enum is Send
-#[allow(unsafe_code)]
-unsafe impl Send for TransportKindRecvFut<'_> {}
 
 impl Future for TransportKindRecvFut<'_> {
     type Output = Result<Bytes, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Safety: We're not moving the inner futures, just polling them
-        #[allow(unsafe_code)]
-        unsafe {
-            match self.get_unchecked_mut() {
-                TransportKindRecvFut::BlockingTcp(f) => Pin::new_unchecked(f).poll(cx),
-                TransportKindRecvFut::BlockingUdp(f) => Pin::new_unchecked(f).poll(cx),
-                #[cfg(feature = "tokio")]
-                TransportKindRecvFut::TokioTcp(f) => Pin::new_unchecked(f).poll(cx),
-                #[cfg(feature = "tokio")]
-                TransportKindRecvFut::TokioUdp(f) => Pin::new_unchecked(f).poll(cx),
-            }
+        match self.project() {
+            TransportKindRecvFutProj::BlockingTcp(f) => f.poll(cx),
+            TransportKindRecvFutProj::BlockingUdp(f) => f.poll(cx),
+            #[cfg(feature = "tokio")]
+            TransportKindRecvFutProj::TokioTcp(f) => f.poll(cx),
+            #[cfg(feature = "tokio")]
+            TransportKindRecvFutProj::TokioUdp(f) => f.poll(cx),
         }
     }
 }

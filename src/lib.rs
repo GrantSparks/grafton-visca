@@ -3,6 +3,7 @@
 //! Rust library for VISCA over IP protocol to control PTZ cameras.
 
 // Lints configuration
+#![forbid(unsafe_code)]
 #![warn(
     clippy::all,
     missing_docs,
@@ -10,7 +11,6 @@
     missing_copy_implementations,
     trivial_casts,
     trivial_numeric_casts,
-    unsafe_code,
     unused_qualifications
 )]
 #![deny(
