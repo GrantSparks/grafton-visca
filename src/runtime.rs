@@ -4,18 +4,15 @@
 //! allowing the library to work with tokio, async-std, smol, or any other runtime.
 
 #[cfg(feature = "async")]
-use crate::Error;
-#[cfg(feature = "async")]
 use core::future::Future;
 #[cfg(feature = "async")]
-use std::pin::Pin;
-#[cfg(feature = "async")]
-use std::sync::Arc;
-#[cfg(feature = "async")]
-use std::time::Duration;
+use std::{pin::Pin, sync::Arc, time::Duration};
 
 #[cfg(feature = "async")]
-use crate::executor::{Sleep, SpawnableFuture, Spawner};
+use crate::{
+    executor::{Sleep, SpawnableFuture, Spawner},
+    Error,
+};
 
 /// Runtime abstraction that provides all async runtime operations.
 ///
@@ -28,9 +25,6 @@ pub trait Runtime: Send + Sync + 'static {
 
     /// Sleep for the specified duration.
     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
-
-    // Note: timeout is not part of the trait to keep it object-safe.
-    // Use the free function `timeout_with_runtime` instead.
 }
 
 /// Tokio runtime implementation.
@@ -47,8 +41,6 @@ impl Runtime for TokioRuntime {
     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(tokio::time::sleep(duration))
     }
-
-    // Use tokio's optimized timeout directly via the free function
 }
 
 /// Generic runtime implementation using Sleep and Spawner traits.
