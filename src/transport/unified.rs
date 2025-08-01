@@ -71,7 +71,7 @@ where
                 futures::executor::block_on(async {
                     crate::executor::timeout_with_sleep(sleep_impl.as_ref(), timeout, self.recv())
                         .await
-                })
+                })?
             } else {
                 #[cfg(feature = "tokio")]
                 {
