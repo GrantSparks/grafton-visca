@@ -3,19 +3,18 @@
 //! This module contains camera profiles composed from capability traits,
 //! enabling compile-time feature detection and type-safe operations.
 
-use std::borrow::Cow;
-use std::fmt;
-use std::time::Duration;
+use std::{borrow::Cow, fmt, time::Duration};
 
-use crate::capabilities::{
-    CoordinateSystem, Exposure, Focus, ImageProcessing, MenuControl, MotionSync, NDFilter,
-    NDFilterMode, PanTilt, Power, Presets, ProfileMetadata, ProtocolStyle, ShutterSpeed,
-    VariableSpeed, WhiteBalance, Zoom,
+use crate::{
+    capabilities::{
+        CoordinateSystem, Exposure, Focus, ImageProcessing, MenuControl, MotionSync, NDFilter,
+        NDFilterMode, PanTilt, Power, Presets, ProfileMetadata, ProtocolStyle, ShutterSpeed,
+        VariableSpeed, WhiteBalance, Zoom,
+    },
+    error::Error,
+    WhiteBalanceMode,
 };
-use crate::error::Error;
-use crate::WhiteBalanceMode;
 
-// Import exposure constants
 mod exposure_constants {
     use crate::capabilities::ShutterSpeed;
 
@@ -54,7 +53,6 @@ mod exposure_constants {
 
 use exposure_constants::*;
 
-// White balance modes
 const PTZOPTICS_G2_WB_MODES: &[WhiteBalanceMode] = &[
     WhiteBalanceMode::Auto,
     WhiteBalanceMode::Indoor,
@@ -96,7 +94,6 @@ const SONY_BRC_WB_MODES: &[WhiteBalanceMode] = &[
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PTZOpticsG2;
 
-// Core metadata
 impl ProfileMetadata for PTZOpticsG2 {
     const MODEL_NAME: &'static str = "PTZOptics G2";
     const DEFAULT_ADDRESS: u8 = 1;
@@ -105,7 +102,6 @@ impl ProfileMetadata for PTZOpticsG2 {
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
 }
 
-// Movement capabilities
 impl PanTilt for PTZOpticsG2 {
     const PAN_RANGE: std::ops::Range<i16> = -2448..2449;
     const TILT_RANGE: std::ops::Range<i16> = -432..1297;
@@ -115,15 +111,13 @@ impl PanTilt for PTZOpticsG2 {
     const TILT_DEGREES_TO_UNITS: f32 = 14.4; // (1296+432)/120
 }
 
-// Zoom capabilities
 impl Zoom for PTZOpticsG2 {
     const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
-    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000); // Additional digital zoom
+    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3; // 0x4000 / (20-1)
 }
 
-// Focus capabilities
 impl Focus for PTZOpticsG2 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
@@ -131,17 +125,15 @@ impl Focus for PTZOpticsG2 {
     const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
 }
 
-// Exposure capabilities
 impl Exposure for PTZOpticsG2 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
-    const GAIN_RANGE: std::ops::Range<u8> = 0..9; // 0dB to 24dB in 3dB steps
+    const GAIN_RANGE: std::ops::Range<u8> = 0..9;
     const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
 }
 
-// White balance capabilities
 impl WhiteBalance for PTZOpticsG2 {
     const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
@@ -149,7 +141,6 @@ impl WhiteBalance for PTZOpticsG2 {
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
 }
 
-// Image processing capabilities
 impl ImageProcessing for PTZOpticsG2 {
     const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
@@ -162,30 +153,23 @@ impl ImageProcessing for PTZOpticsG2 {
     const SUPPORTS_3D_NR: bool = true;
 }
 
-// Preset capabilities
 impl Presets for PTZOpticsG2 {
     const MAX_PRESETS: u8 = 89;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
-    const SUPPORTS_PRESET_TOUR: bool = false; // G2 doesn't support tour
+    const SUPPORTS_PRESET_TOUR: bool = false;
 }
 
-// Power capabilities
 impl Power for PTZOpticsG2 {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = true;
 }
 
-// Motion Sync capabilities (firmware 1.1.6+)
 impl MotionSync for PTZOpticsG2 {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
-// Basic menu control support
 impl MenuControl for PTZOpticsG2 {}
 
-// Note: PTZOpticsG2 does NOT implement NDFilter
-
-// Marker trait implementations for specific features
 impl crate::capabilities::HasAutoExposure for PTZOpticsG2 {}
 impl crate::capabilities::HasBacklightCompensation for PTZOpticsG2 {}
 impl crate::capabilities::HasWDR for PTZOpticsG2 {}
@@ -207,13 +191,12 @@ impl ProfileMetadata for GenericVisca {
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(10000);
 }
 
-// Only implement basic capabilities for generic camera
 impl PanTilt for GenericVisca {
     const PAN_RANGE: std::ops::Range<i16> = -2880..2881; // ±180°
     const TILT_RANGE: std::ops::Range<i16> = -1440..1441; // ±90°
     const MAX_PAN_SPEED: u8 = 24;
     const MAX_TILT_SPEED: u8 = 24;
-    const PAN_DEGREES_TO_UNITS: f32 = 16.0; // Conservative
+    const PAN_DEGREES_TO_UNITS: f32 = 16.0;
     const TILT_DEGREES_TO_UNITS: f32 = 16.0;
 }
 
@@ -221,18 +204,16 @@ impl Zoom for GenericVisca {
     const OPTICAL_ZOOM_MAX: u16 = 0xFFFF;
     const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
-    const SUPPORTS_DIRECT_ZOOM: bool = false; // Conservative
-    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1000.0; // Approximate
+    const SUPPORTS_DIRECT_ZOOM: bool = false;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1000.0;
 }
 
 impl Power for GenericVisca {
     const POWER_ON_TIME: Duration = Duration::from_secs(30);
     const SUPPORTS_STANDBY: bool = false;
 }
-// Basic menu control support
 impl MenuControl for GenericVisca {}
 
-// Generic cameras usually support basic exposure control
 impl Exposure for GenericVisca {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1C;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
@@ -243,7 +224,6 @@ impl Exposure for GenericVisca {
     const SUPPORTS_EXPOSURE_COMP: bool = false;
 }
 
-// And basic white balance
 impl WhiteBalance for GenericVisca {
     const WB_MODES: &'static [WhiteBalanceMode] = GENERIC_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
@@ -253,7 +233,6 @@ impl WhiteBalance for GenericVisca {
     const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = None;
 }
 
-// Basic focus support
 impl Focus for GenericVisca {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xE000;
@@ -263,7 +242,6 @@ impl Focus for GenericVisca {
     const SUPPORTS_AF_SENSITIVITY: bool = false;
 }
 
-// Basic image processing support
 impl ImageProcessing for GenericVisca {
     const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
@@ -278,15 +256,13 @@ impl ImageProcessing for GenericVisca {
     const SUPPORTS_3D_NR: bool = false;
 }
 
-// Basic preset support
 impl Presets for GenericVisca {
-    const MAX_PRESETS: u8 = 6; // Conservative - most cameras have at least 6
+    const MAX_PRESETS: u8 = 6;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..24;
     const SUPPORTS_PRESET_TOUR: bool = false;
     const SUPPORTS_PRESET_THUMBNAIL: bool = false;
 }
 
-// Marker trait implementations for specific features
 impl crate::capabilities::HasAutoExposure for GenericVisca {}
 impl crate::capabilities::HasOnePushWhiteBalance for GenericVisca {}
 impl crate::capabilities::HasAutoFocus for GenericVisca {}
@@ -306,9 +282,8 @@ impl ProfileMetadata for SonyFR7 {
     const BUSY_TIMEOUT: Duration = Duration::from_millis(240);
 }
 
-// FR7 has all the standard features
 impl PanTilt for SonyFR7 {
-    const PAN_RANGE: std::ops::Range<i16> = -2700..2701; // ±170° approx
+    const PAN_RANGE: std::ops::Range<i16> = -2700..2701; // ±170°
     const TILT_RANGE: std::ops::Range<i16> = -300..1201; // -20° to +80°
     const MAX_PAN_SPEED: u8 = 24;
     const MAX_TILT_SPEED: u8 = 24;
@@ -334,7 +309,7 @@ impl Focus for SonyFR7 {
 
 impl Exposure for SonyFR7 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1F;
-    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS; // Similar speeds
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..16;
     const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -378,22 +353,18 @@ impl Power for SonyFR7 {
     const SUPPORTS_WAKE_ON_LAN: bool = true;
 }
 
-// FR7 DOES have ND filter support!
 impl NDFilter for SonyFR7 {
     const ND_MODE: NDFilterMode = NDFilterMode::Variable;
-    const ND_STEPS: Option<u8> = None; // Continuous adjustment
+    const ND_STEPS: Option<u8> = None;
 }
-// FR7 has advanced menu control including direct control
 impl MenuControl for SonyFR7 {
     const SUPPORTS_DIRECT_CONTROL: bool = true;
 }
 
-// FR7 supports variable speed mode (24-step and 50-step)
 impl VariableSpeed for SonyFR7 {
     const SUPPORTS_VARIABLE_SPEED: bool = true;
 }
 
-// Marker trait implementations for specific features
 impl crate::capabilities::HasAutoExposure for SonyFR7 {}
 impl crate::capabilities::HasBacklightCompensation for SonyFR7 {}
 impl crate::capabilities::HasWDR for SonyFR7 {}
@@ -482,7 +453,6 @@ impl Power for SonyBRCH900 {
     const POWER_ON_TIME: Duration = Duration::from_secs(12);
     const SUPPORTS_STANDBY: bool = true;
 }
-// Basic menu control support
 impl MenuControl for SonyBRCH900 {}
 
 /// Sony EVI-H100 camera profile.
@@ -539,7 +509,7 @@ impl WhiteBalance for SonyEVIH100 {
 }
 
 impl Presets for SonyEVIH100 {
-    const MAX_PRESETS: u8 = 6; // Limited preset support
+    const MAX_PRESETS: u8 = 6;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..20;
     const SUPPORTS_PRESET_TOUR: bool = false;
 }
@@ -549,20 +519,18 @@ impl Power for SonyEVIH100 {
     const SUPPORTS_STANDBY: bool = true;
 }
 
-// EVI-H100 has limited image processing per VISCA documentation
 impl ImageProcessing for SonyEVIH100 {
-    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..0; // Not supported
-    const CONTRAST_RANGE: std::ops::Range<u8> = 0..0; // Not supported
-    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..0; // Not supported
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..0;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..0;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..0;
     const SATURATION_RANGE: Option<std::ops::Range<u8>> = None;
-    const SUPPORTS_FLIP: bool = true; // Has flip/mirror per documentation
+    const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;
-    const SUPPORTS_NOISE_REDUCTION: bool = true; // Has NR per documentation
+    const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = false;
     const SUPPORTS_3D_NR: bool = false;
 }
 
-// Basic menu control support
 impl MenuControl for SonyEVIH100 {}
 
 /// Sony BRC-300 camera profile.
@@ -580,8 +548,8 @@ impl ProfileMetadata for SonyBRC300 {
 }
 
 impl PanTilt for SonyBRC300 {
-    const PAN_RANGE: std::ops::Range<i16> = -1170..1171; // Logical range (±90°)
-    const TILT_RANGE: std::ops::Range<i16> = -390..391; // Logical range (±30°)
+    const PAN_RANGE: std::ops::Range<i16> = -1170..1171; // ±90°
+    const TILT_RANGE: std::ops::Range<i16> = -390..391; // ±30°
     const MAX_PAN_SPEED: u8 = 18;
     const MAX_TILT_SPEED: u8 = 17;
     const PAN_DEGREES_TO_UNITS: f32 = 13.0;
@@ -630,11 +598,10 @@ impl Power for SonyBRC300 {
     const SUPPORTS_STANDBY: bool = false;
 }
 
-// BRC-300 is a legacy model with minimal image processing
 impl ImageProcessing for SonyBRC300 {
-    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..0; // Not supported
-    const CONTRAST_RANGE: std::ops::Range<u8> = 0..0; // Not supported
-    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..0; // Not supported
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..0;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..0;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..0;
     const SATURATION_RANGE: Option<std::ops::Range<u8>> = None;
     const SUPPORTS_FLIP: bool = false;
     const SUPPORTS_MIRROR: bool = false;
@@ -643,7 +610,6 @@ impl ImageProcessing for SonyBRC300 {
     const SUPPORTS_3D_NR: bool = false;
 }
 
-// Basic menu control support
 impl MenuControl for SonyBRC300 {}
 
 /// Nearus BRC-300 camera profile.
@@ -660,7 +626,6 @@ impl ProfileMetadata for NearusBRC300 {
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
 }
 
-// Nearus BRC-300 shares most characteristics with Sony BRC-300
 impl PanTilt for NearusBRC300 {
     const PAN_RANGE: std::ops::Range<i16> = -1170..1171;
     const TILT_RANGE: std::ops::Range<i16> = -390..391;
@@ -722,7 +687,6 @@ impl ImageProcessing for NearusBRC300 {
     const SUPPORTS_NOISE_REDUCTION: bool = false;
 }
 
-// Basic menu control support
 impl MenuControl for NearusBRC300 {}
 
 /// PTZOptics G3 camera profile.
@@ -791,7 +755,7 @@ impl ImageProcessing for PTZOpticsG3 {
 }
 
 impl Presets for PTZOpticsG3 {
-    const MAX_PRESETS: u8 = 255; // G3 has more presets than G2
+    const MAX_PRESETS: u8 = 255;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
     const SUPPORTS_PRESET_TOUR: bool = true;
 }
@@ -800,10 +764,8 @@ impl Power for PTZOpticsG3 {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = true;
 }
-// Basic menu control support
 impl MenuControl for PTZOpticsG3 {}
 
-// Motion Sync capabilities (firmware 1.1.6+)
 impl MotionSync for PTZOpticsG3 {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
@@ -884,16 +846,12 @@ impl Power for PTZOptics30X {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = true;
 }
-// Basic menu control support
 impl MenuControl for PTZOptics30X {}
 
-// Motion Sync capabilities (firmware 1.1.6+)
 impl MotionSync for PTZOptics30X {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
-
-// Associated types for presets and gain (keeping compatibility)
 
 /// Preset ID for PTZOptics G2 cameras (0-89).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1022,12 +980,10 @@ mod tests {
     fn test_ptzoptics_g2_capabilities() {
         let camera = PTZOpticsG2;
 
-        // Test pan/tilt validation
         assert!(camera.validate_pan(0).is_ok());
         assert!(camera.validate_pan(2448).is_ok());
         assert!(camera.validate_pan(2449).is_err());
 
-        // Test degree conversion
         assert_eq!(camera.degrees_to_pan_units(170.0), 2448);
         assert_eq!(camera.pan_units_to_degrees(2448), 170.0);
     }
@@ -1036,11 +992,6 @@ mod tests {
     fn test_nd_filter_capability() {
         let fr7 = SonyFR7;
 
-        // Test that we can compile-time detect ND filter support
-        // G2 doesn't implement NDFilter, so we can't call has_nd_filter() on it
-        // This is the whole point - compile-time safety!
-
-        // FR7 does have ND filter
         assert!(fr7.has_nd_filter());
         assert_eq!(fr7.nd_filter_description(), "Variable ND filter");
         assert!(fr7.validate_nd_filter(128).is_ok());
@@ -1062,18 +1013,14 @@ mod tests {
     fn test_profile_introspection() {
         use crate::capabilities::ProfileIntrospection;
 
-        // Test that ProfileIntrospection trait is available
         let g2 = PTZOpticsG2;
         let fr7 = SonyFR7;
         let generic = GenericVisca;
 
-        // The default implementation returns false for all
-        // This is a limitation noted in the trait definition
         assert!(!g2.supports_nd_filter());
         assert!(!fr7.supports_nd_filter());
         assert!(!generic.supports_nd_filter());
 
-        // But we can still get capability summaries
         let g2_summary = g2.capability_summary();
         assert!(g2_summary.contains("PTZOptics G2"));
 
@@ -1081,6 +1028,3 @@ mod tests {
         assert!(fr7_summary.contains("Sony FR7"));
     }
 }
-
-// Connection helpers are now provided via CameraBuilder.
-// Use CameraBuilder::tcp() etc.

@@ -3,10 +3,7 @@
 //! This module provides the new generic Camera<P, T> struct that uses
 //! compile-time profile selection for zero-cost abstractions.
 
-use std::borrow::Cow;
-use std::marker::PhantomData;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{borrow::Cow, marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::{
     camera_id::CameraId,
@@ -17,13 +14,7 @@ use crate::{
 };
 
 #[cfg(feature = "async")]
-use crate::socket_manager::SocketManagerHandle;
-
-#[cfg(feature = "async")]
-use crate::executor::Spawner;
-
-#[cfg(feature = "async")]
-use crate::runtime::RuntimeSpawner;
+use crate::{executor::Spawner, runtime::RuntimeSpawner, socket_manager::SocketManagerHandle};
 
 /// Generic camera client with compile-time profile selection.
 ///
@@ -309,7 +300,7 @@ where
         C: EncodeVisca,
     {
         // Get command bytes using EncodeVisca
-        let mut buffer = [0u8; 64]; // Use a reasonable max size
+        let mut buffer = [0u8; 64];
         let size = command.encode_into(self.camera_id, &mut buffer)?;
         let mut cmd_bytes = buffer[..size].to_vec();
 
@@ -340,7 +331,7 @@ where
         C: EncodeVisca,
     {
         // Get command bytes using EncodeVisca
-        let mut buffer = [0u8; 64]; // Use a reasonable max size
+        let mut buffer = [0u8; 64];
         let size = command.encode_into(self.camera_id, &mut buffer)?;
         let mut cmd_bytes = buffer[..size].to_vec();
 
@@ -390,9 +381,6 @@ where
     /// Wait for any response with timeout.
     #[cfg(feature = "async")]
     async fn wait_for_response(&self, _timeout: Duration) -> Result<Response, Error> {
-        // TODO: Implement proper timeout handling based on runtime
-        // For now, just receive without timeout
-
         match self.transport.recv().await {
             Ok(bytes) => {
                 // Extract VISCA payload from envelope if needed
@@ -417,9 +405,6 @@ where
         expected_type: ResponseType,
         #[allow(unused_variables)] timeout: Duration,
     ) -> Result<Response, Error> {
-        // TODO: Implement timeout using runtime-specific timeout mechanisms
-        // Currently, timeout is not implemented as it requires runtime-specific code
-        // For inquiry commands, we may receive an ACK first, then the inquiry response
         loop {
             match self.transport.recv().await {
                 Ok(bytes) => {
@@ -442,17 +427,12 @@ where
                             return Err(Error::UnexpectedResponseType);
                         }
                         Ok(other) => {
-                            // This shouldn't happen with parse() but handle it
                             return Ok(other);
                         }
-                        Err(_) => {
-                            // If regular parse fails, it might be an inquiry response
-                            // Try parsing with the expected type
-                            match Response::parse_with_type(&visca_bytes, &expected_type) {
-                                Ok(response) => return Ok(response),
-                                Err(e) => return Err(e),
-                            }
-                        }
+                        Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type) {
+                            Ok(response) => return Ok(response),
+                            Err(e) => return Err(e),
+                        },
                     }
                 }
                 Err(e) => {
@@ -492,7 +472,7 @@ where
         C: EncodeVisca,
     {
         // Get command bytes using EncodeVisca
-        let mut buffer = [0u8; 64]; // Use a reasonable max size
+        let mut buffer = [0u8; 64];
         let size = command.encode_into(self.camera_id, &mut buffer)?;
         let mut cmd_bytes = buffer[..size].to_vec();
 
@@ -555,7 +535,6 @@ where
                         Ok(response) => return Ok(response),
                         Err(e) => {
                             log::warn!("Failed to parse response: {e:?}");
-                            // Continue waiting for a valid response
                         }
                     }
                 }
@@ -566,7 +545,6 @@ where
                             command: Cow::Borrowed("wait_for_response_blocking"),
                         });
                     }
-                    // Continue waiting
                 }
                 Err(e) => return Err(e),
             }
@@ -603,12 +581,9 @@ where
                             return Err(Error::UnexpectedResponseType);
                         }
                         Ok(other) => {
-                            // This shouldn't happen with parse() but handle it
                             return Ok(other);
                         }
                         Err(_) => {
-                            // If regular parse fails, it might be an inquiry response
-                            // Try parsing with the expected type
                             match Response::parse_with_type(&response_bytes, &expected_type) {
                                 Ok(response) => return Ok(response),
                                 Err(e) => return Err(e),
@@ -623,7 +598,6 @@ where
                             command: Cow::Borrowed("wait_for_response_with_type_blocking"),
                         });
                     }
-                    // If we haven't exceeded our timeout, continue waiting
                 }
                 Err(e) => return Err(e),
             }
@@ -685,10 +659,9 @@ where
     pub fn initialize_socket_manager(&mut self) -> Result<(), Error> {
         #[cfg(feature = "async")]
         if self.socket_manager.is_some() {
-            return Ok(()); // Already initialized
+            return Ok(());
         }
 
-        // Socket manager is only available in async builds
         #[cfg(feature = "async")]
         {
             // Create socket manager components
@@ -717,7 +690,6 @@ where
                 });
                 spawner.spawn(future);
             } else {
-                // No spawner provided - this is expected when using standard constructors
                 log::error!("Cannot initialize socket manager without a spawner");
                 return Err(Error::InvalidState(
                     Cow::Borrowed("Socket manager requires a spawner. Use Camera::new().with_spawner() to provide one."),
@@ -725,11 +697,9 @@ where
             }
         }
 
-        // For blocking-only builds, we cannot use the socket manager
         #[cfg(not(feature = "async"))]
         {
             log::warn!("Socket manager not available in blocking-only builds");
-            // Don't return an error, just don't initialize the socket manager
         }
 
         Ok(())

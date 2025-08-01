@@ -4,9 +4,8 @@
 
 use std::marker::PhantomData;
 
-use crate::{capabilities::Profile, error::Error};
-
 use super::Camera;
+use crate::{capabilities::Profile, error::Error};
 
 /// Builder for creating camera instances with runtime parameters first.
 ///
@@ -201,30 +200,26 @@ impl<P: Profile> TypedTokioUdpBuilder<'_, P> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::camera::profiles::{GenericVisca, PTZOpticsG2};
+
+    use super::*;
 
     #[test]
     fn test_builder_type_inference() {
-        // This should compile - testing that the builder API works
         let _builder = CameraBuilder::tcp("127.0.0.1:1234").profile::<GenericVisca>();
     }
 
     #[test]
     fn test_tcp_builder_creation() {
         let builder = CameraBuilder::tcp("192.168.1.100:52381");
-        // Should create a TcpBuilder
         let typed = builder.profile::<PTZOpticsG2>();
-        // Verify the address is preserved
         assert_eq!(typed.addr, "192.168.1.100:52381");
     }
 
     #[test]
     fn test_udp_builder_creation() {
         let builder = CameraBuilder::udp("239.0.0.1:52381");
-        // Should create a UdpBuilder
         let typed = builder.profile::<GenericVisca>();
-        // Verify the address is preserved
         assert_eq!(typed.addr, "239.0.0.1:52381");
     }
 
@@ -232,9 +227,7 @@ mod tests {
     #[test]
     fn test_tokio_tcp_builder_creation() {
         let builder = CameraBuilder::tokio_tcp("192.168.1.100:52381");
-        // Should create a TokioTcpBuilder
         let typed = builder.profile::<PTZOpticsG2>();
-        // Verify the address is preserved
         assert_eq!(typed.addr, "192.168.1.100:52381");
     }
 
@@ -242,13 +235,10 @@ mod tests {
     #[test]
     fn test_tokio_udp_builder_creation() {
         let builder = CameraBuilder::tokio_udp("239.0.0.1:52381");
-        // Should create a TokioUdpBuilder
         let typed = builder.profile::<GenericVisca>();
-        // Verify the address is preserved
         assert_eq!(typed.addr, "239.0.0.1:52381");
     }
 
-    // Test that the builder is Send and Sync
     #[test]
     fn test_builder_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
@@ -268,13 +258,9 @@ mod tests {
         }
     }
 
-    // Test that invalid addresses are handled properly
     #[test]
     fn test_invalid_address_handling() {
-        // The error will happen during build(), not during builder creation
         let typed = CameraBuilder::tcp("invalid:address:format").profile::<GenericVisca>();
-
-        // This should fail when we try to connect
         let result = typed.build();
         assert!(result.is_err());
     }

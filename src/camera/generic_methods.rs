@@ -5,17 +5,16 @@
 
 use crate::{
     camera::generic::Camera,
-    capabilities::{MotionSync, NDFilter, Profile},
-    command::{motion_sync::MotionSyncModeCommand, nd_filter::NDFilterModeCommand, Response},
+    capabilities::{MotionSync, NDFilter, NDFilterMode as CapabilityNDFilterMode, Profile},
+    command::{
+        motion_sync::MotionSyncModeCommand,
+        nd_filter::{NDFilterMode as CommandNDFilterMode, NDFilterModeCommand},
+        Response,
+    },
     error::Error,
     transport::UnifiedTransport,
     MotionSyncMode,
 };
-
-// Import the command version of NDFilterMode for the API
-use crate::command::nd_filter::NDFilterMode as CommandNDFilterMode;
-// Import the capability version for internal use
-use crate::capabilities::NDFilterMode as CapabilityNDFilterMode;
 
 // ND Filter methods - only available when P implements NDFilter
 impl<P, T> Camera<P, T>
@@ -40,9 +39,6 @@ where
         let command = NDFilterModeCommand::new(mode);
         self.send_command_blocking(&command)
     }
-
-    // Note: NDFilterPositionCommand doesn't exist in the current implementation
-    // This would need to be added to the nd_filter command module
 
     /// Get the ND filter mode from the camera profile.
     #[must_use]
@@ -93,18 +89,6 @@ where
 
 // Variable Speed methods moved to methods/variable_speed.rs to use marker traits
 
-// Example of how to add more capability-gated methods:
-//
-// impl<P, T> Camera<P, T>
-// where
-//     P: Profile + PresetTour, // Hypothetical marker trait for preset tour support
-//     T: UnifiedTransport,
-// {
-//     pub async fn start_preset_tour(&self) -> Result<Response, Error> {
-//         // Implementation
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
 
@@ -112,13 +96,5 @@ mod tests {
     fn test_nd_filter_compilation() {
         // This test verifies that ND filter methods are only available for cameras
         // that implement the NDFilter trait.
-
-        // The following would not compile because PTZOpticsG2 doesn't implement NDFilter:
-        // let camera: Camera<PTZOpticsG2, _> = unimplemented!();
-        // camera.set_nd_filter_mode_blocking(NDFilterMode::Off); // Compile error!
-
-        // But this would compile for SonyFR7:
-        // let camera: Camera<SonyFR7, _> = unimplemented!();
-        // camera.set_nd_filter_mode_blocking(CommandNDFilterMode::Variable); // OK!
     }
 }

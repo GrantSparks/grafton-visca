@@ -34,7 +34,6 @@ pub use image_processing::ImageProcessingOps;
 pub use inquiry::{InquiryOps, PanTiltInquiryOps};
 #[cfg(feature = "async")]
 pub use menu::MenuControlOps;
-pub use menu::MenuControlOpsBlocking;
 #[cfg(feature = "async")]
 pub use motion_sync::MotionSyncControl;
 #[cfg(feature = "async")]
@@ -53,7 +52,6 @@ pub use system::SystemOps;
 pub use tally::TallyOps;
 #[cfg(feature = "async")]
 pub use variable_speed::VariableSpeedOps;
-pub use variable_speed::VariableSpeedOpsBlocking;
 #[cfg(feature = "async")]
 pub use white_balance::WhiteBalanceOps;
 #[cfg(feature = "async")]
@@ -65,6 +63,7 @@ pub use exposure::{ExposureCompensationOpsBlocking, ExposureOpsBlocking};
 pub use focus::FocusOpsBlocking;
 pub use image_processing::ImageProcessingOpsBlocking;
 pub use inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking};
+pub use menu::MenuControlOpsBlocking;
 pub use motion_sync::MotionSyncControlBlocking;
 pub use nd_filter::NDFilterOpsBlocking;
 pub use pan_tilt::PanTiltOpsBlocking;
@@ -73,5 +72,6 @@ pub use presets::PresetsOpsBlocking;
 pub use streaming::StreamingOpsBlocking;
 pub use system::SystemOpsBlocking;
 pub use tally::TallyOpsBlocking;
+pub use variable_speed::VariableSpeedOpsBlocking;
 pub use white_balance::WhiteBalanceOpsBlocking;
 pub use zoom::ZoomOpsBlocking;
