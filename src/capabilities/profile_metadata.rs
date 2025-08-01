@@ -1,5 +1,6 @@
 //! Core profile metadata trait for camera identification and protocol configuration.
 
+use crate::capabilities::CameraFeature;
 use std::time::Duration;
 
 /// Core trait that all camera profiles must implement.
@@ -169,37 +170,45 @@ pub trait ProfileIntrospection: ProfileMetadata {
         false
     }
 
-    /// Get a human-readable summary of camera capabilities.
-    fn capability_summary(&self) -> String {
-        let mut capabilities: Vec<&str> = Vec::new();
+    /// Get a list of supported camera features.
+    fn supported_features(&self) -> Vec<CameraFeature> {
+        let mut features = Vec::new();
 
         if self.supports_pan_tilt() {
-            capabilities.push("Pan/Tilt");
+            features.push(CameraFeature::PanTilt);
         }
         if self.supports_zoom() {
-            capabilities.push("Zoom");
+            features.push(CameraFeature::Zoom);
         }
         if self.supports_focus() {
-            capabilities.push("Focus");
+            features.push(CameraFeature::Focus);
         }
         if self.supports_exposure() {
-            capabilities.push("Exposure");
+            features.push(CameraFeature::Exposure);
         }
         if self.supports_white_balance() {
-            capabilities.push("White Balance");
+            features.push(CameraFeature::WhiteBalance);
         }
         if self.supports_image_processing() {
-            capabilities.push("Image Processing");
+            features.push(CameraFeature::ImageProcessing);
         }
         if self.supports_presets() {
-            capabilities.push("Presets");
+            features.push(CameraFeature::Presets);
         }
         if self.supports_power() {
-            capabilities.push("Power");
+            features.push(CameraFeature::Power);
         }
         if self.supports_nd_filter() {
-            capabilities.push("ND Filter");
+            features.push(CameraFeature::NDFilter);
         }
+
+        features
+    }
+
+    /// Get a human-readable summary of camera capabilities.
+    fn capability_summary(&self) -> String {
+        let features = self.supported_features();
+        let capabilities: Vec<&str> = features.iter().map(|f| f.name()).collect();
 
         format!(
             "{} - Protocol: {:?} - Capabilities: {}",
@@ -211,6 +220,14 @@ pub trait ProfileIntrospection: ProfileMetadata {
                 capabilities.join(", ")
             }
         )
+    }
+
+    /// Get a detailed description of supported features.
+    fn feature_descriptions(&self) -> Vec<(CameraFeature, &'static str)> {
+        self.supported_features()
+            .into_iter()
+            .map(|feature| (feature, feature.description()))
+            .collect()
     }
 }
 
