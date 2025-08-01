@@ -13,7 +13,7 @@ use crate::{
     capabilities::Profile,
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
-    transport::{core::Transport, TransportEnvelope, UnifiedTransport, UnifiedTransportWrapper},
+    transport::{TransportEnvelope, UnifiedTransport},
 };
 
 #[cfg(feature = "async")]
@@ -23,7 +23,7 @@ use crate::socket_manager::SocketManagerHandle;
 use crate::executor::Spawner;
 
 #[cfg(feature = "async")]
-use crate::runtime::{RuntimeSleep, RuntimeSpawner};
+use crate::runtime::RuntimeSpawner;
 
 /// Generic camera client with compile-time profile selection.
 ///
@@ -631,64 +631,143 @@ where
     }
 }
 
-impl<P, T: Transport> Camera<P, UnifiedTransportWrapper<T>>
+// Connection factory methods for specific transport types
+impl<P> Camera<P, crate::transport::blocking::Tcp>
 where
     P: Profile,
-    T: Transport + Send + Sync + 'static,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
 {
-    /// Create a new camera with specific profile and transport.
+    /// Connect to a camera via blocking TCP.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2};
+    /// # use grafton_visca::Result;
+    /// # fn example() -> Result<()> {
+    /// let camera = Camera::<PTZOpticsG2, _>::connect_tcp("192.168.1.100:52381")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn connect_tcp(addr: &str) -> Result<Self, Error> {
+        let transport = crate::transport::blocking::Tcp::connect(addr)?;
+        Ok(Self::from_transport(transport))
+    }
+}
+
+impl<P> Camera<P, crate::transport::blocking::Udp>
+where
+    P: Profile,
+{
+    /// Connect to a camera via blocking UDP.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2};
+    /// # use grafton_visca::Result;
+    /// # fn example() -> Result<()> {
+    /// let camera = Camera::<PTZOpticsG2, _>::connect_udp("192.168.1.100:52381")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn connect_udp(addr: &str) -> Result<Self, Error> {
+        let transport = crate::transport::blocking::Udp::connect(addr)?;
+        Ok(Self::from_transport(transport))
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl<P> Camera<P, crate::transport::tokio::Tcp>
+where
+    P: Profile,
+{
+    /// Connect to a camera via async TCP (tokio).
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2};
+    /// # use grafton_visca::Result;
+    /// # #[tokio::main]
+    /// # async fn example() -> Result<()> {
+    /// let camera = Camera::<PTZOpticsG2, _>::connect_tokio_tcp("192.168.1.100:52381").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn connect_tokio_tcp(addr: &str) -> Result<Self, Error> {
+        let transport = crate::transport::tokio::Tcp::connect(addr).await?;
+        Ok(Self::from_transport(transport))
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl<P> Camera<P, crate::transport::tokio::Udp>
+where
+    P: Profile,
+{
+    /// Connect to a camera via async UDP (tokio).
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use grafton_visca::camera::{Camera, profiles::PTZOpticsG2};
+    /// # use grafton_visca::Result;
+    /// # #[tokio::main]
+    /// # async fn example() -> Result<()> {
+    /// let camera = Camera::<PTZOpticsG2, _>::connect_tokio_udp("192.168.1.100:52381").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn connect_tokio_udp(addr: &str) -> Result<Self, Error> {
+        let transport = crate::transport::tokio::Udp::connect(addr).await?;
+        Ok(Self::from_transport(transport))
+    }
+}
+
+// Generic constructor for custom transports
+impl<P, T> Camera<P, T>
+where
+    P: Profile,
+    T: UnifiedTransport + 'static,
+{
+    /// Create a new camera with a custom transport.
+    ///
+    /// For standard TCP/UDP transports, prefer using the connection factory methods:
+    /// - `connect_tcp()` for blocking TCP
+    /// - `connect_udp()` for blocking UDP
+    /// - `connect_tokio_tcp()` for async TCP with tokio
+    /// - `connect_tokio_udp()` for async UDP with tokio
     pub fn new(transport: T) -> Self {
-        let wrapped = UnifiedTransportWrapper {
-            transport,
-            #[cfg(feature = "async")]
-            sleep_impl: None,
-        };
-        Self::from_transport(wrapped)
+        Self::from_transport(transport)
     }
 
-    /// Create a new camera with a spawner for async operations.
+    /// Set a spawner for async operations.
     #[cfg(feature = "async")]
-    pub fn new_with_spawner<S>(transport: T, spawner: S) -> Self
+    pub fn with_spawner<S>(mut self, spawner: S) -> Self
     where
         S: Spawner,
     {
-        let wrapped = UnifiedTransportWrapper {
-            transport,
-            sleep_impl: None,
-        };
-        let mut camera = Self::from_transport(wrapped);
-        camera.spawner = Some(Arc::new(spawner));
+        self.spawner = Some(Arc::new(spawner));
 
         // Initialize socket manager automatically for better reliability
-        if let Err(e) = camera.initialize_socket_manager() {
+        if let Err(e) = self.initialize_socket_manager() {
             log::warn!("Failed to initialize socket manager: {e}");
         }
 
-        camera
+        self
     }
 
-    /// Create a new camera with a runtime for async operations.
+    /// Set a runtime for async operations.
     #[cfg(feature = "async")]
-    pub fn new_with_runtime<R>(transport: T, runtime: Arc<R>) -> Self
+    pub fn with_runtime<R>(mut self, runtime: Arc<R>) -> Self
     where
         R: crate::runtime::Runtime,
     {
         let runtime_dyn: crate::runtime::SharedRuntime = runtime;
-        let wrapped = UnifiedTransportWrapper {
-            transport,
-            sleep_impl: Some(Arc::new(RuntimeSleep::new(Arc::clone(&runtime_dyn)))),
-        };
-        let mut camera = Self::from_transport(wrapped);
-        camera.spawner = Some(Arc::new(RuntimeSpawner::new(runtime_dyn)));
+        self.spawner = Some(Arc::new(RuntimeSpawner::new(runtime_dyn)));
 
         // Initialize socket manager automatically for better reliability
-        if let Err(e) = camera.initialize_socket_manager() {
+        if let Err(e) = self.initialize_socket_manager() {
             log::warn!("Failed to initialize socket manager: {e}");
         }
 
-        camera
+        self
     }
 
     /// Initialize the socket manager for this camera.
@@ -730,7 +809,7 @@ where
                 // No spawner provided - this is expected when using standard constructors
                 log::error!("Cannot initialize socket manager without a spawner");
                 return Err(Error::InvalidState(
-                    Cow::Borrowed("Socket manager requires a spawner. Use Camera::new_with_spawner() to provide one."),
+                    Cow::Borrowed("Socket manager requires a spawner. Use Camera::new().with_spawner() to provide one."),
                 ));
             }
         }
