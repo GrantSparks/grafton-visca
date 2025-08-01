@@ -4,8 +4,9 @@
 //! tokio feature is enabled or not, addressing the semantic differences between
 //! tokio's unbounded channels and std's bounded channels.
 
-use crate::error::{Error, Result};
 use std::borrow::Cow;
+
+use crate::error::{Error, Result};
 
 /// Creates an unbounded multi-producer, single-consumer channel.
 ///
@@ -19,8 +20,6 @@ pub fn unbounded<T>() -> (UnboundedSender<T>, UnboundedReceiver<T>) {
 
     #[cfg(not(feature = "tokio"))]
     {
-        // Use a large buffer to simulate unbounded behavior
-        // This is a reasonable limit that should never be hit in practice
         const UNBOUNDED_BUFFER: usize = 10_000;
         let (tx, rx) = std::sync::mpsc::sync_channel(UNBOUNDED_BUFFER);
         (UnboundedSender::Std(tx), UnboundedReceiver::Std(rx))
@@ -39,7 +38,6 @@ pub fn oneshot<T>() -> (OneshotSender<T>, OneshotReceiver<T>) {
 
     #[cfg(not(feature = "tokio"))]
     {
-        // Use bounded channel with capacity 1 to simulate oneshot
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         (OneshotSender::Std(Some(tx)), OneshotReceiver::Std(rx))
     }
@@ -210,11 +208,9 @@ mod tests {
     fn test_unbounded_channel() {
         let (tx, mut rx) = unbounded::<i32>();
 
-        // Should be able to send without blocking
         assert!(tx.send(42).is_ok());
         assert!(tx.send(43).is_ok());
 
-        // Should receive in order
         assert_eq!(rx.try_recv(), Some(42));
         assert_eq!(rx.try_recv(), Some(43));
         assert_eq!(rx.try_recv(), None);
@@ -224,14 +220,11 @@ mod tests {
     fn test_oneshot_channel() {
         let (tx, rx) = oneshot::<i32>();
 
-        // Send should succeed
         assert!(tx.send(42).is_ok());
 
-        // Blocking receive should work
         #[cfg(not(feature = "tokio"))]
         assert_eq!(rx.recv().expect("recv should succeed"), 42);
 
-        // For tokio builds, we can't test async recv in a sync test
         #[cfg(feature = "tokio")]
         drop(rx);
     }
@@ -241,7 +234,6 @@ mod tests {
         let (tx, rx) = unbounded::<i32>();
         drop(rx);
 
-        // Send should fail when receiver is dropped
         assert!(tx.send(42).is_err());
     }
 
@@ -250,7 +242,6 @@ mod tests {
         let (tx, rx) = oneshot::<i32>();
         drop(rx);
 
-        // Send should return the value when receiver is dropped
         assert_eq!(tx.send(42), Err(42));
     }
 }

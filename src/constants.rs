@@ -3,17 +3,8 @@
 //! This module provides constants for `PTZOptics` cameras including position ranges,
 //! speed limits, and utilities for converting between different unit systems.
 
-// This module contains many constants and utility functions that are part of the public API
-// but may not be used internally. They are intended for library users.
 #![allow(dead_code)]
 
-// Standard library imports
-// (none)
-
-// Third-party crate imports
-// (none)
-
-// Workspace / local-crate imports
 use crate::error::Error;
 
 /// Camera variants for validation and constants (more comprehensive than profiles)
@@ -215,7 +206,7 @@ impl CameraConstants for CameraVariant {
         match self {
             Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => position::PAN_DEGREES_G2,
             Self::PTZOptics30X => position::PAN_DEGREES_30X,
-            Self::SonyFR7 => position::PAN_DEGREES_G2, // Similar to G2
+            Self::SonyFR7 => position::PAN_DEGREES_G2,
         }
     }
 
@@ -223,7 +214,7 @@ impl CameraConstants for CameraVariant {
         match self {
             Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => position::TILT_DEGREES_G2,
             Self::PTZOptics30X => position::TILT_DEGREES_30X,
-            Self::SonyFR7 => position::TILT_DEGREES_G2, // Similar to G2
+            Self::SonyFR7 => position::TILT_DEGREES_G2,
         }
     }
 
@@ -241,9 +232,9 @@ impl CameraConstants for CameraVariant {
 
     fn max_preset_id(&self) -> u8 {
         match self {
-            Self::PTZOpticsG2 => 89, // G2 cameras support presets 0-89
+            Self::PTZOpticsG2 => 89,
             Self::PTZOpticsG3 | Self::PTZOptics30X | Self::Unknown => preset::PRESET_ID_MAX,
-            Self::SonyFR7 => 255, // FR7 supports up to 255 presets
+            Self::SonyFR7 => 255,
         }
     }
 }
@@ -483,9 +474,6 @@ pub fn validate_preset_id(id: u8) -> Result<u8, Error> {
     }
 }
 
-// Standalone conversion functions for ease of use
-// These provide a simpler API without requiring CameraVariant
-
 /// Convert normalized pan value (-1.0 to 1.0) to protocol units
 #[inline]
 #[must_use]
@@ -634,25 +622,20 @@ mod tests {
 
     #[test]
     fn test_visca_to_degrees_conversion() {
-        // Test center position
         let visca_pos = ViscaPosition { pan: 0, tilt: 432 };
         let degrees = visca_pos.to_degrees(CameraVariant::PTZOpticsG2);
 
-        // Pan 0 should map to 0 degrees (center)
         assert!((degrees.pan - 0.0).abs() < 0.1);
-        // Tilt 432 is (432 - (-432)) / (1296 - (-432)) = 864/1728 = 0.5 of range
-        // 0.5 * 120 - 60 = 0 degrees
         assert!((degrees.tilt - 0.0).abs() < 1.0);
 
-        // Test maximum positions
         let visca_pos = ViscaPosition {
             pan: position::PAN_MAX,
             tilt: position::TILT_MAX,
         };
         let degrees = visca_pos.to_degrees(CameraVariant::PTZOpticsG2);
 
-        assert!((degrees.pan - 170.0).abs() < 1.0); // Half of 340 degrees
-        assert!((degrees.tilt - 60.0).abs() < 1.0); // Maximum tilt
+        assert!((degrees.pan - 170.0).abs() < 1.0);
+        assert!((degrees.tilt - 60.0).abs() < 1.0);
     }
 
     #[test]
@@ -663,9 +646,7 @@ mod tests {
         };
         let visca = degree_pos.to_visca(CameraVariant::PTZOpticsG2);
 
-        // 0 degrees pan should map to VISCA 0
         assert_eq!(visca.pan, 0);
-        // 0 degrees tilt should map to middle of the range
         let tilt_middle = (position::TILT_MAX + position::TILT_MIN) / 2;
         assert!((visca.tilt - tilt_middle).abs() < 100);
     }
@@ -708,39 +689,32 @@ mod tests {
 
     #[test]
     fn test_standalone_pan_conversions() {
-        // Test normalized to VISCA
         assert_eq!(pan_normalized_to_units(1.0), position::PAN_MAX);
         assert_eq!(pan_normalized_to_units(-1.0), -position::PAN_MAX);
         assert_eq!(pan_normalized_to_units(0.0), 0);
         assert_eq!(pan_normalized_to_units(0.5), position::PAN_MAX / 2);
 
-        // Test VISCA to normalized
         assert!((pan_units_to_normalized(position::PAN_MAX) - 1.0).abs() < f32::EPSILON);
         assert!((pan_units_to_normalized(-position::PAN_MAX) - (-1.0)).abs() < f32::EPSILON);
         assert!((pan_units_to_normalized(0) - 0.0).abs() < f32::EPSILON);
 
-        // Test degrees to VISCA
         assert_eq!(pan_degrees_to_units(0.0), 0);
         assert_eq!(pan_degrees_to_units(170.0), position::PAN_MAX);
         assert_eq!(pan_degrees_to_units(-170.0), -position::PAN_MAX);
 
-        // Test VISCA to degrees
         assert!((pan_units_to_degrees(0) - 0.0).abs() < 0.1);
         assert!((pan_units_to_degrees(position::PAN_MAX) - 170.0).abs() < 0.1);
     }
 
     #[test]
     fn test_standalone_tilt_conversions() {
-        // Test normalized to VISCA
         assert_eq!(tilt_normalized_to_units(1.0), position::TILT_MAX);
         assert_eq!(tilt_normalized_to_units(-1.0), -position::TILT_MAX);
         assert_eq!(tilt_normalized_to_units(0.0), 0);
 
-        // Test VISCA to normalized
         assert!((tilt_units_to_normalized(position::TILT_MAX) - 1.0).abs() < f32::EPSILON);
         assert!((tilt_units_to_normalized(0) - 0.0).abs() < f32::EPSILON);
 
-        // Test degrees to VISCA
         assert_eq!(tilt_degrees_to_units(0.0), 0);
         assert_eq!(tilt_degrees_to_units(60.0), position::TILT_MAX);
         assert_eq!(tilt_degrees_to_units(-60.0), -position::TILT_MAX);
@@ -748,45 +722,37 @@ mod tests {
 
     #[test]
     fn test_standalone_zoom_conversions() {
-        // Test normalized to VISCA
         assert_eq!(zoom_normalized_to_units(0.0), 0);
         assert_eq!(zoom_normalized_to_units(1.0), zoom::ZOOM_MAX_20X);
         assert_eq!(zoom_normalized_to_units(0.5), zoom::ZOOM_MAX_20X / 2);
 
-        // Test VISCA to normalized
         assert!((zoom_units_to_normalized(0) - 0.0).abs() < f32::EPSILON);
         assert!((zoom_units_to_normalized(zoom::ZOOM_MAX_20X) - 1.0).abs() < f32::EPSILON);
 
-        // Test magnification conversions
-        assert_eq!(zoom_magnification_to_units(1.0), 0); // 1x = minimum zoom
-        assert_eq!(zoom_magnification_to_units(20.0), zoom::ZOOM_MAX_20X); // 20x = maximum
+        assert_eq!(zoom_magnification_to_units(1.0), 0);
+        assert_eq!(zoom_magnification_to_units(20.0), zoom::ZOOM_MAX_20X);
         assert!((zoom_units_to_magnification(0) - 1.0).abs() < 0.1);
         assert!((zoom_units_to_magnification(zoom::ZOOM_MAX_20X) - 20.0).abs() < 0.1);
     }
 
     #[test]
     fn test_standalone_focus_conversions() {
-        // Test normalized to VISCA
         assert_eq!(focus_normalized_to_units(0.0), focus::FOCUS_MIN);
         assert_eq!(focus_normalized_to_units(1.0), focus::FOCUS_MAX);
 
-        // Test VISCA to normalized
         assert!((focus_units_to_normalized(focus::FOCUS_MIN) - 0.0).abs() < f32::EPSILON);
         assert!((focus_units_to_normalized(focus::FOCUS_MAX) - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn test_speed_conversions() {
-        // Test pan speed
         assert_eq!(pan_speed_normalized_to_units(0.0), 0);
         assert_eq!(pan_speed_normalized_to_units(1.0), speed::PAN_SPEED_MAX);
         assert_eq!(pan_speed_normalized_to_units(0.5), speed::PAN_SPEED_MAX / 2);
 
-        // Test tilt speed
         assert_eq!(tilt_speed_normalized_to_units(0.0), 0);
         assert_eq!(tilt_speed_normalized_to_units(1.0), speed::TILT_SPEED_MAX);
 
-        // Test zoom speed
         assert_eq!(zoom_speed_normalized_to_units(0.0), 0);
         assert_eq!(zoom_speed_normalized_to_units(1.0), speed::ZOOM_SPEED_MAX);
     }

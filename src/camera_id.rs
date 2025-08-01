@@ -5,8 +5,9 @@
 //! - ID 8 (0x88) is used for broadcast commands
 //! - The controller always uses ID 0 (0x80)
 
-use crate::error::Error;
 use std::fmt;
+
+use crate::error::Error;
 
 /// Represents a VISCA camera ID for addressing commands.
 ///
@@ -110,12 +111,10 @@ mod tests {
 
     #[test]
     fn test_camera_id_creation() {
-        // Valid IDs
         assert!(matches!(CameraId::new(1), Ok(id) if id == CameraId::CAMERA_1));
         assert!(matches!(CameraId::new(7), Ok(id) if id == CameraId::CAMERA_7));
         assert!(matches!(CameraId::new(8), Ok(id) if id == CameraId::BROADCAST));
 
-        // Invalid IDs
         assert!(CameraId::new(0).is_err());
         assert!(CameraId::new(9).is_err());
         assert!(CameraId::new(255).is_err());

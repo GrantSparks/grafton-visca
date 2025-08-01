@@ -4,11 +4,12 @@
 //! It includes a minimal blocking executor for synchronous operation and a `Spawner` trait
 //! that allows users to provide their own async runtime integration.
 
-use crate::Error;
 use core::future::Future;
 use core::task::{Context, Poll};
 #[cfg(feature = "async")]
 use std::pin::Pin;
+
+use crate::Error;
 
 /// Type alias for a boxed future that can be spawned.
 ///
@@ -209,7 +210,6 @@ impl Default for BlockingSpawner {
 impl Spawner for BlockingSpawner {
     fn spawn(&self, task: SpawnableFuture) {
         std::thread::spawn(move || {
-            // Use the existing block_on function to run the future
             block_on(task);
         });
     }
@@ -221,18 +221,14 @@ impl Spawner for BlockingSpawner {
 /// For `Ready` futures (as used by blocking transports), this is
 /// optimized away by the compiler.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
-    // Safety: We're pinning the future to execute it
     let mut fut = Box::pin(fut);
 
-    // Create a no-op waker (blocking futures should be Ready)
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
 
-    // Poll the future - for Ready futures this returns immediately
     match fut.as_mut().poll(&mut cx) {
         Poll::Ready(val) => val,
         Poll::Pending => {
-            // This should not happen with blocking transports
             unreachable!("Blocking transport returned Pending future - this is a bug in the transport implementation");
         }
     }
@@ -256,8 +252,6 @@ pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::O
                 if Instant::now() >= deadline {
                     return Err(Error::Timeout);
                 }
-                // For truly async futures in blocking context
-                // Sleep briefly to avoid busy waiting
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }

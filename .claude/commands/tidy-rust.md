@@ -10,7 +10,7 @@ Analyze and reorganize the Rust source file at: $ARGUMENTS
 
 ## Your Task
 
-Read the specified Rust file and output a tidied version that:
+Edit the specified Rust file and tidy the code so that it:
 1. Reorganizes and merges imports following Rust conventions
 2. Removes obsolete comments while preserving valuable documentation
 3. Maintains all functional code exactly as-is
