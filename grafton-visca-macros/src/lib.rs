@@ -7,6 +7,7 @@
 //! This crate provides derive macros to simplify common patterns
 //! in VISCA command implementations.
 
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 #![doc(html_root_url = "https://docs.rs/grafton-visca/0.5.0")]
 
