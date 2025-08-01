@@ -7,7 +7,6 @@ use crate::error::Error;
 use crate::units::Percentage;
 use crate::ViscaValue;
 
-// Socket ID - already using ViscaValue efficiently
 /// Socket identifier for VISCA command execution slots.
 ///
 /// VISCA cameras maintain two concurrent command execution slots (sockets) to allow
@@ -32,7 +31,6 @@ impl Default for SocketId {
     }
 }
 
-// Gain types
 /// Gain level value for direct gain control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(
@@ -53,7 +51,6 @@ pub struct GainLevel(u8);
 )]
 pub struct GainLimit(u8);
 
-// Noise reduction levels
 /// 2D noise reduction level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(min = "1", max = "5", display_prefix = "2D NR Level")]
@@ -64,7 +61,6 @@ pub struct NoiseReduction2DLevel(u8);
 #[visca_value(min = "1", max = "8", display_prefix = "3D NR Level")]
 pub struct NoiseReduction3DLevel(u8);
 
-// Iris level and conversions
 /// Trait for types that can be converted into VISCA iris level values.
 ///
 /// This trait provides a unified conversion interface for different iris-related types
@@ -89,7 +85,6 @@ pub trait IntoIrisLevel {
 )]
 pub struct IrisLevel(u8);
 
-// Macro for implementing IntoIrisLevel conversions
 macro_rules! impl_into_iris_level {
     ($($t:ty => $conversion:expr),* $(,)?) => {
         $(
@@ -118,7 +113,6 @@ impl From<FStop> for IrisLevel {
     }
 }
 
-// Other camera control types
 /// Shutter speed value for direct shutter control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(
@@ -139,7 +133,6 @@ pub struct ShutterSpeed(u16);
 )]
 pub struct BrightnessLevel(u16);
 
-// Image adjustment levels
 /// Sharpness level for direct sharpness control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(
@@ -224,7 +217,6 @@ impl TryFrom<i8> for ExposureCompensationLevel {
     }
 }
 
-// Macro for creating speed mapping enums
 macro_rules! speed_enum {
     (
         $(#[$meta:meta])*
@@ -318,7 +310,6 @@ speed_enum! {
     }
 }
 
-// Macro for F-stop enum with mapping
 macro_rules! fstop_enum {
     (
         $(#[$meta:meta])*
@@ -411,7 +402,6 @@ fstop_enum! {
     }
 }
 
-// Noise reduction strength enum
 /// User-friendly noise reduction strength levels for VISCA cameras.
 ///
 /// Provides intuitive strength levels that are automatically converted to the
@@ -480,7 +470,6 @@ impl NoiseReductionStrength {
     }
 }
 
-// Implement TryFrom conversions for noise reduction
 impl TryFrom<NoiseReductionStrength> for NoiseReduction2DLevel {
     type Error = Error;
     fn try_from(strength: NoiseReductionStrength) -> Result<Self, Self::Error> {
@@ -511,7 +500,6 @@ pub enum NDIQuality {
     Off,
 }
 
-// Zoom and Focus positions with special constants
 /// Zoom position value for direct zoom control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(
@@ -545,7 +533,6 @@ impl ZoomPosition {
 )]
 pub struct FocusPosition(u16);
 
-// Macro for normalized conversions
 macro_rules! impl_normalized_conversion {
     ($type:ty, $min_field:ident, $max_field:ident) => {
         impl TryFrom<f32> for $type {
@@ -581,7 +568,6 @@ macro_rules! impl_normalized_conversion {
 impl_normalized_conversion!(ZoomPosition, MIN, MAX_DIGITAL);
 impl_normalized_conversion!(FocusPosition, MIN, MAX);
 
-// Color temperature with Kelvin conversion
 /// Color temperature value for white balance control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(
@@ -618,7 +604,6 @@ impl ColorTemp {
     }
 }
 
-// Color channels
 /// Red gain value for white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(
@@ -639,7 +624,6 @@ pub struct RedChannel(u8);
 )]
 pub struct BlueChannel(u8);
 
-// Color adjustment levels
 /// Saturation level for color adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Saturation")]
@@ -658,7 +642,6 @@ impl SaturationLevel {
 #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Hue")]
 pub struct HueLevel(u8);
 
-// Use ViscaValue for tuning values
 /// Red tuning value for fine white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(min = "-10", max = "10", display_prefix = "Red Tuning")]
@@ -679,7 +662,6 @@ impl BlueTuning {
     pub const NEUTRAL: Self = Self(0);
 }
 
-// Use ViscaValue for position types with degree conversion
 /// Pan position value for horizontal camera positioning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(min = "-2448", max = "2448", display_prefix = "Pan")]
@@ -767,7 +749,6 @@ impl TryFrom<f32> for TiltPosition {
     }
 }
 
-// Speed types
 /// Pan speed value for horizontal camera movement speed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(min = "0x00", max = "0x18", display_prefix = "Pan Speed")]
@@ -837,13 +818,11 @@ mod tests {
 
     #[test]
     fn test_noise_reduction_levels() {
-        // 2D noise reduction
         assert!(NoiseReduction2DLevel::new(0).is_err());
         assert!(NoiseReduction2DLevel::new(1).is_ok());
         assert!(NoiseReduction2DLevel::new(5).is_ok());
         assert!(NoiseReduction2DLevel::new(6).is_err());
 
-        // 3D noise reduction
         assert!(NoiseReduction3DLevel::new(0).is_err());
         assert!(NoiseReduction3DLevel::new(1).is_ok());
         assert!(NoiseReduction3DLevel::new(8).is_ok());
@@ -876,14 +855,12 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)] // OK in tests
+    #[allow(clippy::unwrap_used)]
     fn test_noise_reduction_strength() {
-        // Test 2D level conversions
         assert!(NoiseReductionStrength::Off.to_2d_level().is_err());
         assert_eq!(NoiseReductionStrength::Minimal.to_2d_level().unwrap(), 1);
         assert_eq!(NoiseReductionStrength::Maximum.to_2d_level().unwrap(), 5);
 
-        // Test 3D level conversions
         assert!(NoiseReductionStrength::Off.to_3d_level().is_err());
         assert_eq!(NoiseReductionStrength::Minimal.to_3d_level().unwrap(), 1);
         assert_eq!(NoiseReductionStrength::Maximum.to_3d_level().unwrap(), 8);
@@ -892,27 +869,22 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn test_position_types() {
-        // Test pan position
         assert!(PanPosition::new(-2448).is_ok());
         assert!(PanPosition::new(2448).is_ok());
         assert!(PanPosition::new(-2449).is_err());
         assert!(PanPosition::new(2449).is_err());
 
-        // Test degree conversions for pan
         let pan_center = PanPosition::CENTER;
         assert_eq!(pan_center.to_degrees(), 0.0);
 
-        // Test valid degree conversion for pan
         let pan_from_degrees = PanPosition::from_degrees(45.0).unwrap();
         assert!((pan_from_degrees.to_degrees() - 45.0).abs() < 1.0);
 
-        // Test tilt position
         assert!(TiltPosition::new(-432).is_ok());
         assert!(TiltPosition::new(1296).is_ok());
         assert!(TiltPosition::new(-433).is_err());
         assert!(TiltPosition::new(1297).is_err());
 
-        // Test degree conversions for tilt
         let tilt_center = TiltPosition::CENTER;
         assert_eq!(tilt_center.to_degrees(), 0.0);
         let tilt_from_degrees = TiltPosition::from_degrees(45.0).unwrap();
@@ -921,19 +893,16 @@ mod tests {
 
     #[test]
     fn test_speed_types() {
-        // Test pan speed
         assert!(PanSpeed::new(0).is_ok());
         assert!(PanSpeed::new(1).is_ok());
         assert!(PanSpeed::new(24).is_ok());
         assert!(PanSpeed::new(25).is_err());
 
-        // Test tilt speed
         assert!(TiltSpeed::new(0).is_ok());
         assert!(TiltSpeed::new(1).is_ok());
         assert!(TiltSpeed::new(20).is_ok());
         assert!(TiltSpeed::new(21).is_err());
 
-        // Test speed level conversions
         let pan_speed = PanSpeed::from(SpeedLevel::Fast);
         assert_eq!(pan_speed.value(), 18);
         let tilt_speed = TiltSpeed::from(SpeedLevel::Fast);
@@ -941,23 +910,19 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)] // OK in tests
+    #[allow(clippy::unwrap_used)]
     fn test_ergonomic_conversions() {
-        // Test normalized zoom conversions
         let zoom_half = ZoomPosition::try_from(0.5f32).unwrap();
         let normalized: f32 = zoom_half.into();
         assert!((normalized - 0.5).abs() < 0.01);
 
-        // Test normalized focus conversions
         let focus_quarter = FocusPosition::try_from(0.25f32).unwrap();
         let normalized: f32 = focus_quarter.into();
         assert!((normalized - 0.25).abs() < 0.01);
 
-        // Test F-stop to iris level conversion
         let iris = IrisLevel::from(FStop::F2_8);
         assert_eq!(iris.value(), 0x09);
 
-        // Test invalid normalized values
         assert!(ZoomPosition::try_from(-0.1f32).is_err());
         assert!(ZoomPosition::try_from(1.1f32).is_err());
         assert!(FocusPosition::try_from(-0.1f32).is_err());

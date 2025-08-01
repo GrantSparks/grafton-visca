@@ -21,8 +21,6 @@
 //! }
 //! ```
 
-// Import only the traits we're implementing delegates for
-// These are needed for the delegation implementations
 #[cfg(feature = "async")]
 use crate::camera::methods::{ColorOps as CameraColorOps, ExposureOps as CameraExposureOps};
 
@@ -60,7 +58,6 @@ pub mod prelude {
     };
 }
 
-// Re-export async traits with unsuffixed names
 #[cfg(feature = "async")]
 pub use crate::camera::methods::{
     ColorOps, ExposureCompensationOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps,
@@ -68,7 +65,6 @@ pub use crate::camera::methods::{
     PresetsOps, StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
 };
 
-// Implement all async traits for the wrapper type
 impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ZoomOps
     for Camera<P, T>
 {

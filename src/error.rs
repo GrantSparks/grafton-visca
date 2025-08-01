@@ -1,6 +1,6 @@
-use std::{borrow::Cow, convert::Infallible, io, time::Duration};
-
 use thiserror::Error as ThisError;
+
+use std::{borrow::Cow, convert::Infallible, io, time::Duration};
 
 /// Custom result type for VISCA operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -270,7 +270,7 @@ impl Error {
     pub const fn suggested_retry_delay(&self) -> Option<Duration> {
         match self {
             Self::CameraBusy => Some(Duration::from_millis(100)),
-            Self::CommandPending => Some(Duration::from_millis(50)), // Short delay, waiting for completion
+            Self::CommandPending => Some(Duration::from_millis(50)),
             Self::CameraMoving { .. } => Some(Duration::from_millis(500)),
             Self::CommandTimeout { .. } => Some(Duration::from_secs(1)),
             Self::CommandBufferFull => Some(Duration::from_millis(200)),
@@ -288,7 +288,6 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
 
 impl From<Infallible> for Error {
     fn from(_: Infallible) -> Self {
-        // This can never actually happen since Infallible can never be constructed
         unreachable!("Infallible error should never occur")
     }
 }
@@ -419,7 +418,6 @@ mod tests {
 
     #[test]
     fn test_error_classification_completeness() {
-        // Ensure all retryable errors have suggested delays
         let retryable_errors = vec![
             Error::CameraBusy,
             Error::CameraMoving { pan: 0, tilt: 0 },
@@ -439,7 +437,6 @@ mod tests {
             );
         }
 
-        // Ensure non-retryable errors don't have suggested delays
         let non_retryable_errors = vec![
             Error::SyntaxError,
             Error::CommandNotExecutable,

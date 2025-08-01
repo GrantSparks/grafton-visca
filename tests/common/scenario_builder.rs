@@ -146,8 +146,9 @@ impl TestScenario {
                     responses,
                     description,
                 } => {
-                    let mut expectation = transport.expect_command(command).described_as(description);
-                    
+                    let mut expectation =
+                        transport.expect_command(command).described_as(description);
+
                     for response in responses {
                         expectation = expectation.will_respond(response.clone());
                     }
