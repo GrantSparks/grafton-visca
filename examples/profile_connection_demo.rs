@@ -9,7 +9,7 @@
 //! - Async TCP: cargo run --example profile_connection_demo --features tokio async-tcp <camera_ip:port>
 //! - Async UDP: cargo run --example profile_connection_demo --features tokio async-udp <camera_ip:port>
 
-use grafton_visca::camera::Camera;
+use grafton_visca::CameraBuilder;
 
 #[cfg(not(feature = "tokio"))]
 use grafton_visca::camera::profiles::{GenericVisca, PTZOpticsG2};
@@ -43,7 +43,9 @@ fn main() -> Result<()> {
     match transport_type.as_str() {
         "tcp" => {
             println!("Connecting to PTZOptics G2 camera via TCP at {camera_addr}");
-            let camera = Camera::<PTZOpticsG2, _>::connect_tcp(camera_addr)?;
+            let camera = CameraBuilder::tcp(camera_addr)
+                .profile::<PTZOpticsG2>()
+                .build()?;
 
             println!("Model: {}", camera.model_name());
             println!("Power on...");
@@ -57,7 +59,9 @@ fn main() -> Result<()> {
         }
         "udp" => {
             println!("Connecting to Generic VISCA camera via UDP at {camera_addr}");
-            let camera = Camera::<GenericVisca, _>::connect_udp(camera_addr)?;
+            let camera = CameraBuilder::udp(camera_addr)
+                .profile::<GenericVisca>()
+                .build()?;
 
             println!("Model: {}", camera.model_name());
             println!("Power on...");
@@ -92,7 +96,10 @@ async fn main() -> Result<()> {
     match transport_type.as_str() {
         "async-tcp" => {
             println!("Connecting to Sony FR7 camera via async TCP at {camera_addr}");
-            let camera = Camera::<SonyFR7, _>::connect_tokio_tcp(camera_addr).await?;
+            let camera = CameraBuilder::tokio_tcp(camera_addr)
+                .profile::<SonyFR7>()
+                .build()
+                .await?;
 
             println!("Model: {}", camera.model_name());
             println!("This camera supports ND filters!");
@@ -108,7 +115,10 @@ async fn main() -> Result<()> {
         }
         "async-udp" => {
             println!("Connecting to PTZOptics G2 camera via async UDP at {camera_addr}");
-            let camera = Camera::<PTZOpticsG2, _>::connect_tokio_udp(camera_addr).await?;
+            let camera = CameraBuilder::tokio_udp(camera_addr)
+                .profile::<PTZOpticsG2>()
+                .build()
+                .await?;
 
             println!("Model: {}", camera.model_name());
             println!("Max pan speed: {}", camera.max_pan_speed());

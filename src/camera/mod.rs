@@ -8,6 +8,7 @@
 //! - `SonyFR7Cam<T>` for Sony FR7 cameras
 //! - etc.
 
+pub mod builder;
 pub mod generic;
 pub mod generic_methods;
 pub mod methods;
@@ -15,3 +16,12 @@ pub mod profiles;
 
 // Re-export the generic Camera as the primary Camera type
 pub use generic::Camera;
+
+// Re-export builder types
+pub use builder::CameraBuilder;
+
+#[cfg(not(feature = "async"))]
+pub use builder::{TcpBuilder, TypedTcpBuilder, TypedUdpBuilder, UdpBuilder};
+
+#[cfg(feature = "tokio")]
+pub use builder::{TokioTcpBuilder, TokioUdpBuilder, TypedTokioTcpBuilder, TypedTokioUdpBuilder};

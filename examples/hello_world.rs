@@ -7,8 +7,7 @@
 //! - Blocking: cargo run --example hello_world <camera_ip:port>
 //! - Async: cargo run --example hello_world --features tokio <camera_ip:port>
 
-use grafton_visca::camera::{profiles::PTZOpticsG2, Camera};
-use grafton_visca::Result;
+use grafton_visca::{camera::profiles::PTZOpticsG2, CameraBuilder, Result};
 use std::env;
 
 // Import operation traits for blocking operations
@@ -31,8 +30,10 @@ fn main() -> Result<()> {
 
     println!("Connecting to camera at {camera_addr} (blocking mode)");
 
-    // Create camera using the new profile-centric connection helper
-    let camera = Camera::<PTZOpticsG2, _>::connect_tcp(&camera_addr)?;
+    // Create camera using the new builder pattern
+    let camera = CameraBuilder::tcp(&camera_addr)
+        .profile::<PTZOpticsG2>()
+        .build()?;
 
     // Power on the camera
     println!("Powering on camera...");
@@ -63,8 +64,11 @@ async fn main() -> Result<()> {
 
     println!("Connecting to camera at {camera_addr} (async mode)");
 
-    // Create camera using the new profile-centric async connection helper
-    let camera = Camera::<PTZOpticsG2, _>::connect_tokio_tcp(&camera_addr).await?;
+    // Create camera using the new builder pattern
+    let camera = CameraBuilder::tokio_tcp(&camera_addr)
+        .profile::<PTZOpticsG2>()
+        .build()
+        .await?;
 
     // Power on the camera
     println!("Powering on camera...");

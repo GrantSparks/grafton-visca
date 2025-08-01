@@ -1,0 +1,9 @@
+error[E0599]: no method named `build` found for struct `TcpBuilder` in the current scope
+ --> tests/ui/builder_build_without_profile.rs:8:10
+  |
+7 |       let _camera = CameraBuilder::tcp("192.168.1.100:52381")
+  |  ___________________-
+8 | |         .build(); // Error: no method named `build` found
+  | |         -^^^^^ method not found in `TcpBuilder<'_>`
+  | |_________|
+  |
