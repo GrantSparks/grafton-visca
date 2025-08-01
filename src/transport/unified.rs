@@ -26,15 +26,15 @@ pub trait UnifiedTransport: Send + Sync {
 }
 
 /// Wrapper for async transports.
-pub struct AsyncTransportWrapper<T: crate::transport::Transport> {
+pub struct UnifiedTransportWrapper<T: crate::transport::Transport> {
     pub(crate) transport: T,
     #[cfg(feature = "async")]
     pub(crate) sleep_impl: Option<std::sync::Arc<dyn Sleep>>,
 }
 
-impl<T: crate::transport::Transport> std::fmt::Debug for AsyncTransportWrapper<T> {
+impl<T: crate::transport::Transport> std::fmt::Debug for UnifiedTransportWrapper<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug = f.debug_struct("AsyncTransportWrapper");
+        let mut debug = f.debug_struct("UnifiedTransportWrapper");
         debug.field("transport", &"<Transport>");
         #[cfg(feature = "async")]
         debug.field("has_sleep_impl", &self.sleep_impl.is_some());
@@ -43,7 +43,7 @@ impl<T: crate::transport::Transport> std::fmt::Debug for AsyncTransportWrapper<T
 }
 
 #[async_trait::async_trait]
-impl<T> UnifiedTransport for AsyncTransportWrapper<T>
+impl<T> UnifiedTransport for UnifiedTransportWrapper<T>
 where
     T: crate::transport::Transport + Send + Sync,
     for<'a> T::SendFut<'a>: Send,
@@ -66,8 +66,7 @@ where
         #[cfg(not(feature = "async"))]
         {
             // In blocking mode, use the transport directly
-            futures::executor::block_on(self.transport.send(bytes))
-                .map_err(Into::into)
+            futures::executor::block_on(self.transport.send(bytes)).map_err(Into::into)
         }
     }
 
