@@ -58,8 +58,17 @@ where
     }
 
     fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
-        // For async transports, use futures::executor to block
-        futures::executor::block_on(self.send(bytes))
+        #[cfg(feature = "async")]
+        {
+            // For async transports, use futures::executor to block
+            futures::executor::block_on(self.send(bytes))
+        }
+        #[cfg(not(feature = "async"))]
+        {
+            // In blocking mode, use the transport directly
+            futures::executor::block_on(self.transport.send(bytes))
+                .map_err(Into::into)
+        }
     }
 
     fn recv_blocking_timeout(&self, timeout: Duration) -> Result<bytes::Bytes, Error> {
@@ -98,8 +107,10 @@ where
         }
         #[cfg(not(feature = "async"))]
         {
-            let _ = timeout;
-            unreachable!("AsyncTransportWrapper should not be used without async feature")
+            // In blocking mode, blocking transports return Ready futures
+            // So block_on just extracts the value immediately
+            use crate::transport::core::TransportExt;
+            self.transport.recv_with_timeout_blocking(timeout)
         }
     }
 }
