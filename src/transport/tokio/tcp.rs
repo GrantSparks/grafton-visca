@@ -1,6 +1,7 @@
 //! Tokio TCP transport implementation using GAT.
 
 use crate::transport::core::Transport;
+use crate::transport::UnifiedTransport;
 use crate::Error;
 use std::borrow::Cow;
 use std::future::Future;
@@ -127,5 +128,56 @@ impl Transport for Tcp {
         TcpRecvFut {
             stream: &self.stream,
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl UnifiedTransport for Tcp {
+    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
+        let mut stream = self.stream.lock().await;
+        stream.write_all(bytes).await?;
+        stream.flush().await?;
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<bytes::Bytes, Error> {
+        let mut stream = self.stream.lock().await;
+        let mut buffer = vec![0u8; 1024];
+        let mut total_read = 0;
+
+        // Read until we find a VISCA terminator (0xFF)
+        loop {
+            if total_read >= buffer.len() {
+                return Err(Error::TransportError(Cow::Borrowed("Response too large")));
+            }
+
+            match stream.read(&mut buffer[total_read..total_read + 1]).await {
+                Ok(0) => return Err(Error::TransportError(Cow::Borrowed("Connection closed"))),
+                Ok(1) => {
+                    total_read += 1;
+                    if buffer[total_read - 1] == 0xFF {
+                        // Found terminator
+                        buffer.truncate(total_read);
+                        return Ok(bytes::Bytes::from(buffer));
+                    }
+                }
+                Ok(_) => unreachable!(),
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+        // Block on the async version
+        futures::executor::block_on(UnifiedTransport::send(self, bytes))
+    }
+
+    fn recv_blocking_timeout(&self, timeout: Duration) -> Result<bytes::Bytes, Error> {
+        // Use tokio's block_on with timeout
+        futures::executor::block_on(async {
+            tokio::time::timeout(timeout, UnifiedTransport::recv(self))
+                .await
+                .map_err(|_| Error::Timeout)?
+        })
     }
 }

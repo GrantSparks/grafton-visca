@@ -1,6 +1,7 @@
 //! Blocking UDP transport implementation using GAT.
 
 use crate::transport::core::{blocking::ready, BlockingTransport, Transport};
+use crate::transport::UnifiedTransport;
 use crate::Error;
 use core::future::Ready;
 use std::borrow::Cow;
@@ -45,6 +46,26 @@ impl Transport for Udp {
 }
 
 impl BlockingTransport for Udp {}
+
+#[async_trait::async_trait]
+impl UnifiedTransport for Udp {
+    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
+        send_impl(&self.socket, bytes)
+    }
+
+    async fn recv(&self) -> Result<bytes::Bytes, Error> {
+        recv_impl(&self.socket)
+    }
+
+    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+        send_impl(&self.socket, bytes)
+    }
+
+    fn recv_blocking_timeout(&self, _timeout: Duration) -> Result<bytes::Bytes, Error> {
+        // The timeout is already configured on the UdpSocket itself
+        recv_impl(&self.socket)
+    }
+}
 
 fn send_impl(socket: &Mutex<UdpSocket>, data: &[u8]) -> Result<(), Error> {
     let socket = socket
