@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
             // For example: camera.pan_tilt_home().await?;
         }
         Err(e) => {
-            println!("Failed to create async TCP camera: {}", e);
+            println!("Failed to create async TCP camera: {e}");
         }
     }
 
@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
             // All camera methods are async when using tokio transports
         }
         Err(e) => {
-            println!("Failed to create async UDP camera: {}", e);
+            println!("Failed to create async UDP camera: {e}");
         }
     }
 
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
             // The SonyBRC300 profile provides Sony-specific capabilities
         }
         Err(e) => {
-            println!("Failed to create Sony camera: {}", e);
+            println!("Failed to create Sony camera: {e}");
         }
     }
 
@@ -89,10 +89,7 @@ async fn main() -> Result<()> {
         .filter(|r| r.is_ok())
         .count();
 
-    println!(
-        "Successfully created {} out of 3 cameras concurrently",
-        created_count
-    );
+    println!("Successfully created {created_count} out of 3 cameras concurrently");
 
     // Example 5: Type safety with async builders
     println!("\n=== Example 5: Type Safety in Async Context ===");
