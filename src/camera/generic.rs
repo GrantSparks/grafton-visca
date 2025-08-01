@@ -13,7 +13,7 @@ use crate::{
     capabilities::Profile,
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
-    transport::{core::Transport, AsyncTransportWrapper, TransportEnvelope, UnifiedTransport},
+    transport::{core::Transport, TransportEnvelope, UnifiedTransport, UnifiedTransportWrapper},
 };
 
 #[cfg(feature = "async")]
@@ -21,6 +21,9 @@ use crate::socket_manager::SocketManagerHandle;
 
 #[cfg(feature = "async")]
 use crate::executor::Spawner;
+
+#[cfg(feature = "async")]
+use crate::runtime::{RuntimeSleep, RuntimeSpawner};
 
 /// Generic camera client with compile-time profile selection.
 ///
@@ -628,7 +631,7 @@ where
     }
 }
 
-impl<P, T: Transport> Camera<P, AsyncTransportWrapper<T>>
+impl<P, T: Transport> Camera<P, UnifiedTransportWrapper<T>>
 where
     P: Profile,
     T: Transport + Send + Sync + 'static,
@@ -637,7 +640,11 @@ where
 {
     /// Create a new camera with specific profile and transport.
     pub fn new(transport: T) -> Self {
-        let wrapped = AsyncTransportWrapper { transport };
+        let wrapped = UnifiedTransportWrapper {
+            transport,
+            #[cfg(feature = "async")]
+            sleep_impl: None,
+        };
         Self::from_transport(wrapped)
     }
 
@@ -647,9 +654,34 @@ where
     where
         S: Spawner,
     {
-        let wrapped = AsyncTransportWrapper { transport };
+        let wrapped = UnifiedTransportWrapper {
+            transport,
+            sleep_impl: None,
+        };
         let mut camera = Self::from_transport(wrapped);
         camera.spawner = Some(Arc::new(spawner));
+
+        // Initialize socket manager automatically for better reliability
+        if let Err(e) = camera.initialize_socket_manager() {
+            log::warn!("Failed to initialize socket manager: {e}");
+        }
+
+        camera
+    }
+
+    /// Create a new camera with a runtime for async operations.
+    #[cfg(feature = "async")]
+    pub fn new_with_runtime<R>(transport: T, runtime: Arc<R>) -> Self
+    where
+        R: crate::runtime::Runtime,
+    {
+        let runtime_dyn: crate::runtime::SharedRuntime = runtime;
+        let wrapped = UnifiedTransportWrapper {
+            transport,
+            sleep_impl: Some(Arc::new(RuntimeSleep::new(Arc::clone(&runtime_dyn)))),
+        };
+        let mut camera = Self::from_transport(wrapped);
+        camera.spawner = Some(Arc::new(RuntimeSpawner::new(runtime_dyn)));
 
         // Initialize socket manager automatically for better reliability
         if let Err(e) = camera.initialize_socket_manager() {

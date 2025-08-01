@@ -202,6 +202,7 @@ impl<T> OneshotReceiver<T> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -228,7 +229,7 @@ mod tests {
 
         // Blocking receive should work
         #[cfg(not(feature = "tokio"))]
-        assert_eq!(rx.recv().unwrap(), 42);
+        assert_eq!(rx.recv().expect("recv should succeed"), 42);
 
         // For tokio builds, we can't test async recv in a sync test
         #[cfg(feature = "tokio")]
