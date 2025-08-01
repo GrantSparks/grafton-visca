@@ -61,5 +61,5 @@ pub use envelope::TransportEnvelope;
 pub use visca_protocol::ViscaProtocol;
 
 // Tokio implementations
-#[cfg(all(feature = "async", feature = "tokio"))]
+#[cfg(feature = "tokio")]
 pub mod tokio;
