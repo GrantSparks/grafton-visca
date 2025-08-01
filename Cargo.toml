@@ -1,16 +1,25 @@
 [workspace]
 members = [".", "grafton-visca-macros"]
 
-[package]
-name = "grafton-visca"
-version = "0.4.0"
-edition = "2021"
-rust-version = "1.80"
+[workspace.package]
+version = "0.5.0"
 authors = ["Grant Sparks <grant@grafton.ai>"]
-description = "Rust based VISCA over IP implementation for controlling PTZ Cameras"
 license = "Apache-2.0"
 repository = "https://github.com/GrantSparks/grafton-visca"
 homepage = "https://www.grafton.ai"
+edition = "2021"
+rust-version = "1.80"
+
+[package]
+name = "grafton-visca"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Rust based VISCA over IP implementation for controlling PTZ Cameras"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 categories = ["multimedia"]
 keywords = ["ptz", "camera", "visca", "video"]
 exclude = ["target/", ".gitignore", ".github/", ".vscode/"]
@@ -25,7 +34,7 @@ tokio = ["async", "dep:tokio"]
 async-trait = "0.1"
 bytes = "1.5"
 futures = "0.3"
-grafton-visca-macros = { version = "0.4.0", path = "grafton-visca-macros" }
+grafton-visca-macros = { version = "0.5.0", path = "grafton-visca-macros" }
 log = "0.4.22"
 env_logger = "0.11.5"
 nom = "7.1.3"
