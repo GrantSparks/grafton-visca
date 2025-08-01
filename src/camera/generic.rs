@@ -13,7 +13,7 @@ use crate::{
     capabilities::Profile,
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
-    transport::{core::Transport, AsyncTransportWrapper, TransportEnvelope, UnifiedTransport},
+    transport::{core::Transport, TransportEnvelope, UnifiedTransport, UnifiedTransportWrapper},
 };
 
 #[cfg(feature = "async")]
@@ -631,7 +631,7 @@ where
     }
 }
 
-impl<P, T: Transport> Camera<P, AsyncTransportWrapper<T>>
+impl<P, T: Transport> Camera<P, UnifiedTransportWrapper<T>>
 where
     P: Profile,
     T: Transport + Send + Sync + 'static,
@@ -640,7 +640,7 @@ where
 {
     /// Create a new camera with specific profile and transport.
     pub fn new(transport: T) -> Self {
-        let wrapped = AsyncTransportWrapper {
+        let wrapped = UnifiedTransportWrapper {
             transport,
             #[cfg(feature = "async")]
             sleep_impl: None,
@@ -654,7 +654,7 @@ where
     where
         S: Spawner,
     {
-        let wrapped = AsyncTransportWrapper {
+        let wrapped = UnifiedTransportWrapper {
             transport,
             sleep_impl: None,
         };
@@ -676,7 +676,7 @@ where
         R: crate::runtime::Runtime,
     {
         let runtime_dyn: crate::runtime::SharedRuntime = runtime;
-        let wrapped = AsyncTransportWrapper {
+        let wrapped = UnifiedTransportWrapper {
             transport,
             sleep_impl: Some(Arc::new(RuntimeSleep::new(Arc::clone(&runtime_dyn)))),
         };

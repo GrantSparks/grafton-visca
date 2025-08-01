@@ -6,7 +6,7 @@ use grafton_visca::camera::methods::{
     FocusOpsBlocking, PanTiltOpsBlocking, PowerOpsBlocking, PresetsOpsBlocking, ZoomOpsBlocking,
 };
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
-use grafton_visca::transport::{unified::AsyncTransportWrapper, UnifiedTransport};
+use grafton_visca::transport::{unified::UnifiedTransportWrapper, UnifiedTransport};
 use grafton_visca::{capabilities::*, Camera, Error, PresetNumber};
 use std::sync::Mutex;
 
@@ -157,7 +157,7 @@ fn test_compile_time_capability_checking() {
 fn test_generic_functions_with_trait_bounds() {
     // Function that works with any camera
     fn basic_control<P>(
-        camera: &Camera<P, AsyncTransportWrapper<MockTransport>>,
+        camera: &Camera<P, UnifiedTransportWrapper<MockTransport>>,
     ) -> Result<(), Error>
     where
         P: Profile,
@@ -170,7 +170,7 @@ fn test_generic_functions_with_trait_bounds() {
 
     // Function that requires motion sync capability
     fn motion_sync_control<P>(
-        _camera: &Camera<P, AsyncTransportWrapper<MockTransport>>,
+        _camera: &Camera<P, UnifiedTransportWrapper<MockTransport>>,
     ) -> Result<(), Error>
     where
         P: Profile + MotionSync,
