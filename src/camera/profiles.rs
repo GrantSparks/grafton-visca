@@ -548,6 +548,20 @@ impl Power for SonyEVIH100 {
     const POWER_ON_TIME: Duration = Duration::from_secs(8);
     const SUPPORTS_STANDBY: bool = true;
 }
+
+// EVI-H100 has limited image processing per VISCA documentation
+impl ImageProcessing for SonyEVIH100 {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..0; // Not supported
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..0; // Not supported
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..0; // Not supported
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = None;
+    const SUPPORTS_FLIP: bool = true; // Has flip/mirror per documentation
+    const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_NOISE_REDUCTION: bool = true; // Has NR per documentation
+    const SUPPORTS_2D_NR: bool = false;
+    const SUPPORTS_3D_NR: bool = false;
+}
+
 // Basic menu control support
 impl MenuControl for SonyEVIH100 {}
 
@@ -615,6 +629,20 @@ impl Power for SonyBRC300 {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = false;
 }
+
+// BRC-300 is a legacy model with minimal image processing
+impl ImageProcessing for SonyBRC300 {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..0; // Not supported
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..0; // Not supported
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..0; // Not supported
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = None;
+    const SUPPORTS_FLIP: bool = false;
+    const SUPPORTS_MIRROR: bool = false;
+    const SUPPORTS_NOISE_REDUCTION: bool = false;
+    const SUPPORTS_2D_NR: bool = false;
+    const SUPPORTS_3D_NR: bool = false;
+}
+
 // Basic menu control support
 impl MenuControl for SonyBRC300 {}
 
@@ -1053,3 +1081,6 @@ mod tests {
         assert!(fr7_summary.contains("Sony FR7"));
     }
 }
+
+// Connection helpers are now provided directly on the Camera struct.
+// Use Camera::<Profile, _>::connect_tcp() etc.

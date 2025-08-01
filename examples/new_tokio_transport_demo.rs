@@ -89,3 +89,36 @@ impl Transport for CustomTransport {
         ready(Ok(Bytes::from_static(&[0x90, 0x41, 0xFF]))) // Simple ACK for socket 1
     }
 }
+
+#[async_trait::async_trait]
+impl grafton_visca::transport::UnifiedTransport for CustomTransport {
+    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
+        println!(
+            "{}: Custom transport sending {} bytes: {:02X?}",
+            self.description,
+            bytes.len(),
+            bytes
+        );
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<Bytes, Error> {
+        // Simulate receiving an ACK response
+        Ok(Bytes::from_static(&[0x90, 0x41, 0xFF])) // Simple ACK for socket 1
+    }
+
+    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+        println!(
+            "{}: Custom transport sending {} bytes: {:02X?}",
+            self.description,
+            bytes.len(),
+            bytes
+        );
+        Ok(())
+    }
+
+    fn recv_blocking_timeout(&self, _timeout: std::time::Duration) -> Result<Bytes, Error> {
+        // Simulate receiving an ACK response
+        Ok(Bytes::from_static(&[0x90, 0x41, 0xFF])) // Simple ACK for socket 1
+    }
+}

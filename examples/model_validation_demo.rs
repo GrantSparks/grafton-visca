@@ -40,6 +40,26 @@ impl Transport for MockTransport {
     }
 }
 
+#[cfg(feature = "tokio")]
+#[async_trait::async_trait]
+impl grafton_visca::transport::UnifiedTransport for MockTransport {
+    async fn send(&self, _bytes: &[u8]) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<Bytes, Error> {
+        Ok(Bytes::from_static(&[0x90, 0x50, 0xFF])) // Mock completion response
+    }
+
+    fn send_blocking(&self, _bytes: &[u8]) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn recv_blocking_timeout(&self, _timeout: std::time::Duration) -> Result<Bytes, Error> {
+        Ok(Bytes::from_static(&[0x90, 0x50, 0xFF])) // Mock completion response
+    }
+}
+
 #[cfg(not(feature = "tokio"))]
 fn main() {
     eprintln!("This example requires the 'tokio' feature.");

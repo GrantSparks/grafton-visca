@@ -6,7 +6,7 @@ use grafton_visca::camera::methods::{
     FocusOpsBlocking, PanTiltOpsBlocking, PowerOpsBlocking, PresetsOpsBlocking, ZoomOpsBlocking,
 };
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
-use grafton_visca::transport::{unified::UnifiedTransportWrapper, UnifiedTransport};
+use grafton_visca::transport::UnifiedTransport;
 use grafton_visca::{capabilities::*, Camera, Error, PresetNumber};
 use std::sync::Mutex;
 
@@ -17,6 +17,43 @@ struct MockTransport {
     response_index: Mutex<usize>,
 }
 
+#[async_trait::async_trait]
+impl UnifiedTransport for MockTransport {
+    async fn send(&self, _bytes: &[u8]) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<bytes::Bytes, Error> {
+        let mut index = self.response_index.lock().unwrap();
+        let responses = self.response_sequence.lock().unwrap();
+
+        if *index < responses.len() {
+            let response = responses[*index].clone();
+            *index += 1;
+            Ok(bytes::Bytes::from(response))
+        } else {
+            Err(Error::Timeout)
+        }
+    }
+
+    fn send_blocking(&self, _bytes: &[u8]) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn recv_blocking_timeout(&self, _timeout: std::time::Duration) -> Result<bytes::Bytes, Error> {
+        let mut index = self.response_index.lock().unwrap();
+        let responses = self.response_sequence.lock().unwrap();
+
+        if *index < responses.len() {
+            let response = responses[*index].clone();
+            *index += 1;
+            Ok(bytes::Bytes::from(response))
+        } else {
+            Err(Error::Timeout)
+        }
+    }
+}
+
 impl MockTransport {
     fn new() -> Self {
         Self {
@@ -25,10 +62,14 @@ impl MockTransport {
             response_sequence: Mutex::new(vec![
                 vec![0x90, 0x41, 0xFF], // ACK (socket 1) for power_on
                 vec![0x90, 0x51, 0xFF], // Completion (socket 1) for power_on
+                vec![0x90, 0x41, 0xFF], // ACK (socket 1) for pan_tilt_home
+                vec![0x90, 0x51, 0xFF], // Completion (socket 1) for pan_tilt_home
                 vec![0x90, 0x41, 0xFF], // ACK (socket 1) for zoom_stop
                 vec![0x90, 0x51, 0xFF], // Completion (socket 1) for zoom_stop
-                vec![0x90, 0x41, 0xFF], // ACK (socket 1) for next command
-                vec![0x90, 0x51, 0xFF], // Completion (socket 1) for next command
+                vec![0x90, 0x41, 0xFF], // ACK (socket 1) for focus_auto
+                vec![0x90, 0x51, 0xFF], // Completion (socket 1) for focus_auto
+                vec![0x90, 0x41, 0xFF], // ACK (socket 1) for preset_recall
+                vec![0x90, 0x51, 0xFF], // Completion (socket 1) for preset_recall
             ]),
             response_index: Mutex::new(0),
         }
@@ -38,11 +79,19 @@ impl MockTransport {
         Self {
             // Sony encapsulated responses with 8-byte header
             response_sequence: Mutex::new(vec![
-                // ACK with Sony header: [0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00] + [0x90, 0x41, 0xFF]
+                // ACK with Sony header for power_on
                 vec![
                     0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x41, 0xFF,
                 ],
-                // Completion with Sony header
+                // Completion with Sony header for power_on
+                vec![
+                    0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x51, 0xFF,
+                ],
+                // ACK for pan_tilt_home
+                vec![
+                    0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x41, 0xFF,
+                ],
+                // Completion for pan_tilt_home
                 vec![
                     0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x51, 0xFF,
                 ],
@@ -156,9 +205,7 @@ fn test_compile_time_capability_checking() {
 #[test]
 fn test_generic_functions_with_trait_bounds() {
     // Function that works with any camera
-    fn basic_control<P>(
-        camera: &Camera<P, UnifiedTransportWrapper<MockTransport>>,
-    ) -> Result<(), Error>
+    fn basic_control<P>(camera: &Camera<P, MockTransport>) -> Result<(), Error>
     where
         P: Profile,
     {
@@ -169,9 +216,7 @@ fn test_generic_functions_with_trait_bounds() {
     }
 
     // Function that requires motion sync capability
-    fn motion_sync_control<P>(
-        _camera: &Camera<P, UnifiedTransportWrapper<MockTransport>>,
-    ) -> Result<(), Error>
+    fn motion_sync_control<P>(_camera: &Camera<P, MockTransport>) -> Result<(), Error>
     where
         P: Profile + MotionSync,
     {
