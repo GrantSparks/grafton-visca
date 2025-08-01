@@ -232,7 +232,7 @@ async fn main() -> Result<(), Error> {
 fn main() {
     eprintln!("This example requires either no features (for blocking) or the 'tokio' feature (for async).");
     eprintln!("The 'async' feature alone is not sufficient to run this example.");
-    eprintln!("");
+    eprintln!();
     eprintln!("Try one of:");
     eprintln!("  cargo run --example unified_client_demo");
     eprintln!("  cargo run --example unified_client_demo --features tokio");
