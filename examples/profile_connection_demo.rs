@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
 
             println!("Getting zoom position...");
             match camera.get_zoom_position().await {
-                Ok(pos) => println!("Zoom position: 0x{:04X}", pos),
+                Ok(pos) => println!("Zoom position: 0x{pos:04X}"),
                 Err(e) => println!("Could not get zoom position: {e}"),
             }
         }
