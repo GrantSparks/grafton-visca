@@ -30,9 +30,12 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+
   # Test on multiple platforms and Rust versions
   test:
     name: Test (${{ matrix.os }} / ${{ matrix.rust }})
+    # Skip comprehensive tests on feature branch pushes
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
     strategy:
       fail-fast: false
       matrix:
@@ -102,10 +105,11 @@ jobs:
           echo "Building tokio examples..."
           cargo build --examples --no-default-features --features tokio
 
-  # Combined lint and doc check
+  # Combined lint and doc check  
   lint-and-docs:
     name: Lint & Docs
     runs-on: ubuntu-latest
+    # Run lighter version on feature branches
     steps:
       - uses: actions/checkout@v4
       
@@ -140,18 +144,21 @@ jobs:
       - name: Clippy examples
         run: cargo clippy --examples --all-features -- -D warnings
       
-      # Check documentation
+      # Skip heavy documentation checks on feature branches
       - name: Check documentation
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
         run: |
           cargo doc --no-deps --all-features
           cargo doc --document-private-items --no-deps --all-features
       
       # Check documentation for macro crate
       - name: Check macro crate documentation
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
         run: cargo doc -p grafton-visca-macros --no-deps
       
       # Check for broken doc links
       - name: Check doc links
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
         run: cargo doc --no-deps --all-features
         env:
           RUSTDOCFLAGS: "-D warnings"
@@ -178,8 +185,8 @@ jobs:
   package-check:
     name: Package Check
     runs-on: ubuntu-latest
-    # Skip package check on PRs until macro crate is ready for publishing
-    if: github.event_name != 'pull_request'
+    # Skip package check on PRs and feature branches
+    if: github.event_name != 'pull_request' && !(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/'))
     steps:
       - uses: actions/checkout@v4
       
