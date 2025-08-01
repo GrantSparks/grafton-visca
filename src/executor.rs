@@ -263,3 +263,147 @@ pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::O
         }
     }
 }
+
+/// Runtime-agnostic sleep trait.
+///
+/// This trait abstracts over different async runtime sleep implementations,
+/// allowing timeout operations to work with any async runtime, not just Tokio.
+///
+/// # Examples
+///
+/// ## Using with Tokio
+/// ```no_run
+/// # #[cfg(feature = "tokio")]
+/// # {
+/// use grafton_visca::executor::{Sleep, TokioSleep};
+/// use std::time::Duration;
+///
+/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// let sleep_impl = TokioSleep;
+/// sleep_impl.sleep(Duration::from_millis(100)).await;
+/// # });
+/// # }
+/// ```
+///
+/// ## Using with async-std
+/// ```ignore
+/// use grafton_visca::executor::Sleep;
+/// use std::time::Duration;
+///
+/// #[derive(Clone)]
+/// struct AsyncStdSleep;
+///
+/// impl Sleep for AsyncStdSleep {
+///     async fn sleep(&self, duration: Duration) {
+///         async_std::task::sleep(duration).await;
+///     }
+/// }
+/// ```
+#[cfg(feature = "async")]
+pub trait Sleep: Send + Sync + 'static {
+    /// Sleep for the specified duration.
+    fn sleep(
+        &self,
+        duration: core::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+}
+
+/// Tokio-based sleep implementation.
+///
+/// This implementation uses `tokio::time::sleep` for the sleep operation.
+#[cfg(feature = "tokio")]
+#[derive(Debug, Clone, Copy)]
+pub struct TokioSleep;
+
+#[cfg(feature = "tokio")]
+impl Sleep for TokioSleep {
+    fn sleep(
+        &self,
+        duration: core::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(tokio::time::sleep(duration))
+    }
+}
+
+/// No-op sleep implementation for testing.
+///
+/// This implementation returns immediately without sleeping,
+/// useful for unit tests where actual delays are not desired.
+#[cfg(feature = "async")]
+#[derive(Debug, Clone, Copy)]
+pub struct NoopSleep;
+
+#[cfg(feature = "async")]
+impl Sleep for NoopSleep {
+    fn sleep(
+        &self,
+        _duration: core::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async {})
+    }
+}
+
+/// Blocking sleep implementation.
+///
+/// This implementation blocks the current thread for the specified duration.
+/// It should only be used in test scenarios or when no async runtime is available.
+#[cfg(feature = "async")]
+#[derive(Debug, Clone, Copy)]
+pub struct BlockingSleep;
+
+#[cfg(feature = "async")]
+impl Sleep for BlockingSleep {
+    fn sleep(
+        &self,
+        duration: core::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move {
+            std::thread::sleep(duration);
+        })
+    }
+}
+
+/// Execute an async future with a timeout using a runtime-agnostic sleep implementation.
+///
+/// This function races the given future against a sleep timer, returning an error
+/// if the timeout is reached before the future completes.
+///
+/// # Examples
+///
+/// ```no_run
+/// # #[cfg(feature = "async")]
+/// # {
+/// use grafton_visca::executor::{timeout_with_sleep, NoopSleep};
+/// use std::time::Duration;
+///
+/// # futures::executor::block_on(async {
+/// let sleep_impl = NoopSleep;
+/// let result = timeout_with_sleep(&sleep_impl, Duration::from_secs(1), async {
+///     // Some async operation
+///     42
+/// }).await;
+/// assert_eq!(result.unwrap(), 42);
+/// # });
+/// # }
+/// ```
+#[cfg(feature = "async")]
+pub async fn timeout_with_sleep<S, F, T>(
+    sleep_impl: &S,
+    duration: core::time::Duration,
+    fut: F,
+) -> Result<T, Error>
+where
+    S: Sleep + ?Sized,
+    F: Future<Output = T>,
+{
+    use futures::future::{select, Either};
+    use std::pin::pin;
+
+    let sleep_fut = sleep_impl.sleep(duration);
+    let work_fut = pin!(fut);
+
+    match select(work_fut, sleep_fut).await {
+        Either::Left((result, _)) => Ok(result),
+        Either::Right(((), _)) => Err(Error::Timeout),
+    }
+}

@@ -6,6 +6,9 @@
 use crate::Error;
 use core::future::Future;
 
+#[cfg(feature = "async")]
+use crate::executor::Sleep;
+
 /// Low-level VISCA byte transport - one frame at a time.
 ///
 /// This trait unifies blocking and async transports using GAT futures.
@@ -52,43 +55,41 @@ pub trait BlockingTransport: Transport {}
 
 /// Extension trait for timeout operations.
 pub trait TransportExt: Transport {
-    /// Receive with timeout when using tokio runtime.
-    #[cfg(feature = "tokio")]
+    /// Receive with timeout using a runtime-specific Sleep implementation.
+    ///
+    /// When `sleep_impl` is provided, it will be used for timeout.
+    /// When `sleep_impl` is None and tokio feature is enabled, tokio::time::timeout is used.
+    /// Otherwise, no timeout is applied.
+    #[cfg(feature = "async")]
     fn recv_with_timeout<'a>(
         &'a self,
         duration: core::time::Duration,
+        sleep_impl: Option<&'a dyn Sleep>,
     ) -> impl Future<Output = Result<bytes::Bytes, Error>> + 'a
     where
         Self: 'a,
     {
         async move {
-            tokio::time::timeout(duration, self.recv())
-                .await
-                .map_err(|_| Error::Timeout)?
-                .map_err(Into::into)
+            if let Some(sleep) = sleep_impl {
+                crate::executor::timeout_with_sleep(sleep, duration, self.recv())
+                    .await?
+                    .map_err(Into::into)
+            } else {
+                #[cfg(feature = "tokio")]
+                {
+                    tokio::time::timeout(duration, self.recv())
+                        .await
+                        .map_err(|_| Error::Timeout)?
+                        .map_err(Into::into)
+                }
+                #[cfg(not(feature = "tokio"))]
+                {
+                    // Without a specific runtime, we can't implement timeout.
+                    log::debug!("Timeout requested but no Sleep implementation provided and tokio feature not enabled");
+                    self.recv().await.map_err(Into::into)
+                }
+            }
         }
-    }
-
-    /// Receive with timeout for runtime-agnostic async.
-    ///
-    /// When not using tokio, users should wrap this with their runtime's timeout.
-    /// For example, with async-std:
-    /// ```ignore
-    /// use async_std::future::timeout;
-    /// let result = timeout(duration, transport.recv()).await?;
-    /// ```
-    #[cfg(all(feature = "async", not(feature = "tokio")))]
-    fn recv_with_timeout<'a>(
-        &'a self,
-        #[allow(unused_variables)] duration: core::time::Duration,
-    ) -> impl Future<Output = Result<bytes::Bytes, Error>> + 'a
-    where
-        Self: 'a,
-    {
-        // Without a specific runtime, we can't implement timeout.
-        // The duration parameter is kept for API compatibility but cannot be used
-        // without a specific runtime. Users should wrap recv() with their runtime's timeout mechanism.
-        async move { self.recv().await.map_err(Into::into) }
     }
 
     /// Blocking timeout helper for non-async transports.
