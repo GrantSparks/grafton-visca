@@ -7,6 +7,9 @@
 //! This crate provides derive macros to simplify common patterns
 //! in VISCA command implementations.
 
+#![deny(missing_docs)]
+#![doc(html_root_url = "https://docs.rs/grafton-visca/0.5.0")]
+
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
@@ -14,6 +17,21 @@ mod inquiry_command;
 mod parser_templates;
 mod value_macros;
 
+/// Derive macro for implementing ViscaValue trait for command value types
+///
+/// This macro automatically generates the `ViscaValue` trait implementation
+/// for types that represent VISCA command values, providing methods for
+/// converting to and from byte representations.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use grafton_visca_macros::ViscaValue;
+///
+/// #[derive(ViscaValue, Debug, Copy, Clone)]
+/// #[visca_value(bytes = 2)]
+/// struct ZoomPosition(u16);
+/// ```
 #[proc_macro_derive(ViscaValue, attributes(visca_value))]
 pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     value_macros::derive_visca_value(input)

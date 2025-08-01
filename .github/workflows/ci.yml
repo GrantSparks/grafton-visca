@@ -79,6 +79,10 @@ jobs:
       - name: Test all features
         run: cargo test --all-features --verbose
       
+      # Test the macro crate specifically
+      - name: Test grafton-visca-macros
+        run: cargo test -p grafton-visca-macros --verbose
+      
       # Build examples for the three configurations (only on stable)
       - name: Build blocking examples (no features)
         if: matrix.rust == 'stable'
@@ -128,6 +132,10 @@ jobs:
       - name: Clippy all features
         run: cargo clippy --all-targets --all-features -- -D warnings
       
+      # Check the macro crate
+      - name: Clippy grafton-visca-macros
+        run: cargo clippy -p grafton-visca-macros --all-targets -- -D warnings
+      
       # Check examples specifically
       - name: Clippy examples
         run: cargo clippy --examples --all-features -- -D warnings
@@ -137,6 +145,10 @@ jobs:
         run: |
           cargo doc --no-deps --all-features
           cargo doc --document-private-items --no-deps --all-features
+      
+      # Check documentation for macro crate
+      - name: Check macro crate documentation
+        run: cargo doc -p grafton-visca-macros --no-deps
       
       # Check for broken doc links
       - name: Check doc links
@@ -182,6 +194,10 @@ jobs:
       - name: Check package
         run: cargo package --no-verify
       
+      # Verify the macro crate can be packaged
+      - name: Check macro package
+        run: cargo package -p grafton-visca-macros --no-verify
+      
       # Check for security vulnerabilities
       - name: Install cargo-audit
         run: cargo install cargo-audit
@@ -206,10 +222,24 @@ jobs:
           save-if: false  # Don't save cache in publish job
       
       # Dry run first to catch any issues
-      - name: Publish dry run
+      - name: Publish macro crate dry run
+        run: cargo publish -p grafton-visca-macros --dry-run
+      
+      - name: Publish main crate dry run
         run: cargo publish --dry-run
       
-      - name: Publish to crates.io
+      # Publish macro crate first (dependency)
+      - name: Publish grafton-visca-macros to crates.io
+        run: cargo publish -p grafton-visca-macros
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
+      
+      # Wait a bit for crates.io to index the macro crate
+      - name: Wait for crates.io indexing
+        run: sleep 30
+      
+      # Then publish the main crate
+      - name: Publish grafton-visca to crates.io
         run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}

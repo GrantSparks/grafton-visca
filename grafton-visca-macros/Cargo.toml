@@ -1,8 +1,17 @@
 [package]
 name = "grafton-visca-macros"
-version = "0.4.0"
-edition = "2021"
-publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Procedural macros for the grafton-visca library"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories = ["multimedia"]
+keywords = ["ptz", "camera", "visca", "video", "macros"]
+exclude = ["target/", ".gitignore", ".github/", ".vscode/"]
+readme = "../README.md"
 
 [lib]
 proc-macro = true
