@@ -8,6 +8,9 @@ use crate::{
 use std::borrow::Cow;
 use std::time::Duration;
 
+#[cfg(feature = "async")]
+use crate::executor::Sleep;
+
 /// VISCA protocol constants.
 // Removed duplicate - use from const_encoding module
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -21,15 +24,39 @@ const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 /// - ACK/Completion response handling
 /// - Response parsing and validation
 /// - Timeout management
-#[derive(Debug)]
 pub struct ViscaProtocol<T: Transport> {
     transport: T,
+    #[cfg(feature = "async")]
+    sleep_impl: Option<std::sync::Arc<dyn Sleep>>,
+}
+
+impl<T: Transport> std::fmt::Debug for ViscaProtocol<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("ViscaProtocol");
+        debug.field("transport", &"<Transport>");
+        #[cfg(feature = "async")]
+        debug.field("has_sleep_impl", &self.sleep_impl.is_some());
+        debug.finish()
+    }
 }
 
 impl<T: Transport> ViscaProtocol<T> {
     /// Create a new VISCA protocol handler wrapping a transport.
     pub fn new(transport: T) -> Self {
-        Self { transport }
+        Self {
+            transport,
+            #[cfg(feature = "async")]
+            sleep_impl: None,
+        }
+    }
+
+    /// Create a new VISCA protocol handler with a specific Sleep implementation.
+    #[cfg(feature = "async")]
+    pub fn new_with_sleep(transport: T, sleep_impl: std::sync::Arc<dyn Sleep>) -> Self {
+        Self {
+            transport,
+            sleep_impl: Some(sleep_impl),
+        }
     }
 
     /// Get a reference to the underlying transport.
@@ -117,21 +144,29 @@ impl<T: Transport> ViscaProtocol<T> {
 
     /// Receive with timeout handling.
     async fn recv_with_timeout(&self, duration: Duration) -> Result<bytes::Bytes, Error> {
-        #[cfg(feature = "tokio")]
+        #[cfg(feature = "async")]
         {
-            tokio::time::timeout(duration, self.transport.recv())
-                .await
-                .map_err(|_| Error::Timeout)?
-                .map_err(Into::into)
-        }
-
-        #[cfg(all(feature = "async", not(feature = "tokio")))]
-        {
-            // For runtime-agnostic async, we can't implement timeout internally.
-            // Users should wrap the entire send_command operation with their runtime's timeout.
-            // We document this limitation and provide the duration for informational purposes.
-            log::debug!("Timeout of {duration:?} requested, but no runtime-specific timeout available. Users should wrap operations with their runtime's timeout mechanism.");
-            self.transport.recv().await.map_err(Into::into)
+            if let Some(sleep_impl) = &self.sleep_impl {
+                // Use the provided Sleep implementation
+                crate::executor::timeout_with_sleep(sleep_impl.as_ref(), duration, self.transport.recv())
+                    .await
+                    .map_err(Into::into)
+            } else {
+                #[cfg(feature = "tokio")]
+                {
+                    // Fallback to tokio if available and no Sleep impl provided
+                    tokio::time::timeout(duration, self.transport.recv())
+                        .await
+                        .map_err(|_| Error::Timeout)?
+                        .map_err(Into::into)
+                }
+                #[cfg(not(feature = "tokio"))]
+                {
+                    // For runtime-agnostic async without a Sleep impl, we can't implement timeout.
+                    log::debug!("Timeout of {duration:?} requested, but no Sleep implementation provided. Users should either provide a Sleep implementation or wrap operations with their runtime's timeout mechanism.");
+                    self.transport.recv().await.map_err(Into::into)
+                }
+            }
         }
 
         #[cfg(not(feature = "async"))]
