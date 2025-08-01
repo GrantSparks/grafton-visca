@@ -5,7 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - Unreleased
+## [0.5.0] - Unreleased
+
+### Breaking Changes
+
+#### 🔥 New CameraBuilder API (Issue #185)
+- **BREAKING**: Removed all `connect_*` functions (`connect_tcp`, `connect_udp`, `connect_tokio_tcp`, `connect_tokio_udp`)
+- **NEW**: Introduced `CameraBuilder` for a cleaner, more idiomatic API:
+  ```rust
+  // Before (removed):
+  let camera = Camera::<PTZOpticsG2, _>::connect_tcp("192.168.1.100:52381")?;
+  
+  // After (new):
+  let camera = CameraBuilder::tcp("192.168.1.100:52381")
+      .profile::<PTZOpticsG2>()
+      .build()?;
+  ```
+- Benefits of the new API:
+  - Runtime parameters (address, protocol) come first
+  - Compile-time profile selection comes second
+  - Single entry point (`CameraBuilder`) for all transport types
+  - More extensible for future transport options
+
+### Changed
+- Updated all examples to use the new `CameraBuilder` API
+- Updated README and documentation with new builder pattern examples
+
+## [0.4.0] - 2024-12-27
 
 This release represents a major evolution of the library from a low-level VISCA protocol implementation to a high-level camera control solution with a unified, ergonomic API.
 

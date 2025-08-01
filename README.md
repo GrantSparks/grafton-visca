@@ -35,14 +35,16 @@ All command encoders/decoders compile and have unit / property tests, but **the 
 use grafton_visca::{
     blocking::prelude::*,
     camera::profiles::PTZOpticsG2,
-    Camera,
+    CameraBuilder,
 };
 
 fn main() -> grafton_visca::Result<()> {
     env_logger::init();
 
-    // Ergonomic helper: creates a TCP transport and the camera object
-    let cam = Camera::<PTZOpticsG2, _>::connect_tcp("192.168.1.100:52381")?;
+    // Create camera using the builder pattern
+    let cam = CameraBuilder::tcp("192.168.1.100:52381")
+        .profile::<PTZOpticsG2>()
+        .build()?;
 
     cam.power_on()?;            // turns the camera on
     cam.pan_tilt_home()?;       // move to home
@@ -57,12 +59,15 @@ fn main() -> grafton_visca::Result<()> {
 use grafton_visca::{
     r#async::prelude::*,
     camera::profiles::PTZOpticsG2,
-    Camera,
+    CameraBuilder,
 };
 
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    let cam = Camera::<PTZOpticsG2, _>::connect_tokio_tcp("192.168.1.100:52381").await?;
+    let cam = CameraBuilder::tokio_tcp("192.168.1.100:52381")
+        .profile::<PTZOpticsG2>()
+        .build()
+        .await?;
     cam.power_on().await?;
     cam.zoom_in().await?;
     cam.zoom_stop().await?;
@@ -112,9 +117,13 @@ Each profile implements capability traits (`HasZoom`, `HasNDFilter`, …).
 If a capability is absent the corresponding extension trait is **not** in scope, so unsupported calls fail at compile time. Example:
 
 ```rust,ignore
-let cam = Camera::<SonyFR7, _>::connect_tcp("...")?;
+let cam = CameraBuilder::tcp("192.168.1.100:52381")
+    .profile::<SonyFR7>()
+    .build()?;
 // cam.set_nd_filter_mode(NDFilterMode::Variable)?;  // ✅ FR7 supports this
-let b = Camera::<PTZOpticsG2, _>::connect_tcp("...")?;
+let b = CameraBuilder::tcp("192.168.1.101:52381")
+    .profile::<PTZOpticsG2>()
+    .build()?;
 // b.set_nd_filter_mode(NDFilterMode::Variable)?;     // ❌ compile‑error
 ```
 
