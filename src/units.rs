@@ -3,12 +3,13 @@
 //! This module provides strongly-typed units for camera parameters,
 //! enabling intuitive and type-safe API usage.
 
+use std::borrow::Cow;
+use std::convert::TryFrom;
+
 use crate::error::Error;
 use crate::types::{
     ColorTemp, FocusPosition, IrisLevel, PanSpeed, ShutterSpeed, TiltSpeed, ZoomPosition,
 };
-use std::borrow::Cow;
-use std::convert::TryFrom;
 
 /// Position in degrees.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -196,7 +197,6 @@ impl Fraction {
     }
 }
 
-// Conversion implementations for ZoomPosition
 impl TryFrom<Percentage<f32>> for ZoomPosition {
     type Error = Error;
 
@@ -209,7 +209,6 @@ impl TryFrom<Percentage<f32>> for ZoomPosition {
                 max: 100,
             });
         }
-        // Convert percentage to VISCA units (0x0000 - 0x7000)
         let value = (percentage.0 / 100.0 * 0x7000 as f32) as u16;
         ZoomPosition::new(value)
     }
@@ -236,8 +235,6 @@ impl TryFrom<Magnification<f32>> for ZoomPosition {
     type Error = Error;
 
     fn try_from(magnification: Magnification<f32>) -> Result<Self, Self::Error> {
-        // Assuming 1.0x = 0x0000, 30.0x = 0x7000 for a 30x camera
-        // This would need to be adjusted based on camera profile
         if magnification.0 < 1.0 || magnification.0 > 30.0 {
             return Err(Error::ParameterOutOfRange {
                 parameter: "zoom magnification",
@@ -254,12 +251,10 @@ impl TryFrom<Magnification<f32>> for ZoomPosition {
 
 impl From<Raw<u16>> for ZoomPosition {
     fn from(raw: Raw<u16>) -> Self {
-        // Trust the user knows what they're doing with raw values
         ZoomPosition::new(raw.0).unwrap_or(ZoomPosition::MIN)
     }
 }
 
-// Conversion implementations for FocusPosition
 impl TryFrom<Percentage<f32>> for FocusPosition {
     type Error = Error;
 
@@ -272,7 +267,6 @@ impl TryFrom<Percentage<f32>> for FocusPosition {
                 max: 100,
             });
         }
-        // Convert percentage to VISCA units (0x1000 - 0xF000)
         let range = 0xF000 - 0x1000;
         let value = 0x1000 + (percentage.0 / 100.0 * range as f32) as u16;
         FocusPosition::new(value)
@@ -303,8 +297,6 @@ impl From<Raw<u16>> for FocusPosition {
     }
 }
 
-// Note: FStop to IrisLevel conversion is already implemented in types.rs
-
 impl TryFrom<Percentage<f32>> for IrisLevel {
     type Error = Error;
 
@@ -317,19 +309,15 @@ impl TryFrom<Percentage<f32>> for IrisLevel {
                 max: 100,
             });
         }
-        // Convert percentage to iris level (0x00 - 0x10)
         let value = (percentage.0 / 100.0 * 0x10 as f32) as u8;
         IrisLevel::new(value)
     }
 }
 
-// Conversion implementations for ShutterSpeed
 impl TryFrom<Fraction> for ShutterSpeed {
     type Error = Error;
 
     fn try_from(fraction: Fraction) -> Result<Self, Self::Error> {
-        // Convert common shutter speeds to VISCA values
-        // Based on the G2_VALID_VALUES from types.rs
         let value = match (fraction.numerator, fraction.denominator) {
             (1, 60) => 0x07,    // Actual 1/60
             (1, 100) => 0x08,   // Actual 1/100
@@ -356,12 +344,10 @@ impl TryFrom<Fraction> for ShutterSpeed {
     }
 }
 
-// Conversion implementations for ColorTemp
 impl TryFrom<Kelvin> for ColorTemp {
     type Error = Error;
 
     fn try_from(kelvin: Kelvin) -> Result<Self, Self::Error> {
-        // PTZOptics G2 supports 2000K to 8000K
         if kelvin.0 < 2000 || kelvin.0 > 8000 {
             return Err(Error::ParameterOutOfRange {
                 parameter: "color temperature",
@@ -370,15 +356,12 @@ impl TryFrom<Kelvin> for ColorTemp {
                 max: 8000,
             });
         }
-        // Map to VISCA units (needs camera-specific mapping)
-        // This is a simplified linear mapping
         let normalized = (kelvin.0 - 2000) as f32 / 6000.0;
         let value = (normalized * 0x37 as f32) as u16;
         ColorTemp::new(value)
     }
 }
 
-// Conversion implementations for Pan/Tilt speeds
 impl TryFrom<Percentage<f32>> for PanSpeed {
     type Error = Error;
 
@@ -425,7 +408,6 @@ impl From<Raw<u8>> for TiltSpeed {
     }
 }
 
-// Conversion implementations for GainLevel
 impl TryFrom<Percentage<f32>> for crate::types::GainLevel {
     type Error = Error;
 
@@ -438,7 +420,6 @@ impl TryFrom<Percentage<f32>> for crate::types::GainLevel {
                 max: 100,
             });
         }
-        // Map percentage to gain levels (0-7)
         let value = (percentage.0 / 100.0 * 7.0).round() as u8;
         crate::types::GainLevel::new(value)
     }
@@ -450,7 +431,6 @@ impl From<Raw<u8>> for crate::types::GainLevel {
     }
 }
 
-// Conversion implementations for SharpnessLevel
 impl TryFrom<Percentage<f32>> for crate::types::SharpnessLevel {
     type Error = Error;
 
@@ -463,7 +443,6 @@ impl TryFrom<Percentage<f32>> for crate::types::SharpnessLevel {
                 max: 100,
             });
         }
-        // Map percentage to sharpness levels (0-7)
         let value = (percentage.0 / 100.0 * 7.0).round() as u8;
         crate::types::SharpnessLevel::new(value)
     }
@@ -475,7 +454,6 @@ impl From<Raw<u8>> for crate::types::SharpnessLevel {
     }
 }
 
-// Conversion implementations for BrightnessLevel
 impl TryFrom<Percentage<f32>> for crate::types::BrightnessLevel {
     type Error = Error;
 
@@ -488,7 +466,6 @@ impl TryFrom<Percentage<f32>> for crate::types::BrightnessLevel {
                 max: 100,
             });
         }
-        // Map percentage to brightness levels (0x00-0x11)
         let value = (percentage.0 / 100.0 * 0x11 as f32).round() as u16;
         crate::types::BrightnessLevel::new(value)
     }
@@ -500,7 +477,6 @@ impl From<Raw<u16>> for crate::types::BrightnessLevel {
     }
 }
 
-// Conversion implementations for ContrastLevel
 impl TryFrom<Percentage<f32>> for crate::types::ContrastLevel {
     type Error = Error;
 
@@ -513,7 +489,6 @@ impl TryFrom<Percentage<f32>> for crate::types::ContrastLevel {
                 max: 100,
             });
         }
-        // Map percentage to contrast levels (0-14)
         let value = (percentage.0 / 100.0 * 14.0).round() as u8;
         crate::types::ContrastLevel::new(value)
     }
@@ -525,7 +500,6 @@ impl From<Raw<u8>> for crate::types::ContrastLevel {
     }
 }
 
-// Conversion implementations for SaturationLevel
 impl TryFrom<Percentage<f32>> for crate::types::SaturationLevel {
     type Error = Error;
 
@@ -538,7 +512,6 @@ impl TryFrom<Percentage<f32>> for crate::types::SaturationLevel {
                 max: 100,
             });
         }
-        // Map percentage to saturation levels (0x00-0x0E)
         let value = (percentage.0 / 100.0 * 0x0E as f32).round() as u8;
         crate::types::SaturationLevel::new(value)
     }
@@ -550,7 +523,6 @@ impl From<Raw<u8>> for crate::types::SaturationLevel {
     }
 }
 
-// Conversion implementations for HueLevel
 impl TryFrom<Percentage<f32>> for crate::types::HueLevel {
     type Error = Error;
 
@@ -563,7 +535,6 @@ impl TryFrom<Percentage<f32>> for crate::types::HueLevel {
                 max: 100,
             });
         }
-        // Map percentage to hue levels (0x00-0x0E)
         let value = (percentage.0 / 100.0 * 0x0E as f32).round() as u8;
         crate::types::HueLevel::new(value)
     }
@@ -577,11 +548,12 @@ impl From<Raw<u8>> for crate::types::HueLevel {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::FStop;
 
+    use super::*;
+
     #[test]
-    #[allow(clippy::unwrap_used)] // OK in tests
+    #[allow(clippy::unwrap_used)]
     fn test_zoom_percentage_conversion() {
         let percentage = Percentage(50.0);
         let zoom = ZoomPosition::try_from(percentage).unwrap();
@@ -608,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)] // OK in tests
+    #[allow(clippy::unwrap_used)]
     fn test_shutter_fraction_conversion() {
         let fraction = Fraction::new(1, 60);
         let shutter = ShutterSpeed::try_from(fraction).unwrap();

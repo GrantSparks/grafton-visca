@@ -56,7 +56,6 @@ macro_rules! visca_command {
             const MAX_SIZE: usize = 32; // Conservative default
 
             fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                // Create a helper function for each variant
                 $(
                     #[allow(non_snake_case)]
                     fn $variant($($($param: &$ptype),*)?) -> Result<Vec<u8>, $crate::Error> {
@@ -64,14 +63,12 @@ macro_rules! visca_command {
                     }
                 )+
 
-                // Match on self and call the appropriate helper
                 let mut bytes = match self {
                     $(
                         Self::$variant$( ($($param),*) )? => $variant($($($param),*)?)?,
                     )+
                 };
 
-                // Replace hardcoded camera ID with dynamic one
                 if !bytes.is_empty() && bytes[0] == 0x81 {
                     bytes[0] = camera_id.to_address_byte();
                 }
@@ -269,8 +266,6 @@ macro_rules! visca_bool_command {
                 }
 
                 let mut prefix = [$($prefix),+];
-                // Replace hardcoded camera ID with dynamic one
-                // Use the address parameter instead of hardcoded 0x81
                 if !prefix.is_empty() && prefix[0] == $address {
                     prefix[0] = ($address & 0xF0) | camera_id.id();
                 }
@@ -371,7 +366,6 @@ macro_rules! visca_builder {
 
                 let mut $builder = $crate::command::const_encoding::CommandBuilder::<$size>::new();
 
-                // Extract fields and call the builder closure
                 {
                     $(let $param = &self.$field;)+
                     $($stmt)*
@@ -379,7 +373,6 @@ macro_rules! visca_builder {
 
                 let bytes = $builder.build();
                 buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
-                // Replace hardcoded camera ID with dynamic one
                 if buffer[0] == 0x81 {
                     buffer[0] = camera_id.to_address_byte();
                 }
@@ -484,8 +477,6 @@ macro_rules! visca_param_command {
                 }
 
                 let mut prefix = [$($prefix),+];
-                // Replace hardcoded camera ID with dynamic one
-                // Use the address parameter instead of hardcoded 0x81
                 if !prefix.is_empty() && prefix[0] == $address {
                     prefix[0] = ($address & 0xF0) | camera_id.id();
                 }
@@ -667,11 +658,8 @@ macro_rules! visca_const_command {
                     });
                 }
 
-                // Copy the command bytes
                 buffer[..LEN].copy_from_slice(BYTES);
 
-                // Update the first byte with camera ID if needed
-                // Only replace if it's the default camera address (0x81)
                 if $address == 0x81 && BYTES[0] == 0x81 {
                     buffer[0] = camera_id.to_address_byte();
                 }
@@ -694,9 +682,9 @@ macro_rules! visca_const_command {
 mod tests {
     #![allow(clippy::expect_used)]
 
-    use crate::{camera_id::CameraId, command::encode_visca::EncodeVisca};
+    use crate::camera_id::CameraId;
+    use crate::command::encode_visca::EncodeVisca;
 
-    // Test the extended bool command with custom address
     visca_bool_command! {
         /// Test command with 0x80 address
         struct TestNetworkBoolCommand {
@@ -725,7 +713,6 @@ mod tests {
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x23, 0x02, 0xFF]);
     }
 
-    // Test regular bool command still works
     visca_bool_command! {
         /// Test standard bool command
         struct TestStandardBoolCommand {
@@ -746,7 +733,6 @@ mod tests {
         assert_eq!(&buffer[..len], &[0x81, 0x01, 0x04, 0x33, 0x02, 0xFF]);
     }
 
-    // Test enum for param command
     #[derive(Debug, Copy, Clone)]
     enum TestMode {
         Mode1,
@@ -764,7 +750,6 @@ mod tests {
         }
     }
 
-    // Test the extended param command with custom address
     visca_param_command! {
         /// Test param command with 0x80 address
         struct TestNetworkParamCommand {
@@ -789,7 +774,6 @@ mod tests {
         assert_eq!(len, 6);
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x01, 0x02, 0xFF]);
 
-        // Test Mode1 to avoid dead code warning
         let cmd_mode1 = TestNetworkParamCommand {
             mode: TestMode::Mode1,
         };
@@ -799,7 +783,6 @@ mod tests {
         assert_eq!(&buffer[..len], &[0x81, 0x0B, 0x01, 0x01, 0x01, 0xFF]);
     }
 
-    // Test regular param command still works
     visca_param_command! {
         /// Test standard param command
         struct TestStandardParamCommand {
@@ -825,17 +808,14 @@ mod tests {
 
     #[test]
     fn test_camera_id_encoding() {
-        // Test that camera ID is correctly encoded in the address byte
         let cmd = TestNetworkBoolCommand::new(true);
         let mut buffer = [0u8; 6];
 
-        // Test with CAMERA_3 (ID = 3)
         let len = cmd
             .encode_into(CameraId::CAMERA_3, &mut buffer)
             .expect("encode should succeed");
         assert_eq!(&buffer[..len], &[0x83, 0x0B, 0x01, 0x23, 0x01, 0xFF]);
 
-        // Test with CAMERA_7 (ID = 7)
         let len = cmd
             .encode_into(CameraId::CAMERA_7, &mut buffer)
             .expect("encode should succeed");
