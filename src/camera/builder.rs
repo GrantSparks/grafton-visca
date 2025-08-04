@@ -173,7 +173,7 @@ impl<P: Profile> TypedTcpBuilder<'_, P> {
                 ProtocolStyle::RawVisca => ports::PTZOPTICS_TCP_PORT,
                 ProtocolStyle::SonyEncapsulated { .. } => ports::SONY_VISCA_PORT,
             };
-            format!("{}:{}", addr, default_port)
+            format!("{addr}:{default_port}")
         }
     }
 }
@@ -201,7 +201,7 @@ impl<P: Profile> TypedUdpBuilder<'_, P> {
                 ProtocolStyle::RawVisca => ports::PTZOPTICS_UDP_PORT,
                 ProtocolStyle::SonyEncapsulated { .. } => ports::SONY_VISCA_PORT,
             };
-            format!("{}:{}", addr, default_port)
+            format!("{addr}:{default_port}")
         }
     }
 }
@@ -231,7 +231,7 @@ impl<P: Profile> TypedTokioTcpBuilder<'_, P> {
                 ProtocolStyle::RawVisca => ports::PTZOPTICS_TCP_PORT,
                 ProtocolStyle::SonyEncapsulated { .. } => ports::SONY_VISCA_PORT,
             };
-            format!("{}:{}", addr, default_port)
+            format!("{addr}:{default_port}")
         }
     }
 }
@@ -261,7 +261,7 @@ impl<P: Profile> TypedTokioUdpBuilder<'_, P> {
                 ProtocolStyle::RawVisca => ports::PTZOPTICS_UDP_PORT,
                 ProtocolStyle::SonyEncapsulated { .. } => ports::SONY_VISCA_PORT,
             };
-            format!("{}:{}", addr, default_port)
+            format!("{addr}:{default_port}")
         }
     }
 }
