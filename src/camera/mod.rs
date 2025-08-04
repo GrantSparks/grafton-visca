@@ -11,11 +11,16 @@
 pub mod builder;
 pub mod generic;
 pub mod generic_methods;
+pub mod generic_state;
+pub mod helpers;
 pub mod methods;
 pub mod profiles;
 
 // Re-export the generic Camera as the primary Camera type
 pub use generic::Camera;
+
+// Re-export state management
+pub use generic_state::CameraState;
 
 // Re-export builder types
 pub use builder::CameraBuilder;

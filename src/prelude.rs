@@ -63,6 +63,7 @@
 #[cfg(feature = "async")]
 pub mod r#async {
     // Re-export all async operation traits with clean names
+    pub use crate::camera::helpers::{MovementDetectionConfig, MovementHelpersAsync};
     pub use crate::camera::methods::{
         ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlOps,
         MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
@@ -86,6 +87,9 @@ pub mod r#async {
 
     // Re-export the generic camera
     pub use crate::camera::Camera;
+
+    // Re-export state management types
+    pub use crate::camera::CameraState;
 
     // Ergonomic type aliases for specific camera models
     /// PTZOptics G2 camera type alias.
@@ -129,6 +133,7 @@ pub mod r#async {
 /// ```
 pub mod blocking {
     // Re-export all blocking operation traits with clean names
+    pub use crate::camera::helpers::{MovementDetectionConfig, MovementHelpers};
     pub use crate::camera::methods::{
         ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps,
         FocusOpsBlocking as FocusOps, ImageProcessingOpsBlocking as ImageProcessingOps,
@@ -158,6 +163,9 @@ pub mod blocking {
 
     // Re-export the generic camera
     pub use crate::camera::Camera;
+
+    // Re-export state management types
+    pub use crate::camera::CameraState;
 
     // Ergonomic type aliases for specific camera models
     /// PTZOptics G2 camera type alias.

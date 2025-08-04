@@ -51,25 +51,30 @@ async fn multi_camera_control() -> Result<()> {
 
     // Create multiple cameras
     let cam1 = Arc::new(
-        CameraBuilder::tokio_tcp("192.168.0.110")
+        CameraBuilder::tokio_tcp("192.168.0.109")
             .profile::<PTZOpticsG2>()
             .build()
             .await?,
     );
 
     let cam2 = Arc::new(
-        CameraBuilder::tokio_tcp("192.168.0.111")
+        CameraBuilder::tokio_tcp("192.168.0.110")
             .profile::<PTZOpticsG2>()
             .build()
             .await?,
     );
 
     let cam3 = Arc::new(
-        CameraBuilder::tokio_tcp("192.168.0.112")
+        CameraBuilder::tokio_tcp("192.168.0.111")
             .profile::<PTZOpticsG2>()
             .build()
             .await?,
     );
+
+    // Save initial states for all cameras
+    let state1 = cam1.save_state_async().await.ok();
+    let state2 = cam2.save_state_async().await.ok();
+    let state3 = cam3.save_state_async().await.ok();
 
     // Spawn concurrent tasks for each camera
     let handle1 = {
@@ -79,7 +84,7 @@ async fn multi_camera_control() -> Result<()> {
             for i in 1..=3 {
                 if let Ok(preset) = PresetNumber::new(i) {
                     cam.preset_recall(preset).await?;
-                    sleep(Duration::from_secs(2)).await;
+                    cam.wait_for_all_movements(Duration::from_secs(5)).await?;
                 }
             }
             Ok::<(), grafton_visca::Error>(())
@@ -91,7 +96,8 @@ async fn multi_camera_control() -> Result<()> {
         tokio::spawn(async move {
             println!("Camera 2: Performing pan sweep");
             cam.pan_tilt_home().await?;
-            sleep(Duration::from_millis(500)).await;
+            cam.wait_for_pan_tilt_completion(Duration::from_secs(5))
+                .await?;
             cam.pan_tilt_move(
                 PanTiltDirection::Right,
                 SpeedLevel::Medium.into(),
@@ -109,9 +115,9 @@ async fn multi_camera_control() -> Result<()> {
         tokio::spawn(async move {
             println!("Camera 3: Zoom demonstration");
             cam.zoom_absolute(Normalized::new(0.0)).await?;
-            sleep(Duration::from_millis(500)).await;
+            cam.wait_for_zoom_completion(Duration::from_secs(3)).await?;
             cam.zoom_absolute(Normalized::new(0.5)).await?;
-            sleep(Duration::from_millis(500)).await;
+            cam.wait_for_zoom_completion(Duration::from_secs(3)).await?;
             cam.zoom_absolute(Normalized::new(1.0)).await?;
             Ok::<(), grafton_visca::Error>(())
         })
@@ -121,8 +127,46 @@ async fn multi_camera_control() -> Result<()> {
     let (r1, r2, r3) = tokio::join!(handle1, handle2, handle3);
 
     if r1.is_ok() && r2.is_ok() && r3.is_ok() {
-        println!("✓ All cameras operated successfully in parallel\n");
+        println!("✓ All cameras operated successfully in parallel");
     }
+
+    // Restore initial states for all cameras
+    println!("Restoring camera states...");
+    let restore_handles = vec![
+        {
+            let cam = cam1.clone();
+            let state = state1.clone();
+            tokio::spawn(async move {
+                if let Some(s) = state {
+                    let _ = cam.restore_state_async(&s).await;
+                }
+            })
+        },
+        {
+            let cam = cam2.clone();
+            let state = state2.clone();
+            tokio::spawn(async move {
+                if let Some(s) = state {
+                    let _ = cam.restore_state_async(&s).await;
+                }
+            })
+        },
+        {
+            let cam = cam3.clone();
+            let state = state3.clone();
+            tokio::spawn(async move {
+                if let Some(s) = state {
+                    let _ = cam.restore_state_async(&s).await;
+                }
+            })
+        },
+    ];
+
+    // Wait for all restorations to complete
+    for handle in restore_handles {
+        let _ = handle.await;
+    }
+    println!("✓ All cameras restored to initial states\n");
 
     Ok(())
 }
@@ -137,6 +181,9 @@ async fn parallel_single_camera() -> Result<()> {
             .build()
             .await?,
     );
+
+    // Save initial state
+    let initial_state = camera.save_state_async().await.ok();
 
     // Note: Some operations can be done in parallel, others must be sequential
     // Query operations can be parallel
@@ -184,7 +231,15 @@ async fn parallel_single_camera() -> Result<()> {
 
     let _ = tokio::join!(zoom_task, pan_task);
 
-    println!("✓ Parallel operations completed\n");
+    println!("✓ Parallel operations completed");
+
+    // Restore initial state
+    if let Some(state) = initial_state {
+        println!("Restoring camera state...");
+        let _ = camera.restore_state_async(&state).await;
+        println!("✓ Camera restored to initial state");
+    }
+    println!();
 
     Ok(())
 }
@@ -201,6 +256,9 @@ async fn producer_consumer_pattern() -> Result<()> {
             .build()
             .await?,
     );
+
+    // Save initial state
+    let initial_state = camera.save_state_async().await.ok();
 
     // Create command channel
     let (tx, mut rx) = mpsc::channel(10);
@@ -257,7 +315,15 @@ async fn producer_consumer_pattern() -> Result<()> {
     drop(tx);
     let _ = consumer.await;
 
-    println!("✓ Producer-consumer pattern completed\n");
+    println!("✓ Producer-consumer pattern completed");
+
+    // Restore initial state
+    if let Some(state) = initial_state {
+        println!("Restoring camera state...");
+        let _ = camera.restore_state_async(&state).await;
+        println!("✓ Camera restored to initial state");
+    }
+    println!();
 
     Ok(())
 }
@@ -271,6 +337,12 @@ async fn synchronized_movement() -> Result<()> {
     // Create cameras
     let cameras = vec![
         Arc::new(
+            CameraBuilder::tokio_tcp("192.168.0.109")
+                .profile::<PTZOpticsG2>()
+                .build()
+                .await?,
+        ),
+        Arc::new(
             CameraBuilder::tokio_tcp("192.168.0.110")
                 .profile::<PTZOpticsG2>()
                 .build()
@@ -282,20 +354,21 @@ async fn synchronized_movement() -> Result<()> {
                 .build()
                 .await?,
         ),
-        Arc::new(
-            CameraBuilder::tokio_tcp("192.168.0.112")
-                .profile::<PTZOpticsG2>()
-                .build()
-                .await?,
-        ),
     ];
+
+    // Save initial states for all cameras
+    let mut initial_states = vec![];
+    for camera in &cameras {
+        initial_states.push(camera.save_state_async().await.ok());
+    }
 
     let barrier = Arc::new(Barrier::new(cameras.len()));
 
     // Spawn synchronized tasks
     let mut handles = vec![];
 
-    for (i, camera) in cameras.into_iter().enumerate() {
+    let cameras_for_movement = cameras.clone();
+    for (i, camera) in cameras_for_movement.into_iter().enumerate() {
         let barrier = barrier.clone();
 
         let handle = tokio::spawn(async move {
@@ -330,7 +403,27 @@ async fn synchronized_movement() -> Result<()> {
         }
     }
 
-    println!("✓ Synchronized movement completed\n");
+    println!("✓ Synchronized movement completed");
+
+    // Restore all cameras to initial states
+    println!("Restoring all camera states...");
+    let mut restore_handles = vec![];
+    for (camera, state) in cameras.iter().zip(initial_states.iter()) {
+        let cam = camera.clone();
+        let state = state.clone();
+        let handle = tokio::spawn(async move {
+            if let Some(s) = state {
+                let _ = cam.restore_state_async(&s).await;
+            }
+        });
+        restore_handles.push(handle);
+    }
+
+    // Wait for all restorations
+    for handle in restore_handles {
+        let _ = handle.await;
+    }
+    println!("✓ All cameras restored to initial states\n");
 
     Ok(())
 }

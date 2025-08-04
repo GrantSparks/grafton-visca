@@ -45,15 +45,22 @@ fn main() -> Result<(), Error> {
     println!("✅ Connected successfully!");
     println!();
 
+    // Save initial camera state
+    let initial_state = camera.save_state()?;
+    println!(
+        "💾 Saved initial state: Pan={:.1}°, Tilt={:.1}°, Zoom={}",
+        initial_state.pan, initial_state.tilt, initial_state.zoom
+    );
+
     // Power on the camera
     println!("📍 Powering on camera...");
     camera.power_on()?;
-    sleep(Duration::from_secs(2)); // Wait for camera to initialize
+    sleep(Duration::from_secs(2)); // Wait for camera to initialize - can't use wait helpers during power-on
 
     // Move to home position
     println!("🏠 Moving to home position...");
     camera.pan_tilt_home()?;
-    sleep(Duration::from_secs(3)); // Wait for movement to complete
+    camera.wait_for_pan_tilt_completion(Duration::from_secs(10))?; // Wait for movement to complete
 
     // Demonstrate zoom control
     println!("🔍 Testing zoom...");
@@ -96,7 +103,7 @@ fn main() -> Result<(), Error> {
     // Return to home
     println!("🏠 Returning to home position...");
     camera.pan_tilt_home()?;
-    sleep(Duration::from_secs(3));
+    camera.wait_for_pan_tilt_completion(Duration::from_secs(10))?;
 
     // Demonstrate presets
     println!("💾 Testing presets...");
@@ -117,7 +124,12 @@ fn main() -> Result<(), Error> {
     // Recall the preset
     println!("   Recalling preset 1...");
     camera.preset_recall(PresetNumber::new(1)?)?;
-    sleep(Duration::from_secs(3));
+    camera.wait_for_all_movements(Duration::from_secs(5))?;
+
+    // Restore initial camera state
+    println!("🔄 Restoring initial camera state...");
+    camera.restore_state(&initial_state)?;
+    println!("✅ Camera restored to initial state");
 
     println!();
     println!("✨ Quickstart complete!");

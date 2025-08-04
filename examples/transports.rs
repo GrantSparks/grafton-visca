@@ -43,14 +43,17 @@ fn main() -> Result<(), Error> {
 
     println!("✓ TCP connection established");
 
+    // Save initial state
+    let initial_state = tcp_camera.save_state()?;
+
     // Test TCP connection with a simple command
     println!("Testing TCP transport with zoom command...");
     tcp_camera.zoom_absolute(Normalized(0.3))?;
-    std::thread::sleep(Duration::from_secs(1));
+    tcp_camera.wait_for_zoom_completion(Duration::from_secs(5))?;
     println!("✓ Command sent successfully via TCP");
 
-    // Return zoom to original position
-    tcp_camera.zoom_absolute(Normalized(0.0))?;
+    // Restore original state
+    tcp_camera.restore_state(&initial_state)?;
     println!();
 
     // === TCP WITH CUSTOM PORT ===
@@ -95,12 +98,12 @@ fn main() -> Result<(), Error> {
             // Test UDP connection
             println!("Testing UDP transport with pan/tilt command...");
             camera.pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)?;
-            std::thread::sleep(Duration::from_secs(2));
+            camera.wait_for_pan_tilt_completion(Duration::from_secs(5))?;
             println!("✓ Command sent successfully via UDP");
 
             // Return to home
             camera.pan_tilt_home()?;
-            std::thread::sleep(Duration::from_secs(2));
+            camera.wait_for_pan_tilt_completion(Duration::from_secs(5))?;
         }
         Err(e) => {
             println!("✗ Failed to initialize UDP transport: {e}");
