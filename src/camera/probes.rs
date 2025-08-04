@@ -172,6 +172,67 @@ where
 
 // ============= Async Probes =============
 
+/// Generic async probe for pan/tilt movement that works with any runtime.
+/// The sleep function is provided externally, making this runtime-agnostic.
+#[cfg(feature = "async")]
+#[derive(Debug, Clone)]
+pub struct AsyncPanTiltProbe<P, T, S>
+where
+    P: Profile,
+    T: UnifiedTransport,
+    S: Fn(Duration) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone + Send + Sync,
+{
+    camera: Camera<P, T>,
+    sleep_fn: S,
+}
+
+#[cfg(feature = "async")]
+impl<P, T, S> AsyncPanTiltProbe<P, T, S>
+where
+    P: Profile,
+    T: UnifiedTransport,
+    S: Fn(Duration) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone + Send + Sync,
+{
+    /// Create a new async pan/tilt probe with custom sleep function.
+    pub fn new(camera: &Camera<P, T>, sleep_fn: S) -> Self {
+        Self {
+            camera: camera.clone(),
+            sleep_fn,
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<P, T, S> MovementProbe for AsyncPanTiltProbe<P, T, S>
+where
+    P: Profile,
+    T: UnifiedTransport,
+    S: Fn(Duration) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone + Send + Sync,
+{
+    type Sleep<'b>
+        = Pin<Box<dyn std::future::Future<Output = ()> + Send + 'b>>
+    where
+        Self: 'b;
+    type PositionFuture<'b>
+        = Pin<Box<dyn std::future::Future<Output = Result<PanTiltPosition, Error>> + Send + 'b>>
+    where
+        Self: 'b;
+
+    fn get_position(&self) -> Self::PositionFuture<'_> {
+        Box::pin(async move {
+            use crate::camera::methods::inquiry::PanTiltInquiryOps;
+
+            let (pan, tilt) = self.camera.get_pan_tilt_position().await?;
+            Ok(PanTiltPosition { pan, tilt })
+        })
+    }
+
+    fn sleep(&self, duration: Duration) -> Self::Sleep<'_> {
+        (self.sleep_fn)(duration)
+    }
+}
+
+// Tokio-specific implementation that uses the generic probe
 #[cfg(feature = "tokio")]
 /// Async probe for pan/tilt movement using tokio.
 #[derive(Debug, Clone)]
@@ -226,6 +287,64 @@ where
     }
 }
 
+/// Generic async probe for zoom movement that works with any runtime.
+#[cfg(feature = "async")]
+#[derive(Debug, Clone)]
+pub struct AsyncZoomProbe<P, T, S>
+where
+    P: Profile,
+    T: UnifiedTransport,
+    S: Fn(Duration) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone + Send + Sync,
+{
+    camera: Camera<P, T>,
+    sleep_fn: S,
+}
+
+#[cfg(feature = "async")]
+impl<P, T, S> AsyncZoomProbe<P, T, S>
+where
+    P: Profile,
+    T: UnifiedTransport,
+    S: Fn(Duration) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone + Send + Sync,
+{
+    /// Create a new async zoom probe with custom sleep function.
+    pub fn new(camera: &Camera<P, T>, sleep_fn: S) -> Self {
+        Self {
+            camera: camera.clone(),
+            sleep_fn,
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<P, T, S> ZoomProbe for AsyncZoomProbe<P, T, S>
+where
+    P: Profile,
+    T: UnifiedTransport,
+    S: Fn(Duration) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone + Send + Sync,
+{
+    type Sleep<'b>
+        = Pin<Box<dyn std::future::Future<Output = ()> + Send + 'b>>
+    where
+        Self: 'b;
+    type ZoomFuture<'b>
+        = Pin<Box<dyn std::future::Future<Output = Result<u16, Error>> + Send + 'b>>
+    where
+        Self: 'b;
+
+    fn get_zoom(&self) -> Self::ZoomFuture<'_> {
+        Box::pin(async move {
+            use crate::camera::methods::inquiry::InquiryOps;
+
+            self.camera.get_zoom_position().await
+        })
+    }
+
+    fn sleep(&self, duration: Duration) -> Self::Sleep<'_> {
+        (self.sleep_fn)(duration)
+    }
+}
+
 #[cfg(feature = "tokio")]
 /// Async probe for zoom movement using tokio.
 #[derive(Debug, Clone)]
@@ -276,6 +395,64 @@ where
 
     fn sleep(&self, duration: Duration) -> Self::Sleep<'_> {
         tokio::time::sleep(duration)
+    }
+}
+
+/// Generic async probe for focus movement that works with any runtime.
+#[cfg(feature = "async")]
+#[derive(Debug, Clone)]
+pub struct AsyncFocusProbe<P, T, S>
+where
+    P: Profile,
+    T: UnifiedTransport,
+    S: Fn(Duration) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone + Send + Sync,
+{
+    camera: Camera<P, T>,
+    sleep_fn: S,
+}
+
+#[cfg(feature = "async")]
+impl<P, T, S> AsyncFocusProbe<P, T, S>
+where
+    P: Profile,
+    T: UnifiedTransport,
+    S: Fn(Duration) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone + Send + Sync,
+{
+    /// Create a new async focus probe with custom sleep function.
+    pub fn new(camera: &Camera<P, T>, sleep_fn: S) -> Self {
+        Self {
+            camera: camera.clone(),
+            sleep_fn,
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<P, T, S> FocusProbe for AsyncFocusProbe<P, T, S>
+where
+    P: Profile,
+    T: UnifiedTransport,
+    S: Fn(Duration) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone + Send + Sync,
+{
+    type Sleep<'b>
+        = Pin<Box<dyn std::future::Future<Output = ()> + Send + 'b>>
+    where
+        Self: 'b;
+    type FocusFuture<'b>
+        = Pin<Box<dyn std::future::Future<Output = Result<u16, Error>> + Send + 'b>>
+    where
+        Self: 'b;
+
+    fn get_focus(&self) -> Self::FocusFuture<'_> {
+        Box::pin(async move {
+            use crate::camera::methods::inquiry::InquiryOps;
+
+            self.camera.get_focus_position().await
+        })
+    }
+
+    fn sleep(&self, duration: Duration) -> Self::Sleep<'_> {
+        (self.sleep_fn)(duration)
     }
 }
 

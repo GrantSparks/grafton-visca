@@ -148,6 +148,8 @@ pub struct SocketManagerInner {
     pub pending_inquiry: Option<PendingCmd>,
     /// Camera ID for addressing commands.
     pub camera_id: CameraId,
+    /// List of waiters for completion messages.
+    pub completion_waiters: VecDeque<OneshotSender<Result<()>>>,
 }
 
 impl Default for SocketManagerInner {
@@ -159,6 +161,7 @@ impl Default for SocketManagerInner {
             active_commands: [None, None],
             pending_inquiry: None,
             camera_id: CameraId::CAMERA_1,
+            completion_waiters: VecDeque::new(),
         }
     }
 }
@@ -265,6 +268,12 @@ pub(crate) enum SocketManagerCommand {
         /// Channel to send the cancellation result.
         response_sender: OneshotSender<Result<()>>,
     },
+    /// Wait for a completion message (0x51) on any socket.
+    #[allow(dead_code)]
+    WaitForCompletion {
+        /// Channel to send the result when a completion message is received.
+        response_sender: OneshotSender<Result<()>>,
+    },
 }
 
 /// Handle to communicate with the socket manager actor.
@@ -349,6 +358,37 @@ impl SocketManagerHandle {
             .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager unavailable")));
 
         send_result?;
+
+        #[cfg(feature = "tokio")]
+        let result = response_receiver.recv().await?;
+
+        #[cfg(not(feature = "tokio"))]
+        let result = response_receiver.recv_async().await?;
+
+        result
+    }
+
+    /// Wait for a completion message from any socket.
+    ///
+    /// This is used for event-driven movement detection to wait for
+    /// operation complete (0x51) messages.
+    #[allow(dead_code)]
+    pub async fn wait_for_completion(&self) -> Result<()> {
+        let (response_sender, response_receiver) = channels::oneshot();
+
+        #[cfg(feature = "tokio")]
+        let send_result = self
+            .command_sender
+            .send(SocketManagerCommand::WaitForCompletion { response_sender });
+
+        #[cfg(not(feature = "tokio"))]
+        let send_result = self
+            .command_sender
+            .send_async(SocketManagerCommand::WaitForCompletion { response_sender })
+            .await;
+
+        send_result
+            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager channel closed")))?;
 
         #[cfg(feature = "tokio")]
         let result = response_receiver.recv().await?;
@@ -537,6 +577,12 @@ impl SocketManagerActor {
                             }) => {
                                 self.handle_cancel_command(socket, response_sender).await;
                             }
+                            Some(SocketManagerCommand::WaitForCompletion {
+                                response_sender,
+                            }) => {
+                                self.inner.completion_waiters.push_back(response_sender);
+                                debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
+                            }
                             None => {
                                 debug!("Socket manager command channel closed");
                                 break;
@@ -587,6 +633,13 @@ impl SocketManagerActor {
                         } => {
                             self.handle_cancel_command(socket, response_sender).await;
                         }
+                        SocketManagerCommand::WaitForCompletion { response_sender } => {
+                            self.inner.completion_waiters.push_back(response_sender);
+                            debug!(
+                                "Added completion waiter, {} waiters now",
+                                self.inner.completion_waiters.len()
+                            );
+                        }
                     }
                 }
 
@@ -623,6 +676,13 @@ impl SocketManagerActor {
                                         response_sender,
                                     } => {
                                         self.handle_cancel_command(socket, response_sender).await;
+                                    }
+                                    SocketManagerCommand::WaitForCompletion { response_sender } => {
+                                        self.inner.completion_waiters.push_back(response_sender);
+                                        debug!(
+                                            "Added completion waiter, {} waiters now",
+                                            self.inner.completion_waiters.len()
+                                        );
                                     }
                                 }
                             }
@@ -842,6 +902,13 @@ impl SocketManagerActor {
 
     async fn handle_completion_response(&mut self, socket: Socket) {
         trace!("Received completion for {socket:?}");
+
+        // Notify any waiters for completion messages
+        if let Some(waiter) = self.inner.completion_waiters.pop_front() {
+            debug!("Notifying completion waiter");
+            let _ = waiter.send(Ok(()));
+        }
+
         if let Some(command) = self.inner.take_active_command(socket) {
             debug!(
                 "Completion received for command {} on {:?}",

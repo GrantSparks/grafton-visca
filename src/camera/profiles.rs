@@ -100,6 +100,7 @@ impl ProfileMetadata for PTZOpticsG2 {
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const SUPPORTS_OPERATION_COMPLETE: bool = true; // PTZOptics cameras support 0x51 completion messages
 }
 
 impl PanTilt for PTZOpticsG2 {

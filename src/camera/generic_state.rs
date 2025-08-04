@@ -73,12 +73,12 @@ where
 
         // Restore pan/tilt position
         self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)?;
-        self.wait_for_pan_tilt_completion(Duration::from_secs(30))?;
+        self.await_pan_tilt_idle(Duration::from_secs(30))?;
 
         // Restore zoom
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom))?;
-        self.wait_for_zoom_completion(Duration::from_secs(10))?;
+        self.await_zoom_idle(Duration::from_secs(10))?;
 
         Ok(())
     }
@@ -160,14 +160,12 @@ impl<P: Profile, T: crate::transport::UnifiedTransport> Camera<P, T> {
         // Restore pan/tilt position
         self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)
             .await?;
-        self.wait_for_pan_tilt_completion(Duration::from_secs(30))
-            .await?;
+        self.await_pan_tilt_idle(Duration::from_secs(30)).await?;
 
         // Restore zoom
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom)).await?;
-        self.wait_for_zoom_completion(Duration::from_secs(10))
-            .await?;
+        self.await_zoom_idle(Duration::from_secs(10)).await?;
 
         Ok(())
     }

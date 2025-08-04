@@ -38,7 +38,7 @@ fn main() -> Result<(), Error> {
     println!("Moving to home position...");
     camera.pan_tilt_home()?;
     camera.zoom_absolute(Normalized(0.0))?;
-    camera.wait_for_all_movements(Duration::from_secs(10))?;
+    camera.await_idle(Duration::from_secs(10))?;
     println!("✓ At home position\n");
 
     // Define test presets
@@ -90,7 +90,7 @@ fn main() -> Result<(), Error> {
         camera.zoom_absolute(preset.zoom)?;
 
         // Wait for movement
-        camera.wait_for_all_movements(Duration::from_secs(10))?;
+        camera.await_idle(Duration::from_secs(10))?;
 
         // Verify position
         if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees() {
@@ -112,7 +112,7 @@ fn main() -> Result<(), Error> {
     println!("Moving to test position (60°, -15°)...");
     camera.pan_tilt_absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
     camera.zoom_absolute(Normalized(0.7))?;
-    camera.wait_for_all_movements(Duration::from_secs(10))?;
+    camera.await_idle(Duration::from_secs(10))?;
 
     if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees() {
         println!("Current position: Pan={:.1}°, Tilt={:.1}°\n", pan.0, tilt.0);
@@ -130,7 +130,7 @@ fn main() -> Result<(), Error> {
         camera.preset_recall(PresetNumber::new(preset.number)?)?;
 
         // Wait for movement
-        camera.wait_for_all_movements(Duration::from_secs(10))?;
+        camera.await_idle(Duration::from_secs(10))?;
 
         // Get position after
         let after = camera.get_pan_tilt_degrees();

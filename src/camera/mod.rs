@@ -15,6 +15,7 @@ pub mod generic_state;
 pub mod helpers;
 pub mod methods;
 pub mod movement_detection;
+pub mod movement_event;
 pub mod movement_probe;
 pub mod probes;
 pub mod profiles;
@@ -33,3 +34,14 @@ pub use builder::{TcpBuilder, TypedTcpBuilder, TypedUdpBuilder, UdpBuilder};
 
 #[cfg(feature = "tokio")]
 pub use builder::{TokioTcpBuilder, TokioUdpBuilder, TypedTokioTcpBuilder, TypedTokioUdpBuilder};
+
+// Re-export movement detection types
+pub use movement_event::{EventDrivenConfig, EventDrivenMovement};
+pub use movement_probe::MovementDetectionConfig;
+
+#[cfg(feature = "async")]
+pub use movement_event::EventDrivenMovementAsync;
+
+// Re-export runtime-agnostic async probes
+#[cfg(feature = "async")]
+pub use probes::{AsyncFocusProbe, AsyncPanTiltProbe, AsyncZoomProbe};

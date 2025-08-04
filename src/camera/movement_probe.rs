@@ -86,6 +86,30 @@ pub struct MovementDetectionConfig {
     pub stability_threshold: usize,
     /// Enable debug logging.
     pub debug: bool,
+    /// Pan tolerance for detecting movement start (in camera units).
+    pub tolerance_pan_start: i16,
+    /// Tilt tolerance for detecting movement start (in camera units).
+    pub tolerance_tilt_start: i16,
+    /// Pan tolerance for detecting stable position (in camera units).
+    pub tolerance_pan_stable: i16,
+    /// Tilt tolerance for detecting stable position (in camera units).
+    pub tolerance_tilt_stable: i16,
+    /// Pan/tilt tolerance for oscillation detection (in camera units).
+    pub tolerance_pan_tilt_oscillation: i16,
+    /// Zoom tolerance for detecting movement start.
+    pub tolerance_zoom_start: u16,
+    /// Zoom tolerance for detecting stable position.
+    pub tolerance_zoom_stable: u16,
+    /// Focus tolerance for detecting movement start.
+    pub tolerance_focus_start: u16,
+    /// Focus tolerance for detecting stable position.
+    pub tolerance_focus_stable: u16,
+    /// Maximum oscillation samples to track.
+    pub oscillation_sample_size: usize,
+    /// Minimum oscillation samples needed for detection.
+    pub oscillation_min_samples: usize,
+    /// Time to wait before assuming no movement will occur.
+    pub no_movement_timeout: Duration,
 }
 
 impl Default for MovementDetectionConfig {
@@ -96,6 +120,18 @@ impl Default for MovementDetectionConfig {
             startup_delay: Duration::from_millis(200),
             stability_threshold: 3,
             debug: false,
+            tolerance_pan_start: 5,
+            tolerance_tilt_start: 5,
+            tolerance_pan_stable: 2,
+            tolerance_tilt_stable: 2,
+            tolerance_pan_tilt_oscillation: 10,
+            tolerance_zoom_start: 20,
+            tolerance_zoom_stable: 10,
+            tolerance_focus_start: 10,
+            tolerance_focus_stable: 5,
+            oscillation_sample_size: 10,
+            oscillation_min_samples: 6,
+            no_movement_timeout: Duration::from_secs(2),
         }
     }
 }
@@ -108,6 +144,17 @@ pub fn positions_equal_within_tolerance(
     tolerance: i16,
 ) -> bool {
     (pos1.pan - pos2.pan).abs() <= tolerance && (pos1.tilt - pos2.tilt).abs() <= tolerance
+}
+
+/// Check if two positions are equal within separate pan/tilt tolerances.
+#[inline]
+pub fn positions_equal_within_tolerance_separate(
+    pos1: PanTiltPosition,
+    pos2: PanTiltPosition,
+    pan_tolerance: i16,
+    tilt_tolerance: i16,
+) -> bool {
+    (pos1.pan - pos2.pan).abs() <= pan_tolerance && (pos1.tilt - pos2.tilt).abs() <= tilt_tolerance
 }
 
 /// Check if two zoom values are equal within tolerance.

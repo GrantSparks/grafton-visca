@@ -192,6 +192,10 @@ pub enum Error {
     #[error("Operation timed out")]
     Timeout,
 
+    /// Operation is not supported by this implementation.
+    #[error("Operation not supported")]
+    Unsupported,
+
     /// Operation cannot be performed in current state.
     #[error("Invalid state: {0}")]
     InvalidState(Cow<'static, str>),

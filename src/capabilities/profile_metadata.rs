@@ -29,6 +29,13 @@ pub trait ProfileMetadata {
 
     /// Whether this camera supports VISCA inquiry commands.
     const SUPPORTS_INQUIRY: bool = true;
+
+    /// Whether this camera sends operation complete messages (0x51) after movements.
+    ///
+    /// Most VISCA-compliant cameras (Sony, Canon, Panasonic, PTZOptics, etc.)
+    /// send completion messages when pan/tilt/zoom/focus operations finish.
+    /// When true, movement detection can use event-driven completion instead of polling.
+    const SUPPORTS_OPERATION_COMPLETE: bool = false;
 }
 
 /// Protocol style determines how VISCA commands are framed.

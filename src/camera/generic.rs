@@ -465,6 +465,58 @@ where
         }
     }
 
+    /// Wait for a completion message from the camera.
+    ///
+    /// This method is used for event-driven movement detection. It waits for the camera
+    /// to send a completion message (0x51) indicating that a movement operation has finished.
+    ///
+    /// # Returns
+    /// * `Ok(())` if a completion message was received
+    /// * `Err(Error::Timeout)` if no completion message was received within the timeout
+    #[cfg(feature = "async")]
+    pub async fn wait_for_completion(&self, timeout: Duration) -> Result<(), Error> {
+        // Check if socket manager is available
+        if let Some(socket_manager) = &self.socket_manager {
+            log::debug!("wait_for_completion: using socket manager to wait for completion message");
+
+            // Use timeout wrapper for the wait
+            #[cfg(feature = "tokio")]
+            {
+                match tokio::time::timeout(timeout, socket_manager.wait_for_completion()).await {
+                    Ok(Ok(())) => Ok(()),
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => Err(Error::Timeout),
+                }
+            }
+
+            #[cfg(not(feature = "tokio"))]
+            {
+                // For non-tokio, we need a different timeout mechanism
+                // For now, just call the method without timeout wrapper
+                socket_manager.wait_for_completion().await
+            }
+        } else {
+            // No socket manager, can't wait for completion
+            log::debug!("wait_for_completion: no socket manager available");
+            Err(Error::Unsupported)
+        }
+    }
+
+    /// Wait for a completion message from the camera (blocking).
+    ///
+    /// This method is used for event-driven movement detection. It waits for the camera
+    /// to send a completion message (0x51) indicating that a movement operation has finished.
+    ///
+    /// # Returns
+    /// * `Ok(())` if a completion message was received
+    /// * `Err(Error::Timeout)` if no completion message was received within the timeout
+    pub fn wait_for_completion_blocking(&self, _timeout: Duration) -> Result<(), Error> {
+        // Blocking mode doesn't have socket manager support yet
+        // This would require adding blocking socket manager implementation
+        log::debug!("wait_for_completion_blocking: event-driven detection not yet implemented for blocking mode");
+        Err(Error::Unsupported)
+    }
+
     /// Direct blocking implementation without async
     #[cfg(not(feature = "async"))]
     fn send_command_blocking_direct<C>(&self, command: &C) -> Result<Response, Error>

@@ -84,7 +84,7 @@ async fn multi_camera_control() -> Result<()> {
             for i in 1..=3 {
                 if let Ok(preset) = PresetNumber::new(i) {
                     cam.preset_recall(preset).await?;
-                    cam.wait_for_all_movements(Duration::from_secs(5)).await?;
+                    cam.await_idle(Duration::from_secs(5)).await?;
                 }
             }
             Ok::<(), grafton_visca::Error>(())
@@ -96,8 +96,7 @@ async fn multi_camera_control() -> Result<()> {
         tokio::spawn(async move {
             println!("Camera 2: Performing pan sweep");
             cam.pan_tilt_home().await?;
-            cam.wait_for_pan_tilt_completion(Duration::from_secs(5))
-                .await?;
+            cam.await_pan_tilt_idle(Duration::from_secs(5)).await?;
             cam.pan_tilt_move(
                 PanTiltDirection::Right,
                 SpeedLevel::Medium.into(),
@@ -115,9 +114,9 @@ async fn multi_camera_control() -> Result<()> {
         tokio::spawn(async move {
             println!("Camera 3: Zoom demonstration");
             cam.zoom_absolute(Normalized::new(0.0)).await?;
-            cam.wait_for_zoom_completion(Duration::from_secs(3)).await?;
+            cam.await_zoom_idle(Duration::from_secs(3)).await?;
             cam.zoom_absolute(Normalized::new(0.5)).await?;
-            cam.wait_for_zoom_completion(Duration::from_secs(3)).await?;
+            cam.await_zoom_idle(Duration::from_secs(3)).await?;
             cam.zoom_absolute(Normalized::new(1.0)).await?;
             Ok::<(), grafton_visca::Error>(())
         })
@@ -383,9 +382,7 @@ async fn synchronized_movement() -> Result<()> {
             camera.pan_tilt_home().await?;
 
             // Wait for the movement to actually complete
-            camera
-                .wait_for_pan_tilt_completion(Duration::from_secs(10))
-                .await?;
+            camera.await_pan_tilt_idle(Duration::from_secs(10)).await?;
             println!("Camera {}: Home position reached", i + 1);
 
             // Wait for all cameras to complete home movement
@@ -395,9 +392,7 @@ async fn synchronized_movement() -> Result<()> {
             println!("Camera {}: Recalling preset 1", i + 1);
             if let Ok(preset) = PresetNumber::new(1) {
                 camera.preset_recall(preset).await?;
-                camera
-                    .wait_for_all_movements(Duration::from_secs(10))
-                    .await?;
+                camera.await_idle(Duration::from_secs(10)).await?;
                 println!("Camera {}: Preset 1 reached", i + 1);
             }
 

@@ -49,7 +49,7 @@ fn main() -> Result<(), Error> {
     // Test TCP connection with a simple command
     println!("Testing TCP transport with zoom command...");
     tcp_camera.zoom_absolute(Normalized(0.3))?;
-    tcp_camera.wait_for_zoom_completion(Duration::from_secs(5))?;
+    tcp_camera.await_zoom_idle(Duration::from_secs(5))?;
     println!("✓ Command sent successfully via TCP");
 
     // Restore original state
@@ -101,12 +101,12 @@ fn main() -> Result<(), Error> {
             // Test UDP connection
             println!("Testing UDP transport with pan/tilt command...");
             camera.pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)?;
-            camera.wait_for_pan_tilt_completion(Duration::from_secs(5))?;
+            camera.await_pan_tilt_idle(Duration::from_secs(5))?;
             println!("✓ Command sent successfully via UDP");
 
             // Return to home
             camera.pan_tilt_home()?;
-            camera.wait_for_pan_tilt_completion(Duration::from_secs(5))?;
+            camera.await_pan_tilt_idle(Duration::from_secs(5))?;
         }
         Err(e) => {
             println!("✗ Failed to initialize UDP transport: {e}");
