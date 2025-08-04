@@ -11,6 +11,29 @@ use crate::{
     error::Error,
 };
 
+/// Ensures an address has a port, adding the appropriate default if missing.
+///
+/// This is a shared helper function used by all transport builders to avoid code duplication.
+///
+/// # Arguments
+/// * `addr` - The address string, with or without port
+/// * `default_raw_visca_port` - Default port for raw VISCA protocol
+/// * `protocol_style` - The protocol style to determine which port to use
+///
+/// # Returns
+/// The address with a port appended if it didn't have one
+fn ensure_port_generic<P: Profile>(addr: &str, default_raw_visca_port: u16) -> String {
+    if addr.contains(':') {
+        addr.to_string()
+    } else {
+        let default_port = match P::PROTOCOL_STYLE {
+            ProtocolStyle::RawVisca => default_raw_visca_port,
+            ProtocolStyle::SonyEncapsulated { .. } => ports::SONY_VISCA_PORT,
+        };
+        format!("{addr}:{default_port}")
+    }
+}
+
 /// Builder for creating camera instances with runtime parameters first.
 ///
 /// This builder allows you to specify the transport type and address first,
@@ -166,15 +189,7 @@ impl<P: Profile> TypedTcpBuilder<'_, P> {
     }
 
     fn ensure_port(addr: &str) -> String {
-        if addr.contains(':') {
-            addr.to_string()
-        } else {
-            let default_port = match P::PROTOCOL_STYLE {
-                ProtocolStyle::RawVisca => ports::PTZOPTICS_TCP_PORT,
-                ProtocolStyle::SonyEncapsulated { .. } => ports::SONY_VISCA_PORT,
-            };
-            format!("{addr}:{default_port}")
-        }
+        ensure_port_generic::<P>(addr, ports::PTZOPTICS_TCP_PORT)
     }
 }
 
@@ -194,15 +209,7 @@ impl<P: Profile> TypedUdpBuilder<'_, P> {
     }
 
     fn ensure_port(addr: &str) -> String {
-        if addr.contains(':') {
-            addr.to_string()
-        } else {
-            let default_port = match P::PROTOCOL_STYLE {
-                ProtocolStyle::RawVisca => ports::PTZOPTICS_UDP_PORT,
-                ProtocolStyle::SonyEncapsulated { .. } => ports::SONY_VISCA_PORT,
-            };
-            format!("{addr}:{default_port}")
-        }
+        ensure_port_generic::<P>(addr, ports::PTZOPTICS_UDP_PORT)
     }
 }
 
@@ -224,15 +231,7 @@ impl<P: Profile> TypedTokioTcpBuilder<'_, P> {
     }
 
     fn ensure_port(addr: &str) -> String {
-        if addr.contains(':') {
-            addr.to_string()
-        } else {
-            let default_port = match P::PROTOCOL_STYLE {
-                ProtocolStyle::RawVisca => ports::PTZOPTICS_TCP_PORT,
-                ProtocolStyle::SonyEncapsulated { .. } => ports::SONY_VISCA_PORT,
-            };
-            format!("{addr}:{default_port}")
-        }
+        ensure_port_generic::<P>(addr, ports::PTZOPTICS_TCP_PORT)
     }
 }
 
@@ -254,15 +253,7 @@ impl<P: Profile> TypedTokioUdpBuilder<'_, P> {
     }
 
     fn ensure_port(addr: &str) -> String {
-        if addr.contains(':') {
-            addr.to_string()
-        } else {
-            let default_port = match P::PROTOCOL_STYLE {
-                ProtocolStyle::RawVisca => ports::PTZOPTICS_UDP_PORT,
-                ProtocolStyle::SonyEncapsulated { .. } => ports::SONY_VISCA_PORT,
-            };
-            format!("{addr}:{default_port}")
-        }
+        ensure_port_generic::<P>(addr, ports::PTZOPTICS_UDP_PORT)
     }
 }
 
@@ -305,6 +296,44 @@ mod tests {
         let builder = CameraBuilder::tokio_udp("239.0.0.1:52381");
         let typed = builder.profile::<GenericVisca>();
         assert_eq!(typed.addr, "239.0.0.1:52381");
+    }
+
+    #[test]
+    fn test_ensure_port_generic() {
+        // Test PTZOptics profile with TCP port
+        let addr = ensure_port_generic::<PTZOpticsG2>("192.168.0.110", ports::PTZOPTICS_TCP_PORT);
+        assert_eq!(addr, "192.168.0.110:5678");
+
+        // Test PTZOptics profile with UDP port
+        let addr = ensure_port_generic::<PTZOpticsG2>("192.168.0.110", ports::PTZOPTICS_UDP_PORT);
+        assert_eq!(addr, "192.168.0.110:1259");
+
+        // Test Sony profile (always uses Sony port regardless of transport)
+        let addr = ensure_port_generic::<SonyFR7>("192.168.0.112", ports::PTZOPTICS_TCP_PORT);
+        assert_eq!(addr, "192.168.0.112:52381");
+        let addr = ensure_port_generic::<SonyFR7>("192.168.0.112", ports::PTZOPTICS_UDP_PORT);
+        assert_eq!(addr, "192.168.0.112:52381");
+
+        // Test with explicit port is preserved
+        let addr =
+            ensure_port_generic::<PTZOpticsG2>("192.168.0.110:8080", ports::PTZOPTICS_TCP_PORT);
+        assert_eq!(addr, "192.168.0.110:8080");
+        let addr = ensure_port_generic::<SonyFR7>("192.168.0.112:9090", ports::PTZOPTICS_TCP_PORT);
+        assert_eq!(addr, "192.168.0.112:9090");
+
+        // Test with hostname
+        let addr = ensure_port_generic::<PTZOpticsG2>("camera.local", ports::PTZOPTICS_TCP_PORT);
+        assert_eq!(addr, "camera.local:5678");
+        let addr =
+            ensure_port_generic::<PTZOpticsG2>("camera.local:8080", ports::PTZOPTICS_TCP_PORT);
+        assert_eq!(addr, "camera.local:8080");
+
+        // Test with IPv6 addresses
+        let addr = ensure_port_generic::<PTZOpticsG2>("[::1]:8080", ports::PTZOPTICS_TCP_PORT);
+        assert_eq!(addr, "[::1]:8080");
+        let addr =
+            ensure_port_generic::<PTZOpticsG2>("[2001:db8::1]:8080", ports::PTZOPTICS_TCP_PORT);
+        assert_eq!(addr, "[2001:db8::1]:8080");
     }
 
     #[test]
