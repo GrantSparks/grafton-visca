@@ -10,7 +10,9 @@ use crate::error::Error;
 /// Position data for movement detection.
 #[derive(Debug, Clone, Copy)]
 pub struct PanTiltPosition {
+    /// Pan position in camera units.
     pub pan: i16,
+    /// Tilt position in camera units.
     pub tilt: i16,
 }
 
@@ -23,7 +25,7 @@ pub trait MovementProbe {
     where
         Self: 'a;
 
-    /// Get the current pan/tilt position.
+    /// The future type for getting position.
     type PositionFuture<'a>: core::future::Future<Output = Result<PanTiltPosition, Error>> + 'a
     where
         Self: 'a;
@@ -37,34 +39,42 @@ pub trait MovementProbe {
 
 /// Zoom movement probe.
 pub trait ZoomProbe {
+    /// Sleep future type.
     type Sleep<'a>: core::future::Future<Output = ()> + 'a
     where
         Self: 'a;
 
+    /// Zoom query future type.
     type ZoomFuture<'a>: core::future::Future<Output = Result<u16, Error>> + 'a
     where
         Self: 'a;
 
+    /// Get the current zoom position.
     fn get_zoom(&self) -> Self::ZoomFuture<'_>;
+    /// Sleep for the specified duration.
     fn sleep(&self, duration: Duration) -> Self::Sleep<'_>;
 }
 
 /// Focus movement probe.
 pub trait FocusProbe {
+    /// Sleep future type.
     type Sleep<'a>: core::future::Future<Output = ()> + 'a
     where
         Self: 'a;
 
+    /// Focus query future type.
     type FocusFuture<'a>: core::future::Future<Output = Result<u16, Error>> + 'a
     where
         Self: 'a;
 
+    /// Get the current focus position.
     fn get_focus(&self) -> Self::FocusFuture<'_>;
+    /// Sleep for the specified duration.
     fn sleep(&self, duration: Duration) -> Self::Sleep<'_>;
 }
 
 /// Configuration for movement detection.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MovementDetectionConfig {
     /// Maximum time to wait for completion.
     pub timeout: Duration,
@@ -105,4 +115,3 @@ pub fn positions_equal_within_tolerance(
 pub fn zoom_equal_within_tolerance(z1: u16, z2: u16, tolerance: u16) -> bool {
     (z1 as i32 - z2 as i32).abs() <= tolerance as i32
 }
-

@@ -12,6 +12,7 @@ use super::{
 // ============= Blocking Probes =============
 
 /// Ready future for blocking operations (immediately ready).
+#[derive(Debug, Copy, Clone)]
 pub struct BlockingSleep;
 
 impl std::future::Future for BlockingSleep {
@@ -23,6 +24,7 @@ impl std::future::Future for BlockingSleep {
 }
 
 /// Blocking probe for pan/tilt movement.
+#[derive(Debug)]
 pub struct BlockingPanTiltProbe<'a, P, T>
 where
     P: Profile,
@@ -36,12 +38,13 @@ where
     P: Profile,
     T: UnifiedTransport,
 {
+    /// Create a new blocking pan/tilt probe.
     pub fn new(camera: &'a Camera<P, T>) -> Self {
         Self { camera }
     }
 }
 
-impl<'a, P, T> MovementProbe for BlockingPanTiltProbe<'a, P, T>
+impl<P, T> MovementProbe for BlockingPanTiltProbe<'_, P, T>
 where
     P: Profile,
     T: UnifiedTransport,
@@ -72,6 +75,7 @@ where
 }
 
 /// Blocking probe for zoom movement.
+#[derive(Debug)]
 pub struct BlockingZoomProbe<'a, P, T>
 where
     P: Profile,
@@ -85,12 +89,13 @@ where
     P: Profile,
     T: UnifiedTransport,
 {
+    /// Create a new blocking zoom probe.
     pub fn new(camera: &'a Camera<P, T>) -> Self {
         Self { camera }
     }
 }
 
-impl<'a, P, T> ZoomProbe for BlockingZoomProbe<'a, P, T>
+impl<P, T> ZoomProbe for BlockingZoomProbe<'_, P, T>
 where
     P: Profile,
     T: UnifiedTransport,
@@ -118,6 +123,7 @@ where
 }
 
 /// Blocking probe for focus movement.
+#[derive(Debug)]
 pub struct BlockingFocusProbe<'a, P, T>
 where
     P: Profile,
@@ -131,12 +137,13 @@ where
     P: Profile,
     T: UnifiedTransport,
 {
+    /// Create a new blocking focus probe.
     pub fn new(camera: &'a Camera<P, T>) -> Self {
         Self { camera }
     }
 }
 
-impl<'a, P, T> FocusProbe for BlockingFocusProbe<'a, P, T>
+impl<P, T> FocusProbe for BlockingFocusProbe<'_, P, T>
 where
     P: Profile,
     T: UnifiedTransport,
@@ -167,6 +174,7 @@ where
 
 #[cfg(feature = "tokio")]
 /// Async probe for pan/tilt movement using tokio.
+#[derive(Debug, Clone)]
 pub struct TokioPanTiltProbe<P, T>
 where
     P: Profile,
@@ -181,6 +189,7 @@ where
     P: Profile,
     T: UnifiedTransport,
 {
+    /// Create a new tokio pan/tilt probe.
     pub fn new(camera: &Camera<P, T>) -> Self {
         Self {
             camera: camera.clone(),
@@ -219,6 +228,7 @@ where
 
 #[cfg(feature = "tokio")]
 /// Async probe for zoom movement using tokio.
+#[derive(Debug, Clone)]
 pub struct TokioZoomProbe<P, T>
 where
     P: Profile,
@@ -233,6 +243,7 @@ where
     P: Profile,
     T: UnifiedTransport,
 {
+    /// Create a new tokio zoom probe.
     pub fn new(camera: &Camera<P, T>) -> Self {
         Self {
             camera: camera.clone(),
@@ -270,6 +281,7 @@ where
 
 #[cfg(feature = "tokio")]
 /// Async probe for focus movement using tokio.
+#[derive(Debug, Clone)]
 pub struct TokioFocusProbe<P, T>
 where
     P: Profile,
@@ -284,6 +296,7 @@ where
     P: Profile,
     T: UnifiedTransport,
 {
+    /// Create a new tokio focus probe.
     pub fn new(camera: &Camera<P, T>) -> Self {
         Self {
             camera: camera.clone(),
@@ -318,4 +331,3 @@ where
         tokio::time::sleep(duration)
     }
 }
-
