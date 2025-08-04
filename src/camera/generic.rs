@@ -474,6 +474,7 @@ where
     /// * `Ok(())` if a completion message was received
     /// * `Err(Error::Timeout)` if no completion message was received within the timeout
     #[cfg(feature = "async")]
+    #[cfg_attr(not(feature = "tokio"), allow(unused_variables))]
     pub async fn wait_for_completion(&self, timeout: Duration) -> Result<(), Error> {
         // Check if socket manager is available
         if let Some(socket_manager) = &self.socket_manager {

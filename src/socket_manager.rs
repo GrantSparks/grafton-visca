@@ -384,8 +384,7 @@ impl SocketManagerHandle {
         #[cfg(not(feature = "tokio"))]
         let send_result = self
             .command_sender
-            .send_async(SocketManagerCommand::WaitForCompletion { response_sender })
-            .await;
+            .send(SocketManagerCommand::WaitForCompletion { response_sender });
 
         send_result
             .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager channel closed")))?;

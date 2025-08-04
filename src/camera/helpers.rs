@@ -15,7 +15,7 @@ use crate::{
 pub use super::movement_probe::MovementDetectionConfig;
 
 // Import the unified algorithms - conditionally based on features
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "tokio"))]
 use super::movement_detection::{
     wait_for_focus_completion, wait_for_pan_tilt_completion, wait_for_zoom_completion,
 };
@@ -351,7 +351,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
         ))
     }
 
-    async fn await_idle(&self, _timeout: Duration) -> Result<(), Error> {
+    async fn await_idle(&self, _timeout: impl Into<Duration>) -> Result<(), Error> {
         Err(Error::InvalidState(
             "Async movement helpers require tokio feature".into(),
         ))
@@ -361,7 +361,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
         &self,
         _pan: Degrees,
         _tilt: Degrees,
-        _timeout: Duration,
+        _timeout: impl Into<Duration>,
     ) -> Result<(), Error> {
         Err(Error::InvalidState(
             "Async movement helpers require tokio feature".into(),
