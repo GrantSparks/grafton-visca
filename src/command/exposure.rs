@@ -440,59 +440,57 @@ mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
     use crate::constants::CameraVariant;
+    use crate::visca_test;
 
-    #[test]
-    fn test_exposure_mode_command() {
-        // Test Auto mode
-        let cmd = ExposureCommand {
-            mode: ExposureMode::Auto,
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x39, 0x00, 0xFF]
-        );
+    // Test Auto mode
+    visca_test!(
+        ExposureCommand,
+        test_exposure_mode_auto,
+        ExposureCommand {
+            mode: ExposureMode::Auto
+        },
+        &[0x81, 0x01, 0x04, 0x39, 0x00, 0xFF]
+    );
 
-        // Test Manual mode
-        let cmd = ExposureCommand {
-            mode: ExposureMode::Manual,
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x39, 0x03, 0xFF]
-        );
+    // Test Manual mode
+    visca_test!(
+        ExposureCommand,
+        test_exposure_mode_manual,
+        ExposureCommand {
+            mode: ExposureMode::Manual
+        },
+        &[0x81, 0x01, 0x04, 0x39, 0x03, 0xFF]
+    );
 
-        // Test Shutter Priority mode
-        let cmd = ExposureCommand {
-            mode: ExposureMode::Shutter,
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x39, 0x0A, 0xFF]
-        );
+    // Test Shutter Priority mode
+    visca_test!(
+        ExposureCommand,
+        test_exposure_mode_shutter,
+        ExposureCommand {
+            mode: ExposureMode::Shutter
+        },
+        &[0x81, 0x01, 0x04, 0x39, 0x0A, 0xFF]
+    );
 
-        // Test Iris Priority mode
-        let cmd = ExposureCommand {
-            mode: ExposureMode::Iris,
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x39, 0x0B, 0xFF]
-        );
+    // Test Iris Priority mode
+    visca_test!(
+        ExposureCommand,
+        test_exposure_mode_iris,
+        ExposureCommand {
+            mode: ExposureMode::Iris
+        },
+        &[0x81, 0x01, 0x04, 0x39, 0x0B, 0xFF]
+    );
 
-        // Test Brightness Priority mode
-        let cmd = ExposureCommand {
-            mode: ExposureMode::Bright,
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x39, 0x0D, 0xFF]
-        );
-    }
+    // Test Brightness Priority mode
+    visca_test!(
+        ExposureCommand,
+        test_exposure_mode_bright,
+        ExposureCommand {
+            mode: ExposureMode::Bright
+        },
+        &[0x81, 0x01, 0x04, 0x39, 0x0D, 0xFF]
+    );
 
     #[test]
     fn test_exposure_mode_try_from() {
@@ -536,71 +534,69 @@ mod tests {
         assert!(ExposureCompensationLevel::new(8).is_err());
     }
 
-    #[test]
-    fn test_exposure_compensation_commands() {
-        // Test On command
-        let cmd = ExposureCompensation::On;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF]
-        );
+    // Test On command
+    visca_test!(
+        ExposureCompensation,
+        test_exposure_compensation_on,
+        ExposureCompensation::On,
+        &[0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF]
+    );
 
-        // Test Off command
-        let cmd = ExposureCompensation::Off;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3E, 0x03, 0xFF]
-        );
+    // Test Off command
+    visca_test!(
+        ExposureCompensation,
+        test_exposure_compensation_off,
+        ExposureCompensation::Off,
+        &[0x81, 0x01, 0x04, 0x3E, 0x03, 0xFF]
+    );
 
-        // Test Reset command
-        let cmd = ExposureCompensation::Reset;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0E, 0x00, 0xFF]
-        );
+    // Test Reset command
+    visca_test!(
+        ExposureCompensation,
+        test_exposure_compensation_reset,
+        ExposureCompensation::Reset,
+        &[0x81, 0x01, 0x04, 0x0E, 0x00, 0xFF]
+    );
 
-        // Test Up command
-        let cmd = ExposureCompensation::Up;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0E, 0x02, 0xFF]
-        );
+    // Test Up command
+    visca_test!(
+        ExposureCompensation,
+        test_exposure_compensation_up,
+        ExposureCompensation::Up,
+        &[0x81, 0x01, 0x04, 0x0E, 0x02, 0xFF]
+    );
 
-        // Test Down command
-        let cmd = ExposureCompensation::Down;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF]
-        );
+    // Test Down command
+    visca_test!(
+        ExposureCompensation,
+        test_exposure_compensation_down,
+        ExposureCompensation::Down,
+        &[0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF]
+    );
 
-        // Test SetLevel command with various values
-        for value in -7..=7 {
-            let level = ExposureCompensationLevel::new(value)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ExposureCompensation::SetLevel(level);
-            let expected = vec![
-                0x81,
-                0x01,
-                0x04,
-                0x4E,
-                0x00,
-                0x00,
-                0x00,
-                u8::try_from(value + 7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                0xFF,
-            ];
-            assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                expected
-            );
-        }
-    }
+    // Test SetLevel command with value -7
+    visca_test!(
+        ExposureCompensation,
+        test_exposure_compensation_level_minus_7,
+        ExposureCompensation::SetLevel(ExposureCompensationLevel::new(-7).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test SetLevel command with value 0
+    visca_test!(
+        ExposureCompensation,
+        test_exposure_compensation_level_0,
+        ExposureCompensation::SetLevel(ExposureCompensationLevel::new(0).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x07, 0xFF]
+    );
+
+    // Test SetLevel command with value 7
+    visca_test!(
+        ExposureCompensation,
+        test_exposure_compensation_level_plus_7,
+        ExposureCompensation::SetLevel(ExposureCompensationLevel::new(7).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x0E, 0xFF]
+    );
 
     #[test]
     fn test_exposure_compensation_g2_validation() {
@@ -621,20 +617,29 @@ mod tests {
             .is_ok());
     }
 
-    #[test]
-    fn test_dynamic_range_command() {
-        // Test all valid dynamic range levels
-        for value in 0..=8 {
-            let level = DynamicRangeLevel::new(value)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = DynamicRange::new(level);
-            assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, value, 0xFF]
-            );
-        }
-    }
+    // Test dynamic range level 0
+    visca_test!(
+        DynamicRange,
+        test_dynamic_range_level_0,
+        DynamicRange::new(DynamicRangeLevel::new(0).unwrap()),
+        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test dynamic range level 4
+    visca_test!(
+        DynamicRange,
+        test_dynamic_range_level_4,
+        DynamicRange::new(DynamicRangeLevel::new(4).unwrap()),
+        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x04, 0xFF]
+    );
+
+    // Test dynamic range level 8
+    visca_test!(
+        DynamicRange,
+        test_dynamic_range_level_8,
+        DynamicRange::new(DynamicRangeLevel::new(8).unwrap()),
+        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x08, 0xFF]
+    );
 
     #[test]
     fn test_dynamic_range_g2_validation() {
@@ -647,47 +652,61 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_iris_commands() {
-        // Test Reset command
-        let cmd = Iris::Reset;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF]
-        );
+    // Test Reset command
+    visca_test!(
+        Iris,
+        test_iris_reset,
+        Iris::Reset,
+        &[0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF]
+    );
 
-        // Test Up command
-        let cmd = Iris::Up;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF]
-        );
+    // Test Up command
+    visca_test!(
+        Iris,
+        test_iris_up,
+        Iris::Up,
+        &[0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF]
+    );
 
-        // Test Down command
-        let cmd = Iris::Down;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF]
-        );
+    // Test Down command
+    visca_test!(
+        Iris,
+        test_iris_down,
+        Iris::Down,
+        &[0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF]
+    );
 
-        // Test SetAperture command with valid values
-        let test_values = vec![0x00, 0x05, 0x0A, 0x0C];
-        for value in test_values {
-            let level =
-                IrisLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Iris::SetAperture(level);
-            let high = (value >> 4) & 0x0F;
-            let low = value & 0x0F;
-            assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, high, low, 0xFF]
-            );
-        }
-    }
+    // Test SetAperture command with value 0x00
+    visca_test!(
+        Iris,
+        test_iris_set_aperture_00,
+        Iris::SetAperture(IrisLevel::new(0x00).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test SetAperture command with value 0x05
+    visca_test!(
+        Iris,
+        test_iris_set_aperture_05,
+        Iris::SetAperture(IrisLevel::new(0x05).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x05, 0xFF]
+    );
+
+    // Test SetAperture command with value 0x0A
+    visca_test!(
+        Iris,
+        test_iris_set_aperture_0a,
+        Iris::SetAperture(IrisLevel::new(0x0A).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0A, 0xFF]
+    );
+
+    // Test SetAperture command with value 0x0C
+    visca_test!(
+        Iris,
+        test_iris_set_aperture_0c,
+        Iris::SetAperture(IrisLevel::new(0x0C).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0C, 0xFF]
+    );
 
     #[test]
     fn test_iris_g2_validation() {
@@ -708,47 +727,61 @@ mod tests {
             .is_ok());
     }
 
-    #[test]
-    fn test_shutter_commands() {
-        // Test Reset command
-        let cmd = Shutter::Reset;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF]
-        );
+    // Test Reset command
+    visca_test!(
+        Shutter,
+        test_shutter_reset,
+        Shutter::Reset,
+        &[0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF]
+    );
 
-        // Test Up command
-        let cmd = Shutter::Up;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF]
-        );
+    // Test Up command
+    visca_test!(
+        Shutter,
+        test_shutter_up,
+        Shutter::Up,
+        &[0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF]
+    );
 
-        // Test Down command
-        let cmd = Shutter::Down;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF]
-        );
+    // Test Down command
+    visca_test!(
+        Shutter,
+        test_shutter_down,
+        Shutter::Down,
+        &[0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF]
+    );
 
-        // Test SetSpeed command with valid values
-        let test_values = vec![0x01u16, 0x05, 0x0A, 0x10, 0x11];
-        for value in test_values {
-            let speed =
-                ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Shutter::SetSpeed(speed);
-            let high = ((value >> 4) & 0x0F) as u8;
-            let low = (value & 0x0F) as u8;
-            assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, high, low, 0xFF]
-            );
-        }
-    }
+    // Test SetSpeed command with value 0x01
+    visca_test!(
+        Shutter,
+        test_shutter_set_speed_01,
+        Shutter::SetSpeed(ShutterSpeed::new(0x01).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x01, 0xFF]
+    );
+
+    // Test SetSpeed command with value 0x05
+    visca_test!(
+        Shutter,
+        test_shutter_set_speed_05,
+        Shutter::SetSpeed(ShutterSpeed::new(0x05).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x05, 0xFF]
+    );
+
+    // Test SetSpeed command with value 0x10
+    visca_test!(
+        Shutter,
+        test_shutter_set_speed_10,
+        Shutter::SetSpeed(ShutterSpeed::new(0x10).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x00, 0xFF]
+    );
+
+    // Test SetSpeed command with value 0x11
+    visca_test!(
+        Shutter,
+        test_shutter_set_speed_11,
+        Shutter::SetSpeed(ShutterSpeed::new(0x11).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x01, 0xFF]
+    );
 
     #[test]
     fn test_shutter_g2_validation() {
@@ -769,62 +802,93 @@ mod tests {
             .is_ok());
     }
 
-    #[test]
-    fn test_bright_commands() {
-        // Test Reset command
-        let cmd = Bright::Reset;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF]
-        );
+    // Test Reset command
+    visca_test!(
+        Bright,
+        test_bright_reset,
+        Bright::Reset,
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF]
+    );
 
-        // Test Up command
-        let cmd = Bright::Up;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF]
-        );
+    // Test Up command
+    visca_test!(
+        Bright,
+        test_bright_up,
+        Bright::Up,
+        &[0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF]
+    );
 
-        // Test Down command
-        let cmd = Bright::Down;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF]
-        );
+    // Test Down command
+    visca_test!(
+        Bright,
+        test_bright_down,
+        Bright::Down,
+        &[0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF]
+    );
 
-        // Test SetLevel command with valid values
-        let test_values = vec![0x00u16, 0x08, 0x0F, 0x10, 0x11];
-        for value in test_values {
-            let level = BrightnessLevel::new(value)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Bright::SetLevel(level);
-            let high = ((value >> 4) & 0x0F) as u8;
-            let low = (value & 0x0F) as u8;
-            assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, high, low, 0xFF]
-            );
-        }
+    // Test SetLevel command with value 0x00
+    visca_test!(
+        Bright,
+        test_bright_set_level_00,
+        Bright::SetLevel(BrightnessLevel::new(0x00).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
 
-        // Test Direct command (Bright Direct mode) with valid values
-        let test_values = vec![0x00u16, 0x08, 0x0F, 0x10, 0x11];
-        for value in test_values {
-            let level = BrightnessLevel::new(value)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Bright::Direct(level);
-            let high = ((value >> 4) & 0x0F) as u8;
-            let low = (value & 0x0F) as u8;
-            assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, high, low, 0xFF]
-            );
-        }
-    }
+    // Test SetLevel command with value 0x08
+    visca_test!(
+        Bright,
+        test_bright_set_level_08,
+        Bright::SetLevel(BrightnessLevel::new(0x08).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x00, 0x08, 0xFF]
+    );
+
+    // Test SetLevel command with value 0x10
+    visca_test!(
+        Bright,
+        test_bright_set_level_10,
+        Bright::SetLevel(BrightnessLevel::new(0x10).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x00, 0xFF]
+    );
+
+    // Test SetLevel command with value 0x11
+    visca_test!(
+        Bright,
+        test_bright_set_level_11,
+        Bright::SetLevel(BrightnessLevel::new(0x11).unwrap()),
+        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF]
+    );
+
+    // Test Direct command with value 0x00
+    visca_test!(
+        Bright,
+        test_bright_direct_00,
+        Bright::Direct(BrightnessLevel::new(0x00).unwrap()),
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test Direct command with value 0x08
+    visca_test!(
+        Bright,
+        test_bright_direct_08,
+        Bright::Direct(BrightnessLevel::new(0x08).unwrap()),
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x00, 0x08, 0xFF]
+    );
+
+    // Test Direct command with value 0x10
+    visca_test!(
+        Bright,
+        test_bright_direct_10,
+        Bright::Direct(BrightnessLevel::new(0x10).unwrap()),
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x01, 0x00, 0xFF]
+    );
+
+    // Test Direct command with value 0x11
+    visca_test!(
+        Bright,
+        test_bright_direct_11,
+        Bright::Direct(BrightnessLevel::new(0x11).unwrap()),
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x01, 0x01, 0xFF]
+    );
 
     #[test]
     fn test_bright_g2_validation() {
@@ -891,22 +955,19 @@ mod tests {
         assert!(Bright::Reset.response_type().is_none());
     }
 
-    #[test]
-    fn test_auto_slow_shutter_commands() {
-        // Test On command
-        let cmd = AutoSlowShutter::On;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x5A, 0x02, 0xFF]
-        );
+    // Test On command
+    visca_test!(
+        AutoSlowShutter,
+        test_auto_slow_shutter_on,
+        AutoSlowShutter::On,
+        &[0x81, 0x01, 0x04, 0x5A, 0x02, 0xFF]
+    );
 
-        // Test Off command
-        let cmd = AutoSlowShutter::Off;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x5A, 0x03, 0xFF]
-        );
-    }
+    // Test Off command
+    visca_test!(
+        AutoSlowShutter,
+        test_auto_slow_shutter_off,
+        AutoSlowShutter::Off,
+        &[0x81, 0x01, 0x04, 0x5A, 0x03, 0xFF]
+    );
 }

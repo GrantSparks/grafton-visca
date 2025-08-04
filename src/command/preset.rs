@@ -91,6 +91,7 @@ impl EncodeVisca for PresetCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::visca_test;
 
     #[test]
     fn test_preset_number_new() {
@@ -128,47 +129,38 @@ mod tests {
         assert_eq!(PresetAction::Recall as u8, 0x02);
     }
 
-    #[test]
-    fn test_preset_command_reset() {
-        let cmd = PresetCommand {
+    visca_test!(
+        PresetCommand,
+        test_preset_command_reset,
+        PresetCommand {
             action: PresetAction::Reset,
             preset_number: PresetNumber::new(10)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3F, 0x00, 0x0A, 0xFF]
-        );
-    }
+        },
+        &[0x81, 0x01, 0x04, 0x3F, 0x00, 0x0A, 0xFF]
+    );
 
-    #[test]
-    fn test_preset_command_set() {
-        let cmd = PresetCommand {
+    visca_test!(
+        PresetCommand,
+        test_preset_command_set,
+        PresetCommand {
             action: PresetAction::Set,
             preset_number: PresetNumber::new(45)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x2D, 0xFF]
-        );
-    }
+        },
+        &[0x81, 0x01, 0x04, 0x3F, 0x01, 0x2D, 0xFF]
+    );
 
-    #[test]
-    fn test_preset_command_recall() {
-        let cmd = PresetCommand {
+    visca_test!(
+        PresetCommand,
+        test_preset_command_recall,
+        PresetCommand {
             action: PresetAction::Recall,
             preset_number: PresetNumber::new(89)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, 0xFF]
-        );
-    }
+        },
+        &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, 0xFF]
+    );
 
     #[test]
     fn test_preset_timeout_kind() {

@@ -138,38 +138,35 @@ impl EncodeVisca for MotionSyncSpeedCommand {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::visca_test;
 
-    #[test]
-    fn test_motion_sync_mode_command() {
-        let cmd = MotionSyncModeCommand::new(MotionSyncMode::On);
-        let mut buffer = [0u8; 10];
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..len], &[0x81, 0x0A, 0x11, 0x13, 0x02, 0xFF]);
+    visca_test!(
+        MotionSyncModeCommand,
+        test_motion_sync_mode_on,
+        MotionSyncModeCommand::new(MotionSyncMode::On),
+        &[0x81, 0x0A, 0x11, 0x13, 0x02, 0xFF]
+    );
 
-        let cmd = MotionSyncModeCommand::new(MotionSyncMode::Off);
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..len], &[0x81, 0x0A, 0x11, 0x13, 0x03, 0xFF]);
-    }
+    visca_test!(
+        MotionSyncModeCommand,
+        test_motion_sync_mode_off,
+        MotionSyncModeCommand::new(MotionSyncMode::Off),
+        &[0x81, 0x0A, 0x11, 0x13, 0x03, 0xFF]
+    );
 
-    #[test]
-    fn test_motion_sync_speed_command() {
-        let cmd = MotionSyncSpeedCommand::new(1).unwrap();
-        let mut buffer = [0u8; 10];
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..len], &[0x81, 0x0A, 0x11, 0x14, 0x01, 0xFF]);
+    visca_test!(
+        MotionSyncSpeedCommand,
+        test_motion_sync_speed_min,
+        MotionSyncSpeedCommand::new(1).unwrap(),
+        &[0x81, 0x0A, 0x11, 0x14, 0x01, 0xFF]
+    );
 
-        let cmd = MotionSyncSpeedCommand::new(24).unwrap();
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..len], &[0x81, 0x0A, 0x11, 0x14, 0x18, 0xFF]);
-    }
+    visca_test!(
+        MotionSyncSpeedCommand,
+        test_motion_sync_speed_max,
+        MotionSyncSpeedCommand::new(24).unwrap(),
+        &[0x81, 0x0A, 0x11, 0x14, 0x18, 0xFF]
+    );
 
     #[test]
     fn test_motion_sync_speed_out_of_range() {
@@ -177,26 +174,24 @@ mod tests {
         assert!(MotionSyncSpeedCommand::new(25).is_err());
     }
 
-    #[test]
-    fn test_motion_sync_speed_from_preset() {
-        let mut buffer = [0u8; 10];
+    visca_test!(
+        MotionSyncSpeedCommand,
+        test_motion_sync_speed_slow,
+        MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Slow),
+        &[0x81, 0x0A, 0x11, 0x14, 0x08, 0xFF]
+    );
 
-        let slow = MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Slow);
-        let len = slow
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..len], &[0x81, 0x0A, 0x11, 0x14, 0x08, 0xFF]);
+    visca_test!(
+        MotionSyncSpeedCommand,
+        test_motion_sync_speed_normal,
+        MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Normal),
+        &[0x81, 0x0A, 0x11, 0x14, 0x10, 0xFF]
+    );
 
-        let normal = MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Normal);
-        let len = normal
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..len], &[0x81, 0x0A, 0x11, 0x14, 0x10, 0xFF]);
-
-        let fast = MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Fast);
-        let len = fast
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..len], &[0x81, 0x0A, 0x11, 0x14, 0x18, 0xFF]);
-    }
+    visca_test!(
+        MotionSyncSpeedCommand,
+        test_motion_sync_speed_fast,
+        MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Fast),
+        &[0x81, 0x0A, 0x11, 0x14, 0x18, 0xFF]
+    );
 }

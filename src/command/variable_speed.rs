@@ -72,31 +72,21 @@ impl EncodeVisca for VariableSpeedModeCommand {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::visca_test;
 
-    #[test]
-    fn test_variable_speed_mode_standard24() {
-        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Standard24);
-        let mut buffer = [0u8; 10];
-        let camera_id = crate::camera_id::CameraId::default();
-        let len = cmd
-            .encode_into(camera_id, &mut buffer)
-            .expect("Failed to encode VariableSpeedModeCommand");
-        assert_eq!(len, 7);
-        assert_eq!(&buffer[..7], &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01, 0xFF]);
-    }
+    visca_test!(
+        VariableSpeedModeCommand,
+        test_variable_speed_mode_standard24,
+        VariableSpeedModeCommand::new(VariableSpeedMode::Standard24),
+        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01, 0xFF]
+    );
 
-    #[test]
-    fn test_variable_speed_mode_fine50() {
-        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Fine50);
-        let mut buffer = [0u8; 10];
-        let camera_id = crate::camera_id::CameraId::default();
-        let len = cmd
-            .encode_into(camera_id, &mut buffer)
-            .expect("Failed to encode VariableSpeedModeCommand");
-        assert_eq!(len, 7);
-        assert_eq!(&buffer[..7], &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02, 0xFF]);
-    }
+    visca_test!(
+        VariableSpeedModeCommand,
+        test_variable_speed_mode_fine50,
+        VariableSpeedModeCommand::new(VariableSpeedMode::Fine50),
+        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02, 0xFF]
+    );
 }

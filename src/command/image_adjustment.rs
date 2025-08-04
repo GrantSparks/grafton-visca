@@ -261,78 +261,77 @@ mod tests {
     use crate::command::encode_visca::EncodeVisca;
     use crate::constants::CameraVariant;
     use crate::types::SharpnessLevel;
+    use crate::visca_test;
+
+    // Test Auto mode
+    visca_test!(
+        Sharpness,
+        test_sharpness_mode_auto,
+        Sharpness::Mode(SharpnessMode::Auto),
+        &[0x81, 0x01, 0x04, 0x05, 0x02, 0xFF]
+    );
+
+    // Test Manual mode
+    visca_test!(
+        Sharpness,
+        test_sharpness_mode_manual,
+        Sharpness::Mode(SharpnessMode::Manual),
+        &[0x81, 0x01, 0x04, 0x05, 0x03, 0xFF]
+    );
 
     #[test]
-    fn test_sharpness_mode() {
-        // Test Auto mode
+    fn test_sharpness_properties() {
         let cmd = Sharpness::Mode(SharpnessMode::Auto);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x05, 0x02, 0xFF]
-        );
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
-
-        // Test Manual mode
-        let cmd = Sharpness::Mode(SharpnessMode::Manual);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x05, 0x03, 0xFF]
-        );
-    }
-
-    #[test]
-    fn test_sharpness_reset() {
-        let cmd = Sharpness::Reset;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x02, 0x00, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
     }
 
-    #[test]
-    fn test_sharpness_up_down() {
-        // Test Up
-        let cmd = Sharpness::Up;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x02, 0x02, 0xFF]
-        );
+    visca_test!(
+        Sharpness,
+        test_sharpness_reset,
+        Sharpness::Reset,
+        &[0x81, 0x01, 0x04, 0x02, 0x00, 0xFF]
+    );
 
-        // Test Down
-        let cmd = Sharpness::Down;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x02, 0x03, 0xFF]
-        );
-    }
+    // Test Up
+    visca_test!(
+        Sharpness,
+        test_sharpness_up,
+        Sharpness::Up,
+        &[0x81, 0x01, 0x04, 0x02, 0x02, 0xFF]
+    );
 
-    #[test]
-    fn test_sharpness_set_level() {
-        // Test valid values 0-11
-        for value in 0..=11 {
-            let cmd = Sharpness::SetLevel { value };
-            let bytes = cmd
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            assert_eq!(bytes.len(), 9);
-            assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x42, 0x00, 0x00]);
-            assert_eq!(bytes[6], (value >> 4) & 0x0F);
-            assert_eq!(bytes[7], value & 0x0F);
-            assert_eq!(bytes[8], 0xFF);
-        }
+    // Test Down
+    visca_test!(
+        Sharpness,
+        test_sharpness_down,
+        Sharpness::Down,
+        &[0x81, 0x01, 0x04, 0x02, 0x03, 0xFF]
+    );
 
-        // Test invalid value
-        // SharpnessLevel enforces valid range, so we can't create an invalid value
-        // The validation is done at the type level
-    }
+    // Test sharpness level 0
+    visca_test!(
+        Sharpness,
+        test_sharpness_level_0,
+        Sharpness::SetLevel { value: 0 },
+        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test sharpness level 5
+    visca_test!(
+        Sharpness,
+        test_sharpness_level_5,
+        Sharpness::SetLevel { value: 5 },
+        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x05, 0xFF]
+    );
+
+    // Test sharpness level 11
+    visca_test!(
+        Sharpness,
+        test_sharpness_level_11,
+        Sharpness::SetLevel { value: 11 },
+        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x0B, 0xFF]
+    );
 
     #[test]
     fn test_sharpness_g2_validation() {
@@ -356,23 +355,35 @@ mod tests {
         assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
     }
 
+    // Test luminance level 0
+    visca_test!(
+        LuminanceCommand,
+        test_luminance_level_0,
+        LuminanceCommand::new(LuminanceLevel::new(0).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test luminance level 7
+    visca_test!(
+        LuminanceCommand,
+        test_luminance_level_7,
+        LuminanceCommand::new(LuminanceLevel::new(7).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x07, 0xFF]
+    );
+
+    // Test luminance level 14
+    visca_test!(
+        LuminanceCommand,
+        test_luminance_level_14,
+        LuminanceCommand::new(LuminanceLevel::new(14).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x0E, 0xFF]
+    );
+
     #[test]
-    fn test_luminance_command() {
-        // Test valid values
-        for value in 0..=14 {
-            let level = LuminanceLevel::new(value)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = LuminanceCommand::new(level);
-            let bytes = cmd
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            assert_eq!(
-                bytes,
-                vec![0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, value, 0xFF]
-            );
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-        }
+    fn test_luminance_properties() {
+        let cmd = LuminanceCommand::new(LuminanceLevel::new(7).unwrap());
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
     #[test]
@@ -389,23 +400,35 @@ mod tests {
         // The LuminanceLevel type itself enforces the valid range
     }
 
+    // Test contrast level 0
+    visca_test!(
+        ContrastCommand,
+        test_contrast_level_0,
+        ContrastCommand::new(ContrastLevel::new(0).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test contrast level 7
+    visca_test!(
+        ContrastCommand,
+        test_contrast_level_7,
+        ContrastCommand::new(ContrastLevel::new(7).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x07, 0xFF]
+    );
+
+    // Test contrast level 14
+    visca_test!(
+        ContrastCommand,
+        test_contrast_level_14,
+        ContrastCommand::new(ContrastLevel::new(14).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x0E, 0xFF]
+    );
+
     #[test]
-    fn test_contrast_command() {
-        // Test valid values
-        for value in 0..=14 {
-            let level = ContrastLevel::new(value)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ContrastCommand::new(level);
-            let bytes = cmd
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            assert_eq!(
-                bytes,
-                vec![0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, value, 0xFF]
-            );
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-        }
+    fn test_contrast_properties() {
+        let cmd = ContrastCommand::new(ContrastLevel::new(7).unwrap());
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
     #[test]
