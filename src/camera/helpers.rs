@@ -267,9 +267,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
                 has_moved = true;
                 if config.debug {
                     log::debug!(
-                        "Pan/tilt movement detected: {:?} -> {:?}",
-                        initial_position,
-                        current_position
+                        "Pan/tilt movement detected: {initial_position:?} -> {current_position:?}"
                     );
                 }
             }
@@ -294,17 +292,14 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
                         if unique_positions.len() == 1 {
                             // Truly stable
                             if config.debug {
-                                log::debug!(
-                                    "Pan/tilt movement complete at: {:?}",
-                                    current_position
-                                );
+                                log::debug!("Pan/tilt movement complete at: {current_position:?}");
                             }
                             return Ok(());
                         }
                     } else {
                         // Not enough history, consider it stable
                         if config.debug {
-                            log::debug!("Pan/tilt movement complete at: {:?}", current_position);
+                            log::debug!("Pan/tilt movement complete at: {current_position:?}");
                         }
                         return Ok(());
                     }
@@ -358,11 +353,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
             {
                 has_moved = true;
                 if config.debug {
-                    log::debug!(
-                        "Zoom movement detected: {} -> {}",
-                        initial_zoom,
-                        current_zoom
-                    );
+                    log::debug!("Zoom movement detected: {initial_zoom} -> {current_zoom}");
                 }
             }
 
@@ -370,7 +361,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
                 stable_count += 1;
                 if stable_count >= config.stability_threshold {
                     if config.debug {
-                        log::debug!("Zoom movement complete at: {}", current_zoom);
+                        log::debug!("Zoom movement complete at: {current_zoom}");
                     }
                     return Ok(());
                 }
@@ -416,11 +407,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
             if !has_moved && (current_focus as i32 - initial_focus as i32).abs() > 10 {
                 has_moved = true;
                 if config.debug {
-                    log::debug!(
-                        "Focus movement detected: {} -> {}",
-                        initial_focus,
-                        current_focus
-                    );
+                    log::debug!("Focus movement detected: {initial_focus} -> {current_focus}");
                 }
             }
 
@@ -428,7 +415,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
                 stable_count += 1;
                 if stable_count >= config.stability_threshold {
                     if config.debug {
-                        log::debug!("Focus adjustment complete at: {}", current_focus);
+                        log::debug!("Focus adjustment complete at: {current_focus}");
                     }
                     return Ok(());
                 }
@@ -557,9 +544,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
                 has_moved = true;
                 if config.debug {
                     log::debug!(
-                        "Pan/tilt movement detected: {:?} -> {:?}",
-                        initial_position,
-                        current_position
+                        "Pan/tilt movement detected: {initial_position:?} -> {current_position:?}"
                     );
                 }
             }
@@ -581,16 +566,13 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
 
                         if unique_positions.len() == 1 {
                             if config.debug {
-                                log::debug!(
-                                    "Pan/tilt movement complete at: {:?}",
-                                    current_position
-                                );
+                                log::debug!("Pan/tilt movement complete at: {current_position:?}");
                             }
                             return Ok(());
                         }
                     } else {
                         if config.debug {
-                            log::debug!("Pan/tilt movement complete at: {:?}", current_position);
+                            log::debug!("Pan/tilt movement complete at: {current_position:?}");
                         }
                         return Ok(());
                     }
@@ -642,11 +624,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
             {
                 has_moved = true;
                 if config.debug {
-                    log::debug!(
-                        "Zoom movement detected: {} -> {}",
-                        initial_zoom,
-                        current_zoom
-                    );
+                    log::debug!("Zoom movement detected: {initial_zoom} -> {current_zoom}");
                 }
             }
 
@@ -654,7 +632,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
                 stable_count += 1;
                 if stable_count >= config.stability_threshold {
                     if config.debug {
-                        log::debug!("Zoom movement complete at: {}", current_zoom);
+                        log::debug!("Zoom movement complete at: {current_zoom}");
                     }
                     return Ok(());
                 }
@@ -699,11 +677,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
             if !has_moved && (current_focus as i32 - initial_focus as i32).abs() > 10 {
                 has_moved = true;
                 if config.debug {
-                    log::debug!(
-                        "Focus movement detected: {} -> {}",
-                        initial_focus,
-                        current_focus
-                    );
+                    log::debug!("Focus movement detected: {initial_focus} -> {current_focus}");
                 }
             }
 
@@ -711,7 +685,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
                 stable_count += 1;
                 if stable_count >= config.stability_threshold {
                     if config.debug {
-                        log::debug!("Focus adjustment complete at: {}", current_focus);
+                        log::debug!("Focus adjustment complete at: {current_focus}");
                     }
                     return Ok(());
                 }

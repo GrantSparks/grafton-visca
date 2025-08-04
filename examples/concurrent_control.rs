@@ -135,7 +135,7 @@ async fn multi_camera_control() -> Result<()> {
     let restore_handles = vec![
         {
             let cam = cam1.clone();
-            let state = state1.clone();
+            let state = state1;
             tokio::spawn(async move {
                 if let Some(s) = state {
                     let _ = cam.restore_state_async(&s).await;
@@ -144,7 +144,7 @@ async fn multi_camera_control() -> Result<()> {
         },
         {
             let cam = cam2.clone();
-            let state = state2.clone();
+            let state = state2;
             tokio::spawn(async move {
                 if let Some(s) = state {
                     let _ = cam.restore_state_async(&s).await;
@@ -153,7 +153,7 @@ async fn multi_camera_control() -> Result<()> {
         },
         {
             let cam = cam3.clone();
-            let state = state3.clone();
+            let state = state3;
             tokio::spawn(async move {
                 if let Some(s) = state {
                     let _ = cam.restore_state_async(&s).await;
@@ -421,7 +421,7 @@ async fn synchronized_movement() -> Result<()> {
     let mut restore_handles = vec![];
     for (camera, state) in cameras.iter().zip(initial_states.iter()) {
         let cam = camera.clone();
-        let state = state.clone();
+        let state = *state;
         let handle = tokio::spawn(async move {
             if let Some(s) = state {
                 let _ = cam.restore_state_async(&s).await;
