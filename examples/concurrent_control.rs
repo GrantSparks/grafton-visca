@@ -197,10 +197,10 @@ async fn parallel_single_camera() -> Result<()> {
         camera.get_focus_position()
     );
 
-    println!("Power: {:?}", power);
-    println!("Position: {:?}", position);
-    println!("Zoom: {:?}", zoom);
-    println!("Focus: {:?}", focus);
+    println!("Power: {power:?}");
+    println!("Position: {position:?}");
+    println!("Zoom: {zoom:?}");
+    println!("Focus: {focus:?}");
 
     // Control operations should be coordinated
     println!("\nExecuting coordinated movements...");

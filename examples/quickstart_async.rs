@@ -66,7 +66,7 @@ async fn main() -> Result<(), Error> {
                 "✓ Saved initial position: Pan={:.1}°, Tilt={:.1}°",
                 pan.0, tilt.0
             );
-            println!("✓ Saved initial zoom: {}", zoom);
+            println!("✓ Saved initial zoom: {zoom}");
         }
         _ => {
             println!("⚠ Could not save initial position/zoom, will return to home at end");
@@ -335,7 +335,7 @@ async fn main() -> Result<(), Error> {
     // Test preset recall
     println!("Testing preset recall...");
     for i in 1..=3 {
-        println!("  Recalling Preset {}...", i);
+        println!("  Recalling Preset {i}...");
         camera.preset_recall(PresetNumber::new(i)?).await?;
         camera.await_idle(Duration::from_secs(5)).await?;
         if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees().await {
@@ -368,16 +368,16 @@ async fn main() -> Result<(), Error> {
         println!("    Position: Pan={:.1}°, Tilt={:.1}°", pan.0, tilt.0);
     }
     if let Ok(zoom) = zoom {
-        println!("    Zoom: {}", zoom);
+        println!("    Zoom: {zoom}");
     }
     if let Ok(mode) = focus_mode {
-        println!("    Focus: {:?}", mode);
+        println!("    Focus: {mode:?}");
     }
     if let Ok(mode) = exposure_mode {
-        println!("    Exposure: {:?}", mode);
+        println!("    Exposure: {mode:?}");
     }
     if let Ok(mode) = white_balance {
-        println!("    White Balance: {:?}", mode);
+        println!("    White Balance: {mode:?}");
     }
 
     println!("✓ Concurrent operations complete");
