@@ -68,14 +68,6 @@ name = "quickstart_async"
 required-features = ["tokio"]
 
 [[example]]
-name = "camera_control"
-# Comprehensive blocking example - no features required
-
-[[example]]
-name = "camera_control_async"
-required-features = ["tokio"]
-
-[[example]]
 name = "transports"
 # Transport comparison - no features required for blocking
 
