@@ -155,18 +155,14 @@ fn main() -> Result<(), Error> {
                 println!("  ✓ Preset recalled successfully!");
             } else {
                 println!(
-                    "  ⚠ Position differs from expected (Pan diff: {:.1}°, Tilt diff: {:.1}°)",
-                    pan_diff, tilt_diff
+                    "  ⚠ Position differs from expected (Pan diff: {pan_diff:.1}°, Tilt diff: {tilt_diff:.1}°)"
                 );
             }
         }
 
         if let (Ok(before_z), Ok(after_z)) = (before_zoom, after_zoom) {
             let expected_zoom = (preset.zoom.0 * 16384.0) as u16;
-            println!(
-                "  Zoom: {} → {} (expected ~{})",
-                before_z, after_z, expected_zoom
-            );
+            println!("  Zoom: {before_z} → {after_z} (expected ~{expected_zoom})");
         }
 
         println!();

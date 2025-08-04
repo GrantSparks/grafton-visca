@@ -59,7 +59,7 @@ fn main() -> Result<(), Error> {
                 "✓ Saved initial position: Pan={:.1}°, Tilt={:.1}°",
                 pan.0, tilt.0
             );
-            println!("✓ Saved initial zoom: {}", zoom);
+            println!("✓ Saved initial zoom: {zoom}");
         }
         _ => {
             println!("⚠ Could not save initial position/zoom, will return to home at end");
@@ -239,7 +239,7 @@ fn main() -> Result<(), Error> {
     // Test preset recall
     println!("Testing preset recall...");
     for i in 1..=3 {
-        println!("  Recalling Preset {}...", i);
+        println!("  Recalling Preset {i}...");
         camera.preset_recall(PresetNumber::new(i)?)?;
         camera.wait_for_all_movements(Duration::from_secs(5))?;
         if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees() {
