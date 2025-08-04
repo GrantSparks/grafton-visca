@@ -11,7 +11,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, ResponseType},
+    command::{const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
 };
@@ -66,22 +66,16 @@ impl EncodeVisca for PresetCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x3F];
 
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x3F;
-        buffer[4] = self.action as u8;
-        buffer[5] = self.preset_number.value();
-        buffer[6] = 0xFF;
+        let command = CommandBuilder::<7>::from_prefix(PREFIX)
+            .with_camera_id(camera_id)
+            .push(self.action as u8)
+            .push(self.preset_number.value())
+            .build();
 
-        Ok(Self::MAX_SIZE)
+        buffer[..7].copy_from_slice(&command);
+        Ok(7)
     }
 
     fn response_type(&self) -> Option<ResponseType> {

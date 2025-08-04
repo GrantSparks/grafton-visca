@@ -143,12 +143,7 @@ impl EncodeVisca for Sharpness {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        use crate::command::const_encoding::CommandBuilder;
 
         match self {
             Self::Mode(mode) => {
@@ -156,40 +151,40 @@ impl EncodeVisca for Sharpness {
                     SharpnessMode::Auto => 0x02,
                     SharpnessMode::Manual => 0x03,
                 };
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x05;
-                buffer[4] = mode_byte;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x05])
+                    .push(mode_byte)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Reset => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x02;
-                buffer[4] = 0x00;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x02])
+                    .push(0x00)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Up => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x02;
-                buffer[4] = 0x02;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x02])
+                    .push(0x02)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Down => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x02;
-                buffer[4] = 0x03;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x02])
+                    .push(0x03)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::SetLevel { value } => {
                 if *value > 11 {
@@ -199,26 +194,13 @@ impl EncodeVisca for Sharpness {
                         reason: Cow::Borrowed("Sharpness value must be in the range 0..=11"),
                     });
                 }
-                let high = (*value >> 4) & 0x0F;
-                let low = *value & 0x0F;
-
-                if buffer.len() < 9 {
-                    return Err(Error::BufferTooSmall {
-                        required: 9,
-                        actual: buffer.len(),
-                    });
-                }
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x42;
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                buffer[6] = high;
-                buffer[7] = low;
-                buffer[8] = 0xFF;
-                Ok(9)
+                let mut builder = CommandBuilder::<9>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x42, 0x00, 0x00])
+                    .push_nibble_pair(*value as u16)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }

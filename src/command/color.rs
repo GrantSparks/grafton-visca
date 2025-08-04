@@ -5,7 +5,11 @@
 
 // Crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, response::ResponseType},
+    command::{
+        const_encoding::{CommandBuilder, DEFAULT_ADDRESS},
+        encode_visca::EncodeVisca,
+        response::ResponseType,
+    },
     error::Error,
     timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
@@ -161,51 +165,34 @@ impl EncodeVisca for ColorTemperature {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
         match self {
             ColorTemperature::Reset => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x20;
-                buffer[4] = 0x00;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x20]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x00).finalize();
+                builder.copy_to(buffer)
             }
             ColorTemperature::Up => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x20;
-                buffer[4] = 0x02;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x20]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x02).finalize();
+                builder.copy_to(buffer)
             }
             ColorTemperature::Down => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x20;
-                buffer[4] = 0x03;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x20]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x03).finalize();
+                builder.copy_to(buffer)
             }
             ColorTemperature::SetTemperature(temp) => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x20;
-                let value = temp.value();
-                buffer[4] = ((value >> 4) & 0x0F) as u8; // High nibble (0p)
-                buffer[5] = (value & 0x0F) as u8; // Low nibble (0q)
-                buffer[6] = 0xFF;
-                Ok(7)
+                let mut builder =
+                    CommandBuilder::<7>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x20]);
+                builder.with_camera_id(camera_id);
+                builder.push_nibble_pair(temp.value()).finalize();
+                builder.copy_to(buffer)
             }
         }
     }
@@ -246,53 +233,38 @@ impl EncodeVisca for RedGain {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
         match self {
             RedGain::Reset => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x03;
-                buffer[4] = 0x00;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x03]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x00).finalize();
+                builder.copy_to(buffer)
             }
             RedGain::Up => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x03;
-                buffer[4] = 0x02;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x03]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x02).finalize();
+                builder.copy_to(buffer)
             }
             RedGain::Down => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x03;
-                buffer[4] = 0x03;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x03]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x03).finalize();
+                builder.copy_to(buffer)
             }
             RedGain::SetValue(value) => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x43; // Note: different command byte for direct setting
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                let val = value.value();
-                buffer[6] = (val >> 4) & 0x0F; // High nibble
-                buffer[7] = val & 0x0F; // Low nibble
-                buffer[8] = 0xFF;
-                Ok(9)
+                // Note: different command byte 0x43 for direct setting
+                let mut builder =
+                    CommandBuilder::<9>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x43]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x00).push(0x00);
+                builder
+                    .push_nibble_pair(u16::from(value.value()))
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }
@@ -333,53 +305,38 @@ impl EncodeVisca for BlueGain {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
         match self {
             BlueGain::Reset => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x04;
-                buffer[4] = 0x00;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x04]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x00).finalize();
+                builder.copy_to(buffer)
             }
             BlueGain::Up => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x04;
-                buffer[4] = 0x02;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x04]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x02).finalize();
+                builder.copy_to(buffer)
             }
             BlueGain::Down => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x04;
-                buffer[4] = 0x03;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder =
+                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x04]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x03).finalize();
+                builder.copy_to(buffer)
             }
             BlueGain::SetValue(value) => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x44; // Note: different command byte for direct setting
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                let val = value.value();
-                buffer[6] = (val >> 4) & 0x0F; // High nibble
-                buffer[7] = val & 0x0F; // Low nibble
-                buffer[8] = 0xFF;
-                Ok(9)
+                // Note: different command byte 0x44 for direct setting
+                let mut builder =
+                    CommandBuilder::<9>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x44]);
+                builder.with_camera_id(camera_id);
+                builder.push(0x00).push(0x00);
+                builder
+                    .push_nibble_pair(u16::from(value.value()))
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }

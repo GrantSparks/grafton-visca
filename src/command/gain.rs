@@ -5,7 +5,9 @@
 
 // Crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, response::ResponseType},
+    command::{
+        const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType,
+    },
     error::Error,
     timeout::CommandCategory,
     types::{GainLevel, GainLimit},
@@ -48,46 +50,38 @@ impl EncodeVisca for Gain {
     ) -> Result<usize, Error> {
         match self {
             Self::Reset | Self::Up | Self::Down => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x0C;
-                buffer[4] = match self {
+                const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x0C];
+
+                let control_byte = match self {
                     Self::Reset => 0x00,
                     Self::Up => 0x02,
                     Self::Down => 0x03,
                     _ => unreachable!(),
                 };
-                buffer[5] = 0xFF;
+
+                let command = CommandBuilder::<6>::from_prefix(PREFIX)
+                    .with_camera_id(camera_id)
+                    .push(control_byte)
+                    .build();
+
+                buffer[..6].copy_from_slice(&command);
                 Ok(6)
             }
             Self::SetValue(level) => {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err(Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
+                const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x4C, 0x00, 0x00];
+
                 let value = level.value();
                 let high = (value >> 4) & 0x0F;
                 let low = value & 0x0F;
 
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x4C;
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                buffer[6] = high;
-                buffer[7] = low;
-                buffer[8] = 0xFF;
-                Ok(Self::MAX_SIZE)
+                let command = CommandBuilder::<9>::from_prefix(PREFIX)
+                    .with_camera_id(camera_id)
+                    .push(high)
+                    .push(low)
+                    .build();
+
+                buffer[..9].copy_from_slice(&command);
+                Ok(9)
             }
         }
     }

@@ -801,23 +801,15 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::error::Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(crate::error::Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        use crate::command::const_encoding::CommandBuilder;
 
         // Special format for green tally inquiry
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x09;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x04;
-        buffer[4] = 0x1A;
-        buffer[5] = 0x00;
-        buffer[6] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
+        let mut builder = CommandBuilder::<7>::new();
+        builder
+            .append(&[0x81, 0x09, 0x7E, 0x04, 0x1A, 0x00])
+            .with_camera_id(camera_id)
+            .finalize();
+        builder.copy_to(buffer)
     }
 
     fn response_type(&self) -> Option<crate::command::response::ResponseType> {

@@ -144,107 +144,70 @@ impl EncodeVisca for Focus {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
+        use crate::command::const_encoding::CommandBuilder;
+
         match self {
             Self::Stop | Self::Far | Self::Near => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x08;
-                buffer[4] = match self {
-                    Self::Stop => 0x00,
-                    Self::Far => 0x02,
-                    Self::Near => 0x03,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x08])
+                    .push(match self {
+                        Self::Stop => 0x00,
+                        Self::Far => 0x02,
+                        Self::Near => 0x03,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::FarWithSpeed(_) | Self::NearWithSpeed(_) => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x08;
-                buffer[4] = match self {
-                    Self::FarWithSpeed(s) => 0x20 | s.value(),
-                    Self::NearWithSpeed(s) => 0x30 | s.value(),
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x08])
+                    .push(match self {
+                        Self::FarWithSpeed(s) => 0x20 | s.value(),
+                        Self::NearWithSpeed(s) => 0x30 | s.value(),
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Position(position) => {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err(Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-                let pos_val = position.value();
-                let p0 = ((pos_val >> 12) & 0x0F) as u8;
-                let p1 = ((pos_val >> 8) & 0x0F) as u8;
-                let p2 = ((pos_val >> 4) & 0x0F) as u8;
-                let p3 = (pos_val & 0x0F) as u8;
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x48;
-                buffer[4] = p0;
-                buffer[5] = p1;
-                buffer[6] = p2;
-                buffer[7] = p3;
-                buffer[8] = 0xFF;
-                Ok(Self::MAX_SIZE)
+                let mut builder = CommandBuilder::<9>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x48])
+                    .push_visca_u16(position.value())
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Auto | Self::Manual => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x38;
-                buffer[4] = match self {
-                    Self::Auto => 0x02,
-                    Self::Manual => 0x03,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x38])
+                    .push(match self {
+                        Self::Auto => 0x02,
+                        Self::Manual => 0x03,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::OnePushTrigger | Self::Infinity => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x18;
-                buffer[4] = match self {
-                    Self::OnePushTrigger => 0x01,
-                    Self::Infinity => 0x02,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x18])
+                    .push(match self {
+                        Self::OnePushTrigger => 0x01,
+                        Self::Infinity => 0x02,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }
@@ -430,26 +393,18 @@ impl EncodeVisca for PushAF {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        use crate::command::const_encoding::CommandBuilder;
 
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x01;
-        buffer[4] = 0x0A;
-        buffer[5] = 0x00;
-        buffer[6] = match self {
-            Self::Press => 0x01,
-            Self::Release => 0x00,
-        };
-        buffer[7] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
+        let mut builder = CommandBuilder::<8>::new();
+        builder
+            .append(&[0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00])
+            .push(match self {
+                Self::Press => 0x01,
+                Self::Release => 0x00,
+            })
+            .with_camera_id(camera_id)
+            .finalize();
+        builder.copy_to(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {

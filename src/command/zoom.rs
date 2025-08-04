@@ -30,7 +30,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{
-        const_encoding::{constants, CommandBuilder, DEFAULT_ADDRESS},
+        const_encoding::{CommandBuilder, DEFAULT_ADDRESS},
         encode_visca::EncodeVisca,
         ResponseType,
     },
@@ -179,22 +179,14 @@ impl EncodeVisca for DigitalZoomCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        use crate::command::const_encoding::constants::zoom::DIGITAL_ZOOM_PREFIX;
 
-        // Build command: [0x81, 0x01, 0x04, 0x06, on/off, 0xFF]
-        buffer[..4].copy_from_slice(constants::zoom::DIGITAL_ZOOM_PREFIX);
-        buffer[4] = if self.enabled { 0x02 } else { 0x03 };
-        buffer[5] = 0xFF;
-
-        // Replace camera ID
-        buffer[0] = camera_id.to_address_byte();
-
-        Ok(Self::MAX_SIZE)
+        let mut builder = CommandBuilder::<6>::from_prefix(DIGITAL_ZOOM_PREFIX);
+        builder
+            .with_camera_id(camera_id)
+            .push(if self.enabled { 0x02 } else { 0x03 })
+            .finalize();
+        builder.copy_to(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {

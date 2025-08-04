@@ -102,63 +102,44 @@ impl EncodeVisca for ExposureCompensation {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
+        use crate::command::const_encoding::CommandBuilder;
+
         match self {
             Self::On | Self::Off => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x3E;
-                buffer[4] = match self {
-                    Self::On => 0x02,
-                    Self::Off => 0x03,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x3E])
+                    .push(match self {
+                        Self::On => 0x02,
+                        Self::Off => 0x03,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Reset | Self::Up | Self::Down => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x0E;
-                buffer[4] = match self {
-                    Self::Reset => 0x00,
-                    Self::Up => 0x02,
-                    Self::Down => 0x03,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x0E])
+                    .push(match self {
+                        Self::Reset => 0x00,
+                        Self::Up => 0x02,
+                        Self::Down => 0x03,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::SetLevel(level) => {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err(Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x4E;
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                buffer[6] = 0x00;
-                buffer[7] = level.to_protocol_value();
-                buffer[8] = 0xFF;
-                Ok(Self::MAX_SIZE)
+                let mut builder = CommandBuilder::<9>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00])
+                    .push(level.to_protocol_value())
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }
@@ -225,48 +206,31 @@ impl EncodeVisca for Iris {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
+        use crate::command::const_encoding::CommandBuilder;
+
         match self {
             Self::Reset | Self::Up | Self::Down => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x0B;
-                buffer[4] = match self {
-                    Self::Reset => 0x00,
-                    Self::Up => 0x02,
-                    Self::Down => 0x03,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x0B])
+                    .push(match self {
+                        Self::Reset => 0x00,
+                        Self::Up => 0x02,
+                        Self::Down => 0x03,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::SetAperture(level) => {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err(Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-                let value = level.value();
-                let high = (value >> 4) & 0x0F;
-                let low = value & 0x0F;
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x4B;
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                buffer[6] = high;
-                buffer[7] = low;
-                buffer[8] = 0xFF;
-                Ok(Self::MAX_SIZE)
+                let mut builder = CommandBuilder::<9>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00])
+                    .push_nibble_pair(level.value() as u16)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }
@@ -308,48 +272,31 @@ impl EncodeVisca for Shutter {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
+        use crate::command::const_encoding::CommandBuilder;
+
         match self {
             Self::Reset | Self::Up | Self::Down => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x0A;
-                buffer[4] = match self {
-                    Self::Reset => 0x00,
-                    Self::Up => 0x02,
-                    Self::Down => 0x03,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x0A])
+                    .push(match self {
+                        Self::Reset => 0x00,
+                        Self::Up => 0x02,
+                        Self::Down => 0x03,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::SetSpeed(speed) => {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err(Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-                let value = speed.value();
-                let high = ((value >> 4) & 0x0F) as u8;
-                let low = (value & 0x0F) as u8;
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x4A;
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                buffer[6] = high;
-                buffer[7] = low;
-                buffer[8] = 0xFF;
-                Ok(Self::MAX_SIZE)
+                let mut builder = CommandBuilder::<9>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00])
+                    .push_nibble_pair(speed.value())
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }
@@ -388,70 +335,40 @@ impl EncodeVisca for Bright {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
+        use crate::command::const_encoding::CommandBuilder;
+
         match self {
             Self::Reset | Self::Up | Self::Down => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x0D;
-                buffer[4] = match self {
-                    Self::Reset => 0x00,
-                    Self::Up => 0x02,
-                    Self::Down => 0x03,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x0D])
+                    .push(match self {
+                        Self::Reset => 0x00,
+                        Self::Up => 0x02,
+                        Self::Down => 0x03,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::SetLevel(level) => {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err(Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-                let value = level.value();
-                let high = ((value >> 4) & 0x0F) as u8;
-                let low = (value & 0x0F) as u8;
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x4D;
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                buffer[6] = high;
-                buffer[7] = low;
-                buffer[8] = 0xFF;
-                Ok(Self::MAX_SIZE)
+                let mut builder = CommandBuilder::<9>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00])
+                    .push_nibble_pair(level.value())
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Direct(level) => {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err(Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-                let value = level.value();
-                let high = ((value >> 4) & 0x0F) as u8;
-                let low = (value & 0x0F) as u8;
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x0D;
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                buffer[6] = high;
-                buffer[7] = low;
-                buffer[8] = 0xFF;
-                Ok(Self::MAX_SIZE)
+                let mut builder = CommandBuilder::<9>::new();
+                builder
+                    .append(&[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00])
+                    .push_nibble_pair(level.value())
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }

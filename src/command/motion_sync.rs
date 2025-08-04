@@ -5,7 +5,10 @@
 //! This provides smoother and more synchronized arrival on preset positions.
 
 use crate::{
-    command::{encode_visca::EncodeVisca, MotionSyncMode, MotionSyncSpeed, ResponseType},
+    command::{
+        const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, MotionSyncMode,
+        MotionSyncSpeed, ResponseType,
+    },
     error::Error,
     timeout::CommandCategory,
 };
@@ -35,22 +38,19 @@ impl EncodeVisca for MotionSyncModeCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < 6 {
-            return Err(Error::BufferTooSmall {
-                required: 6,
-                actual: buffer.len(),
-            });
-        }
+        const PREFIX: &[u8] = &[0x81, 0x0A, 0x11, 0x13];
+
         let mode_byte = match self.mode {
             MotionSyncMode::On => 0x02,
             MotionSyncMode::Off => 0x03,
         };
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x0A;
-        buffer[2] = 0x11;
-        buffer[3] = 0x13;
-        buffer[4] = mode_byte;
-        buffer[5] = 0xFF;
+
+        let command = CommandBuilder::<6>::from_prefix(PREFIX)
+            .with_camera_id(camera_id)
+            .push(mode_byte)
+            .build();
+
+        buffer[..6].copy_from_slice(&command);
         Ok(6)
     }
 
@@ -113,19 +113,15 @@ impl EncodeVisca for MotionSyncSpeedCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < 6 {
-            return Err(Error::BufferTooSmall {
-                required: 6,
-                actual: buffer.len(),
-            });
-        }
+        const PREFIX: &[u8] = &[0x81, 0x0A, 0x11, 0x14];
+
         // The VISCA protocol uses 0x01-0x18 for speeds 1-24
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x0A;
-        buffer[2] = 0x11;
-        buffer[3] = 0x14;
-        buffer[4] = self.speed;
-        buffer[5] = 0xFF;
+        let command = CommandBuilder::<6>::from_prefix(PREFIX)
+            .with_camera_id(camera_id)
+            .push(self.speed)
+            .build();
+
+        buffer[..6].copy_from_slice(&command);
         Ok(6)
     }
 

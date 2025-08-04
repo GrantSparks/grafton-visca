@@ -11,7 +11,7 @@
 //! - Flash/solid modes (`Flash`, `On`, `Off`) - PTZOptics specific
 
 use crate::{
-    command::{encode_visca::EncodeVisca, ResponseType},
+    command::{const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
     visca_command,
@@ -26,7 +26,7 @@ visca_command! {
     enum Tally {
         /// Turn red tally light on
         RedOn => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+            let cmd = CommandBuilder::<8>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
                 .append(&[0x02])
                 .build();
@@ -34,7 +34,7 @@ visca_command! {
         },
         /// Turn red tally light off
         RedOff => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+            let cmd = CommandBuilder::<8>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
                 .append(&[0x03])
                 .build();
@@ -42,7 +42,7 @@ visca_command! {
         },
         /// Set tally brightness to low
         BrightLo => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+            let cmd = CommandBuilder::<8>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
                 .append(&[0x04])
                 .build();
@@ -50,7 +50,7 @@ visca_command! {
         },
         /// Set tally brightness to high
         BrightHi => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+            let cmd = CommandBuilder::<8>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
                 .append(&[0x05])
                 .build();
@@ -58,7 +58,7 @@ visca_command! {
         },
         /// Turn green tally light on (FR7 specific)
         GreenOn => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+            let cmd = CommandBuilder::<8>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
                 .append(&[0x02])
                 .build();
@@ -66,7 +66,7 @@ visca_command! {
         },
         /// Turn green tally light off (FR7 specific)
         GreenOff => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<8>::new()
+            let cmd = CommandBuilder::<8>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
                 .append(&[0x03])
                 .build();
@@ -74,7 +74,7 @@ visca_command! {
         },
         /// Set tally to flash mode (PTZOptics specific)
         Flash => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+            let cmd = CommandBuilder::<6>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x01])
                 .build();
@@ -82,7 +82,7 @@ visca_command! {
         },
         /// Set tally to solid on (PTZOptics specific)
         On => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+            let cmd = CommandBuilder::<6>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x02])
                 .build();
@@ -90,7 +90,7 @@ visca_command! {
         },
         /// Turn tally off (PTZOptics specific)
         Off => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+            let cmd = CommandBuilder::<6>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x03])
                 .build();
@@ -119,22 +119,14 @@ impl EncodeVisca for TallyInquiry {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        const PREFIX: &[u8] = &[0x81, 0x09, 0x7E, 0x01, 0x0A, 0x00];
 
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x09;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x01;
-        buffer[4] = 0x0A;
-        buffer[5] = 0x00;
-        buffer[6] = 0xFF;
+        let command = CommandBuilder::<7>::from_prefix(PREFIX)
+            .with_camera_id(camera_id)
+            .build();
 
-        Ok(Self::MAX_SIZE)
+        buffer[..7].copy_from_slice(&command);
+        Ok(7)
     }
 
     fn response_type(&self) -> Option<ResponseType> {
