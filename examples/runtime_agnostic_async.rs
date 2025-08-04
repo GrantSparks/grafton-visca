@@ -65,7 +65,7 @@ impl Transport for AsyncStdTcp {{
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {{
     // Connect using async-std
-    let stream = TcpStream::connect("192.168.1.100:5678").await?;
+    let stream = TcpStream::connect("192.168.0.110:5678").await?;
     let transport = AsyncStdTcp {{ stream }};
     
     // Create camera with the transport

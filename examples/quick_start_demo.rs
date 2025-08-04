@@ -20,12 +20,12 @@ fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Connect to camera using UDP
-    let udp_transport = Udp::connect("192.168.1.100:1259")?;
+    let udp_transport = Udp::connect("192.168.0.110:1259")?;
     let camera = PTZOpticsG2Cam::new(udp_transport);
     println!("Connected to camera via UDP");
 
     // Or connect using TCP
-    // let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
+    // let tcp_transport = Tcp::connect("192.168.0.110:5678")?;
     // let mut camera = PTZOpticsG2Cam::new(tcp_transport);
 
     // Camera capabilities are now checked at compile time through the PTZOpticsG2 profile

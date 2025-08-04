@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Create camera with default address
-    let transport = Udp::connect("192.168.1.100:1259")?;
+    let transport = Udp::connect("192.168.0.110:1259")?;
     let camera = PTZOpticsG2Cam::new(transport);
 
     // Example 1: Using SpeedLevel for intuitive movement control

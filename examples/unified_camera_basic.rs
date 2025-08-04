@@ -24,13 +24,15 @@ fn main() -> Result<(), Error> {
     println!("=== Camera Basic Example (Blocking) ===\n");
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
-    let transport = Tcp::connect("192.168.1.100:52381")?;
+    // Generic VISCA cameras use raw protocol on port 5678 (TCP) or 1259 (UDP)
+    let transport = Tcp::connect("192.168.0.110:5678")?;
     let _camera = GenericViscaCam::new(transport);
 
     println!("Using default profile: GenericVisca");
 
     // Create a camera with specific profile
-    let transport = Tcp::connect("192.168.1.100:52381")?;
+    // PTZOptics cameras use raw VISCA protocol on port 5678 (TCP) or 1259 (UDP)
+    let transport = Tcp::connect("192.168.0.110:5678")?;
     let _camera = PTZOpticsG2Cam::new(transport);
 
     println!("\nUsing specific profile: PTZOpticsG2");
@@ -60,13 +62,15 @@ async fn main() -> Result<(), Error> {
     println!("=== Camera Basic Example (Async) ===\n");
 
     // Create a camera with automatic profile detection (defaults to GenericVisca)
-    let transport = Tcp::connect("192.168.1.100:52381").await?;
+    // Generic VISCA cameras use raw protocol on port 5678 (TCP) or 1259 (UDP)
+    let transport = Tcp::connect("192.168.0.110:5678").await?;
     let _camera = GenericViscaCam::new(transport);
 
     println!("Using default profile: GenericVisca");
 
     // Create a camera with specific profile
-    let transport = Tcp::connect("192.168.1.100:52381").await?;
+    // PTZOptics cameras use raw VISCA protocol on port 5678 (TCP) or 1259 (UDP)
+    let transport = Tcp::connect("192.168.0.110:5678").await?;
     let _camera = PTZOpticsG2Cam::new(transport);
 
     println!("\nUsing specific profile: PTZOpticsG2");

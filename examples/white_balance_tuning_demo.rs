@@ -12,7 +12,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Create camera with PTZOptics G2 profile
-    let transport = Udp::connect("192.168.1.100:52381").await?;
+    // PTZOptics cameras use raw VISCA protocol on port 1259 (UDP) or 5678 (TCP)
+    let transport = Udp::connect("192.168.0.110:1259").await?;
     let camera = PTZOpticsG2Cam::new(transport);
 
     // Demonstrate white balance commands

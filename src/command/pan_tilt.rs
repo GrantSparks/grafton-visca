@@ -16,7 +16,7 @@
 //! # {
 //! # use grafton_visca::command::pan_tilt::{PanTilt, PanTiltDirection, PanSpeed, TiltSpeed};
 //! # use grafton_visca::Client;
-//! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
+//! # let client = Client::connect_udp("192.168.0.110:5678").unwrap();
 //! // Move camera diagonally up-right
 //! let command = PanTilt::Move {
 //!     direction: PanTiltDirection::UpRight,

@@ -14,7 +14,8 @@ async fn main() -> Result<()> {
 
     // Example 1: Creating an async TCP camera with PTZOpticsG2 profile
     println!("=== Example 1: Async TCP with PTZOpticsG2 profile ===");
-    let tcp_camera = CameraBuilder::tokio_tcp("192.168.1.100:52381")
+    // PTZOptics cameras use raw VISCA protocol on port 5678 (TCP) or 1259 (UDP)
+    let tcp_camera = CameraBuilder::tokio_tcp("192.168.0.110:5678")
         .profile::<PTZOpticsG2>()
         .build()
         .await;
@@ -32,7 +33,8 @@ async fn main() -> Result<()> {
 
     // Example 2: Creating an async UDP camera with GenericVisca profile
     println!("\n=== Example 2: Async UDP with GenericVisca profile ===");
-    let udp_camera = CameraBuilder::tokio_udp("239.0.0.1:52381")
+    // Generic VISCA cameras use raw protocol on port 1259 (UDP) or 5678 (TCP)
+    let udp_camera = CameraBuilder::tokio_udp("239.0.0.1:1259")
         .profile::<GenericVisca>()
         .build()
         .await;
@@ -51,6 +53,7 @@ async fn main() -> Result<()> {
     println!("\n=== Example 3: Different Camera Profiles ===");
 
     // The builder supports any type that implements the Profile trait
+    // Sony cameras use encapsulated protocol on port 52381
     let sony_camera = CameraBuilder::tokio_tcp("192.168.1.101:52381")
         .profile::<SonyBRC300>()
         .build()
@@ -73,13 +76,13 @@ async fn main() -> Result<()> {
 
     // Create multiple cameras concurrently
     let (cam1_result, cam2_result, cam3_result) = join!(
-        CameraBuilder::tokio_tcp("192.168.1.100:52381")
+        CameraBuilder::tokio_tcp("192.168.0.110:5678")
             .profile::<PTZOpticsG2>()
             .build(),
-        CameraBuilder::tokio_tcp("192.168.1.101:52381")
+        CameraBuilder::tokio_tcp("192.168.1.101:5678")
             .profile::<PTZOpticsG2>()
             .build(),
-        CameraBuilder::tokio_tcp("192.168.1.102:52381")
+        CameraBuilder::tokio_tcp("192.168.1.102:5678")
             .profile::<PTZOpticsG2>()
             .build()
     );
@@ -101,7 +104,7 @@ async fn main() -> Result<()> {
 
     // Additionally, .build() returns a Future that must be awaited
     // This would not compile without .await:
-    // let camera = CameraBuilder::tokio_tcp("192.168.1.100:52381")
+    // let camera = CameraBuilder::tokio_tcp("192.168.0.110:5678")
     //     .profile::<PTZOpticsG2>()
     //     .build();  // Error: unused implementer of `Future`
 

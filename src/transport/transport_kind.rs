@@ -90,9 +90,9 @@ impl Future for TransportKindRecvFut<'_> {
 /// # let use_tcp = true;
 /// // Can store different transport types in the same enum
 /// let transport = if use_tcp {
-///     TransportKind::BlockingTcp(Tcp::connect("192.168.1.100:5678")?)
+///     TransportKind::BlockingTcp(Tcp::connect("192.168.0.110:5678")?)
 /// } else {
-///     TransportKind::BlockingUdp(Udp::connect("192.168.1.100:5678")?)
+///     TransportKind::BlockingUdp(Udp::connect("192.168.0.110:5678")?)
 /// };
 /// # Ok(())
 /// # }

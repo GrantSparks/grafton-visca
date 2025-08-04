@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Simplified Tokio Transport API ===");
 
     // Connect using the Tcp transport
-    let visca = Tcp::connect("192.168.1.100:1259").await?;
+    let visca = Tcp::connect("192.168.0.110:1259").await?;
     println!("Connected via TCP");
 
     // Create camera using the transport

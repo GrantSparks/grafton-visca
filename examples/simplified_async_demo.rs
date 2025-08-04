@@ -10,7 +10,7 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a TCP transport using the simplified API
-    let visca_transport = Tcp::connect("192.168.1.100:1259").await?;
+    let visca_transport = Tcp::connect("192.168.0.110:1259").await?;
 
     // Create camera using the transport
     let camera = PTZOpticsG2Cam::new(visca_transport);

@@ -11,7 +11,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let transport = Tcp::connect("192.168.1.100:52381").await?;
+//!     let transport = Tcp::connect("192.168.0.110:52381").await?;
 //!     let camera = grafton_visca::r#async::Camera::new(grafton_visca::Camera::new(transport));
 //!
 //!     // Use async API

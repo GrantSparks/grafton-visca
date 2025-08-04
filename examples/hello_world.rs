@@ -24,13 +24,16 @@ fn main() -> Result<()> {
     env_logger::init();
 
     // Get camera address from command line or use default
+    // Note: Port is now optional! The builder will automatically add the correct
+    // default port based on the camera profile (5678 for PTZOptics TCP)
     let camera_addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.1.100:52381".to_string());
+        .unwrap_or_else(|| "192.168.0.110".to_string());
 
     println!("Connecting to camera at {camera_addr} (blocking mode)");
 
     // Create camera using the new builder pattern
+    // The builder automatically adds port 5678 for PTZOpticsG2 TCP if not specified
     let camera = CameraBuilder::tcp(&camera_addr)
         .profile::<PTZOpticsG2>()
         .build()?;
@@ -58,13 +61,16 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     // Get camera address from command line or use default
+    // Note: Port is now optional! The builder will automatically add the correct
+    // default port based on the camera profile (5678 for PTZOptics TCP)
     let camera_addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.1.100:52381".to_string());
+        .unwrap_or_else(|| "192.168.0.110".to_string());
 
     println!("Connecting to camera at {camera_addr} (async mode)");
 
     // Create camera using the new builder pattern
+    // The builder automatically adds port 5678 for PTZOpticsG2 TCP if not specified
     let camera = CameraBuilder::tokio_tcp(&camera_addr)
         .profile::<PTZOpticsG2>()
         .build()

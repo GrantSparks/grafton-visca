@@ -37,7 +37,7 @@ async fn main() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         eprintln!("Usage: {} <camera_ip:port>", args[0]);
-        eprintln!("Example: {} 192.168.1.100:5678", args[0]);
+        eprintln!("Example: {} 192.168.0.110:5678", args[0]);
         std::process::exit(1);
     }
 

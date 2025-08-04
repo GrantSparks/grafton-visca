@@ -1,11 +1,23 @@
 //! Camera-specific constants and conversion utilities for VISCA protocol.
 //!
 //! This module provides constants for `PTZOptics` cameras including position ranges,
-//! speed limits, and utilities for converting between different unit systems.
+//! speed limits, port numbers, and utilities for converting between different unit systems.
 
 #![allow(dead_code)]
 
 use crate::error::Error;
+
+/// Default network ports for different VISCA camera types
+pub mod ports {
+    /// Default UDP port for PTZOptics and generic VISCA cameras (raw protocol)
+    pub const PTZOPTICS_UDP_PORT: u16 = 1259;
+
+    /// Default TCP port for PTZOptics and generic VISCA cameras (raw protocol)
+    pub const PTZOPTICS_TCP_PORT: u16 = 5678;
+
+    /// Default port for Sony VISCA cameras (encapsulated protocol)
+    pub const SONY_VISCA_PORT: u16 = 52381;
+}
 
 /// Camera variants for validation and constants (more comprehensive than profiles)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

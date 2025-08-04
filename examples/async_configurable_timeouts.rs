@@ -38,7 +38,7 @@ async fn main() -> Result<(), Error> {
     // Get camera address
     let camera_addr = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
+        .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
     // Create camera with async transport
     println!("Connecting to camera at {camera_addr}...");
@@ -235,7 +235,7 @@ where
         // TCP transport is already available via common module
 
         // Async Tcp has a fixed 10s timeout
-        match Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(10)).await {
+        match Tcp::connect_timeout("192.168.0.110:5678", Duration::from_secs(10)).await {
             Ok(transport) => {
                 println!("   ✓ Created TCP transport (10s timeout)");
                 let tcp_camera = PTZOpticsG2Cam::new(transport);

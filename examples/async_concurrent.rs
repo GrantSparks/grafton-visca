@@ -34,7 +34,7 @@ async fn main() -> Result<(), Error> {
     let camera_addr = std::env::args()
         .nth(1)
         .or_else(|| std::env::var("CAMERA_IP").ok())
-        .unwrap_or_else(|| "192.168.0.100:5678".to_string());
+        .unwrap_or_else(|| "192.168.0.110:1259".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
     let transport = Udp::connect(&camera_addr).await?;

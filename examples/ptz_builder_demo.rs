@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== PTZ Builder Pattern Demo with Camera<P> API ===");
 
     // Create a type-safe camera instance with PTZOpticsG2 profile
-    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
+    let camera_ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.110:5678".to_string());
     let transport = Udp::connect(&camera_ip)?;
     let mut camera = PTZOpticsG2Cam::new(transport);
     println!("Connected to PTZOptics G2 camera");
@@ -200,7 +200,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Async PTZ Pattern Demo with Camera<P> API ===");
 
     // Create async camera with type-safe profile
-    let transport = Udp::connect("192.168.1.100:52381").await?;
+    // PTZOptics cameras use raw VISCA protocol on port 1259 (UDP) or 5678 (TCP)
+    let transport = Udp::connect("192.168.0.110:1259").await?;
     let camera = PTZOpticsG2Cam::new(transport);
     println!("Connected to PTZOptics G2 camera (async)");
 

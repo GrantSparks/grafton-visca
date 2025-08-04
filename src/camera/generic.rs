@@ -32,13 +32,13 @@ use crate::{executor::Spawner, runtime::RuntimeSpawner, socket_manager::SocketMa
 /// use grafton_visca::{CameraBuilder, camera::profiles::PTZOpticsG2};
 ///
 /// // Create a camera using the builder pattern
-/// let camera = CameraBuilder::tcp("192.168.1.100:52381")
+/// let camera = CameraBuilder::tcp("192.168.0.110:52381")
 ///     .profile::<PTZOpticsG2>()
 ///     .build()?;
 ///
 /// // Or create directly with a transport
 /// use grafton_visca::transport::blocking::Tcp;
-/// let transport = Tcp::connect("192.168.1.100:52381")?;
+/// let transport = Tcp::connect("192.168.0.110:52381")?;
 /// let camera = Camera::<PTZOpticsG2, _>::new(transport);
 /// ```
 pub struct Camera<P, T>

@@ -14,10 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **NEW**: Introduced `CameraBuilder` for a cleaner, more idiomatic API:
   ```rust
   // Before (removed):
-  let camera = Camera::<PTZOpticsG2, _>::connect_tcp("192.168.1.100:52381")?;
+  let camera = Camera::<PTZOpticsG2, _>::connect_tcp("192.168.0.110:52381")?;
   
   // After (new):
-  let camera = CameraBuilder::tcp("192.168.1.100:52381")
+  let camera = CameraBuilder::tcp("192.168.0.110:52381")
       .profile::<PTZOpticsG2>()
       .build()?;
   ```
@@ -193,7 +193,7 @@ let client = ViscaClient::new(transport);
 let client = AsyncViscaClient::new(async_transport);
 
 // New - unified client works everywhere
-let client = Client::connect_tcp("192.168.1.100:52381")?;
+let client = Client::connect_tcp("192.168.0.110:52381")?;
 // Use the same client in both sync and async code!
 ```
 

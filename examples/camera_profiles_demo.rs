@@ -35,7 +35,7 @@ async fn demonstrate_ptzoptics_g2() -> Result<(), Error> {
     println!("=== PTZOptics G2 Demo ===");
 
     // Connect to camera
-    let transport = Tcp::connect("192.168.1.100:5678").await?;
+    let transport = Tcp::connect("192.168.0.110:5678").await?;
     let camera = PTZOpticsG2Cam::new(transport);
 
     println!("Connected to: PTZOptics G2");

@@ -55,7 +55,7 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 /// #[async_std::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     // Create your transport (implement Transport trait for async-std)
-///     let transport = create_async_std_transport("192.168.1.100:52381").await?;
+///     let transport = create_async_std_transport("192.168.0.110:52381").await?;
 ///     
 ///     // Create camera with custom spawner
 ///     let spawner = AsyncStdSpawner;
@@ -89,7 +89,7 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 ///     
 ///     smol::block_on(ex.run(async {
 ///         // Create your transport
-///         let transport = create_smol_transport("192.168.1.100:52381").await?;
+///         let transport = create_smol_transport("192.168.0.110:52381").await?;
 ///         
 ///         // Create camera with smol spawner
 ///         let spawner = SmolSpawner(ex.clone());

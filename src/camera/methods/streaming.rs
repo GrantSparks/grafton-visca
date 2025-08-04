@@ -20,7 +20,7 @@ pub trait StreamingOps: Sized {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::r#async::{Camera, StreamingOps};
     /// # use grafton_visca::transport::tokio::Tcp;
-    /// # let transport = Tcp::connect("192.168.1.100:52381").await?;
+    /// # let transport = Tcp::connect("192.168.0.110:52381").await?;
     /// # let camera = Camera::new(transport);
     /// camera.enable_multicast().await?;
     /// # Ok(())
@@ -38,7 +38,7 @@ pub trait StreamingOps: Sized {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::r#async::{Camera, StreamingOps};
     /// # use grafton_visca::transport::tokio::Tcp;
-    /// # let transport = Tcp::connect("192.168.1.100:52381").await?;
+    /// # let transport = Tcp::connect("192.168.0.110:52381").await?;
     /// # let camera = Camera::new(transport);
     /// camera.disable_multicast().await?;
     /// # Ok(())
@@ -57,7 +57,7 @@ pub trait StreamingOps: Sized {
     /// # use grafton_visca::r#async::{Camera, StreamingOps};
     /// # use grafton_visca::transport::tokio::Tcp;
     /// # use grafton_visca::types::NDIQuality;
-    /// # let transport = Tcp::connect("192.168.1.100:52381").await?;
+    /// # let transport = Tcp::connect("192.168.0.110:52381").await?;
     /// # let camera = Camera::new(transport);
     /// camera.set_ndi_quality(NDIQuality::High).await?;
     /// # Ok(())
@@ -78,7 +78,7 @@ pub trait StreamingOpsBlocking: Sized {
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
-    /// # let transport = Tcp::connect("192.168.1.100:52381")?;
+    /// # let transport = Tcp::connect("192.168.0.110:52381")?;
     /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
     /// # let camera = Camera::new(inner_camera);
     /// camera.enable_multicast()?;
@@ -97,7 +97,7 @@ pub trait StreamingOpsBlocking: Sized {
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
-    /// # let transport = Tcp::connect("192.168.1.100:52381")?;
+    /// # let transport = Tcp::connect("192.168.0.110:52381")?;
     /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
     /// # let camera = Camera::new(inner_camera);
     /// camera.disable_multicast()?;
@@ -117,7 +117,7 @@ pub trait StreamingOpsBlocking: Sized {
     /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
     /// # use grafton_visca::types::NDIQuality;
-    /// # let transport = Tcp::connect("192.168.1.100:52381")?;
+    /// # let transport = Tcp::connect("192.168.0.110:52381")?;
     /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
     /// # let camera = Camera::new(inner_camera);
     /// camera.set_ndi_quality(NDIQuality::High)?;

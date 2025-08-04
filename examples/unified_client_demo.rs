@@ -23,7 +23,8 @@ fn blocking_examples() -> Result<(), Error> {
 
     // Example 1: Create camera with GenericVisca profile
     println!("Example 1: GenericVisca profile with UDP");
-    let udp_transport = Udp::connect("192.168.1.100:52381")?;
+    // Generic VISCA cameras use raw protocol on port 1259 (UDP) or 5678 (TCP)
+    let udp_transport = Udp::connect("192.168.0.110:1259")?;
     let camera = GenericViscaCam::new(udp_transport);
     println!("Created GenericVisca camera");
 
@@ -33,7 +34,7 @@ fn blocking_examples() -> Result<(), Error> {
 
     // Example 2: Create camera with PTZOptics G2 profile
     println!("\nExample 2: PTZOptics G2 profile with TCP");
-    let tcp_transport = Tcp::connect("192.168.1.100:5678")?;
+    let tcp_transport = Tcp::connect("192.168.0.110:5678")?;
     let camera = PTZOpticsG2Cam::new(tcp_transport);
     println!("Created PTZOptics G2 camera");
 
@@ -43,6 +44,7 @@ fn blocking_examples() -> Result<(), Error> {
 
     // Example 3: Create Sony FR7 camera
     println!("\nExample 3: Sony FR7 profile");
+    // Sony cameras use encapsulated protocol on port 52381
     let transport = Udp::connect("192.168.1.200:52381")?;
     let camera = SonyFR7Cam::new(transport);
     println!("Created Sony FR7 camera");
@@ -72,7 +74,8 @@ async fn async_examples() -> Result<(), Error> {
 
     // Example 1: Create camera with GenericVisca profile
     println!("Example 1: GenericVisca profile with UDP");
-    let udp_transport = Udp::connect("192.168.1.100:52381").await?;
+    // Generic VISCA cameras use raw protocol on port 1259 (UDP) or 5678 (TCP)
+    let udp_transport = Udp::connect("192.168.0.110:1259").await?;
     let camera = GenericViscaCam::new(udp_transport);
     println!("Created GenericVisca camera");
 
@@ -85,7 +88,7 @@ async fn async_examples() -> Result<(), Error> {
 
     // Example 2: Create camera with PTZOptics G2 profile
     println!("\nExample 2: PTZOptics G2 profile with TCP");
-    let tcp_transport = Tcp::connect("192.168.1.100:5678").await?;
+    let tcp_transport = Tcp::connect("192.168.0.110:5678").await?;
     let camera = PTZOpticsG2Cam::new(tcp_transport);
     println!("Created PTZOptics G2 camera");
 
@@ -98,6 +101,7 @@ async fn async_examples() -> Result<(), Error> {
 
     // Example 3: Create Sony FR7 camera
     println!("\nExample 3: Sony FR7 profile");
+    // Sony cameras use encapsulated protocol on port 52381
     let transport = Udp::connect("192.168.1.200:52381").await?;
     let camera = SonyFR7Cam::new(transport);
     println!("Created Sony FR7 camera");

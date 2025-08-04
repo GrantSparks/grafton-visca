@@ -53,7 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         use grafton_visca::transport::tokio::Tcp;
 
-        let transport = Tcp::connect("192.168.1.100:52381").await?;
+        // PTZOptics cameras use raw VISCA protocol on port 5678 (TCP) or 1259 (UDP)
+        let transport = Tcp::connect("192.168.0.110:5678").await?;
         let handle = tokio::runtime::Handle::current();
         // For tokio feature, use the underlying camera directly
         let inner_camera = crate::Camera::<PTZOpticsG2, _>::new(transport).with_spawner(handle);

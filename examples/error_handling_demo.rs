@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get camera address
     let camera_addr = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
+        .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
     // Demonstrate error classification first (no camera needed)
     demonstrate_error_classification();
@@ -83,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get camera address
     let camera_addr = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
+        .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
     // Demonstrate error classification first (no camera needed)
     demonstrate_error_classification();

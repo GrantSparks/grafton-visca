@@ -19,9 +19,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("=== UDP Transport Example ===");
 
+    // Get camera address from command line or use default
+    let addr = std::env::args()
+        .nth(1)
+        .map(|ip| format!("{ip}:1259"))
+        .unwrap_or_else(|| "192.168.0.110:1259".to_string());
+
     // Create UDP transport directly
-    let addr = "192.168.1.100:52381";
-    match Udp::connect(addr).await {
+    match Udp::connect(&addr).await {
         Ok(transport) => {
             println!("✓ UDP transport created for {addr}");
 

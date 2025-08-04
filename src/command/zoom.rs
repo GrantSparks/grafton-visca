@@ -12,7 +12,7 @@
 //! # {
 //! # use grafton_visca::command::{Zoom, zoom::ZoomSpeed};
 //! # use grafton_visca::Client;
-//! # let client = Client::connect_udp("192.168.1.100:5678").unwrap();
+//! # let client = Client::connect_udp("192.168.0.110:5678").unwrap();
 //! // Zoom in at standard speed
 //! client.send(&Zoom::TeleStd).unwrap();
 //!

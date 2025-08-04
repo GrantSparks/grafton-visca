@@ -14,7 +14,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Connect to camera
-    let transport = Udp::connect("192.168.1.100:52381")?;
+    // Generic VISCA cameras use raw protocol on port 1259 (UDP) or 5678 (TCP)
+    let transport = Udp::connect("192.168.0.110:1259")?;
     let mut camera = Camera::new(transport);
 
     println!("=== Semantic API Demo ===\n");
@@ -98,7 +99,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Connect to camera
-    let transport = Udp::connect("192.168.1.100:52381").await?;
+    // PTZOptics cameras use raw VISCA protocol on port 1259 (UDP) or 5678 (TCP)
+    let transport = Udp::connect("192.168.0.110:1259").await?;
     let camera = PTZOpticsG2Cam::new(transport);
 
     println!("=== Semantic API Demo (Async) ===\n");

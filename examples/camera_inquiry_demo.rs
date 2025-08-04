@@ -27,7 +27,7 @@ async fn main() -> Result<(), Error> {
     // Get camera address from command line or use default
     let camera_addr = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.1.100:5678".to_string());
+        .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
     // Connect to camera
     println!("Connecting to camera at {camera_addr}...");

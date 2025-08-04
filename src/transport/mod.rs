@@ -18,7 +18,7 @@
 //! use grafton_visca::transport::blocking::Tcp;
 //!
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let transport = Tcp::connect("192.168.1.100:5678")?;
+//! let transport = Tcp::connect("192.168.0.110:5678")?;
 //! // transport is ready to use with CameraBlocking
 //! # Ok(())
 //! # }
@@ -31,7 +31,7 @@
 //!
 //! # #[cfg(feature = "tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let transport = Tcp::connect("192.168.1.100:5678").await?;
+//! let transport = Tcp::connect("192.168.0.110:5678").await?;
 //! // transport is ready to use with CameraAsync
 //! # Ok(())
 //! # }

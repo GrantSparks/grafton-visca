@@ -9,7 +9,7 @@
 //! use grafton_visca::blocking::{Camera, PowerOps, ZoomOps};
 //! use grafton_visca::transport::blocking::Tcp;
 //!
-//! let transport = Tcp::connect("192.168.1.100:52381")?;
+//! let transport = Tcp::connect("192.168.0.110:52381")?;
 //! let camera = grafton_visca::Camera::new(transport).blocking();
 //!
 //! // Use clean API without _blocking suffix

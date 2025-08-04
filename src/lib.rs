@@ -46,7 +46,7 @@
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera using the builder pattern
-//!     let camera = CameraBuilder::tcp("192.168.1.100:52381")
+//!     let camera = CameraBuilder::tcp("192.168.0.110:52381")
 //!         .profile::<PTZOpticsG2>()
 //!         .build()?;
 //!
@@ -68,7 +68,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
 //!     // Create camera using the builder pattern
-//!     let camera = CameraBuilder::tokio_tcp("192.168.1.100:52381")
+//!     let camera = CameraBuilder::tokio_tcp("192.168.0.110:52381")
 //!         .profile::<PTZOpticsG2>()
 //!         .build()
 //!         .await?;
@@ -161,7 +161,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let transport = Tcp::connect("192.168.1.100:5678").await?;
+//!     let transport = Tcp::connect("192.168.0.110:5678").await?;
 //!     let camera = PTZOpticsG2Cam::new(transport);
 //!
 //!     camera.power_on().await?;
@@ -297,7 +297,8 @@ pub mod transport;
 
 #[cfg(feature = "async")]
 mod channels;
-mod constants;
+/// Constants for VISCA protocol including default ports
+pub mod constants;
 mod macros;
 /// Type definitions and abstractions
 pub mod types;

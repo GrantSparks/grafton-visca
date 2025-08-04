@@ -15,7 +15,7 @@
 //! # {
 //! use grafton_visca::transport::tokio::Tcp;
 //!
-//! let transport = Tcp::connect("192.168.1.100:52381").await?;
+//! let transport = Tcp::connect("192.168.0.110:52381").await?;
 //! let camera = PTZOpticsG2Cam::new(transport);
 //!
 //! // Async trait methods are available with clean names
@@ -37,7 +37,7 @@
 //! # {
 //! use grafton_visca::transport::blocking::Tcp;
 //!
-//! let transport = Tcp::connect("192.168.1.100:52381")?;
+//! let transport = Tcp::connect("192.168.0.110:52381")?;
 //! let camera = PTZOpticsG2Cam::new(transport);
 //!
 //! // Blocking trait methods are available with clean names

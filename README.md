@@ -42,7 +42,7 @@ fn main() -> grafton_visca::Result<()> {
     env_logger::init();
 
     // Create camera using the builder pattern
-    let cam = CameraBuilder::tcp("192.168.1.100:52381")
+    let cam = CameraBuilder::tcp("192.168.0.110:52381")
         .profile::<PTZOpticsG2>()
         .build()?;
 
@@ -64,7 +64,7 @@ use grafton_visca::{
 
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    let cam = CameraBuilder::tokio_tcp("192.168.1.100:52381")
+    let cam = CameraBuilder::tokio_tcp("192.168.0.110:52381")
         .profile::<PTZOpticsG2>()
         .build()
         .await?;
@@ -117,7 +117,7 @@ Each profile implements capability traits (`HasZoom`, `HasNDFilter`, …).
 If a capability is absent the corresponding extension trait is **not** in scope, so unsupported calls fail at compile time. Example:
 
 ```rust,ignore
-let cam = CameraBuilder::tcp("192.168.1.100:52381")
+let cam = CameraBuilder::tcp("192.168.0.110:52381")
     .profile::<SonyFR7>()
     .build()?;
 // cam.set_nd_filter_mode(NDFilterMode::Variable)?;  // ✅ FR7 supports this

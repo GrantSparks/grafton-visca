@@ -4,7 +4,7 @@
 //! from multiple threads using Arc<Mutex<Camera>> for thread safety.
 //!
 //! Run with: cargo run --example thread_safe_client --no-default-features --features blocking-client [CAMERA_IP:PORT]
-//! Default camera address: 192.168.1.100:5678
+//! Default camera address: 192.168.0.110:5678
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::transport::blocking::Udp;
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let camera_addr = args
         .get(1)
         .map(|s| s.as_str())
-        .unwrap_or("192.168.1.100:5678");
+        .unwrap_or("192.168.0.110:5678");
 
     println!("Connecting to camera at {camera_addr}...");
 

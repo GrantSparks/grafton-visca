@@ -37,7 +37,7 @@ fn main() -> Result<(), Error> {
     if args.len() != 2 {
         let prog_name = &args[0];
         eprintln!("Usage: {prog_name} <camera_ip:port>");
-        eprintln!("Example: {prog_name} 192.168.1.100:5678");
+        eprintln!("Example: {prog_name} 192.168.0.110:5678");
         std::process::exit(1);
     }
 
@@ -76,7 +76,7 @@ async fn main() -> Result<(), Error> {
     if args.len() != 2 {
         let prog_name = &args[0];
         eprintln!("Usage: {prog_name} <camera_ip:port>");
-        eprintln!("Example: {prog_name} 192.168.1.100:5678");
+        eprintln!("Example: {prog_name} 192.168.0.110:5678");
         std::process::exit(1);
     }
 

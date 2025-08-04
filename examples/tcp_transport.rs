@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== TCP Transport Example ===");
 
     // Create TCP transport directly
-    let addr = "192.168.1.100:5678";
+    let addr = "192.168.0.110:5678";
     match Tcp::connect_timeout(addr, Duration::from_secs(5)).await {
         Ok(transport) => {
             println!("✓ TCP transport created for {addr}");

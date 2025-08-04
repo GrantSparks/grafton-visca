@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{prelude::blocking::PTZOpticsG2Cam, transport::blocking::Tcp};
 
     // Create a blocking TCP transport
-    let transport = Tcp::connect("192.168.1.100:5678")?;
+    let transport = Tcp::connect("192.168.0.110:5678")?;
 
     // Create camera with blocking interface
     let _camera = PTZOpticsG2Cam::new(transport);
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{prelude::r#async::PTZOpticsG2Cam, transport::tokio::tcp::Tcp};
 
     // Create an async TCP transport
-    let transport = Tcp::connect("192.168.1.100:5678").await?;
+    let transport = Tcp::connect("192.168.0.110:5678").await?;
 
     // Create camera with async interface
     let _camera = PTZOpticsG2Cam::new(transport);

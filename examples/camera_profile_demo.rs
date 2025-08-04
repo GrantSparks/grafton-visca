@@ -26,7 +26,7 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     // Create a G2 camera with TCP transport
-    let transport = Tcp::connect_timeout("192.168.1.100:5678", Duration::from_secs(5)).await?;
+    let transport = Tcp::connect_timeout("192.168.0.110:5678", Duration::from_secs(5)).await?;
     let camera = PTZOpticsG2Cam::new(transport);
 
     // Display camera model (compile-time known)
