@@ -57,9 +57,6 @@ async fn main() -> Result<(), Error> {
     // === SAVE INITIAL STATE ===
     println!("═══ Saving Initial Camera State ═══");
 
-    // Give camera a moment to stabilize
-    sleep(Duration::from_secs(1)).await;
-
     let initial_position = camera.get_pan_tilt_degrees().await;
     let initial_zoom = camera.get_zoom_position().await;
 
@@ -89,20 +86,24 @@ async fn main() -> Result<(), Error> {
 
     // Demonstrate zoom control
     println!("Testing zoom...");
-    println!("  Zooming in...");
+    println!("  Zooming in briefly...");
     camera.zoom_in().await?;
-    sleep(Duration::from_secs(1)).await;
+    // Brief delay to let zoom start moving
+    sleep(Duration::from_millis(100)).await;
     camera.zoom_stop().await?;
+    camera.await_zoom_idle(Duration::from_secs(5)).await?;
 
-    println!("  Zooming out...");
+    println!("  Zooming out briefly...");
     camera.zoom_out().await?;
-    sleep(Duration::from_secs(1)).await;
+    // Brief delay to let zoom start moving
+    sleep(Duration::from_millis(100)).await;
     camera.zoom_stop().await?;
+    camera.await_zoom_idle(Duration::from_secs(5)).await?;
     println!("✓ Zoom complete");
 
     // Demonstrate pan/tilt control
     println!("Testing pan/tilt...");
-    println!("  Panning right...");
+    println!("  Panning right briefly...");
     camera
         .pan_tilt_move(
             PanTiltDirection::Right,
@@ -110,15 +111,19 @@ async fn main() -> Result<(), Error> {
             TiltSpeed::new(0)?,
         )
         .await?;
-    sleep(Duration::from_millis(500)).await;
+    // Brief delay to let movement start
+    sleep(Duration::from_millis(100)).await;
     camera.pan_tilt_stop().await?;
+    camera.await_pan_tilt_idle(Duration::from_secs(5)).await?;
 
-    println!("  Tilting up...");
+    println!("  Tilting up briefly...");
     camera
         .pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)
         .await?;
-    sleep(Duration::from_millis(500)).await;
+    // Brief delay to let movement start
+    sleep(Duration::from_millis(100)).await;
     camera.pan_tilt_stop().await?;
+    camera.await_pan_tilt_idle(Duration::from_secs(5)).await?;
     println!("✓ Pan/tilt complete");
     println!();
 
@@ -205,18 +210,23 @@ async fn main() -> Result<(), Error> {
     // Auto focus
     println!("Setting auto focus...");
     camera.focus_auto().await?;
-    sleep(Duration::from_millis(500)).await;
+    // Auto focus is a mode change, not a movement - no wait needed
     println!("✓ Auto focus enabled");
 
     // Manual focus demonstration
     println!("Testing manual focus...");
     camera.focus_manual().await?;
     camera.focus_near(SpeedLevel::Medium).await?;
-    sleep(Duration::from_millis(300)).await;
+    // Brief delay to let focus start moving
+    sleep(Duration::from_millis(100)).await;
     camera.focus_stop().await?;
+    camera.await_focus_idle(Duration::from_secs(5)).await?;
+
     camera.focus_far(SpeedLevel::Medium).await?;
-    sleep(Duration::from_millis(300)).await;
+    // Brief delay to let focus start moving
+    sleep(Duration::from_millis(100)).await;
     camera.focus_stop().await?;
+    camera.await_focus_idle(Duration::from_secs(5)).await?;
     println!("✓ Manual focus complete");
 
     // One-push auto focus with new API
@@ -267,13 +277,23 @@ async fn main() -> Result<(), Error> {
     if original_flip.vertical {
         camera.disable_flip().await?;
         println!("  ✓ Flip disabled");
-        sleep(Duration::from_millis(500)).await;
+        // Flip is an instant operation, but verify the state change
+        let mut retries = 0;
+        while camera.get_image_flip().await?.vertical && retries < 10 {
+            sleep(Duration::from_millis(50)).await;
+            retries += 1;
+        }
         camera.enable_flip().await?;
         println!("  ✓ Flip re-enabled");
     } else {
         camera.enable_flip().await?;
         println!("  ✓ Flip enabled");
-        sleep(Duration::from_millis(500)).await;
+        // Flip is an instant operation, but verify the state change
+        let mut retries = 0;
+        while !camera.get_image_flip().await?.vertical && retries < 10 {
+            sleep(Duration::from_millis(50)).await;
+            retries += 1;
+        }
         camera.disable_flip().await?;
         println!("  ✓ Flip disabled");
     }

@@ -79,32 +79,40 @@ fn main() -> Result<(), Error> {
 
     // Demonstrate zoom control
     println!("Testing zoom...");
-    println!("  Zooming in...");
+    println!("  Zooming in briefly...");
     camera.zoom_in()?;
-    sleep(Duration::from_secs(1));
+    // Brief delay to let zoom start moving
+    sleep(Duration::from_millis(100));
     camera.zoom_stop()?;
+    camera.await_zoom_idle(Duration::from_secs(5))?;
 
-    println!("  Zooming out...");
+    println!("  Zooming out briefly...");
     camera.zoom_out()?;
-    sleep(Duration::from_secs(1));
+    // Brief delay to let zoom start moving
+    sleep(Duration::from_millis(100));
     camera.zoom_stop()?;
+    camera.await_zoom_idle(Duration::from_secs(5))?;
     println!("✓ Zoom complete");
 
     // Demonstrate pan/tilt control
     println!("Testing pan/tilt...");
-    println!("  Panning right...");
+    println!("  Panning right briefly...");
     camera.pan_tilt_move(
         PanTiltDirection::Right,
         PanSpeed::new(10)?,
         TiltSpeed::new(0)?,
     )?;
-    sleep(Duration::from_millis(500));
+    // Brief delay to let movement start
+    sleep(Duration::from_millis(100));
     camera.pan_tilt_stop()?;
+    camera.await_pan_tilt_idle(Duration::from_secs(5))?;
 
-    println!("  Tilting up...");
+    println!("  Tilting up briefly...");
     camera.pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)?;
-    sleep(Duration::from_millis(500));
+    // Brief delay to let movement start
+    sleep(Duration::from_millis(100));
     camera.pan_tilt_stop()?;
+    camera.await_pan_tilt_idle(Duration::from_secs(5))?;
     println!("✓ Pan/tilt complete");
     println!();
 
@@ -164,18 +172,23 @@ fn main() -> Result<(), Error> {
     // Auto focus
     println!("Setting auto focus...");
     camera.focus_auto()?;
-    sleep(Duration::from_secs(1));
+    // Auto focus is a mode change, not a movement - no wait needed
     println!("✓ Auto focus enabled");
 
     // Manual focus demonstration
     println!("Testing manual focus...");
     camera.focus_manual()?;
     camera.focus_near(SpeedLevel::Medium)?;
-    sleep(Duration::from_millis(300));
+    // Brief delay to let focus start moving
+    sleep(Duration::from_millis(100));
     camera.focus_stop()?;
+    camera.await_focus_idle(Duration::from_secs(5))?;
+
     camera.focus_far(SpeedLevel::Medium)?;
-    sleep(Duration::from_millis(300));
+    // Brief delay to let focus start moving
+    sleep(Duration::from_millis(100));
     camera.focus_stop()?;
+    camera.await_focus_idle(Duration::from_secs(5))?;
     println!("✓ Manual focus complete");
 
     // One-push auto focus with new API
@@ -226,13 +239,23 @@ fn main() -> Result<(), Error> {
     if original_flip.vertical {
         camera.disable_flip()?;
         println!("  ✓ Flip disabled");
-        sleep(Duration::from_millis(500));
+        // Flip is an instant operation, but verify the state change
+        let mut retries = 0;
+        while camera.get_image_flip()?.vertical && retries < 10 {
+            sleep(Duration::from_millis(50));
+            retries += 1;
+        }
         camera.enable_flip()?;
         println!("  ✓ Flip re-enabled");
     } else {
         camera.enable_flip()?;
         println!("  ✓ Flip enabled");
-        sleep(Duration::from_millis(500));
+        // Flip is an instant operation, but verify the state change
+        let mut retries = 0;
+        while !camera.get_image_flip()?.vertical && retries < 10 {
+            sleep(Duration::from_millis(50));
+            retries += 1;
+        }
         camera.disable_flip()?;
         println!("  ✓ Flip disabled");
     }

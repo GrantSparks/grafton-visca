@@ -262,9 +262,10 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                     println!("   ⚠️  Camera busy (expected during movement)");
                     println!("   💡 Wait for movement to complete or stop it first");
 
-                    // Stop movement
-                    std::thread::sleep(Duration::from_millis(500));
+                    // Stop movement and wait for it to complete
                     camera.pan_tilt_stop()?;
+                    camera.await_pan_tilt_idle(Duration::from_secs(5))?;
+                    println!("   ✓ Movement stopped");
 
                     // Retry zoom
                     match camera.zoom_in() {

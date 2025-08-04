@@ -783,8 +783,10 @@ mod tests {
         ];
 
         let probe = MockMovementProbe::new(positions);
-        let mut config = MovementDetectionConfig::default();
-        config.no_movement_timeout = Duration::from_millis(100);
+        let config = MovementDetectionConfig {
+            no_movement_timeout: Duration::from_millis(100),
+            ..Default::default()
+        };
 
         let result = wait_for_pan_tilt_completion(&probe, &config).await;
         assert!(result.is_ok()); // Should succeed due to no_movement_timeout
@@ -820,9 +822,11 @@ mod tests {
         ];
 
         let probe = MockMovementProbe::new(positions);
-        let mut config = MovementDetectionConfig::default();
-        config.tolerance_pan_tilt_oscillation = 10;
-        config.oscillation_min_samples = 6;
+        let config = MovementDetectionConfig {
+            tolerance_pan_tilt_oscillation: 10,
+            oscillation_min_samples: 6,
+            ..Default::default()
+        };
 
         let result = wait_for_pan_tilt_completion(&probe, &config).await;
         assert!(result.is_ok()); // Should detect oscillation and complete
@@ -859,8 +863,10 @@ mod tests {
         let positions = vec![2000, 2000, 2000, 2000, 2000, 2000];
 
         let probe = MockZoomProbe::new(positions);
-        let mut config = MovementDetectionConfig::default();
-        config.no_movement_timeout = Duration::from_millis(100);
+        let config = MovementDetectionConfig {
+            no_movement_timeout: Duration::from_millis(100),
+            ..Default::default()
+        };
 
         let result = wait_for_zoom_completion(&probe, &config).await;
         assert!(result.is_ok());
@@ -939,10 +945,12 @@ mod tests {
         }
 
         let probe = MockMovementProbe::new(positions);
-        let mut config = MovementDetectionConfig::default();
-        config.timeout = Duration::from_millis(0); // Immediate timeout
-        config.startup_delay = Duration::from_millis(0);
-        config.poll_interval = Duration::from_millis(0);
+        let config = MovementDetectionConfig {
+            timeout: Duration::from_millis(0), // Immediate timeout
+            startup_delay: Duration::from_millis(0),
+            poll_interval: Duration::from_millis(0),
+            ..Default::default()
+        };
 
         let result = wait_for_pan_tilt_completion(&probe, &config).await;
         assert!(matches!(result, Err(Error::Timeout)));
@@ -961,12 +969,14 @@ mod tests {
         ];
 
         let probe = MockMovementProbe::new(positions);
-        let mut config = MovementDetectionConfig::default();
-        config.tolerance_pan_start = 10; // Movement must exceed 10 to be detected
-        config.tolerance_tilt_start = 10;
-        config.tolerance_pan_stable = 5; // Position must be stable within 5
-        config.tolerance_tilt_stable = 5;
-        config.no_movement_timeout = Duration::from_millis(100);
+        let config = MovementDetectionConfig {
+            tolerance_pan_start: 10, // Movement must exceed 10 to be detected
+            tolerance_tilt_start: 10,
+            tolerance_pan_stable: 5, // Position must be stable within 5
+            tolerance_tilt_stable: 5,
+            no_movement_timeout: Duration::from_millis(100),
+            ..Default::default()
+        };
 
         let result = wait_for_pan_tilt_completion(&probe, &config).await;
         assert!(result.is_ok()); // Should complete via no_movement_timeout since movement is within start tolerance

@@ -103,8 +103,10 @@ async fn multi_camera_control() -> Result<()> {
                 SpeedLevel::Slowest.into(),
             )
             .await?;
-            sleep(Duration::from_secs(3)).await;
+            // Brief delay to ensure movement starts
+            sleep(Duration::from_millis(100)).await;
             cam.pan_tilt_stop().await?;
+            cam.await_pan_tilt_idle(Duration::from_secs(5)).await?;
             Ok::<(), grafton_visca::Error>(())
         })
     };
@@ -221,12 +223,18 @@ async fn parallel_single_camera() -> Result<()> {
         })
     };
 
-    // Let them run for a bit
-    sleep(Duration::from_secs(2)).await;
+    // Brief delay to ensure movements start
+    sleep(Duration::from_millis(100)).await;
 
-    // Stop both operations
+    // Stop both operations and wait for them to complete
     camera.zoom_stop().await?;
     camera.pan_tilt_stop().await?;
+
+    // Wait for both movements to actually stop
+    let _ = tokio::join!(
+        camera.await_zoom_idle(Duration::from_secs(5)),
+        camera.await_pan_tilt_idle(Duration::from_secs(5))
+    );
 
     let _ = tokio::join!(zoom_task, pan_task);
 
@@ -271,19 +279,24 @@ async fn producer_consumer_pattern() -> Result<()> {
                     Command::Home => {
                         println!("Executing: Home");
                         let _ = cam.pan_tilt_home().await;
+                        // Wait for home movement to complete
+                        let _ = cam.await_pan_tilt_idle(Duration::from_secs(5)).await;
                     }
                     Command::Preset(n) => {
                         println!("Executing: Preset {n}");
                         if let Ok(preset) = PresetNumber::new(n) {
                             let _ = cam.preset_recall(preset).await;
+                            // Wait for preset movement to complete
+                            let _ = cam.await_idle(Duration::from_secs(5)).await;
                         }
                     }
                     Command::Zoom(level) => {
                         println!("Executing: Zoom to {level}");
                         let _ = cam.zoom_absolute(Normalized::new(level)).await;
+                        // Wait for zoom to complete
+                        let _ = cam.await_zoom_idle(Duration::from_secs(5)).await;
                     }
                 }
-                sleep(Duration::from_millis(500)).await;
             }
         })
     };
