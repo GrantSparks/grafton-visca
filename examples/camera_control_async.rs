@@ -316,326 +316,123 @@ async fn main() -> Result<(), Error> {
 
     // === PRESET MANAGEMENT ===
     println!("═══ Preset Management ═══");
-    println!("Demonstrating practical preset usage for multi-zone monitoring...");
 
-    // Note: Motion Sync features removed for simplicity
-    println!("ℹ Using sequential movements for preset operations");
-    println!();
+    // Save three different preset positions
+    println!("Saving preset positions...");
 
-    // Define preset configurations for different monitoring zones
-    struct PresetConfig {
-        number: u8,
-        name: &'static str,
-        pan: Degrees,
-        tilt: Degrees,
-        zoom: Normalized,
-        description: &'static str,
-    }
-
-    let preset_configs = [
-        PresetConfig {
-            number: 1,
-            name: "Overview",
-            pan: Degrees(0.0),
-            tilt: Degrees(0.0),
-            zoom: Normalized(0.0),
-            description: "Wide angle overview of the entire area",
-        },
-        PresetConfig {
-            number: 2,
-            name: "Right View",
-            pan: Degrees(30.0),
-            tilt: Degrees(-5.0),
-            zoom: Normalized(0.3),
-            description: "View to the right side",
-        },
-        PresetConfig {
-            number: 3,
-            name: "Left View",
-            pan: Degrees(-30.0),
-            tilt: Degrees(0.0),
-            zoom: Normalized(0.4),
-            description: "View to the left side",
-        },
-    ];
-
-    // Save all preset positions with concurrent operations
-    println!("Setting up monitoring presets:");
-    println!("{}", "─".repeat(50));
-
-    for config in &preset_configs {
-        println!("Configuring Preset {} - '{}'", config.number, config.name);
-        println!("  {}", config.description);
-        println!(
-            "  Target: Pan={:.1}°, Tilt={:.1}°, Zoom={:.0}%",
-            config.pan.0,
-            config.tilt.0,
-            config.zoom.0 * 100.0
-        );
-
-        // Issue movement commands sequentially
-        camera
-            .pan_tilt_absolute(config.pan, config.tilt, SpeedLevel::Medium)
-            .await?;
-        camera.zoom_absolute(config.zoom).await?;
-
-        // Wait for all movements to complete
-        println!("  Moving to position...");
-        camera
-            .wait_for_pan_tilt_completion(Duration::from_secs(30))
-            .await?;
-        camera
-            .wait_for_zoom_completion(Duration::from_secs(10))
-            .await?;
-
-        // Verify position with concurrent queries
-        let (position_result, zoom_result) =
-            tokio::join!(camera.get_pan_tilt_degrees(), camera.get_zoom_position());
-
-        if let (Ok((actual_pan, actual_tilt)), Ok(actual_zoom)) = (position_result, zoom_result) {
-            let zoom_percent = (actual_zoom as f32 / 16384.0) * 100.0;
-            println!(
-                "  Current position: Pan={:.1}°, Tilt={:.1}°, Zoom={:.0}%",
-                actual_pan.0, actual_tilt.0, zoom_percent
-            );
-        }
-
-        // Save as preset - this captures the current complete state
-        camera.preset_set(PresetNumber::new(config.number)?).await?;
-        println!("  ✓ Preset {} saved", config.number);
-
-        sleep(Duration::from_millis(500)).await;
-        println!();
-    }
-
-    // Demonstrate preset tour/patrol with async monitoring
-    println!("Demonstrating Async Preset Tour (Security Patrol):");
-    println!("{}", "─".repeat(50));
-    println!("Starting automated security patrol with concurrent monitoring...");
-    println!();
-
-    // Simulate concurrent monitoring tasks during patrol
-    for cycle in 1..=2 {
-        println!("Patrol Cycle {}/2:", cycle);
-
-        for config in &preset_configs {
-            println!(
-                "  → Moving to Preset {}: {} ({})",
-                config.number, config.name, config.description
-            );
-
-            // Get position before recall
-            let before_pos = camera.get_pan_tilt_degrees().await;
-
-            // Start movement to preset
-            let recall_future = camera.preset_recall(PresetNumber::new(config.number)?);
-
-            // While moving, we can perform other async tasks
-            let monitoring_task = async {
-                sleep(Duration::from_millis(500)).await;
-                println!("    [Background] Monitoring system active during movement...");
-            };
-
-            // Execute both concurrently
-            let (recall_result, _) = tokio::join!(recall_future, monitoring_task);
-            recall_result?;
-
-            // Wait for movement to complete
-            camera
-                .wait_for_all_movements(Duration::from_secs(5))
-                .await?;
-
-            // Check current position to verify preset recall worked
-            if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees().await {
-                if let Ok((before_pan, before_tilt)) = before_pos {
-                    if (before_pan.0 - pan.0).abs() > 0.5 || (before_tilt.0 - tilt.0).abs() > 0.5 {
-                        println!(
-                            "    ✓ Moved from ({:.1}°, {:.1}°) to ({:.1}°, {:.1}°)",
-                            before_pan.0, before_tilt.0, pan.0, tilt.0
-                        );
-                    } else {
-                        println!(
-                            "    Already at position: Pan={:.1}°, Tilt={:.1}°",
-                            pan.0, tilt.0
-                        );
-                    }
-                } else {
-                    println!(
-                        "    Current position: Pan={:.1}°, Tilt={:.1}°",
-                        pan.0, tilt.0
-                    );
-                }
-            }
-
-            // Dwell time at each preset
-            let dwell_time = if config.number == 2 || config.number == 4 {
-                Duration::from_secs(2)
-            } else {
-                Duration::from_secs(1)
-            };
-
-            sleep(dwell_time).await;
-        }
-
-        if cycle < 2 {
-            println!("  Cycle {} complete, starting next cycle...", cycle);
-            println!();
-        }
-    }
-
-    println!("✓ Async preset tour complete");
-    println!();
-
-    // Demonstrate quick preset switching with parallel operations
-    println!("Demonstrating Async Quick Response Scenario:");
-    println!("{}", "─".repeat(50));
-    println!("Simulating incident at entrance - multi-camera coordination...");
-
-    // Simulate coordinated response with multiple async operations
-    let camera_clone = camera.clone();
-
-    // Main camera jumps to entrance
-    let main_response = async {
-        camera.preset_recall(PresetNumber::new(2)?).await?;
-        println!("✓ Main camera moved to Entrance preset");
-        Ok::<(), Error>(())
-    };
-
-    // Simulate notification system (would be actual alert in production)
-    let alert_system = async {
-        sleep(Duration::from_millis(100)).await;
-        println!("✓ Alert system notified");
-    };
-
-    // Simulate recording trigger (would start recording in production)
-    let recording_system = async {
-        sleep(Duration::from_millis(200)).await;
-        println!("✓ Recording started for incident");
-    };
-
-    // Execute all responses concurrently
-    let (main_result, _, _) = tokio::join!(main_response, alert_system, recording_system);
-    main_result?;
-
+    // Preset 1: Wide overview
+    println!("  Setting up Preset 1 (Wide Overview)...");
     camera
-        .wait_for_all_movements(Duration::from_secs(5))
+        .pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Medium)
         .await?;
-
-    // Enhanced view with concurrent zoom and fine adjustment
-    println!("  Enhancing view with concurrent operations...");
-
-    let zoom_enhance = camera_clone.zoom_absolute(Normalized(0.6));
-    let position_adjust = async {
-        sleep(Duration::from_millis(500)).await;
-        camera
-            .pan_tilt_relative(Degrees(5.0), Degrees(0.0), SpeedLevel::Medium)
-            .await
-    };
-
-    let (zoom_result, adjust_result) = tokio::join!(zoom_enhance, position_adjust);
-    zoom_result?;
-    adjust_result?;
-
-    println!("  ✓ View enhanced with zoom and position adjustment");
-    camera
-        .wait_for_all_movements(Duration::from_secs(5))
-        .await?;
-
-    // Save incident view
-    println!("  Saving incident view as temporary preset 10...");
-    camera.preset_set(PresetNumber::new(10)?).await?;
-    println!("✓ Incident view saved for investigation");
-    println!();
-
-    // Demonstrate preset speed tour (async advantage)
-    println!("Demonstrating High-Speed Preset Scan:");
-    println!("{}", "─".repeat(50));
-    println!("Rapid scan of all zones using async operations...");
-
-    // Quick scan through all presets
-    for i in 1..=3 {
-        let preset_name = preset_configs[i - 1].name;
-        print!("  Scanning {}: ", preset_name);
-
-        // Move to preset and immediately start next movement
-        camera.preset_recall(PresetNumber::new(i as u8)?).await?;
-
-        // Very brief dwell (async allows rapid switching)
-        sleep(Duration::from_millis(800)).await;
-        println!("✓");
-    }
-
-    println!("✓ High-speed scan complete");
-    println!();
-
-    // Return to overview and cleanup
-    println!("Returning to overview and cleaning up...");
-
-    // Concurrent cleanup operations
-    let return_overview = camera.preset_recall(PresetNumber::new(1)?);
-    let clear_temp = async {
-        sleep(Duration::from_millis(500)).await;
-        camera.preset_reset(PresetNumber::new(10)?).await
-    };
-
-    let (overview_result, clear_result) = tokio::join!(return_overview, clear_temp);
-    overview_result?;
-    clear_result?;
-
-    camera
-        .wait_for_all_movements(Duration::from_secs(5))
-        .await?;
-    println!("✓ Returned to overview and cleared temporary preset");
-    println!();
-
-    // === CONCURRENT OPERATIONS DEMO ===
-    println!("═══ Concurrent Operations (Async Advantage) ═══");
-    println!("Demonstrating concurrent pan and zoom...");
-
-    // Move home first
-    camera.pan_tilt_home().await?;
     camera.zoom_absolute(Normalized(0.0)).await?;
     camera
         .wait_for_all_movements(Duration::from_secs(5))
         .await?;
+    camera.preset_set(PresetNumber::new(1)?).await?;
+    println!("  ✓ Preset 1 saved");
 
-    // Start concurrent operations with timeout
-    let pan_handle = {
-        let camera = camera.clone();
-        tokio::spawn(async move {
-            tokio::time::timeout(Duration::from_secs(10), async {
-                camera
-                    .pan_tilt_absolute(Degrees(90.0), Degrees(30.0), SpeedLevel::Slow)
-                    .await
-                    .unwrap();
-            })
-            .await
-            .ok();
-        })
-    };
+    // Preset 2: Zoomed right view
+    println!("  Setting up Preset 2 (Right View)...");
+    camera
+        .pan_tilt_absolute(Degrees(45.0), Degrees(-10.0), SpeedLevel::Medium)
+        .await?;
+    camera.zoom_absolute(Normalized(0.3)).await?;
+    camera
+        .wait_for_all_movements(Duration::from_secs(5))
+        .await?;
+    camera.preset_set(PresetNumber::new(2)?).await?;
+    println!("  ✓ Preset 2 saved");
 
-    let zoom_handle = {
-        let camera = camera.clone();
-        tokio::spawn(async move {
-            tokio::time::timeout(Duration::from_secs(10), async {
-                camera.zoom_absolute(Normalized(0.7)).await.unwrap();
-            })
-            .await
-            .ok();
-        })
-    };
+    // Preset 3: Zoomed left view
+    println!("  Setting up Preset 3 (Left View)...");
+    camera
+        .pan_tilt_absolute(Degrees(-45.0), Degrees(-10.0), SpeedLevel::Medium)
+        .await?;
+    camera.zoom_absolute(Normalized(0.3)).await?;
+    camera
+        .wait_for_all_movements(Duration::from_secs(5))
+        .await?;
+    camera.preset_set(PresetNumber::new(3)?).await?;
+    println!("  ✓ Preset 3 saved");
+    println!();
 
-    // Wait for both operations to complete
-    let _ = pan_handle.await;
-    let _ = zoom_handle.await;
+    // Demonstrate preset recall
+    println!("Testing preset recall...");
 
-    // Wait for all movements to actually complete
-    let _ = tokio::time::timeout(
-        Duration::from_secs(15),
-        camera.wait_for_all_movements(Duration::from_secs(10)),
-    )
-    .await;
+    println!("  Recalling Preset 1...");
+    camera.preset_recall(PresetNumber::new(1)?).await?;
+    camera
+        .wait_for_all_movements(Duration::from_secs(5))
+        .await?;
+    if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees().await {
+        println!(
+            "    Current position: Pan={:.1}°, Tilt={:.1}°",
+            pan.0, tilt.0
+        );
+    }
+
+    println!("  Recalling Preset 2...");
+    camera.preset_recall(PresetNumber::new(2)?).await?;
+    camera
+        .wait_for_all_movements(Duration::from_secs(5))
+        .await?;
+    if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees().await {
+        println!(
+            "    Current position: Pan={:.1}°, Tilt={:.1}°",
+            pan.0, tilt.0
+        );
+    }
+
+    println!("  Recalling Preset 3...");
+    camera.preset_recall(PresetNumber::new(3)?).await?;
+    camera
+        .wait_for_all_movements(Duration::from_secs(5))
+        .await?;
+    if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees().await {
+        println!(
+            "    Current position: Pan={:.1}°, Tilt={:.1}°",
+            pan.0, tilt.0
+        );
+    }
+
+    println!("✓ Preset recall complete");
+    println!();
+
+    // Clear a preset
+    println!("Clearing Preset 3...");
+    camera.preset_reset(PresetNumber::new(3)?).await?;
+    println!("✓ Preset 3 cleared");
+    println!();
+
+    // === CONCURRENT OPERATIONS (ASYNC ADVANTAGE) ===
+    println!("═══ Concurrent Operations (Async Advantage) ═══");
+    println!("Demonstrating concurrent inquiry operations...");
+
+    // Perform multiple queries concurrently
+    let (pan_tilt, zoom, focus_mode, exposure_mode) = tokio::join!(
+        camera.get_pan_tilt_degrees(),
+        camera.get_zoom_position(),
+        camera.get_focus_mode(),
+        camera.get_exposure_mode()
+    );
+
+    println!("  Concurrent query results:");
+    if let Ok((pan, tilt)) = pan_tilt {
+        println!("    Position: Pan={:.1}°, Tilt={:.1}°", pan.0, tilt.0);
+    }
+    if let Ok(zoom) = zoom {
+        println!("    Zoom: {}", zoom);
+    }
+    if let Ok(mode) = focus_mode {
+        println!("    Focus: {:?}", mode);
+    }
+    if let Ok(mode) = exposure_mode {
+        println!("    Exposure: {:?}", mode);
+    }
+
     println!("✓ Concurrent operations complete");
+    println!("  Note: Async allows multiple operations to run in parallel!");
     println!();
 
     // === RESTORE INITIAL STATE ===
@@ -706,10 +503,9 @@ async fn main() -> Result<(), Error> {
     }
 
     println!();
-    println!("✨ Async camera control demo complete!");
+    println!("✨ Camera control demo complete!");
     println!();
-    println!("Explored features:");
-    println!("  ✓ Power management");
+    println!("Demonstrated features:");
     println!("  ✓ Pan/Tilt control (absolute, relative, directional)");
     println!("  ✓ Zoom control (standard, variable speed, absolute)");
     println!("  ✓ Focus control (auto, manual, one-push)");
@@ -719,8 +515,7 @@ async fn main() -> Result<(), Error> {
     println!("  ✓ Preset management (save, recall, clear)");
     println!("  ✓ Concurrent operations (async advantage!)");
     println!();
-    println!("The async API enables concurrent operations that aren't possible");
-    println!("with the blocking API, allowing for more efficient camera control.");
+    println!("See camera_control for the blocking version of this demo.");
 
     Ok(())
 }

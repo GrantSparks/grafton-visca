@@ -279,194 +279,75 @@ fn main() -> Result<(), Error> {
 
     // === PRESET MANAGEMENT ===
     println!("═══ Preset Management ═══");
-    println!("Demonstrating practical preset usage for multi-zone monitoring...");
-    println!();
 
-    // Define preset configurations for different monitoring zones
-    struct PresetConfig {
-        number: u8,
-        name: &'static str,
-        pan: Degrees,
-        tilt: Degrees,
-        zoom: Normalized,
-        description: &'static str,
-    }
+    // Save three different preset positions
+    println!("Saving preset positions...");
 
-    let preset_configs = [
-        PresetConfig {
-            number: 1,
-            name: "Overview",
-            pan: Degrees(0.0),
-            tilt: Degrees(0.0),
-            zoom: Normalized(0.0),
-            description: "Wide angle overview of the entire area",
-        },
-        PresetConfig {
-            number: 2,
-            name: "Right View",
-            pan: Degrees(30.0),
-            tilt: Degrees(-5.0),
-            zoom: Normalized(0.3),
-            description: "View to the right side",
-        },
-        PresetConfig {
-            number: 3,
-            name: "Left View",
-            pan: Degrees(-30.0),
-            tilt: Degrees(0.0),
-            zoom: Normalized(0.4),
-            description: "View to the left side",
-        },
-    ];
-
-    // Save all preset positions
-    println!("Setting up monitoring presets:");
-    println!("{}", "─".repeat(50));
-
-    for config in &preset_configs {
-        println!("Configuring Preset {} - '{}'", config.number, config.name);
-        println!("  {}", config.description);
-        println!(
-            "  Target: Pan={:.1}°, Tilt={:.1}°, Zoom={:.0}%",
-            config.pan.0,
-            config.tilt.0,
-            config.zoom.0 * 100.0
-        );
-
-        // Move to position - pan/tilt first, then zoom
-        camera.pan_tilt_absolute(config.pan, config.tilt, SpeedLevel::Medium)?;
-        camera.wait_for_pan_tilt_completion(Duration::from_secs(30))?;
-
-        camera.zoom_absolute(config.zoom)?;
-
-        // Wait for zoom to complete
-        println!("  Waiting for movements to complete...");
-        camera.wait_for_pan_tilt_completion(Duration::from_secs(30))?;
-        camera.wait_for_zoom_completion(Duration::from_secs(10))?;
-
-        // Verify we're at the correct position before saving
-        if let Ok((actual_pan, actual_tilt)) = camera.get_pan_tilt_degrees() {
-            if let Ok(actual_zoom) = camera.get_zoom_position() {
-                let zoom_percent = (actual_zoom as f32 / 16384.0) * 100.0;
-                println!(
-                    "  Current position: Pan={:.1}°, Tilt={:.1}°, Zoom={:.0}%",
-                    actual_pan.0, actual_tilt.0, zoom_percent
-                );
-            }
-        }
-
-        // Save as preset - this captures the current complete state
-        camera.preset_set(PresetNumber::new(config.number)?)?;
-        println!("  ✓ Preset {} saved", config.number);
-
-        sleep(Duration::from_millis(500));
-        println!();
-    }
-
-    // Demonstrate preset tour/patrol
-    println!("Demonstrating Preset Tour (Security Patrol):");
-    println!("{}", "─".repeat(50));
-    println!("Starting automated security patrol sequence...");
-    println!();
-
-    // Perform two cycles of the tour
-    for cycle in 1..=2 {
-        println!("Patrol Cycle {}/2:", cycle);
-
-        for config in &preset_configs {
-            println!(
-                "  → Moving to Preset {}: {} ({})",
-                config.number, config.name, config.description
-            );
-
-            // Get position before recall
-            let before_pos = camera.get_pan_tilt_degrees();
-
-            // Recall the preset
-            camera.preset_recall(PresetNumber::new(config.number)?)?;
-
-            // Wait for movement to complete
-            camera.wait_for_all_movements(Duration::from_secs(5))?;
-
-            // Check current position to verify preset recall worked
-            if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees() {
-                if let Ok((before_pan, before_tilt)) = before_pos {
-                    if (before_pan.0 - pan.0).abs() > 0.5 || (before_tilt.0 - tilt.0).abs() > 0.5 {
-                        println!(
-                            "    ✓ Moved from ({:.1}°, {:.1}°) to ({:.1}°, {:.1}°)",
-                            before_pan.0, before_tilt.0, pan.0, tilt.0
-                        );
-                    } else {
-                        println!(
-                            "    Already at position: Pan={:.1}°, Tilt={:.1}°",
-                            pan.0, tilt.0
-                        );
-                    }
-                } else {
-                    println!(
-                        "    Current position: Pan={:.1}°, Tilt={:.1}°",
-                        pan.0, tilt.0
-                    );
-                }
-            }
-
-            // Dwell time at each preset (simulating monitoring time)
-            let dwell_time = if config.number == 2 || config.number == 4 {
-                // Longer dwell on critical areas (entrance and emergency exit)
-                Duration::from_secs(2)
-            } else {
-                Duration::from_secs(1)
-            };
-
-            sleep(dwell_time);
-        }
-
-        if cycle < 2 {
-            println!("  Cycle {} complete, starting next cycle...", cycle);
-            println!();
-        }
-    }
-
-    println!("✓ Preset tour complete");
-    println!();
-
-    // Demonstrate quick preset switching for incident response
-    println!("Demonstrating Quick Response Scenario:");
-    println!("{}", "─".repeat(50));
-    println!("Simulating incident at entrance - quick response...");
-
-    // Quick jump to entrance
-    camera.preset_recall(PresetNumber::new(2)?)?;
+    // Preset 1: Wide overview
+    println!("  Setting up Preset 1 (Wide Overview)...");
+    camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Medium)?;
+    camera.zoom_absolute(Normalized(0.0))?;
     camera.wait_for_all_movements(Duration::from_secs(5))?;
-    println!("✓ Immediately moved to Entrance preset");
+    camera.preset_set(PresetNumber::new(1)?)?;
+    println!("  ✓ Preset 1 saved");
 
-    // Zoom in further for detail
-    println!("  Zooming in for more detail...");
-    camera.zoom_absolute(Normalized(0.6))?;
-    camera.wait_for_zoom_completion(Duration::from_secs(5))?;
+    // Preset 2: Zoomed right view
+    println!("  Setting up Preset 2 (Right View)...");
+    camera.pan_tilt_absolute(Degrees(45.0), Degrees(-10.0), SpeedLevel::Medium)?;
+    camera.zoom_absolute(Normalized(0.3))?;
+    camera.wait_for_all_movements(Duration::from_secs(5))?;
+    camera.preset_set(PresetNumber::new(2)?)?;
+    println!("  ✓ Preset 2 saved");
 
-    // Pan slightly to track subject
-    println!("  Adjusting view to track subject...");
-    camera.pan_tilt_relative(Degrees(5.0), Degrees(0.0), SpeedLevel::Medium)?;
-    camera.wait_for_pan_tilt_completion(Duration::from_secs(5))?;
-
-    // Save this as a temporary preset for later review
-    println!("  Saving current view as temporary preset 10...");
-    camera.preset_set(PresetNumber::new(10)?)?;
-    println!("✓ Incident view saved for later review");
+    // Preset 3: Zoomed left view
+    println!("  Setting up Preset 3 (Left View)...");
+    camera.pan_tilt_absolute(Degrees(-45.0), Degrees(-10.0), SpeedLevel::Medium)?;
+    camera.zoom_absolute(Normalized(0.3))?;
+    camera.wait_for_all_movements(Duration::from_secs(5))?;
+    camera.preset_set(PresetNumber::new(3)?)?;
+    println!("  ✓ Preset 3 saved");
     println!();
 
-    // Return to overview
-    println!("Returning to overview position...");
+    // Demonstrate preset recall
+    println!("Testing preset recall...");
+
+    println!("  Recalling Preset 1...");
     camera.preset_recall(PresetNumber::new(1)?)?;
     camera.wait_for_all_movements(Duration::from_secs(5))?;
-    println!("✓ Back to overview monitoring");
+    if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees() {
+        println!(
+            "    Current position: Pan={:.1}°, Tilt={:.1}°",
+            pan.0, tilt.0
+        );
+    }
+
+    println!("  Recalling Preset 2...");
+    camera.preset_recall(PresetNumber::new(2)?)?;
+    camera.wait_for_all_movements(Duration::from_secs(5))?;
+    if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees() {
+        println!(
+            "    Current position: Pan={:.1}°, Tilt={:.1}°",
+            pan.0, tilt.0
+        );
+    }
+
+    println!("  Recalling Preset 3...");
+    camera.preset_recall(PresetNumber::new(3)?)?;
+    camera.wait_for_all_movements(Duration::from_secs(5))?;
+    if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees() {
+        println!(
+            "    Current position: Pan={:.1}°, Tilt={:.1}°",
+            pan.0, tilt.0
+        );
+    }
+
+    println!("✓ Preset recall complete");
     println!();
 
-    // Clear temporary preset
-    println!("Clearing temporary preset 10...");
-    camera.preset_reset(PresetNumber::new(10)?)?;
-    println!("✓ Temporary preset cleared");
+    // Clear a preset
+    println!("Clearing Preset 3...");
+    camera.preset_reset(PresetNumber::new(3)?)?;
+    println!("✓ Preset 3 cleared");
     println!();
 
     // === RESTORE INITIAL STATE ===
@@ -521,8 +402,7 @@ fn main() -> Result<(), Error> {
     println!();
     println!("✨ Camera control demo complete!");
     println!();
-    println!("Explored features:");
-    println!("  ✓ Power management");
+    println!("Demonstrated features:");
     println!("  ✓ Pan/Tilt control (absolute, relative, directional)");
     println!("  ✓ Zoom control (standard, variable speed, absolute)");
     println!("  ✓ Focus control (auto, manual, one-push)");
