@@ -111,6 +111,33 @@ grafton-visca = { version = "0.5", features = ["tokio"] }
 
 ---
 
+## Examples
+
+We provide a comprehensive set of examples demonstrating different aspects of the library:
+
+| Example | Description | Features Demonstrated |
+| ------- | ----------- | --------------------- |
+| [`quickstart`](examples/quickstart.rs) | Minimal blocking example | Basic connection and camera control |
+| [`quickstart_async`](examples/quickstart_async.rs) | Minimal async example | Async/await patterns with Tokio |
+| [`camera_control`](examples/camera_control.rs) | Comprehensive blocking operations | All camera movements, presets, imaging |
+| [`camera_control_async`](examples/camera_control_async.rs) | Comprehensive async operations | Concurrent operations, async patterns |
+| [`transports`](examples/transports.rs) | TCP vs UDP comparison | Transport configuration, performance |
+| [`builder_api`](examples/builder_api.rs) | Builder pattern usage | All builder options and configurations |
+| [`camera_inquiry`](examples/camera_inquiry.rs) | Query camera state | Reading positions, settings, status |
+| [`concurrent_control`](examples/concurrent_control.rs) | Thread-safe operations | Multiple threads controlling camera |
+| [`error_handling`](examples/error_handling.rs) | Error recovery patterns | Retryable errors, timeouts, recovery |
+
+Run any example with:
+```bash
+# Blocking examples
+cargo run --example quickstart
+
+# Async examples (require tokio feature)
+cargo run --example quickstart_async --features tokio
+```
+
+---
+
 ## Why a *profile‑centric* API?
 
 Each profile implements capability traits (`HasZoom`, `HasNDFilter`, …).

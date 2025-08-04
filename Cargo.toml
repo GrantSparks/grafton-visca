@@ -54,126 +54,40 @@ tokio = { version = "1.38", features = [
 tokio = { version = "1.38", features = ["full", "test-util"] }
 trybuild = "1.0"
 
+# Consolidated examples - clean, focused learning experience
+
 [[example]]
-name = "async_concurrent"
+name = "quickstart"
+# Basic blocking example - no features required
+
+[[example]]
+name = "quickstart_async"
 required-features = ["tokio"]
 
 [[example]]
-name = "async_inquiry_demo"
+name = "camera_control"
+# Comprehensive blocking example - no features required
+
+[[example]]
+name = "camera_control_async"
 required-features = ["tokio"]
 
 [[example]]
-name = "async_control_demo"
+name = "transports"
+# Transport comparison - no features required for blocking
+
+[[example]]
+name = "builder_api"
+# Builder patterns - no features required for blocking
+
+[[example]]
+name = "camera_inquiry"
 required-features = ["tokio"]
 
 [[example]]
-name = "async_configurable_timeouts"
+name = "concurrent_control"
 required-features = ["tokio"]
 
 [[example]]
-name = "thread_safe_client"
-# No features required for blocking mode (default)
-
-[[example]]
-name = "configurable_timeouts"
-
-[[example]]
-name = "control_demo"
-
-[[example]]
-name = "basic_camera_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "hello_world"
-
-[[example]]
-name = "inquiry_demo"
-
-[[example]]
-name = "unified_client_demo"
-
-[[example]]
-name = "unified_camera_basic"
-
-[[example]]
-name = "new_tokio_transport_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "position_conversion"
-required-features = ["tokio"]
-
-[[example]]
-name = "blocking_no_runtime"
-
-[[example]]
-name = "blocking_simple"
-
-[[example]]
-name = "declarative_macro_test"
-
-[[example]]
-name = "ptz_builder_demo"
-
-[[example]]
-name = "model_validation_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "error_handling_demo"
-
-[[example]]
-name = "enhanced_api_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "quick_start_demo"
-
-[[example]]
-name = "test_extension_traits"
-required-features = ["tokio"]
-
-[[example]]
-name = "type_safe_api_demo"
-
-[[example]]
-name = "unified_transport_demo"
-
-[[example]]
-name = "image_and_gain_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "white_balance_tuning_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "camera_profile_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "custom_profile_builder_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "camera_inquiry_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "user_friendly_api_demo"
-
-[[example]]
-name = "semantic_api_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "simplified_async_demo"
-required-features = ["tokio"]
-
-[[example]]
-name = "builder_blocking"
-
-[[example]]
-name = "builder_async"
-required-features = ["tokio"]
+name = "error_handling"
+# Error handling patterns - no features required
