@@ -14,6 +14,9 @@ pub mod generic_methods;
 pub mod generic_state;
 pub mod helpers;
 pub mod methods;
+pub mod movement_detection;
+pub mod movement_probe;
+pub mod probes;
 pub mod profiles;
 
 // Re-export the generic Camera as the primary Camera type

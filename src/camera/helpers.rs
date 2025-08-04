@@ -1,86 +1,31 @@
 //! Helper methods for intelligent camera movement completion detection.
+//!
+//! This module provides traits that add movement detection capabilities to cameras.
+//! The implementation uses GAT-based probes to eliminate code duplication between
+//! blocking and async variants.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::{
-    camera::Camera,
-    capabilities::Profile,
-    error::Error,
-    transport::UnifiedTransport,
-    units::{Degrees, Normalized},
+    camera::Camera, capabilities::Profile, error::Error, transport::UnifiedTransport,
+    units::Degrees,
 };
 
-/// Configuration for movement detection.
-#[derive(Debug, Clone, Copy)]
-pub struct MovementDetectionConfig {
-    /// How long to wait for movement to start after issuing command
-    pub startup_delay: Duration,
-    /// Minimum time between position polls
-    pub poll_interval: Duration,
-    /// Number of consecutive stable readings required to confirm stop
-    pub stability_threshold: u32,
-    /// Maximum position change to be considered "stable" (for noise tolerance)
-    pub position_tolerance: i16,
-    /// Maximum zoom change to be considered "stable"
-    pub zoom_tolerance: u16,
-    /// Timeout for the entire operation
-    pub timeout: Duration,
-    /// Whether to log debug information
-    pub debug: bool,
-}
+// Re-export the config from movement_probe
+pub use super::movement_probe::MovementDetectionConfig;
 
-impl Default for MovementDetectionConfig {
-    fn default() -> Self {
-        Self {
-            startup_delay: Duration::from_millis(200),
-            poll_interval: Duration::from_millis(100),
-            stability_threshold: 3,
-            position_tolerance: 5, // ~0.3 degrees for most cameras
-            zoom_tolerance: 50,    // Small zoom tolerance
-            timeout: Duration::from_secs(30),
-            debug: false,
-        }
-    }
-}
+// Import the unified algorithms
+use super::movement_detection::{
+    wait_for_focus_completion, wait_for_pan_tilt_completion, wait_for_zoom_completion,
+};
 
-impl MovementDetectionConfig {
-    /// Config for fast movements
-    pub fn fast() -> Self {
-        Self {
-            startup_delay: Duration::from_millis(100),
-            poll_interval: Duration::from_millis(50),
-            stability_threshold: 2,
-            ..Default::default()
-        }
-    }
+// Import the probe implementations
+use super::probes::{BlockingFocusProbe, BlockingPanTiltProbe, BlockingZoomProbe};
 
-    /// Config for slow/precise movements
-    pub fn precise() -> Self {
-        Self {
-            startup_delay: Duration::from_millis(300),
-            poll_interval: Duration::from_millis(150),
-            stability_threshold: 5,
-            position_tolerance: 2,
-            zoom_tolerance: 20,
-            ..Default::default()
-        }
-    }
+#[cfg(feature = "tokio")]
+use super::probes::{TokioFocusProbe, TokioPanTiltProbe, TokioZoomProbe};
 
-    /// Config for very small movements
-    pub fn micro() -> Self {
-        Self {
-            startup_delay: Duration::from_millis(500),
-            poll_interval: Duration::from_millis(200),
-            stability_threshold: 4,
-            position_tolerance: 1,
-            zoom_tolerance: 10,
-            timeout: Duration::from_secs(10),
-            ..Default::default()
-        }
-    }
-}
-
-/// Helper methods for camera movement operations.
+/// Helper methods for camera movement operations (blocking).
 pub trait MovementHelpers: Sized {
     /// Wait for pan/tilt movement to complete with default config.
     fn wait_for_pan_tilt_completion(&self, timeout: Duration) -> Result<(), Error> {
@@ -112,7 +57,7 @@ pub trait MovementHelpers: Sized {
         config: &MovementDetectionConfig,
     ) -> Result<(), Error>;
 
-    /// Wait for focus to complete with default config.
+    /// Wait for focus movement to complete with default config.
     fn wait_for_focus_completion(&self, timeout: Duration) -> Result<(), Error> {
         let config = MovementDetectionConfig {
             timeout,
@@ -121,13 +66,16 @@ pub trait MovementHelpers: Sized {
         self.wait_for_focus_completion_with_config(&config)
     }
 
-    /// Wait for focus to complete with custom config.
+    /// Wait for focus movement to complete with custom config.
     fn wait_for_focus_completion_with_config(
         &self,
         config: &MovementDetectionConfig,
     ) -> Result<(), Error>;
 
-    /// Move to position and wait for completion.
+    /// Wait for all movements to complete.
+    fn wait_for_all_movements(&self, timeout: Duration) -> Result<(), Error>;
+
+    /// Move to a position and wait for completion.
     fn move_to_position_and_wait(
         &self,
         pan: Degrees,
@@ -135,14 +83,8 @@ pub trait MovementHelpers: Sized {
         timeout: Duration,
     ) -> Result<(), Error>;
 
-    /// Set zoom and wait for completion.
-    fn set_zoom_and_wait(&self, zoom: Normalized, timeout: Duration) -> Result<(), Error>;
-
-    /// Check if camera is currently moving.
+    /// Check if the camera is currently moving.
     fn is_moving(&self) -> Result<bool, Error>;
-
-    /// Wait for all movements to complete.
-    fn wait_for_all_movements(&self, timeout: Duration) -> Result<(), Error>;
 }
 
 /// Async helper methods for camera movement operations.
@@ -178,7 +120,7 @@ pub trait MovementHelpersAsync: Sized {
         config: &MovementDetectionConfig,
     ) -> Result<(), Error>;
 
-    /// Wait for focus to complete with default config.
+    /// Wait for focus movement to complete with default config.
     async fn wait_for_focus_completion(&self, timeout: Duration) -> Result<(), Error> {
         let config = MovementDetectionConfig {
             timeout,
@@ -187,13 +129,16 @@ pub trait MovementHelpersAsync: Sized {
         self.wait_for_focus_completion_with_config(&config).await
     }
 
-    /// Wait for focus to complete with custom config.
+    /// Wait for focus movement to complete with custom config.
     async fn wait_for_focus_completion_with_config(
         &self,
         config: &MovementDetectionConfig,
     ) -> Result<(), Error>;
 
-    /// Move to position and wait for completion.
+    /// Wait for all movements to complete.
+    async fn wait_for_all_movements(&self, timeout: Duration) -> Result<(), Error>;
+
+    /// Move to a position and wait for completion.
     async fn move_to_position_and_wait(
         &self,
         pan: Degrees,
@@ -201,27 +146,8 @@ pub trait MovementHelpersAsync: Sized {
         timeout: Duration,
     ) -> Result<(), Error>;
 
-    /// Set zoom and wait for completion.
-    async fn set_zoom_and_wait(&self, zoom: Normalized, timeout: Duration) -> Result<(), Error>;
-
-    /// Check if camera is currently moving.
+    /// Check if the camera is currently moving.
     async fn is_moving(&self) -> Result<bool, Error>;
-
-    /// Wait for all movements to complete.
-    async fn wait_for_all_movements(&self, timeout: Duration) -> Result<(), Error>;
-}
-
-// Helper function to check if positions are within tolerance
-fn positions_equal_within_tolerance(pos1: (i16, i16), pos2: (i16, i16), tolerance: i16) -> bool {
-    (pos1.0 - pos2.0).abs() <= tolerance && (pos1.1 - pos2.1).abs() <= tolerance
-}
-
-fn zoom_equal_within_tolerance(zoom1: u16, zoom2: u16, tolerance: u16) -> bool {
-    if zoom1 > zoom2 {
-        zoom1 - zoom2 <= tolerance
-    } else {
-        zoom2 - zoom1 <= tolerance
-    }
 }
 
 // Blocking implementation
@@ -230,208 +156,96 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
         &self,
         config: &MovementDetectionConfig,
     ) -> Result<(), Error> {
-        use crate::camera::methods::inquiry::PanTiltInquiryOpsBlocking;
+        let probe = BlockingPanTiltProbe::new(self);
 
-        let start = Instant::now();
-
-        // Wait for movement to potentially start
-        std::thread::sleep(config.startup_delay);
-
-        // Get initial position after startup delay
-        let initial_position = self.get_pan_tilt_position()?;
-        let mut last_position = initial_position;
-        let mut stable_count = 0;
-        let mut has_moved = false;
-        let mut oscillation_detector = Vec::new();
-
-        loop {
-            // Check timeout
-            if start.elapsed() > config.timeout {
-                if config.debug {
-                    log::debug!("Pan/tilt movement timed out");
-                }
-                return Err(Error::Timeout);
-            }
-
-            // Poll current position
-            let current_position = self.get_pan_tilt_position()?;
-
-            // Check if camera has moved from initial position
-            if !has_moved
-                && !positions_equal_within_tolerance(
-                    initial_position,
-                    current_position,
-                    config.position_tolerance,
-                )
-            {
-                has_moved = true;
-                if config.debug {
-                    log::debug!(
-                        "Pan/tilt movement detected: {initial_position:?} -> {current_position:?}"
-                    );
-                }
-            }
-
-            // Check for stability
-            if positions_equal_within_tolerance(
-                last_position,
-                current_position,
-                config.position_tolerance,
-            ) {
-                stable_count += 1;
-                if stable_count >= config.stability_threshold {
-                    // Extra check: ensure we're not in oscillation
-                    if oscillation_detector.len() >= 2 {
-                        let recent_positions: Vec<_> =
-                            oscillation_detector.iter().rev().take(3).collect();
-
-                        // Check if we're oscillating between positions
-                        let unique_positions: std::collections::HashSet<_> =
-                            recent_positions.iter().collect();
-
-                        if unique_positions.len() == 1 {
-                            // Truly stable
-                            if config.debug {
-                                log::debug!("Pan/tilt movement complete at: {current_position:?}");
-                            }
-                            return Ok(());
-                        }
-                    } else {
-                        // Not enough history, consider it stable
-                        if config.debug {
-                            log::debug!("Pan/tilt movement complete at: {current_position:?}");
-                        }
-                        return Ok(());
-                    }
-                }
-            } else {
-                stable_count = 0;
-                oscillation_detector.push(current_position);
-                if oscillation_detector.len() > 10 {
-                    oscillation_detector.remove(0);
-                }
-            }
-
-            // If camera never moved and we've waited enough, consider it complete
-            if !has_moved && start.elapsed() > Duration::from_secs(2) {
-                if config.debug {
-                    log::debug!("No pan/tilt movement detected, camera likely already at position");
-                }
-                return Ok(());
-            }
-
-            last_position = current_position;
-            std::thread::sleep(config.poll_interval);
-        }
+        // Use the async algorithm but block on it
+        futures::executor::block_on(wait_for_pan_tilt_completion(&probe, config))
     }
 
     fn wait_for_zoom_completion_with_config(
         &self,
         config: &MovementDetectionConfig,
     ) -> Result<(), Error> {
-        use crate::camera::methods::inquiry::InquiryOpsBlocking;
-
-        let start = Instant::now();
-
-        // Wait for movement to potentially start
-        std::thread::sleep(config.startup_delay);
-
-        let initial_zoom = self.get_zoom_position()?;
-        let mut last_zoom = initial_zoom;
-        let mut stable_count = 0;
-        let mut has_moved = false;
-
-        loop {
-            if start.elapsed() > config.timeout {
-                return Err(Error::Timeout);
-            }
-
-            let current_zoom = self.get_zoom_position()?;
-
-            if !has_moved
-                && !zoom_equal_within_tolerance(initial_zoom, current_zoom, config.zoom_tolerance)
-            {
-                has_moved = true;
-                if config.debug {
-                    log::debug!("Zoom movement detected: {initial_zoom} -> {current_zoom}");
-                }
-            }
-
-            if zoom_equal_within_tolerance(last_zoom, current_zoom, config.zoom_tolerance) {
-                stable_count += 1;
-                if stable_count >= config.stability_threshold {
-                    if config.debug {
-                        log::debug!("Zoom movement complete at: {current_zoom}");
-                    }
-                    return Ok(());
-                }
-            } else {
-                stable_count = 0;
-            }
-
-            if !has_moved && start.elapsed() > Duration::from_secs(2) {
-                if config.debug {
-                    log::debug!("No zoom movement detected, camera likely already at position");
-                }
-                return Ok(());
-            }
-
-            last_zoom = current_zoom;
-            std::thread::sleep(config.poll_interval);
-        }
+        let probe = BlockingZoomProbe::new(self);
+        futures::executor::block_on(wait_for_zoom_completion(&probe, config))
     }
 
     fn wait_for_focus_completion_with_config(
         &self,
         config: &MovementDetectionConfig,
     ) -> Result<(), Error> {
-        use crate::camera::methods::inquiry::InquiryOpsBlocking;
+        let probe = BlockingFocusProbe::new(self);
+        futures::executor::block_on(wait_for_focus_completion(&probe, config))
+    }
+
+    fn wait_for_all_movements(&self, timeout: Duration) -> Result<(), Error> {
+        use super::movement_probe::{
+            positions_equal_within_tolerance, zoom_equal_within_tolerance, PanTiltPosition,
+        };
+        use crate::camera::methods::inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking};
 
         let start = Instant::now();
+        let check_interval = Duration::from_millis(200);
 
-        // Focus can be slow to start
-        std::thread::sleep(config.startup_delay);
-
-        let initial_focus = self.get_focus_position()?;
-        let mut last_focus = initial_focus;
-        let mut stable_count = 0;
-        let mut has_moved = false;
+        std::thread::sleep(Duration::from_millis(300));
 
         loop {
-            if start.elapsed() > config.timeout {
+            if start.elapsed() > timeout {
                 return Err(Error::Timeout);
             }
 
-            let current_focus = self.get_focus_position()?;
+            // Check movement
+            let pos1_pt = self.get_pan_tilt_position()?;
+            let pos1_zoom = self.get_zoom_position()?;
+            let pos1_focus = self.get_focus_position()?;
 
-            if !has_moved && (current_focus as i32 - initial_focus as i32).abs() > 10 {
-                has_moved = true;
-                if config.debug {
-                    log::debug!("Focus movement detected: {initial_focus} -> {current_focus}");
-                }
-            }
+            std::thread::sleep(Duration::from_millis(50));
 
-            if (current_focus as i32 - last_focus as i32).abs() <= 10 {
-                stable_count += 1;
-                if stable_count >= config.stability_threshold {
-                    if config.debug {
-                        log::debug!("Focus adjustment complete at: {current_focus}");
-                    }
+            let pos2_pt = self.get_pan_tilt_position()?;
+            let pos2_zoom = self.get_zoom_position()?;
+            let pos2_focus = self.get_focus_position()?;
+
+            let pt_moving = !positions_equal_within_tolerance(
+                PanTiltPosition {
+                    pan: pos1_pt.0,
+                    tilt: pos1_pt.1,
+                },
+                PanTiltPosition {
+                    pan: pos2_pt.0,
+                    tilt: pos2_pt.1,
+                },
+                2,
+            );
+            let zoom_moving = !zoom_equal_within_tolerance(pos1_zoom, pos2_zoom, 10);
+            let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5;
+
+            if !pt_moving && !zoom_moving && !focus_moving {
+                std::thread::sleep(Duration::from_millis(100));
+
+                // Double-check
+                let pos3_pt = self.get_pan_tilt_position()?;
+                let pos3_zoom = self.get_zoom_position()?;
+                let pos3_focus = self.get_focus_position()?;
+
+                let still_not_moving = positions_equal_within_tolerance(
+                    PanTiltPosition {
+                        pan: pos2_pt.0,
+                        tilt: pos2_pt.1,
+                    },
+                    PanTiltPosition {
+                        pan: pos3_pt.0,
+                        tilt: pos3_pt.1,
+                    },
+                    2,
+                ) && zoom_equal_within_tolerance(pos2_zoom, pos3_zoom, 10)
+                    && (pos2_focus as i32 - pos3_focus as i32).abs() <= 5;
+
+                if still_not_moving {
                     return Ok(());
                 }
-            } else {
-                stable_count = 0;
             }
 
-            if !has_moved && start.elapsed() > Duration::from_secs(2) {
-                if config.debug {
-                    log::debug!("No focus movement detected");
-                }
-                return Ok(());
-            }
-
-            last_focus = current_focus;
-            std::thread::sleep(config.poll_interval);
+            std::thread::sleep(check_interval);
         }
     }
 
@@ -444,23 +258,16 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
         use crate::camera::methods::pan_tilt::PanTiltOpsBlocking;
         use crate::types::SpeedLevel;
 
-        self.pan_tilt_absolute(pan, tilt, SpeedLevel::Medium)?;
-        MovementHelpers::wait_for_pan_tilt_completion(self, timeout)?;
-        Ok(())
-    }
-
-    fn set_zoom_and_wait(&self, zoom: Normalized, timeout: Duration) -> Result<(), Error> {
-        use crate::camera::methods::zoom::ZoomOpsBlocking;
-
-        self.zoom_absolute(zoom)?;
-        MovementHelpers::wait_for_zoom_completion(self, timeout)?;
-        Ok(())
+        self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast)?;
+        MovementHelpers::wait_for_pan_tilt_completion(self, timeout)
     }
 
     fn is_moving(&self) -> Result<bool, Error> {
+        use super::movement_probe::{
+            positions_equal_within_tolerance, zoom_equal_within_tolerance, PanTiltPosition,
+        };
         use crate::camera::methods::inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking};
 
-        // Take two readings with a short delay
         let pos1_pt = self.get_pan_tilt_position()?;
         let pos1_zoom = self.get_zoom_position()?;
         let pos1_focus = self.get_focus_position()?;
@@ -471,237 +278,121 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
         let pos2_zoom = self.get_zoom_position()?;
         let pos2_focus = self.get_focus_position()?;
 
-        // Check if any axis is moving
-        let pt_moving = !positions_equal_within_tolerance(pos1_pt, pos2_pt, 2);
+        let pt_moving = !positions_equal_within_tolerance(
+            PanTiltPosition {
+                pan: pos1_pt.0,
+                tilt: pos1_pt.1,
+            },
+            PanTiltPosition {
+                pan: pos2_pt.0,
+                tilt: pos2_pt.1,
+            },
+            2,
+        );
         let zoom_moving = !zoom_equal_within_tolerance(pos1_zoom, pos2_zoom, 10);
         let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5;
 
         Ok(pt_moving || zoom_moving || focus_moving)
     }
-
-    fn wait_for_all_movements(&self, timeout: Duration) -> Result<(), Error> {
-        let start = Instant::now();
-        let check_interval = Duration::from_millis(200);
-
-        // Initial delay to let movements start
-        std::thread::sleep(Duration::from_millis(300));
-
-        loop {
-            if start.elapsed() > timeout {
-                return Err(Error::Timeout);
-            }
-
-            if !MovementHelpers::is_moving(self)? {
-                // Double-check after a short delay
-                std::thread::sleep(Duration::from_millis(100));
-                if !MovementHelpers::is_moving(self)? {
-                    return Ok(());
-                }
-            }
-
-            std::thread::sleep(check_interval);
-        }
-    }
 }
 
-// Async implementation
-#[cfg(feature = "async")]
+use std::time::Instant;
+
+// Tokio async implementation
+#[cfg(feature = "tokio")]
 impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
     async fn wait_for_pan_tilt_completion_with_config(
         &self,
         config: &MovementDetectionConfig,
     ) -> Result<(), Error> {
-        use crate::camera::methods::inquiry::PanTiltInquiryOps;
-
-        let start = Instant::now();
-
-        // Wait for movement to potentially start
-        tokio::time::sleep(config.startup_delay).await;
-
-        let initial_position = self.get_pan_tilt_position().await?;
-        let mut last_position = initial_position;
-        let mut stable_count = 0;
-        let mut has_moved = false;
-        let mut oscillation_detector = Vec::new();
-
-        loop {
-            if start.elapsed() > config.timeout {
-                if config.debug {
-                    log::debug!("Pan/tilt movement timed out");
-                }
-                return Err(Error::Timeout);
-            }
-
-            let current_position = self.get_pan_tilt_position().await?;
-
-            if !has_moved
-                && !positions_equal_within_tolerance(
-                    initial_position,
-                    current_position,
-                    config.position_tolerance,
-                )
-            {
-                has_moved = true;
-                if config.debug {
-                    log::debug!(
-                        "Pan/tilt movement detected: {initial_position:?} -> {current_position:?}"
-                    );
-                }
-            }
-
-            if positions_equal_within_tolerance(
-                last_position,
-                current_position,
-                config.position_tolerance,
-            ) {
-                stable_count += 1;
-                if stable_count >= config.stability_threshold {
-                    // Check for oscillation
-                    if oscillation_detector.len() >= 2 {
-                        let recent_positions: Vec<_> =
-                            oscillation_detector.iter().rev().take(3).collect();
-
-                        let unique_positions: std::collections::HashSet<_> =
-                            recent_positions.iter().collect();
-
-                        if unique_positions.len() == 1 {
-                            if config.debug {
-                                log::debug!("Pan/tilt movement complete at: {current_position:?}");
-                            }
-                            return Ok(());
-                        }
-                    } else {
-                        if config.debug {
-                            log::debug!("Pan/tilt movement complete at: {current_position:?}");
-                        }
-                        return Ok(());
-                    }
-                }
-            } else {
-                stable_count = 0;
-                oscillation_detector.push(current_position);
-                if oscillation_detector.len() > 10 {
-                    oscillation_detector.remove(0);
-                }
-            }
-
-            if !has_moved && start.elapsed() > Duration::from_secs(2) {
-                if config.debug {
-                    log::debug!("No pan/tilt movement detected, camera likely already at position");
-                }
-                return Ok(());
-            }
-
-            last_position = current_position;
-            tokio::time::sleep(config.poll_interval).await;
-        }
+        let probe = TokioPanTiltProbe::new(self);
+        wait_for_pan_tilt_completion(&probe, config).await
     }
 
     async fn wait_for_zoom_completion_with_config(
         &self,
         config: &MovementDetectionConfig,
     ) -> Result<(), Error> {
-        use crate::camera::methods::inquiry::InquiryOps;
-
-        let start = Instant::now();
-
-        tokio::time::sleep(config.startup_delay).await;
-
-        let initial_zoom = self.get_zoom_position().await?;
-        let mut last_zoom = initial_zoom;
-        let mut stable_count = 0;
-        let mut has_moved = false;
-
-        loop {
-            if start.elapsed() > config.timeout {
-                return Err(Error::Timeout);
-            }
-
-            let current_zoom = self.get_zoom_position().await?;
-
-            if !has_moved
-                && !zoom_equal_within_tolerance(initial_zoom, current_zoom, config.zoom_tolerance)
-            {
-                has_moved = true;
-                if config.debug {
-                    log::debug!("Zoom movement detected: {initial_zoom} -> {current_zoom}");
-                }
-            }
-
-            if zoom_equal_within_tolerance(last_zoom, current_zoom, config.zoom_tolerance) {
-                stable_count += 1;
-                if stable_count >= config.stability_threshold {
-                    if config.debug {
-                        log::debug!("Zoom movement complete at: {current_zoom}");
-                    }
-                    return Ok(());
-                }
-            } else {
-                stable_count = 0;
-            }
-
-            if !has_moved && start.elapsed() > Duration::from_secs(2) {
-                if config.debug {
-                    log::debug!("No zoom movement detected, camera likely already at position");
-                }
-                return Ok(());
-            }
-
-            last_zoom = current_zoom;
-            tokio::time::sleep(config.poll_interval).await;
-        }
+        let probe = TokioZoomProbe::new(self);
+        wait_for_zoom_completion(&probe, config).await
     }
 
     async fn wait_for_focus_completion_with_config(
         &self,
         config: &MovementDetectionConfig,
     ) -> Result<(), Error> {
-        use crate::camera::methods::inquiry::InquiryOps;
+        let probe = TokioFocusProbe::new(self);
+        wait_for_focus_completion(&probe, config).await
+    }
+
+    async fn wait_for_all_movements(&self, timeout: Duration) -> Result<(), Error> {
+        use super::movement_probe::{
+            positions_equal_within_tolerance, zoom_equal_within_tolerance, PanTiltPosition,
+        };
+        use crate::camera::methods::inquiry::{InquiryOps, PanTiltInquiryOps};
 
         let start = Instant::now();
+        let check_interval = Duration::from_millis(200);
 
-        tokio::time::sleep(config.startup_delay).await;
-
-        let initial_focus = self.get_focus_position().await?;
-        let mut last_focus = initial_focus;
-        let mut stable_count = 0;
-        let mut has_moved = false;
+        tokio::time::sleep(Duration::from_millis(300)).await;
 
         loop {
-            if start.elapsed() > config.timeout {
+            if start.elapsed() > timeout {
                 return Err(Error::Timeout);
             }
 
-            let current_focus = self.get_focus_position().await?;
+            // Check movement
+            let pos1_pt = self.get_pan_tilt_position().await?;
+            let pos1_zoom = self.get_zoom_position().await?;
+            let pos1_focus = self.get_focus_position().await?;
 
-            if !has_moved && (current_focus as i32 - initial_focus as i32).abs() > 10 {
-                has_moved = true;
-                if config.debug {
-                    log::debug!("Focus movement detected: {initial_focus} -> {current_focus}");
-                }
-            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
 
-            if (current_focus as i32 - last_focus as i32).abs() <= 10 {
-                stable_count += 1;
-                if stable_count >= config.stability_threshold {
-                    if config.debug {
-                        log::debug!("Focus adjustment complete at: {current_focus}");
-                    }
+            let pos2_pt = self.get_pan_tilt_position().await?;
+            let pos2_zoom = self.get_zoom_position().await?;
+            let pos2_focus = self.get_focus_position().await?;
+
+            let pt_moving = !positions_equal_within_tolerance(
+                PanTiltPosition {
+                    pan: pos1_pt.0,
+                    tilt: pos1_pt.1,
+                },
+                PanTiltPosition {
+                    pan: pos2_pt.0,
+                    tilt: pos2_pt.1,
+                },
+                2,
+            );
+            let zoom_moving = !zoom_equal_within_tolerance(pos1_zoom, pos2_zoom, 10);
+            let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5;
+
+            if !pt_moving && !zoom_moving && !focus_moving {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+
+                // Double-check
+                let pos3_pt = self.get_pan_tilt_position().await?;
+                let pos3_zoom = self.get_zoom_position().await?;
+                let pos3_focus = self.get_focus_position().await?;
+
+                let still_not_moving = positions_equal_within_tolerance(
+                    PanTiltPosition {
+                        pan: pos2_pt.0,
+                        tilt: pos2_pt.1,
+                    },
+                    PanTiltPosition {
+                        pan: pos3_pt.0,
+                        tilt: pos3_pt.1,
+                    },
+                    2,
+                ) && zoom_equal_within_tolerance(pos2_zoom, pos3_zoom, 10)
+                    && (pos2_focus as i32 - pos3_focus as i32).abs() <= 5;
+
+                if still_not_moving {
                     return Ok(());
                 }
-            } else {
-                stable_count = 0;
             }
 
-            if !has_moved && start.elapsed() > Duration::from_secs(2) {
-                if config.debug {
-                    log::debug!("No focus movement detected");
-                }
-                return Ok(());
-            }
-
-            last_focus = current_focus;
-            tokio::time::sleep(config.poll_interval).await;
+            tokio::time::sleep(check_interval).await;
         }
     }
 
@@ -714,21 +405,14 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
         use crate::camera::methods::pan_tilt::PanTiltOps;
         use crate::types::SpeedLevel;
 
-        self.pan_tilt_absolute(pan, tilt, SpeedLevel::Medium)
-            .await?;
-        MovementHelpersAsync::wait_for_pan_tilt_completion(self, timeout).await?;
-        Ok(())
-    }
-
-    async fn set_zoom_and_wait(&self, zoom: Normalized, timeout: Duration) -> Result<(), Error> {
-        use crate::camera::methods::zoom::ZoomOps;
-
-        self.zoom_absolute(zoom).await?;
-        MovementHelpersAsync::wait_for_zoom_completion(self, timeout).await?;
-        Ok(())
+        self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast).await?;
+        MovementHelpersAsync::wait_for_pan_tilt_completion(self, timeout).await
     }
 
     async fn is_moving(&self) -> Result<bool, Error> {
+        use super::movement_probe::{
+            positions_equal_within_tolerance, zoom_equal_within_tolerance, PanTiltPosition,
+        };
         use crate::camera::methods::inquiry::{InquiryOps, PanTiltInquiryOps};
 
         let pos1_pt = self.get_pan_tilt_position().await?;
@@ -741,32 +425,74 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
         let pos2_zoom = self.get_zoom_position().await?;
         let pos2_focus = self.get_focus_position().await?;
 
-        let pt_moving = !positions_equal_within_tolerance(pos1_pt, pos2_pt, 2);
+        let pt_moving = !positions_equal_within_tolerance(
+            PanTiltPosition {
+                pan: pos1_pt.0,
+                tilt: pos1_pt.1,
+            },
+            PanTiltPosition {
+                pan: pos2_pt.0,
+                tilt: pos2_pt.1,
+            },
+            2,
+        );
         let zoom_moving = !zoom_equal_within_tolerance(pos1_zoom, pos2_zoom, 10);
         let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5;
 
         Ok(pt_moving || zoom_moving || focus_moving)
     }
+}
 
-    async fn wait_for_all_movements(&self, timeout: Duration) -> Result<(), Error> {
-        let start = Instant::now();
-        let check_interval = Duration::from_millis(200);
+// Generic async implementation for non-tokio async runtimes
+#[cfg(all(feature = "async", not(feature = "tokio")))]
+impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
+    async fn wait_for_pan_tilt_completion_with_config(
+        &self,
+        _config: &MovementDetectionConfig,
+    ) -> Result<(), Error> {
+        Err(Error::InvalidState(
+            "Async movement helpers require tokio feature".into(),
+        ))
+    }
 
-        tokio::time::sleep(Duration::from_millis(300)).await;
+    async fn wait_for_zoom_completion_with_config(
+        &self,
+        _config: &MovementDetectionConfig,
+    ) -> Result<(), Error> {
+        Err(Error::InvalidState(
+            "Async movement helpers require tokio feature".into(),
+        ))
+    }
 
-        loop {
-            if start.elapsed() > timeout {
-                return Err(Error::Timeout);
-            }
+    async fn wait_for_focus_completion_with_config(
+        &self,
+        _config: &MovementDetectionConfig,
+    ) -> Result<(), Error> {
+        Err(Error::InvalidState(
+            "Async movement helpers require tokio feature".into(),
+        ))
+    }
 
-            if !MovementHelpersAsync::is_moving(self).await? {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                if !MovementHelpersAsync::is_moving(self).await? {
-                    return Ok(());
-                }
-            }
+    async fn wait_for_all_movements(&self, _timeout: Duration) -> Result<(), Error> {
+        Err(Error::InvalidState(
+            "Async movement helpers require tokio feature".into(),
+        ))
+    }
 
-            tokio::time::sleep(check_interval).await;
-        }
+    async fn move_to_position_and_wait(
+        &self,
+        _pan: Degrees,
+        _tilt: Degrees,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
+        Err(Error::InvalidState(
+            "Async movement helpers require tokio feature".into(),
+        ))
+    }
+
+    async fn is_moving(&self) -> Result<bool, Error> {
+        Err(Error::InvalidState(
+            "Async movement helpers require tokio feature".into(),
+        ))
     }
 }
