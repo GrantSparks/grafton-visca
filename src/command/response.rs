@@ -310,6 +310,13 @@ pub fn parse_response(data: &[u8], expected_type: &ResponseType) -> Result<Respo
             if data.len() == 3 {
                 Ok(Response::Completion)
             } else {
+                // Debug logging for inquiry responses
+                log::debug!(
+                    "Parsing inquiry response for {:?}, raw bytes: {:02X?}, payload bytes: {:02X?}",
+                    expected_type,
+                    data,
+                    &data[2..data.len() - 1]
+                );
                 parse_inquiry_response(&data[2..data.len() - 1], expected_type)
             }
         }
@@ -338,24 +345,77 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             }))
         }
         ResponseType::ZoomPosition => {
-            if payload.len() != 4 {
+            // Standard VISCA expects 4 bytes for zoom position
+            // But some cameras may return 8 bytes (possibly including digital zoom info)
+            if payload.len() == 4 {
+                // Standard format: 0p 0q 0r 0s
+                let position = combine_nibbles_u16(&payload[0..4]);
+                Ok(Response::Inquiry(InquiryResponse::ZoomPosition {
+                    position,
+                }))
+            } else if payload.len() == 8 {
+                // Extended format: Some cameras return 8 bytes
+                // This might include both optical and digital zoom info
+                // For now, use the first 4 bytes as the zoom position
+                log::warn!(
+                    "ZoomPosition: Received extended format (8 bytes). Payload: {:02X?}. Using first 4 bytes.",
+                    payload
+                );
+                let position = combine_nibbles_u16(&payload[0..4]);
+                Ok(Response::Inquiry(InquiryResponse::ZoomPosition {
+                    position,
+                }))
+            } else {
+                log::error!(
+                    "ZoomPosition: Invalid response length. Expected 4 or 8 bytes, got {}. Payload: {:02X?}",
+                    payload.len(),
+                    payload
+                );
                 return Err(Error::InvalidResponseLength);
             }
-            let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::Inquiry(InquiryResponse::ZoomPosition {
-                position,
-            }))
         }
         ResponseType::PanTiltPosition => {
-            if payload.len() != 8 {
+            // Standard VISCA expects 8 bytes (4 for pan, 4 for tilt)
+            // But some cameras may return 4 bytes with combined values
+            if payload.len() == 8 {
+                // Standard format: PP PP PP PP TT TT TT TT
+                let pan = combine_nibbles_i16(&payload[0..4]);
+                let tilt = combine_nibbles_i16(&payload[4..8]);
+                Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                    pan,
+                    tilt,
+                }))
+            } else if payload.len() == 4 {
+                // Compact format: Some cameras return PP PP TT TT
+                // or all zeros when at home position
+                log::warn!(
+                    "PanTiltPosition: Received compact format (4 bytes). Payload: {:02X?}. Treating as home position.",
+                    payload
+                );
+                // For now, treat 4-byte response as home position (0, 0)
+                // This may need adjustment based on specific camera models
+                let pan = if payload.len() >= 2 {
+                    ((payload[0] as i16) << 8) | (payload[1] as i16)
+                } else {
+                    0
+                };
+                let tilt = if payload.len() >= 4 {
+                    ((payload[2] as i16) << 8) | (payload[3] as i16)
+                } else {
+                    0
+                };
+                Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                    pan,
+                    tilt,
+                }))
+            } else {
+                log::error!(
+                    "PanTiltPosition: Invalid response length. Expected 8 or 4 bytes, got {}. Payload: {:02X?}",
+                    payload.len(),
+                    payload
+                );
                 return Err(Error::InvalidResponseLength);
             }
-            let pan = combine_nibbles_i16(&payload[0..4]);
-            let tilt = combine_nibbles_i16(&payload[4..8]);
-            Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
-                pan,
-                tilt,
-            }))
         }
         ResponseType::FocusPosition => {
             if payload.len() != 4 {
