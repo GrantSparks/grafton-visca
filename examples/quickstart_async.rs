@@ -18,7 +18,7 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2,
+    camera::{profiles::PTZOpticsG2, MovementDetectionConfig},
     prelude::r#async::*,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::*,
@@ -80,9 +80,10 @@ async fn main() -> Result<(), Error> {
     // === BASIC MOVEMENT ===
     println!("═══ Basic Movement Operations ═══");
 
-    // Home position
+    // Home position with new concise API
     println!("Moving to home position...");
     camera.pan_tilt_home().await?;
+    // Using the new concise method name (was wait_for_pan_tilt_completion)
     camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ At home position");
 
@@ -124,15 +125,27 @@ async fn main() -> Result<(), Error> {
     // === ADVANCED POSITIONING ===
     println!("═══ Advanced Positioning ═══");
 
-    // Absolute positioning with degrees
-    println!("Moving to absolute position (45°, 15°)...");
+    // Absolute positioning with custom movement detection
+    println!("Moving to absolute position (45°, 15°) with custom detection...");
     camera
         .pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)
         .await?;
-    camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
-    println!("✓ Moved to position");
 
-    // Relative movement
+    // Demonstrate custom movement detection configuration
+    let custom_config = MovementDetectionConfig {
+        timeout: Duration::from_secs(30),
+        tolerance_pan_stable: 1, // More precise detection (default is 2)
+        tolerance_tilt_stable: 1,
+        stability_threshold: 5, // Require more stable readings (default is 3)
+        debug: true,            // Enable debug logging for this movement
+        ..Default::default()
+    };
+    camera
+        .await_pan_tilt_idle_with_config(&custom_config)
+        .await?;
+    println!("✓ Moved to position with high precision");
+
+    // Relative movement with simplified API
     println!("Moving relative (+10°, +5°)...");
     camera
         .pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)
@@ -140,11 +153,50 @@ async fn main() -> Result<(), Error> {
     camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ Relative movement complete");
 
-    // Absolute zoom positioning
+    // Absolute zoom positioning with new API
     println!("Setting zoom to 50%...");
     camera.zoom_absolute(Normalized(0.5)).await?;
     camera.await_zoom_idle(Duration::from_secs(10)).await?;
     println!("✓ Zoom at 50%");
+    println!();
+
+    // === DEMONSTRATE NEW MOVEMENT DETECTION ===
+    println!("═══ Advanced Movement Detection ═══");
+
+    // Move to position and wait - new concise API
+    println!("Using move_to helper (combines movement + wait)...");
+    camera
+        .move_to(Degrees(-30.0), Degrees(10.0), Duration::from_secs(30))
+        .await?;
+    println!("✓ move_to completed");
+
+    // Wait for all movements to complete (pan/tilt/zoom/focus)
+    println!("Initiating multiple movements...");
+    camera
+        .pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Fast)
+        .await?;
+    camera.zoom_absolute(Normalized(0.3)).await?;
+
+    println!("Waiting for all movements to complete...");
+    camera.await_idle(Duration::from_secs(30)).await?; // Waits for pan/tilt/zoom/focus simultaneously
+    println!("✓ All movements completed");
+
+    // Demonstrate async advantage: concurrent operations
+    println!("\nDemonstrating async concurrent operations...");
+    use tokio::join;
+
+    // Start multiple movements simultaneously
+    let pan_tilt = camera.pan_tilt_absolute(Degrees(20.0), Degrees(-5.0), SpeedLevel::Medium);
+    let zoom = camera.zoom_absolute(Normalized(0.6));
+
+    // Execute them concurrently
+    let (pt_result, z_result) = join!(pan_tilt, zoom);
+    pt_result?;
+    z_result?;
+
+    // Wait for all to complete
+    camera.await_idle(Duration::from_secs(30)).await?;
+    println!("✓ Concurrent operations completed");
     println!();
 
     // === FOCUS CONTROL ===
@@ -167,7 +219,7 @@ async fn main() -> Result<(), Error> {
     camera.focus_stop().await?;
     println!("✓ Manual focus complete");
 
-    // One-push auto focus
+    // One-push auto focus with new API
     println!("Triggering one-push auto focus...");
     camera.focus_one_push().await?;
     camera.await_focus_idle(Duration::from_secs(10)).await?;

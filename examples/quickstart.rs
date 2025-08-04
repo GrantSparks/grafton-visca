@@ -17,7 +17,7 @@
 //! ```
 
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2,
+    camera::{profiles::PTZOpticsG2, MovementDetectionConfig},
     prelude::blocking::*,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::*,
@@ -70,9 +70,10 @@ fn main() -> Result<(), Error> {
     // === BASIC MOVEMENT ===
     println!("═══ Basic Movement Operations ═══");
 
-    // Home position
+    // Home position with new concise API
     println!("Moving to home position...");
     camera.pan_tilt_home()?;
+    // Using the new concise method name (was wait_for_pan_tilt_completion)
     camera.await_pan_tilt_idle(Duration::from_secs(30))?;
     println!("✓ At home position");
 
@@ -117,16 +118,44 @@ fn main() -> Result<(), Error> {
     println!("✓ Moved to position");
 
     // Relative movement
-    println!("Moving relative (+10°, +5°)...");
+    println!("Moving relative (+10°, +5°) with custom detection...");
     camera.pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)?;
-    camera.await_pan_tilt_idle(Duration::from_secs(30))?;
-    println!("✓ Relative movement complete");
 
-    // Absolute zoom positioning
+    // Demonstrate custom movement detection configuration
+    let custom_config = MovementDetectionConfig {
+        timeout: Duration::from_secs(30),
+        tolerance_pan_stable: 1, // More precise detection (default is 2)
+        tolerance_tilt_stable: 1,
+        stability_threshold: 5, // Require more stable readings (default is 3)
+        debug: true,            // Enable debug logging for this movement
+        ..Default::default()
+    };
+    camera.await_pan_tilt_idle_with_config(&custom_config)?;
+    println!("✓ Relative movement complete with high precision");
+
+    // Absolute zoom positioning with new API
     println!("Setting zoom to 50%...");
     camera.zoom_absolute(Normalized(0.5))?;
     camera.await_zoom_idle(Duration::from_secs(10))?;
     println!("✓ Zoom at 50%");
+    println!();
+
+    // === DEMONSTRATE NEW MOVEMENT DETECTION ===
+    println!("═══ Advanced Movement Detection ═══");
+
+    // Move to position and wait - new concise API
+    println!("Using move_to helper (combines movement + wait)...");
+    camera.move_to(Degrees(-30.0), Degrees(10.0), Duration::from_secs(30))?;
+    println!("✓ move_to completed");
+
+    // Wait for all movements to complete (pan/tilt/zoom/focus)
+    println!("Initiating multiple movements...");
+    camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Fast)?;
+    camera.zoom_absolute(Normalized(0.3))?;
+
+    println!("Waiting for all movements to complete...");
+    camera.await_idle(Duration::from_secs(30))?; // Waits for pan/tilt/zoom/focus simultaneously
+    println!("✓ All movements completed");
     println!();
 
     // === FOCUS CONTROL ===
@@ -149,7 +178,7 @@ fn main() -> Result<(), Error> {
     camera.focus_stop()?;
     println!("✓ Manual focus complete");
 
-    // One-push auto focus
+    // One-push auto focus with new API
     println!("Triggering one-push auto focus...");
     camera.focus_one_push()?;
     camera.await_focus_idle(Duration::from_secs(5))?;
