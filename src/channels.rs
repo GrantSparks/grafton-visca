@@ -190,6 +190,44 @@ impl<T> OneshotReceiver<T> {
         }
     }
 
+    /// Receives a value from this channel with a timeout (blocking version).
+    ///
+    /// Returns Error::Timeout if the timeout expires before a value is received.
+    pub fn recv_timeout(self, timeout: std::time::Duration) -> Result<T> {
+        match self {
+            #[cfg(feature = "tokio")]
+            OneshotReceiver::Tokio(mut rx) => {
+                // For tokio in blocking context, we need to use blocking recv
+                // This is a sync method, so we use std::sync::mpsc for the timeout
+                // Since tokio oneshot doesn't have recv_timeout, we'll use try_recv in a loop
+                let start = std::time::Instant::now();
+                loop {
+                    match rx.try_recv() {
+                        Ok(val) => return Ok(val),
+                        Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                            if start.elapsed() >= timeout {
+                                return Err(Error::Timeout);
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                            return Err(Error::TransportError(Cow::Borrowed(
+                                "Response channel closed",
+                            )))
+                        }
+                    }
+                }
+            }
+            #[cfg(not(feature = "tokio"))]
+            OneshotReceiver::Std(rx) => rx.recv_timeout(timeout).map_err(|e| match e {
+                std::sync::mpsc::RecvTimeoutError::Timeout => Error::Timeout,
+                std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                    Error::TransportError(Cow::Borrowed("Response channel closed"))
+                }
+            }),
+        }
+    }
+
     /// Async-compatible receive for blocking mode.
     ///
     /// This simply calls the blocking recv() but provides an async interface.

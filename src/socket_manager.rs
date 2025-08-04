@@ -397,6 +397,20 @@ impl SocketManagerHandle {
 
         result
     }
+
+    /// Send a WaitForCompletion command to the socket manager (for blocking mode).
+    ///
+    /// This returns the receiver that can be used to wait for the completion
+    /// message with a timeout.
+    pub fn send_wait_for_completion(&self) -> Result<channels::OneshotReceiver<Result<()>>> {
+        let (response_sender, response_receiver) = channels::oneshot();
+
+        self.command_sender
+            .send(SocketManagerCommand::WaitForCompletion { response_sender })
+            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager channel closed")))?;
+
+        Ok(response_receiver)
+    }
 }
 
 /// Trait for handling retry decisions for commands.

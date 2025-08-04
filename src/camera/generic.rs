@@ -511,11 +511,52 @@ where
     /// # Returns
     /// * `Ok(())` if a completion message was received
     /// * `Err(Error::Timeout)` if no completion message was received within the timeout
-    pub fn wait_for_completion_blocking(&self, _timeout: Duration) -> Result<(), Error> {
-        // Blocking mode doesn't have socket manager support yet
-        // This would require adding blocking socket manager implementation
-        log::debug!("wait_for_completion_blocking: event-driven detection not yet implemented for blocking mode");
-        Err(Error::Unsupported)
+    /// * `Err(Error::Unsupported)` if no socket manager is available
+    #[cfg_attr(not(feature = "async"), allow(unused_variables))]
+    pub fn wait_for_completion_blocking(&self, timeout: Duration) -> Result<(), Error> {
+        #[cfg(feature = "async")]
+        {
+            // Check if socket manager is available
+            if let Some(socket_manager) = &self.socket_manager {
+                log::debug!("wait_for_completion_blocking: using socket manager to wait for completion message");
+
+                // Send the wait request to the socket manager and get the receiver
+                let response_receiver = socket_manager.send_wait_for_completion()?;
+
+                // Wait for the completion with timeout
+                match response_receiver.recv_timeout(timeout) {
+                    Ok(Ok(())) => {
+                        log::debug!("wait_for_completion_blocking: received completion message");
+                        Ok(())
+                    }
+                    Ok(Err(e)) => {
+                        log::debug!(
+                            "wait_for_completion_blocking: error from socket manager: {e:?}"
+                        );
+                        Err(e)
+                    }
+                    Err(Error::Timeout) => {
+                        log::debug!("wait_for_completion_blocking: timeout waiting for completion");
+                        Err(Error::Timeout)
+                    }
+                    Err(e) => {
+                        log::debug!("wait_for_completion_blocking: channel error: {e:?}");
+                        Err(e)
+                    }
+                }
+            } else {
+                // No socket manager, can't wait for completion
+                log::debug!("wait_for_completion_blocking: no socket manager available");
+                Err(Error::Unsupported)
+            }
+        }
+
+        #[cfg(not(feature = "async"))]
+        {
+            // Without async features, we can't wait for completion messages
+            log::debug!("wait_for_completion_blocking: async features not enabled");
+            Err(Error::Unsupported)
+        }
     }
 
     /// Direct blocking implementation without async

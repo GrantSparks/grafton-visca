@@ -1,14 +1,13 @@
-//! GAT-based abstraction for movement detection.
+//! Movement detection utilities and configuration.
 //!
-//! This module provides a unified abstraction over blocking and async
-//! movement detection, eliminating code duplication.
+//! This module provides a clean event-driven movement detection API that uses
+//! VISCA completion messages when available and falls back to efficient state
+//! querying when needed.
 
 use std::time::Duration;
 
-use crate::error::Error;
-
 /// Position data for movement detection.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PanTiltPosition {
     /// Pan position in camera units.
     pub pan: i16,
@@ -16,123 +15,43 @@ pub struct PanTiltPosition {
     pub tilt: i16,
 }
 
-/// Movement detection probe that abstracts over blocking/async.
-pub trait MovementProbe {
-    /// The future type returned by sleep.
-    /// For blocking code, this can be a ready future.
-    /// For async code, this is the actual sleep future.
-    type Sleep<'a>: core::future::Future<Output = ()> + 'a
-    where
-        Self: 'a;
-
-    /// The future type for getting position.
-    type PositionFuture<'a>: core::future::Future<Output = Result<PanTiltPosition, Error>> + 'a
-    where
-        Self: 'a;
-
-    /// Get the current position.
-    fn get_position(&self) -> Self::PositionFuture<'_>;
-
-    /// Sleep for the specified duration.
-    fn sleep(&self, duration: Duration) -> Self::Sleep<'_>;
-}
-
-/// Zoom movement probe.
-pub trait ZoomProbe {
-    /// Sleep future type.
-    type Sleep<'a>: core::future::Future<Output = ()> + 'a
-    where
-        Self: 'a;
-
-    /// Zoom query future type.
-    type ZoomFuture<'a>: core::future::Future<Output = Result<u16, Error>> + 'a
-    where
-        Self: 'a;
-
-    /// Get the current zoom position.
-    fn get_zoom(&self) -> Self::ZoomFuture<'_>;
-    /// Sleep for the specified duration.
-    fn sleep(&self, duration: Duration) -> Self::Sleep<'_>;
-}
-
-/// Focus movement probe.
-pub trait FocusProbe {
-    /// Sleep future type.
-    type Sleep<'a>: core::future::Future<Output = ()> + 'a
-    where
-        Self: 'a;
-
-    /// Focus query future type.
-    type FocusFuture<'a>: core::future::Future<Output = Result<u16, Error>> + 'a
-    where
-        Self: 'a;
-
-    /// Get the current focus position.
-    fn get_focus(&self) -> Self::FocusFuture<'_>;
-    /// Sleep for the specified duration.
-    fn sleep(&self, duration: Duration) -> Self::Sleep<'_>;
-}
-
 /// Configuration for movement detection.
+///
+/// This configuration is used for both event-driven detection (using VISCA
+/// completion messages) and fallback state-query detection.
 #[derive(Debug, Clone, Copy)]
-pub struct MovementDetectionConfig {
-    /// Maximum time to wait for completion.
+pub struct MovementConfig {
+    /// Maximum time to wait for movement to complete.
+    /// Default: 30 seconds.
     pub timeout: Duration,
-    /// How often to check position.
-    pub poll_interval: Duration,
-    /// Initial delay before checking.
-    pub startup_delay: Duration,
-    /// How many consecutive stable readings needed.
-    pub stability_threshold: usize,
-    /// Enable debug logging.
+
+    /// Enable debug logging for movement detection.
+    /// Default: false.
     pub debug: bool,
-    /// Pan tolerance for detecting movement start (in camera units).
-    pub tolerance_pan_start: i16,
-    /// Tilt tolerance for detecting movement start (in camera units).
-    pub tolerance_tilt_start: i16,
-    /// Pan tolerance for detecting stable position (in camera units).
-    pub tolerance_pan_stable: i16,
-    /// Tilt tolerance for detecting stable position (in camera units).
-    pub tolerance_tilt_stable: i16,
-    /// Pan/tilt tolerance for oscillation detection (in camera units).
-    pub tolerance_pan_tilt_oscillation: i16,
-    /// Zoom tolerance for detecting movement start.
-    pub tolerance_zoom_start: u16,
-    /// Zoom tolerance for detecting stable position.
-    pub tolerance_zoom_stable: u16,
-    /// Focus tolerance for detecting movement start.
-    pub tolerance_focus_start: u16,
-    /// Focus tolerance for detecting stable position.
-    pub tolerance_focus_stable: u16,
-    /// Maximum oscillation samples to track.
-    pub oscillation_sample_size: usize,
-    /// Minimum oscillation samples needed for detection.
-    pub oscillation_min_samples: usize,
-    /// Time to wait before assuming no movement will occur.
-    pub no_movement_timeout: Duration,
 }
 
-impl Default for MovementDetectionConfig {
+impl Default for MovementConfig {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(30),
-            poll_interval: Duration::from_millis(100),
-            startup_delay: Duration::from_millis(200),
-            stability_threshold: 3,
             debug: false,
-            tolerance_pan_start: 5,
-            tolerance_tilt_start: 5,
-            tolerance_pan_stable: 2,
-            tolerance_tilt_stable: 2,
-            tolerance_pan_tilt_oscillation: 10,
-            tolerance_zoom_start: 20,
-            tolerance_zoom_stable: 10,
-            tolerance_focus_start: 10,
-            tolerance_focus_stable: 5,
-            oscillation_sample_size: 10,
-            oscillation_min_samples: 6,
-            no_movement_timeout: Duration::from_secs(2),
         }
+    }
+}
+
+impl MovementConfig {
+    /// Create a new configuration with a specific timeout.
+    pub fn with_timeout(timeout: Duration) -> Self {
+        Self {
+            timeout,
+            ..Default::default()
+        }
+    }
+
+    /// Enable debug logging.
+    pub fn with_debug(mut self) -> Self {
+        self.debug = true;
+        self
     }
 }
 

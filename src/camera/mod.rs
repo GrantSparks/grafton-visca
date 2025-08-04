@@ -15,9 +15,7 @@ pub mod generic_state;
 pub mod helpers;
 pub mod methods;
 pub mod movement_detection;
-pub mod movement_event;
 pub mod movement_probe;
-pub mod probes;
 pub mod profiles;
 
 // Re-export the generic Camera as the primary Camera type
@@ -36,12 +34,9 @@ pub use builder::{TcpBuilder, TypedTcpBuilder, TypedUdpBuilder, UdpBuilder};
 pub use builder::{TokioTcpBuilder, TokioUdpBuilder, TypedTokioTcpBuilder, TypedTokioUdpBuilder};
 
 // Re-export movement detection types
-pub use movement_event::{EventDrivenConfig, EventDrivenMovement};
-pub use movement_probe::MovementDetectionConfig;
+pub use movement_probe::{MovementConfig, PanTiltPosition};
 
+// Re-export helper traits
+pub use helpers::MovementHelpers;
 #[cfg(feature = "async")]
-pub use movement_event::EventDrivenMovementAsync;
-
-// Re-export runtime-agnostic async probes
-#[cfg(feature = "async")]
-pub use probes::{AsyncFocusProbe, AsyncPanTiltProbe, AsyncZoomProbe};
+pub use helpers::MovementHelpersAsync;

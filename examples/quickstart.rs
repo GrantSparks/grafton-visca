@@ -17,7 +17,7 @@
 //! ```
 
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, MovementDetectionConfig},
+    camera::{helpers::MovementHelpers, profiles::PTZOpticsG2, MovementConfig},
     prelude::blocking::*,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::*,
@@ -73,7 +73,7 @@ fn main() -> Result<(), Error> {
     // Home position with new concise API
     println!("Moving to home position...");
     camera.pan_tilt_home()?;
-    // Using the new concise method name (was wait_for_pan_tilt_completion)
+    // Using the new blocking method
     camera.await_pan_tilt_idle(Duration::from_secs(30))?;
     println!("✓ At home position");
 
@@ -130,15 +130,11 @@ fn main() -> Result<(), Error> {
     camera.pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)?;
 
     // Demonstrate custom movement detection configuration
-    let custom_config = MovementDetectionConfig {
+    let custom_config = MovementConfig {
         timeout: Duration::from_secs(30),
-        tolerance_pan_stable: 1, // More precise detection (default is 2)
-        tolerance_tilt_stable: 1,
-        stability_threshold: 5, // Require more stable readings (default is 3)
-        debug: true,            // Enable debug logging for this movement
-        ..Default::default()
+        debug: true, // Enable debug logging for this movement
     };
-    camera.await_pan_tilt_idle_with_config(&custom_config)?;
+    camera.wait_for_movement(&custom_config)?;
     println!("✓ Relative movement complete with high precision");
 
     // Absolute zoom positioning with new API

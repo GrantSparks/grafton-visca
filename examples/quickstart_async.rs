@@ -18,7 +18,7 @@
 
 #[cfg(feature = "tokio")]
 use grafton_visca::{
-    camera::{profiles::PTZOpticsG2, MovementDetectionConfig},
+    camera::{helpers::MovementHelpersAsync, profiles::PTZOpticsG2, MovementConfig},
     prelude::r#async::*,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::*,
@@ -137,17 +137,11 @@ async fn main() -> Result<(), Error> {
         .await?;
 
     // Demonstrate custom movement detection configuration
-    let custom_config = MovementDetectionConfig {
+    let custom_config = MovementConfig {
         timeout: Duration::from_secs(30),
-        tolerance_pan_stable: 1, // More precise detection (default is 2)
-        tolerance_tilt_stable: 1,
-        stability_threshold: 5, // Require more stable readings (default is 3)
-        debug: true,            // Enable debug logging for this movement
-        ..Default::default()
+        debug: true, // Enable debug logging for this movement
     };
-    camera
-        .await_pan_tilt_idle_with_config(&custom_config)
-        .await?;
+    camera.wait_for_movement_async(&custom_config).await?;
     println!("✓ Moved to position with high precision");
 
     // Relative movement with simplified API

@@ -63,12 +63,13 @@
 #[cfg(feature = "async")]
 pub mod r#async {
     // Re-export all async operation traits with clean names
-    pub use crate::camera::helpers::{MovementDetectionConfig, MovementHelpersAsync};
+    pub use crate::camera::helpers::MovementHelpersAsync;
     pub use crate::camera::methods::{
         ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlOps,
         MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
         StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
     };
+    pub use crate::camera::MovementConfig;
 
     // Re-export commonly used types
     pub use crate::Error;
@@ -133,7 +134,7 @@ pub mod r#async {
 /// ```
 pub mod blocking {
     // Re-export all blocking operation traits with clean names
-    pub use crate::camera::helpers::{MovementDetectionConfig, MovementHelpers};
+    pub use crate::camera::helpers::MovementHelpers;
     pub use crate::camera::methods::{
         ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps,
         FocusOpsBlocking as FocusOps, ImageProcessingOpsBlocking as ImageProcessingOps,
@@ -145,6 +146,7 @@ pub mod blocking {
         TallyOpsBlocking as TallyOps, VariableSpeedOpsBlocking as VariableSpeedOps,
         WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
     };
+    pub use crate::camera::MovementConfig;
 
     // Re-export commonly used types
     pub use crate::Error;
