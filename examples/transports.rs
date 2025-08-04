@@ -86,8 +86,11 @@ fn main() -> Result<(), Error> {
     println!("Best for: Real-time control, streaming operations");
     println!();
 
-    println!("Connecting via UDP (port 52381)...");
-    let udp_camera = CameraBuilder::udp(&format!("{camera_addr}:52381"))
+    println!("Connecting via UDP (auto-selects port 1259 for PTZOptics)...");
+    // The builder automatically selects the correct port based on the profile:
+    // - PTZOptics: UDP port 1259 (raw VISCA)
+    // - Sony: UDP port 52381 (encapsulated VISCA)
+    let udp_camera = CameraBuilder::udp(&camera_addr)
         .profile::<PTZOpticsG2>()
         .build();
 

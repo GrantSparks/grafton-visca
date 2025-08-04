@@ -52,10 +52,18 @@ fn main() -> Result<(), Error> {
         initial_state.pan, initial_state.tilt, initial_state.zoom
     );
 
-    // Power on the camera
-    println!("📍 Powering on camera...");
-    camera.power_on()?;
-    sleep(Duration::from_secs(2)); // Wait for camera to initialize - can't use wait helpers during power-on
+    // Power on the camera (handle case where it's already powered on)
+    println!("📍 Checking camera power status...");
+    match camera.power_on() {
+        Ok(_) => {
+            println!("✓ Camera powered on");
+            sleep(Duration::from_secs(2)); // Wait for camera to initialize - can't use wait helpers during power-on
+        }
+        Err(Error::CommandNotExecutable) => {
+            println!("✓ Camera already powered on");
+        }
+        Err(e) => return Err(e),
+    }
 
     // Move to home position
     println!("🏠 Moving to home position...");

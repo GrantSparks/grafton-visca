@@ -332,6 +332,7 @@ async fn producer_consumer_pattern() -> Result<()> {
 async fn synchronized_movement() -> Result<()> {
     println!("--- Example 4: Synchronized Multi-Camera Movement ---");
 
+    use std::time::Duration;
     use tokio::sync::Barrier;
 
     // Create cameras
@@ -381,13 +382,23 @@ async fn synchronized_movement() -> Result<()> {
             println!("Camera {}: Moving to home", i + 1);
             camera.pan_tilt_home().await?;
 
-            // Wait for all to complete home
+            // Wait for the movement to actually complete
+            camera
+                .wait_for_pan_tilt_completion(Duration::from_secs(10))
+                .await?;
+            println!("Camera {}: Home position reached", i + 1);
+
+            // Wait for all cameras to complete home movement
             barrier.wait().await;
 
             // All cameras recall preset 1 simultaneously
             println!("Camera {}: Recalling preset 1", i + 1);
             if let Ok(preset) = PresetNumber::new(1) {
                 camera.preset_recall(preset).await?;
+                camera
+                    .wait_for_all_movements(Duration::from_secs(10))
+                    .await?;
+                println!("Camera {}: Preset 1 reached", i + 1);
             }
 
             Ok::<(), grafton_visca::Error>(())
