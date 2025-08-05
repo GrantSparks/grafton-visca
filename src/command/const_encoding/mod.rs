@@ -5,7 +5,6 @@
 
 pub mod builder;
 pub mod constants;
-pub mod macros;
 
 pub use builder::CommandBuilder;
 

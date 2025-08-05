@@ -6,7 +6,7 @@
 //! - Operation type (control commands vs inquiry commands)
 //! - Vendor-specific vs standard VISCA commands
 
-use crate::{visca_bytes, visca_prefix};
+use crate::macros::internal::{visca_bytes, visca_prefix};
 
 /// Power command constants.
 pub mod power {

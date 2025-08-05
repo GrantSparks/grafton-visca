@@ -143,6 +143,9 @@ This release represents a major evolution of the library from a low-level VISCA 
 - Direct `power_on()`/`power_off()` methods (use `PowerCommand` instead)
 - Orphaned async extension files from earlier refactoring
 
+### Internal
+- **Macro Consolidation** (Issue #201): Consolidated all macros into a single module hierarchy at `src/macros/` with clear separation between public API macros, internal implementation macros, and test utilities. Removed `#[macro_export]` from internal macros to prevent namespace pollution.
+
 ### Fixed
 - Thread safety issues - client is now truly thread-safe without `RefCell`
 - Feature gating problems with `no-default-features` builds

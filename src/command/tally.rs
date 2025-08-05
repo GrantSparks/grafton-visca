@@ -10,11 +10,12 @@
 //! - Green tally light (`GreenOn`, `GreenOff`) - Sony FR7 specific
 //! - Flash/solid modes (`Flash`, `On`, `Off`) - PTZOptics specific
 
+use crate::macros::internal::*;
+
 use crate::{
     command::{const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
-    visca_command,
 };
 
 visca_command! {

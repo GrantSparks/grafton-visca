@@ -119,7 +119,7 @@ impl PanTiltDirection {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         PanTilt,

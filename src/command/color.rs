@@ -4,12 +4,13 @@
 //! including white balance tuning, saturation, and hue adjustments.
 
 // Crate imports
+use crate::macros::internal::*;
+
 use crate::{
     command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
-    visca_const_command,
 };
 
 visca_const_command! {
@@ -23,7 +24,7 @@ visca_const_command! {
     timeout = Quick;
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Red Channel Tuning command.
     ///
     /// Fine-tunes the red channel gain for white balance adjustment.
@@ -54,7 +55,7 @@ impl RedTuningCommand {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Blue Channel Tuning command.
     ///
     /// Fine-tunes the blue channel gain for white balance adjustment.
@@ -85,7 +86,7 @@ impl BlueTuningCommand {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Saturation control command.
     ///
     /// Adjusts the color saturation level of the image.
@@ -109,7 +110,7 @@ impl SaturationCommand {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Hue adjustment command.
     ///
     /// Adjusts the hue (color phase) of the image, shifting all colors
@@ -365,7 +366,8 @@ impl EncodeVisca for BlueGain {
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
-    use crate::{constants::CameraVariant, visca_test};
+    use crate::constants::CameraVariant;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         OnePushTriggerCommand,

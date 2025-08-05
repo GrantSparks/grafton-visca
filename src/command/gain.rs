@@ -4,6 +4,8 @@
 //! including manual gain adjustment, gain limit control, and anti-flicker settings.
 
 // Crate imports
+use crate::macros::internal::*;
+
 use crate::{
     command::{
         const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType,
@@ -95,9 +97,9 @@ impl EncodeVisca for Gain {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Command to set the automatic gain control limit.
-    pub(crate) struct GainLimitCommand {
+    pub struct GainLimitCommand {
         /// The gain limit to set.
         limit: GainLimit,
     }
@@ -120,7 +122,8 @@ impl GainLimitCommand {
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
-    use crate::{constants::CameraVariant, visca_test};
+    use crate::constants::CameraVariant;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         Gain,

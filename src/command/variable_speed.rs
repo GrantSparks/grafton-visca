@@ -74,7 +74,7 @@ impl EncodeVisca for VariableSpeedModeCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         VariableSpeedModeCommand,

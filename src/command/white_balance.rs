@@ -14,7 +14,9 @@
 // (none)
 
 // Crate imports
-use crate::{command::const_encoding::constants, visca_param_command};
+use crate::macros::internal::*;
+
+use crate::command::const_encoding::constants;
 use grafton_visca_macros::ViscaEnum;
 
 /// White balance modes.
@@ -80,7 +82,7 @@ visca_param_command! {
     timeout = Quick;
 }
 
-crate::visca_param_command! {
+visca_param_command! {
     /// Command to set AWB sensitivity.
     pub(crate) struct AWBSensitivityCommand {
         sensitivity: AutoWhiteBalanceSensitivity,
@@ -103,8 +105,8 @@ impl AWBSensitivityCommand {
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandCategory;
-    use crate::visca_test;
 
     #[test]
     fn test_white_balance_mode_values() {

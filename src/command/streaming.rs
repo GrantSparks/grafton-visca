@@ -3,7 +3,9 @@
 //! This module contains vendor-specific commands for controlling network and streaming features
 //! on PTZOptics NDI cameras. These are not part of the baseline VISCA standard.
 
-use crate::{types::NDIQuality, visca_bool_command, visca_param_command};
+use crate::macros::internal::*;
+
+use crate::types::NDIQuality;
 
 visca_bool_command! {
     /// Internal multicast streaming command
@@ -125,7 +127,7 @@ impl NDIQualityCommand {
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
     use super::*;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         MulticastStreaming,

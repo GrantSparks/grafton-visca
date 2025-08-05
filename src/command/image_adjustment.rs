@@ -7,6 +7,8 @@
 use std::borrow::Cow;
 
 // Crate imports
+use crate::macros::internal::*;
+
 use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
@@ -154,9 +156,9 @@ impl EncodeVisca for Sharpness {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Command to set the luminance (brightness) level.
-    pub(crate) struct LuminanceCommand {
+    pub struct LuminanceCommand {
         /// The luminance level to set.
         value: LuminanceLevel,
     }
@@ -174,9 +176,9 @@ impl LuminanceCommand {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Command to set the contrast level.
-    pub(crate) struct ContrastCommand {
+    pub struct ContrastCommand {
         /// The contrast level to set.
         value: ContrastLevel,
     }
@@ -200,8 +202,8 @@ mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
     use crate::constants::CameraVariant;
+    use crate::macros::test_utils::visca_test;
     use crate::types::SharpnessLevel;
-    use crate::visca_test;
 
     // Test Auto mode
     visca_test!(

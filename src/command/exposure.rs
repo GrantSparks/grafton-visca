@@ -10,6 +10,8 @@
 // (none)
 
 // Workspace / local-crate imports
+use crate::macros::internal::*;
+
 use crate::{
     command::{const_encoding::constants, encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
@@ -17,7 +19,6 @@ use crate::{
     types::{
         BrightnessLevel, DynamicRangeLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed,
     },
-    visca_command, visca_param_command,
 };
 use grafton_visca_macros::ViscaEnum;
 
@@ -133,7 +134,7 @@ impl EncodeVisca for ExposureCompensation {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Commands for controlling the camera's dynamic range.
     ///
     /// Dynamic range control adjusts the camera's ability to capture detail
@@ -420,7 +421,7 @@ mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
     use crate::constants::CameraVariant;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     // Test Auto mode
     visca_test!(

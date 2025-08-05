@@ -9,7 +9,9 @@
 // (none)
 
 // Workspace / local-crate imports
-use crate::{command::const_encoding::CommandBuilder, error::Error, visca_command};
+use crate::macros::internal::*;
+
+use crate::{command::const_encoding::CommandBuilder, error::Error};
 
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -151,7 +153,8 @@ impl ImageFreezeCommand {
 )]
 mod tests {
     use super::*;
-    use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory, visca_test};
+    use crate::macros::test_utils::visca_test;
+    use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory};
 
     visca_test!(
         ImageFlipCommand,

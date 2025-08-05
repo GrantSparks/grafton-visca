@@ -581,7 +581,7 @@ pub struct TallyAutoAdjustInquiry;
 mod tests {
     use super::*;
     use crate::command::const_encoding::constants;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         ZoomPositionInquiry,

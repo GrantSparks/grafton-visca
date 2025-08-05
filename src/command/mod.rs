@@ -44,9 +44,8 @@ pub use self::{
     exposure::*,
     // flip::*,  // Commented out - unused
     focus::*,
-    // gain::*,  // Gain is re-exported through exposure module
     image::*,
-    image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
+    image_adjustment::*,
     // inquiry::*,  // Individual types are re-exported from inquiry module
     inquiry_types::{FlipMode, ImageFlipStatus, IrisControl, NightDayMode, TallyStatus, Version},
     menu::*,

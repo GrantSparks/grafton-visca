@@ -17,12 +17,13 @@
 // (none)
 
 // Workspace / local-crate imports
+use crate::macros::internal::*;
+
 use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{FocusPosition, SpeedLevel},
-    visca_command,
 };
 use grafton_visca_macros::ViscaEnum;
 
@@ -201,7 +202,7 @@ pub enum FocusZone {
     Bottom = 0x02,
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Command to set the focus zone.
     pub(crate) struct FocusZoneCommand {
         /// The focus zone to select.
@@ -233,7 +234,7 @@ pub enum AutoFocusSensitivity {
     High = 0x02,
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Command to set auto focus sensitivity.
     pub(crate) struct AutoFocusSensitivityCommand {
         /// The sensitivity level to set.
@@ -252,7 +253,7 @@ crate::visca_builder! {
     timeout = Quick;
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Command to set the focus near limit.
     ///
     /// Sets the minimum focus distance to prevent the camera from
@@ -356,7 +357,7 @@ impl EncodeVisca for PushAF {
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         Focus,

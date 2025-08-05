@@ -138,7 +138,7 @@ impl EncodeVisca for MotionSyncSpeedCommand {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         MotionSyncModeCommand,

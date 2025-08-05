@@ -17,10 +17,12 @@
 // (none)
 
 // Workspace / local-crate imports
-use crate::{command::const_encoding::constants, visca_param_command};
+use crate::macros::internal::*;
+
+use crate::command::const_encoding::constants;
 use grafton_visca_macros::ViscaEnum;
 
-crate::visca_const_command! {
+visca_const_command! {
     /// Command to set camera address (broadcast, serial only).
     ///
     /// This is used during initial setup of VISCA cameras on a serial bus.
@@ -32,7 +34,7 @@ crate::visca_const_command! {
     response = None;
 }
 
-crate::visca_const_command! {
+visca_const_command! {
     /// Command to clear the interface (broadcast, serial only).
     ///
     /// This resets the command buffer and clears any pending commands.
@@ -105,7 +107,8 @@ impl CommandCancelCommand {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory, visca_test};
+    use crate::macros::test_utils::visca_test;
+    use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory};
 
     visca_test!(
         AddressSetCommand,

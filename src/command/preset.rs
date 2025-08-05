@@ -91,7 +91,7 @@ impl EncodeVisca for PresetCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     #[test]
     fn test_preset_number_new() {

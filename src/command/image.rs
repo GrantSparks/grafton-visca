@@ -4,11 +4,12 @@
 //! including brightness, contrast, sharpness, saturation, and hue adjustments.
 
 // Crate imports
+use crate::macros::internal::*;
+
 use crate::{
     command::const_encoding::{constants, CommandBuilder},
     error::Error,
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
-    visca_bool_command, visca_command, visca_param_command,
 };
 
 visca_bool_command! {
@@ -152,8 +153,8 @@ visca_param_command! {
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandCategory;
-    use crate::visca_test;
 
     // Test backlight on
     visca_test!(
