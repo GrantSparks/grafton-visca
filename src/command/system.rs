@@ -11,13 +11,14 @@
 //!   These features coordinate pan, tilt, and zoom movements for smoother preset recalls.
 
 // Standard library imports
-use std::borrow::Cow;
+// (none)
 
 // Third-party crate imports
 // (none)
 
 // Workspace / local-crate imports
-use crate::{command::const_encoding::constants, error::Error, visca_param_command};
+use crate::{command::const_encoding::constants, visca_param_command};
+use grafton_visca_macros::ViscaEnum;
 
 crate::visca_const_command! {
     /// Command to set camera address (broadcast, serial only).
@@ -44,54 +45,23 @@ crate::visca_const_command! {
 }
 
 /// Motion sync modes for coordinated camera movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum MotionSyncMode {
     /// Motion sync disabled.
-    Off,
+    Off = 0x02,
     /// Motion sync enabled.
-    On,
-}
-
-impl TryFrom<u8> for MotionSyncMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(MotionSyncMode::Off),
-            0x03 => Ok(MotionSyncMode::On),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Off) or 0x03 (On)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    On = 0x03,
 }
 
 /// Motion sync speed settings for camera movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum MotionSyncSpeed {
     /// Slow motion sync speed.
-    Slow,
+    Slow = 0x00,
     /// Normal motion sync speed.
-    Normal,
+    Normal = 0x01,
     /// Fast motion sync speed.
-    Fast,
-}
-
-impl TryFrom<u8> for MotionSyncSpeed {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(MotionSyncSpeed::Slow),
-            0x01 => Ok(MotionSyncSpeed::Normal),
-            0x02 => Ok(MotionSyncSpeed::Fast),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Fast = 0x02,
 }
 
 /// Socket to cancel commands on.

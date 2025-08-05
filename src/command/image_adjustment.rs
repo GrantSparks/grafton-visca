@@ -13,104 +13,44 @@ use crate::{
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
 };
+use grafton_visca_macros::ViscaEnum;
 
 /// Sharpness control modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum SharpnessMode {
     /// Automatic sharpness adjustment based on scene content.
-    Auto,
+    Auto = 0x02,
     /// Manual sharpness control.
-    Manual,
-}
-
-impl TryFrom<u8> for SharpnessMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(SharpnessMode::Auto),
-            0x03 => Ok(SharpnessMode::Manual),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Auto) or 0x03 (Manual)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Manual = 0x03,
 }
 
 /// Noise reduction modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum NrMode {
     /// Noise reduction disabled.
-    Off,
+    Off = 0x02,
     /// Noise reduction enabled.
-    On,
-}
-
-impl TryFrom<u8> for NrMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(NrMode::Off),
-            0x03 => Ok(NrMode::On),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Off) or 0x03 (On)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    On = 0x03,
 }
 
 /// Noise reduction speed settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum NrSpeed {
     /// Slow noise reduction processing.
-    Slow,
+    Slow = 0x00,
     /// Normal noise reduction processing.
-    Normal,
+    Normal = 0x01,
     /// Fast noise reduction processing.
-    Fast,
-}
-
-impl TryFrom<u8> for NrSpeed {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(NrSpeed::Slow),
-            0x01 => Ok(NrSpeed::Normal),
-            0x02 => Ok(NrSpeed::Fast),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Fast = 0x02,
 }
 
 /// Black and white mode settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum BlackWhiteMode {
     /// Color mode (normal operation).
-    Color,
+    Color = 0x02,
     /// Black and white mode.
-    BlackWhite,
-}
-
-impl TryFrom<u8> for BlackWhiteMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(BlackWhiteMode::Color),
-            0x03 => Ok(BlackWhiteMode::BlackWhite),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Color) or 0x03 (BlackWhite)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    BlackWhite = 0x03,
 }
 
 /// Sharpness control commands.

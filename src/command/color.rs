@@ -5,11 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::{
-        const_encoding::CommandBuilder,
-        encode_visca::EncodeVisca,
-        response::ResponseType,
-    },
+    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},

@@ -4,8 +4,7 @@
 //! including exposure mode, exposure compensation, iris, shutter, and brightness.
 
 // Standard library imports
-use std::borrow::Cow;
-use std::convert::TryFrom;
+// (none)
 
 // Third-party crate imports
 // (none)
@@ -20,9 +19,10 @@ use crate::{
     },
     visca_command, visca_param_command,
 };
+use grafton_visca_macros::ViscaEnum;
 
 /// Camera exposure control modes.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 pub enum ExposureMode {
     /// Automatic exposure control - camera adjusts all exposure parameters automatically
     Auto = 0x00,
@@ -34,26 +34,6 @@ pub enum ExposureMode {
     Iris = 0x0B,
     /// Brightness priority mode - user controls brightness level, camera adjusts other parameters
     Bright = 0x0D,
-}
-
-impl TryFrom<u8> for ExposureMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(ExposureMode::Auto),
-            0x03 => Ok(ExposureMode::Manual),
-            0x0A => Ok(ExposureMode::Shutter),
-            0x0B => Ok(ExposureMode::Iris),
-            0x0D => Ok(ExposureMode::Bright),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed(
-                    "0x00 (Auto), 0x03 (Manual), 0x0A (Shutter), 0x0B (Iris), or 0x0D (Bright)",
-                ),
-                actual: vec![value],
-            }),
-        }
-    }
 }
 
 visca_param_command! {
@@ -435,7 +415,7 @@ visca_command! {
 }
 
 #[cfg(test)]
-#[allow(clippy::panic)]
+#[allow(clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;

@@ -29,11 +29,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{
-        const_encoding::CommandBuilder,
-        encode_visca::EncodeVisca,
-        ResponseType,
-    },
+    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{SpeedLevel, ZoomPosition},

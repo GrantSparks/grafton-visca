@@ -11,17 +11,17 @@
 //! - `AWBSensitivity` - PTZOptics specific
 
 // Standard library imports
-use std::borrow::Cow;
-use std::convert::TryFrom;
+// (none)
 
 // Crate imports
-use crate::{command::const_encoding::constants, error::Error, visca_param_command};
+use crate::{command::const_encoding::constants, visca_param_command};
+use grafton_visca_macros::ViscaEnum;
 
 /// White balance modes.
 ///
 /// Controls how the camera adjusts color temperature to ensure
 /// white objects appear white under different lighting conditions.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 pub enum WhiteBalanceMode {
     /// Automatic white balance adjustment.
     Auto = 0x00,
@@ -95,26 +95,6 @@ impl AWBSensitivityCommand {
     #[allow(dead_code)]
     pub fn new(sensitivity: AutoWhiteBalanceSensitivity) -> Self {
         Self { sensitivity }
-    }
-}
-
-impl TryFrom<u8> for WhiteBalanceMode {
-    type Error = Error;
-
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            0x00 => Ok(Self::Auto),
-            0x01 => Ok(Self::Indoor),
-            0x02 => Ok(Self::Outdoor),
-            0x03 => Ok(Self::OnePush),
-            0x04 => Ok(Self::ATW),
-            0x05 => Ok(Self::Manual),
-            0x20 => Ok(Self::ColorTemperature),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Auto), 0x01 (Indoor), 0x02 (Outdoor), 0x03 (OnePush), 0x04 (ATW), 0x05 (Manual), or 0x20 (ColorTemperature)"),
-                actual: vec![v],
-            }),
-        }
     }
 }
 

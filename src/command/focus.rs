@@ -11,7 +11,7 @@
 //! - `PushAF` - Sony FR7 specific
 
 // Standard library imports
-use std::borrow::Cow;
+// (none)
 
 // Third-party crate imports
 // (none)
@@ -24,65 +24,32 @@ use crate::{
     types::{FocusPosition, SpeedLevel},
     visca_command,
 };
+use grafton_visca_macros::ViscaEnum;
 
 /// Focus mode setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum FocusMode {
     /// Automatic focus mode.
-    Auto,
+    Auto = 0x02,
     /// Manual focus mode.
-    Manual,
-}
-
-impl TryFrom<u8> for FocusMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(FocusMode::Auto),
-            0x03 => Ok(FocusMode::Manual),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Auto) or 0x03 (Manual)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Manual = 0x03,
 }
 
 /// Focus range setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum FocusRange {
     /// Normal focus range.
-    Normal,
+    Normal = 0x00,
     /// 10x focus range.
-    Range10x,
+    Range10x = 0x01,
     /// 4.3x focus range.
-    Range4_3x,
+    Range4_3x = 0x02,
     /// 2.1x focus range.
-    Range2_1x,
+    Range2_1x = 0x03,
     /// 1x focus range.
-    Range1x,
+    Range1x = 0x04,
     /// 0.35x focus range.
-    Range0_35x,
-}
-
-impl TryFrom<u8> for FocusRange {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(FocusRange::Normal),
-            0x01 => Ok(FocusRange::Range10x),
-            0x02 => Ok(FocusRange::Range4_3x),
-            0x03 => Ok(FocusRange::Range2_1x),
-            0x04 => Ok(FocusRange::Range1x),
-            0x05 => Ok(FocusRange::Range0_35x),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00-0x05 (focus range)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Range0_35x = 0x05,
 }
 
 crate::visca_bounded_param! {
@@ -224,30 +191,14 @@ impl EncodeVisca for Focus {
 /// Focus Zone selection (baseline VISCA).
 ///
 /// Determines which area of the image the camera uses for auto focus.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 pub enum FocusZone {
     /// Focus on the top area of the image.
-    Top,
+    Top = 0x00,
     /// Focus on the center area of the image (default).
-    Center,
+    Center = 0x01,
     /// Focus on the bottom area of the image.
-    Bottom,
-}
-
-impl TryFrom<u8> for FocusZone {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(FocusZone::Top),
-            0x01 => Ok(FocusZone::Center),
-            0x02 => Ok(FocusZone::Bottom),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Top), 0x01 (Center), or 0x02 (Bottom)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Bottom = 0x02,
 }
 
 crate::visca_builder! {
@@ -272,30 +223,14 @@ crate::visca_builder! {
 /// Auto Focus Sensitivity levels.
 ///
 /// Controls how responsive the auto focus system is to changes in the scene.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 pub enum AutoFocusSensitivity {
-    /// High sensitivity - quick focus response to scene changes.
-    High,
-    /// Normal sensitivity - balanced focus response (default).
-    Normal,
     /// Low sensitivity - slower focus response, more stable in changing scenes.
-    Low,
-}
-
-impl TryFrom<u8> for AutoFocusSensitivity {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(AutoFocusSensitivity::High),
-            0x01 => Ok(AutoFocusSensitivity::Normal),
-            0x00 => Ok(AutoFocusSensitivity::Low),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Low), 0x01 (Normal), or 0x02 (High)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Low = 0x00,
+    /// Normal sensitivity - balanced focus response (default).
+    Normal = 0x01,
+    /// High sensitivity - quick focus response to scene changes.
+    High = 0x02,
 }
 
 crate::visca_builder! {

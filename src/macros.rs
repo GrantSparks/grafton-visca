@@ -444,7 +444,7 @@ macro_rules! visca_param_command {
             response = None;
         }
     };
-    
+
     // New form without optional parameters - constant reference
     (
         $(#[$meta:meta])*
@@ -521,7 +521,7 @@ macro_rules! visca_param_command {
             }
         }
     };
-    
+
     // Extended form with optional parameters - constant reference
     (
         $(#[$meta:meta])*
@@ -556,7 +556,7 @@ macro_rules! visca_param_command {
                 let prefix_bytes = $prefix_const;
                 let mut prefix = [0u8; 16]; // Max reasonable prefix size
                 prefix[..prefix_bytes.len()].copy_from_slice(prefix_bytes);
-                
+
                 if prefix_bytes.len() > 0 && prefix_bytes[0] == $address {
                     prefix[0] = ($address & 0xF0) | camera_id.id();
                 }
