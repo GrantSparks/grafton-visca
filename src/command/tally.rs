@@ -119,9 +119,9 @@ impl EncodeVisca for TallyInquiry {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        const PREFIX: &[u8] = &[0x81, 0x09, 0x7E, 0x01, 0x0A, 0x00];
+        use crate::command::const_encoding::constants;
 
-        let command = CommandBuilder::<7>::from_prefix(PREFIX)
+        let command = CommandBuilder::<7>::from_prefix(constants::tally::TALLY_INQUIRY_PREFIX)
             .with_camera_id(camera_id)
             .build();
 

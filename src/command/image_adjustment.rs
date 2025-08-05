@@ -143,7 +143,7 @@ impl EncodeVisca for Sharpness {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::CommandBuilder;
+        use crate::command::const_encoding::{constants, CommandBuilder};
 
         match self {
             Self::Mode(mode) => {
@@ -153,7 +153,7 @@ impl EncodeVisca for Sharpness {
                 };
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x05])
+                    .append(constants::image::SHARPNESS_MODE_PREFIX)
                     .push(mode_byte)
                     .with_camera_id(camera_id)
                     .finalize();
@@ -162,7 +162,7 @@ impl EncodeVisca for Sharpness {
             Self::Reset => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x02])
+                    .append(constants::image::SHARPNESS_CONTROL_PREFIX)
                     .push(0x00)
                     .with_camera_id(camera_id)
                     .finalize();
@@ -171,7 +171,7 @@ impl EncodeVisca for Sharpness {
             Self::Up => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x02])
+                    .append(constants::image::SHARPNESS_CONTROL_PREFIX)
                     .push(0x02)
                     .with_camera_id(camera_id)
                     .finalize();
@@ -180,7 +180,7 @@ impl EncodeVisca for Sharpness {
             Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x02])
+                    .append(constants::image::SHARPNESS_CONTROL_PREFIX)
                     .push(0x03)
                     .with_camera_id(camera_id)
                     .finalize();
@@ -196,7 +196,7 @@ impl EncodeVisca for Sharpness {
                 }
                 let mut builder = CommandBuilder::<9>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x42, 0x00, 0x00])
+                    .append(constants::image::SHARPNESS_LEVEL_PREFIX)
                     .push_nibble_pair(*value as u16)
                     .with_camera_id(camera_id)
                     .finalize();
@@ -255,7 +255,7 @@ impl ContrastCommand {
 }
 
 #[cfg(test)]
-#[allow(clippy::panic)]
+#[allow(clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;

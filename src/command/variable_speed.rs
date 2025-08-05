@@ -46,14 +46,14 @@ impl EncodeVisca for VariableSpeedModeCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        const PREFIX: &[u8] = &[0x81, 0x01, 0x7E, 0x04, 0x1B];
+        use crate::command::const_encoding::constants;
 
         let mode_byte = match self.mode {
             VariableSpeedMode::Standard24 => 0x01,
             VariableSpeedMode::Fine50 => 0x02,
         };
 
-        let command = CommandBuilder::<7>::from_prefix(PREFIX)
+        let command = CommandBuilder::<7>::from_prefix(constants::variable_speed::CONTROL_PREFIX)
             .with_camera_id(camera_id)
             .push(mode_byte)
             .build();

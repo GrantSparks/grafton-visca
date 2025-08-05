@@ -12,7 +12,7 @@ use std::convert::TryFrom;
 
 // Workspace / local-crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, response::ResponseType},
+    command::{const_encoding::constants, encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{
@@ -64,7 +64,7 @@ visca_param_command! {
     pub(crate) struct ExposureCommand {
         mode: ExposureMode,
     }
-    prefix = [0x81, 0x01, 0x04, 0x39];
+    prefix = constants::exposure::MODE_PREFIX;
     param_byte = *mode as u8;
     timeout = Quick;
 }
@@ -102,13 +102,13 @@ impl EncodeVisca for ExposureCompensation {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::CommandBuilder;
+        use crate::command::const_encoding::{constants, CommandBuilder};
 
         match self {
             Self::On | Self::Off => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x3E])
+                    .append(constants::exposure::COMPENSATION_ON_OFF_PREFIX)
                     .push(match self {
                         Self::On => 0x02,
                         Self::Off => 0x03,
@@ -121,7 +121,7 @@ impl EncodeVisca for ExposureCompensation {
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x0E])
+                    .append(constants::exposure::COMPENSATION_CONTROL_PREFIX)
                     .push(match self {
                         Self::Reset => 0x00,
                         Self::Up => 0x02,
@@ -135,7 +135,7 @@ impl EncodeVisca for ExposureCompensation {
             Self::SetLevel(level) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00])
+                    .append(constants::exposure::COMPENSATION_LEVEL_PREFIX)
                     .push(level.to_protocol_value())
                     .with_camera_id(camera_id)
                     .finalize();
@@ -165,7 +165,7 @@ crate::visca_builder! {
         level: DynamicRangeLevel,
     }
     builder<9> => |builder, level| {
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00]);
+        let _ = builder.append(constants::exposure::DYNAMIC_RANGE_PREFIX);
         let _ = builder.push(level.value());
     }
     timeout = Quick;
@@ -206,13 +206,13 @@ impl EncodeVisca for Iris {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::CommandBuilder;
+        use crate::command::const_encoding::{constants, CommandBuilder};
 
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x0B])
+                    .append(constants::exposure::IRIS_CONTROL_PREFIX)
                     .push(match self {
                         Self::Reset => 0x00,
                         Self::Up => 0x02,
@@ -226,7 +226,7 @@ impl EncodeVisca for Iris {
             Self::SetAperture(level) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00])
+                    .append(constants::exposure::IRIS_DIRECT_PREFIX)
                     .push_nibble_pair(level.value() as u16)
                     .with_camera_id(camera_id)
                     .finalize();
@@ -272,13 +272,13 @@ impl EncodeVisca for Shutter {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::CommandBuilder;
+        use crate::command::const_encoding::{constants, CommandBuilder};
 
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x0A])
+                    .append(constants::exposure::SHUTTER_CONTROL_PREFIX)
                     .push(match self {
                         Self::Reset => 0x00,
                         Self::Up => 0x02,
@@ -292,7 +292,7 @@ impl EncodeVisca for Shutter {
             Self::SetSpeed(speed) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00])
+                    .append(constants::exposure::SHUTTER_DIRECT_PREFIX)
                     .push_nibble_pair(speed.value())
                     .with_camera_id(camera_id)
                     .finalize();
@@ -335,13 +335,13 @@ impl EncodeVisca for Bright {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::CommandBuilder;
+        use crate::command::const_encoding::{constants, CommandBuilder};
 
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x0D])
+                    .append(constants::exposure::BRIGHTNESS_CONTROL_PREFIX)
                     .push(match self {
                         Self::Reset => 0x00,
                         Self::Up => 0x02,
@@ -355,7 +355,7 @@ impl EncodeVisca for Bright {
             Self::SetLevel(level) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00])
+                    .append(constants::exposure::BRIGHTNESS_DIRECT_PREFIX)
                     .push_nibble_pair(level.value())
                     .with_camera_id(camera_id)
                     .finalize();
@@ -364,7 +364,7 @@ impl EncodeVisca for Bright {
             Self::Direct(level) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00])
+                    .append(constants::exposure::BRIGHTNESS_VALUE_PREFIX)
                     .push_nibble_pair(level.value())
                     .with_camera_id(camera_id)
                     .finalize();
@@ -391,7 +391,7 @@ visca_command! {
         /// Turn spotlight on
         On => {
             let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::exposure::SPOTLIGHT_PREFIX)
+                .append(constants::exposure::SPOTLIGHT_PREFIX)
                 .append(&[0x02])
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -399,7 +399,7 @@ visca_command! {
         /// Turn spotlight off
         Off => {
             let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::exposure::SPOTLIGHT_PREFIX)
+                .append(constants::exposure::SPOTLIGHT_PREFIX)
                 .append(&[0x03])
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -418,7 +418,7 @@ visca_command! {
         /// Turn auto slow shutter on
         On => {
             let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(&[0x81, 0x01, 0x04, 0x5A])
+                .append(constants::exposure::SPOT_AE_PREFIX)
                 .append(&[0x02])
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -426,7 +426,7 @@ visca_command! {
         /// Turn auto slow shutter off
         Off => {
             let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(&[0x81, 0x01, 0x04, 0x5A])
+                .append(constants::exposure::SPOT_AE_PREFIX)
                 .append(&[0x03])
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())

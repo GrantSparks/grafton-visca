@@ -15,7 +15,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 
 // Crate imports
-use crate::{error::Error, visca_param_command};
+use crate::{command::const_encoding::constants, error::Error, visca_param_command};
 
 /// White balance modes.
 ///
@@ -75,7 +75,7 @@ visca_param_command! {
     pub(crate) struct WhiteBalanceCommand {
         mode: WhiteBalanceMode,
     }
-    prefix = [0x81, 0x01, 0x04, 0x35];
+    prefix = constants::white_balance::MODE_PREFIX;
     param_byte = *mode as u8;
     timeout = Quick;
 }
@@ -85,7 +85,7 @@ crate::visca_param_command! {
     pub(crate) struct AWBSensitivityCommand {
         sensitivity: AutoWhiteBalanceSensitivity,
     }
-    prefix = [0x81, 0x01, 0x04, 0xA9];
+    prefix = constants::white_balance::AWB_SENSITIVITY_PREFIX;
     param_byte = sensitivity.to_command_byte();
     timeout = Quick;
 }

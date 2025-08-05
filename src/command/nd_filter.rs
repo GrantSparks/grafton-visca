@@ -10,7 +10,7 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
-use crate::{error::Error, visca_bool_command, visca_builder, visca_param_command};
+use crate::{command::const_encoding::constants, error::Error, visca_bool_command, visca_builder, visca_param_command};
 
 /// ND filter mode for Sony FR7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +40,7 @@ visca_param_command! {
     pub struct NDFilterModeCommand {
         mode: NDFilterMode,
     }
-    prefix = [0x81, 0x01, 0x7E, 0x04, 0x52];
+    prefix = constants::nd_filter::CONTROL_PREFIX;
     param_byte = u8::from(*mode);
     timeout = Quick;
 }
@@ -64,7 +64,7 @@ visca_builder! {
         value: u16,
     }
     builder<9> => |builder, value| {
-        let _ = builder.append(&[0x81, 0x01, 0x7E, 0x04, 0x42, 0x00]);
+        let _ = builder.append(constants::nd_filter::DIRECT_PREFIX);
         let _ = builder.push_nibble_pair(*value);
     }
     timeout = Quick;
@@ -133,7 +133,7 @@ visca_param_command! {
     pub struct NDFilterStepCommand {
         direction: NDFilterStep,
     }
-    prefix = [0x81, 0x01, 0x7E, 0x04, 0x12];
+    prefix = constants::nd_filter::MODE_PREFIX;
     param_byte = u8::from(*direction);
     timeout = Quick;
 }

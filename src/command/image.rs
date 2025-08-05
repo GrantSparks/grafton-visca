@@ -5,7 +5,7 @@
 
 // Crate imports
 use crate::{
-    command::const_encoding::CommandBuilder,
+    command::const_encoding::{constants, CommandBuilder},
     error::Error,
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
     visca_bool_command, visca_command, visca_param_command,
@@ -34,7 +34,7 @@ visca_command! {
         /// Disable 2D noise reduction.
         Off => {
             let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_2D_PREFIX)
+                .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
                 .push(0x00)
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -42,7 +42,7 @@ visca_command! {
         /// Set 2D noise reduction level.
         Level(level: NoiseReduction2DLevel) => {
             let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_2D_PREFIX)
+                .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
                 .push(level.value())
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -61,7 +61,7 @@ visca_command! {
         /// Disable 3D noise reduction.
         Off => {
             let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_3D_PREFIX)
+                .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
                 .push(0x00)
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -69,7 +69,7 @@ visca_command! {
         /// Set 3D noise reduction level.
         Level(level: NoiseReduction3DLevel) => {
             let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_3D_PREFIX)
+                .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
                 .push(level.value())
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -109,7 +109,7 @@ visca_param_command! {
     pub(crate) struct ImageFlipCombinedCommand {
         mode: ImageFlipMode,
     }
-    prefix = [0x81, 0x01, 0x04, 0x61];
+    prefix = constants::image::FLIP_COMBINED_PREFIX;
     param_byte = match mode {
         ImageFlipMode::Off => 0x00,
         ImageFlipMode::Horizontal => 0x01,
@@ -137,7 +137,7 @@ visca_param_command! {
     pub(crate) struct PictureEffectCommand {
         mode: PictureEffectMode,
     }
-    prefix = [0x81, 0x01, 0x04, 0x63];
+    prefix = constants::image::PICTURE_EFFECT_PREFIX;
     param_byte = mode.to_byte();
     timeout = Quick;
 }

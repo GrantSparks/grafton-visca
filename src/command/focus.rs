@@ -144,13 +144,13 @@ impl EncodeVisca for Focus {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::CommandBuilder;
+        use crate::command::const_encoding::{constants, CommandBuilder};
 
         match self {
             Self::Stop | Self::Far | Self::Near => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x08])
+                    .append(constants::focus::MOVEMENT_PREFIX)
                     .push(match self {
                         Self::Stop => 0x00,
                         Self::Far => 0x02,
@@ -164,7 +164,7 @@ impl EncodeVisca for Focus {
             Self::FarWithSpeed(_) | Self::NearWithSpeed(_) => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x08])
+                    .append(constants::focus::MOVEMENT_PREFIX)
                     .push(match self {
                         Self::FarWithSpeed(s) => 0x20 | s.value(),
                         Self::NearWithSpeed(s) => 0x30 | s.value(),
@@ -177,7 +177,7 @@ impl EncodeVisca for Focus {
             Self::Position(position) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x48])
+                    .append(constants::focus::POSITION_PREFIX)
                     .push_visca_u16(position.value())
                     .with_camera_id(camera_id)
                     .finalize();
@@ -186,7 +186,7 @@ impl EncodeVisca for Focus {
             Self::Auto | Self::Manual => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x38])
+                    .append(constants::focus::MODE_PREFIX)
                     .push(match self {
                         Self::Auto => 0x02,
                         Self::Manual => 0x03,
@@ -199,7 +199,7 @@ impl EncodeVisca for Focus {
             Self::OnePushTrigger | Self::Infinity => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder
-                    .append(&[0x81, 0x01, 0x04, 0x18])
+                    .append(constants::focus::ONE_PUSH_PREFIX)
                     .push(match self {
                         Self::OnePushTrigger => 0x01,
                         Self::Infinity => 0x02,
@@ -262,7 +262,7 @@ crate::visca_builder! {
             FocusZone::Center => 0x01,
             FocusZone::Bottom => 0x02,
         };
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0xAA]);
+        let _ = builder.append(crate::command::const_encoding::constants::focus::ZONE_PREFIX);
         let _ = builder.push(zone_byte);
         let _ = builder.push(0xFF);
     }
@@ -310,7 +310,7 @@ crate::visca_builder! {
             AutoFocusSensitivity::Normal => 0x01,
             AutoFocusSensitivity::Low => 0x00,
         };
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0x58]);
+        let _ = builder.append(crate::command::const_encoding::constants::focus::AF_SENSITIVITY_PREFIX);
         let _ = builder.push(sens_byte);
         let _ = builder.push(0xFF);
     }
@@ -333,7 +333,7 @@ crate::visca_builder! {
         let p2 = ((pos_val >> 4) & 0x0F) as u8;
         let p3 = (pos_val & 0x0F) as u8;
 
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0x28]);
+        let _ = builder.append(crate::command::const_encoding::constants::focus::NEAR_LIMIT_PREFIX);
         let _ = builder.push(p0);
         let _ = builder.push(p1);
         let _ = builder.push(p2);
@@ -393,11 +393,11 @@ impl EncodeVisca for PushAF {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::CommandBuilder;
+        use crate::command::const_encoding::{constants, CommandBuilder};
 
         let mut builder = CommandBuilder::<8>::new();
         builder
-            .append(&[0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00])
+            .append(constants::focus::PUSH_AF_PREFIX)
             .push(match self {
                 Self::Press => 0x01,
                 Self::Release => 0x00,

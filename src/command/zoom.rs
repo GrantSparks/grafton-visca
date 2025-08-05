@@ -30,7 +30,7 @@
 // Workspace / local-crate imports
 use crate::{
     command::{
-        const_encoding::{CommandBuilder, DEFAULT_ADDRESS},
+        const_encoding::CommandBuilder,
         encode_visca::EncodeVisca,
         ResponseType,
     },
@@ -117,24 +117,21 @@ impl EncodeVisca for Zoom {
             }
             Self::TeleVariable(speed) => {
                 // Tele variable: 81 01 04 07 2p FF where p is speed
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x07]);
+                let mut builder = CommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX);
                 builder.with_camera_id(camera_id);
                 builder.push(0x20 | (speed.0 & 0x0F)).finalize();
                 builder.copy_to(buffer)
             }
             Self::WideVariable(speed) => {
                 // Wide variable: 81 01 04 07 3p FF where p is speed
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x07]);
+                let mut builder = CommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX);
                 builder.with_camera_id(camera_id);
                 builder.push(0x30 | (speed.0 & 0x0F)).finalize();
                 builder.copy_to(buffer)
             }
             Self::Position(position) => {
                 // Direct position: 81 01 04 47 0p 0q 0r 0s FF
-                let mut builder =
-                    CommandBuilder::<9>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x47]);
+                let mut builder = CommandBuilder::<9>::from_prefix(zoom::POSITION_PREFIX);
                 builder.with_camera_id(camera_id);
                 builder.push_visca_u14(position.value()).finalize();
                 builder.copy_to(buffer)

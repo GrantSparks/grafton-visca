@@ -17,7 +17,7 @@ use std::borrow::Cow;
 // (none)
 
 // Workspace / local-crate imports
-use crate::{error::Error, visca_param_command};
+use crate::{command::const_encoding::constants, error::Error, visca_param_command};
 
 crate::visca_const_command! {
     /// Command to set camera address (broadcast, serial only).
@@ -119,7 +119,7 @@ visca_param_command! {
     pub(crate) struct CommandCancelCommand {
         socket: Socket,
     }
-    prefix = [0x81];
+    prefix = constants::system_cmd::CANCEL_PREFIX;
     param_byte = u8::from(*socket);
     timeout = Quick;
 }

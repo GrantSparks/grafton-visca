@@ -50,8 +50,6 @@ impl EncodeVisca for Gain {
     ) -> Result<usize, Error> {
         match self {
             Self::Reset | Self::Up | Self::Down => {
-                const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x0C];
-
                 let control_byte = match self {
                     Self::Reset => 0x00,
                     Self::Up => 0x02,
@@ -59,26 +57,28 @@ impl EncodeVisca for Gain {
                     _ => unreachable!(),
                 };
 
-                let command = CommandBuilder::<6>::from_prefix(PREFIX)
-                    .with_camera_id(camera_id)
-                    .push(control_byte)
-                    .build();
+                let command = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::gain::CONTROL_PREFIX,
+                )
+                .with_camera_id(camera_id)
+                .push(control_byte)
+                .build();
 
                 buffer[..6].copy_from_slice(&command);
                 Ok(6)
             }
             Self::SetValue(level) => {
-                const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x4C, 0x00, 0x00];
-
                 let value = level.value();
                 let high = (value >> 4) & 0x0F;
                 let low = value & 0x0F;
 
-                let command = CommandBuilder::<9>::from_prefix(PREFIX)
-                    .with_camera_id(camera_id)
-                    .push(high)
-                    .push(low)
-                    .build();
+                let command = CommandBuilder::<9>::from_prefix(
+                    crate::command::const_encoding::constants::gain::DIRECT_PREFIX,
+                )
+                .with_camera_id(camera_id)
+                .push(high)
+                .push(low)
+                .build();
 
                 buffer[..9].copy_from_slice(&command);
                 Ok(9)

@@ -66,9 +66,9 @@ impl EncodeVisca for PresetCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x3F];
+        use crate::command::const_encoding::constants::preset;
 
-        let command = CommandBuilder::<7>::from_prefix(PREFIX)
+        let command = CommandBuilder::<7>::from_prefix(preset::CONTROL_PREFIX)
             .with_camera_id(camera_id)
             .push(self.action as u8)
             .push(self.preset_number.value())

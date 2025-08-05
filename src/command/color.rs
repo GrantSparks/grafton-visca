@@ -6,7 +6,7 @@
 // Crate imports
 use crate::{
     command::{
-        const_encoding::{CommandBuilder, DEFAULT_ADDRESS},
+        const_encoding::CommandBuilder,
         encode_visca::EncodeVisca,
         response::ResponseType,
     },
@@ -37,7 +37,7 @@ crate::visca_builder! {
         level: RedTuning,
     }
     builder<9> => |builder, level| {
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0x43, 0x00, 0x00]);
+        let _ = builder.append(crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX);
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -68,7 +68,7 @@ crate::visca_builder! {
         level: BlueTuning,
     }
     builder<9> => |builder, level| {
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0x44, 0x00, 0x00]);
+        let _ = builder.append(crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX);
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -167,29 +167,33 @@ impl EncodeVisca for ColorTemperature {
     ) -> Result<usize, Error> {
         match self {
             ColorTemperature::Reset => {
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x20]);
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push(0x00).finalize();
                 builder.copy_to(buffer)
             }
             ColorTemperature::Up => {
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x20]);
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push(0x02).finalize();
                 builder.copy_to(buffer)
             }
             ColorTemperature::Down => {
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x20]);
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push(0x03).finalize();
                 builder.copy_to(buffer)
             }
             ColorTemperature::SetTemperature(temp) => {
-                let mut builder =
-                    CommandBuilder::<7>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x20]);
+                let mut builder = CommandBuilder::<7>::from_prefix(
+                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push_nibble_pair(temp.value()).finalize();
                 builder.copy_to(buffer)
@@ -235,32 +239,35 @@ impl EncodeVisca for RedGain {
     ) -> Result<usize, Error> {
         match self {
             RedGain::Reset => {
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x03]);
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push(0x00).finalize();
                 builder.copy_to(buffer)
             }
             RedGain::Up => {
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x03]);
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push(0x02).finalize();
                 builder.copy_to(buffer)
             }
             RedGain::Down => {
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x03]);
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push(0x03).finalize();
                 builder.copy_to(buffer)
             }
             RedGain::SetValue(value) => {
                 // Note: different command byte 0x43 for direct setting
-                let mut builder =
-                    CommandBuilder::<9>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x43]);
+                let mut builder = CommandBuilder::<9>::from_prefix(
+                    crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
-                builder.push(0x00).push(0x00);
                 builder
                     .push_nibble_pair(u16::from(value.value()))
                     .finalize();
@@ -307,32 +314,35 @@ impl EncodeVisca for BlueGain {
     ) -> Result<usize, Error> {
         match self {
             BlueGain::Reset => {
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x04]);
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push(0x00).finalize();
                 builder.copy_to(buffer)
             }
             BlueGain::Up => {
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x04]);
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push(0x02).finalize();
                 builder.copy_to(buffer)
             }
             BlueGain::Down => {
-                let mut builder =
-                    CommandBuilder::<6>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x04]);
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
                 builder.push(0x03).finalize();
                 builder.copy_to(buffer)
             }
             BlueGain::SetValue(value) => {
                 // Note: different command byte 0x44 for direct setting
-                let mut builder =
-                    CommandBuilder::<9>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x04, 0x44]);
+                let mut builder = CommandBuilder::<9>::from_prefix(
+                    crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX,
+                );
                 builder.with_camera_id(camera_id);
-                builder.push(0x00).push(0x00);
                 builder
                     .push_nibble_pair(u16::from(value.value()))
                     .finalize();

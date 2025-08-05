@@ -422,7 +422,7 @@ macro_rules! visca_builder {
 /// ```
 #[macro_export]
 macro_rules! visca_param_command {
-    // Original form without optional parameters
+    // Original form without optional parameters - array literal
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
@@ -444,8 +444,31 @@ macro_rules! visca_param_command {
             response = None;
         }
     };
+    
+    // New form without optional parameters - constant reference
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $field:ident: $ftype:ty,
+        }
+        prefix = $prefix_const:expr;
+        param_byte = $param_expr:expr;
+        timeout = $category:ident;
+    ) => {
+        visca_param_command! {
+            $(#[$meta])*
+            $vis struct $name {
+                $field: $ftype,
+            }
+            prefix_const = $prefix_const;
+            param_byte = $param_expr;
+            timeout = $category;
+            address = 0x81;
+            response = None;
+        }
+    };
 
-    // Extended form with optional parameters
+    // Extended form with optional parameters - array literal
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
@@ -487,6 +510,63 @@ macro_rules! visca_param_command {
                 buffer[prefix.len() + 1] = 0xFF;
 
                 Ok(Self::MAX_SIZE)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
+                $response
+            }
+
+            fn timeout_kind(&self) -> $crate::timeout::CommandCategory {
+                $crate::timeout::CommandCategory::$category
+            }
+        }
+    };
+    
+    // Extended form with optional parameters - constant reference
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $field:ident: $ftype:ty,
+        }
+        prefix_const = $prefix_const:expr;
+        param_byte = $param_expr:expr;
+        timeout = $category:ident;
+        address = $address:expr;
+        response = $response:expr;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        $vis struct $name {
+            /// The parameter value.
+            pub $field: $ftype,
+        }
+
+        impl $crate::command::encode_visca::EncodeVisca for $name {
+            type Response = ();
+            const MAX_SIZE: usize = $prefix_const.len() + 2; // prefix + param + 0xFF
+
+            fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+                if buffer.len() < Self::MAX_SIZE {
+                    return Err($crate::Error::BufferTooSmall {
+                        required: Self::MAX_SIZE,
+                        actual: buffer.len(),
+                    });
+                }
+
+                let prefix_bytes = $prefix_const;
+                let mut prefix = [0u8; 16]; // Max reasonable prefix size
+                prefix[..prefix_bytes.len()].copy_from_slice(prefix_bytes);
+                
+                if prefix_bytes.len() > 0 && prefix_bytes[0] == $address {
+                    prefix[0] = ($address & 0xF0) | camera_id.id();
+                }
+                buffer[..prefix_bytes.len()].copy_from_slice(&prefix[..prefix_bytes.len()]);
+
+                let $field = &self.$field;
+                buffer[prefix_bytes.len()] = $param_expr;
+                buffer[prefix_bytes.len() + 1] = 0xFF;
+
+                Ok(prefix_bytes.len() + 2)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {

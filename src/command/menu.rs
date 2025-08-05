@@ -4,7 +4,7 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{visca_bool_command, visca_builder, visca_param_command};
+use crate::{command::const_encoding::constants, visca_bool_command, visca_builder, visca_param_command};
 
 visca_bool_command! {
     /// Menu display control command.
@@ -45,7 +45,7 @@ visca_builder! {
         direction: MenuDirection,
     }
     builder<9> => |builder, direction| {
-        let _ = builder.append(&[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E]);
+        let _ = builder.append(constants::menu::NAVIGATE_PREFIX);
         match *direction {
             MenuDirection::Up => {
                 let _ = builder.push(0x03);
@@ -102,7 +102,7 @@ visca_param_command! {
     pub struct MenuActionCommand {
         action: MenuAction,
     }
-    prefix = [0x81, 0x01, 0x06, 0x06];
+    prefix = constants::menu::TOGGLE_PREFIX;
     param_byte = u8::from(*action);
     timeout = Quick;
 }
@@ -128,7 +128,7 @@ visca_builder! {
         control2: u8,
     }
     builder<8> => |builder, control1, control2| {
-        let _ = builder.append(&[0x81, 0x01, 0x7E, 0x04, 0x72]);
+        let _ = builder.append(constants::menu::SETTINGS_PREFIX);
         let _ = builder.push(*control1);
         let _ = builder.push(*control2);
     }
