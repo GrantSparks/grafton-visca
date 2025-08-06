@@ -38,7 +38,7 @@ mod tests {
         assert!(result.is_err());
 
         let err = result.unwrap_err();
-        let err_msg = format!("{}", err);
+        let err_msg = format!("{err}");
 
         // Check that custom names appear in error message
         assert!(err_msg.contains("Automatic Mode"));
