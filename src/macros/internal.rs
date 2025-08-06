@@ -55,7 +55,7 @@ macro_rules! visca_command {
         impl $crate::command::encode_visca::EncodeVisca for $name {
             type Response = ();
             const MAX_SIZE: usize = 32; // Conservative default
-            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = 
+            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory =
                 $crate::macros::internal::str_to_command_category($category);
 
             fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {

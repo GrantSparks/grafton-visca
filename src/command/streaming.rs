@@ -41,7 +41,8 @@ impl From<MulticastStreaming> for MulticastStreamingInternal {
 impl crate::command::encode_visca::EncodeVisca for MulticastStreaming {
     type Response = ();
     const MAX_SIZE: usize = MulticastStreamingInternal::MAX_SIZE;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory = crate::timeout::CommandCategory::Network;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Network;
 
     fn encode_into(
         &self,
@@ -86,7 +87,8 @@ pub struct NDIQualityCommand {
 impl crate::command::encode_visca::EncodeVisca for NDIQualityCommand {
     type Response = ();
     const MAX_SIZE: usize = NDIQualityCommandInternal::MAX_SIZE;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory = crate::timeout::CommandCategory::Network;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Network;
 
     fn encode_into(
         &self,
